@@ -1,31 +1,42 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from collections.abc import Sequence
-from datetime import date, datetime, timedelta
-from types import SimpleNamespace
-from typing import cast
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from baibai_engine.market_context.indicator_service import IndicatorsService
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.providers import jquants_options
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
-    HttpSession,
     IndicatorsProviderError,
+    ProviderFetchStoppedError,
 )
-from baibai_engine.market_context.indicators.providers.option_iv import (
+from baibai_engine.market_context.indicators.providers.jquants_options import OptionChainSource
+from baibai_engine.market_context.indicators.source_snapshots import (
+    read_snapshots,
+    store_snapshot,
+    stored_days,
+)
+from baibai_engine.market_context.option_acquisition import OptionAcquisition
+from baibai_engine.market_context.reading.option_iv import (
     CALL,
     PUT,
     SETTLEMENT_SNAPSHOT,
-    FearReadings,
+    OptionIvReadings,
     OptionQuote,
     as_date,
-    fear_readings,
+    option_iv_readings,
     quotes_from_records,
+    usable_expiries,
 )
-from baibai_engine.market_context.indicators.providers.read_retry import ReadDeadline
+from baibai_engine.market_context.reading.options import OptionSeriesReader
 
 ASOF = date(2026, 7, 29)
 NEAR = date(2026, 8, 14)  # 16 days out
@@ -59,17 +70,6 @@ def _registered(series_id: str) -> SeriesDefinition:
     return load_definitions().by_id()[series_id]
 
 
-class _FakeFrame:
-    """Only the two members the provider reads off a DataFrame."""
-
-    def __init__(self, records: list[dict[str, object]]) -> None:
-        self._records = records
-
-    def to_dict(self, orient: str) -> list[dict[str, object]]:
-        assert orient == "records"
-        return list(self._records)
-
-
 def _records(
     quotes: Sequence[OptionQuote],
     day: date = ASOF,
@@ -79,13 +79,12 @@ def _records(
     """Quotes in the shape the provider payload carries them.
 
     `Date` is the day the chain answers for, and the provider checks it, so every
-    fixture carries it — a payload without it would exercise only the branch that
-    has nothing to compare. `snapshot` builds the second copy an emergency-margin
+    fixture carries it. Missing dates are a separate invalid-payload case. `snapshot` builds the second copy an emergency-margin
     session carries, which is the one shape that puts two rows on one contract.
     """
     return [
         {
-            "Date": day,
+            "Date": day.isoformat(),
             "SQD": quote.expiry.isoformat(),
             "Strike": quote.strike,
             "IV": quote.implied_volatility,
@@ -141,17 +140,33 @@ def _chain(
     return quotes
 
 
-class FearReadingsTest(unittest.TestCase):
+class OptionIvReadingsTest(unittest.TestCase):
+    def test_equal_distance_strikes_do_not_depend_on_source_row_order(self) -> None:
+        ladder = {0.9375: 20.0, 1.0625: 30.0, 1.09375: 40.0}
+        quotes = [*_chain(NEAR, ladder=ladder), *_chain(FAR, ladder=ladder)]
+        forward = option_iv_readings(quotes, ASOF)
+        backward = option_iv_readings(list(reversed(quotes)), ASOF)
+
+        self.assertEqual(forward, backward)
+        self.assertEqual(forward.iv_30d, 20.0)
+        self.assertEqual(forward.iv_skew, 0.0)
+        self.assertEqual(forward.iv_term, 0.0)
+
+    def test_nonpositive_strikes_do_not_enter_the_usable_smile(self) -> None:
+        quotes = _chain(NEAR, ladder={-0.1: 20.0, 0.0: 20.0, 1.0: 25.0})
+        usable = usable_expiries(quotes, ASOF)
+
+        self.assertEqual({quote.strike for quote in usable[NEAR]}, {UNDERLYING})
+        self.assertEqual(len(usable[NEAR]), 2)
+
     def test_the_atm_average_is_where_it_was_when_the_sides_disagree(self) -> None:
-        # Each side carries its own directional bias, so the average is closer to what
-        # the market charges for movement rather than for direction — and it is also
-        # what survives the source's own inconsistency, since at the money a wrong
-        # reference price pushes the two sides apart by a like amount.
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        # Equal opposite offsets cancel in this synthetic fixture. This does not
+        # establish the error structure of actual quotes or immunity to source errors.
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
         for gap in (4.0, 11.0):
             with self.subTest(gap=gap):
-                readings = fear_readings(
+                readings = option_iv_readings(
                     [*_chain(NEAR, basis_gap=gap), *_chain(FAR, basis_gap=gap)], ASOF
                 )
 
@@ -163,9 +178,11 @@ class FearReadingsTest(unittest.TestCase):
     def test_a_disagreement_carried_by_one_side_would_move_the_average(self) -> None:
         # Contrast symmetric and one-sided synthetic errors. Passing the symmetric
         # case alone would not establish robustness to the one-sided case.
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        split = fear_readings([*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF)
-        lopsided = fear_readings(
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        split = option_iv_readings(
+            [*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF
+        )
+        lopsided = option_iv_readings(
             [
                 *_chain(NEAR, basis_gap=8.0, one_sided=True),
                 *_chain(FAR, basis_gap=8.0, one_sided=True),
@@ -180,9 +197,8 @@ class FearReadingsTest(unittest.TestCase):
         self.assertAlmostEqual(lopsided.iv_30d - clean.iv_30d, 4.0, places=9)
 
     def test_the_at_the_money_average_reaches_for_a_strike_quoting_both_sides(self) -> None:
-        # The average is the whole reason the level survives the source's
-        # disagreement, so a chain missing one side at the nearest strike has to be
-        # read one strike further rather than reported from a single side.
+        # The level requires both sides at one strike. If the nearest strike lacks
+        # a call, select the nearest paired strike rather than a put-only value.
         unpaired = {UNDERLYING, UNDERLYING * 1.025}
         half_quoted = [
             quote
@@ -190,8 +206,8 @@ class FearReadingsTest(unittest.TestCase):
             if not (quote.strike in unpaired and quote.put_call == CALL)
         ]
 
-        readings = fear_readings([*half_quoted, *_chain(FAR)], ASOF)
-        put_only = fear_readings(
+        readings = option_iv_readings([*half_quoted, *_chain(FAR)], ASOF)
+        put_only = option_iv_readings(
             [quote for quote in (*_chain(NEAR), *_chain(FAR)) if quote.put_call == PUT], ASOF
         )
 
@@ -201,10 +217,10 @@ class FearReadingsTest(unittest.TestCase):
         expected = (weight * _LADDER[0.975] ** 2 + (1 - weight) * _LADDER[1.00] ** 2) ** 0.5
         assert readings.iv_30d is not None
         self.assertAlmostEqual(readings.iv_30d, expected, places=9)
-        self.assertEqual(put_only, FearReadings())
+        self.assertEqual(put_only, OptionIvReadings())
 
     def test_the_skew_is_the_downside_put_minus_the_at_the_money_put(self) -> None:
-        readings = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings.iv_skew, 10.0)
 
@@ -212,18 +228,19 @@ class FearReadingsTest(unittest.TestCase):
         # Both legs come from the put side, so a disagreement of the same size at every
         # strike lifts them equally and leaves the difference alone. A leg taken off
         # the call side would instead carry the whole of it.
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        skewed = fear_readings([*_chain(NEAR, basis_gap=10.0), *_chain(FAR, basis_gap=10.0)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        skewed = option_iv_readings(
+            [*_chain(NEAR, basis_gap=10.0), *_chain(FAR, basis_gap=10.0)], ASOF
+        )
 
         self.assertEqual(skewed.iv_skew, clean.iv_skew)
 
     def test_a_disagreement_that_differs_across_strikes_does_move_the_skew(self) -> None:
-        # This is why the skew is gated at all: the price the source quoted against
-        # also picks which strikes the two legs land on, so an uneven error separates
-        # them. Below the bound the movement is smaller than the reading's own noise.
+        # A strike-specific offset changes the skew even when the median basis
+        # check passes. The bound is not a guarantee that the remaining error is small.
         uneven = {0.95: 8.0}
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        skewed = fear_readings([*_chain(NEAR, gaps=uneven), *_chain(FAR, gaps=uneven)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        skewed = option_iv_readings([*_chain(NEAR, gaps=uneven), *_chain(FAR, gaps=uneven)], ASOF)
 
         assert clean.iv_skew is not None
         assert skewed.iv_skew is not None
@@ -234,7 +251,7 @@ class FearReadingsTest(unittest.TestCase):
         # retained; only this symmetric fixture guarantees cancellation.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, basis_gap=25.0),
                 *_chain(FAR, ladder=ladder, basis_gap=25.0),
@@ -247,11 +264,11 @@ class FearReadingsTest(unittest.TestCase):
         self.assertIsNotNone(readings.iv_30d)
 
     def test_a_gap_inside_the_bound_leaves_the_readings_alone(self) -> None:
-        # Small disagreements are routine in the source; refusing them would empty
-        # the series for a condition that changes nothing.
+        # This fixture falls inside the chosen tolerance and keeps the difference
+        # readings available. Availability does not prove the numbers are unchanged.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, basis_gap=11.0),
                 *_chain(FAR, ladder=ladder, basis_gap=11.0),
@@ -268,7 +285,7 @@ class FearReadingsTest(unittest.TestCase):
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
         around = {0.95: 25.0, 0.975: 25.0, 1.025: 25.0, 1.05: 25.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, gaps=around),
                 *_chain(FAR, ladder=ladder, gaps=around),
@@ -294,7 +311,7 @@ class FearReadingsTest(unittest.TestCase):
         }
         wings = {0.80: 25.0, 0.85: 25.0, 1.15: 25.0, 1.20: 25.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, gaps=wings),
                 *_chain(FAR, ladder=ladder, gaps=wings),
@@ -310,7 +327,7 @@ class FearReadingsTest(unittest.TestCase):
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
         inverted = {0.95: -25.0, 0.975: -25.0, 1.025: -25.0, 1.05: -25.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, gaps=inverted),
                 *_chain(FAR, ladder=ladder, gaps=inverted),
@@ -320,26 +337,22 @@ class FearReadingsTest(unittest.TestCase):
 
         self.assertIsNone(readings.iv_skew)
 
-    def test_a_contract_the_source_left_unquoted_is_not_read_as_one_percent(self) -> None:
-        # The source writes a placeholder volatility rather than a blank on contracts
-        # deep enough in the money to carry no time value. Reading it as a real 1%
-        # would drag the at-the-money average and the basis gap it entered.
-        placeholders = [
-            OptionQuote(
-                put_call=side,
-                strike=UNDERLYING,
-                expiry=expiry,
-                implied_volatility=1.0,
-                underlying=UNDERLYING,
-            )
-            for side in (PUT, CALL)
-            for expiry in (NEAR, FAR)
+    def test_low_iv_filter_is_calculation_policy_not_missing_source_data(self) -> None:
+        records = [
+            {
+                "EmMrgnTrgDiv": "002",
+                "PCDiv": PUT,
+                "SQD": NEAR.isoformat(),
+                "Strike": UNDERLYING + offset,
+                "IV": value,
+                "UnderPx": UNDERLYING,
+            }
+            for offset, value in enumerate((0.5, 1.0, 1.01))
         ]
-        without = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-
-        readings = fear_readings([*placeholders, *_chain(NEAR), *_chain(FAR)], ASOF)
-
-        self.assertEqual(readings, without)
+        quotes = quotes_from_records(records)
+        self.assertEqual([quote.implied_volatility for quote in quotes], [0.5, 1.0, 1.01])
+        selected = usable_expiries(quotes, ASOF)
+        self.assertEqual([quote.implied_volatility for quote in selected[NEAR]], [1.01])
 
     def test_a_chain_quoting_only_puts_withholds_the_differences(self) -> None:
         # With nothing to compare the sides against, the basis is unknown rather
@@ -347,7 +360,7 @@ class FearReadingsTest(unittest.TestCase):
         puts = [quote for quote in _chain(NEAR) if quote.put_call == PUT]
         far = [quote for quote in _chain(FAR) if quote.put_call == PUT]
 
-        readings = fear_readings([*puts, *far], ASOF)
+        readings = option_iv_readings([*puts, *far], ASOF)
 
         self.assertIsNone(readings.iv_skew)
         self.assertIsNone(readings.iv_term)
@@ -355,7 +368,7 @@ class FearReadingsTest(unittest.TestCase):
     def test_the_downside_leg_sits_five_percent_below_the_money(self) -> None:
         # 0.90 would read 34.0 and 1.00 would read 20.0 off the same ladder, so a
         # different distance cannot produce this number.
-        readings = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings.iv_skew, _LADDER[0.95] - _LADDER[1.00])
 
@@ -365,14 +378,14 @@ class FearReadingsTest(unittest.TestCase):
         inverted = dict(_LADDER)
         inverted[0.95] = 15.0
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*_chain(NEAR, ladder=inverted), *_chain(FAR, ladder=inverted)], ASOF
         )
 
         self.assertEqual(readings.iv_skew, -5.0)
 
     def test_the_term_reading_is_the_second_month_minus_the_first(self) -> None:
-        readings = fear_readings([*_chain(NEAR), *_chain(FAR, level=9.0)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(FAR, level=9.0)], ASOF)
 
         self.assertEqual(readings.iv_term, 9.0)
 
@@ -383,7 +396,7 @@ class FearReadingsTest(unittest.TestCase):
         # wrong side of the bracket lands on a different number.
         self.assertNotEqual((NEAR - ASOF).days + (WIDE - ASOF).days, 2 * 30)
 
-        readings = fear_readings([*_chain(NEAR), *_chain(WIDE, level=20.0)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(WIDE, level=20.0)], ASOF)
 
         assert readings.iv_30d is not None
         weight = (58 - 30) / (58 - 16)
@@ -395,21 +408,20 @@ class FearReadingsTest(unittest.TestCase):
     def test_the_term_reading_uses_the_next_expiry_not_the_last_one(self) -> None:
         # A chain carries two dozen expiries, so reaching past the second one would
         # quote a contract months away as if it were next month.
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*_chain(NEAR), *_chain(FAR, level=9.0), *_chain(WIDE, level=25.0)], ASOF
         )
 
         self.assertEqual(readings.iv_term, 9.0)
 
     def test_the_expiry_cutoff_admits_a_week_out_and_nothing_closer(self) -> None:
-        # A contract days from settlement prices the SQ auction, not the month. Each
-        # expiry around the cutoff carries its own level, so moving the cutoff either
-        # way puts a different pair into the term reading.
+        # Fix the chosen seven-day cutoff independently of the implementation.
+        # Different levels make an off-by-one error change the selected pair.
         six_days, seven_days = date(2026, 8, 4), date(2026, 8, 5)
         self.assertEqual((six_days - ASOF).days, 6)
         self.assertEqual((seven_days - ASOF).days, 7)
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(six_days, level=50.0),
                 *_chain(seven_days, level=30.0),
@@ -427,7 +439,7 @@ class FearReadingsTest(unittest.TestCase):
         # would quote a maturity the chain never priced.
         self.assertLess((MID - ASOF).days, 30)
 
-        readings = fear_readings([*_chain(NEAR), *_chain(MID, level=2.0)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(MID, level=2.0)], ASOF)
 
         self.assertIsNone(readings.iv_30d)
         self.assertEqual(readings.iv_term, 2.0)
@@ -449,7 +461,7 @@ class FearReadingsTest(unittest.TestCase):
             for expiry in (NEAR, FAR)
         ]
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*unquoted, *_chain(NEAR, ladder=quoted), *_chain(FAR, ladder=quoted)], ASOF
         )
 
@@ -463,7 +475,9 @@ class FearReadingsTest(unittest.TestCase):
         # bracketing from the wrong side, or in the wrong direction, lands elsewhere.
         self.assertEqual(((NEAR - ASOF).days, (WIDE - ASOF).days), (16, 58))
 
-        readings = fear_readings([*_chain(NEAR, ladder=_STEEP), *_chain(WIDE, ladder=_FLAT)], ASOF)
+        readings = option_iv_readings(
+            [*_chain(NEAR, ladder=_STEEP), *_chain(WIDE, ladder=_FLAT)], ASOF
+        )
 
         weight = (30**-0.5 - 58**-0.5) / (16**-0.5 - 58**-0.5)
         assert readings.iv_skew is not None
@@ -476,28 +490,48 @@ class FearReadingsTest(unittest.TestCase):
         # all, which is the one case where the reading is the contract's own number.
         self.assertEqual((ON_TARGET - ASOF).days, 30)
 
-        leading = fear_readings(
+        leading = option_iv_readings(
             [*_chain(ON_TARGET, ladder=_STEEP), *_chain(FAR, ladder=_FLAT)], ASOF
         )
-        trailing = fear_readings(
+        trailing = option_iv_readings(
             [*_chain(NEAR, ladder=_STEEP), *_chain(ON_TARGET, ladder=_FLAT)], ASOF
         )
 
         self.assertEqual((leading.iv_skew, leading.iv_30d), (12.0, 20.0))
         self.assertEqual((trailing.iv_skew, trailing.iv_30d), (3.0, 23.0))
 
-    def test_a_chain_with_one_priced_expiry_answers_nothing(self) -> None:
-        # Every reading needs two expiries: the differences by definition, and the
-        # level because one expiry past the target would have to be reported as a
-        # 30-day contract the chain never priced. Reaching for a second expiry that is
-        # not there must decline rather than fail the whole day.
-        far_out = fear_readings(list(_chain(WIDE)), ASOF)
-        on_target = fear_readings(list(_chain(ON_TARGET)), ASOF)
-        too_near = fear_readings(list(_chain(NEAR)), ASOF)
+    def test_one_priced_expiry_answers_only_when_it_is_exactly_the_target(self) -> None:
+        # A lone expiry cannot be extrapolated to 30 days, but an actual 30-day
+        # quote needs no second expiry. Only the term difference remains missing.
+        far_out = option_iv_readings(list(_chain(WIDE)), ASOF)
+        on_target = option_iv_readings(list(_chain(ON_TARGET)), ASOF)
+        too_near = option_iv_readings(list(_chain(NEAR)), ASOF)
 
-        self.assertEqual(far_out, FearReadings())
-        self.assertEqual(on_target, FearReadings())
-        self.assertEqual(too_near, FearReadings())
+        self.assertEqual(far_out, OptionIvReadings())
+        self.assertEqual(on_target, OptionIvReadings(iv_30d=20.0, iv_skew=10.0))
+        self.assertEqual(too_near, OptionIvReadings())
+
+    def test_exact_target_skew_does_not_require_an_unused_expirys_basis(self) -> None:
+        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.05: 36.0}
+        for other in (NEAR, FAR):
+            with self.subTest(other=other):
+                readings = option_iv_readings(
+                    [
+                        *_chain(ON_TARGET, ladder=ladder),
+                        *_chain(other, ladder=ladder, basis_gap=30.0),
+                    ],
+                    ASOF,
+                )
+                self.assertEqual(readings.iv_30d, 40.0)
+                self.assertEqual(readings.iv_skew, 6.0)
+                self.assertIsNone(readings.iv_term)
+
+    def test_exact_target_skew_still_requires_its_own_basis(self) -> None:
+        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.05: 36.0}
+        readings = option_iv_readings(_chain(ON_TARGET, ladder=ladder, basis_gap=30.0), ASOF)
+        self.assertEqual(readings.iv_30d, 40.0)
+        self.assertIsNone(readings.iv_skew)
+        self.assertIsNone(readings.iv_term)
 
     def test_the_basis_check_reaches_the_second_expiry_the_differences_read(self) -> None:
         # Both differences are built from the second expiry as well as the first, so a
@@ -505,10 +539,10 @@ class FearReadingsTest(unittest.TestCase):
         # broken one — and a term reading built on it can invert its own sign.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        clean = fear_readings(
+        clean = option_iv_readings(
             [*_chain(NEAR, ladder=ladder), *_chain(FAR, ladder=ladder, level=4.0)], ASOF
         )
-        far_broken = fear_readings(
+        far_broken = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder),
                 *_chain(FAR, ladder=ladder, level=4.0, basis_gap=30.0),
@@ -535,20 +569,19 @@ class FearReadingsTest(unittest.TestCase):
             for side in (PUT, CALL)
             for expiry in (NEAR, FAR)
         ]
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
-        readings = fear_readings([*slipped, *_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*slipped, *_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings, clean)
 
     def test_the_basis_bound_admits_the_gap_it_names_and_refuses_the_next_one(self) -> None:
-        # The bound sits above the range the source's own behaviour covers, so a
-        # chain landing on it is still that behaviour. Moving it either way changes
-        # which sessions keep their differences.
+        # Fix the inclusive operational threshold, not a guarantee about future
+        # source behaviour or the accuracy of an admitted observation.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        def readings_at(gap: float) -> FearReadings:
-            return fear_readings(
+        def readings_at(gap: float) -> OptionIvReadings:
+            return option_iv_readings(
                 [
                     *_chain(NEAR, ladder=ladder, basis_gap=gap),
                     *_chain(FAR, ladder=ladder, basis_gap=gap),
@@ -567,7 +600,7 @@ class FearReadingsTest(unittest.TestCase):
         ladder = {0.80: 70.0, 0.90: 80.0, 0.95: 70.0, 1.00: 65.0, 1.10: 75.0, 1.20: 70.0}
         edges = {0.90: 60.0, 1.10: 60.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*_chain(NEAR, ladder=ladder, gaps=edges), *_chain(FAR, ladder=ladder, gaps=edges)],
             ASOF,
         )
@@ -581,8 +614,8 @@ class FearReadingsTest(unittest.TestCase):
         four = {0.90: 50.0, 0.95: 46.0, 1.00: 40.0, 1.05: 36.0}
         five = {0.90: 50.0, 0.95: 46.0, 0.975: 43.0, 1.00: 40.0, 1.05: 36.0}
 
-        def readings_for(ladder: dict[float, float], gaps: dict[float, float]) -> FearReadings:
-            return fear_readings(
+        def readings_for(ladder: dict[float, float], gaps: dict[float, float]) -> OptionIvReadings:
+            return option_iv_readings(
                 [*_chain(NEAR, ladder=ladder, gaps=gaps), *_chain(FAR, ladder=ladder, gaps=gaps)],
                 ASOF,
             )
@@ -608,14 +641,14 @@ class FearReadingsTest(unittest.TestCase):
             for side in (PUT, CALL)
             for expiry in (NEAR, FAR)
         ]
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
-        readings = fear_readings([*broken, *_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*broken, *_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings, clean)
 
     def test_an_empty_chain_reads_nothing(self) -> None:
-        readings = fear_readings([], ASOF)
+        readings = option_iv_readings([], ASOF)
 
         self.assertIsNone(readings.iv_30d)
         self.assertIsNone(readings.iv_skew)
@@ -641,14 +674,14 @@ class QuoteParsingTest(unittest.TestCase):
         # every strike that carries a row in each.
         rows = [self._record(), self._record(EmMrgnTrgDiv="001", IV=41.6, UnderPx=39000.0)]
 
-        quotes = quotes_from_records(rows, ASOF)
+        quotes = quotes_from_records(rows)
 
         self.assertEqual([quote.implied_volatility for quote in quotes], [20.0])
         self.assertEqual([quote.underlying for quote in quotes], [40000.0])
 
     def test_rows_the_reader_cannot_believe_are_dropped(self) -> None:
-        # One unusable row shape per case. Each is a value the source really sends,
-        # and each would land in an average as a number nobody quoted.
+        # Synthetic missing, unsupported and non-finite values must not become
+        # numeric quotes. This fixture is not evidence of live source frequencies.
         cases: tuple[tuple[str, list[dict[str, object]]], ...] = (
             (
                 # Keeping unmarked rows would restore the snapshot mixing as soon as
@@ -659,9 +692,8 @@ class QuoteParsingTest(unittest.TestCase):
             ),
             ("unknown_side", [self._record(PCDiv="9")]),
             (
-                # A missing numeric arrives from the frame as NaN rather than as an
-                # absent key, and NaN compares false against every bound, so it would
-                # pass each later check.
+                # Non-finite inputs must not pass numeric comparison checks or
+                # become usable quotes. This is not a claim about native JSON values.
                 "not_a_number",
                 [self._record(IV=float("nan")), self._record(UnderPx=float("inf"))],
             ),
@@ -669,60 +701,29 @@ class QuoteParsingTest(unittest.TestCase):
 
         for name, rows in cases:
             with self.subTest(case=name):
-                self.assertEqual(quotes_from_records(rows, ASOF), [])
+                self.assertEqual(quotes_from_records(rows), [])
 
     def test_a_row_missing_a_field_is_dropped_rather_than_failing(self) -> None:
         # A chain always carries contracts with no quote; a day is still readable.
         rows = [self._record(), self._record(IV=None), self._record(Strike="")]
 
-        self.assertEqual(len(quotes_from_records(rows, ASOF)), 1)
+        self.assertEqual(len(quotes_from_records(rows)), 1)
 
-    def test_an_expiry_carrying_a_time_is_read_as_its_date(self) -> None:
-        # Typed as text the column carries the time with it, and date parsing refuses
-        # the whole string rather than reading the part it understands.
-        rows = [self._record(SQD="2026-08-14T00:00:00")]
-
-        quotes = quotes_from_records(rows, ASOF)
-
+    def test_native_expiry_is_read_without_inventing_a_timestamp(self) -> None:
+        quotes = quotes_from_records([self._record(SQD="2026-08-14")])
         self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
 
-    def test_a_timestamp_expiry_becomes_a_date_the_maturity_can_subtract(self) -> None:
-        # A timestamp passes an isinstance check against date but cannot be
-        # subtracted from one, which would surface as a crash in the maturity
-        # arithmetic rather than as an unreadable row here.
+    def test_native_date_parser_does_not_accept_timestamp_objects(self) -> None:
         rows = [self._record(SQD=datetime(2026, 8, 14, 15, 0, tzinfo=ZoneInfo("Asia/Tokyo")))]
-
-        quotes = quotes_from_records(rows, ASOF)
-
-        self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
-        self.assertEqual((quotes[0].expiry - ASOF).days, 16)
+        self.assertEqual(quotes_from_records(rows), [])
+        self.assertIsNone(as_date("2026-08-14T15:00:00"))
 
 
-class OptionProviderTest(unittest.TestCase):
-    """The provider's defences, which nothing else exercises."""
-
-    def _series(self, provider_series_id: str) -> SeriesDefinition:
-        return SeriesDefinition(
-            series_id=f"jp.{provider_series_id}",
-            name=provider_series_id,
-            category="volatility",
-            geography="japan",
-            frequency="daily",
-            unit="percent",
-            provider="jquants_options",
-            provider_series_id=provider_series_id,
-            source_id=f"test-{provider_series_id}",
-            source_url="https://example.invalid/",
-            notes="test",
-        )
-
+class OptionSourceContractTest(unittest.TestCase):
     def test_the_registry_bands_hold_every_reading_and_catch_an_inflated_one(self) -> None:
-        # The service refuses observations outside the registry's plausible range for
-        # every provider, so what this provider owes is bands that fit: wide enough
-        # that 8.5 years of readings sit inside with room for a deeper crash, narrow
-        # enough that a value inflated by a scale mistake lands outside. A band that
-        # spans zero cannot catch the opposite mistake, and the two difference series
-        # need one that does — their sign is the reading.
+        # Retained historical sample extrema fit the configured bands, while the
+        # illustrated 100x scale errors do not. These checks do not guarantee that
+        # future observations or every scaling error are classified correctly.
         for series_id, sampled_low, sampled_high in (
             ("jp.n225_iv_30d", 11.51, 65.95),
             ("jp.n225_iv_skew", 0.24, 6.73),
@@ -741,49 +742,6 @@ class OptionProviderTest(unittest.TestCase):
         assert level.plausible_min is not None
         self.assertGreater(level.plausible_min, 0.19)  # and a ratio read as a percent
 
-    def test_the_three_series_read_one_chain_per_day(self) -> None:
-        # Without sharing, a ten-year backfill makes three times the calls it needs.
-        fetched: list[date] = []
-
-        def one_chain(*, date_yyyymmdd: str) -> object:
-            fetched.append(
-                date.fromisoformat(f"{date_yyyymmdd[:4]}-{date_yyyymmdd[4:6]}-{date_yyyymmdd[6:]}")
-            )
-            return _FakeFrame(_chain_records(fetched[-1]))
-
-        provider = jquants_options.JQuantsOptionsProvider()
-        client = SimpleNamespace(get_drv_bars_daily_opt_225=one_chain)
-        with (
-            mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
-            mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
-            FetchContext() as context,
-        ):
-            for provider_series_id in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
-                provider.fetch(
-                    self._series(provider_series_id),
-                    start=date(2026, 7, 27),
-                    end=date(2026, 7, 29),
-                    session=cast(HttpSession, None),
-                    context=context,
-                )
-
-        self.assertEqual(len(fetched), 3)  # three weekdays, not nine
-        self.assertEqual(sorted(set(fetched)), fetched)
-
-    def test_a_weekend_is_never_requested(self) -> None:
-        self.assertEqual(
-            jquants_options._days(date(2026, 7, 31), date(2026, 8, 3)),
-            [date(2026, 7, 31), date(2026, 8, 3)],
-        )
-
-    def test_a_single_day_range_asks_for_that_day(self) -> None:
-        # The daily refresh asks for one day. A range that excluded its own end would
-        # leave the series never advancing while reporting no failure at all.
-        one_day = date(2026, 7, 29)
-
-        self.assertEqual(jquants_options._days(one_day, one_day), [one_day])
-        self.assertEqual(jquants_options._days(one_day, one_day - timedelta(days=1)), [])
-
     def test_a_missing_key_is_named_rather_than_failing_at_the_endpoint(self) -> None:
         # Without this the run reaches the API and comes back with an auth error that
         # says nothing about which credential the operator forgot.
@@ -796,121 +754,336 @@ class OptionProviderTest(unittest.TestCase):
 
         self.assertIn("JQUANTS_API_KEY", str(caught.exception))
 
-    def test_a_contract_the_chain_carries_twice_is_refused(self) -> None:
-        # Every reading resolves a strike to one volatility through a dict, so a second
-        # row for the same contract wins on arrival order with nothing downstream able
-        # to see it — and the basis median does not move for one duplicated strike.
+    def test_missing_or_invalid_chain_dates_are_not_inferred_from_request(self) -> None:
+        # Native JSON dates remain strings; an absent or malformed date cannot
+        # establish the requested session even when another row names it.
         rows = _chain_records()
-        clean = list(rows)
-        rows.append(dict(rows[0]))
-
-        jquants_options._require_one_row_per_contract(clean, ASOF)
-
-        with self.assertRaises(IndicatorsProviderError) as caught:
-            jquants_options._require_one_row_per_contract(rows, ASOF)
-        self.assertIn("same contract", str(caught.exception))
-
-    def test_an_emergency_margin_session_is_read_rather_than_refused(self) -> None:
-        # The source answers such a session with two full copies of the chain, one row
-        # per contract each. Refusing it would end a multi-year range on a day the
-        # source is behaving as documented — 2016-08-02 is the second weekday of the
-        # ten-year floor, so the whole rebuild would stop there.
-        settled = _chain_records()
-        intervention = _records(
-            [*_chain(NEAR, underlying=39_000.0), *_chain(FAR, underlying=39_000.0, level=1.0)],
-            snapshot="001",
-        )
-        provider = jquants_options.JQuantsOptionsProvider()
-        client = SimpleNamespace(
-            get_drv_bars_daily_opt_225=lambda **_: _FakeFrame([*settled, *intervention])
-        )
-
-        both = provider._day_reading(
-            client, ASOF, api_key="k", deadline=ReadDeadline("jquants_options")
-        )
-
-        self.assertEqual(both, fear_readings(quotes_from_records(settled, ASOF), ASOF))
-        self.assertIsNotNone(both.iv_30d)
-
-    def test_a_chain_answering_for_another_day_is_refused(self) -> None:
-        # The observation is stamped with the requested date, so a session served the
-        # previous day's chain would carry the previous day's fear under today's date.
-        provider = jquants_options.JQuantsOptionsProvider()
-        stale = SimpleNamespace(
-            get_drv_bars_daily_opt_225=lambda **_: _FakeFrame(_chain_records(ASOF - timedelta(1)))
-        )
-        with (
-            mock.patch.object(jquants_options, "jquants_read_client", return_value=stale),
-            mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
-            self.assertRaises(IndicatorsProviderError) as caught,
-        ):
-            provider.fetch(
-                self._series("n225_iv_30d"),
-                start=ASOF,
-                end=ASOF,
-                session=cast(HttpSession, None),
-            )
-
-        self.assertIn("2026-07-28", str(caught.exception))
-        self.assertIn("2026-07-29", str(caught.exception))
-
-    def test_a_row_whose_day_the_source_could_not_parse_does_not_escape(self) -> None:
-        # The frame parses that column with errors coerced, so one bad row of ten
-        # thousand arrives as a not-a-time sentinel. It passes the timestamp check and
-        # its own date() is another sentinel, which sorts against nothing — the guard
-        # has to read it as an absent day rather than raise past its own caller. The
-        # real sentinel is used rather than an imitation: a stand-in that inherits
-        # datetime's inequality is not the thing being defended against.
-        import pandas
-
-        self.assertIsInstance(pandas.NaT, datetime)
-        self.assertIsNone(as_date(pandas.NaT))
-
-        rows = _chain_records()
-        rows[0]["Date"] = pandas.NaT
 
         jquants_options._require_requested_day(rows, ASOF)
 
         with self.assertRaises(IndicatorsProviderError):
             jquants_options._require_requested_day(rows, ASOF + timedelta(1))
 
-    def test_a_day_the_chain_cannot_answer_produces_no_observation(self) -> None:
-        # A closed market and a reading the chain could not compute are both facts
-        # about the day, not failures; inventing a point for either would put a
-        # number in the series that nothing observed.
-        closed = date(2026, 7, 27)
-        no_straddle = date(2026, 7, 28)  # both expiries past the target
-        full = date(2026, 7, 29)
+        for invalid in (None, "not-a-date", "2026-07-29T00:00:00", ASOF):
+            with self.subTest(invalid=invalid):
+                partial = _chain_records()
+                partial[0]["Date"] = invalid
+                for candidate in (partial, partial[:1]):
+                    with self.assertRaisesRegex(IndicatorsProviderError, "observation date"):
+                        jquants_options._require_requested_day(candidate, ASOF)
+        jquants_options._require_requested_day([], ASOF)
 
-        def chain(*, date_yyyymmdd: str) -> object:
-            day = date.fromisoformat(
-                f"{date_yyyymmdd[:4]}-{date_yyyymmdd[4:6]}-{date_yyyymmdd[6:]}"
-            )
-            if day == closed:
-                return _FakeFrame([])
-            if day == no_straddle:
-                return _FakeFrame(_records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)], day))
-            return _FakeFrame(_chain_records(day))
 
-        provider = jquants_options.JQuantsOptionsProvider()
-        client = SimpleNamespace(get_drv_bars_daily_opt_225=chain)
+class OptionAcquisitionTest(unittest.TestCase):
+    """Native source retention and L2 readings through the application boundary."""
+
+    def _database(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        connection = initialize_database(Path(temporary.name) / "indicators.sqlite")
+        self.addCleanup(connection.close)
+        return connection
+
+    def _context(self, purpose="refresh"):
+        context = FetchContext(purpose=purpose)
+        self.addCleanup(context.close)
+        return context
+
+    def test_three_readings_acquire_each_weekday_once_and_keep_native_fields(self) -> None:
+        connection = self._database()
+        acquired = []
+
+        def source(day):
+            acquired.append(day)
+            rows = _chain_records(day)
+            rows[0]["UnselectedNativeField"] = None
+            rows[0]["NativeIdentifier"] = "0000123"
+            return rows
+
         with (
-            mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
-            mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
+            mock.patch.object(OptionChainSource, "fetch", side_effect=source),
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
         ):
-            observed = {
-                provider_series_id: [
-                    record.observed_at
-                    for record in provider.fetch(
-                        self._series(provider_series_id),
-                        start=closed,
-                        end=full,
-                        session=cast(HttpSession, None),
-                    )
-                ]
-                for provider_series_id in ("n225_iv_30d", "n225_iv_term")
-            }
+            acquisition = OptionAcquisition(connection, self._context())
+            for field in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
+                acquisition.query(
+                    _registered(f"jp.{field}"), start=date(2026, 7, 27), end=ASOF, refresh=True
+                )
+        self.assertEqual(acquired, [date(2026, 7, 27), date(2026, 7, 28), ASOF])
+        chains = list(
+            read_snapshots(connection, acquired[0], ASOF, source_key="jquants_options:n225")
+        )
+        self.assertEqual(len(chains), 3)
+        self.assertIsNone(chains[0].records[0]["UnselectedNativeField"])
+        self.assertEqual(chains[0].records[0]["NativeIdentifier"], "0000123")
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 0)
 
-        # The 31-day/58-day pair brackets nothing at 30, so only the term survives it.
-        self.assertEqual(observed["n225_iv_30d"], [full])
-        self.assertEqual(observed["n225_iv_term"], [no_straddle, full])
+    def test_weekends_are_skipped_and_range_end_is_included(self) -> None:
+        connection = self._database()
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(
+                OptionChainSource, "fetch", side_effect=lambda day: _chain_records(day)
+            ) as fetch,
+        ):
+            OptionAcquisition(connection, self._context()).query(
+                _registered("jp.n225_iv_term"),
+                start=date(2026, 7, 31),
+                end=date(2026, 8, 3),
+                refresh=True,
+            )
+        self.assertEqual(
+            fetch.call_args_list, [mock.call(date(2026, 7, 31)), mock.call(date(2026, 8, 3))]
+        )
+
+    def test_completed_prefix_survives_failure_and_next_pass_resumes(self) -> None:
+        connection = self._database()
+        first, second = date(2026, 7, 27), date(2026, 7, 28)
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(
+                OptionChainSource,
+                "fetch",
+                side_effect=[_chain_records(first), ProviderFetchStoppedError("stopped")],
+            ) as fetch,
+        ):
+            acquisition = OptionAcquisition(connection, self._context())
+            for field in ("n225_iv_30d", "n225_iv_term"):
+                with self.assertRaisesRegex(ProviderFetchStoppedError, "stopped"):
+                    acquisition.query(
+                        _registered(f"jp.{field}"), start=first, end=second, refresh=True
+                    )
+            self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(
+            stored_days(connection, first, second, source_key="jquants_options:n225"), {first}
+        )
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(
+                OptionChainSource, "fetch", return_value=_chain_records(second)
+            ) as fetch,
+        ):
+            OptionAcquisition(connection, self._context("read")).query(
+                _registered("jp.n225_iv_30d"), start=first, end=second, refresh=False
+            )
+        fetch.assert_called_once_with(second)
+        self.assertEqual(
+            stored_days(connection, first, second, source_key="jquants_options:n225"),
+            {first, second},
+        )
+
+    def test_calculation_failure_keeps_original_and_does_not_refetch_it(self) -> None:
+        connection = self._database()
+        rows = _chain_records()
+        rows.append(dict(rows[0], Strike=str(rows[0]["Strike"])))
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(OptionChainSource, "fetch", return_value=rows) as fetch,
+        ):
+            with self.assertRaisesRegex(ValueError, "duplicate settlement"):
+                OptionAcquisition(connection, self._context()).query(
+                    _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF, refresh=True
+                )
+            with self.assertRaisesRegex(ValueError, "duplicate settlement"):
+                OptionAcquisition(connection, self._context("read")).query(
+                    _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF, refresh=False
+                )
+        fetch.assert_called_once_with(ASOF)
+        self.assertEqual(
+            next(read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225")).records,
+            tuple(rows),
+        )
+
+    def test_empty_replacement_hides_previous_chain_and_old_scalar_values(self) -> None:
+        connection = self._database()
+        before = datetime(2026, 7, 30, tzinfo=UTC)
+        with connection:
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=ASOF,
+                fetched_at=before,
+                records=_chain_records(),
+            )
+            insert_observations(
+                connection,
+                [
+                    ObservationRecord(
+                        series_id="jp.n225_iv_30d",
+                        observed_at=ASOF,
+                        value=25.0,
+                        unit="percent",
+                        source_url=_registered("jp.n225_iv_30d").source_url,
+                        vintage_at=before,
+                    )
+                ],
+            )
+        self.assertTrue(
+            OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=ASOF, end=ASOF)
+        )
+        with connection:
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=ASOF,
+                fetched_at=before + timedelta(days=1),
+                records=[],
+            )
+        self.assertEqual(
+            OptionSeriesReader(connection).read(
+                _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF
+            ),
+            (),
+        )
+        self.assertEqual(
+            stored_days(connection, ASOF, ASOF, source_key="jquants_options:n225"), {ASOF}
+        )
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1)
+        self.assertEqual(
+            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 2
+        )
+
+    def test_identical_response_does_not_add_another_payload(self) -> None:
+        connection = self._database()
+        fetched_at = datetime(2026, 7, 30, tzinfo=UTC)
+        with connection:
+            self.assertTrue(
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=ASOF,
+                    fetched_at=fetched_at,
+                    records=_chain_records(),
+                )
+            )
+            self.assertFalse(
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=ASOF,
+                    fetched_at=fetched_at + timedelta(days=1),
+                    records=_chain_records(),
+                )
+            )
+        self.assertEqual(
+            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 1
+        )
+
+    def test_emergency_snapshot_is_retained_but_only_settlement_is_calculated(self) -> None:
+        connection = self._database()
+        settled = _chain_records()
+        intervention = _records(
+            [*_chain(NEAR, underlying=39_000.0), *_chain(FAR, underlying=39_000.0)], snapshot="001"
+        )
+        with connection:
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=ASOF,
+                fetched_at=datetime.now(UTC),
+                records=[*settled, *intervention],
+            )
+        result = OptionSeriesReader(connection).read(
+            _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF
+        )
+        self.assertEqual(
+            result[0].value, option_iv_readings(quotes_from_records(settled), ASOF).iv_30d
+        )
+        self.assertEqual(
+            len(
+                next(
+                    read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225")
+                ).records
+            ),
+            len(settled) + len(intervention),
+        )
+
+    def test_missing_maturity_bracket_is_not_an_empty_source_response(self) -> None:
+        connection = self._database()
+        day = ASOF - timedelta(days=1)
+        rows = _records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)], day)
+        with connection:
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=day,
+                fetched_at=datetime.now(UTC),
+                records=rows,
+            )
+        self.assertEqual(
+            OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=day, end=day),
+            (),
+        )
+        self.assertTrue(
+            OptionSeriesReader(connection).read(_registered("jp.n225_iv_term"), start=day, end=day)
+        )
+        self.assertEqual(
+            next(read_snapshots(connection, day, day, source_key="jquants_options:n225")).records,
+            tuple(rows),
+        )
+
+    def test_latest_rechecks_an_empty_response_before_publication(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        database = Path(temporary.name) / "indicators.sqlite"
+        connection = initialize_database(database)
+        try:
+            with connection:
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=ASOF,
+                    fetched_at=datetime(2026, 7, 29, tzinfo=UTC),
+                    records=[],
+                )
+        finally:
+            connection.close()
+        with (
+            mock.patch(
+                "baibai_engine.market_context.indicator_service._today_jst", return_value=ASOF
+            ),
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(OptionChainSource, "close"),
+            mock.patch.object(
+                OptionChainSource,
+                "fetch",
+                side_effect=lambda day: _chain_records(day) if day == ASOF else [],
+            ) as fetch,
+        ):
+            result = IndicatorsService(database).get_latest("jp.n225_iv_30d")
+        self.assertEqual([row.observed_at for row in result.observations], [ASOF])
+        self.assertIn(mock.call(ASOF), fetch.call_args_list)
+
+    def test_rebuild_reuses_old_complete_days_but_bounded_refresh_can_restate_them(self) -> None:
+        connection = self._database()
+        start = ASOF - timedelta(days=30)
+        days = [
+            start + timedelta(days=i)
+            for i in range(31)
+            if (start + timedelta(days=i)).weekday() < 5
+        ]
+        with connection:
+            for day in days:
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=day,
+                    fetched_at=datetime(2026, 7, 30, tzinfo=UTC),
+                    records=[],
+                )
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(OptionChainSource, "fetch", return_value=[]) as fetch,
+        ):
+            OptionAcquisition(connection, self._context("rebuild")).query(
+                _registered("jp.n225_iv_term"), start=start, end=ASOF, refresh=True
+            )
+            self.assertEqual(
+                fetch.call_args_list,
+                [mock.call(day) for day in days if day >= ASOF - timedelta(days=14)],
+            )
+            fetch.reset_mock()
+            OptionAcquisition(connection, self._context("refresh")).query(
+                _registered("jp.n225_iv_term"), start=days[0], end=days[0], refresh=True
+            )
+            fetch.assert_called_once_with(days[0])

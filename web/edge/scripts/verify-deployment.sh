@@ -47,8 +47,8 @@ request() {
   headers="${verification_dir}/${label}-${slug}.headers"
   if [[ -n "${token}" ]]; then
     status="$(
-      printf 'header = "Authorization: Bearer %s"\n' "${token}" |
-        curl --config - --silent --show-error \
+      printf 'Authorization: Bearer %s\n' "${token}" |
+        curl --header @- --silent --show-error \
           --dump-header "${headers}" --output /dev/null \
           --write-out '%{http_code}' "${base_url}${path}"
     )"

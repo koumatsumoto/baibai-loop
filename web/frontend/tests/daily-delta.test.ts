@@ -11,7 +11,7 @@ function delta(total: number): DailyDeltaView {
     generated_at: '2026-09-04T18:00:00+09:00',
     as_of: '2026-09-04', previous_as_of: '2026-09-03', method_changed: false,
     entered: [], exited: [], holdings: [], unavailable: [],
-    holdings_without_fair_value: 0, holdings_without_price: 0,
+    holdings_without_price: 0,
     er_moves_total: total,
     er_moves: Array.from({ length: Math.min(total, 5) }, (_, index) => ({
       ticker: `${1000 + index}`, company_name: null, er_annual_pct: 20,
@@ -61,4 +61,12 @@ it("差分の読込中と取得失敗を観測なしから区別する", () => {
   const failed = renderToStaticMarkup(createElement(DailyDeltaCard, { delta: null, failed: true }))
   expect(failed).toContain("変化を読み込めませんでした")
   expect(failed).toContain("変化がないことを意味しません")
+})
+
+
+it('does not describe unavailable holding comparison as no changes or no current price', () => {
+  const html = render({ ...delta(0), unavailable: ['holdings'] })
+  expect(html).toContain('台帳または価格比較を確認できない')
+  expect(html).not.toContain('閾値に触れる変化はありません')
+  expect(html).not.toContain('現値が無く')
 })

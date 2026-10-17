@@ -110,14 +110,20 @@ count_files() {
 }
 
 remote_object_exists() {
-  # Exact-key existence, so a sibling object (a `.bak`) never reads as the key
-  # itself the way a prefix listing would. `aws s3 ls` is not usable here: it
-  # rejects the transfer flags `aws_s3` passes and would fail for every key.
-  aws s3api head-object \
+  # Only an explicit missing object means absence. Authentication, network and server
+  # failures must stop the script even when this function is called inside an `if`.
+  local error
+  if error="$(aws s3api head-object \
     --bucket "${stores_bucket}" \
     --key "$1" \
-    --endpoint-url "${endpoint}" \
-    >/dev/null 2>&1
+    --endpoint-url "${endpoint}" 2>&1 >/dev/null)"; then
+    return 0
+  fi
+  if [[ "${error}" == *"(404) when calling the HeadObject operation"* ]]; then
+    return 1
+  fi
+  printf 'cannot determine whether R2 object %s exists: %s\n' "$1" "${error}" >&2
+  exit 2
 }
 
 store_path() {
@@ -164,19 +170,6 @@ merge_indicator_store() {
   merge_store baibai_batch.storage.merge_indicator_store "$1" "$2"
 }
 
-# Move the downloaded copy to the schema this code writes, so the merge's source and
-# target agree. This helper is used for the downloaded indicator merge copy, not
-# as a general market/application migration or a daily-batch migration fallback.
-# The copy lives in transfer staging, so migrating it does not change the R2 object.
-migrate_downloaded_store() {
-  local store="$1" path="$2"
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_batch.storage.migrate_store --store "${store}" --path "${path}"
-  )
-}
-
 merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
@@ -206,14 +199,15 @@ publish_lake() {
       uv run python -m baibai_batch.storage.publish_market_lake \
         --sqlite "$(store_path market.sqlite)" \
         --mirror "${lake_mirror}" \
-        --bucket "${stores_bucket}"
+        --bucket "${stores_bucket}" \
+        --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
   )
 }
 
 dehydrate_market_snapshot() {
-  # Runs on the copy about to be uploaded, never on the working store. It refuses unless
-  # the release embedded in that same SQLite generation accounts for every row it drops,
-  # so no detached identity file can authorize the object to shrink.
+  # Runs on the upload copy, never on the working store. Origin and row counts must
+  # match the release; values are not compared. Publish local changes first and do not
+  # edit lake-owned rows between publication and snapshotting.
   local path="$1"
   (
     cd "${repo_root}" || exit 1
@@ -296,7 +290,8 @@ write_machine_manifest() {
   # it merely stale — which the next bundle pull refuses. Values carried forward from
   # the pushes would instead let it claim a generation nobody ever observed together.
   local key version file first=1
-  file="$(mktemp "${TMPDIR:-/tmp}/baibai-machine-manifest.XXXXXX")"
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  file="${transfer_staging}/machine-manifest.json"
   {
     printf '{\n'
     printf '  "schema_version": 1,\n'
@@ -318,7 +313,8 @@ write_machine_manifest() {
     --body "${file}" \
     --endpoint-url "${endpoint}" \
     >/dev/null
-  rm -f -- "${file}"
+  cleanup_staging
+  transfer_staging=""
   printf 'machine bundle receipt written: %s\n' "${machine_manifest_key}"
 }
 
@@ -347,8 +343,8 @@ require_machine_manifest() {
   # Absence is decided by the existence check, not by the download failing: a download
   # that fails for any other reason must refuse the pull rather than read as "no receipt
   # was ever written", which is the shape a hole in this check would take. The existence
-  # check is the same head-object this pull has already run once per key, so a broken
-  # credential or a dead endpoint has stopped it well before here.
+  # check distinguishes a missing object from authentication, network or server errors;
+  # success for another key does not establish that this request succeeded.
   if ! remote_object_exists "${machine_manifest_key}"; then
     printf 'no machine bundle receipt in s3://%s yet; taking the store set unverified. ' \
       "${stores_bucket}" >&2
@@ -543,7 +539,7 @@ _push_keys() {
     started="${SECONDS}"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
-    # once the lake holds anything. A serving pointer is where that authority is
+    # once the lake holds anything. An L1 release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an
     # empty bucket being seeded) the store is still the only copy of those rows, and
     # after it the emptying is mandatory rather than best-effort.
@@ -556,7 +552,9 @@ _push_keys() {
   local index=0
   for key in "$@"; do
     started="${SECONDS}"
-    backup_remote_key "${key}" "${expected_version}"
+    if [[ -n "${expected_version}" ]]; then
+      backup_remote_key "${key}" "${expected_version}"
+    fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
     if [[ -n "${expected_version}" ]]; then
@@ -581,7 +579,14 @@ _push_keys() {
         record_pulled_version "${key}" "${uploaded_version}"
       fi
     else
-      aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
+      # Seed is create-only even if another writer appears after the existence check.
+      aws s3api put-object \
+        --bucket "${stores_bucket}" \
+        --key "${key}" \
+        --body "${transfer_staging}/${key}" \
+        --if-none-match '*' \
+        --endpoint-url "${endpoint}" \
+        >/dev/null
     fi
     printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss\n' \
       "${key}" \
@@ -593,10 +598,6 @@ _push_keys() {
   done
   cleanup_staging
   transfer_staging=""
-}
-
-push_keys() {
-  _push_keys "" "$@"
 }
 
 push_key_if_version() {
@@ -646,7 +647,7 @@ seed_keys() {
       return 2
     fi
   done
-  push_keys "$@"
+  _push_keys "" "$@"
 }
 
 require_complete_export() {
@@ -773,7 +774,6 @@ case "${1:-}" in
     indicator_version="$(remote_version indicators.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
     check_sqlite "${transfer_staging}/indicators.sqlite"
-    migrate_downloaded_store indicators "${transfer_staging}/indicators.sqlite"
     merge_indicator_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
     cleanup_staging
     transfer_staging=""

@@ -164,7 +164,7 @@ def _preview_buy(
                 quote.price_yen,
                 target_session=session,
                 market_segment=classification.market_segment,
-                sector_33=classification.sector_33,
+                is_common_stock=classification.is_common_stock,
             )
         )
         current = buy_evaluation(
@@ -208,22 +208,12 @@ def _preview_holding(
             GateReason(code="holding_absent", message="保存した保有銘柄の現在保有がありません。")
         ]
     quote = next((quote for quote in inputs.quotes if quote.ticker == item.ticker), None)
-    quoted = (
-        None
-        if quote is None
-        else quote.model_copy(
-            update={
-                "basis_confirmed": assessment_quote_basis(
-                    pair.document, quote, sqlite_path=sqlite_path
-                )
-            }
-        )
-    )
     result = evaluate_holding_proposal(
         pair.document,
         position=position,
         as_of=now.astimezone(JST).date(),
-        quote=quoted,
+        quote=quote,
+        price_basis_confirmed=assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path),
         remaining_reward=item.remaining_reward,
         case_reassessment_reason=item.case_reassessment_reason,
         primary_verified=pair.review.primary_source_check == "verified",
@@ -377,15 +367,13 @@ def preview_current_terms(
                             message="保存条件は未確定です。条件を確定した新しい提案とReviewが必要です。",
                         )
                     )
-                elif (
-                    item.terms.expires_at <= now
-                    or item.terms.target_session
-                    != next_order_session(sqlite_path=sqlite_path, now=now)
+                elif item.terms.target_session != next_order_session(
+                    sqlite_path=sqlite_path, now=now
                 ):
                     blockers.append(
                         GateReason(
                             code="target_session_not_next_available",
-                            message="保存条件の期限経過または次sessionとの差があります。",
+                            message="保存条件の対象日が次の注文可能sessionと異なります。",
                         )
                     )
                 if item.action == "sell":

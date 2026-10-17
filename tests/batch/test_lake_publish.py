@@ -23,6 +23,7 @@ from baibai_batch.storage.lake_publish import (
     RemoteObject,
     publish_l1_release,
 )
+from baibai_batch.storage.publication_lease import _save_handle, acquire, release
 from baibai_engine.storage.lake import models as lake_models
 from baibai_engine.storage.lake import writer as lake_writer_module
 from baibai_engine.storage.lake.keys import dataset_manifest_key
@@ -33,8 +34,8 @@ from baibai_engine.storage.lake.release import (
 )
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
-    export_lake_legacy,
-    export_legacy_sqlite,
+    export_dataset_snapshot,
+    export_market_store,
     sealed_sqlite_snapshot,
 )
 from baibai_engine.storage.observations.lake_origin import (
@@ -61,10 +62,10 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
         "create_lake_l1_release",
         lambda **kwargs: create_release(created_at=fixed_now, **kwargs),
     )
-    export_lake = market_publish_module.export_lake_legacy
+    export_lake = market_publish_module.export_market_store
     monkeypatch.setattr(
         market_publish_module,
-        "export_lake_legacy",
+        "export_market_store",
         lambda **kwargs: export_lake(created_at=fixed_now, **kwargs),
     )
 
@@ -73,7 +74,7 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
     sqlite_path = market_store(
         tmp_path / "market.sqlite",
         daily_bars=(("1301", "2026-01-05", 1.0, 1.0),),
-        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "7203", "Fund", None, None, None, 0),),
+        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "7203", "Fund", None, None, None),),
         short_sale_coverage=(
             "test:pilot",
             "2026-01-01",
@@ -87,7 +88,7 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="release-snapshot"
     ) as snapshot:
         datasets = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
@@ -504,7 +505,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
     )
     _bind_market_store_to_pointer(tmp_path / "market.sqlite", pointer)
     successor_path = _successor_release(mirror, "concurrent-successor")
-    original_export = market_publish_module.export_lake_legacy
+    original_export = market_publish_module.export_market_store
 
     def concurrent_export(**kwargs: object) -> object:
         publish_l1_release(
@@ -514,7 +515,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
         )
         return original_export(**kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(market_publish_module, "export_lake_legacy", concurrent_export)
+    monkeypatch.setattr(market_publish_module, "export_market_store", concurrent_export)
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
 
     with pytest.raises(LakeCASConflict):
@@ -699,7 +700,7 @@ def test_remote_manifest_digest_mismatch_stops_before_export(
         export_called = True
         raise AssertionError("export must not start")
 
-    monkeypatch.setattr(market_publish_module, "export_lake_legacy", unexpected_export)
+    monkeypatch.setattr(market_publish_module, "export_market_store", unexpected_export)
 
     with pytest.raises(LakePublishError, match="downloaded lake object digest mismatch"):
         market_publish_module.publish_market_lake(
@@ -716,6 +717,9 @@ def test_market_publish_logs_one_phase_line_without_polluting_stdout(
 ) -> None:
     mirror, _ = _release(tmp_path)
     store = MemoryR2Store()
+    handle, _ = acquire(store, "operator")
+    handle_path = tmp_path / "lease.json"
+    _save_handle(handle_path, handle)
     monkeypatch.setattr(market_publish_module, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
 
@@ -728,6 +732,8 @@ def test_market_publish_logs_one_phase_line_without_polluting_stdout(
                 str(mirror),
                 "--release-id",
                 "timed-release",
+                "--lease-handle",
+                str(handle_path),
             ]
         )
         == 0
@@ -1131,8 +1137,8 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     connection.executemany(
         """INSERT INTO jquants_short_sale_reports(
              disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
-             discretionary_investment_contractor_name, investment_fund_name, is_cancellation
-           ) VALUES (?, 0, ?, '7203', 'Fund', '', '', 0)""",
+             discretionary_investment_contractor_name, investment_fund_name
+           ) VALUES (?, 0, ?, '7203', 'Fund', '', '')""",
         [("2026-01-29", "2026-01-28"), ("2026-02-05", "2026-02-04")],
     )
     connection.execute(
@@ -1145,7 +1151,7 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
-    build = export_lake_legacy(
+    build = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -1177,7 +1183,7 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     connection.execute("UPDATE jquants_daily_bars SET close = 9.0 WHERE traded_at = '2026-02-04'")
     connection.commit()
     connection.close()
-    corrected = export_lake_legacy(
+    corrected = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -1206,3 +1212,67 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     read_back = [key for key in store.get_keys[before:] if key.endswith(".parquet")]
     assert len(read_back) == 1
     assert second.transfers.downloaded_bytes < closure_bytes
+
+
+def test_low_level_cli_requires_mirror_before_constructing_store(monkeypatch):
+    def unexpected_store(**kwargs):
+        pytest.fail("missing CLI input must not construct the remote store")
+
+    monkeypatch.setattr(lake_publish_module, "Boto3R2Store", unexpected_store)
+    with pytest.raises(SystemExit) as error:
+        lake_publish_module.main(["--release-manifest", "release.json"])
+    assert error.value.code == 2
+
+
+def test_low_level_cli_reports_configuration_failure_without_traceback(monkeypatch, capsys):
+    monkeypatch.delenv("R2_ACCOUNT_ID", raising=False)
+    assert lake_publish_module.main(["--mirror", ".", "--release-manifest", "release.json"]) == 1
+    assert "required environment variable is missing: R2_ACCOUNT_ID" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("lose_during_upload", [False, True])
+def test_market_cli_refuses_a_lost_lease_before_pointer_switch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    lose_during_upload: bool,
+) -> None:
+    mirror, _ = _release(tmp_path)
+    store = MemoryR2Store()
+    handle, _ = acquire(store, "operator")
+    path = tmp_path / "lease.json"
+    _save_handle(path, handle)
+    monkeypatch.setattr(market_publish_module, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+    released = False
+    if lose_during_upload:
+        ensure = lake_publish_module._ensure_immutable
+
+        def lose_lease(*args, **kwargs):
+            nonlocal released
+            result = ensure(*args, **kwargs)
+            if not released:
+                release(store, handle)
+                released = True
+            return result
+
+        monkeypatch.setattr(lake_publish_module, "_ensure_immutable", lose_lease)
+    else:
+        release(store, handle)
+    assert (
+        market_publish_module.main(
+            [
+                "--sqlite",
+                str(tmp_path / "market.sqlite"),
+                "--mirror",
+                str(mirror),
+                "--lease-handle",
+                str(path),
+            ]
+        )
+        == 1
+    )
+    assert "lake/pointers/l1/current.json" not in store.values
+    assert "publication lease" in capsys.readouterr().err
+    if lose_during_upload:
+        assert released

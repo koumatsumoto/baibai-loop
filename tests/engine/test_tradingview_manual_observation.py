@@ -26,7 +26,10 @@ NOW = datetime(2026, 10, 11, 1, tzinfo=UTC)
 def manual_store(tmp_path, count=153):
     path = store(tmp_path / "market.sqlite", count)
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (MASTER.isoformat(),))
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date=?, record_json=json_set(record_json, '$.Date', ?)",
+            (MASTER.isoformat(), MASTER.isoformat()),
+        )
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,0)", (DAY.isoformat(),))
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-10',0)")
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (MASTER.isoformat(),))
@@ -160,7 +163,6 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
         "future_master",
         "missing_master",
         "short_interval",
-        "small_batch",
     ],
 )
 def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, capsys, case):
@@ -186,8 +188,6 @@ def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, cap
         args[-1] = "2026-10-08"
     if case == "short_interval":
         args += ["--interval", "14"]
-    if case == "small_batch":
-        args += ["--batch-size", "49"]
     before = path.read_bytes()
     assert cli.main(args) == 1
     output = capsys.readouterr()
@@ -294,7 +294,9 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
 def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_path):
     path = manual_store(tmp_path, 101)
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18'")
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18', record_json=json_set(record_json,'$.Date','2026-09-18')"
+        )
     before = path.read_bytes()
     with pytest.raises(SourceDataError, match="calendar-required exact-date master"):
         preflight_snapshot(path, DAY, now=NOW)
@@ -308,7 +310,9 @@ def test_calendar_gap_cannot_select_an_older_master_or_collect(tmp_path, missing
     path = manual_store(tmp_path, 101)
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-08',1)")
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08'")
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08', record_json=json_set(record_json,'$.Date','2026-10-08')"
+        )
         conn.execute("DELETE FROM jquants_market_calendar WHERE day=?", (missing_day,))
     before = path.read_bytes()
     with pytest.raises(SourceDataError, match="Continuous trading calendar coverage"):
@@ -373,3 +377,10 @@ def test_business_day_manual_morning_does_not_block_post_close_collection(
         collect(path, day, fetch, master_asof=day, clock=lambda: morning + timedelta(hours=6))
     )
     assert result["status"] == "saved"
+
+
+def test_batch_size_option_is_removed_before_any_credential_access(monkeypatch):
+    monkeypatch.setattr(cli, "credential_storage", lambda *_: pytest.fail("must not read OAuth"))
+    with pytest.raises(SystemExit) as error:
+        cli.main(["refresh", "--batch-size", "50"])
+    assert error.value.code == 2

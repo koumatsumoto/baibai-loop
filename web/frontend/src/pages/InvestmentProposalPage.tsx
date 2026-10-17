@@ -20,11 +20,6 @@ function yen(value: string | number | null | undefined): string {
   return value == null ? '未確認' : `${formatNumber(Number(value), 2)}円`
 }
 
-function SavedTermsExpiry({ value }: { value: string }) {
-  const [viewedAt] = useState(() => Date.now())
-  return <>{formatJstStamp(value)}{new Date(value).getTime() <= viewedAt && <span className="ml-2 text-muted-foreground">表示時点で期限経過</span>}</>
-}
-
 export function ProposalItemContent({ item, savedQuote }: { item: InvestmentProposalItemView; savedQuote?: Record<string, unknown> }) {
   const terms = item.terms
   const quotePrice = savedQuote?.price_yen
@@ -43,7 +38,6 @@ export function ProposalItemContent({ item, savedQuote }: { item: InvestmentProp
         <div><dt className="text-xs text-muted-foreground">数量</dt><dd>{formatNumber(terms.quantity)}株</dd></div>
         <div><dt className="text-xs text-muted-foreground">金額</dt><dd>{yen(terms.notional_yen)}</dd></div>
         <div><dt className="text-xs text-muted-foreground">対象 session</dt><dd>{terms.target_session}</dd></div>
-        <div><dt className="text-xs text-muted-foreground">期限</dt><dd><SavedTermsExpiry value={terms.expires_at} /></dd></div>
         {terms.side === 'buy' && <div><dt className="text-xs text-muted-foreground">評価の購入上限</dt><dd>{yen(terms.maximum_entry_price_yen)}</dd></div>}
       </dl>{item.timing && <p className="text-sm">{item.timing === 'wait_limit' ? '指定の指値で待つ提案' : '当時の現在価格を上限とする指値提案'}</p>}
       <p className="text-xs text-muted-foreground">注文受理・約定の保証ではありません。注文前に現在の条件を確認してください。</p>
@@ -93,7 +87,7 @@ export function CurrentPreviewContent({ preview }: { preview: InvestmentProposal
       </article>
     })}
     {preview.warnings.length > 0 && <p className="break-words text-xs text-muted-foreground">現在の再試算に対する警告: {preview.warnings.map(proposalWarningLabel).join(' / ')}</p>}
-    <p className="text-xs text-muted-foreground">保存した価格・数量・期限を更新していません。改めて勧めるには新しい提案と Review が必要です。</p>
+    <p className="text-xs text-muted-foreground">保存した価格・数量・対象日を更新していません。改めて勧めるには新しい提案と Review が必要です。</p>
   </div>
 }
 

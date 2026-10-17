@@ -8,10 +8,11 @@ date keeps this from carrying any of screening's meaning across the boundary.
 
 from __future__ import annotations
 
-import sqlite3
 from contextlib import closing
 from datetime import date
 from pathlib import Path
+
+from baibai_engine.foundation.sqlite_read import connect_read_only, read_store_if_written
 
 _SCHEDULE_QUERY = (
     "SELECT ticker, MIN(announcement_date) FROM jpx_earnings_calendar "
@@ -20,23 +21,23 @@ _SCHEDULE_QUERY = (
 
 
 def read_published_earnings_dates(sqlite_path: Path, today: date) -> dict[str, date] | None:
-    """The soonest announcement at or after `today` per ticker, or None if unreadable.
+    """Read the next stored date per ticker; None means absent or unwritten storage.
 
-    None separates "no schedule is stored" from "the schedule reaches no ticker
-    yet": the first is a setup problem worth reporting, the second is the normal
-    state between publication windows.
+    An empty published schedule returns {}. Corrupt files, missing columns and
+    partially initialized schemas remain errors rather than being called unpublished.
     """
-    if not sqlite_path.exists():
-        return None
-    try:
-        with closing(sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)) as conn:
+
+    def read() -> dict[str, date]:
+        with closing(connect_read_only(sqlite_path)) as conn:
             rows = conn.execute(_SCHEDULE_QUERY, (today.isoformat(),)).fetchall()
-    except sqlite3.Error:
-        return None
-    published: dict[str, date] = {}
-    for ticker, announcement_date in rows:
-        try:
-            published[str(ticker)] = date.fromisoformat(str(announcement_date))
-        except ValueError as error:
-            raise ValueError(f"invalid earnings date for {ticker}: {announcement_date}") from error
-    return published
+        published: dict[str, date] = {}
+        for ticker, announcement_date in rows:
+            try:
+                published[str(ticker)] = date.fromisoformat(str(announcement_date))
+            except ValueError as error:
+                raise ValueError(
+                    f"invalid earnings date for {ticker}: {announcement_date}"
+                ) from error
+        return published
+
+    return read_store_if_written(sqlite_path, read)

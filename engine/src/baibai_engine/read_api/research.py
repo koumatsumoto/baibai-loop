@@ -85,8 +85,9 @@ def reviewed_assessment_projection(
     path: Path, *, assessment_id: str, assessment_ref: AssessmentRef | None = None
 ) -> dict[str, object]:
     """正確な保存pairの原価格算術だけを表示し、現在の資格・価格を混ぜない。"""
-    publication = stock_assessment_publication(path, assessment_id=assessment_id)
-    if publication is None and assessment_ref is None:
+    if assessment_ref is None and not read_rows(
+        path, "SELECT 1 FROM stock_assessment WHERE assessment_id=?", (assessment_id,)
+    ):
         return {}
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")

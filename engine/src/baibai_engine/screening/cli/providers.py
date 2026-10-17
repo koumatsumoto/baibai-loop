@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
@@ -49,7 +49,6 @@ class JQuantsAdapter(Protocol):
         end: date,
         *,
         revision_overlap_days: int,
-        repair_ranges: Sequence[tuple[date, date]] = (),
         progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int: ...
 
@@ -96,8 +95,6 @@ class JPXAdapter(Protocol):
     def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot: ...
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
-
-    def has_regulation_cache(self, asof_date: date) -> bool: ...
 
     def bootstrap_cache(self, asof_date: date) -> Mapping[str, int]: ...
 

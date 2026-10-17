@@ -1,4 +1,4 @@
-"""価格騰落・volatility・流動性・split状態の純粋算術。"""
+"""価格騰落・volatility・株式単位を揃えた流動性の純粋算術。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
     asof_basis_closes,
+    cumulative_share_unit_factor_after,
 )
 
 PRICE_HISTORY_WINDOW_DAYS = 750
@@ -48,7 +49,7 @@ def price_change(
     if len(ordered) <= sessions:
         return None
     # 分割を跨ぐ比較で偽の騰落を出さないよう、adjustment_factor から組んだ
-    # asof 基準系列で両端を比較する (cache の adjustment_close は基準混在のため不使用)。
+    # asof 基準系列で両端を比較する (配信元の調整済み価格は基準混在のため不使用)。
     prices = asof_basis_closes(ordered[-(sessions + 1) :], adjustment_events, asof_date=asof_date)
     return trailing_return(prices, sessions)
 
@@ -60,7 +61,7 @@ def realized_volatility(
     *,
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
 ) -> float | None:
-    """Annualized close-to-close volatility on one as-of-consistent share basis."""
+    """Annualized close-to-close volatility on one as-of-consistent price basis."""
     ordered = sorted(
         (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
     )
@@ -103,8 +104,10 @@ def avg_daily_volume(
     bars: Sequence[JQuantsDailyBar],
     asof_date: date,
     sessions: int = AVG_VOLUME_SESSIONS,
+    *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
 ) -> float | None:
-    """Mean traded shares over the trailing sessions, or None when too sparse.
+    """Mean traded shares on the as-of share basis, or None when unresolved.
 
     Shares rather than yen, because it is the denominator that turns a margin
     balance into days of trading; dividing yen turnover by the close would put the
@@ -118,7 +121,18 @@ def avg_daily_volume(
     window = ordered[-sessions:]
     if len(window) < sessions:
         return None
-    values = [float(bar.volume) for bar in window if bar.volume is not None]
+    values: list[float] = []
+    events = bars if adjustment_events is None else adjustment_events
+    for bar in window:
+        if bar.volume is None:
+            continue
+        if bar.volume == 0:
+            values.append(0.0)
+            continue
+        factor = cumulative_share_unit_factor_after(events, bar.traded_at, asof_date)
+        if factor is None:
+            return None
+        values.append(float(bar.volume) / factor)
     if len(values) < AVG_VOLUME_MIN_OBSERVED:
         return None
     return mean(values)
@@ -149,34 +163,3 @@ def turnover_spike(
     if baseline <= 0:
         return None
     return mean(latest_values) / baseline
-
-
-def has_split_adjustment_within_sessions(
-    bars: Sequence[JQuantsDailyBar],
-    asof_date: date,
-    sessions: int,
-    *,
-    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
-) -> bool:
-    """True when J-Quants adjustment_factor marks a split in the latest sessions.
-
-    J-Quants daily_quotes sets ``AdjustmentFactor`` on ex-rights dates for
-    stock splits and reverse splits. Use the same session window as
-    ``price_change_60d`` so the flag covers the price-change calculation it
-    qualifies.
-    """
-    ordered = sorted(
-        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
-    )
-    if len(ordered) < 2:
-        return False
-
-    relevant = ordered[-(sessions + 1) :]
-    start = relevant[0].traded_at
-    events = bars if adjustment_events is None else adjustment_events
-    factors = [
-        event.adjustment_factor
-        for event in events
-        if start <= event.traded_at <= asof_date and event.adjustment_factor is not None
-    ]
-    return any(factor != 1.0 for factor in factors) or len(set(factors)) > 1

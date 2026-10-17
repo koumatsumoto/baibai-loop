@@ -237,7 +237,7 @@ def test_empty_selection_ends_with_reason_without_fabricating_proposal_or_confir
     service, operation = start(case)
     completed = service.complete(operation.operation_id, final_payload(operation), completed_at=NOW)
     assert completed.status == "completed"
-    assert completed.payload.human_confirmation is None
+    assert "human_confirmation" not in completed.payload.model_dump()
     assert ledger_rows(db) == before
     with closing(sqlite3.connect(db)) as connection, connection:
         assert connection.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
@@ -264,7 +264,7 @@ def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(ca
     seed_proposal(db, proposal)
     before = ledger_rows(db)
     completed = record_and_finish(service, operation, proposal)
-    assert completed.payload.human_confirmation is None
+    assert "human_confirmation" not in completed.payload.model_dump()
     assert (
         progress_binding(completed.payload).proposal_ref.draft_sha256
         == proposal.review.draft_sha256
@@ -298,7 +298,7 @@ def test_all_unfinished_requires_saved_defer_proposal_and_does_not_become_reject
 def test_holding_uses_common_assessment_reference_and_published_proposal_only(case, action):
     db, _ = case
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    seed_ledger(db, ledger.model_copy(update={"market_prices": ()}))
+    seed_ledger(db, ledger)
     reference = seed_assessment(db, "2331")
     service, operation = start(case, ("2331",), scope="review_positions")
     operation = service.record_assessment(operation.operation_id, reference, now=NOW)
@@ -482,7 +482,7 @@ def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
         assert service.get(operation.operation_id) == operation
     else:
         # Completion a day later only verifies the stored publication/terms.
-        # Current price/cash/expiry belong to preview and do not rewrite terms.
+        # Current price/cash/target session belong to preview and do not rewrite terms.
         completed = service.complete(
             operation.operation_id,
             final_payload(operation),
@@ -577,6 +577,8 @@ def test_domain_inputs_preserve_gaps_and_null_and_do_not_write_or_use_network(
     )
     projected = project_research_inputs(selected.model_copy(update={"inputs": inputs}))
     assert set(projected["securities"]) == {"1234"}
+    assert projected["known_at"] == selected.input_known_at.isoformat()
+    assert "received_cutoff" not in projected
     assert projected["market_context"]["saved_market_context_assessment"] is None
     assert projected["market_context"]["reading"] is None
     assert inputs.analysis == selected.inputs.analysis

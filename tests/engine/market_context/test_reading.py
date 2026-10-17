@@ -151,7 +151,6 @@ def test_reading_rules_resolve_for_every_registered_series() -> None:
         assert resolved.publication_cadence in PUBLICATION_INTERVAL_DAYS
         assert resolved.publication_lag_days is not None
         assert resolved.staleness_margin_days is not None
-        assert not resolved.explicit_staleness_warn_days
         assert resolved.staleness_warn_days >= 1
 
 
@@ -168,40 +167,6 @@ def test_current_rules_derive_staleness_after_the_next_print() -> None:
         next_print = rule.next_print_estimate(ASOF)
         assert next_print is not None
         assert rule.stale_after(ASOF) == (next_print + date.resolution * rule.staleness_margin_days)
-
-
-@pytest.mark.parametrize(
-    "rules_path",
-    [
-        path
-        for path in sorted(DEFAULT_RULES_PATH.parent.glob("*.yaml"))
-        if load_reading_rules(path)
-        .resolve(series_id="test.legacy", frequency="monthly")
-        .publication_lag_days
-        is None
-    ],
-    ids=lambda path: path.stem,
-)
-def test_historical_rules_load_and_omit_the_forward_print_estimate(rules_path: Path) -> None:
-    historical = load_reading_rules(rules_path)
-    assert historical.schema_version == 1
-    assert historical.resolve(
-        series_id="test.legacy",
-        frequency="monthly",
-    ).explicit_staleness_warn_days
-    definition = series_definition(frequency="monthly")
-    observed_at = date(2026, 6, 1)
-
-    snapshot = compute_reading(
-        series=[definition],
-        reader=store_reader(observations(definition.series_id, [(observed_at, 1.0)])),
-        rules=historical,
-        rules_revision="historical",
-        asof=ASOF,
-    )
-
-    assert snapshot.series[0].next_print_estimate is None
-    assert snapshot.series[0].print_due_in_days is None
 
 
 def test_reading_rules_default_the_statistic_to_the_level() -> None:
@@ -276,16 +241,17 @@ def test_reading_rules_reject_a_series_overridden_twice(tmp_path: Path) -> None:
 
     path = tmp_path / "duplicate.yaml"
     path.write_text(
-        "schema_version: 1\n"
+        "schema_version: 2\n"
         "defaults:\n"
         "  monthly:\n"
         "    percentile_window_years: 10\n"
         "    short_trend_months: 3\n"
         "    long_trend_months: 12\n"
-        "    staleness_warn_days: 100\n"
+        "    publication_lag_days: 45\n"
+        "    staleness_margin_days: 7\n"
         "overrides:\n"
         "  jp.nominal_wage_index:\n"
-        "    staleness_warn_days: 160\n"
+        "    publication_lag_days: 60\n"
         "  jp.nominal_wage_index:\n"
         "    statistic: yoy\n",
         encoding="utf-8",
@@ -298,27 +264,24 @@ def test_reading_rules_reject_a_series_overridden_twice(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("schema_version", "default_fields", "override_fields", "message"),
     [
-        (
-            1,
-            (
-                "    staleness_warn_days: 100\n"
-                "    publication_lag_days: 45\n"
-                "    staleness_margin_days: 7\n"
-            ),
-            "",
-            "schema_version 1 defaults.*cannot declare",
-        ),
+        (1, "    publication_lag_days: 45\n    staleness_margin_days: 7\n", "", "schema_version"),
+        (3, "    publication_lag_days: 45\n    staleness_margin_days: 7\n", "", "schema_version"),
+        (2, "    publication_lag_days: 45\n", "", "staleness_margin_days"),
+        (2, "    staleness_margin_days: 7\n", "", "publication_lag_days"),
         (
             2,
-            "    publication_lag_days: 45\n",
+            (
+                "    publication_lag_days: 45\n    staleness_margin_days: 7\n"
+                "    staleness_warn_days: 100\n"
+            ),
             "",
-            "schema_version 2 defaults.*require both",
+            "staleness_warn_days",
         ),
         (
             2,
             "    publication_lag_days: 45\n    staleness_margin_days: 7\n",
             "  test.series:\n    staleness_warn_days: 999\n",
-            "schema_version 2 override.*cannot declare staleness_warn_days",
+            "staleness_warn_days",
         ),
     ],
 )
@@ -346,12 +309,11 @@ def test_reading_rules_reject_mixed_or_incomplete_publication_contracts(
         load_reading_rules(path)
 
 
-# Days since the latest observation, for a series that is waiting for its next release
-# and for one whose source has published since without the store catching up. The pairs
-# come from each source's publication calendar: the normal age is the source's lag plus
-# one publication interval, and the stopped age adds one more interval.
+# Synthetic ages on opposite sides of the configured publication estimate.
+# These check the lag/interval/margin policy, not whether a source actually published
+# on a particular date or whether a fresh value is available upstream.
 _STALENESS_CASES: tuple[tuple[str, int, int], ...] = (
-    # The dashboard carries only the final wage print, which lands late in M+2.
+    # L2 selects final wage prints from the retained dashboard rows.
     ("jp.nominal_wage_index", 116, 147),
     # The BOJ consumption index for month M lands in the middle of M+2.
     ("jp.real_consumption", 106, 137),
@@ -359,7 +321,7 @@ _STALENESS_CASES: tuple[tuple[str, int, int], ...] = (
     ("us.jolts_openings", 97, 128),
     # The Japanese labour force survey publishes month M at the end of M+1.
     ("jp.unemployment", 94, 125),
-    # Michigan publishes the preliminary reading mid-month, so waiting is short.
+    # The configured Michigan lag approximates a final monthly print, not the flash.
     ("us.consumer_sentiment", 56, 87),
     # FRED serves the EIA daily prices in weekly batches.
     ("wti", 10, 17),
@@ -393,15 +355,14 @@ def test_staleness_warns_after_the_estimated_publication_window(
         )
         return snapshot.series[0].stale
 
-    assert not reading_at(waiting_days), "normal publication waiting must not warn"
-    assert reading_at(stopped_days), "a missed publication must warn"
+    assert not reading_at(waiting_days), "age inside configured publication margin must not warn"
+    assert reading_at(stopped_days), "age beyond configured publication margin must warn"
 
 
-def test_japanese_cpi_stays_fresh_through_the_day_its_next_print_lands() -> None:
-    """Reading freshness permits the source's normal publication wait.
+def test_japanese_cpi_margin_includes_the_illustrated_late_april_date() -> None:
+    """The approximation leaves this February observation inside its margin.
 
-    e-Stat posts the March CPI late in April, so February remains the newest
-    observation before that release. The scheduled wait must not imply a stalled source.
+    This fixture does not establish the actual April 2027 publication calendar.
     """
 
     rule = load_reading_rules(DEFAULT_RULES_PATH).resolve(
@@ -556,7 +517,6 @@ def test_every_registered_series_gets_a_forward_print_estimate() -> None:
         asof=ASOF,
     )
 
-    assert len(definitions) >= 109
     assert len(snapshot.series) == len(definitions)
     assert all(reading.next_print_estimate is not None for reading in snapshot.series)
     assert all(reading.print_due_in_days is not None for reading in snapshot.series)
@@ -1055,6 +1015,24 @@ def test_reading_reports_a_series_with_no_observations_without_failing() -> None
     reading = snapshot.series[0]
     assert reading.latest_value is None
     assert reading.stale
+    assert reading.staleness_warn_days == 7
     assert reading.insufficient_history
     assert reading.next_print_estimate is None
     assert reading.print_due_in_days is None
+
+
+def test_zero_publication_lag_and_margin_override_nonzero_defaults() -> None:
+    rules = load_reading_rules(DEFAULT_RULES_PATH).model_copy(
+        update={
+            "overrides": {
+                "test.immediate": SeriesOverride(publication_lag_days=0, staleness_margin_days=0)
+            }
+        }
+    )
+    resolved = rules.resolve(series_id="test.immediate", frequency="monthly")
+    observed_at = date(2026, 6, 1)
+    assert resolved.publication_lag_days == 0
+    assert resolved.staleness_margin_days == 0
+    assert resolved.next_print_estimate(observed_at) == date(2026, 7, 1)
+    assert resolved.stale_after(observed_at) == date(2026, 7, 1)
+    assert resolved.staleness_warn_days == 31

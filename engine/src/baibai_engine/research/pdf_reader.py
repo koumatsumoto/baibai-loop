@@ -65,11 +65,10 @@ def find_keyword_contexts(
 ) -> tuple[KeywordHit, ...]:
     """Collect context windows for each keyword, keeping page order.
 
-    Occurrences whose window overlaps one already reported for the same keyword and page
-    are skipped: a 短信 repeats a term several times inside one paragraph, and printing
-    that paragraph once per occurrence buries the other pages. Separate mentions on the
-    same page still come through, because a figure quoted in the summary and in the
-    statements are two different readings and which one an assessment cites matters.
+    Occurrences already fully visible in a reported window for the same keyword
+    and page are skipped. A new mention outside that window is retained even when
+    its surrounding context overlaps: overlap alone does not mean the reader has
+    seen that occurrence. Separate figures on one page must remain discoverable.
     """
 
     if context_chars < 0:
@@ -89,7 +88,7 @@ def find_keyword_contexts(
                 start = position + len(keyword)
                 window_start = max(0, position - context_chars // 2)
                 window_end = min(len(text), position + len(keyword) + context_chars)
-                if window_start < reported_until:
+                if position + len(keyword) <= reported_until:
                     continue
                 reported_until = window_end
                 hits.append(
@@ -113,11 +112,6 @@ def missing_keywords(keywords: Sequence[str], hits: Sequence[KeywordHit]) -> tup
 
     found = {hit.keyword for hit in hits}
     return tuple(keyword for keyword in keywords if keyword not in found)
-
-
-def _page_texts(path: Path) -> tuple[str, ...]:
-    reader = PdfReader(path)
-    return tuple(page.extract_text() or "" for page in reader.pages)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -147,10 +141,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.pdf.is_file():
         print(f"no such PDF: {args.pdf}", file=sys.stderr)
         return 2
-    pages = _page_texts(args.pdf)
-    print(f"{args.pdf} — {len(pages)} page(s)")
+    reader = PdfReader(args.pdf)
+    page_count = len(reader.pages)
+    print(f"{args.pdf} — {page_count} page(s)")
 
     if args.search:
+        pages = tuple(page.extract_text() or "" for page in reader.pages)
         hits = find_keyword_contexts(pages, args.search, context_chars=args.context)
         missing = missing_keywords(args.search, hits)
         if missing:
@@ -162,10 +158,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(hit.context)
         return 0
 
-    selection = parse_page_selection(args.pages, len(pages)) if args.pages else (1,)
+    selection = parse_page_selection(args.pages, page_count) if args.pages else (1,)
     for page_number in selection:
         print(f"=== page {page_number}")
-        print(pages[page_number - 1])
+        print(reader.pages[page_number - 1].extract_text() or "")
     return 0
 
 

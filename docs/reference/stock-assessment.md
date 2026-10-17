@@ -11,7 +11,7 @@ status: active
 
 ## 目的と適用
 
-本書はStock Assessmentと独立したAssessment Reviewの内容・算術・参照契約を定める。企業評価は現在価格・cash・保有に対する行動判断から独立する。新規購入と保有継続・売却の行動、条件付き価格・数量・期限は[Investment Proposal](./investment-proposal.md)、確認済み取引事実は[Portfolio Ledger](./portfolio-ledger.md)が所有する。
+本書はStock Assessmentと独立したAssessment Reviewの内容・算術・参照契約を定める。企業評価は現在価格・cash・保有に対する行動判断から独立する。新規購入と保有継続・売却の行動、条件付き価格・数量・対象日は[Investment Proposal](./investment-proposal.md)、確認済み取引事実は[Portfolio Ledger](./portfolio-ledger.md)が所有する。
 
 ## Stock Assessment v1
 
@@ -33,7 +33,7 @@ status: active
 
 Snapshotは必要な値を固定し、元run storeの存在を要求しない。ScreeningのE[r]とFV anchorは候補発見のsecondary machine priorであり、Stock Assessmentへ重複転記しない。
 
-factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外部sourceはHTTPS、local dataはprovider/datasetを持つ。ticker、source参照、取得・観測時刻、単位を検証する。判断後の資料を判断前の事実として混入しない。市場価格は`observed_at`と未調整1株の`price_basis`を明示する。
+factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外部sourceはHTTPS、local dataはprovider/datasetを持つ。ticker、source参照、取得・観測時刻、単位を検証する。判断後の資料を判断前の事実として混入しない。市場価格は未調整1株の`price_basis`を明示する。日次終値は原典の取引日`as_of`で扱い、観測時刻を捏造しない。実際に観測時刻がある場合だけ`observed_at`を付け、realtime価格では必須とする。終値の利用可能な取引日はJSTの立会終了境界で判定する。
 
 resolved valuationは価格factを参照する。unresolvedでは価格もnullでよく、valuation_metricや正の起点利益を要求しない。財務根拠が未確定なら所見と理由を独立確認しuncertain/unsupportedの評価を完成させる。欠損を0やverifiedへ変換しない。
 
@@ -47,7 +47,7 @@ resolved valuationは価格factを参照する。unresolvedでは価格もnull�
 
 新しい通常評価では[要求年率方針](../portfolio-management.md#required-return-policy)を出発点に、作者が採用率を`required_annual_return_pct`へ明記する。個別の上乗せ理由は既存のcalculationに記す。scaffoldは未評価の率をnullで出し、自動補完しない。保存済み評価は原率で読み、率を改める場合は新revisionと独立Reviewを作る。
 
-夜間評価の注文案が翌営業日を期限としていても、翌朝の現在判断には同日の企業評価を使う。元Stock Assessmentからの差分draftで、価値・期間・これから受け取るcashを確認し、新しい独立ReviewとInvestment Proposalへ束縛する。元資料の再取得や全Researchは一律に要求しないが、日付だけの更新で旧分配を今後分へ読み替えない。Operationの分析対象日、企業評価日、quote日は区別する。
+夜間評価の注文案が翌営業日を対象日としていても、翌朝の現在判断には同日の企業評価を使う。元Stock Assessmentからの差分draftで、価値・期間・これから受け取るcashを確認し、新しい独立ReviewとInvestment Proposalへ束縛する。元資料の再取得や全Researchは一律に要求しないが、日付だけの更新で旧分配を今後分へ読み替えない。Operationの分析対象日、企業評価日、quote日は区別する。
 
 Projectionは`terminal_value_per_share_yen / cash_distribution_per_share_yen / calculation / source_ids`。terminalとcashは0以上の有限値。calculationに入力、単位、式、数値代入、結果、重要仮定を記す。期間は銘柄とシナリオの比較窓で、保有期限や売却期限ではない。期間の根拠、重要な遅延・上振れは文章で扱う。
 
@@ -181,7 +181,7 @@ primary_source_check=verifiedは重要な判断根拠を確認した意味で、
 
 `stock_assessment / stock_assessment_review`へ同一connection・短いtransactionで原子的に公開する。Review後付けの単独公開を持たない。`published_at`はwriterの公開時刻で、`conclusion.assessed_at`とは別である。
 
-AssessmentとReviewのUUIDはscaffold時に固定する。同IDは両方の同内容なら既存pairを返し、異内容は拒否する。新revisionは同tickerの最新revisionをsupersedeし、評価日・公開順を逆行させない。最新評価を先に選び、その後に検証する。unsupported/unresolvedを理由に古いsupportedへfallbackしない。公開順はtimezoneを含む正確なinstantを比較する。
+AssessmentとReviewのUUIDは各scaffoldで発行する。Assessmentの同一素材・同一supersedes先での再生成は公開IDを維持し、Reviewの再生成は新しいReview IDを発行する。同IDは両方の同内容なら既存pairを返し、異内容は拒否する。新revisionは同tickerの最新revisionをsupersedeし、評価日・公開順を逆行させない。最新評価を先に選び、その後に検証する。unsupported/unresolvedを理由に古いsupportedへfallbackしない。公開順はtimezoneを含む正確なinstantを比較する。
 
 共通読込は公開時刻でexact pairを検証し、現在の価格・cash・保有を適用しない。参照はassessment_id/core_sha256/review_idの一組へ束縛する。新規の行動はentry_policy、保有の経済判断はholding_policy、提案の保存と現在再計算はInvestment Proposalが所有する。
 
@@ -203,8 +203,6 @@ AssessmentとReviewのUUIDはscaffold時に固定する。同IDは両方の同�
 
 [Researchの固定選定](./analysis-operations.md#明示開始と固定対象)が対象を所有する。newとholdingは共通の評価pairを公開し、Operationへassessment_refを記録する。保有はholdings/<ticker>子workspaceで現在holdingを確認し、入力正本は親の固定snapshotを共有する。無関係なledger更新で企業調査をやり直さない。
 
-Caseのassessment-draft.yaml、assessment-review.yamlとassessment-publication.yamlを使う。最後のfileはscaffoldで固定する公開IDとsupersedes参照だけを持ち、企業評価本文の第二正本ではない。--forceでdraftを再生成しても同じ公開IDを維持し、明示refreshでは別IDを作る。公開状態はexact document/Reviewとの一致で決まり、自由なchecklistを第二gateにしない。
-
-
+Caseのassessment-draft.yaml、assessment-review.yamlとassessment-publication.yamlを使う。最後のfileはscaffoldで固定する公開IDとsupersedes参照だけを持ち、企業評価本文の第二正本ではない。--forceだけでは公開IDを変えず、素材のprior参照とsupersedes先が同じなら再生成・再試行でも維持する。素材または置換先の最新評価が変わった場合は新しい公開IDを発行する。公開状態はexact document/Reviewとの一致で決まり、自由なchecklistを第二gateにしない。
 
 scaffoldの--outは任意FILEへの追加exportを指定でき、同じpayloadをworkspaceのcanonical draftにも生成する。公開はworkspace側の本文と固定IDを使う。別exportを編集した場合はworkspace側へ明示的にコピーするかworkspace側を直接編集し、exportの変更を黙って採用しない。出力衝突は--forceの明示なしに上書きしない。作成・独立Review・公開・提案への順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。

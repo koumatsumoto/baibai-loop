@@ -91,7 +91,8 @@ def scaffold_assessment(
     if from_assessment_id is not None:
         payload = scaffold_assessment_refresh(pair, as_of=as_of, assessed_at=retrieved_at)
     else:
-        quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=retrieved_at)
+        price_cutoff = min(retrieved_at, datetime.combine(as_of, time.max, tzinfo=JST))
+        quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=price_cutoff)
         sources: list[dict[str, object]] = []
         facts: list[dict[str, object]] = []
         if quote is not None:
@@ -115,9 +116,6 @@ def scaffold_assessment(
                     "unit": "JPY_per_share",
                     "as_of": quote.price_as_of.isoformat(),
                     "source_ids": ["market_close"],
-                    "observed_at": datetime.combine(
-                        quote.price_as_of, time(15, 30), tzinfo=JST
-                    ).isoformat(),
                     "price_basis": "last_close_unadjusted",
                 }
             )

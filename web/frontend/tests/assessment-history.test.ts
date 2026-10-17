@@ -48,6 +48,8 @@ function report(): AssessmentPublicationView {
     summary: 'current macro summary',
     age_days: 1,
     stale: false,
+    assessment: null,
+    historical_payload: null,
     synthesis: {
       dominant_forces: [{
         force_id: 'force.one',
@@ -142,7 +144,7 @@ describe('macro report projection', () => {
     expect(partitionHistoricalCore(undefined).channels).toEqual([])
     expect(orderHistoricalScenarios(undefined)).toEqual([])
     expect(forceTitle(null, 'force.raw')).toBe('force.raw')
-    const legacy = { ...report(), synthesis: null, core: [], connection: undefined } as unknown as AssessmentPublicationView
+    const legacy = { ...report(), synthesis: null, core: [], connection: null }
     expect(() => renderToStaticMarkup(createElement(HistoricalReportContent, { data: legacy }))).not.toThrow()
   })
 
@@ -163,7 +165,7 @@ describe('macro report projection', () => {
 describe('macro report render contract', () => {
   it('renders the judgment-first order and keeps rebuttal, lineage and scorecard evidence reachable', () => {
     const markup = renderToStaticMarkup(createElement(HistoricalReportContent, { data: report() }))
-    const headings = ['現局面', '支配的な力', '日本株の調査・見積りへの含意', 'シナリオと見方を変える条件', '詳細な経済チャネルと証拠']
+    const headings = ['保存当時の局面', '支配的な力', '日本株の調査・見積りへの含意', 'シナリオと見方を変える条件', '詳細な経済チャネルと証拠']
     for (const heading of headings) expect(markup).toContain(heading)
     for (let index = 1; index < headings.length; index += 1) {
       expect(markup.indexOf(headings[index - 1])).toBeLessThan(markup.indexOf(headings[index]))
@@ -172,7 +174,7 @@ describe('macro report render contract', () => {
     expect(markup).toContain('risk falsifier visible')
     expect(markup).toContain('estimate caveat visible')
     expect(markup).toContain('事実')
-    expect(markup).toContain('現局面のリスク環境と共通の出典')
+    expect(markup).toContain('保存当時のリスク環境と共通の出典')
     expect(markup).toContain('series.rates_policy')
     expect(markup).toContain('source.fact.rates_policy')
     expect(markup).toContain('score.base')
@@ -226,4 +228,12 @@ it('preserves the old detailed report and the original stored body', () => {
   expect(markup).toContain('regime changed')
   expect(markup).toContain('保存された完全本文')
   expect(markup).toContain('https://example.com/original')
+})
+
+
+it('shows the stored summary once when the historical report has no structured core', () => {
+  const data = { ...report(), synthesis: null, core: [], connection: null }
+  const markup = renderToStaticMarkup(createElement(HistoricalReportContent, { data }))
+  expect(markup.split(data.summary)).toHaveLength(2)
+  expect(markup).toContain('保存当時の局面')
 })

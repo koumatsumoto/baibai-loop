@@ -10,12 +10,12 @@ from tempfile import TemporaryDirectory
 
 from baibai_engine.market.delistings import DelistingRecord, store_jpx_delistings
 from baibai_engine.market.tender_offer import (
-    TenderOfferError,
     build_tender_offer_exit_values,
     parse_ordinary_share_offer_price,
     pays_in_cash_only,
     read_document_blocks,
     read_tender_offer_exit_values,
+    read_tender_offer_filings,
     read_tender_offer_outcome,
     store_tender_offer_exit_values,
 )
@@ -155,7 +155,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 (
                     "2026-01-05",
                     1,
-                    "SELF",
+                    "SSELF",
                     "20000",
                     "120",
                     "2026-01-05T09:00",
@@ -184,9 +184,32 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
     def _registration_and_result(self) -> list[tuple[object, ...]]:
         return [
-            ("2026-02-01", 1, "REG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
-            ("2026-03-20", 1, "RES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
+            ("2026-02-01", 1, "SREG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
+            ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
         ]
+
+    def test_later_non_disclosure_operation_removes_the_old_result(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+            connection = open_connection(sqlite_path)
+            try:
+                connection.execute(
+                    "INSERT INTO edinet_documents("
+                    "doc_date, sequence_number, doc_id, disclosure_status, operation_datetime) "
+                    "VALUES ('2026-04-01', 1, 'SRES', '1', '2026-04-01T10:00')"
+                )
+                connection.commit()
+                before = read_tender_offer_filings(connection, through=date(2026, 3, 31))
+                after = read_tender_offer_filings(connection, through=self.ASOF)
+            finally:
+                connection.close()
+            self.assertEqual([doc.doc_id for doc in before], ["SREG", "SRES"])
+            self.assertEqual([doc.doc_id for doc in after], ["SREG"])
+            values, summary = build_tender_offer_exit_values(
+                sqlite_path, provider=_Provider({}), asof=self.ASOF
+            )
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
 
     def test_a_completed_offer_becomes_an_exit_value(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -195,10 +218,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
@@ -211,6 +234,24 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(values[0].ticker, "2000")
             self.assertEqual(values[0].offer_price_yen, 1060.0)
             self.assertEqual(values[0].delisted_on, self.DELISTED_ON)
+
+    def test_download_count_survives_an_unreadable_archive(self) -> None:
+        for bad_document, expected_count in (("SRES", 1), ("SREG", 2)):
+            with self.subTest(bad_document=bad_document), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+                archives = {
+                    "SREG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
+                }
+                archives[bad_document] = b"not a ZIP archive"
+                provider = _Provider(archives)
+                values, summary = build_tender_offer_exit_values(
+                    sqlite_path, provider=provider, asof=self.ASOF
+                )
+                self.assertEqual(values, ())
+                self.assertEqual(summary.rejection_reason_counts, {"document_unreadable": 1})
+                self.assertEqual(summary.downloaded_document_count, expected_count)
+                self.assertEqual(summary.downloaded_document_count, len(provider.requested))
 
     def test_a_non_candidate_delisting_mechanism_is_skipped(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -235,7 +276,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                             (
                                 "2025-09-01",
                                 1,
-                                "OLD_REG",
+                                "SOLDREG",
                                 None,
                                 "240",
                                 "2025-09-01T09:00",
@@ -246,47 +287,47 @@ class ControlEventExitBuildTest(unittest.TestCase):
                             (
                                 "2025-10-01",
                                 1,
-                                "OLD_END",
+                                "SOLDEND",
                                 None,
                                 terminal,
                                 "2025-10-01T09:00",
                                 offeror,
                                 "TARGET",
-                                "OLD_REG",
+                                "SOLDREG",
                             ),
                             *self._registration_and_result(),
                             # Late revisions belong to the old registration/result.
                             (
                                 "2026-04-01",
                                 1,
-                                "OLD_COR",
+                                "SOLDCOR",
                                 None,
                                 "250",
                                 "2026-04-01T09:00",
                                 offeror,
                                 "TARGET",
-                                "OLD_REG",
+                                "SOLDREG",
                             ),
                             (
                                 "2026-04-02",
                                 1,
-                                "OLD_RES_COR",
+                                "SOLDRESCOR",
                                 None,
                                 "280",
                                 "2026-04-02T09:00",
                                 offeror,
                                 "TARGET",
-                                "OLD_END",
+                                "SOLDEND",
                             ),
                         ],
                         reason="公開買付け、株式併合",
                     )
                     provider = _Provider(
                         {
-                            "REG": _archive(
+                            "SREG": _archive(
                                 {_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}
                             ),
-                            "RES": _archive({_OUTCOME: _SUCCESS}),
+                            "SRES": _archive({_OUTCOME: _SUCCESS}),
                         }
                     )
                     values, summary = build_tender_offer_exit_values(
@@ -294,9 +335,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     )
                     self.assertEqual(summary.resolved_count, 1)
                     self.assertEqual(values[0].offer_price_yen, 1060)
-                    self.assertEqual(values[0].offer_doc_id, "REG")
-                    self.assertEqual(values[0].result_doc_id, "RES")
-                    self.assertEqual(provider.requested, ["RES", "REG"])
+                    self.assertEqual(values[0].offer_doc_id, "SREG")
+                    self.assertEqual(values[0].result_doc_id, "SRES")
+                    self.assertEqual(provider.requested, ["SRES", "SREG"])
 
     def test_a_new_incomplete_round_does_not_fall_back_to_an_old_completed_round(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -307,7 +348,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     (
                         "2026-04-01",
                         1,
-                        "NEW",
+                        "SNEW",
                         None,
                         "240",
                         "2026-04-01T09:00",
@@ -333,7 +374,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     (
                         "2026-02-10",
                         1,
-                        "RIVAL_REG",
+                        "SRIVALREG",
                         None,
                         "240",
                         "2026-02-10T09:00",
@@ -359,7 +400,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     (
                         "2026-03-20",
                         2,
-                        "RIVAL_REG",
+                        "SRIVALREG",
                         None,
                         "240",
                         "2026-03-20T10:00",
@@ -369,7 +410,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     (
                         "2026-04-01",
                         1,
-                        "RIVAL_RES",
+                        "SRIVALRES",
                         None,
                         "270",
                         "2026-04-01T09:00",
@@ -391,27 +432,27 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 tmp,
                 [
                     *self._registration_and_result(),
-                    ("2026-02-05", 1, "REG2", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-05", 1, "SREG2", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
                     (
                         "2026-02-10",
                         1,
-                        "COR",
+                        "SCOR",
                         None,
                         "250",
                         "2026-02-10T09:00",
                         "BIDDER",
                         "TARGET",
-                        "REG",
+                        "SREG",
                     ),
                 ],
                 reason="公開買付け",
             )
             provider = _Provider(
                 {
-                    "REG": _archive({_PRICE: "株券１株につき金2,000円", _FUNDING: _CASH_ONLY}),
-                    "REG2": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
-                    "COR": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SREG": _archive({_PRICE: "株券１株につき金2,000円", _FUNDING: _CASH_ONLY}),
+                    "SREG2": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
+                    "SCOR": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
             values, summary = build_tender_offer_exit_values(
@@ -419,12 +460,12 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             self.assertEqual(summary.resolved_count, 1)
             self.assertEqual(values[0].offer_price_yen, 1000)
-            self.assertNotIn("REG", provider.requested)
+            self.assertNotIn("SREG", provider.requested)
 
     def test_an_unknown_or_different_offeror_parent_is_not_assigned_to_the_latest_offer(
         self,
     ) -> None:
-        for parent, offeror in (("MISSING", "BIDDER"), ("REG", "RIVAL")):
+        for parent, offeror in ((None, "BIDDER"), ("SMISSING", "BIDDER"), ("SREG", "RIVAL")):
             with self.subTest(parent=parent), TemporaryDirectory() as tmp:
                 sqlite_path = self._store(
                     tmp,
@@ -433,7 +474,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                         (
                             "2026-04-01",
                             1,
-                            "COR",
+                            "SCOR",
                             None,
                             "250",
                             "2026-04-01T09:00",
@@ -456,10 +497,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 sqlite_path = self._store(tmp, self._registration_and_result(), reason=reason)
                 provider = _Provider(
                     {
-                        "REG": _archive(
+                        "SREG": _archive(
                             {_PRICE: "株券普通株式１株につき金1,060円", _FUNDING: _CASH_ONLY}
                         ),
-                        "RES": _archive({_OUTCOME: _SUCCESS}),
+                        "SRES": _archive({_OUTCOME: _SUCCESS}),
                     }
                 )
                 values, summary = build_tender_offer_exit_values(
@@ -493,13 +534,13 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {
                             _PRICE: "株券普通株式１株につき金1,060円",
                             _FUNDING: "金銭以外の対価の種類株式",
                         }
                     ),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
             values, summary = build_tender_offer_exit_values(
@@ -515,7 +556,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 tmp,
                 [
                     *self._registration_and_result(),
-                    ("2026-03-01", 1, "WDR", None, "260", "2026-03-01T09:00", "BIDDER", "TARGET"),
+                    ("2026-03-01", 1, "SWDR", None, "260", "2026-03-01T09:00", "BIDDER", "TARGET"),
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",
             )
@@ -535,10 +576,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "RES": _archive({_OUTCOME: _FAILURE}),
+                    "SRES": _archive({_OUTCOME: _FAILURE}),
                 }
             )
 
@@ -549,7 +590,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1})
             # The price is never read once the offer is known not to have bought.
-            self.assertEqual(provider.requested, ["RES"])
+            self.assertEqual(provider.requested, ["SRES"])
 
     def test_two_offerors_over_one_target_produce_no_exit_value(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -557,8 +598,8 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 tmp,
                 [
                     *self._registration_and_result(),
-                    ("2026-02-10", 1, "REG2", None, "240", "2026-02-10T09:00", "RIVAL", "TARGET"),
-                    ("2026-03-25", 1, "RES2", None, "270", "2026-03-25T09:00", "RIVAL", "TARGET"),
+                    ("2026-02-10", 1, "SREG2", None, "240", "2026-02-10T09:00", "RIVAL", "TARGET"),
+                    ("2026-03-25", 1, "SRES2", None, "270", "2026-03-25T09:00", "RIVAL", "TARGET"),
                 ],
                 reason="他社による買収（公開買付け、株式併合）",
             )
@@ -576,21 +617,21 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp,
                 [
-                    ("2026-02-01", 1, "REG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
-                    ("2026-02-05", 1, "REG_B", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
-                    ("2026-03-20", 1, "RES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-01", 1, "SREG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-05", 1, "SREGB", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
+                    ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
                 ],
                 reason="他社による買収（公開買付け、株式併合）",
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,650円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "REG_B": _archive(
+                    "SREGB": _archive(
                         {_PRICE: "株券普通株式１株につき金1,240円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
@@ -607,23 +648,23 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp,
                 [
-                    ("2026-02-01", 1, "REG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
-                    ("2026-02-05", 1, "REG_B", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
-                    ("2026-03-20", 1, "RES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-01", 1, "SREG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-05", 1, "SREGB", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
+                    ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
                 ],
                 reason="他社による買収（公開買付け、株式併合）",
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {
                             _PRICE: "株券普通株式１株につき金1,650円算定の基礎…",
                             _FUNDING: _CASH_ONLY,
                         }
                     ),
                     # The second tier states a price the table cannot resolve.
-                    "REG_B": _archive({_PRICE: "株券―新株予約権証券―", _FUNDING: _CASH_ONLY}),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SREGB": _archive({_PRICE: "株券―新株予約権証券―", _FUNDING: _CASH_ONLY}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
@@ -636,11 +677,32 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
     def test_unreadable_correction_does_not_restore_an_old_value(self) -> None:
         cases = (
-            ("250", "REG", {_PRICE: "株券１株につき金1,000円、１株につき金2,000円"}),
-            ("250", "REG", {_PRICE: ""}),
-            ("250", "REG", {_FUNDING: "買付代金のみ。対価の種類不明"}),
-            ("280", "RES", {_OUTCOME: _SUCCESS + _FAILURE}),
-            ("280", "RES", {_OUTCOME: ""}),
+            ("250", "SREG", {_PRICE: "株券１株につき金1,000円、１株につき金2,000円"}),
+            ("250", "SREG", {_PRICE: ""}),
+            ("250", "SREG", {_FUNDING: "買付代金のみ。対価の種類不明"}),
+            ("280", "SRES", {_OUTCOME: _SUCCESS + _FAILURE}),
+            ("280", "SRES", {_OUTCOME: ""}),
+            (
+                "250",
+                "SREG",
+                {
+                    _PRICE: "株券１株につき金1,000円",
+                    "other:PriceOfPurchaseEtcTextBlock": "株券１株につき金2,000円",
+                },
+            ),
+            (
+                "250",
+                "SREG",
+                {
+                    _FUNDING: _CASH_ONLY,
+                    "other:FundEtcForPurchaseEtcTextBlock": "金銭以外の対価の種類株式",
+                },
+            ),
+            (
+                "280",
+                "SRES",
+                {_OUTCOME: _SUCCESS, "other:SuccessOrFailureOfTenderOfferTextBlock": _FAILURE},
+            ),
         )
         for doc_type, parent, blocks in cases:
             with self.subTest(blocks=blocks), TemporaryDirectory() as tmp:
@@ -651,7 +713,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                         (
                             "2026-04-01",
                             1,
-                            "COR",
+                            "SCOR",
                             None,
                             doc_type,
                             "2026-04-01T09:00",
@@ -664,9 +726,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 )
                 provider = _Provider(
                     {
-                        "REG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
-                        "RES": _archive({_OUTCOME: _SUCCESS}),
-                        "COR": _archive(blocks),
+                        "SREG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
+                        "SRES": _archive({_OUTCOME: _SUCCESS}),
+                        "SCOR": _archive(blocks),
                     }
                 )
                 values, summary = build_tender_offer_exit_values(
@@ -682,21 +744,31 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp,
                 [
-                    ("2026-02-01", 1, "REG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
-                    ("2026-02-20", 1, "COR", None, "250", "2026-02-20T09:00", "BIDDER", "TARGET"),
-                    ("2026-03-20", 1, "RES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-01", 1, "SREG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
+                    (
+                        "2026-02-20",
+                        1,
+                        "SCOR",
+                        None,
+                        "250",
+                        "2026-02-20T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        "SREG",
+                    ),
+                    ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "COR": _archive(
+                    "SCOR": _archive(
                         {_PRICE: "株券普通株式１株につき金1,300円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
@@ -705,7 +777,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
 
             self.assertEqual(values[0].offer_price_yen, 1300.0)
-            self.assertEqual(values[0].offer_doc_id, "COR")
+            self.assertEqual(values[0].offer_doc_id, "SCOR")
 
     def test_a_correction_that_leaves_the_price_alone_falls_back_to_the_registration(
         self,
@@ -714,19 +786,29 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp,
                 [
-                    ("2026-02-01", 1, "REG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
-                    ("2026-02-20", 1, "COR", None, "250", "2026-02-20T09:00", "BIDDER", "TARGET"),
-                    ("2026-03-20", 1, "RES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-01", 1, "SREG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
+                    (
+                        "2026-02-20",
+                        1,
+                        "SCOR",
+                        None,
+                        "250",
+                        "2026-02-20T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        "SREG",
+                    ),
+                    ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "COR": _archive({"jptoo-ton_cor:PeriodOfPurchaseEtcTextBlock": "期間の訂正"}),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SCOR": _archive({"jptoo-ton_cor:PeriodOfPurchaseEtcTextBlock": "期間の訂正"}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
@@ -735,7 +817,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
 
             self.assertEqual(values[0].offer_price_yen, 1060.0)
-            self.assertEqual(values[0].offer_doc_id, "REG")
+            self.assertEqual(values[0].offer_doc_id, "SREG")
 
     def test_an_offer_paying_partly_in_stock_produces_no_exit_value(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -746,7 +828,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {
                             _PRICE: "株券普通株式１株につき金1,060円算定の基礎…",
                             _FUNDING: _CASH_ONLY.replace(
@@ -754,7 +836,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                             ),
                         }
                     ),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
@@ -772,8 +854,8 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SREG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
@@ -826,18 +908,18 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
             self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
 
-    def test_an_empty_derivation_does_not_clear_values_already_established(self) -> None:
-        """空の導出結果で既存の確定したexit valueを消さない。"""
+    def test_an_empty_derivation_retracts_values_no_longer_established(self) -> None:
+        """Derived proxies must not outlive the filing evidence that supports them."""
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
             )
             provider = _Provider(
                 {
-                    "REG": _archive(
+                    "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
                     ),
-                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
             values, _ = build_tender_offer_exit_values(
@@ -845,21 +927,55 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             store_tender_offer_exit_values(sqlite_path, values)
 
-            with self.assertRaises(TenderOfferError):
-                store_tender_offer_exit_values(sqlite_path, ())
-
-            self.assertEqual(len(read_tender_offer_exit_values(sqlite_path)), 1)
+            self.assertEqual(store_tender_offer_exit_values(sqlite_path, ()), 0)
+            self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
 
 
 class DocumentBlocksTest(unittest.TestCase):
+    def test_duplicate_blocks_do_not_select_a_value_by_archive_order(self) -> None:
+        cases = (
+            (
+                _PRICE,
+                "株券１株につき金1,000円",
+                "株券１株につき金2,000円",
+                parse_ordinary_share_offer_price,
+                1000,
+            ),
+            (_OUTCOME, _SUCCESS, _FAILURE, read_tender_offer_outcome, True),
+            (_FUNDING, _CASH_ONLY, "金銭以外の対価の種類株式", pays_in_cash_only, True),
+        )
+        for element, first, second, parse, agreed in cases:
+            for values in ((first, second, first), (second, first, second), (first, first)):
+                with self.subTest(element=element, values=values):
+                    buffer = io.BytesIO()
+                    with zipfile.ZipFile(buffer, "w") as archive:
+                        for index, value in enumerate(values):
+                            text = io.StringIO()
+                            writer = csv.writer(text, delimiter="\t")
+                            writer.writerow(("要素ID", "項目名", "値"))
+                            writer.writerow((element, "項目", value))
+                            archive.writestr(
+                                f"member-{index}.csv", text.getvalue().encode("utf-16")
+                            )
+                    blocks = read_document_blocks(buffer.getvalue())
+                    self.assertIn(element, blocks)
+                    self.assertEqual(parse(blocks), agreed if len(set(values)) == 1 else None)
+
+    def test_matching_suffixes_must_agree_regardless_of_mapping_order(self) -> None:
+        first = {
+            _PRICE: "株券１株につき金1,000円",
+            "other:PriceOfPurchaseEtcTextBlock": "株券１株につき金2,000円",
+        }
+        self.assertIsNone(parse_ordinary_share_offer_price(first))
+        self.assertIsNone(parse_ordinary_share_offer_price(dict(reversed(list(first.items())))))
+        self.assertEqual(
+            parse_ordinary_share_offer_price(dict.fromkeys(first, "株券１株につき金1,000円")), 1000
+        )
+
     def test_every_element_of_every_csv_member_is_flattened(self) -> None:
         blocks = read_document_blocks(_archive({_PRICE: "価格", _OUTCOME: "成否"}))
         self.assertEqual(blocks[_PRICE], "価格")
         self.assertEqual(blocks[_OUTCOME], "成否")
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class CashConsiderationTest(unittest.TestCase):
@@ -873,3 +989,7 @@ class CashConsiderationTest(unittest.TestCase):
     def test_a_funding_table_that_does_not_answer_is_unknown(self) -> None:
         self.assertIsNone(pays_in_cash_only({_FUNDING: "買付代金(円)(a)1,000"}))
         self.assertIsNone(pays_in_cash_only({}))
+
+
+if __name__ == "__main__":
+    unittest.main()

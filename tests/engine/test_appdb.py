@@ -81,3 +81,67 @@ def test_prune_backups_keeps_the_newest_files(tmp_path: Path) -> None:
         paths[1].name,
         paths[2].name,
     ]
+
+
+def test_prune_backups_compares_recorded_instants_across_offsets(tmp_path: Path) -> None:
+    earlier = tmp_path / "baibai-20260829T090000000000+0900.sqlite"
+    later = tmp_path / "baibai-20260829T010000000000+0000.sqlite"
+    earlier.touch()
+    later.touch()
+    assert prune_backups(tmp_path, keep=1) == [earlier]
+    assert later.exists()
+
+
+def test_prune_backups_does_not_delete_when_a_timestamp_is_unreadable(tmp_path: Path) -> None:
+    valid = tmp_path / "baibai-20260829T090000000000+0900.sqlite"
+    unknown = tmp_path / "baibai-undated.sqlite"
+    valid.touch()
+    unknown.touch()
+    with pytest.raises(ValueError, match="does not match format"):
+        prune_backups(tmp_path, keep=1)
+    assert valid.exists()
+    assert unknown.exists()
+
+
+def test_backup_rejects_naive_time_without_creating_a_generation(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    initialize_database(db)
+    instant = datetime.fromisoformat("2026-08-29T12:00:00+09:00").replace(tzinfo=None)
+    with pytest.raises(ValueError, match="UTC offset"):
+        backup_database(db, now=instant)
+    assert not (tmp_path / "backups").exists()
+
+
+def test_info_reads_an_old_store_without_writer_access(tmp_path, monkeypatch, capsys) -> None:
+    import baibai_engine.storage.application.cli as cli
+
+    db = tmp_path / "old.sqlite"
+    with closing(sqlite3.connect(db)) as connection, connection:
+        connection.execute("CREATE TABLE historical_value (value INTEGER)")
+        connection.execute("INSERT INTO historical_value VALUES (1)")
+        connection.execute("PRAGMA user_version = 1")
+    before = db.read_bytes()
+    reader = cli.connect_read_only
+    connections = []
+
+    def checked_reader(path):
+        connection = reader(path)
+        connections.append(connection.execute("PRAGMA query_only").fetchone()[0])
+        return connection
+
+    monkeypatch.setattr(cli, "connect_read_only", checked_reader)
+    assert cli.main(["info", "--db", str(db)]) == 0
+    assert connections == [1]
+    assert "historical_value: 1" in capsys.readouterr().out
+    assert db.read_bytes() == before
+
+
+def test_prune_backups_leaves_failed_restore_copy_outside_generation_set(tmp_path: Path) -> None:
+    earlier = tmp_path / "baibai-20260829T090000000000+0900.sqlite"
+    later = tmp_path / "baibai-20260830T090000000000+0900.sqlite"
+    failed_restore = tmp_path / "failed-restore-20260830T090000.sqlite"
+    for path in (earlier, later, failed_restore):
+        path.touch()
+    assert prune_backups(tmp_path, keep=1) == [earlier]
+    assert later.exists()
+    assert failed_restore.exists()

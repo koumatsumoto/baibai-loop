@@ -61,8 +61,9 @@ def store_snapshot_payload(snapshot: ReadingSnapshot) -> dict[str, object]:
         "known_at_applied": False,
         "limitation": (
             "as_ofは観測の対象日です。公表vintageを持つ提供元だけを対象日で制限します。"
+            "公表日はAPIでの利用可能時刻や改定履歴の完全性を保証するものではありません。"
             "その他は現在の保存履歴から後日取得・改定済みの値を含めて再計算するため、"
-            "当時知り得た値の再現を保証しません。Researchのknown_at/received_cutoffも適用しません。"
+            "当時知り得た値の再現を保証しません。Researchのknown_atも適用しません。"
         ),
     }
     payload["read_semantics"] = semantics

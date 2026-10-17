@@ -1,8 +1,7 @@
-"""Final application shape has one assessment/proposal contract and unchanged fact tables."""
+"""Current application schema and immutable publication constraints."""
 
 import sqlite3
 from contextlib import closing
-from pathlib import Path
 
 import pytest
 
@@ -10,16 +9,13 @@ from baibai_engine.storage.application import write as application_write
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
 from baibai_engine.storage.application.write import initialize_database
 
-UNCHANGED = (
+EXPECTED_TABLES = (
     "task",
     "market_context_assessment",
     "market_context_assessment_head",
     "ledger_event",
-    "ledger_market_price",
     "ledger_meta",
     "portfolio_outcome",
-)
-NEW = (
     "stock_assessment",
     "stock_assessment_review",
     "investment_proposal",
@@ -71,36 +67,21 @@ def proposal(connection):
     return identifier
 
 
-def test_final_schema24_has_only_current_research_and_fact_tables(tmp_path):
+def test_schema_has_only_current_research_and_fact_tables(tmp_path):
     path = tmp_path / "app.sqlite"
-    assert initialize_database(path) == APPLICATION_SCHEMA_VERSION == 24
+    assert initialize_database(path) == APPLICATION_SCHEMA_VERSION
     with closing(sqlite3.connect(path)) as connection:
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
-        assert tables == set(UNCHANGED + NEW)
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert tables == set(EXPECTED_TABLES)
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == APPLICATION_SCHEMA_VERSION
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
-def test_non_target_ddl_and_ledger_columns_remain_source22_compatible(connection):
-    with closing(sqlite3.connect(":memory:")) as old:
-        old.executescript(
-            Path("tests/fixtures/application/research-selection-v1-schema.sql").read_text()
-        )
-        for table in UNCHANGED:
-            assert (
-                connection.execute(
-                    "SELECT sql FROM sqlite_schema WHERE name=?", (table,)
-                ).fetchone()[0]
-                == old.execute("SELECT sql FROM sqlite_schema WHERE name=?", (table,)).fetchone()[0]
-            )
-            assert (
-                connection.execute(f'PRAGMA table_info("{table}")').fetchall()
-                == old.execute(f'PRAGMA table_info("{table}")').fetchall()
-            )
+def test_ledger_keeps_fact_reference_separate_from_proposal_identity(connection):
     ledger_columns = {row[1] for row in connection.execute("PRAGMA table_info(ledger_event)")}
     assert "decision_reference" in ledger_columns
     assert "proposal_id" not in ledger_columns

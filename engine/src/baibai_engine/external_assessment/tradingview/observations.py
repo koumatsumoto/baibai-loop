@@ -62,10 +62,6 @@ class ProviderPayloadError(FetchError):
         super().__init__("TradingView provider payload failed validation")
 
 
-class AllMissingError(FetchError):
-    """Provider returned no usable symbols for a whole chunk."""
-
-
 def normalize_batch(
     payload: dict[str, Any], symbols: list[str], fetched_at: datetime
 ) -> list[dict[str, Any]]:
@@ -89,8 +85,8 @@ def normalize_batch(
         raise ProviderPayloadError("response_accounting_mismatch")
     if payload.get("count") != len(data) or payload.get("missing_count") != len(missing):
         raise ProviderPayloadError("response_count_mismatch")
-    if not data:
-        raise AllMissingError("TradingView returned an all-missing chunk; refusing false coverage")
+    # Explicit missing receipts remain unresolved regardless of batch composition.
+    # Accounted symbols do not establish available forecasts or provider health.
     rows = []
     for symbol in symbols:
         row: dict[str, Any] = {

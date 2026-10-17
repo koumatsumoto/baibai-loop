@@ -1,12 +1,11 @@
 """旧判断テストから、要求率とquote不足の意味を新評価/提案へ引き継ぐ。"""
 
-from datetime import date, datetime, time
+from datetime import date
 from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.foundation.time import JST
 from baibai_engine.research.assessment import StockAssessmentDocument, assessment_core_hash
 from baibai_engine.research.entry_policy import evaluate_buy_terms
 from baibai_engine.research.holding_policy import evaluate_holding_proposal
@@ -45,10 +44,8 @@ def buy(document, *, limit=Decimal(1000), minimum_rate=Decimal(6)):
             ticker="1234",
             price_yen=Decimal(1100),
             price_as_of=AS_OF,
-            observed_at=datetime.fromisoformat("2026-10-14T15:30:00+09:00"),
             price_basis="last_close_unadjusted",
             source_ref="fixture:daily_bars",
-            basis_confirmed=True,
         ),
         proposed_limit_yen=limit,
         basis_confirmed=True,
@@ -128,10 +125,8 @@ def test_sufficient_reward_claim_requires_available_current_inputs(change, reaso
             ticker="1234",
             price_yen=Decimal(1250),
             price_as_of=quoted_date,
-            observed_at=datetime.combine(quoted_date, time(15, 30), tzinfo=JST),
             price_basis="last_close_unadjusted",
             source_ref="fixture:daily_bars",
-            basis_confirmed=change != "quote_basis",
         )
     )
     result = evaluate_holding_proposal(
@@ -147,6 +142,7 @@ def test_sufficient_reward_claim_requires_available_current_inputs(change, reaso
         ),
         as_of=date(2026, 10, 15) if change == "next_day" else AS_OF,
         quote=quoted,
+        price_basis_confirmed=change != "quote_basis",
         remaining_reward=RemainingReward(status="sufficient", reason="将来分配と残存価値を確認"),
         case_reassessment_reason="本日の仮説と反証を再確認",
         reviewed=True,

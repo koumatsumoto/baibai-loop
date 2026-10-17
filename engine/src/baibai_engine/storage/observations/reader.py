@@ -2,7 +2,8 @@
 
 The functions are deliberately permissive: a missing SQLite file or a source
 that has not been fetched yet returns `None` so bootstrap/fetch commands can
-populate the missing coverage. `screening run` performs a separate preflight
+populate the missing coverage. Store/schema/query failures propagate instead of
+triggering acquisition. `screening run` performs a separate preflight
 coverage check and must not fall back to provider APIs. Price/calendar reads
 live in `baibai_engine.market.store`; this module owns master / fin summaries /
 earnings calendar / JPX. EDINET reads belong to market.edinet_metrics.store.
@@ -10,17 +11,21 @@ earnings calendar / JPX. EDINET reads belong to market.edinet_metrics.store.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
 from baibai_engine.market import master_snapshot as master_contract
-from baibai_engine.market.financial_documents import project_financial_documents
+from baibai_engine.market.financial_documents import (
+    normalize_financial_summary,
+    project_financial_documents,
+)
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -50,16 +55,7 @@ from baibai_engine.storage.observations.jquants_contract import (
     weekly_margin_coverage_key,
 )
 from baibai_engine.storage.observations.schema import connect_current
-
-SHORT_SALE_REPORT_DATASET_FLOOR = date(2013, 11, 7)
-SHORT_SALE_REPORTING_THRESHOLD = 0.005
-
-
-@dataclass(frozen=True, slots=True)
-class ReportedShortMetric:
-    ratio: float
-    breadth: int
-    latest_disclosed_at: date
+from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
 
 def read_short_sale_reports(
@@ -78,7 +74,8 @@ def read_short_sale_reports(
             "SELECT disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name, "
             "discretionary_investment_contractor_name, investment_fund_name, "
             "short_ratio, short_shares, short_trading_units, previous_reported_at, "
-            "previous_short_ratio, is_cancellation, notes "
+            "previous_short_ratio, notes, short_seller_address, "
+            "discretionary_investment_contractor_address "
             "FROM jquants_short_sale_reports "
             "WHERE disclosed_at BETWEEN ? AND ? "
             "ORDER BY disclosed_at, source_ordinal",
@@ -100,91 +97,14 @@ def read_short_sale_reports(
             short_trading_units=int(row[9]) if row[9] is not None else None,
             previous_reported_at=optional_date(row[10]),
             previous_short_ratio=optional_float(row[11]),
-            is_cancellation=bool(row[12]),
-            notes=str(row[13]) if row[13] is not None else None,
+            notes=str(row[12]) if row[12] is not None else None,
+            short_seller_address=str(row[13]) if row[13] is not None else None,
+            discretionary_investment_contractor_address=(
+                str(row[14]) if row[14] is not None else None
+            ),
         )
         for row in rows
     ]
-
-
-def read_reported_short_metrics(
-    sqlite_path: Path, asof: date
-) -> dict[str, ReportedShortMetric | None] | None:
-    """Aggregate each reporter's latest disclosed state at a cohort boundary.
-
-    ``None`` means the source cannot prove continuous coverage from the official
-    dataset floor. A mapping means coverage is complete; a ticker absent from it
-    is therefore an explicit below-threshold/no-report observation.
-    """
-    if not sqlite_path.exists() or asof < SHORT_SALE_REPORT_DATASET_FLOOR:
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        if not range_covered(conn, SHORT_SALE_REPORT_SOURCE, SHORT_SALE_REPORT_DATASET_FLOOR, asof):
-            return None
-        ambiguous_rows = conn.execute(
-            """
-            WITH dated AS (
-              SELECT ticker, short_seller_name,
-                     discretionary_investment_contractor_name,
-                     investment_fund_name,
-                     DENSE_RANK() OVER (
-                       PARTITION BY ticker, short_seller_name,
-                                    discretionary_investment_contractor_name,
-                                    investment_fund_name
-                       ORDER BY calculated_at DESC, disclosed_at DESC
-                     ) AS recency
-              FROM jquants_short_sale_reports
-              WHERE disclosed_at <= ? AND calculated_at <= ?
-            )
-            SELECT ticker
-            FROM dated
-            WHERE recency = 1
-            GROUP BY ticker, short_seller_name,
-                     discretionary_investment_contractor_name,
-                     investment_fund_name
-            HAVING COUNT(*) > 1
-            """,
-            (asof.isoformat(), asof.isoformat()),
-        ).fetchall()
-        rows = conn.execute(
-            """
-            WITH ranked AS (
-              SELECT ticker, short_seller_name,
-                     discretionary_investment_contractor_name,
-                     investment_fund_name, short_ratio, disclosed_at,
-                     ROW_NUMBER() OVER (
-                       PARTITION BY ticker, short_seller_name,
-                                    discretionary_investment_contractor_name,
-                                    investment_fund_name
-                       ORDER BY calculated_at DESC, disclosed_at DESC, source_ordinal DESC
-                     ) AS recency
-              FROM jquants_short_sale_reports
-              WHERE disclosed_at <= ? AND calculated_at <= ?
-            )
-            SELECT ticker, SUM(short_ratio), COUNT(*), MAX(disclosed_at)
-            FROM ranked
-            WHERE recency = 1 AND short_ratio >= ?
-            GROUP BY ticker
-            ORDER BY ticker
-            """,
-            (asof.isoformat(), asof.isoformat(), SHORT_SALE_REPORTING_THRESHOLD),
-        ).fetchall()
-    finally:
-        conn.close()
-    metrics: dict[str, ReportedShortMetric | None] = {
-        str(row[0]): ReportedShortMetric(
-            ratio=float(row[1]),
-            breadth=int(row[2]),
-            latest_disclosed_at=date.fromisoformat(str(row[3])),
-        )
-        for row in rows
-    }
-    for (ticker,) in ambiguous_rows:
-        metrics[str(ticker)] = None
-    return metrics
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +132,7 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
     if conn is None:
         return MasterSnapshotRead((), None, "unavailable")
     try:
+        conn.execute("BEGIN")
         status = "prior_snapshot"
         snapshot = conn.execute(
             "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date <= ?",
@@ -225,24 +146,15 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
         if snapshot is None:
             return MasterSnapshotRead((), None, "unavailable")
         rows = conn.execute(
-            "SELECT ticker, name, market, sector_33, is_common_stock "
-            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+            "SELECT record_json "
+            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY security_code",
             (str(snapshot),),
         ).fetchall()
     finally:
         conn.close()
     snapshot_date = date.fromisoformat(str(snapshot))
     return MasterSnapshotRead(
-        tuple(
-            SecurityMaster(
-                ticker=ticker,
-                name=str(name or ""),
-                market_segment=str(market or ""),
-                sector_33=str(sector_33 or ""),
-                is_common_stock=bool(is_common),
-            )
-            for ticker, name, market, sector_33, is_common in rows
-        ),
+        tuple(master_contract.masters_from_payloads([row[0] for row in rows])),
         snapshot_date,
         "exact_date" if snapshot_date == asof else status,
     )
@@ -809,6 +721,7 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
         return None
     iso = asof.isoformat()
     try:
+        conn.execute("BEGIN")
         coverage_rows = conn.execute(
             "SELECT coverage_start, coverage_end, record_count, status, error "
             "FROM source_coverage WHERE source = ? AND coverage_key = ?",
@@ -823,38 +736,21 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
         if expected_count is None:
             return None
         rows = conn.execute(
-            "SELECT ticker, name, market, sector_33, is_common_stock "
-            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+            "SELECT record_json "
+            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY security_code",
             (iso,),
         ).fetchall()
         if len(rows) != expected_count or expected_count <= 0:
             return None
-        common_count = sum(row[4] == 1 for row in rows)
-        if common_count < master_contract.MIN_COMMON_STOCK_MASTER_ROWS or common_count != len(rows):
-            return None
-        if any(not str(value or "").strip() for row in rows for value in row[:4]):
-            return None
-    except (sqlite3.OperationalError, TypeError, ValueError):
-        return None
     finally:
         conn.close()
-    try:
-        return _materialize_masters(rows)
-    except (TypeError, ValueError):
+    masters = master_contract.masters_from_payloads([row[0] for row in rows])
+    if (
+        sum(security.is_common_stock for security in masters)
+        < master_contract.MIN_COMMON_STOCK_MASTER_ROWS
+    ):
         return None
-
-
-def _materialize_masters(rows: list[tuple[Any, ...]]) -> list[SecurityMaster]:
-    return [
-        SecurityMaster(
-            ticker=ticker,
-            name=str(name or ""),
-            market_segment=str(market or ""),
-            sector_33=str(sector_33 or ""),
-            is_common_stock=bool(is_common),
-        )
-        for ticker, name, market, sector_33, is_common in rows
-    ]
+    return masters
 
 
 def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:
@@ -863,9 +759,9 @@ def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:
     Deliberately the same predicate `read_fin_summaries` gates on, asked without
     the materialisation: a chunk-skip test and a fetch planner need the boolean,
     not the summaries. Sharing `range_covered` is what keeps them agreeing with
-    the reader — a window recorded `ok` with zero rows is not a claim, and a
-    planner that treated it as one would leave the reader unable to serve the
-    range it just fetched.
+    the reader. A successful empty financial window is readable as an empty list,
+    whereas an unexamined or partial window still needs a fetch. Required history
+    and usable financial inputs are checked separately by the analysis consumers.
     """
     if not sqlite_path.exists():
         return False
@@ -952,36 +848,24 @@ def read_financial_documents(
 ) -> list[JQuantsFinancialSummary]:
     """Read stored documents without asserting provider acquisition coverage."""
     cursor = conn.execute(
-        "SELECT * FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
-        "AND (? IS NULL OR ticker = ?) ORDER BY ticker, disclosed_at, disclosed_time",
+        "SELECT document_payload FROM jquants_fin_summaries "
+        "WHERE disclosed_at BETWEEN ? AND ? AND (? IS NULL OR ticker = ?) "
+        "ORDER BY ticker, disclosed_at, disclosure_number",
         (start.isoformat(), end.isoformat(), ticker, ticker),
     )
-    columns = [item[0] for item in cursor.description]
     summaries: list[JQuantsFinancialSummary] = []
-    date_fields = {"disclosed_at", "fiscal_year_end", "period_start", "period_end"}
-    for row in cursor.fetchall():
-        values = dict(zip(columns, row, strict=True))
+    for (payload,) in cursor:
         try:
-            for field in date_fields:
-                values[field] = optional_date(values[field])
-            summaries.append(JQuantsFinancialSummary(**values))
+            record = json.loads(payload)
+            if not isinstance(record, dict):
+                raise ValueError("financial document must be a provider record")
+            summary = normalize_financial_summary(record)
+            if summary is None:
+                raise ValueError("financial document is not an eligible security")
+            summaries.append(summary)
         except (TypeError, ValueError) as exc:
-            raise JQuantsProviderError(
-                f"corrupt financial document for {values['ticker']}: {exc}"
-            ) from exc
+            raise JQuantsProviderError(f"corrupt financial document: {exc}") from exc
     return project_financial_documents(summaries, end)
-
-
-def read_fy_summaries(
-    sqlite_path: Path, start: date, end: date
-) -> list[JQuantsFinancialSummary] | None:
-    """Read actual FY documents, retaining revision identity and capital anchors."""
-    rows = read_fin_summaries(sqlite_path, start, end)
-    return (
-        None
-        if rows is None
-        else [row for row in rows if row.fiscal_period == "FY" and row.eps_ttm is not None]
-    )
 
 
 def read_jpx_earnings_calendar_snapshot(
@@ -1035,8 +919,6 @@ def read_jpx_earnings_calendar_snapshot(
             return None
         if actual_start != recorded_start or actual_end != recorded_end or actual_end < asof_date:
             return None
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
     try:
@@ -1067,7 +949,7 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
     if conn is None:
         return None
     try:
-        if not _date_imported(conn, "jpx_regulation_flags", asof_date):
+        if not date_covered(conn, "jpx_regulation_flags", asof_date):
             return None
         rows = conn.execute(
             "SELECT source_name, ticker, flag FROM jpx_regulation_flags "
@@ -1079,8 +961,6 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
             "WHERE asof_date = ? ORDER BY source_name",
             (asof_date.isoformat(),),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
 
@@ -1109,20 +989,6 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
     if conn is None:
         return False
     try:
-        return _date_imported(conn, "jpx_regulation_flags", asof_date)
+        return date_covered(conn, "jpx_regulation_flags", asof_date)
     finally:
         conn.close()
-
-
-def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
-    """True when `source_coverage` records `source` for `on_date`."""
-    iso = on_date.isoformat()
-    try:
-        cur = conn.execute(
-            "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
-            (source, iso, iso),
-        )
-    except sqlite3.OperationalError:
-        return False
-    return cur.fetchone() is not None

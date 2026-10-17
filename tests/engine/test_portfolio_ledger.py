@@ -9,10 +9,12 @@ import pytest
 import yaml
 from hypothesis import given
 from hypothesis import strategies as st
+from pydantic import ValidationError
 from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
+    MarketPrice,
     PortfolioLedgerDocument,
     PortfolioLedgerError,
     replay_events_through,
@@ -23,6 +25,13 @@ from baibai_engine.position.policy import PORTFOLIO_POLICY
 ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 TOKYO = ZoneInfo("Asia/Tokyo")
+
+
+def _snapshot(document, *, prices=None, policy=PORTFOLIO_POLICY):
+    if prices is None:
+        raw = safe_load((FIXTURE.parent / "valuation-prices.yaml").read_text(encoding="utf-8"))
+        prices = tuple(MarketPrice.model_validate(row) for row in raw["prices"])
+    return portfolio_snapshot(document, prices=prices, policy=policy)
 
 
 def _raw() -> dict[str, object]:
@@ -36,7 +45,7 @@ def _document(raw: dict[str, object] | None = None) -> PortfolioLedgerDocument:
 
 
 def test_representative_ledger_reconciles_every_required_event_to_one_yen() -> None:
-    snapshot = portfolio_snapshot(load_portfolio_ledger(FIXTURE))
+    snapshot = _snapshot(load_portfolio_ledger(FIXTURE))
 
     assert snapshot.available_cash_yen == 10_080_500
     assert snapshot.reserved_cash_yen == 119_000
@@ -80,7 +89,7 @@ def test_pending_order_cannot_be_reserved_twice() -> None:
     events.insert(5, duplicate)
 
     with pytest.raises(PortfolioLedgerError, match="reservation_id already used"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_broker_order_cannot_be_reserved_under_a_second_reservation_id() -> None:
@@ -95,7 +104,7 @@ def test_broker_order_cannot_be_reserved_under_a_second_reservation_id() -> None
     events.insert(5, duplicate)
 
     with pytest.raises(PortfolioLedgerError, match="order_id already reserved"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_available_cash_shortage_is_a_hard_error() -> None:
@@ -110,7 +119,7 @@ def test_available_cash_shortage_is_a_hard_error() -> None:
     contribution["amount_yen"] = 1
 
     with pytest.raises(PortfolioLedgerError, match="insufficient available cash"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_withdrawal_reduces_available_cash_without_touching_reservations() -> None:
@@ -127,7 +136,7 @@ def test_withdrawal_reduces_available_cash_without_touching_reservations() -> No
         },
     )
 
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
 
     assert snapshot.available_cash_yen == 9_980_500
     assert snapshot.reserved_cash_yen == 119_000
@@ -148,7 +157,7 @@ def test_withdrawal_cannot_exceed_available_cash() -> None:
     )
 
     with pytest.raises(PortfolioLedgerError, match="insufficient available cash"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_expired_reservation_requires_an_explicit_release() -> None:
@@ -170,7 +179,7 @@ def test_confirmed_buy_execution_is_not_rejected_by_order_expiry() -> None:
     assert isinstance(events, list)
     events[3]["occurred_at"] = "2026-06-05T15:30:00+09:00"
 
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
     assert next(item for item in snapshot.holdings if item.ticker == "2331").quantity == 200
 
 
@@ -179,7 +188,7 @@ def test_reported_cancellation_is_not_relabelled_from_expiry_time() -> None:
     events = raw["events"]
     assert isinstance(events, list)
     events[4]["reason"] = "cancelled"
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
     assert all(
         item.reservation_id != "reservation-2331-first" for item in snapshot.active_reservations
     )
@@ -192,7 +201,7 @@ def test_reservation_quantity_must_match_board_lot() -> None:
     events[2]["quantity"] = 150
 
     with pytest.raises(PortfolioLedgerError, match="multiple of board_lot"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_partial_execution_quantity_must_match_board_lot() -> None:
@@ -202,7 +211,7 @@ def test_partial_execution_quantity_must_match_board_lot() -> None:
     events[3]["quantity"] = 50
 
     with pytest.raises(PortfolioLedgerError, match="execution quantity must be a multiple"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_sell_cannot_exceed_repository_holding() -> None:
@@ -224,7 +233,7 @@ def test_sell_cannot_exceed_repository_holding() -> None:
     )
 
     with pytest.raises(PortfolioLedgerError, match="sell quantity exceeds repository holding"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_realized_gross_pnl_accumulates_fifo_across_full_exit_and_repurchase() -> None:
@@ -299,7 +308,7 @@ def test_realized_gross_pnl_accumulates_fifo_across_full_exit_and_repurchase() -
     ]:
         state = replay_events_through(document.events, datetime.fromisoformat(cutoff))
         assert state.realized_gross_pnl_yen == expected
-    snapshot = portfolio_snapshot(document)
+    snapshot = _snapshot(document)
     assert snapshot.realized_gross_pnl_yen == 2_000
     assert snapshot_to_payload(snapshot)["realized_gross_pnl_yen"] == 2_000
     assert snapshot.holdings == ()
@@ -322,7 +331,7 @@ def test_realized_gross_pnl_uses_both_fifo_lots_for_one_sell() -> None:
         }
     )
     raw["as_of"] = "2026-07-12T10:00:00+09:00"
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
     assert snapshot.realized_gross_pnl_yen == 17_000
     assert snapshot.deployed_cost_yen == 0
 
@@ -332,7 +341,7 @@ def test_future_exit_tax_is_separate_and_configurable() -> None:
     raw["estimated_exit_tax_rate_bps"] = 2031
     raw["estimated_exit_tax_basis"] = "ledger_fifo_gross_unrealized_gain"
 
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
 
     assert snapshot.confirmed_cost_tax_yen == 800
     assert snapshot.estimated_exit_tax_rate_bps == 2031
@@ -357,7 +366,7 @@ def test_current_and_reserved_exposure_emit_expiring_override_warnings() -> None
     assert isinstance(risk, dict)
     risk["max_ticker_concentration_pct"] = 1.0
 
-    snapshot = portfolio_snapshot(_document(raw), policy=policy)
+    snapshot = _snapshot(_document(raw), policy=policy)
 
     warnings = {warning.key: warning for warning in snapshot.warnings}
     assert set(warnings) == {"2331", "8929"}
@@ -383,7 +392,7 @@ def test_ticker_sector_and_common_factor_include_active_reservation() -> None:
     risk["max_sector_concentration_pct"] = 3.0
     risk["max_common_factor_concentration_pct"] = 3.0
 
-    snapshot = portfolio_snapshot(_document(raw), policy=policy)
+    snapshot = _snapshot(_document(raw), policy=policy)
 
     warnings = {(warning.scope, warning.key): warning for warning in snapshot.warnings}
     assert warnings[("ticker", "2331")].actual_pct == 3.25
@@ -409,7 +418,7 @@ def test_ticker_concentration_at_ten_percent_does_not_warn() -> None:
         }
     )
 
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
 
     assert snapshot.total_capital_yen == 10_420_000
     assert snapshot.holdings[0].market_value_yen == 220_000
@@ -437,7 +446,7 @@ def test_ticker_concentration_above_ten_percent_warns_with_active_reservation() 
         }
     )
 
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
 
     warning = next(
         item for item in snapshot.warnings if item.code == "portfolio.ticker-concentration"
@@ -454,14 +463,14 @@ def test_dry_powder_is_a_warning_instead_of_a_cash_error() -> None:
     assert isinstance(cash, dict)
     cash["dry_powder_warning_pct"] = 99.0
 
-    snapshot = portfolio_snapshot(_document(), policy=policy)
+    snapshot = _snapshot(_document(), policy=policy)
 
     assert [warning.code for warning in snapshot.warnings] == ["portfolio.dry-powder"]
     assert snapshot.warnings[0].overridden is False
 
 
 def test_snapshot_payload_is_deterministic_and_yaml_safe() -> None:
-    payload = snapshot_to_payload(portfolio_snapshot(_document()))
+    payload = snapshot_to_payload(_snapshot(_document()))
     dumped = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
     assert yaml.safe_load(dumped) == payload
@@ -475,7 +484,7 @@ def test_fractional_unit_price_is_exact_when_notional_is_whole_yen() -> None:
     events[2]["price_guard_yen"] = 1052.5
     events[3]["price_yen"] = 1052.5
 
-    snapshot = portfolio_snapshot(_document(raw))
+    snapshot = _snapshot(_document(raw))
 
     assert snapshot.deployed_cost_yen == 204_250
 
@@ -492,7 +501,7 @@ def test_fractional_unit_price_never_rounds_a_sub_yen_notional() -> None:
     order_constraints["board_lot"] = 1
 
     with pytest.raises(PortfolioLedgerError, match="must reconcile to whole yen"):
-        portfolio_snapshot(_document(raw), policy=policy)
+        _snapshot(_document(raw), policy=policy)
 
 
 @pytest.mark.property
@@ -566,30 +575,32 @@ def test_reservation_partial_fill_release_preserves_book_capital(
             }
         )
     raw: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "portfolio_scope": "repository_only",
         "as_of": "2026-01-06T15:30:00+09:00",
         "estimated_exit_tax_rate_bps": None,
         "estimated_exit_tax_basis": None,
         "events": events,
-        "market_prices": (
-            [
+        "overrides": [],
+    }
+
+    prices = (
+        (
+            MarketPrice.model_validate(
                 {
                     "ticker": "2331",
                     "price_yen": execution_price,
-                    "observed_at": "2026-01-06T15:00:00+09:00",
+                    "price_as_of": "2026-01-06",
                     "source_kind": "test_fixture",
                     "price_basis": "close",
                     "source_ref": "property-fixture",
                 }
-            ]
-            if filled
-            else []
-        ),
-        "overrides": [],
-    }
-
-    snapshot = portfolio_snapshot(_document(raw))
+            ),
+        )
+        if filled
+        else ()
+    )
+    snapshot = _snapshot(_document(raw), prices=prices)
     deployed = filled * execution_price
 
     assert snapshot.reserved_cash_yen == 0
@@ -607,7 +618,7 @@ def test_loader_rejects_untyped_float_yen(tmp_path: Path) -> None:
     path = tmp_path / "portfolio-ledger.yaml"
     path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
 
-    with pytest.raises(PortfolioLedgerError, match="valid integer"):
+    with pytest.raises(ValidationError, match="valid integer"):
         load_portfolio_ledger(path)
 
 
@@ -636,7 +647,7 @@ def test_override_cannot_outlive_policy_window() -> None:
     ]
 
     with pytest.raises(PortfolioLedgerError, match="exceeds 31 days"):
-        portfolio_snapshot(_document(raw))
+        _snapshot(_document(raw))
 
 
 def test_override_approval_cannot_be_in_the_future() -> None:
@@ -655,3 +666,70 @@ def test_override_approval_cannot_be_in_the_future() -> None:
 
     with pytest.raises(ValueError, match="override approval cannot occur after as_of"):
         _document(raw)
+
+
+@pytest.mark.parametrize("quantity", [100, 200])
+def test_independent_sell_preserves_stock_committed_to_another_order(quantity) -> None:
+    raw = _raw()
+    raw["as_of"] = "2026-07-12T12:00:00+09:00"
+    events = raw["events"]
+    assert isinstance(events, list)
+    events.extend(
+        [
+            {
+                "event_id": "separate-sell-order",
+                "type": "reservation",
+                "occurred_at": "2026-07-12T09:00:00+09:00",
+                "reservation_id": "separate-sell-order",
+                "order_id": "separate-sell-order",
+                "side": "sell",
+                "ticker": "2331",
+                "sector": "サービス業",
+                "common_factors": ["labor-automation"],
+                "quantity": 100,
+                "price_guard_yen": 1200,
+            },
+            {
+                "event_id": "independent-sell",
+                "execution_id": "independent-sell",
+                "type": "execution",
+                "occurred_at": "2026-07-12T10:00:00+09:00",
+                "ticker": "2331",
+                "side": "sell",
+                "quantity": quantity,
+                "price_yen": 1100,
+            },
+        ]
+    )
+    document = _document(raw)
+    if quantity == 200:
+        with pytest.raises(PortfolioLedgerError, match="exceeds uncommitted holding"):
+            replay_events_through(document.events, document.as_of)
+        return
+    state = replay_events_through(document.events, document.as_of)
+    assert sum(lot.quantity for lot in state.lots["2331"]) == 100
+    assert state.active_reservations["separate-sell-order"].remaining_quantity == 100
+    assert state.available_cash_yen == 10_190_500
+    assert state.realized_gross_pnl_yen == 6_000
+    # The unrelated order's limit and identity are not attached to this fill.
+    assert state.active_reservations["separate-sell-order"].price_guard_yen == 1200
+    events.append(
+        {
+            "event_id": "reserved-sell-fill",
+            "execution_id": "reserved-sell-fill",
+            "reservation_id": "separate-sell-order",
+            "type": "execution",
+            "occurred_at": "2026-07-12T11:00:00+09:00",
+            "ticker": "2331",
+            "side": "sell",
+            "quantity": 100,
+            "price_yen": 1200,
+        }
+    )
+    completed = _document(raw)
+    final = replay_events_through(completed.events, completed.as_of)
+    assert final.lots["2331"] == []
+    assert "separate-sell-order" not in final.active_reservations
+    assert final.available_cash_yen == 10_310_500
+    assert final.reserved_cash_yen == 119_000
+    assert final.realized_gross_pnl_yen == 27_000

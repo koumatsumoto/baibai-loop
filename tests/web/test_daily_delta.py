@@ -1,13 +1,18 @@
 """Daily observations compare published method identities, not file names."""
 
+from contextlib import closing
 from dataclasses import replace
 from datetime import date, datetime
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from baibai_engine.storage.observations.schema import open_connection
 from baibai_web.readmodel.builders import build_daily_delta
+from baibai_web.sources.db_sources import DbMarketPriceSource
 from baibai_web.sources.types import ScreeningRunRecord
 
 
@@ -162,7 +167,7 @@ def test_method_change_does_not_skip_holdings(mocker) -> None:
     sources = _sources(latest=replace(_run(4), screening_rules_hash="changed"))
     sources[1].exists.return_value = True
     holding_delta = mocker.patch(
-        "baibai_web.readmodel.builders.daily_delta._holding_deltas", return_value=([], 3)
+        "baibai_web.readmodel.builders.daily_delta._holding_deltas", return_value=([], 3, True)
     )
     view = build_daily_delta(*sources)
     assert view.method_changed
@@ -234,3 +239,96 @@ def test_mover_total_retains_rows_beyond_the_display_cap() -> None:
     )
     assert view.er_moves_total == 20
     assert len(view.er_moves) == 5
+
+
+def test_disclosure_context_stays_inside_the_compared_runs(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_fin_summaries "
+            "(ticker, disclosed_at, disclosure_number, document_payload) VALUES (?, ?, ?, ?)",
+            [
+                ("1002", "2026-09-04", "inside", "{}"),
+                ("1002", "2026-09-05", "newer", "{}"),
+                ("1003", "2026-09-05", "after-run", "{}"),
+                ("1004", "2026-09-03", "previous-run", "{}"),
+            ],
+        )
+    screening, ledger, research, _ = _sources()
+    market = DbMarketPriceSource(path)
+    view = build_daily_delta(screening, ledger, research, market)
+    assert {row.ticker: row.disclosed_since_previous for row in view.entered} == {
+        "1002": True,
+        "1003": False,
+    }
+    assert [(row.ticker, row.disclosed_since_previous) for row in view.exited] == [("1004", False)]
+    assert market.disclosures_after(
+        ["1002", "1003", "1004"], after=date(2026, 9, 3), through_date=date(2026, 9, 4)
+    ) == {"1002": date(2026, 9, 4)}
+
+
+@pytest.mark.parametrize(
+    ("previous", "current", "included"),
+    [
+        (0.1004, 0.13, False),
+        (0.13, 0.1004, False),
+        (0.10, 0.13, True),
+        (0.10, 0.07, True),
+        (0.10, 0.13001, True),
+        (0.10, 0.06999, True),
+    ],
+)
+def test_estimate_mover_threshold_uses_unrounded_change(previous, current, included):
+    view = build_daily_delta(
+        *_sources(
+            current_candidate_fixture=_candidate_fixture(["1001"], current),
+            previous_candidate_fixture=_candidate_fixture(["1001"], previous),
+        )
+    )
+    assert view.er_moves_total == int(included)
+    assert len(view.er_moves) == int(included)
+    if included:
+        assert abs(view.er_moves[0].change_pp) == 3.0
+
+
+def test_estimate_mover_display_cap_ranks_unrounded_changes():
+    tickers = [str(1000 + index) for index in range(6)]
+    current = _candidate_fixture(tickers, 0.13)
+    for index, row in enumerate(current["rows"]):
+        row["metrics"]["er_annual"] = 0.13001 + index * 0.00001
+    view = build_daily_delta(
+        *_sources(
+            current_candidate_fixture=current,
+            previous_candidate_fixture=_candidate_fixture(tickers, 0.10),
+        )
+    )
+    assert view.er_moves_total == 6
+    assert [row.ticker for row in view.er_moves] == list(reversed(tickers[1:]))
+    assert all(row.change_pp == 3.0 for row in view.er_moves)
+
+
+@pytest.mark.parametrize("comparison", ["missing", "no_previous_run", "unchanged", "partial"])
+def test_holding_price_comparison_missing_is_not_no_change(comparison: str) -> None:
+    sources = _sources(
+        current_candidate_fixture=_candidate_fixture([], 0.2),
+        previous_candidate_fixture=_candidate_fixture([], 0.1),
+    )
+    screening, ledger, research, market = sources
+    tickers = ["1001", "1002"] if comparison == "partial" else ["1001"]
+    ledger.exists.return_value = True
+    ledger.snapshot.return_value = SimpleNamespace(
+        holdings=[SimpleNamespace(ticker=ticker) for ticker in tickers]
+    )
+    research.revisions.return_value = []
+    market.latest_closes.return_value = dict.fromkeys(tickers, 100.0)
+    market.next_earnings_dates.return_value = {}
+    market.close_changes_since.return_value = {
+        "unchanged": {"1001": 0.0},
+        "partial": {"1002": 6.0},
+    }.get(comparison, {})
+    if comparison == "no_previous_run":
+        screening.previous_run.return_value = None
+    view = build_daily_delta(*sources)
+    assert ("holdings" in view.unavailable) is (comparison != "unchanged")
+    assert view.holdings_without_price == 0
+    assert [row.ticker for row in view.holdings] == (["1002"] if comparison == "partial" else [])

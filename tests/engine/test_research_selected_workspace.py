@@ -184,7 +184,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         tmp_path / "app",
         PortfolioLedgerDocument.model_validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "portfolio_scope": "repository_only",
                 "as_of": NOW.isoformat(),
                 "events": [
@@ -195,7 +195,6 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
                         "amount_yen": 300000,
                     }
                 ],
-                "market_prices": [],
             }
         ),
     )
@@ -323,7 +322,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         ),
         completed_at=NOW,
     )
-    assert complete.payload.human_confirmation is None
+    assert "human_confirmation" not in complete.payload.model_dump()
     assert main(["proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
     preview = json.loads(capsys.readouterr().out)
     assert preview["saved_proposal_id"] == proposal_id
@@ -503,6 +502,5 @@ def holding_case(tmp_path):
 
     db = tmp_path / "holding-app"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    ledger = ledger.model_copy(update={"market_prices": ()})
     seed_ledger(db, ledger)
     return db, tmp_path / "absent-market", ledger

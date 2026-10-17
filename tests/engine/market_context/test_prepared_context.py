@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.market_context.master import read_master_snapshot
@@ -25,6 +26,7 @@ def context_store(tmp_path: Path) -> Path:
         ("1321", 350, ASOF - timedelta(days=1)),
         ("AAAA", 350, ASOF - timedelta(days=1)),
         ("BBBB", 350, ASOF - timedelta(days=1)),
+        ("PREF", 350, ASOF - timedelta(days=1)),
         ("NEW1", 3, ASOF - timedelta(days=1)),
         ("OLD1", 80, ASOF - timedelta(days=500)),
     ):
@@ -32,11 +34,16 @@ def context_store(tmp_path: Path) -> Path:
             path, ticker, [100 + index for index in range(count)], end_date=end
         )
     with closing(open_connection(path)) as connection:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots "
-            "(snapshot_date,ticker,name,market,sector_33,is_common_stock) "
-            "VALUES ('2026-05-28',?,?,'プライム','機械',1)",
-            [(ticker, ticker) for ticker in ("AAAA", "BBBB", "NEW1", "OLD1", "NONE")],
+        insert_master_rows(
+            connection,
+            [
+                ("2026-05-28", ticker, ticker, "プライム", "機械", "011")
+                for ticker in ("AAAA", "BBBB", "NEW1", "OLD1", "NONE")
+            ],
+        )
+        # Non-common securities are not industry peers even when the sector label matches.
+        insert_master_rows(
+            connection, [("2026-05-28", "PREF", "non-common security", "プライム", "機械", "014")]
         )
         # An observed split without a close must still normalize the previous price.
         connection.execute(

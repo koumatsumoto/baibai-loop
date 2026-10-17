@@ -22,7 +22,6 @@ NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 def holding_case(tmp_path):
     db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    ledger = ledger.model_copy(update={"market_prices": ()})
     seed_ledger(db, ledger)
     seed_daily_bars(
         market,
@@ -65,7 +64,7 @@ def test_human_event_draft_apply_needs_no_holding_price(holding_case, kind, deta
     )
     draft = build_event_draft(service, event)
     apply_draft(service, draft, human_confirmed=True)
-    assert service.load().market_prices == ()
+    assert "market_prices" not in service.load().model_dump()
     after = replay_events_through(service.load().events, NOW)
     assert after.available_cash_yen == before.available_cash_yen + delta
     if delta < 0:
@@ -123,7 +122,8 @@ def test_override_constraints_are_price_independent_and_expiry_uses_valuation_in
     )
     assert warning.actual_pct > 10
     assert not warning.overridden
-    assert snapshot.as_of == ledger.as_of
+    assert snapshot.as_of == NOW
+    assert service.load().as_of == ledger.as_of
 
 
 @pytest.mark.parametrize("factor", [1.0, 0.5, None])
@@ -136,10 +136,9 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
     now = NOW.replace(hour=10)
     ledger = PortfolioLedgerDocument.model_validate(
         dict(
-            schema_version=2,
+            schema_version=3,
             portfolio_scope="repository_only",
             as_of=now.isoformat(),
-            market_prices=[],
             events=[
                 dict(
                     type="opening_balance",
@@ -229,8 +228,75 @@ def test_current_portfolio_leaves_stale_market_quotes_unvalued(holding_case):
     from baibai_engine.position.valuation import current_portfolio
 
     _, market, ledger = holding_case
-    snapshot = current_portfolio(ledger, sqlite_path=market, now=NOW + timedelta(days=30))
+    valuation_at = NOW + timedelta(days=30)
+    snapshot = current_portfolio(ledger, sqlite_path=market, now=valuation_at)
+    assert snapshot.as_of == valuation_at
     assert snapshot.available_cash_yen == 10080500
     assert snapshot.holdings[0].quantity == 200
     assert snapshot.holdings[0].market_value_yen is None
     assert snapshot.total_capital_yen is None
+
+
+@pytest.mark.parametrize("valuation_at", [NOW - timedelta(days=1), NOW + timedelta(days=1)])
+def test_portfolio_summary_uses_the_replayed_instant(holding_case, valuation_at):
+    from baibai_engine.position.ledger import summarize_portfolio
+
+    _, _, ledger = holding_case
+    recorded_at = ledger.as_of
+    state = replay_events_through(ledger.events, valuation_at)
+    snapshot = summarize_portfolio(ledger, state, {})
+    assert snapshot.as_of == valuation_at
+    assert snapshot.ledger_as_of == recorded_at
+    assert snapshot.available_cash_yen == state.available_cash_yen
+    assert ledger.as_of == recorded_at
+
+
+@pytest.mark.parametrize(
+    ("instant", "expected"),
+    [
+        ("2026-10-14T15:29:59+09:00", "2026-10-13"),
+        ("2026-10-14T15:30:00+09:00", "2026-10-14"),
+        ("2026-10-14T06:30:00Z", "2026-10-14"),
+    ],
+)
+def test_close_date_cutoff_is_not_a_source_observation_timestamp(instant, expected):
+    from baibai_engine.market.sessions import latest_eligible_close_date
+
+    assert latest_eligible_close_date(datetime.fromisoformat(instant)).isoformat() == expected
+
+
+@pytest.mark.parametrize("approval_offset_days", [-1, 0, 1])
+def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
+    holding_case, tmp_path, approval_offset_days
+):
+    from baibai_engine.position.drafts import build_override_draft, load_draft, write_draft
+    from baibai_engine.position.ledger import HumanOverride, active_human_overrides
+
+    db, _, ledger = holding_case
+    service = LedgerStoreService(db)
+    approved = ledger.as_of + timedelta(days=approval_offset_days)
+    override = HumanOverride(
+        override_id="later-human-approval",
+        scope="ticker",
+        key="2331",
+        reason="確認済みの集中を一時許容",
+        decision_reference="human-confirmation",
+        approved_at=approved,
+        expires_at=approved + timedelta(days=2),
+    )
+    before_head = service.append_head()
+    draft = build_override_draft(service, override)
+    path = tmp_path / "override-draft.yaml"
+    write_draft(path, draft)
+    restored = load_draft(path)
+    assert restored == draft
+    assert service.load() == ledger
+    apply_draft(service, restored, human_confirmed=True)
+    saved = service.load()
+    assert saved.as_of == max(ledger.as_of, approved)
+    assert saved.events == ledger.events
+    assert service.append_head() == before_head
+    assert saved.overrides == (override,)
+    assert (
+        active_human_overrides(saved.overrides, as_of=saved.as_of)[("ticker", "2331")] == override
+    )

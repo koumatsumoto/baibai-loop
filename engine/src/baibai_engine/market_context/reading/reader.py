@@ -1,8 +1,9 @@
-"""L1 store readers with provider-declared vintage selection.
+"""Selected L1 observations and transient L2 values from the same input snapshot.
 
-Only providers whose spec declares publication-quality vintages are clamped to
-the requested cutoff. Most bulk history stores the acquisition time as its
-vintage, not the original publication time; clamping those providers would make
+Only providers whose spec declares publication-date vintages are clamped to
+the requested cutoff. This does not establish exact historical API availability.
+Most bulk history stores the acquisition time as its vintage, not the original
+publication time; clamping those providers would make
 valid history disappear from snapshots whose as-of predates the backfill.
 """
 
@@ -15,9 +16,16 @@ from datetime import date
 from baibai_engine.market_context.indicators import db as indicators_db
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
+from baibai_engine.market_context.indicators.read_contracts import (
+    NATIVE_BULK_PROVIDERS,
+    point_in_time_providers,
+)
 
+from .derived import derive_series
+from .formulas import FORMULAS
 from .models import ObservationReader
+from .native import read_native_series
+from .options import OptionSeriesReader
 
 
 def build_store_observation_reader(
@@ -28,25 +36,37 @@ def build_store_observation_reader(
 ) -> ObservationReader:
     """Bind one registry-aware observation reader to an open L1 connection.
 
-    ``vintage_cutoff`` separates when facts were knowable from the observation
-    range's end. Reading uses its as-of as the vintage cutoff only for providers
+    ``vintage_cutoff`` separates the source publication-date cutoff from the
+    observation range's end. Reading uses its as-of as the cutoff only for providers
     that opt in; other providers retain the latest stored history, including later
     retrievals and revisions. No overall historical-knowledge guarantee follows.
     """
 
-    providers_by_series = {item.series_id: item.provider for item in series}
+    definitions = {item.series_id: item for item in series}
     point_in_time = point_in_time_providers()
+    options = OptionSeriesReader(connection)
 
     def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
-        provider = providers_by_series.get(series_id)
-        if provider is None:
+        definition = definitions.get(series_id)
+        if definition is None:
             raise KeyError(f"unknown indicator series: {series_id}")
+        if definition.provider == "derived":
+            formula = FORMULAS[definition.provider_series_id]
+            input_start = start.replace(day=1) if formula.alignment == "monthly" else start
+            inputs = {key: read(key, input_start, end) for key in formula.inputs}
+            return derive_series(definition, inputs, start=start, end=end)
+        if definition.provider in NATIVE_BULK_PROVIDERS:
+            return read_native_series(
+                connection, definition, start=start, end=end, vintage_cutoff=vintage_cutoff
+            )
+        if definition.provider == "jquants_options":
+            return options.read(definition, start=start, end=end)
         return indicators_db.observations_in_range(
             connection,
             series_id,
             start,
             end,
-            point_in_time=provider in point_in_time,
+            point_in_time=definition.provider in point_in_time,
             vintage_on_or_before=vintage_cutoff,
         )
 

@@ -21,15 +21,15 @@ DECISION_SUBJECTS = (
 CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC = "candidate_discovery_nomination_union_fidelity"
 ESTIMATOR_POLICY_MANDATORY_METRICS = ("er_calibration",)
 UNION_MANDATORY_METRICS = (
-    "review_set_all",
+    "nomination_union_all",
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     *(f"candidate_discovery_approach_{item.replace('-', '_')}_fidelity" for item in APPROACH_IDS),
 )
 
 
-def candidate_discovery_approach_top20_metric(approach: str) -> str:
+def candidate_discovery_approach_nomination_metric(approach: str) -> str:
     """Return the outcome metric for one approach's complete nomination depth."""
-    return f"approach_{approach.replace('-', '_')}_top20"
+    return f"approach_{approach.replace('-', '_')}_nominations"
 
 
 def candidate_discovery_approach_fidelity_metric(approach: str) -> str:
@@ -39,7 +39,7 @@ def candidate_discovery_approach_fidelity_metric(approach: str) -> str:
 
 KNOWN_METRICS = frozenset(
     (
-        "review_set_all",
+        "nomination_union_all",
         "pure_er_top5",
         "pure_er_top10",
         "pure_er_top20",
@@ -48,7 +48,8 @@ KNOWN_METRICS = frozenset(
         "margin_short_to_adv",
         "normalized_per_3fy",
         CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
-        *(candidate_discovery_approach_top20_metric(item) for item in APPROACH_IDS),
+        *(f"approach_{item.replace('-', '_')}_top20" for item in APPROACH_IDS),
+        *(candidate_discovery_approach_nomination_metric(item) for item in APPROACH_IDS),
         *(candidate_discovery_approach_fidelity_metric(item) for item in APPROACH_IDS),
     )
 )
@@ -110,9 +111,9 @@ def subject_mandatory_metrics(scope: EvaluationScope) -> tuple[str, ...]:
         approach = scope.candidate_discovery_approaches[0]
         metrics.extend(
             (
-                "review_set_all",
+                "nomination_union_all",
                 CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
-                candidate_discovery_approach_top20_metric(approach),
+                candidate_discovery_approach_nomination_metric(approach),
                 candidate_discovery_approach_fidelity_metric(approach),
             )
         )

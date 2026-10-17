@@ -8,16 +8,25 @@ buyers have crowded into, and a name whose margin longs have already been flushe
 out. They are measured on the calibration panel before any of them is allowed to
 change a rule.
 
-Balances are reported in shares as of the balance date and are not restated for
-later splits, so an axis that spans a split would compare two different share
-bases. Rather than guess an adjustment, an axis whose window contains a split
-declines to answer.
+Balances are reported in shares on their own balance dates. Known split and reverse-split
+factors put balances and traded volumes on one as-of share-unit basis. Price-only rights
+factors do not rescale shares. Unknown action kinds leave only the affected comparisons
+unresolved, rather than substituting a price factor for a share conversion.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    cumulative_share_unit_factor_after,
+)
+
+MARKET_CONTEXT_CALCULATION_REVISION = "native-master-and-margin-basis-v4"
 
 # A 信用銘柄 carries no stock lending, so it has no margin short balance to speak
 # of. Its long side cannot be placed on a crowding scale that is defined by the
@@ -48,26 +57,20 @@ class MarginBalance:
 class MarginSupplyDemand:
     """One ticker's supply/demand facts as of the latest published balance date."""
 
-    margin_week_end: date | None = None
+    margin_balance_date: date | None = None
     margin_issue_type: str | None = None
-    # Margin long balance expressed in days of trading. A balance worth many days
-    # of volume can only be unwound into the market slowly, so it is overhang on
-    # the way up regardless of the absolute share count, and it is comparable
-    # across names of different sizes.
+    # Balance divided by mean observed daily volume on the same share basis.
+    # This scale comparison is not a forecast of how long liquidation would take.
     margin_long_to_adv: float | None = None
     # Short balance in days of trading. This is deliberately not expressed as a
     # share of the two-sided balance: that would be the exact complement of
     # `margin_long_share` and would only relabel an already observed result.
     margin_short_to_adv: float | None = None
-    # Long share of the two-sided margin balance, in [0, 1]. The classic ratio
-    # (long / short) is undefined exactly where crowding is most extreme — a
-    # 貸借銘柄 with longs and no shorts — which would drop its own tail out of the
-    # cross-section. The share is defined everywhere the balance exists and orders
-    # the same way, so it is the form the axis takes.
+    # Composition of the observed long/short balance, not absolute crowding.
+    # Unlike long/short, this remains defined when only the long side is positive.
     margin_long_share: float | None = None
-    # Half-year change in the margin long balance, scaled by shares outstanding so
-    # it compares across names. A large negative reading alongside a drawdown is
-    # what a washout looks like from the positioning side.
+    # Change over 26 observed ISO weeks, scaled by as-of shares outstanding so
+    # it compares across names. A decline is not proof of forced liquidation.
     margin_long_delta_26w: float | None = None
     # Share of the long balance held on standard margin, which carries a six-month
     # settlement deadline. A high share means part of the overhang is on a clock.
@@ -80,14 +83,14 @@ def margin_supply_demand(
     prior_26w: MarginBalance | None,
     avg_daily_volume_shares: float | None,
     shares_outstanding: float | None,
-    split_within_adv_window: bool = False,
-    split_within_delta_window: bool = False,
+    asof_date: date,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] = (),
 ) -> MarginSupplyDemand:
     """Derive the supply/demand axes for one ticker.
 
-    An axis is None when its inputs are missing or when its window crosses a
-    split, never defaulted: a zero balance and an unobserved balance mean opposite
-    things, and a share count that changed mid-window is not a balance that fell.
+    Balances use their actual observation dates, not an approximate 130-session
+    window. ADV and outstanding shares must already use the as-of basis. Missing
+    values and unknown share-unit changes remain unresolved; zero stays observed.
     A zero long balance still yields a zero `margin_long_to_adv` — no overhang is
     an observation — while `margin_std_long_share` stays None there, because a
     share of nothing is not zero, it is undefined.
@@ -96,6 +99,17 @@ def margin_supply_demand(
         return MarginSupplyDemand()
     long_vol = latest.long_vol
     short_vol = latest.short_vol
+    latest_factor = cumulative_share_unit_factor_after(
+        adjustment_events, latest.balance_date, asof_date
+    )
+    prior_factor = (
+        cumulative_share_unit_factor_after(adjustment_events, prior_26w.balance_date, asof_date)
+        if prior_26w is not None
+        else None
+    )
+    asof_long = _asof_quantity(long_vol, latest_factor)
+    asof_short = _asof_quantity(short_vol, latest_factor)
+    prior_long = _asof_quantity(prior_26w.long_vol, prior_factor) if prior_26w is not None else None
     two_sided = (
         long_vol + short_vol
         if latest.issue_type == ISSUE_TYPE_LENDING_ELIGIBLE
@@ -104,29 +118,24 @@ def margin_supply_demand(
         else None
     )
     return MarginSupplyDemand(
-        margin_week_end=latest.balance_date,
+        margin_balance_date=latest.balance_date,
         margin_issue_type=latest.issue_type,
         margin_long_to_adv=(
-            long_vol / avg_daily_volume_shares
-            if long_vol is not None and avg_daily_volume_shares and not split_within_adv_window
+            asof_long / avg_daily_volume_shares
+            if asof_long is not None and avg_daily_volume_shares
             else None
         ),
         margin_short_to_adv=(
-            short_vol / avg_daily_volume_shares
+            asof_short / avg_daily_volume_shares
             if latest.issue_type == ISSUE_TYPE_LENDING_ELIGIBLE
-            and short_vol is not None
+            and asof_short is not None
             and avg_daily_volume_shares
-            and not split_within_adv_window
             else None
         ),
         margin_long_share=(long_vol / two_sided if two_sided and long_vol is not None else None),
         margin_long_delta_26w=(
-            (long_vol - prior_26w.long_vol) / shares_outstanding
-            if long_vol is not None
-            and prior_26w is not None
-            and prior_26w.long_vol is not None
-            and shares_outstanding
-            and not split_within_delta_window
+            (asof_long - prior_long) / shares_outstanding
+            if asof_long is not None and prior_long is not None and shares_outstanding
             else None
         ),
         margin_std_long_share=(
@@ -135,6 +144,7 @@ def margin_supply_demand(
     )
 
 
-# 26 週の建玉変化を測る窓を立会日で表した本数。株式分割はこの窓を跨ぐと株数基準が
-# 変わるので、跨いだ銘柄は軸を答えない。
-MARGIN_DELTA_SESSIONS = 130
+def _asof_quantity(value: float | None, factor: float | None) -> float | None:
+    if value == 0:
+        return 0.0
+    return value / factor if value is not None and factor else None

@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
@@ -202,7 +203,7 @@ class TestDbMarketPriceSource:
         connection = open_connection(path)
         try:
             connection.executemany(
-                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) "
                 "VALUES (?, ?)",
                 [("2026-07-28", 1), ("2026-07-29", 1)],
             )
@@ -262,7 +263,7 @@ def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_
     )
     ledger = PortfolioLedgerDocument.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "portfolio_scope": "repository_only",
             "as_of": now.isoformat(),
             "events": [
@@ -297,7 +298,6 @@ def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_
                     "price_yen": 1000,
                 },
             ],
-            "market_prices": [],
         }
     )
     seed_ledger(db, ledger)
@@ -334,5 +334,38 @@ def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_
         assert holding.pmax_gap_unavailable_reason is None
     else:
         assert holding.pmax_gap_pct is None
-        assert holding.pmax_gap_unavailable_reason
+        assert (
+            holding.pmax_gap_unavailable_reason
+            == "原評価と現在株価を同じ価格基準で比較できません。"
+        )
     assert {path: path.read_bytes() for path in (db, market)} == before
+
+
+def test_pending_order_without_analysis_has_an_exported_security_target(mocker) -> None:
+    from baibai_web.materialize import _security_tickers
+    from baibai_web.sources.protocols import MarketPriceSource
+
+    reservation = SimpleNamespace(ticker="9999")
+    ledger = mocker.Mock(spec=LedgerSource)
+    ledger.exists.return_value = True
+    ledger.snapshot.return_value = SimpleNamespace(holdings=[], active_reservations=[reservation])
+    research = mocker.Mock(spec=ResearchSource)
+    research.revisions.return_value = []
+    research.proposals.return_value = []
+    screening = mocker.Mock(spec=ScreeningSource)
+    screening.latest_run.return_value = None
+    market = mocker.Mock(spec=MarketPriceSource)
+    market.security_identities.return_value = {"9999": {"name": "注文銘柄", "sector_33": "機械"}}
+    market.security_market_context.return_value = None
+
+    detail = build_security_detail("9999", ledger, research, screening, market)
+
+    assert detail is not None
+    assert detail.ticker == "9999"
+    assert detail.company_name == "注文銘柄"
+    assert detail.holding is None
+    assert detail.stock_analysis is None
+    assert _security_tickers(
+        SimpleNamespace(holdings=[], reservations=[reservation]),
+        SimpleNamespace(stock_analyses=[]),
+    ) == ["9999"]

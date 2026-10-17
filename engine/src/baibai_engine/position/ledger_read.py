@@ -29,7 +29,7 @@ def _require_schema(connection: sqlite3.Connection) -> bool:
     }
     if not tables and connection.execute("PRAGMA user_version").fetchone()[0] == 0:
         return False
-    if not {"ledger_event", "ledger_market_price", "ledger_meta"} <= tables:
+    if not {"ledger_event", "ledger_meta"} <= tables:
         raise LedgerSchemaError("application DB ledger schema is incomplete")
     return True
 
@@ -48,9 +48,7 @@ def load_ledger_document(connection: sqlite3.Connection) -> PortfolioLedgerDocum
         return None
     meta = connection.execute("SELECT payload FROM ledger_meta WHERE singleton = 1").fetchone()
     if meta is None:
-        orphaned = connection.execute(
-            "SELECT EXISTS(SELECT 1 FROM ledger_event) OR EXISTS(SELECT 1 FROM ledger_market_price)"
-        ).fetchone()[0]
+        orphaned = connection.execute("SELECT EXISTS(SELECT 1 FROM ledger_event)").fetchone()[0]
         if orphaned:
             raise LedgerConflictError("ledger rows exist without metadata")
         return None
@@ -66,18 +64,7 @@ def load_ledger_document(connection: sqlite3.Connection) -> PortfolioLedgerDocum
             """
         )
     ]
-    raw["market_prices"] = [
-        json.loads(str(row[0]))
-        for row in connection.execute("SELECT payload FROM ledger_market_price ORDER BY ticker ASC")
-    ]
-    document = PortfolioLedgerDocument.model_validate(raw)
-    require_canonical_prices(document)
-    return document
-
-
-def require_canonical_prices(document: PortfolioLedgerDocument) -> None:
-    if any(price.source_kind == "test_fixture" for price in document.market_prices):
-        raise LedgerConflictError("canonical application DB cannot use test_fixture prices")
+    return PortfolioLedgerDocument.model_validate(raw)
 
 
 def load_ledger_in_transaction(

@@ -1,7 +1,8 @@
 """東証普通株の提案価格を公式「その他」呼値の保守的共通 grid へ揃える。
 
-TOPIX500 の最良呼値や注文受理を保証するものではない。既存 master の市場と
-33 業種分類だけで対象を確認し、2027 年制度変更以降の新条件には適用しない。
+TOPIX500 の最良呼値や注文受理を保証するものではない。
+master 原本の商品区分と銘柄コードで普通株を確認し、
+市場と合わせて適用対象を限定する。2027 年制度変更以降の新条件には適用しない。
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, localcontext
 
-from baibai_engine.market.universe import ELIGIBLE_MARKETS, TSE_33_SECTORS
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.valuation.scenario import finite_decimal
 
 PRICE_GRID_RULE_ID = "tse-common-conservative-20261014"
@@ -41,11 +42,11 @@ _TICKS: tuple[tuple[Decimal | None, Decimal], ...] = tuple(
 )
 
 
-def _available(*, target_session: date, market_segment: str, sector_33: str) -> bool:
+def _available(*, target_session: date, market_segment: str, is_common_stock: bool) -> bool:
     return (
         PRICE_GRID_CONFIRMED_AT <= target_session < PRICE_GRID_VALID_UNTIL
         and market_segment.strip().upper() in ELIGIBLE_MARKETS
-        and sector_33 in TSE_33_SECTORS
+        and is_common_stock
     )
 
 
@@ -54,14 +55,16 @@ def _tick(price_yen: Decimal) -> Decimal:
 
 
 def floor_common_stock_limit(
-    price_yen: Decimal, *, target_session: date, market_segment: str, sector_33: str
+    price_yen: Decimal, *, target_session: date, market_segment: str, is_common_stock: bool
 ) -> Decimal | None:
     """Floor an author's price ceiling; unavailable classification/rule gives no terms."""
     price = finite_decimal(price_yen)
     if price <= 0:
         raise ValueError("price_yen must be positive")
     if not _available(
-        target_session=target_session, market_segment=market_segment, sector_33=sector_33
+        target_session=target_session,
+        market_segment=market_segment,
+        is_common_stock=is_common_stock,
     ):
         return None
     tick = _tick(price)
@@ -74,14 +77,17 @@ def floor_common_stock_limit(
 
 
 def common_stock_limit_is_valid(
-    price_yen: Decimal, *, target_session: date, market_segment: str, sector_33: str
+    price_yen: Decimal, *, target_session: date, market_segment: str, is_common_stock: bool
 ) -> bool:
     """Check a positive finite price against the grid at the proposed session."""
     price = finite_decimal(price_yen)
     return (
         price > 0
         and floor_common_stock_limit(
-            price, target_session=target_session, market_segment=market_segment, sector_33=sector_33
+            price,
+            target_session=target_session,
+            market_segment=market_segment,
+            is_common_stock=is_common_stock,
         )
         == price
     )

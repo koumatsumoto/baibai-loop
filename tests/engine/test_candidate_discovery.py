@@ -55,7 +55,7 @@ def _analysis(
         "sector_33": "情報・通信業",
         "market_cap_oku": 500,
         "avg_turnover_oku": 5.0,
-        "listing_span_days": 1000,
+        "price_history_span_days": 1000,
         "jpx_flags": [],
         "per_forward": per,
         "per_trailing": per + 1,
@@ -85,13 +85,8 @@ def _analysis(
     }
 
 
-def test_golden_preserves_frozen_membership_ranks_gaps_and_identities() -> None:
-    from baibai_engine.screening.calibration.panel import rules_content_hash
-    from baibai_engine.screening.calibration.store import CACHE_SCHEMA_VERSION
-    from baibai_engine.screening.rules_identity import production_rules_contract_hash
-    from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
-    from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
-
+def test_golden_preserves_frozen_membership_ranks_gaps_and_method_identity() -> None:
+    # Frozen inputs exercise Discovery, not valuation or forward-cache reconstruction.
     result = _discover(GOLDEN["rows"])
     assert result.method.model_dump(mode="json") == GOLDEN["method"]
     assert {
@@ -106,21 +101,6 @@ def test_golden_preserves_frozen_membership_ranks_gaps_and_identities() -> None:
     assert result.common_eligible_count == GOLDEN["common_eligible_count"]
     assert result.candidate_counts_by_approach == GOLDEN["counts"]
     assert result.candidate_count == GOLDEN["candidate_count"]
-    # Retain the original fixture provenance; unchanged discovery membership does
-    # not make its earlier valuation calculation or forward cache current.
-    assert GOLDEN["production_rules_hash"] == "920cf1ddbab0b7a9"
-    assert GOLDEN["production_rules_hash"] != production_rules_contract_hash(
-        SCREENING_RULES.model_dump_json()
-    )
-    assert GOLDEN["panel_rules_hash"] == "89c457e17efac7dd"
-    assert GOLDEN["panel_rules_hash"] != rules_content_hash(SCREENING_RULES)
-    # Candidate membership is unchanged; the old forward cache predates document-time
-    # dividend selection and must not be accepted as a measurement under the new rules.
-    assert GOLDEN["cache_schema_version"] == "e85d374e84ce09e0"
-    assert GOLDEN["cache_schema_version"] != CACHE_SCHEMA_VERSION
-    assert GOLDEN["er_model_version"] == EXPECTED_RETURN_MODEL_VERSION
-    assert GOLDEN["valuation_calculation_revision"] == "document-period-forecasts-v27"
-    assert GOLDEN["valuation_calculation_revision"] != VALUATION_CALCULATION_REVISION
 
 
 @pytest.mark.parametrize("approach", APPROACH_IDS)
@@ -187,7 +167,7 @@ def test_adv_and_expected_return_context_do_not_change_selection(avg_turnover_ok
 )
 def test_common_eligibility_history_and_required_jpx_flags(span, flags, expected) -> None:
     row = _analysis("1111")
-    row.update(market_cap_oku=50, listing_span_days=span, jpx_flags=flags)
+    row.update(market_cap_oku=50, price_history_span_days=span, jpx_flags=flags)
     context = _discover([row]).contexts["1111"]
     assert context.common_eligible is expected
     assert bool(context.reasons) is expected
@@ -452,3 +432,12 @@ def test_four_independent_top20_sets_form_exact_80_stock_union() -> None:
             str(1000 + group * 100 + index): index + 1 for index in range(20)
         }
         assert result.contexts[str(1020 + group * 100)].reasons == ()
+
+
+@pytest.mark.parametrize("gap", [None, float("nan")])
+def test_current_earnings_requires_the_gap_of_the_chosen_native_multiple(gap):
+    row = _analysis("1111")
+    row["metrics"]["per_forward_sector_gap"] = gap
+    row["metrics"]["chosen_per_sector_gap"] = -0.9
+    row["metrics"]["per_trailing_sector_gap"] = -0.8
+    assert _ranks(_discover([row]), "current-earnings-power") == {}

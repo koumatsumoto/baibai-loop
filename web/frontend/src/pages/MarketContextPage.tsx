@@ -42,9 +42,9 @@ const HINT = {
   zScore: `実効窓の平均から標準偏差いくつ離れているか。|z| ≥ ${EXTREME_Z_SCORE} は分布の端という読み値で、値の否定ではない。`,
   window: 'percentile と z を取る窓の年数と、その中の観測数（分母は頻度が示唆する件数）。窓を履歴が満たさない系列は percentile と z を出さない。',
   notes: '取得失敗・stale・履歴不足・分布の端と、教科書的な閾値に触れたことを示す flag。いずれも signal ではない。',
-  fetchFailed: '直近の取得試行が失敗した系列。store は前回値を返し続けるので、stale になる前に provider の停止を捉える唯一の合図。',
-  stale: '観測が系列ごとの閾値より古い。provider の無音の停止を疑う合図で、percentile の解釈可能性を壊す。',
-  insufficientHistory: '実効窓を履歴が満たさない（開始が遅い・件数不足・欠落が多い）ため percentile と z を出さない。水準比較に使わない。',
+  fetchFailed: '直近の取得試行が失敗した系列。保存済みの値があっても、今回の取得が成功したことは意味しない。観測の古さとは別に確認する。',
+  stale: '観測が系列ごとの閾値より古い。公表間隔や取得状況を確認し、表示された統計を現在時点の値と混同しない。古さだけで取得障害とは断定しない。',
+  insufficientHistory: '実効窓を履歴が満たさない（開始が遅い・件数不足・欠落が多い）ため percentile と z を出さない。最新値自体の利用可否とは区別する。',
   extreme: `|z| ≥ ${EXTREME_Z_SCORE}。実効窓の分布の端にいるという読み値そのもので、健全性の問題ではない。誤値でないことは経済分析レポートが一次情報と突き合わせて確認する。`,
 } as const
 
@@ -223,9 +223,11 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
   )
 }
 
-function IndicatorDialog({ row, history, historyLoading, historyError, period, granularity, onClose }: { row: IndicatorRow | null; history: IndicatorSeriesView | null; historyLoading: boolean; historyError: boolean; period: IndicatorHistoryPeriod; granularity: IndicatorHistoryGranularity; onClose: () => void }) {
+function IndicatorDialog({ row, history: fetchedHistory, historyLoading, historyError, period, granularity, onClose }: { row: IndicatorRow | null; history: IndicatorSeriesView | null; historyLoading: boolean; historyError: boolean; period: IndicatorHistoryPeriod; granularity: IndicatorHistoryGranularity; onClose: () => void }) {
   if (row === null) return null
   const { reading, failedFetch } = row
+  // A new selection renders before its effect clears the previous request result.
+  const history = fetchedHistory?.series_id === row.series.series_id ? fetchedHistory : null
   const series = history === null ? row.series : transformSeriesHistory(history, period, granularity)
   const stats = reading === null ? null : readingStatistics(reading)
   return (
@@ -286,7 +288,6 @@ export function MarketContextPage() {
   const [error, setError] = useState<string | null>(null)
   const [period, setPeriod] = useState<IndicatorHistoryPeriod>('max')
   const [granularity, setGranularity] = useState<IndicatorHistoryGranularity>('monthly')
-  const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [statuses, setStatuses] = useState<ReadonlySet<IndicatorStatus>>(new Set())
   const [openSeriesId, setOpenSeriesId] = useState<string | null>(null)
@@ -297,15 +298,11 @@ export function MarketContextPage() {
   useEffect(() => {
     const controller = new AbortController()
     setError(null)
-    setLoading(true)
     fetchJson<MarketContextView>('/api/market-context', { signal: controller.signal })
-      .then(setData)
+      .then(value => { if (!controller.signal.aborted) setData(value) })
       .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        if (controller.signal.aborted || (reason instanceof DOMException && reason.name === 'AbortError')) return
         setError(reason instanceof Error ? reason.message : '市場環境を読み込めませんでした')
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
   }, [])
@@ -334,10 +331,8 @@ export function MarketContextPage() {
   if (error) return <PageState message={error} />
   if (!data) return <LoadingPage label="市場環境を読み込んでいます" />
 
-  // Degrade gracefully rather than white-screen if a served view is ever missing a
-  // field (e.g. a stale view during a deploy that precedes its re-materialization).
-  const reports = data.reports ?? []
-  const groups = buildIndicatorGroups(data.groups ?? [], data.reading)
+  const reports = data.reports
+  const groups = buildIndicatorGroups(data.groups, data.reading)
   const summary = summarizeIndicators(groups)
   const visibleGroups = filterIndicatorGroups(groups, { query, statuses })
   const openRow = groups.flatMap((group) => group.rows).find((row) => row.series.series_id === openSeriesId) ?? null
@@ -367,7 +362,6 @@ export function MarketContextPage() {
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細期間</span><Select onValueChange={(value) => setPeriod(value as IndicatorHistoryPeriod)} value={period}><SelectTrigger aria-label="詳細チャートの表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(PERIOD_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細粒度</span><Select onValueChange={(value) => setGranularity(value as IndicatorHistoryGranularity)} value={granularity}><SelectTrigger aria-label="詳細チャートの表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(GRANULARITY_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
-            {loading && <LoadingIndicator className="self-end pb-2" label="マクロ経済指標を更新しています" size={24} />}
           </div>
         </div>
 

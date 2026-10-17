@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import re
 import time
 import zipfile
 from collections.abc import Mapping, Sequence
@@ -20,10 +19,16 @@ from pydantic.dataclasses import dataclass
 
 from baibai_engine.market.edinet_decode import (
     coalesce_field,
-    parse_optional_date,
+    document_period,
+    is_usable_filing_status,
     parse_sec_code,
     safe_error_value,
     text_or_none,
+)
+from baibai_engine.market.edinet_document_events import (
+    QuarantinedDocumentEvent,
+    _canonicalize_document_events,
+    parse_doc_id,
 )
 from baibai_engine.market.edinet_models import (
     EdinetMetricRecord,
@@ -40,10 +45,6 @@ _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
 TARGET_DOC_TYPE_CODES = frozenset({"120", "130", "140", "150", "160", "170"})
 CORRECTION_DOC_TYPE_CODES = frozenset({"130", "150", "170"})
-_DOCUMENT_DESCRIPTION_PERIOD_RE = re.compile(
-    r"(\d{4}/\d{2}/\d{2})\s*[－~～-]\s*(\d{4}/\d{2}/\d{2})"
-)
-_DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -60,17 +61,6 @@ class EdinetDocumentCandidate:
     @classmethod
     def _normalize_ticker_field(cls, value: str) -> str:
         return normalize_ticker(value)
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class QuarantinedDocumentEvent:
-    """An operation row whose origin filing cannot be resolved in the input window."""
-
-    doc_id: str
-    target_doc_id: str | None
-    event_type: str
-    document_type: str | None = None
-    ticker: str | None = None
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -105,7 +95,6 @@ class EDINETProvider:
         self._session = session or requests.Session()
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
-        self._zip_cache_dir = self._cache_dir / "csv_zips"
 
     def list_documents(
         self,
@@ -168,6 +157,9 @@ class EDINETProvider:
                 process_datetime=process_datetime,
                 result_count=result_count,
                 is_final=is_final,
+                response_json=json.dumps(
+                    data, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                ),
             )
         return documents
 
@@ -178,8 +170,6 @@ class EDINETProvider:
             cached = read_edinet_metrics(self._sqlite_path, asof_date)
             if cached is not None:
                 return dict(cached)
-        if self._cache_only:
-            return {}
         return {}
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
@@ -228,26 +218,57 @@ class EDINETProvider:
         return fetched
 
     def download_csv_zip(self, doc_id: str) -> bytes:
-        safe_doc_id = parse_doc_id(doc_id)
-        cache_path = self._zip_cache_dir / f"{safe_doc_id}.zip"
-        if cache_path.exists():
-            cached = cache_path.read_bytes()
-            if _is_zip_bytes(cached):
-                return cached
-            cache_path.unlink(missing_ok=True)
-        self._raise_if_cache_only("edinet_csv_zip", safe_doc_id)
+        return self._download_document_zip(doc_id, source_type=5)
 
-        api_key = self._require_api_key("download_csv_zip")
-        query = urlencode({"type": 5, "Subscription-Key": api_key})
-        url = f"{EDINET_API_BASE}/documents/{safe_doc_id}?{query}"
-        content = self._request_bytes(url)
+    def download_xbrl_zip(self, doc_id: str) -> bytes:
+        return self._download_document_zip(doc_id, source_type=1)
+
+    def _download_document_zip(self, doc_id: str, *, source_type: int) -> bytes:
+        from baibai_engine.market.edinet_sources import read_source_archive
+
+        safe_id = parse_doc_id(doc_id)
+        source_name = "csv" if source_type == 5 else "xbrl"
+        if self._sqlite_path is not None:
+            retained = read_source_archive(self._sqlite_path, safe_id, source_type)
+            if retained is not None:
+                if not _is_zip_bytes(retained):
+                    raise EDINETProviderError(f"stored EDINET {source_name} archive is not a ZIP")
+                return retained
+        cache = self._cache_dir / f"{source_name}_zips" / f"{safe_id}.zip"
+        if cache.exists():
+            content = cache.read_bytes()
+            if _is_zip_bytes(content):
+                return self._retain_document_zip(safe_id, source_type, content)
+            cache.unlink()
+        self._raise_if_cache_only(f"edinet_{source_name}_zip", safe_id)
+        query = urlencode(
+            {
+                "type": source_type,
+                "Subscription-Key": self._require_api_key("download_document_zip"),
+            }
+        )
+        content = self._request_bytes(f"{EDINET_API_BASE}/documents/{safe_id}?{query}")
         if not _is_zip_bytes(content):
             raise EDINETProviderError(
-                f"EDINET CSV ZIP response was not a zip: {_non_zip_response_message(content)}"
+                f"EDINET {source_name.upper()} ZIP response was not a zip: "
+                f"{_non_zip_response_message(content)}"
             )
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_bytes(content)
-        return content
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(content)
+        return self._retain_document_zip(safe_id, source_type, content)
+
+    def _retain_document_zip(self, doc_id: str, source_type: int, content: bytes) -> bytes:
+        if self._sqlite_path is None:
+            return content
+        from baibai_engine.market.edinet_sources import retain_source_archive
+
+        return retain_source_archive(
+            self._sqlite_path,
+            doc_id,
+            source_type,
+            content,
+            stored_on=datetime.now(UTC).date(),
+        )
 
     def _require_api_key(self, operation: str) -> str:
         if not self._api_key:
@@ -329,13 +350,6 @@ def _retry_after_seconds(response: requests.Response, backoff: int) -> float:
     return max(0.0, (deadline - datetime.now(UTC)).total_seconds())
 
 
-def parse_doc_id(value: object) -> str:
-    raw = str(value or "").strip()
-    if not raw.isascii() or not _DOC_ID_RE.fullmatch(raw.upper()):
-        raise EDINETProviderError(f"invalid EDINET docID: {safe_error_value(value)}")
-    return raw.upper()
-
-
 def select_document_candidates(
     documents: Sequence[Mapping[str, Any]],
     *,
@@ -360,7 +374,7 @@ def select_document_candidates(
         if text_or_none(raw_sec_code) is None:
             continue
         ticker = parse_sec_code(raw_sec_code)
-        period_start, period_end = _document_period(document)
+        period_start, period_end = document_period(document)
         candidate = EdinetDocumentCandidate(
             ticker=ticker,
             doc_id=doc_id,
@@ -416,222 +430,6 @@ def _source_document_revision(document: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _canonicalize_document_events(
-    documents: Sequence[Mapping[str, Any]],
-    *,
-    origin_start: date | None,
-) -> tuple[list[dict[str, Any]], tuple[QuarantinedDocumentEvent, ...]]:
-    """Fold EDINET operation rows onto origin filings before ticker selection.
-
-    Returns the folded filings and structured operation rows whose origin is not
-    in scope. The latter most often happens when a filing older than the lookback
-    window is edited or withdrawn inside it.
-    """
-    normalized = [dict(document) for document in documents]
-    normalized.sort(key=_document_event_sort_key)
-    origins: dict[str, dict[str, Any]] = {}
-    events: list[dict[str, Any]] = []
-    for document in normalized:
-        _validate_document_statuses(document)
-        doc_id_raw = coalesce_field(document, "docID", "doc_id")
-        if doc_id_raw is None:
-            continue
-        doc_id = parse_doc_id(doc_id_raw)
-        edit_status = text_or_none(
-            coalesce_field(document, "docInfoEditStatus", "doc_info_edit_status")
-        )
-        withdrawal_status = text_or_none(
-            coalesce_field(document, "withdrawalStatus", "withdrawal_status")
-        )
-        disclosure_status = text_or_none(
-            coalesce_field(document, "disclosureStatus", "disclosure_status")
-        )
-        is_event = edit_status == "1" or withdrawal_status == "1" or disclosure_status in {"1", "3"}
-        if is_event:
-            events.append(document)
-            continue
-        origin_date = text_or_none(coalesce_field(document, "doc_date"))
-        if origin_start is not None and origin_date is not None:
-            try:
-                if date.fromisoformat(origin_date) < origin_start:
-                    continue
-            except ValueError as exc:
-                raise EDINETProviderError(
-                    f"invalid EDINET origin date: {safe_error_value(origin_date)}"
-                ) from exc
-        origins[doc_id] = document
-
-    children: dict[str, set[str]] = {}
-    for doc_id, origin in origins.items():
-        parent = text_or_none(coalesce_field(origin, "parentDocID", "parent_doc_id"))
-        if parent:
-            children.setdefault(parent, set()).add(doc_id)
-    _validate_parent_graph(origins)
-
-    quarantined: set[QuarantinedDocumentEvent] = set()
-    for event in events:
-        doc_id = parse_doc_id(coalesce_field(event, "docID", "doc_id"))
-        edit_status = text_or_none(
-            coalesce_field(event, "docInfoEditStatus", "doc_info_edit_status")
-        )
-        withdrawal_status = text_or_none(
-            coalesce_field(event, "withdrawalStatus", "withdrawal_status")
-        )
-        disclosure_status = text_or_none(
-            coalesce_field(event, "disclosureStatus", "disclosure_status")
-        )
-        if withdrawal_status == "1":
-            parent = text_or_none(coalesce_field(event, "parentDocID", "parent_doc_id"))
-            if parent is None or parent not in origins:
-                quarantined.add(
-                    _quarantined_document_event(
-                        event,
-                        doc_id=doc_id,
-                        target_doc_id=parent,
-                        event_type="withdrawal",
-                    )
-                )
-                continue
-            _tombstone_document_tree(parent, origins=origins, children=children)
-            continue
-        current = origins.get(doc_id)
-        if current is None:
-            event_type = "edit" if edit_status == "1" else "disclosure"
-            quarantined.add(
-                _quarantined_document_event(
-                    event,
-                    doc_id=doc_id,
-                    target_doc_id=doc_id,
-                    event_type=event_type,
-                )
-            )
-            continue
-        if text_or_none(coalesce_field(current, "withdrawalStatus", "withdrawal_status")) == "2":
-            raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
-        origin_date = current.get("doc_date")
-        current.update({key: value for key, value in event.items() if value is not None})
-        if origin_date is not None:
-            current["doc_date"] = origin_date
-        if edit_status == "1":
-            current["docInfoEditStatus"] = "2"
-        if disclosure_status == "1":
-            current["disclosureStatus"] = "2"
-        elif disclosure_status == "3":
-            current["disclosureStatus"] = "0"
-    return list(origins.values()), tuple(
-        sorted(
-            quarantined,
-            key=lambda item: (
-                item.doc_id,
-                item.event_type,
-                item.target_doc_id or "",
-                item.ticker or "",
-            ),
-        )
-    )
-
-
-def _quarantined_document_event(
-    event: Mapping[str, Any],
-    *,
-    doc_id: str,
-    target_doc_id: str | None,
-    event_type: str,
-) -> QuarantinedDocumentEvent:
-    raw_sec_code = coalesce_field(event, "secCode", "sec_code")
-    ticker: str | None = None
-    if text_or_none(raw_sec_code) is not None:
-        try:
-            ticker = parse_sec_code(raw_sec_code)
-        except EDINETProviderError:
-            # The event is already quarantined. An unusable security code reduces
-            # the isolation scope to the event itself rather than restoring a
-            # batch-wide failure for metadata that cannot identify a ticker.
-            ticker = None
-    document_type = text_or_none(coalesce_field(event, "docTypeCode", "doc_type_code"))
-    if document_type is not None and (
-        len(document_type) != 3 or not document_type.isascii() or not document_type.isdigit()
-    ):
-        document_type = None
-    return QuarantinedDocumentEvent(
-        doc_id=doc_id,
-        target_doc_id=target_doc_id,
-        event_type=event_type,
-        document_type=document_type,
-        ticker=ticker,
-    )
-
-
-def _validate_parent_graph(origins: Mapping[str, Mapping[str, Any]]) -> None:
-    """Reject cycles even when no withdrawal event traverses the relation."""
-    complete: set[str] = set()
-    for start in origins:
-        path: set[str] = set()
-        current = start
-        while current in origins and current not in complete:
-            if current in path:
-                raise EDINETProviderError(f"EDINET parent relation cycle detected: {current}")
-            path.add(current)
-            parent = text_or_none(coalesce_field(origins[current], "parentDocID", "parent_doc_id"))
-            if parent is None:
-                break
-            current = parent
-        complete.update(path)
-
-
-def _tombstone_document_tree(
-    root: str,
-    *,
-    origins: dict[str, dict[str, Any]],
-    children: Mapping[str, set[str]],
-) -> None:
-    pending = [root]
-    seen: set[str] = set()
-    while pending:
-        doc_id = pending.pop()
-        if doc_id in seen:
-            raise EDINETProviderError(f"EDINET parent relation cycle detected: {doc_id}")
-        seen.add(doc_id)
-        origin = origins.get(doc_id)
-        if origin is not None:
-            origin["withdrawalStatus"] = "2"
-            origin["legalStatus"] = "0"
-        pending.extend(children.get(doc_id, ()))
-
-
-def _validate_document_statuses(document: Mapping[str, Any]) -> None:
-    allowed = {
-        "legal": {None, "0", "1", "2"},
-        "withdrawal": {None, "0", "1", "2"},
-        "edit": {None, "0", "1", "2"},
-        "disclosure": {None, "0", "1", "2", "3"},
-    }
-    values = {
-        "legal": text_or_none(coalesce_field(document, "legalStatus", "legal_status")),
-        "withdrawal": text_or_none(
-            coalesce_field(document, "withdrawalStatus", "withdrawal_status")
-        ),
-        "edit": text_or_none(coalesce_field(document, "docInfoEditStatus", "doc_info_edit_status")),
-        "disclosure": text_or_none(
-            coalesce_field(document, "disclosureStatus", "disclosure_status")
-        ),
-    }
-    for name, value in values.items():
-        if value not in allowed[name]:
-            raise EDINETProviderError(f"unknown EDINET {name} status: {value!r}")
-
-
-def _document_event_sort_key(document: Mapping[str, Any]) -> tuple[str, str, int]:
-    doc_date = text_or_none(coalesce_field(document, "doc_date")) or ""
-    operation = text_or_none(coalesce_field(document, "opeDateTime", "operation_datetime")) or ""
-    raw_sequence = coalesce_field(document, "seqNumber", "sequence_number")
-    try:
-        sequence = int(raw_sequence or 0)
-    except (TypeError, ValueError):
-        sequence = 0
-    return doc_date, operation, sequence
-
-
 def _coerce_document_items(payload: list[Any], *, source: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for item in payload:
@@ -673,20 +471,10 @@ def _non_zip_response_message(content: bytes) -> str:
 
 
 def _is_unusable_status(document: Mapping[str, Any]) -> bool:
-    legal_status = text_or_none(coalesce_field(document, "legalStatus", "legal_status"))
-    disclosure_status = text_or_none(
-        coalesce_field(document, "disclosureStatus", "disclosure_status")
-    )
-    withdrawal_status = text_or_none(
-        coalesce_field(document, "withdrawalStatus", "withdrawal_status")
-    )
-    # EDINET document list uses legalStatus="1", disclosureStatus="0",
-    # withdrawalStatus="0" for normal usable filings. Treat unknown/missing
-    # status as usable because older cached payloads may not have all fields.
-    return (
-        legal_status not in (None, "1", "2")
-        or disclosure_status not in (None, "0")
-        or withdrawal_status not in (None, "0")
+    return not is_usable_filing_status(
+        coalesce_field(document, "legalStatus", "legal_status"),
+        coalesce_field(document, "disclosureStatus", "disclosure_status"),
+        coalesce_field(document, "withdrawalStatus", "withdrawal_status"),
     )
 
 
@@ -703,32 +491,3 @@ def _document_sort_key(
         correction,
         candidate.doc_id,
     )
-
-
-def _document_period(document: Mapping[str, Any]) -> tuple[date | None, date | None]:
-    start = parse_optional_date(coalesce_field(document, "periodStart", "period_start"))
-    end = parse_optional_date(coalesce_field(document, "periodEnd", "period_end"))
-    if start is not None and end is not None:
-        return start, end
-    description = text_or_none(coalesce_field(document, "docDescription", "doc_description"))
-    fallback_start, fallback_end = _parse_document_description_period(description)
-    return start or fallback_start, end or fallback_end
-
-
-def _parse_document_description_period(value: str | None) -> tuple[date | None, date | None]:
-    if not value:
-        return None, None
-    match = _DOCUMENT_DESCRIPTION_PERIOD_RE.search(value)
-    if match is None:
-        return None, None
-    return (
-        _parse_slash_date(match.group(1)),
-        _parse_slash_date(match.group(2)),
-    )
-
-
-def _parse_slash_date(value: str) -> date | None:
-    try:
-        return date.fromisoformat(value.replace("/", "-"))
-    except ValueError:
-        return None

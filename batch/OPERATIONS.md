@@ -60,23 +60,23 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | bucket | object | owner |
 | --- | --- | --- |
 | `baibai-stores` | `market.sqlite`（store-local data + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
-| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`と`cloud-tradingview-snapshot`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
+| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`・`cloud-tradingview-snapshot`・`cloud-external-assessment`の公開job + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `indicators.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-indicators`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | 取得世代への条件付き更新（実行環境の分担は前節） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 
-R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。候補membershipの長期履歴は保持しない。
+`baibai-serving`のR2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。候補membershipの長期履歴は保持しない。
 
-`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
+`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`と、`cloud-external-assessment`のpublish jobはGitHubの`cloud-publish`を共有する。外部評価のplan/acquireは別の取得queueで動く。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
 
 資格情報はprincipalごとに分ける。
 
 | principal | 設定 | scope |
 | --- | --- | --- |
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
-| GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step と `cloud-batch-watchdog` の警報 step のみ（job env に出さない） |
+| GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | daily・TradingView・External Assessmentの通知 stepとwatchdogの警報 stepのみ（job envに出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
 | ローカルPCの`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write。通常のクラウド開発へ持ち込まない |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
@@ -89,8 +89,9 @@ servingは各workflowのsource store取得・materializeが成功した後だけ
 
 provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。JPX規制情報の公開URLは
 [JPX source設定](../engine/src/baibai_engine/market/jpx_sources.py)の固定値を使い、環境変数では指定しない。
-`bootstrap-cache`は`universe.required_jpx_flags`の必要sourceを取得し、取得・検証に失敗した場合は
-machine stores / serving uploadを停止する。
+`bootstrap-cache`は`universe.required_jpx_flags`の必要sourceを取得する。日次で取得・検証に失敗した場合は
+新しいScreening runを発行せず、独立した指標更新と全views exportへ進みexit 3で報告する。
+store検査・exportが成功した場合の後続公開と、致命的失敗による公開停止は[日次機械工程](#日次機械工程--baibai-batch-daily)に従う。
 
 
 ## 日常運用
@@ -129,25 +130,22 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 **成功確認**: `verify-cache-coverage`が対象日の必要入力を満たし、個別確認では
 `ticker-profile`が対象tickerを返すことを確認する。
 
-**停止と復旧**: `verify-cache-coverage` が `required-field:<name>@<asof>` を返した場合は、同じas-ofで
-`screening bootstrap-cache` を再実行する。bootstrapは表示された`resume_from`と
-`remaining_ranges`に従い、欠損tickerの既知開示日だけをchunk補修する。既存の広い
-`jquants_fin_summaries` coverageを`invalidate-coverage`で外すと正常な履歴まで再取得対象に
-なるため、required-field補修には使わない。補修後は同じverify commandで
-`market_cap_required_fields`と`valuation_required_fields`がminimum以上であることを確認する。
+**停止と復旧**: 取得範囲の欠落は同じas-ofの`screening bootstrap-cache`で補完し、commit済みのchunkを再利用する。財務は未取得範囲と末尾の訂正確認窓を取得する。提供元recordに元から無い数値や、L2で計算不能な値を取得失敗と混同しない。数値が一定割合以上埋まるまで過去の開示日を自動再取得する処理は持たない。元recordの訂正が必要なら対象期間を明示して修復し、raw保存からL2を再計算する。通常の欠測を理由に広いcoverageを無効化したり、全DBを組み戻したりしない。
 
 ### ローカルからクラウドを更新する
 
 EDINETの抽出意味revisionを更新する場合は、[再抽出・反映手順](#edinet-metrics-revision)に従う。それ以外は変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
-GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-indicators`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
+GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-indicators`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`publish-lake`は`PUBLICATION_LEASE_HANDLE`で既存handleを受け取り、export開始前とpointer切替直前に有効性を確認する。`push-app`、`publish.sh`、初回`seed-all`は対象外。
+
+`seed-all` は各 key の不存在を条件に新規作成し、既存 key を上書きしない。4 key は一括transactionではないため、途中失敗後は到達点を確認し、初回seedを既存データの復旧・置換に使わない。
 
 ```bash
 with_publication_lease() (
   handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"
   rm -f "$handle"
   uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$handle" || return $?
-  if "$@"; then result=0; else result=$?; fi
+  if PUBLICATION_LEASE_HANDLE="$handle" "$@"; then result=0; else result=$?; fi
   uv run python -m baibai_batch.storage.publication_lease release --handle "$handle" || return $?
   return "$result"
 )
@@ -219,6 +217,22 @@ source versionを限定したtemporary one-shot toolとexact commandを用意し
 cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。
 完了済みのResearch domain切替は[切替記録](#research-domain-cutover)を参照する。
 対象外のsource versionでは手書きSQLや汎用移行へ進まず、schema変更issueで専用toolと検証を用意する。
+
+PR #1541 の application24→25 は、別candidateから不要な価格cacheを除き、台帳headerのschema_versionを2から3へ進める。
+最新正本を取得した後、次を実行する。sourceと取得ETagは保持し、outputに既存ファイルを指定しない。
+
+```bash
+uv run python -m tools.cutover.prepare_application_v25 \
+  --source /tmp/private-cutover/application-v24.sqlite \
+  --output /tmp/private-cutover/application-v25.sqlite
+```
+
+このtoolはsourceを変更せず、台帳event・判断・参照をコピーする。台帳headerはversion以外を保持し、現行readerで読めることを検証する。
+新しい価格の生成・取得・公開はしない。
+candidateの台帳再生とmachine storeを合わせたmaterializeを確認してから、取得世代に対する条件付きapplication反映を行う。
+market・indicatorsのschema切替をこのtoolで代行しない。全L1の新規再取得は #1543 のアーキテクチャ改善後にまとめて行い、
+それ以前の切替で利用する既存資料を、再取得済みの原本と表示しない。反映・読戻し完了後、この一回限りのtoolと専用テストを除去する。
+
 
 <a id="research-domain-cutover"></a>
 
@@ -324,7 +338,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
   test -n "$restore_backup" && test -f "$restore_backup"
   restore_stage="$(mktemp stores/application/baibai-rollback.XXXXXX.sqlite)"
   cp "$restore_backup" "$restore_stage"
-  failed_restore="stores/application/backups/baibai-failed-restore-$(date +%Y%m%dT%H%M%S).sqlite"
+  failed_restore="stores/application/backups/failed-restore-$(date +%Y%m%dT%H%M%S).sqlite"
   test ! -e "$failed_restore"
   mv stores/application/baibai.sqlite "$failed_restore"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
@@ -358,16 +372,31 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 vintage・retraction・generation・no-lossの意味は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
 
-**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。derived入力ではcommandが示す依存系列の同日を先に撤回する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
+**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`とnative原本から読む系列はscalar観測の撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
 
 **系列の追加・退役・改名**:
 
 1. writerが競合しない時間に、現行mainで`uv run baibai-batch validate-market-context-stores`を実行する。
 2. `engine/src/baibai_engine/market_context/indicators/registry/`の定義を変更し、`definitions.py`の`_REGISTRY_MEMBERSHIP_GENERATIONS`へ変更後の集合に対応する、現在より大きいgenerationを設定する。過去と同じ集合へ戻る場合はdigestも同じなので、その既存keyの値を更新する。重複keyの追記や旧generation再利用はしない。
-3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`market-context indicators refresh`を実行する。退役IDだけの指定ではpruneへ進めない。全履歴再計算が必要ならbase→derivedの順に実行する。
+3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`market-context indicators refresh`を実行する。退役IDだけの指定ではpruneへ進めない。base観測の同期後、派生値はReadingで再計算されるため別のrefreshは不要である。
 4. validator・Reading・意図した退役結果を確認後、`push-indicators`を実行する。件数表示はcommit後の補助出力であり、ログの組合せをcommit条件にしない。発行済みContextの退役系列warningは確認するが本文を書き換えない。
 
-**公開済みoptionsの集計式を変える場合**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は2段に分ける。まず3系列を退役し、generationを進めて上の手順でcloudへ反映する。そのpush成功後に新式と3系列を戻し、元digestの既存generation値を退役段階よりさらに大きい値へ更新する。再びcodeをmainへ反映してから必要範囲の全履歴を取得し、新式で値が出ない日に旧式の観測が残らないことを確認してpushする。長い取得窓はproviderの契約に従って分割する。日次batch待ち・localだけの削除・2段の一括化はしない。
+**optionsの集計式変更**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は原本からL2で再計算する。式変更だけなら系列退役や再導入、API履歴の取り直しは行わない。原本が不足する日だけ補い、Readingと公開結果を確認する。旧scalar行は履歴として残っていても現行の読取には使わない。取得・再開の契約は[optionsの取得と復旧](../docs/reference/market-context.md#jquants-options-provider)を参照する。
+
+**schema7から9への一回切替**: 通常のopen・pull・mergeに旧schema互換を追加しない。マージ後の作業では、実行中writerがいない切替窓を確保し、最新cloud copyから別のcandidateを作る。既存のregistry・観測・取得履歴を保ったまま現行schemaのsource単位native snapshot表を追加し、取得済み原本の再利用と不足日だけの取得を行う。旧scalarからchainを復元できたとは扱わない。candidateと元copyの既存fact保持、raw日付・件数、Reading、公開結果を確認してからcodeとstoreの世代を合わせて切り替える。schema7のcloud copyをschema9の通常mergeへ渡しても切替にはならず、拒否される。切替時の最新cloud世代に対する条件付き書込みとbundle receiptの整合は通常公開と同様に守る。具体的な対象世代・原本不足範囲・candidate確認結果は切替実行時に確定し、PRのコード変更だけで本番切替済みとしない。
+
+schema7の取得済みcopyから、sourceを変更しない別candidateを作る入口は次のとおり。既存outputは拒否する。
+
+```bash
+uv run python -m tools.cutover.prepare_indicators_v9 \
+  --source /tmp/private-cutover/indicators-v7.sqlite \
+  --output /tmp/private-cutover/indicators-v9.sqlite
+```
+
+これは既存scalar履歴とregistryを保持して空のnative表を追加するだけであり、原本の取得・推定・公開はしない。
+原本が不足する系列は不足のままで、schema整合だけをReadingの受入完了としない。#1543 後の全L1再取得とは別の、一時的な切替準備である。
+
+**native原本の不足補完**: native対応系列はschema9のsource snapshotへ保存する。対象sourceと系列は現行registry・読取実装で確認する。従来のscalar観測は原本の代替にせず、PRマージ後に取得済み原本を再利用し、不足する期間だけ取得して再計算する。投資部門別の取得範囲は公表日であり、L2の集計期間と取り違えない。TOPIXの旧終値からO/H/Lを推定しない。必要な原本・Reading・公開読戻しを確認するまで、本番切替の受入完了としない。
 
 **停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗がcommit済みpruneを巻き戻すとは扱わない。誤った内容をcloudへ反映した場合は次のpushを止め、[R2 transferの安全境界](#r2-transferの安全境界)の前世代復元へ進む。部分pushによるreceipt不一致だけは[部分pushからの復旧](#部分-push-からの復旧)で扱う。
 
@@ -520,9 +549,9 @@ Workerの再deployは不要である。
 ## R2 transferの安全境界
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`indicators.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-indicators` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
+- `push-machine`は各storeのsnapshotを作成・検査してから、そのstoreを順にuploadする。3 storeは原子的には反映されず、途中失敗は下記の部分push復旧で扱う。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`indicators.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-indicators` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
 - machine storeのpushは対象の前世代を`<key>.bak`に1世代保存する。復元時はwriterを停止し、対象bucketとexact `<key>.bak`・`<key>`を人間が確認したうえで、`aws s3api copy-object --cli-read-timeout 300`を使う。`aws s3 cp`へ置換しない。
-- machine store の`.bak`は1世代のみで、次のpushで置き換わる。前世代は次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
+- machine store の`.bak`は1世代のみで次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
 - application store (`baibai.sqlite`) のpullは`pull-app`だけが行い、bulk pullは触らない。未公開の変更を失わないよう、`pull-app`はローカルにfileがあれば止める。CIはcheckout直後で`stores/application/`が空なので素通りする。作業コピーの更新・競合・復旧は[application反映](#application-db-を反映する)に従う。
@@ -552,63 +581,23 @@ machine `.bak`を手動復元する場合は、対応する発行を停止して
 **停止条件**: store全体を古いsnapshotへ戻さない。storeは毎営業日伸びるため、過去schemaのcopyへの交換は
 それ以降の事実を失う。
 
-**実行**: application / market / run storeはruntime migrationを持たない。schema変更PRが保持しているtemporary
+**実行**: application / market / run / indicator storeはruntime migrationを持たない。schema変更PRが保持しているtemporary
 one-shot toolを修正し、cutover前のlocal copyへ再実行してcurrent schemaの別fileを作る。toolがcleanup済みなら、
 過去commandを推測せず、修正issueでexact source version・変換・検証を固定したtemporary toolを再構築する。
-indicator storeだけは実在する直前schemaからの一段migrationをstaging copyへ適用する。
+通常のtransferではdownloadしたstoreのschemaを変更しない。indicatorも現行schema同士をmergeする。
 
 **成功確認と復旧**: sourceと出力のintegrity・foreign key・必須table・保持対象row/headを照合してからmainへ入れ、
 同じ作業でstoreを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。
 
-### #1520 schema31 / financial-v1 の一回限り切替
+### #1520 財務文書の切替履歴
 
-この節は未実施の切替手順である。親レビュー・実行承認前にmerge、workflow停止、本番PUTを行わない。
-[temporary tool](../tools/cutover/financial_documents.py)はsource31→32とfinancial-v1→v2だけを扱い、切替完了後にcleanupする。通常readerの旧schema fallback、通常publisherの旧契約対応は追加しない。
+market schema31→32 / financial-v1→v2 は切替済みであり、通常運用で再実行しない。
+2026-10-15 のドメイン切替開始時にも本番 market は schema32 であることを確認している。
+過去の手順は[切替時の運用文書](https://github.com/koumatsumoto/baibai-loop/blob/d416cbd5d21207427a96068b196356e021e15155/batch/OPERATIONS.md#1520-schema31--financial-v1-の一回限り切替)を履歴として参照する。
+旧 source31 や過去の stage を現在の store へ再投入しない。今後の修正は上の「schema cutoverを修正するとき」に従う。
 
-**固定するもの**: 全writer（daily、TradingView、外部評価からの後続publish、operator）とmaterializeを停止し、queued old-refを残さない。merge自体はproduction publisherを起動しない。旧codeでfreshな`pull-machine`→固定R1のhydrateを完了し、3 keyの取得世代、R1 ID/hash、pointer ETag、旧31のhydrated sourceをprivate stageへ保持する。183,642は隔離検証の件数であり本番の固定floorではない。以後の照合はこのfresh sourceから計算する。applicationはbulk取得・push対象へ入れない。
-
-`cutover_stage`、各path、R1 ETag、全体公開の実測必要秒数を実行レビューで確定する。generations JSONは取得済み`stores/.r2-generations/{market.sqlite,runs.sqlite,indicators.sqlite}.etag`のbare値を3 keyで保持し、ETagだけを別のstore copyへ付け替えない。
-
-```bash
-uv run python -m tools.cutover.financial_documents prepare \
-  --source "$cutover_source31" --store "$cutover_stage/market32.sqlite" \
-  --mirror "$cutover_mirror" --receipt "$cutover_stage/receipt.json" \
-  --generations "$cutover_stage/generations.json" --pointer-etag "$cutover_r1_etag" \
-  --bundle-root "$cutover_bundle" --producer "$cutover_reviewed_commit" \
-  --raw-page "$cutover_raw_20260810" --raw-page "$cutover_raw_20260914"
-```
-
-prepareはlocalだけを読み書きする。export用mirrorのfilesystemには変換済み32 fileの2倍の空きを確保する（既存sealed snapshotのguard）。source、変換copy、保持するruns baseline、fresh hydrate用copyとcacheの領域も別に見積もり、空き容量checkを緩めない。旧v1 closureとの全列照合→全table/coverageを保持した32の別file作成→`246A`の8/10と9/14の各1日を既存4文書で補修→既存clean coverageのcount照合→全dataset export→保持範囲を縮めないv2 release構築・照合を行う。provider取得はない。新しいprivate stageを使い、既存成果を上書きしない。
-
-**公開順**: 準備・検証後、停止窓内でcodeをmainへ反映する。新runtimeへ旧bundleを渡さず、通常dailyを移行runnerにしない。既存operator leaseを取得し、全体公開に足りる残時間を実測から指定する。temporary bridgeは既存publisher/CASを使い、pointer切替の直前にも`verify_held`と3 keyの取得世代を確認する。
-
-```bash
-uv run python -m tools.cutover.financial_documents publish \
-  --store "$cutover_stage/market32.sqlite" --mirror "$cutover_mirror" \
-  --receipt "$cutover_stage/receipt.json" --lease-handle "$cutover_lease_handle" \
-  --minimum-remaining-seconds "$cutover_publication_budget_seconds"
-```
-
-R2へのpointer切替とlocal origin更新が確認できたら、この32を同じ取得世代のbundle内marketへ置く。現as-ofのcache-only再計算が必要なら承認済みstageで行い、旧Run/Thesis/core hash/較正証拠をretagしない。indicatorsは取得時の内容を保持し、runsは取得時の行を一つも失わないことをtoolで確認する。
-
-```bash
-uv run python -m tools.cutover.financial_documents verify-machine \
-  --store "$cutover_bundle/market/market.sqlite" --bundle-root "$cutover_bundle" \
-  --receipt "$cutover_stage/receipt.json" --lease-handle "$cutover_lease_handle" \
-  --minimum-remaining-seconds "$cutover_publication_budget_seconds"
-batch/scripts/r2_transfer.sh push-machine
-```
-
-push-machineの対象は`market.sqlite / runs.sqlite / indicators.sqlite`の3 DBだけで、applicationは送らない。commandはこのbundleと取得世代directoryを持つ作業treeから実行する。tool検証後に同bundleを他処理で編集しない。PUTは逐次CASなのでatomicな3-DB更新ではない。
-
-**停止点と復旧**:
-
-- pointer切替後・origin更新前: R2 ID/hashと保存したstageのfact digestを照合し、`reconcile-origin`（publishと同じ引数）でlocal originだけを前進させる。再publishしない。
-- pointerがR2、market PUT前でremoteが31: 通常のv2 hydrateへremote31を渡さない。取得済みsource31、変換32、raw4文書、元の3 ETag、R1/R2 identityを保持する。`inspect-machine --receipt ... --store <新private directory>`で到達点を保存・照合する。全3 keyが元世代である場合だけ、新しい有効leaseで`reconcile-origin`→`verify-machine`を再確認し、未着手のmachine公開へ進む。旧copyへの交換・通常daily復旧はしない。
-- market PUT後の別key停止、または全PUT後・receipt前: 保存した元世代と各現在ETag、downloadした各世代のtable digest、machine receiptのnamed generationsを照合する。`inspect-machine`は読取のみで、取得済み世代をprivate directoryに保持する。receipt不一致のまま分析・materializeしない。push-machine丸ごとのretryは行わず、[部分push復旧](#部分-push-からの復旧)の(ii)へ進む。remote marketが32/R2でlocal32の保持対象と一致することを確認したうえで、既存`push-market`のmerge/CASによってreceiptを再確定する。その後fresh pullし、未反映runs成果がある場合は元の保存行とremote到達内容をno-loss照合して、必要な反映だけを別途レビューする。未反映runs成果が残る間は再開条件未達であり、通常writer・materializeを再開しない。未知の内容・新しいindicator変更・ETag競合があれば古いstageで上書きしない。
-- lease期限切れ・残時間不足: 次の公開へ進まない。writer停止を維持し、到達点を照合して新leaseで復旧する。120分を超えて続行しない。
-
-**再開**: freshなschema32 bundleのpull→固定R2のhydrateで全列・count・coverage・origin・保持対象digestを確認する。その後operator leaseを解放する。他writerの停止を維持したまま現mainのmaterializeをdispatchし、materialize自身のleaseでserving/freshnessを公開する。成功確認後に通常writerを再開する。旧ref runのrerunはしない。停止窓はfresh source固定からこのreadback/serving確認までで、所要時間は実測前に分数を断定しない。
+schema の切替確認と #1520 全体の受入完了は別である。財務文書の内容・評価入力の検証は個別に確認する。
+旧 one-shot tool は撤去済み。通常の R2 部分 push 復旧の回帰検証は現行 schema のテストで継続する。
 
 ## Read modelの生成 — baibai_web.materialize
 
@@ -624,7 +613,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 ## 日次機械工程 — baibai-batch daily
 
-Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、全Stock Analysisと候補文脈のrunの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。required-field不足を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
+Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、全Stock Analysisと候補文脈のrunの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。個別値の欠測を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
 
 以下は用途別の選択肢であり、続けて全件を実行しない。`.cache/daily-serving`はlocalの生成先である。
 
@@ -657,7 +646,7 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
 | 1 | store検査/export等の致命的失敗。今回の結果を公開へ進めない |
 | 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無はrun_revision_idとscreening_statusで確認 |
 
-クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
+クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。比較用connectionや変更前後の読み取りに失敗した場合は`market_updated=null`（不明）とし、未変更とは扱わない。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの完了を示すoutput名`export_ready`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
 機械結果の`screening_status`は`published / failed / skipped_non_business_day`を区別する。Screeningが未更新でも指標・全viewsを更新し、画面生成時刻を旧Screeningの実計算時刻へ上書きしない。store schema/hydration検査と全views exportの失敗はfatalである。詳細なstepとoptionはpublic `--help`と実run logを確認する。
 
@@ -721,6 +710,20 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 **停止・復旧**: 取得失敗、期待外の差分、generation競合、lease失効では後続公開へ進まず、対象を限定して直す。日次batchに意味移行を代行させず、旧値へ新revisionを一括設定して再抽出済みと扱わない。code・保存値・readbackの整合が揃うまで切替完了としない。
 
+<a id="edinet-source-archives"></a>
+
+## EDINET原本の共有保存
+
+`edinet.source_archives`はtype=5 CSV ZIPとtype=1 XBRL ZIPの取得bytesを、`doc_id`・`source_type`別にmarket storeへ保持する。通常のlake公開・hydrate・dehydrateに含まれる。`stored_on`はこのstoreに最初に保持したUTC日付で、開示日・APIで利用可能になった日・元cacheの取得日の代用ではない。ZIPの内容をJSONへ再構成せず、元のencoding・空欄・単位・未選択の項目を保つ。
+
+原本を読む順序は共有storeの作業コピー、既存のlocal ZIP cache、必要なAPI取得である。local cacheにあったZIPも取得を繰り返さず共有保存へ取り込む。CSVとXBRLのtransport・保存経路は同じproviderを使う。取得エラーや不開示通知PDFで保存済みZIPを上書きしない。`doc_id + source_type`はcacheの論理keyであり、同じ書類・取得種別でZIP bytesが永遠に同じと保証するものではない。原本の公開世代・保持は既存lakeの不変objectとretentionに従い、別の版管理機構を追加しない。
+
+マージ後の初回切替ではcurrent schemaの候補storeを構築し、契約が一致するdatasetだけを既存releaseからhydrateする。変更した契約のdatasetは手元の原本から再構築し、旧releaseを新契約として読み替えない。現行metricの再抽出に加え、保存済みResearch factsが参照するdocIDの原本も確認する。抽出結果のreuseだけでは、失われたZIPを再取得したことにならない。不足分だけを取得・保存し、取得できない過去書類は一覧化して既存抽出履歴を残す。原本不足を理由に過去の判断・取引・抽出履歴を削除しない。新規の通常取得は、抽出結果とは別に原本を保存する。
+
+文書一覧の正常API応答はmetadataとresultsの全項目をresponse_jsonに保持する。HTTP bytesそのものではなく、JSONの値・null・項目の不在を保持した記録である。正規化済みの一覧だけがある過去日には原本を捏造せずNULLを残す。再取得時の応答はそのまま置換し、期限切れ書類の既知の説明を保持する検索用列とは区別する。
+
+受入ではCSV/XBRLのbytes一致、別環境の空cacheからの再読、元のcontext/単位/欠測を保った再抽出、lake公開・hydrateの往復、保存量・読込時間を確認する。archive列はPython側のbatchを一行にしてParquetへ書き出し・照合・SQLiteへ戻し、ZIP内容のmin/max統計は作らない。通常のスカラー観測は既存のrow batchを使う。全原本の取得完了や全過去期間の再計算可能性を、行が存在するだけで保証しない。
+
 <a id="edinet-research-facts"></a>
 
 ## EDINET Research factの初期化・日次差分
@@ -738,7 +741,7 @@ uv run baibai-engine screening extract-edinet-facts \
 
 **成功確認**: summaryのselected/reused/extracted/failedとmissing reasons、代表書類の原典照合、固定releaseのexport/query/hydrateを確認する。現行codeのmain反映、整合するL1発行、store-local coverageのクラウド反映を一組で行う。codeだけを先に日次運用へ入れない。
 
-日次batchは単一run発行後に`extract-edinet-facts --asof`を実行する。初期化前は明示的skip、初期化後は収録済みfamilyと新規年次・訂正を処理する。取得失敗は既存screening発行を止めず、他の後段処理を終えた後のexit codeへ反映する。raw cacheを残してretryできる。抽出契約が変わった場合はResearch fact専用revisionを更新し、既存EDINET metricsのbaselineを無効化しない。
+日次batchはScreening工程の成否と独立して`extract-edinet-facts --asof`を実行する。初期化前は明示的skip、初期化後は収録済みfamilyと新規年次・訂正を処理する。取得失敗は既存screening発行を止めず、他の後段処理を終えた後のexit codeへ反映する。raw cacheを残してretryできる。抽出契約が変わった場合はResearch fact専用revisionを更新し、既存EDINET metricsのbaselineを無効化しない。
 
 storeのmergeでは同日でも別docIDの成否を混同しない。共有docIDはtargetのfactに対応する抽出claimを保持する。source側にしかないdocIDはtargetの抽出revisionを証明できないため、未確認のretry対象として取り込む。initialized markerは引き継げる。
 
@@ -822,7 +825,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 完全/部分verified terminalの再実行はstage・DB・lease・L1を読み直さず、`previously_verified`・provider通信0・追加row 0を返す。過去の検証結果であり、今回の新公開や現在世代の再検証ではない。terminalに保存されていない集計値を0で補わない。
 
-終端`notify` jobは既存secret `DISCORD_WEBHOOK_URL`の宛先へrun単位で1件通知する。成功・既知失敗を含む公開・部分公開・以前の完全/部分公開・取得未完了・公開確認失敗・取消を区別し、確認済みの固定pair・typed・既知失敗・normalnull・未記録・追加row件数と実行linkを載せる。matrix失敗時や旧terminalの未知集計値は不明とし、通知用のR2読取は加えない。銘柄別値・HTML・private batch ID・認証情報・error本文は通知しない。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job成功だけで実配送済みとは判断せず、workflow履歴も確認する。
+終端`notify` jobは既存secret `DISCORD_WEBHOOK_URL`の宛先へrun単位で1件通知する。成功・既知失敗を含む公開・部分公開・以前の完全/部分公開・取得未完了・公開確認失敗・取消を区別し、確認済みの固定pair・typed・既知失敗・normalnull・未記録・追加row件数と実行linkを載せる。matrix失敗時やterminalに保存されていない集計値は不明とし、通知用のR2読取は加えない。銘柄別値・HTML・private batch ID・認証情報・error本文は通知しない。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job成功だけで実配送済みとは判断せず、workflow履歴も確認する。
 
 正常な初回cohortのstage/rawはそれぞれ1 PUTとなる。private読取はplanの一度のstage走査、各acquireの自cohort読取、publishの確定stage走査に限定し、各acquireで全cohortを再走査しない。部分再開・競合・失敗では操作数が変わる。summaryの`provider_requests`は今回の実HTTP件数、`http_requests`/`response_content_bytes`は採用stageの累計で、wire bytesは未計測である。`elapsed_seconds`は今回の総時間、`collection_elapsed_seconds`はHTTP・host制限待機・解析、`storage_elapsed_seconds`はprivate読取・local spool・stage/raw保存を示す。429 backoffは総時間に含む。完了stageの取得時間とprovider件数は0で、過去runの時間を補わない。
 
@@ -856,7 +859,7 @@ market30→31・application20→21と指標の保存名切替は[PR #1442](https
 
 `cloud-tradingview-snapshot.yml`は平日15:37 / 17:37 / 19:37 / 21:37 / 23:37 JST（UTC `37 6,8,10,12,14 * * 1-5`）、土日09:37 / 13:37 / 17:37 JST（UTC `37 0,4,8 * * 0,6`）に独立して起動する。平日の祝日も既存5 slotを休場日の観測・未取得補完に使う。GitHub queueで実開始が遅れるため、targetは予定時刻ではなくrun開始時のJST当日とする。起動回数やjob成功数をprovider取得成功数として数えない。
 
-手動・定期ともhydrateしたJPX calendarで当日を判定し、営業日は15:30以降、休場日は09:00以降に取得する。09:00前はsetup前に終了する。09:00以降の営業日朝はlease・pull・hydrate・preflightまで進んでcalendarを確認するが、master取得・OAuth/provider接続・保存へ進まず`before_close`となる。朝の手動観測で同日PKを埋め、引け後の取得を妨げない。
+手動・定期ともhydrateしたJPX calendarで当日を判定し、営業日は15:30以降、休場日は09:00以降に取得する。09:00前はsetup前に終了する。09:00以降の営業日朝はlease・pull・hydrate・preflightまで進んでcalendarを確認するが、master取得・OAuth/provider接続・保存へ進まず`before_close`となる。朝の手動観測では同日PKを埋めず、引け後の取得を妨げない。
 
 Universeは営業日なら当日master、休場日ならcalendar上の直近営業日の保存済みexact-date masterから選ぶ。選んだ営業日から実観測日までcalendarの日付が連続していることを確認し、間の欠落があれば停止する。休場日の必要masterやcalendarがなければ停止し、より古い保存済みmasterへ暗黙に退避しない。`observation_master_asof`はこの必須基準日との一致確認であり、時間guardを解除しない。同日再開は同じ基準日を使う。`snapshot_date`は実観測日のJST当日、`fetched_at_utc`は実受領完了時刻で、masterの日付へ現在値を保存しない。master基準日を結果・progress・summaryの`master_asof`に記録する。日跨ぎ前の正常batchは部分結果として残し、跨いだresponseは前日へ保存しない。
 
@@ -873,15 +876,16 @@ summaryは営業日判定・master基準日・保存済み/追加/残件・unres
 mainへmanual dispatchし、`observation_master_asof`だけに保存済みmasterの日付を指定する。`observations_json` / `observations_sha256`は空にする。営業日は当日、休場日はcalendar上の直近営業日のmasterを指定し、上記の取得時間を守る。J-Quants masterの追加取得は行わず、指定日がcalendarの必須基準日と異なる場合やmasterがない場合はOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
 
 ```bash
+read -r -p '保存済みmasterの基準日 YYYY-MM-DD: ' master_asof &&
 gh workflow run cloud-tradingview-snapshot.yml --ref main \
-  -f observation_master_asof=2026-10-09 -f batch_size=50 -f interval=15
+  -f observation_master_asof="$master_asof" -f interval=15
 ```
 
 同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は公開完了とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
 
 ### 保存済み実観測の明示的な受入
 
-providerから受領済みの応答を履歴へ残す場合は、通常collectorとは別に`accept-observations`を使う。新しいprovider接続は行わず、休場日でも実受領日のJST日付を`snapshot_date`、UTC受領完了時刻を`fetched_at_utc`にする。quote/provider更新時刻が不明ならNULLのままとし、過去の営業日へ付け替えない。1〜2応答・各最大50銘柄を既存`tradingview.forecast_snapshots`へ追加し、coverageは`partial`のままにする。同一PK・全列一致はno-op、異なる値なら受入全体をrollbackし、既存行を上書きしない。
+providerから受領済みの応答を履歴へ残す場合は、通常collectorとは別に`accept-observations`を使う。新しいprovider接続は行わず、休場日でも実受領日のJST日付を`snapshot_date`、UTC受領完了時刻を`fetched_at_utc`にする。quote/provider更新時刻が不明ならNULLのままとし、過去の営業日へ付け替えない。受領時刻はタイムゾーン付きなら受け付け、保存時に同じ瞬間のUTCへ正規化する。入力サイズ上限内の1件以上の応答・各最大50銘柄を既存`tradingview.forecast_snapshots`へ追加し、coverageは`partial`のままにする。同一PK・全列一致はno-op、異なる値なら受入全体をrollbackし、既存行を上書きしない。
 
 元応答はLibraryに保持し、versionとSHA256を確認してから対象応答だけを選ぶ。入力JSONは`schema_version: 1`、`source_ref`（`library_file_id`, `file_id`, `version`, 元ファイルの`sha256`）、`observation_date_jst`、取得時の順序の`columns`、`observations`を持つ。各observationは`trial`、UTCの`timing.start/end`、構造化された元の`result`を保持する。`json.dumps(..., ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)`で改行なしに保存し、選択入力そのもののSHA256も求める。元ファイルのhashはprovenanceであり、選択入力のhashとは区別する。
 
@@ -965,6 +969,8 @@ engineの`refresh --state-file`は取得だけの低レベル入口であり、p
 
 当日の各銘柄で最初に保存した正常応答を維持する。正常batchは各transactionで保存し、取得不良batchは保存せず次の未保存batchを試す。応答不良が3 batch連続した場合と明示的429では新規requestを止める。同一batchの即時retryは行わず、skip後も通常intervalを置く。新規rowが0件なら失敗とし、過去に公開した部分snapshotだけで今回を成功にしない。次slotは公開済みの未保存銘柄から再開する。過去日の穴を現在値で埋めない。
 
+正常応答が要求銘柄を明示的に`missing`と返した場合は、batch内の全件か一部かによらず`unresolved`として保存する。`saved`は全銘柄の応答を記録した意味であり、予測値の充足やproviderの健全性を保証しない。全件`unresolved`でも同日の自動再取得・障害通知は行わない。明示的なHTTP・認証・通信エラーと不正応答は、引き続き未保存として失敗・再開を扱う。
+
 ### TradingView Expectationsの障害診断
 
 run summaryの`requests_attempted` / `symbols_requested`は`fetch(chunk)`に渡した論理的なbatch試行数・銘柄数（実HTTP送信数とは限らない）、`rows_added`は検証後に保存した行数であり、HTTP成功数とは区別する。`preflight_saved_rows`と`rows_added` / `remaining`で再開を確認し、`normal_nulls`と`unresolved`を分ける。progressがない取得失敗は件数不明として扱う。MCP transportの`mcp_http_status`とtool応答に明示された`provider_http_status`を混同せず、未観測statusを200と推定しない。
@@ -978,7 +984,6 @@ TradingView stepのsafe failure line、`TradingView progress:` summaryの順に�
 - `provider_rate_limit`（429）: `is_error=false`でも、`success=false`のerrorが明確なHTTP 429を示す場合はこの分類になる。同runで新規requestを止め、manual scanner callを重ねない。既に正常batchがあれば部分公開を確認し、明示待機期限があればそれを守ったうえで次のscheduled slotまたはprovider quota確認へ進む。
 - `auth`: [対話認証](#初期設定と認証の復旧)をやり直す。
 - `secret_persistence`: `tradingview-runtime`のEnvironment secretとwriter tokenの権限・期限を確認する。
-- `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
 - `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
 - `provider_transport`: 接続・通信の失敗を確認し、provider側の状態と次slotを見て再取得を判断する。
 - `time_guard`: target日がJST当日で、JPX calendar上の営業日なら15:30以降、休場日なら09:00以降か確認する。条件を満たさなければ取得せず、過去日を現在値で補完しない。

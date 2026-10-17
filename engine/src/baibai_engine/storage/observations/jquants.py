@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.market.jquants_decode import normalize_ex_right_type
 from baibai_engine.storage.observations.convert import (
     NormalizedRows,
     code_quality,
     date_iso,
-    first,
+    distinct_source_rows,
     to_float,
     to_str_or_none,
 )
@@ -29,11 +30,11 @@ def store_jquants_daily_bars(
     requested_start: date,
     requested_end: date,
 ) -> int:
+    normalized = _bars_rows_with_quality(records)
+    rows = normalized.rows
+    _validate_request_dates(rows, date_index=1, start=requested_start, end=requested_end)
     conn = open_connection(db_path)
     try:
-        records_list = list(records)
-        normalized = _bars_rows_with_quality(records_list)
-        rows = normalized.rows
         replace_date_range(
             conn,
             "jquants_daily_bars",
@@ -47,9 +48,9 @@ def store_jquants_daily_bars(
                 """
                 INSERT OR REPLACE INTO jquants_daily_bars(
                   ticker, traded_at, open, high, low, close, volume, turnover_value,
-                  adjustment_open, adjustment_high, adjustment_low, adjustment_close,
-                  adjustment_volume, adjustment_factor, upper_limit, lower_limit
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  adjustment_factor, upper_limit, lower_limit, ex_right_type,
+                  market_cap_million_yen
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -77,11 +78,11 @@ def store_jquants_market_calendar(
     requested_start: date,
     requested_end: date,
 ) -> int:
+    normalized = _market_calendar_rows_with_quality(records)
+    rows = normalized.rows
+    _validate_request_dates(rows, date_index=0, start=requested_start, end=requested_end)
     conn = open_connection(db_path)
     try:
-        records_list = list(records)
-        normalized = _market_calendar_rows_with_quality(records_list)
-        rows = normalized.rows
         replace_date_range(
             conn,
             "jquants_market_calendar",
@@ -92,7 +93,7 @@ def store_jquants_market_calendar(
         )
         if rows:
             conn.executemany(
-                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) "
                 "VALUES (?, ?)",
                 rows,
             )
@@ -118,14 +119,14 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, code_status = code_quality(first(record, "Code", "code"))
+        ticker, code_status = code_quality(record.get("Code"))
         if code_status == "rejected":
             rejected_count += 1
             continue
         if code_status == "excluded":
             excluded_count += 1
             continue
-        traded_at = date_iso(first(record, "Date", "date", "TradedAt", "traded_at"))
+        traded_at = date_iso(record.get("Date"))
         if ticker is None or traded_at is None:
             rejected_count += 1
             continue
@@ -133,43 +134,50 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
             (
                 ticker,
                 traded_at,
-                to_float(first(record, "Open", "open", "O", "o")),
-                to_float(first(record, "High", "high", "H", "h")),
-                to_float(first(record, "Low", "low", "L", "l")),
-                to_float(first(record, "Close", "close", "C", "c")),
-                to_float(first(record, "Volume", "volume", "Vo", "vo")),
-                to_float(first(record, "TurnoverValue", "turnover_value", "Va", "va")),
-                to_float(first(record, "AdjustmentOpen", "adjustment_open", "AdjO", "adj_o")),
-                to_float(first(record, "AdjustmentHigh", "adjustment_high", "AdjH", "adj_h")),
-                to_float(first(record, "AdjustmentLow", "adjustment_low", "AdjL", "adj_l")),
-                to_float(first(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")),
-                to_float(first(record, "AdjustmentVolume", "adjustment_volume", "AdjVo", "adj_vo")),
-                to_float(first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
-                to_str_or_none(first(record, "UpperLimit", "upper_limit", "UL")),
-                to_str_or_none(first(record, "LowerLimit", "lower_limit", "LL")),
+                to_float(record.get("O")),
+                to_float(record.get("H")),
+                to_float(record.get("L")),
+                to_float(record.get("C")),
+                to_float(record.get("Vo")),
+                to_float(record.get("Va")),
+                to_float(record.get("AdjFactor")),
+                to_str_or_none(record.get("UL")),
+                to_str_or_none(record.get("LL")),
+                normalize_ex_right_type(record.get("ExRT")),
+                to_float(record.get("MktCap")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="daily bars"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     for record in records:
-        day = date_iso(first(record, "Date", "date"))
-        if day is None:
+        day = date_iso(record.get("Date"))
+        division = to_str_or_none(record.get("HolDiv"))
+        if day is None or division is None:
             rejected_count += 1
             continue
-        # Mirror normalize_market_calendar: HolidayDivision "1" (営業日) and "2"
-        # (半日営業: 大納会など) both count as business days.
-        division = to_str_or_none(
-            first(record, "HolidayDivision", "holiday_division", "HolDiv", "hol_div")
-        )
-        is_business_day = 1 if division in {"1", "2"} else 0
-        rows.append(
-            (
-                day,
-                is_business_day,
-            )
-        )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count)
+        # Retain the source category; cash-equity session selection belongs to readers.
+        rows.append((day, division))
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=1, source="market calendar"),
+        rejected_count=rejected_count,
+    )
+
+
+def _validate_request_dates(
+    rows: Sequence[tuple[Any, ...]], *, date_index: int, start: date, end: date
+) -> None:
+    """A range replacement may not write observations outside its requested partition."""
+    if start > end:
+        raise ValueError("request start must not follow end")
+    for row in rows:
+        observed = date.fromisoformat(str(row[date_index]))
+        if not start <= observed <= end:
+            raise ValueError("observation date is outside the requested range")

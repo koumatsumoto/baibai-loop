@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import cast
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -11,12 +12,11 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
     _StaticSession,
 )
-from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
-    parse_ecb_fx_csv,
+    parse_ecb_reference_csv,
 )
 from baibai_engine.market_context.indicators.providers.base import (
     BrowserUnavailableError,
@@ -27,9 +27,10 @@ from baibai_engine.market_context.indicators.providers.base import (
     fetch_text,
     store_fetched_bytes,
 )
+from baibai_engine.market_context.indicators.providers.fred import FredSource
 
 
-class IndicatorsProviderParserTests(SnapshotFixtures):
+class IndicatorsProviderParserTests(TestCase):
     def test_fetch_bytes_closes_successful_response_before_returning(self) -> None:
         response = _FakeResponse(b"ok")
         result = fetch_bytes(
@@ -233,43 +234,77 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             "PLAYWRIGHT_BROWSERS_PATH": "/home/runner/.cache/ms-playwright",
         }
 
-    def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
-        series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
-        text = "Date,USD,JPY,AUD\n2026-05-08,1.1761,184.37,1.6259\n"
+    def test_pdf_uses_the_shared_download_with_the_callers_limit(self) -> None:
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
 
-        observations = parse_ecb_fx_csv(
-            series,
-            text,
-            start=date(2026, 5, 8),
-            end=date(2026, 5, 8),
+        fetcher = BrowserFetcher()
+        with patch.object(fetcher, "fetch_download", return_value=b"%PDF-test") as download:
+            self.assertEqual(
+                fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234),
+                b"%PDF-test",
+            )
+        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
+
+    def test_pdf_does_not_repeat_a_non_pdf_download_inside_the_provider_retry(self) -> None:
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
+
+        fetcher = BrowserFetcher()
+        with (
+            patch.object(
+                fetcher, "fetch_download", return_value=b"<html>not a PDF</html>"
+            ) as download,
+            self.assertRaisesRegex(IndicatorsProviderError, "is not a PDF"),
+        ):
+            fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234)
+        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
+
+    def test_pdf_preserves_the_shared_download_failure_without_retrying(self) -> None:
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
+
+        fetcher = BrowserFetcher()
+        failure = BrowserUnavailableError("browser closed")
+        with (
+            patch.object(fetcher, "fetch_download", side_effect=failure) as download,
+            self.assertRaises(BrowserUnavailableError) as raised,
+        ):
+            fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234)
+        self.assertIs(raised.exception, failure)
+        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
+
+    def test_parse_ecb_reference_csv_preserves_all_native_currencies(self) -> None:
+        text = "Date,USD,JPY,AUD,CHF\n2026-05-08,1.1761,184.37,1.6259,N/A\n"
+        records = parse_ecb_reference_csv(text, start=date(2026, 5, 8), end=date(2026, 5, 8))
+        self.assertEqual(
+            records[date(2026, 5, 8)][0],
+            {
+                "Date": "2026-05-08",
+                "USD": "1.1761",
+                "JPY": "184.37",
+                "AUD": "1.6259",
+                "CHF": "N/A",
+            },
         )
 
-        self.assertEqual(len(observations), 1)
-        self.assertAlmostEqual(observations[0].value, 156.76, places=2)
+    def test_parse_ecb_reference_csv_rejects_missing_date_column(self) -> None:
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing Date column"):
+            parse_ecb_reference_csv("JPY\n184.37\n", start=date(2026, 5, 8), end=date(2026, 5, 8))
 
-    def test_parse_ecb_fx_csv_rejects_missing_required_column(self) -> None:
-        series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
-        text = "Date,JPY\n2026-05-08,184.37\n"
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing column"):
-            parse_ecb_fx_csv(series, text, start=date(2026, 5, 8), end=date(2026, 5, 8))
-
-    def test_fetch_observations_wraps_request_exception(self) -> None:
+    def test_fred_source_wraps_request_exception(self) -> None:
         series = _series("fred_csv", "DGS10")
 
         with self.assertRaisesRegex(IndicatorsProviderError, "failed to fetch"):
-            fetch_observations(
+            FredSource().fetch_records(
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
                 session=_RaisingSession(),
             )
 
-    def test_fetch_observations_rejects_oversized_response(self) -> None:
+    def test_fred_source_rejects_oversized_response(self) -> None:
         series = _series("fred_csv", "DGS10")
 
         with self.assertRaisesRegex(IndicatorsProviderError, "too large"):
-            fetch_observations(
+            FredSource().fetch_records(
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),

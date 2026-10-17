@@ -38,12 +38,13 @@ _GRAIN_LAYOUTS: dict[PartitionGrain, tuple[str, ...]] = {
 }
 
 CoverageAuthority = Literal["daily_bars_rows", "source_coverage", "unproven"]
-"""What decides whether a dataset's history is complete rather than merely present.
+"""The dataset-specific evidence used for the operational coverage status.
 
-Completeness is not a property of the rows for most sources: a filing that was never
-made and a filing that was never fetched leave the same absence behind, so the answer
-has to come from the fetch record. Daily bars are the exception — every trading day owes
-a full-market row set, so the rows themselves answer it.
+For most sources, an absent observation cannot distinguish "not published" from
+"not fetched", so range coverage comes from fetch records. Daily bars instead use
+the stored-date fetch-reuse heuristic: endpoint proximity and bounded internal gaps.
+That heuristic does not prove every trading date or the full market's rows are present.
+Reported row/population counts describe retained data, not a completeness proof.
 
 `source_coverage` holds two shapes of record and only one of them can answer the
 question. A range claim says a window was fetched, so a span is checkable. A
@@ -83,6 +84,10 @@ class LakeDataset:
     """
     population_column: str | None = "ticker"
     """The column whose distinct values are the dataset's population, if it has one."""
+
+    @property
+    def has_binary_payload(self) -> bool:
+        return any(column.sqlite_type == "BLOB" for column in self.columns)
 
     @property
     def coverage_source_name(self) -> str:
@@ -139,6 +144,7 @@ _INTEGER = pa.int64()
 
 JQUANTS_DAILY_BARS = LakeDataset(
     name="jquants.daily_bars",
+    contract_version=2,
     sqlite_table="jquants_daily_bars",
     date_column="traded_at",
     coverage_authority="daily_bars_rows",
@@ -151,19 +157,18 @@ JQUANTS_DAILY_BARS = LakeDataset(
         LakeColumn("close", "REAL", _REAL, True),
         LakeColumn("volume", "REAL", _REAL, True),
         LakeColumn("turnover_value", "REAL", _REAL, True),
-        LakeColumn("adjustment_open", "REAL", _REAL, True),
-        LakeColumn("adjustment_high", "REAL", _REAL, True),
-        LakeColumn("adjustment_low", "REAL", _REAL, True),
-        LakeColumn("adjustment_close", "REAL", _REAL, True),
-        LakeColumn("adjustment_volume", "REAL", _REAL, True),
         LakeColumn("adjustment_factor", "REAL", _REAL, True),
         LakeColumn("upper_limit", "TEXT", _TEXT, True),
         LakeColumn("lower_limit", "TEXT", _TEXT, True),
+        LakeColumn("ex_right_type", "TEXT", _TEXT, True),
+        # Provider MktCap, in million yen; not recomputed from price and shares.
+        LakeColumn("market_cap_million_yen", "REAL", _REAL, True),
     ),
 )
 
 JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
     name="jquants.short_sale_reports",
+    contract_version=2,
     sqlite_table="jquants_short_sale_reports",
     date_column="disclosed_at",
     columns=(
@@ -179,8 +184,9 @@ JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
         LakeColumn("short_trading_units", "INTEGER", _INTEGER, True),
         LakeColumn("previous_reported_at", "TEXT", _TEXT, True),
         LakeColumn("previous_short_ratio", "REAL", _REAL, True),
-        LakeColumn("is_cancellation", "INTEGER", _INTEGER, False),
         LakeColumn("notes", "TEXT", _TEXT, True),
+        LakeColumn("short_seller_address", "TEXT", _TEXT, True),
+        LakeColumn("discretionary_investment_contractor_address", "TEXT", _TEXT, True),
     ),
 )
 
@@ -204,6 +210,7 @@ JQUANTS_WEEKLY_MARGIN = LakeDataset(
 
 JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
     name="jquants.all_issues_daily_margin",
+    contract_version=2,
     sqlite_table="jquants_all_issues_daily_margin",
     date_column="balance_date",
     coverage_authority="unproven",
@@ -217,6 +224,13 @@ JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
         LakeColumn("short_std_vol", "REAL", _REAL, True),
         LakeColumn("short_neg_vol", "REAL", _REAL, True),
         LakeColumn("issue_type", "TEXT", _TEXT, True),
+        LakeColumn("publication_date", "TEXT", _TEXT, True),
+        LakeColumn("long_value", "REAL", _REAL, True),
+        LakeColumn("short_value", "REAL", _REAL, True),
+        LakeColumn("long_std_value", "REAL", _REAL, True),
+        LakeColumn("long_neg_value", "REAL", _REAL, True),
+        LakeColumn("short_std_value", "REAL", _REAL, True),
+        LakeColumn("short_neg_value", "REAL", _REAL, True),
     ),
 )
 
@@ -225,14 +239,13 @@ JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
     sqlite_table="jquants_master_snapshots",
     date_column="snapshot_date",
     partition_grain="year",
+    contract_version=2,
     coverage_authority="unproven",
+    population_column="security_code",
     columns=(
         LakeColumn("snapshot_date", "TEXT", _TEXT, False, 1),
-        LakeColumn("ticker", "TEXT", _TEXT, False, 2),
-        LakeColumn("name", "TEXT", _TEXT, True),
-        LakeColumn("market", "TEXT", _TEXT, True),
-        LakeColumn("sector_33", "TEXT", _TEXT, True),
-        LakeColumn("is_common_stock", "INTEGER", _INTEGER, True),
+        LakeColumn("security_code", "TEXT", _TEXT, False, 2),
+        LakeColumn("record_json", "TEXT", _TEXT, False),
     ),
 )
 
@@ -241,55 +254,25 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
     sqlite_table="jquants_fin_summaries",
     date_column="disclosed_at",
     partition_grain="year",
-    contract_version=2,
+    contract_version=4,
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("disclosed_at", "TEXT", _TEXT, False, 2),
-        LakeColumn("forecast_eps", "REAL", _REAL, True),
-        LakeColumn("eps_ttm", "REAL", _REAL, True),
-        LakeColumn("bps", "REAL", _REAL, True),
-        LakeColumn("shares_outstanding", "REAL", _REAL, True),
-        LakeColumn("sales", "REAL", _REAL, True),
-        LakeColumn("cfo", "REAL", _REAL, True),
-        LakeColumn("cash_eq", "REAL", _REAL, True),
-        LakeColumn("total_assets", "REAL", _REAL, True),
-        LakeColumn("equity", "REAL", _REAL, True),
-        LakeColumn("operating_profit", "REAL", _REAL, True),
-        LakeColumn("ordinary_profit", "REAL", _REAL, True),
-        LakeColumn("profit", "REAL", _REAL, True),
-        LakeColumn("forecast_profit", "REAL", _REAL, True),
-        LakeColumn("forecast_ordinary_profit", "REAL", _REAL, True),
-        LakeColumn("fiscal_period", "TEXT", _TEXT, True),
-        LakeColumn("fiscal_year_end", "TEXT", _TEXT, True),
-        LakeColumn("period_start", "TEXT", _TEXT, True),
-        LakeColumn("period_end", "TEXT", _TEXT, True),
-        LakeColumn("dps_actual_annual", "REAL", _REAL, True),
-        LakeColumn("dps_forecast_annual", "REAL", _REAL, True),
-        LakeColumn("treasury_shares", "REAL", _REAL, True),
-        LakeColumn("equity_to_asset_ratio", "REAL", _REAL, True),
-        LakeColumn("dividend_q1", "REAL", _REAL, True),
-        LakeColumn("dividend_interim", "REAL", _REAL, True),
-        LakeColumn("dividend_q3", "REAL", _REAL, True),
-        LakeColumn("dividend_year_end", "REAL", _REAL, True),
-        LakeColumn("dividend_total_annual", "REAL", _REAL, True),
-        LakeColumn("average_shares", "REAL", _REAL, True),
-        LakeColumn("record_key", "TEXT", _TEXT, False, 3, sqlite_default="'legacy'"),
-        LakeColumn("disclosure_number", "TEXT", _TEXT, True),
-        LakeColumn("disclosed_time", "TEXT", _TEXT, True),
-        LakeColumn("document_type", "TEXT", _TEXT, True),
-        LakeColumn("document_payload", "TEXT", _TEXT, True),
+        LakeColumn("disclosure_number", "TEXT", _TEXT, False, 3),
+        LakeColumn("document_payload", "TEXT", _TEXT, False),
     ),
 )
 
 JQUANTS_MARKET_CALENDAR = LakeDataset(
     name="jquants.market_calendar",
+    contract_version=2,
     sqlite_table="jquants_market_calendar",
     date_column="day",
     partition_grain="year",
     population_column=None,
     columns=(
         LakeColumn("day", "TEXT", _TEXT, True, 1),
-        LakeColumn("is_business_day", "INTEGER", _INTEGER, False),
+        LakeColumn("holiday_division", "TEXT", _TEXT, False),
     ),
 )
 
@@ -411,8 +394,23 @@ EDINET_METRICS = LakeDataset(
     ),
 )
 
+EDINET_SOURCE_ARCHIVES = LakeDataset(
+    name="edinet.source_archives",
+    sqlite_table="edinet_source_archives",
+    date_column="stored_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("doc_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("source_type", "INTEGER", _INTEGER, False, 2),
+        LakeColumn("stored_on", "TEXT", _TEXT, False),
+        LakeColumn("zip_content", "BLOB", pa.binary(), False),
+    ),
+)
+
 EDINET_DOCUMENT_LISTS = LakeDataset(
     name="edinet.document_lists",
+    contract_version=2,
     sqlite_table="edinet_document_lists",
     date_column="doc_date",
     partition_grain="year",
@@ -424,6 +422,7 @@ EDINET_DOCUMENT_LISTS = LakeDataset(
         LakeColumn("result_count", "INTEGER", _INTEGER, False),
         LakeColumn("fetched_at_utc", "TEXT", _TEXT, False),
         LakeColumn("is_final", "INTEGER", _INTEGER, False),
+        LakeColumn("response_json", "TEXT", _TEXT, True),
     ),
 )
 
@@ -592,6 +591,7 @@ EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
 )
 
 LAKE_DATASETS = {
+    EDINET_SOURCE_ARCHIVES.name: EDINET_SOURCE_ARCHIVES,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS.name: (
         EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS
     ),

@@ -28,9 +28,7 @@ from baibai_engine.read_api import (
     reject_noncanonical_store_paths,
     repository_root_error,
     screening_run_asof_dates,
-    validate_application_store_schema,
     validate_market_store_hydration,
-    validate_market_store_schema,
     validate_reading_rules,
 )
 from baibai_web.readmodel.assessment import build_market_context_assessment_detail
@@ -92,9 +90,7 @@ def export_read_models(
     """
 
     stores = build_sources(root)
-    validate_application_store_schema(stores.app_db_path)
     validate_reading_rules(root / READING_RULES_PATH)
-    validate_market_store_schema(stores.market_db_path)
     validate_market_store_hydration(stores.market_db_path)
     # These sources live only for this export. API requests keep the fresh DB sources.
     stores = replace(
@@ -306,9 +302,10 @@ class _CachedResearchSource(DbResearchSource):
 
 
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
-    """Enumerate holdings and latest-run analyses; published Research is added by caller."""
+    """Enumerate portfolio tickers and latest-run analyses; Research is added by caller."""
 
     tickers = {holding.ticker for holding in dashboard.holdings}
+    tickers.update(item.ticker for item in dashboard.reservations)
     tickers.update(row.ticker for row in screening.stock_analyses)
     return sorted(tickers)
 

@@ -16,18 +16,15 @@ from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market_context.history import (
-    AVG_VOLUME_SESSIONS,
     PRICE_HISTORY_WINDOW_DAYS,
     avg_daily_volume,
     gap_from_low,
-    has_split_adjustment_within_sessions,
     latest_bar_on_or_before,
     price_change,
     realized_volatility,
     turnover_spike,
 )
 from baibai_engine.market_context.margin import (
-    MARGIN_DELTA_SESSIONS,
     MarginBalance,
     margin_supply_demand,
 )
@@ -45,7 +42,7 @@ from baibai_engine.valuation.metrics.relative import (
     relative_valuation,
 )
 
-# metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ percentile / sigma_gap に
+# metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ位置 / sigma_gap に
 # 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
 # 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
 # リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
@@ -102,10 +99,8 @@ def build_metrics(
     """
     rules = rules or load_screening_rules()
     financials: dict[str, FinancialSnapshot] = {}
-    latest_prices: dict[str, float] = {}
 
-    for ticker, security in securities_by_ticker.items():
-        del security
+    for ticker in securities_by_ticker:
         latest_bar = latest_bar_on_or_before(bars_by_ticker.get(ticker, ()), asof_date)
         if latest_bar is None:
             continue
@@ -116,12 +111,8 @@ def build_metrics(
             else ticker_bars
         )
         latest_price = asof_basis_closes([latest_bar], adjustment_events, asof_date=asof_date)[0]
-        latest_prices[ticker] = latest_price
-        # bar は `latest_bar_on_or_before` が asof で切る。開示行も同じ場所で切る。
-        # 較正リプレイは過去の断面を作り直すので、asof より後の開示が 1 行混ざると
-        # 「発表前の決算で割安に見える」行ができ、測ったすべての予測力が偽になる。
-        # 呼び出し側が窓で切っている前提を置かない (本 module の他の 3 つの入口も
-        # 同じ規律で自分で切っている)。
+        # 価格はここでasofを選び、財務開示のasof選択はFinancialSnapshotが所有する。
+        # 提供元の後日訂正を、過去のAPI取得状態へ戻す契約ではない。
         financials[ticker] = build_financial_snapshot(
             latest_price=latest_price,
             summaries=summaries_by_ticker.get(ticker, ()),
@@ -203,7 +194,6 @@ def build_metrics(
             else ticker_bars
         )
         valuation_history = build_valuation_history(
-            latest_prices[ticker],
             ticker_bars,
             snapshot,
             asof_date,
@@ -221,12 +211,12 @@ def build_metrics(
             (bar for bar in ticker_bars if bar.traded_at <= asof_date),
             key=lambda item: item.traded_at,
         )
-        listing_span_days = (asof_date - eligible_bars[0].traded_at).days if eligible_bars else 0
+        observed_span_days = (asof_date - eligible_bars[0].traded_at).days if eligible_bars else 0
         derived[ticker] = DerivedMetrics(
             sector_median_gap=relative.sector_median_gap,
             sector_median_value=relative.sector_median_value,
             sector_median_basis=relative.sector_median_basis,
-            self_range_percentile=relative.self_range_percentile,
+            self_range_position=relative.self_range_position,
             self_range_median=relative.self_range_median,
             price_change_1d=price_change(
                 ticker_bars, 1, asof_date, adjustment_events=adjustment_events
@@ -234,9 +224,7 @@ def build_metrics(
             price_change_5d=price_change(
                 ticker_bars, 5, asof_date, adjustment_events=adjustment_events
             ),
-            price_change_20d=price_change(
-                ticker_bars, 20, asof_date, adjustment_events=adjustment_events
-            ),
+            price_change_20d=ticker_returns_4w.get(ticker),
             price_change_60d=price_change(
                 ticker_bars, 60, asof_date, adjustment_events=adjustment_events
             ),
@@ -252,31 +240,17 @@ def build_metrics(
             sector_relative_strength_percentile=rs_percentiles.get(sector),
             ticker_return_4w=ticker_returns_4w.get(ticker),
             sector_return_4w=sector_context.mean_returns.get(sector),
-            short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
-            split_adjustment_flag=has_split_adjustment_within_sessions(
-                ticker_bars,
-                asof_date,
-                60,
-                adjustment_events=adjustment_events,
-            ),
+            short_history_flag=observed_span_days < PRICE_HISTORY_WINDOW_DAYS,
             **asdict(
                 margin_supply_demand(
                     latest=(margin_latest or {}).get(ticker),
                     prior_26w=(margin_prior_26w or {}).get(ticker),
-                    avg_daily_volume_shares=avg_daily_volume(ticker_bars, asof_date),
+                    avg_daily_volume_shares=avg_daily_volume(
+                        ticker_bars, asof_date, adjustment_events=adjustment_events
+                    ),
                     shares_outstanding=snapshot.shares_outstanding,
-                    split_within_adv_window=has_split_adjustment_within_sessions(
-                        ticker_bars,
-                        asof_date,
-                        AVG_VOLUME_SESSIONS,
-                        adjustment_events=adjustment_events,
-                    ),
-                    split_within_delta_window=has_split_adjustment_within_sessions(
-                        ticker_bars,
-                        asof_date,
-                        MARGIN_DELTA_SESSIONS,
-                        adjustment_events=adjustment_events,
-                    ),
+                    asof_date=asof_date,
+                    adjustment_events=adjustment_events,
                 )
             ),
             price_history_sessions_750d=price_history_sessions[ticker],

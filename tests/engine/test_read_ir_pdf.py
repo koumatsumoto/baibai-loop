@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from baibai_engine.research.pdf_reader import (
@@ -61,6 +63,14 @@ def test_separate_mentions_on_one_page_are_both_reported() -> None:
     assert hits[1].context.endswith("自己株式の消却")
 
 
+@pytest.mark.parametrize("gap", [18, 22])
+def test_overlapping_context_keeps_a_mention_not_fully_shown_before(gap) -> None:
+    pages = ("営業利益" + "あ" * gap + "営業利益200",)
+    hits = find_keyword_contexts(pages, ["営業利益"], context_chars=20)
+    assert len(hits) == 2
+    assert hits[1].context.endswith("営業利益200")
+
+
 def test_a_keyword_absent_from_every_page_yields_no_hit() -> None:
     assert find_keyword_contexts(("売上高", "経常利益"), ["のれん"]) == ()
 
@@ -117,3 +127,35 @@ def test_cli_rejects_negative_context_before_reading_pdf(tmp_path, capsys) -> No
         main([str(tmp_path / "not-read.pdf"), "--search", "営業利益", "--context", "-1"])
     assert error.value.code == 2
     assert "--context must be non-negative" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [([], [1]), (["--pages", "3,1"], [3, 1]), (["--search", "営業利益"], [1, 2, 3])],
+)
+def test_cli_extracts_only_requested_pages_or_all_pages_for_search(
+    tmp_path, monkeypatch, capsys, arguments, expected
+):
+    from baibai_engine.research import pdf_reader
+
+    calls = []
+
+    class Page:
+        def __init__(self, number):
+            self.number = number
+
+        def extract_text(self):
+            calls.append(self.number)
+            return f"営業利益{self.number}"
+
+    path = tmp_path / "synthetic.pdf"
+    path.touch()
+    monkeypatch.setattr(
+        pdf_reader, "PdfReader", lambda _path: SimpleNamespace(pages=[Page(i) for i in (1, 2, 3)])
+    )
+    assert main([str(path), *arguments]) == 0
+    assert calls == expected
+    output = capsys.readouterr().out
+    assert "3 page(s)" in output
+    for number in expected:
+        assert f"営業利益{number}" in output

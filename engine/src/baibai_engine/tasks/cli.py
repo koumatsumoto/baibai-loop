@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from datetime import date, datetime
 from pathlib import Path
+from typing import get_args
 
 import yaml
-from pydantic import ValidationError
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 
 from .models import TaskKind, TaskStatus
-from .service import TaskConflictError, TaskNotFoundError, TaskService
+from .service import TaskService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="add an operation task with a due date, trigger event, and close condition",
     )
     add.add_argument("--title", required=True)
-    add.add_argument("--kind", required=True, choices=_kinds())
+    add.add_argument("--kind", required=True, choices=get_args(TaskKind))
     add.add_argument("--due", required=True, type=date.fromisoformat)
     add.add_argument("--ticker")
     add.add_argument("--event-date", type=date.fromisoformat)
@@ -37,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
         "list",
         help="list tasks in due order, optionally filtered by status",
     )
-    list_parser.add_argument("--status", choices=_statuses())
+    list_parser.add_argument("--status", choices=get_args(TaskStatus))
     # 終端の 2 値は「判断が済んだ」と「問いが不成立になった」で、閉じた理由が違う。
     close_help = {
         "done": "close a task whose judgment and canonical update are complete",
@@ -57,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     edit.add_argument("task_id")
     edit.add_argument("--title")
-    edit.add_argument("--kind", choices=_kinds())
+    edit.add_argument("--kind", choices=get_args(TaskKind))
     edit.add_argument("--due", type=date.fromisoformat)
     edit.add_argument("--ticker")
     edit.add_argument("--clear-ticker", action="store_true")
@@ -103,7 +104,7 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
             _emit(service.edit(args.task_id, _edit_changes(args)).payload())
         else:  # pragma: no cover
             raise AssertionError(f"unreachable task command: {args.command}")
-    except (OSError, ValueError, ValidationError, TaskConflictError, TaskNotFoundError) as error:
+    except (OSError, ValueError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
@@ -191,11 +192,3 @@ def _edit_changes(args: argparse.Namespace) -> dict[str, object]:
 
 def _emit(payload: object) -> None:
     yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
-
-
-def _kinds() -> tuple[TaskKind, ...]:
-    return ("earnings-review", "ops", "follow-up", "other")
-
-
-def _statuses() -> tuple[TaskStatus, ...]:
-    return ("open", "done", "dropped")

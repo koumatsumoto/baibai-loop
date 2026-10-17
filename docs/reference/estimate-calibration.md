@@ -25,7 +25,9 @@ status: active
 
 `calibration-evaluate`の通常実行は全horizonをdiagnosticとして出力し、`evidence_readiness`を持たない。実証的なscreen、ranking、E[r] policy parameterの変更を人間が検討するときは、`--run-purpose empirical_change_evidence`でrequired as-ofとdecision subjectを明示する。3y / 5yのinput、outcome、method、必須metricが揃えば`evidence_complete: true`になるが、効果の符号や採否は表さない。artifactは設定やコードを自動変更しない。
 
-Candidate Discoveryのevidence subjectは`candidate_discovery_approach`または`candidate_discovery_nomination_union`とする。approach subjectは対象approachのtop20 outcome、候補一覧 union全体、対象approach fidelity、union fidelityを必須にする。union subjectは候補一覧 union全体、union fidelity、全4 Approach fidelityを必須にする。pure E[r] top20はsecondary priorとの比較diagnosticであり、Candidate Discoveryの必須metricにしない。必須metricはsubjectから導出し、`--required-metric`は事前登録固有の追加guardrailだけに使う。既定の`estimator_policy`は`er_calibration`だけを必須にし、Candidate Discovery method fidelityを代替しない。
+Candidate Discoveryのevidence subjectは`candidate_discovery_approach`または`candidate_discovery_nomination_union`とする。approach subjectは対象approachの設定済みnomination_depth全件のoutcome（`approach_*_nominations`）、候補一覧 union全体、対象approach fidelity、union fidelityを必須にする。union subjectは候補一覧 union全体、union fidelity、全4 Approach fidelityを必須にする。固定top5/10/20のoutcomeは設定された全候補のoutcomeと区別する。pure E[r] top20はsecondary priorとの比較diagnosticであり、Candidate Discoveryの必須metricにしない。pure E[r] top5/10/20は予測時点の全対象から順位を固定し、将来returnの欠測を理由に下位銘柄を繰り上げない。成績のnはその固定集合で観測できた数である。必須metricはsubjectから導出し、`--required-metric`は事前登録固有の追加guardrailだけに使う。既定の`estimator_policy`は`er_calibration`だけを必須にし、Candidate Discovery method fidelityを代替しない。
+
+月次asofグリッドは、後続の銘柄数条件を満たす観測月がある月について銘柄数条件を満たす最終観測日を選ぶ。指定endは採用日を制限し、暦月の終了を保証しない。後半のデータが欠ければ月中日が選ばれる場合があり、公式の月末営業日や全銘柄の取得完了とは区別する。月末が休日のときも採用するのは観測された取引日である。
 
 target は cohort の actual as-of date に calendar month を加算する。元の日が calendar month-end の場合は対象月末を保ち、非取引日は target 以下の最終取引日に解決する。
 
@@ -68,15 +70,15 @@ EDINET の取込は最近の as-of 分しか無いので、それ以前の cohor
 
 | 分類 | 意味 | gate への影響 |
 | --- | --- | --- |
-| `entry_not_listed_count` | panel も as-of の価格を持たない | block しない。production screen も同じ銘柄を universe から落とすので、較正の母集団は screen が選び得た集合と一致する |
+| `entry_unpriced_at_asof_count` | panel も as-of 基準の価格を持たない。未上場の確認ではない | block しない。production screen も同じ銘柄を universe から落とすので、較正の母集団は screen が選び得た集合と一致する |
 | `entry_price_gap_count` | panel は as-of の価格を持つのに forward が entry を持たない | block する。断面に数えた銘柄の forward 観測が無いので、population を無言で欠く |
 | `unpriced_exit_count` | 窓中に系列が終わる（廃止 exit value なし） | 件数では block しない。`delisting_exclusion` が結論の頑健性で判定する（下記） |
 | `future_horizon_count` | target が評価可能な最終取引日より先 | block する。cohort が満期に達していない |
 | `unclassified_unresolved_count` | 上のどれにも入らない未解決 status | block する。分類は allowlist なので、status が増えた日に無音で通らないための残余 |
 
-`entry_not_listed` が非 block なのは「市場に無かった」に限らないので、panel が price を持ちながら universe へ入れられなかった銘柄は row の `population_coverage_status` と `priced_master_without_universe_count` で別に同定する。universe の除外条件が増えても、その分が非 block の側へ黙って流れ込まない。
+`entry_unpriced_at_asof_count` が非 block なのは「未上場」を確認したからではないので、panel が price を持ちながら universe へ入れられなかった銘柄は row の `population_coverage_status` と `priced_master_without_universe_count` で別に同定する。universe の除外条件が増えても、その分が非 block の側へ黙って流れ込まない。
 
-entry は as-of の 15 日前までの close で解決するので、保有期間は名目 horizon より最大でその分長い。価格 bar と `adjustment_factor_coverage` はこの窓から読む。一方、実現配当を支払ごとに株式基準へ換算する corporate-action event は、最初に対象になる FY の `period_start` まで別に遡って読む。価格入力窓と配当の会計期間窓は同一ではない。
+entry は as-of の 15 日前までの close で解決するので、保有期間は名目 horizon より最大でその分長い。価格 bar と `adjustment_factor_coverage` はこの窓から読む。一方、配当実績の株式基準が未解決となる単位変更を確認する corporate-action event は、最初に対象になる FY の `period_start` まで別に遡って読む。会計期間から価格の比較基準日までの単位変更・未分類 action を含む正の実績は、推定換算せず未解決とする。exit後の分割でも配当込み成績が未解決になる一方、価格だけの成績は残す。価格入力窓と配当の会計期間窓は同一ではない。
 
 ### universe 未評価銘柄（`priced_master_without_universe`）
 
@@ -88,16 +90,16 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 
 ### 廃止銘柄の除外（`delisting_exclusion`）
 
-窓中に系列が終わる銘柄のうち、成立した現金公開買付けが対価を確定させたものは実値で解決する（後述「支配権イベントの実現 exit 値」）。それ以外は exit value を持たないまま cohort から落ちる。株式の併合・株式等売渡請求だけで完結した廃止、倒産、資料履歴外の廃止がそこに残り、満期済み cohort は例外なくこれを含むので、件数で block すると 3y/5y の evidence は原理的に成立しない。代わりに、その除外が結論を作ったかどうかを cohort ごとに判定する。
+窓中に系列が終わる銘柄のうち、成立した現金公開買付けの価格を確認できたものは、その価格を退出価値の代理値として使う（後述「支配権イベントの exit 代理値」）。対象理由による最終市場終値の規約も後述する。どちらの退出値も確定しない銘柄は unresolved に残す。未解決件数だけから較正不能と決めず、除外対象への固定ケース代入で結論方向が変わるかを cohort ごとに判定する。すべての cohort が未解決銘柄を含むとは仮定しない。
 
-除外された銘柄へ範囲の両端を代入して結論を再計算し、**cohort が報告した値と両方の代入とで向きが一致するときだけ** `direction_stable` を立てる。
+除外された銘柄へ全損・中立の二つのケースを代入して結論を再計算し、**cohort が報告した値と両方の代入とで向きが一致するときだけ** `direction_stable` を立てる。
 
 | 代入 | 値 |
 | --- | --- |
 | 全損 | `price_return = -1.0` |
 | 中立 | 同 cohort の resolved common eligible母集団の中央値。benchmarkや母集団外の銘柄は含めない |
 
-報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは`review_set_all`がNomination union全体の`median_excess`の符号、`er_calibration`が最上位 quintile の`median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
+報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは`nomination_union_all`がNomination union全体の`median_excess`の符号、`er_calibration`が最上位 quintile の`median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
 
 この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。実値で解決できた行はこの bracket の対象から外れる。
 
@@ -113,7 +115,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 ### 自己株式取得枠
 
-自己株取得を含む資本配分は、選ばれた銘柄のresearchで一次開示を読む。production rankingが使う`net_share_change_yoy`は過去の株数変化・希薄化signalであり、将来のbuyback cashや未消化枠とは呼ばない。
+自己株取得を含む資本配分は、選ばれた銘柄のresearchで一次開示を読む。機械E[r]のcarryが使う`net_share_change_yoy`は過去の株数変化・希薄化signalであり、将来のbuyback cashや未消化枠とは呼ばない。
 
 <a id="diagnostic-thresholds"></a>
 
@@ -125,7 +127,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 ### 業種中央値basis
 
-`sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。落ちる業種は構造的に低倍率へ寄る側に集中するため、分けないと業種の割安と業種構成が同じ数字に混ざる。
+`sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。fallbackでは比較基準の業種構成が変わるため、分けないと同業比較と市場比較を同じ数字として読んでしまう。どの業種・倍率に偏るかは対象断面で確認する。
 
 `group_median_excess`は群の構成も反映し、`axis_effect.median_excess_delta`は群の中を軸値で分割した差を測る。構成の違う二群の平均値だけで軸の優劣を決めない。
 
@@ -133,7 +135,11 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 ### E[r]絶対水準
 
-`er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。同日開示は開示時刻まで比較し、時刻不明を新旧の根拠にしない。同じ最新revisionの配当・換算に使う株数等が矛盾する場合も未解決に残す。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
+`er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward の比較基準日（eval cap、未指定時は最終価格日）の株式単位へ正規化して合算する。同日開示は開示時刻まで比較し、時刻不明を新旧の根拠にしない。同じ最新revisionの配当・換算に使う株数等が矛盾する場合も未解決に残す。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
+
+対象年度の原本行が丸ごと欠ける場合も、観測した期首が entry より後、または採用年度間の会計期間に空白があると判明したら、配当0として加算せず `unresolved_dividend_period_gap` とする。決算期変更の短期年度は実際の期首・期末の連続性で扱い、固定の12か月間隔を要求しない。この確認は判明した期間欠落を除くもので、末尾の未開示年度などを含む全配当の取得完了を証明しない。価格だけの成績は残す。
+
+保有期間中にライツイシュー（`ExRT = 3`）があれば、権利売却の受取額や権利行使の追加払込額を価格factorだけでは復元できないため、total return は `unresolved_rights_issue` とする。factor が1でもこの区別は変わらない。保有終了後のライツイシューで共通の比較価格基準が変わる場合は、配当成分にも同じ価格換算を掛け、終了済みのリターンを変えない。この比較基準上の配当合計は、そのまま口座の現金入金額を表すものではない。
 
 ## 判断面へ渡す較正文脈
 
@@ -173,11 +179,11 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `normalized_per_3fy`がcalibrationのsubject mandatory metricではないことは、Candidate Discoveryで未使用という意味ではない。Normalized Earnings Powerのnative eligibility/orderには使い、FV/E[r] estimator入力には使わない。
 
-候補正本の統合後も、`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`等は測定wireとして保持する。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。cohort/forward/ER artifactをrun cacheの切替で消したり、現在identityへ書換えたりしない。
+候補集合の測定は`PanelRow.in_nomination_union`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`で表す。旧Review Set名への互換aliasは持たない。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。run cacheと較正storeは別の責務である。較正schema変更時は対象cohortを現行入力から再構築し、古い測定結果へ現在identityを付け替えない。
 
-cache schema versionは[store実装](../../engine/src/baibai_engine/screening/calibration/store.py)がfieldと計算revision等から導出する。計算の意味変更は`VALUATION_CALCULATION_REVISION`を明示更新する。市場storeの整数`user_version`とは別契約である。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。これらのpanel列と`ProfitabilityLevelSignals`はcalibration専用で、productionへ渡さない。production ReinvestmentはStock Analysisから別途収益性を計算し、[native eligibility/order](./screening-runtime.md#candidate-discovery)に使う。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
+cache schema versionは[store実装](../../engine/src/baibai_engine/screening/calibration/store.py)がfieldと計算revision等から導出する。計算の意味変更は所有領域のrevision（`VALUATION_CALCULATION_REVISION` / `MARKET_CONTEXT_CALCULATION_REVISION`）を明示更新する。run・panel・cacheは両方をidentityに含め、旧計算の再利用を防ぐ。保存済み資料のidentityを新値へ付け替えない。市場storeの整数`user_version`とは別契約である。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。これらのpanel列と`ProfitabilityLevelSignals`はcalibration専用で、productionへ渡さない。production ReinvestmentはStock Analysisから別途収益性を計算し、[native eligibility/order](./screening-runtime.md#candidate-discovery)に使う。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・Valuation / Market Context calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
-報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
+報告空売り残高は L1 に disclosure date と calculation date、reporter 名tupleと住所、ratio / shares / units、前回報告値、Notes、provider row ordinalを保持する。Notes は自由記述であり、取消やゼロ残高へ推測変換しない。取得済み無報告と未取得を区別する。現在の評価・選定に利用者がない報告者別の残高集計と専用 panel 列は持たず、必要な分析は保存原本から設計する。旧較正研究の coverage 不足という判定を、効果なしや現行実装の保持義務へ読み替えない。
 
 信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation であり、candidates・rank・候補一覧を変えない。空売り残/ADVを追加guardrailにする事前登録済みrunだけが`--required-metric margin_short_to_adv`を指定する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。保存形式は[`market-lake.md`](./market-lake.md#較正store)を正本とする。
 
@@ -294,8 +300,8 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 - **control cell の判定は「0 許容の全 cell 通過」を既定にしない**（偽陰性へ構造的に偏る）。noise floor（例: trap delta ≤ +2pt）または k-of-n cell 通過と、cell ごとの最小 matched weight を**事前登録で宣言**する。
 - 判定語彙は `negative` / `insufficient` / `adoption_candidate` / `inconclusive` の 4 種。同一仮説の再検定は新 evidence（新規満期 cohort・contract レベルの nomination contract 変更）がある場合に限る。
 - **語彙は窓ごとに決めてから全体へ畳む。** 窓を跨いで「どれか 1 つでも被覆不足なら全体 `insufficient`」とすると、1 窓の 1 basis の件数不足が、他窓で確定した効果の不成立を語彙の上で覆い隠す。各窓を `insufficient` / `inconclusive` / `negative` / `adoption_candidate` へ落としたうえで統合し、全体を `insufficient` と呼ぶのは、**効果が確定した窓が 1 つも無い**ときに限る。
-- **満期済み窓を根拠に cleanup するときは、残る変動幅を示す。** as-of 範囲が固定で満期済みでも値は不動ではない。forward row は build のたびに再計算され、FY 配当や退場銘柄の exit が backfill されれば `total` basis の pair 数と中央値は動く。したがって次の bullet の `insufficient` 保持規則より削除を優先してよいのは、**その窓の効果が確定しており、かつ窓内の coverage backfill では結論が反転しないことを示した**ときに限る。示せないなら保持規則が優先する。
-- `negative` / `inconclusive` が確定した軸は、判定 PR で panel 列・派生計算・評価枝・専用 test を削除し、dated report と git history を反証証跡の正本とする（残すのは `adoption_candidate` / `insufficient` / control 再利用列 / production annotation 入力列のみ）。
+- **測定の判定と実装の存続は分ける。** 固定した満期済み窓でも、配当・exitの補完で結果は動く。効果の不成立を削除理由として主張する場合は、残るcoverageの限界と結論が変わり得る範囲を示す。証拠不足は `insufficient` のまま記録し、削除したことを棄却や収益改善の証明にしない。
+- 実装を残すかは[開発投資方針](../doctrine.md#development-investment-policy)に従い、現在の用途と維持費で決める。`insufficient` / `adoption_candidate` でも用途のないpanel列・派生計算・評価枝・専用testは削減でき、満期や追加取得を待つ保持義務はない。controlや本番判断が使う部分は必要性を確認して残す。過去の測定・採否はdated reportとgit historyで追えるようにする。
 - rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`stores/screening/calibration/variants/<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
 - 機械レバー（approach / 候補一覧 / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（市場環境判断 / research 手順）は保有 outcome と運用の事後検証で改める。
 
@@ -313,9 +319,9 @@ Research Setの対象について、[Stock Assessment](./stock-assessment.md#sce
 
 比較可能な有効観測（同じStock Assessmentの再利用・scaffold-only・未Review・遡及記入を除く）が5件以上になったら、保存済み評価と機械anchorを読み、乖離率の中央値・範囲・要因件数・coverageを記述する。比較不能な対象は理由とともにcoverageへ区別する。この記述だけでscreening式を変えず、変更仮説は別Issueで事前登録してdesign/confirmへ進める。
 
-### 支配権イベントの実現 exit 値
+### 支配権イベントの exit 代理値
 
-上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格で解決する（`resolved_control_event_exit`）。これは効果量を選ぶ仮説ではなく、観測済みの対価へ置き換える correctness 変更である。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。実値化できない上場廃止は従来どおり全損・中立の両側 bracket に残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
+上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格を代理値として計算する（`resolved_control_event_exit`）。買付価格と成立報告は観測事実だが、上場廃止日にその価格で退出したという扱いは較正上の測定規約である。非応募株主のスクイーズアウト対価、実際の支払日、個々の受取額を確認したものではない。`resolved` はこの規約で計算できたことを表し、実約定・現金受領の証明とは区別する。[JPXの上場制度FAQ](https://www.jpx.co.jp/faq/stock_listed_company.html)も、非応募株主の後続手続について発行会社の開示確認を案内している。導入時の[事前登録](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md)と[比較結果](../../reports/studies/2026-08-11-capital-control-exit-values/report.md)は履歴として残す。旧schema・CLI・再構築範囲・停止条件を現在の手順へ読み替えず、現行の導出・置換条件は本節と実装を正本とする。代理値を確定できない上場廃止は従来どおり全損・中立の感度ケースに残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
 
 JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等売渡請求」は資料確認へ進む候補条件で、現金対価の証明ではない。株式併合・売渡請求だけの表記でも、先行する現金公開買付けを資料で検証する。対象ticker・届出/訂正・取下げ・成立報告・普通株1株の単一価格・現金のみという既存の証拠条件を保ち、資料なし・撤回・非現金・価格不一致は未解決に残す。CLIの`candidates`は調査候補件数、`resolved`が証拠を満たした件数である。6881の通常資料取得による再現と取得範囲は[測定記録](../../reports/studies/2026-10-14-tender-exit-candidate-coverage/report.md)を参照する。
 
@@ -332,3 +338,4 @@ JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等�
 較正は3か月以上のhorizonを対象にし、3m/6mはregression alert、1yはleading evidence、3y/5yは実証的method変更のevidenceに使う。詳細な必須条件は本書「Horizonごとのevidence role」に従う。
 
 重複するcohortを独立標本とせず、有意性・統計的優位ではなく効果量とcohort勝率を読む。仮説と採否基準は前記の事前登録・design/confirmで扱い、grid searchをしない。coverage・survivorshipの欠けを開示し、較正結果を累積return・年率・シャープ等の運用実績として掲げない。
+

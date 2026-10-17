@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 
+from tests.helpers.master import TSE_33_SECTORS
+
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
@@ -12,8 +14,6 @@ from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.screening_run_serializer import stock_analysis_payload
 from baibai_engine.screening.stock_analysis_builder import build_stock_analysis
 from baibai_engine.screening.universe import (
-    TSE_33_SECTORS,
-    UniverseSourceDriftError,
     build_universe,
     candidate_comparison_population,
 )
@@ -51,7 +51,7 @@ class ScreeningUniverseTests(unittest.TestCase):
             is_common_stock=True,
         )
         asof = date(2026, 4, 25)
-        events = [JQuantsAdjustmentFactorEvent("130A", asof, 100.0)]
+        events = [JQuantsAdjustmentFactorEvent("130A", asof, 100.0, "2")]
 
         fixed = build_universe(
             asof_date=asof,
@@ -94,7 +94,9 @@ class ScreeningUniverseTests(unittest.TestCase):
             bars_by_ticker={"130A": [bar]},
             shares_outstanding_by_ticker={"130A": 200_000_000.0},
             jpx_flags_by_ticker={},
-            adjustment_events_by_ticker={"130A": [JQuantsAdjustmentFactorEvent("130A", asof, 0.5)]},
+            adjustment_events_by_ticker={
+                "130A": [JQuantsAdjustmentFactorEvent("130A", asof, 0.5, "1")]
+            },
         )
         self.assertEqual(result.snapshots["130A"].market_cap_oku, 100)
         self.assertIsNone(result.snapshots["130A"].avg_turnover_oku)
@@ -214,16 +216,17 @@ class ScreeningUniverseTests(unittest.TestCase):
         self.assertEqual(result.snapshots["7203"].jpx_flags, ("整理銘柄",))
         self.assertEqual(result.exclusion_counts, {})
 
-    def test_build_universe_records_listing_span_as_fact(self) -> None:
+    def test_build_universe_records_price_history_span_as_fact(self) -> None:
         security = SecurityMaster(
             ticker="300A",
-            name="Newly Listed",
+            name="Limited Price History",
             market_segment="Growth",
             sector_33="情報・通信業",
             is_common_stock=True,
         )
         end = date(2026, 4, 24)
-        # 90 days of bars starting ~90 days before asof; listing_span < 182 threshold.
+        # Available observations start 90 calendar days before asof.
+        # This does not establish when the security was listed.
         bars = [
             JQuantsDailyBar(
                 ticker="300A",
@@ -241,7 +244,7 @@ class ScreeningUniverseTests(unittest.TestCase):
             jpx_flags_by_ticker={},
         )
         self.assertIn("300A", result.snapshots)
-        self.assertEqual(result.snapshots["300A"].listing_span_days, 90)
+        self.assertEqual(result.snapshots["300A"].price_history_span_days, 90)
 
     def test_build_universe_keeps_short_history_with_null_20bar_turnover(self) -> None:
         security = SecurityMaster(
@@ -305,7 +308,7 @@ class ScreeningUniverseTests(unittest.TestCase):
                     continue
                 snapshot = result.snapshots["400A"]
                 self.assertIsNone(snapshot.market_cap_oku)
-                self.assertEqual(snapshot.listing_span_days, count - 1)
+                self.assertEqual(snapshot.price_history_span_days, count - 1)
                 self.assertEqual(snapshot.avg_turnover_oku, 3.0 if count == 20 else None)
 
         for close in (0.0, -1.0):
@@ -329,51 +332,29 @@ class ScreeningUniverseTests(unittest.TestCase):
                 self.assertNotIn("400A", result.snapshots)
                 self.assertEqual(result.exclusion_flags["400A"], ("invalid_price_basis",))
 
-    def test_no_event_factor_zero_does_not_exclude_at_any_price_boundary(self) -> None:
-        security = SecurityMaster("400A", "Factor Zero", "Growth", "情報・通信業", True)
+    def test_invalid_factor_only_excludes_when_needed_for_price_basis(self) -> None:
+        security = SecurityMaster("400A", "Invalid Factor", "Growth", "情報・通信業", True)
         asof = date(2026, 4, 24)
         price_day = asof - timedelta(days=1)
         latest = JQuantsDailyBar("400A", price_day, 100.0, 300_000_000.0)
-
-        for event_day in (price_day - timedelta(days=1), price_day, asof):
-            with self.subTest(event_day=event_day):
-                event = JQuantsDailyBar(
-                    "400A", event_day, 100.0, 300_000_000.0, adjustment_factor=0.0
-                )
-                result = build_universe(
-                    asof,
-                    [security],
-                    {"400A": [latest]},
-                    {"400A": 400_000_000.0},
-                    {},
-                    adjustment_events_by_ticker={"400A": [event]},
-                )
-                self.assertEqual(result.snapshots["400A"].market_cap_oku, 400)
-
-        source_bar = JQuantsDailyBar("400A", price_day, 100.0, 300_000_000.0, adjustment_factor=0.0)
-        source_result = build_universe(
-            asof, [security], {"400A": [source_bar]}, {"400A": 400_000_000.0}, {}
-        )
-        self.assertEqual(source_result.snapshots["400A"].market_cap_oku, 400)
-
-        # A malformed negative factor matters only when it would adjust this close.
-        for event_day in (price_day - timedelta(days=1), price_day, asof):
-            with self.subTest(negative_event_day=event_day):
-                invalid = JQuantsDailyBar(
-                    "400A", event_day, 100.0, 300_000_000.0, adjustment_factor=-1.0
-                )
-                result = build_universe(
-                    asof,
-                    [security],
-                    {"400A": [latest]},
-                    {"400A": 400_000_000.0},
-                    {},
-                    adjustment_events_by_ticker={"400A": [invalid]},
-                )
-                if event_day > price_day:
-                    self.assertEqual(result.exclusion_flags["400A"], ("invalid_price_basis",))
-                else:
-                    self.assertEqual(result.snapshots["400A"].market_cap_oku, 400)
+        for factor in (0.0, -1.0):
+            for event_day in (price_day - timedelta(days=1), price_day, asof):
+                with self.subTest(factor=factor, event_day=event_day):
+                    event = JQuantsDailyBar(
+                        "400A", event_day, 100.0, 300_000_000.0, adjustment_factor=factor
+                    )
+                    result = build_universe(
+                        asof,
+                        [security],
+                        {"400A": [latest]},
+                        {"400A": 400_000_000.0},
+                        {},
+                        adjustment_events_by_ticker={"400A": [event]},
+                    )
+                    if event_day > price_day:
+                        self.assertEqual(result.exclusion_flags["400A"], ("invalid_price_basis",))
+                    else:
+                        self.assertEqual(result.snapshots["400A"].market_cap_oku, 400)
 
     def test_short_history_keeps_financial_analysis_and_approach(self) -> None:
         security = SecurityMaster(
@@ -385,6 +366,8 @@ class ScreeningUniverseTests(unittest.TestCase):
         )
         asof = date(2026, 4, 24)
         summary = JQuantsFinancialSummary(
+            # Calculation fixture: guidance has already been projected for this snapshot.
+            forecast_status="confirmed",
             ticker="400A",
             disclosed_at=asof,
             forecast_eps=10.0,
@@ -497,88 +480,49 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
         self.assertEqual(result.exclusion_counts.get("market_out_of_scope"), 1)
 
 
-class SectorClassificationScopeTests(unittest.TestCase):
-    """Instrument type is decided by the sector code, so both sides are pinned.
+class NativeProductScopeTests(unittest.TestCase):
+    def test_product_category_not_sector_name_decides_ordinary_stock(self) -> None:
+        from baibai_engine.market.master_snapshot import normalize_master_record
 
-    The master's own `is_common_stock` reads true for every row it has ever held, which is
-    why an ETF and a preferred-investment security sat inside the eligible market segments.
-    The sector code is the identifier the source actually fills in, and a screen that reads
-    it has to keep every 33-sector name while removing the ones outside the classification.
-    """
+        for category in ("011", "012", "013", "014", "021", "022", "023", "024"):
+            with self.subTest(category=category):
+                security = normalize_master_record(
+                    {
+                        "Code": "130A0",
+                        "CoName": "Source security",
+                        "MktNm": "Prime",
+                        "S33Nm": "情報・通信業",
+                        "ProdCat": category,
+                    }
+                )
+                assert security is not None
+                result = build_universe(
+                    date(2026, 4, 24), [security], {"130A": _bars("130A")}, {}, {}
+                )
+                self.assertEqual("130A" in result.snapshots, category == "011")
+                if category != "011":
+                    self.assertEqual(result.exclusion_flags["130A"], ("non_common_stock",))
 
-    def _result(self, sector: str, *, is_common: bool = True) -> object:
-        security = SecurityMaster(
-            ticker="130A",
-            name="Sample",
-            market_segment="Prime",
-            sector_33=sector,
-            is_common_stock=is_common,
-        )
-        return build_universe(
-            asof_date=date(2026, 4, 24),
-            securities=[security],
-            bars_by_ticker={"130A": _bars("130A")},
-            shares_outstanding_by_ticker={"130A": 400_000_000.0},
-            jpx_flags_by_ticker={},
-        )
-
-    def test_a_name_outside_the_classification_leaves_the_universe(self) -> None:
-        result = self._result("その他")
-        self.assertNotIn("130A", result.snapshots)
-        self.assertEqual(result.exclusion_counts.get("sector_out_of_classification"), 1)
-
-    def test_an_unrecognised_sector_label_stops_the_build(self) -> None:
-        """A label nobody knows is source drift, and drift here empties the population.
-
-        The exclusion matches sector names exactly, so a renamed sector reads as "none of
-        these are common stock" and removes every name carrying it. The count simply
-        falls, which no caller can tell from a quiet market, so an unknown label has to
-        stop the build instead of being excluded like a known one.
-        """
-        with self.assertRaises(UniverseSourceDriftError) as raised:
-            self._result("-")
-        self.assertIn("-", str(raised.exception))
-
-    def test_a_renamed_sector_stops_the_build_before_it_empties_the_universe(self) -> None:
-        with self.assertRaises(UniverseSourceDriftError):
-            self._result("情報通信業")  # the real label carries a nakaguro
-
-    def test_an_unknown_label_outside_the_eligible_markets_does_not_stop_the_build(self) -> None:
-        """The check has to be no wider than what it protects.
-
-        A row the market segment already removes contributes nothing to the population,
-        so a new label on it changes no count. Stopping there would spend the daily run's
-        availability on a name the screen never considered.
-        """
-        security = SecurityMaster(
-            ticker="130A",
-            name="Sample",
-            market_segment="その他",
-            sector_33="新しい何か",
-            is_common_stock=True,
-        )
-        result = build_universe(
-            asof_date=date(2026, 4, 24),
-            securities=[security],
-            bars_by_ticker={"130A": _bars("130A")},
-            shares_outstanding_by_ticker={"130A": 400_000_000.0},
-            jpx_flags_by_ticker={},
-        )
-        self.assertNotIn("130A", result.snapshots)
-        self.assertEqual(result.exclusion_counts.get("market_out_of_scope"), 1)
-
-    def test_every_tse_sector_stays_in_scope(self) -> None:
-        # The positive side across the whole classification: an exclusion that removed a
-        # real sector would still pass a test that only checked one name.
-        for sector in sorted(TSE_33_SECTORS):
+    def test_sector_vocabulary_does_not_override_native_ordinary_classification(self) -> None:
+        for sector in (*sorted(TSE_33_SECTORS), "新業種", "その他"):
             with self.subTest(sector=sector):
-                result = self._result(sector)
+                security = SecurityMaster("130A", "Sample", "Prime", sector, True)
+                result = build_universe(
+                    date(2026, 4, 24), [security], {"130A": _bars("130A")}, {}, {}
+                )
                 self.assertIn("130A", result.snapshots)
-                self.assertNotIn("sector_out_of_classification", result.exclusion_counts)
 
-    def test_the_master_flag_still_excludes_on_its_own(self) -> None:
-        # Kept separate from the sector test: the two conditions answer different
-        # questions and one going quiet must not silence the other.
-        result = self._result("情報・通信業", is_common=False)
-        self.assertNotIn("130A", result.snapshots)
-        self.assertEqual(result.exclusion_counts.get("non_common_stock"), 1)
+    def test_preferred_issue_is_not_projected_as_the_same_common_ticker(self) -> None:
+        from baibai_engine.market.master_snapshot import normalize_master_record
+
+        self.assertIsNone(
+            normalize_master_record(
+                {
+                    "Code": "130A1",
+                    "CoName": "Preferred",
+                    "MktNm": "Prime",
+                    "S33Nm": "情報・通信業",
+                    "ProdCat": "011",
+                }
+            )
+        )

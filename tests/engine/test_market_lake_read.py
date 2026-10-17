@@ -23,7 +23,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from baibai_engine.storage.lake import duck as duck_module
 from baibai_engine.storage.lake import hydrate as hydrate_module
 from baibai_engine.storage.lake import prefetch as prefetch_module
-from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS
+from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS, LAKE_DATASETS
 from baibai_engine.storage.lake.duck import (
     LakeCredentialError,
     LakeSession,
@@ -71,7 +71,7 @@ from baibai_engine.storage.lake.reader import (
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
 from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
@@ -143,7 +143,7 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
@@ -488,7 +488,7 @@ class TestFixedRelease:
             )
         )
         payload["release_id"] = "release-drifted"
-        payload["datasets"]["jquants.daily_bars"]["contract_version"] = 2
+        payload["datasets"]["jquants.daily_bars"]["contract_version"] += 1
         (lake.mirror / release_manifest_key(release_id="release-drifted")).write_text(
             json.dumps(payload), encoding="utf-8"
         )
@@ -509,7 +509,7 @@ class TestFixedRelease:
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
         payload = json.loads((lake.mirror / key).read_text(encoding="utf-8"))
-        payload["contract_version"] = 2
+        payload["contract_version"] += 1
         broken = json.dumps(payload).encode()
         (lake.mirror / key).write_bytes(broken)
         release_payload = json.loads(
@@ -518,7 +518,9 @@ class TestFixedRelease:
             )
         )
         release_payload["release_id"] = "release-broken"
-        release_payload["datasets"]["jquants.daily_bars"]["contract_version"] = 2
+        release_payload["datasets"]["jquants.daily_bars"]["contract_version"] = payload[
+            "contract_version"
+        ]
         release_payload["datasets"]["jquants.daily_bars"]["manifest_sha256"] = hashlib.sha256(
             broken
         ).hexdigest()
@@ -559,7 +561,7 @@ class TestFixedRelease:
         with sealed_sqlite_snapshot(
             sqlite_path=lake.sqlite_path, mirror_root=tmp_path / "second-mirror"
         ) as snapshot:
-            replacement = export_legacy_sqlite(
+            replacement = export_dataset_snapshot(
                 dataset_name="jquants.daily_bars",
                 mirror_root=tmp_path / "second-mirror",
                 producer_git_commit=_COMMIT,
@@ -577,13 +579,17 @@ class TestFixedRelease:
     ) -> None:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
         manifest = release.dataset_manifest("jquants.daily_bars")
-        next_contract = replace_manifest_contract(manifest, contract_version=2)
+        next_contract = replace_manifest_contract(
+            manifest, contract_version=manifest.contract_version + 1
+        )
         future = replace(
             release,
             dataset_manifests={**release.dataset_manifests, "jquants.daily_bars": next_contract},
         )
 
-        with pytest.raises(LakeReadError, match="this reader accepts only v1"):
+        with pytest.raises(
+            LakeReadError, match=f"this reader accepts only v{manifest.contract_version}"
+        ):
             accepted_dataset(future, "jquants.daily_bars")
 
     def test_a_dataset_the_release_does_not_publish_is_not_readable(self, lake: Lake) -> None:
@@ -945,7 +951,7 @@ def _build_lake_second_release(lake: Lake) -> str:
         snapshot_id=f"snapshot-{release_id}",
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=lake.mirror,
                 producer_git_commit=_COMMIT,
@@ -1278,6 +1284,16 @@ class TestHydrate:
             table: _table_shape(before, table)
             for table in ("jquants_daily_bars", "jquants_short_sale_reports")
         }
+        expected_rows = {
+            name: before.execute(
+                f"SELECT * FROM {LAKE_DATASETS[name].sqlite_table} "
+                f"ORDER BY {', '.join(LAKE_DATASETS[name].primary_key)}"
+            ).fetchall()
+            for name in ("jquants.daily_bars", "jquants.short_sale_reports")
+        }
+        expected_coverage = before.execute(
+            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+        ).fetchall()
         expected_version = before.execute("PRAGMA user_version").fetchone()[0]
         before.close()
 
@@ -1291,10 +1307,23 @@ class TestHydrate:
         assert origin.release_manifest_sha256 == report.release_manifest_sha256
         filled = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
         try:
-            assert filled.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 4
+            for name, rows in expected_rows.items():
+                dataset = LAKE_DATASETS[name]
+                assert (
+                    filled.execute(
+                        f"SELECT * FROM {dataset.sqlite_table} "
+                        f"ORDER BY {', '.join(dataset.primary_key)}"
+                    ).fetchall()
+                    == rows
+                )
             # The coverage ledger is what the lake does not own, and the fill has to be
             # the reason it survives rather than an accident of the copy.
-            assert filled.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 1
+            assert (
+                filled.execute(
+                    "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+                ).fetchall()
+                == expected_coverage
+            )
             assert filled.execute("PRAGMA user_version").fetchone()[0] == expected_version
             for table, shape in expected_shape.items():
                 assert _table_shape(filled, table) == shape
@@ -1327,17 +1356,6 @@ class TestHydrate:
             _hydrate(session, lake, store)
 
         assert store.read_bytes() == before
-
-    def test_filling_allows_a_store_that_is_behind_the_release(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        """Catching up is the ordinary case and must not be caught by the guard above."""
-
-        store = _dehydrated(lake, tmp_path / "behind.sqlite")
-
-        report = _hydrate(session, lake, store)
-
-        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
 
     def test_filling_refuses_a_table_that_drifted_from_its_dataset_contract(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -1389,22 +1407,40 @@ class TestHydrate:
         with pytest.raises(LakeHydrateError, match="no longer current"):
             _hydrate(session, lake, store, still_current=lambda: moved)
 
-    def test_a_case_insensitive_filesystem_is_rejected_before_the_store_changes(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_failed_publication_link_preserves_the_previous_store(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         before = store.read_bytes()
-        monkeypatch.setattr(Path, "samefile", lambda _self, _other: True)
+        real_link = Path.hardlink_to
 
-        with pytest.raises(LakeHydrateError, match="case-sensitive"):
+        def fail_link(path: Path, target: Path) -> None:
+            if path.name.endswith(".rollback"):
+                raise OSError("publication link unavailable")
+            real_link(path, target)
+
+        monkeypatch.setattr(Path, "hardlink_to", fail_link)
+        with pytest.raises(OSError, match="publication link unavailable"):
             _hydrate(session, lake, store)
-
         assert store.read_bytes() == before
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".probe")]
+        assert not list(tmp_path.glob("*.hydrating"))
+
+    def test_capacity_failure_during_load_preserves_the_previous_store(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from baibai_engine.storage.lake import hydrate as hydrate_module
+
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = store.read_bytes()
+
+        def fail_load(*_args, **_kwargs):
+            raise sqlite3.OperationalError("database or disk is full")
+
+        monkeypatch.setattr(hydrate_module, "load_dataset_rows", fail_load)
+        with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+            _hydrate(session, lake, store)
+        assert store.read_bytes() == before
+        assert not list(tmp_path.glob("*.hydrating"))
 
     def test_insufficient_capacity_fails_before_the_store_changes(
         self,
@@ -1624,7 +1660,7 @@ class TestDehydrate:
         shutil.copyfile(lake.sqlite_path, store)
         connection = sqlite3.connect(store)
         connection.execute(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES ('2026-03-02', 1)"
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES ('2026-03-02', 1)"
         )
         connection.commit()
         connection.close()
@@ -1680,7 +1716,7 @@ class TestOperatorDerivedRetraction:
         with sealed_sqlite_snapshot(
             sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
         ) as snapshot:
-            manifest_path = export_legacy_sqlite(
+            manifest_path = export_dataset_snapshot(
                 dataset_name="edinet.tender_offer_exit_values",
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,

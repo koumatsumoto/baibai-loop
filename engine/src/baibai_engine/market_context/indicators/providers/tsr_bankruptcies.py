@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
-from itertools import pairwise
-from zoneinfo import ZoneInfo
+from datetime import date
 
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
@@ -18,10 +16,6 @@ from .base import (
     record_observation,
 )
 
-_HISTORY_FLOOR = date(2003, 1, 1)
-# Official releases may arrive as late as day 27. The tail gate waits until day
-# 28 so a normal late publication is not treated as stale.
-_PUBLICATION_DEADLINE_DAY = 28
 _MONTH_RE = re.compile(r"(?P<year>20\d{2})年(?:（[^）]+）)?\s*(?P<month>\d{1,2})月")
 _TITLE_VALUE_RE = re.compile(r"全国企業倒産(?:状況)?\s*(?P<value>[\d,]+)\s*件")
 _TABLE_VALUE_RE = re.compile(
@@ -98,40 +92,11 @@ def parse_tsr_bankruptcies_json(
             raise IndicatorsProviderError(f"tsr_bankruptcies: conflicting values for {observed_at}")
         values[observed_at] = value
 
-    ordered_dates = sorted(values)
-    for previous_date, current_date in pairwise(ordered_dates):
-        expected = (
-            date(previous_date.year + 1, 1, 1)
-            if previous_date.month == 12
-            else date(previous_date.year, previous_date.month + 1, 1)
-        )
-        if current_date != expected:
-            raise IndicatorsProviderError(
-                "tsr_bankruptcies: missing monthly entries between "
-                f"{previous_date} and {current_date}"
-            )
-    if start <= _HISTORY_FLOOR and (not ordered_dates or ordered_dates[0] != _HISTORY_FLOOR):
-        raise IndicatorsProviderError(f"tsr_bankruptcies: history must start at {_HISTORY_FLOOR}")
-    reference_date = min(end, _today_jst())
-    requested_month = reference_date.replace(day=1)
-    expected_latest = _previous_month(requested_month)
-    if reference_date.day < _PUBLICATION_DEADLINE_DAY:
-        expected_latest = _previous_month(expected_latest)
-    if not ordered_dates or ordered_dates[-1] < expected_latest:
-        raise IndicatorsProviderError(
-            f"tsr_bankruptcies: history ends before the latest expected release {expected_latest}"
-        )
-
+    # Keep every usable published month. Missing/old history is represented by
+    # the returned dates; L2 Reading owns history sufficiency and freshness.
+    # Do not reject a new month because an unrelated older month is absent.
     return [
         record_observation(series, observed_at=observed_at, value=value)
         for observed_at, value in sorted(values.items())
         if start <= observed_at <= end
     ]
-
-
-def _today_jst() -> date:
-    return datetime.now(ZoneInfo("Asia/Tokyo")).date()
-
-
-def _previous_month(value: date) -> date:
-    return date(value.year - 1, 12, 1) if value.month == 1 else date(value.year, value.month - 1, 1)

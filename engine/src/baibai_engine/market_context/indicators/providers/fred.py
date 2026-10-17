@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import csv
 import io
+from collections import defaultdict
 from datetime import date
 from urllib.parse import urlsplit
 
 from requests import RequestException, Session
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -17,23 +18,20 @@ from .base import (
     ProviderFetchStoppedError,
     ProviderSpec,
     fetch_text,
-    parse_float,
-    record_observation,
 )
 from .read_retry import mount_read_retry, read_deadline
 
 
-class FredProvider:
-    """FRED CSV download (no auth). One column CSV keyed by provider_series_id."""
+class FredSource:
+    """Retain FRED CSV cells, including missing markers, before L2 interpretation."""
 
     spec = ProviderSpec(
         name="fred_csv",
         all_history_start=date(1900, 1, 1),
-        trim_before_first=True,
     )
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -41,7 +39,7 @@ class FredProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         try:
             if isinstance(session, Session):
                 url = urlsplit(series.source_url)
@@ -63,21 +61,22 @@ class FredProvider:
             raise ProviderFetchStoppedError(str(exc)) from None
 
 
-def parse_fred_csv(
-    series: SeriesDefinition, text: str, *, start: date, end: date
-) -> list[ObservationRecord]:
+def parse_fred_csv(series: SeriesDefinition, text: str, *, start: date, end: date) -> NativeRecords:
     reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None or series.provider_series_id not in reader.fieldnames:
-        raise IndicatorsProviderError(f"FRED CSV missing column {series.provider_series_id}")
-    observations: list[ObservationRecord] = []
+    for column in ("observation_date", series.provider_series_id):
+        if column not in (reader.fieldnames or ()):
+            raise IndicatorsProviderError(f"FRED CSV missing column {column}")
+    columns = reader.fieldnames or []
+    if len(columns) != len(set(columns)):
+        raise IndicatorsProviderError("FRED CSV has duplicate columns")
+    records: dict[date, list[dict[str, object]]] = defaultdict(list)
     for row in reader:
+        if None in row:
+            raise IndicatorsProviderError("FRED CSV row has more fields than its header")
         observed_at_raw = row.get("observation_date")
-        value_raw = row.get(series.provider_series_id)
-        if not observed_at_raw or not value_raw or value_raw == ".":
-            continue
+        if not observed_at_raw:
+            raise IndicatorsProviderError("FRED CSV row has no observation_date")
         observed_at = date.fromisoformat(observed_at_raw)
         if start <= observed_at <= end:
-            observations.append(
-                record_observation(series, observed_at=observed_at, value=parse_float(value_raw))
-            )
-    return observations
+            records[observed_at].append(dict(row))
+    return dict(records)

@@ -59,3 +59,5 @@ brokerの事実を現在の投資条件で再審査しない。旧注文のparti
 ## 成果と学習
 
 既存Portfolio Outcome/TWR/TOPIX比較を使い、cash、未売却損益、配当、実費、確認税を含むportfolio全体で測る。売却済み銘柄や勝率だけで評価せず、未解決データを母数から消さない。指数とportfolioの税・費用basis差を示す。entry予測と後続評価は既存reports/studiesで照合し、新戦略の収益優位は別に検証する。
+
+成果計算の営業日と保有銘柄の価格は、同じSQLite読み取りsnapshotから取得する。新規Outcome payloadはschema 2とし、現在の計算・利用に寄与しないDB全体hashと価格fingerprintを持たない。保存済みの過去payloadは読み取り時に書き換えず、同一outcome IDの結果を新形式で上書きしない。

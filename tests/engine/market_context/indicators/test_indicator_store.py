@@ -22,9 +22,15 @@ from tests.helpers.indicator_store import (
 )
 
 import baibai_engine.market_context.indicators.db as indicators_db
-from baibai_engine.market_context.indicators.cli import (
+from baibai_engine.market_context.indicator_cli import (
     main,
 )
+from baibai_engine.market_context.indicator_service import (
+    IndicatorsService,
+    _prune_registry_for_refresh,
+)
+from baibai_engine.market_context.indicator_service import list_series as catalog_list_series
+from baibai_engine.market_context.indicator_service import search as catalog_search
 from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
@@ -44,12 +50,7 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.service import (
-    IndicatorsService,
-    _prune_registry_for_refresh,
-)
-from baibai_engine.market_context.indicators.service import list_series as catalog_list_series
-from baibai_engine.market_context.indicators.service import search as catalog_search
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.reading.cli import main as reading_main
 
 
@@ -94,74 +95,21 @@ class IndicatorsDBTests(unittest.TestCase):
             self.assertEqual((series.plausible_min, series.plausible_max), (-20.0, 30.0))
             self.assertGreater(alias_count, 0)
 
-    def test_the_immediately_previous_schema_is_migrated(self) -> None:
+    def test_unsupported_schemas_are_refused_without_mutating_the_store(self) -> None:
+        for version in (5, 6):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                database = Path(tmp) / "indicators.sqlite"
+                initialize_database(database).close()
+                with closing(sqlite3.connect(database)) as connection, connection:
+                    connection.execute(f"PRAGMA user_version = {version}")
+                original = database.read_bytes()
 
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            with closing(sqlite3.connect(database)) as connection, connection:
-                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+                with self.assertRaisesRegex(
+                    IndicatorsSchemaError, f"unsupported indicator SQLite schema: {version}"
+                ):
+                    open_connection(database)
 
-            connection = open_connection(database)
-            try:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-            finally:
-                connection.close()
-            self.assertEqual(version, SQLITE_SCHEMA_VERSION)
-
-    def test_a_failed_previous_schema_migration_rolls_back(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            with closing(sqlite3.connect(database)) as connection, connection:
-                connection.executescript(
-                    """
-                    CREATE TABLE registry_prune_authorizations(
-                      series_id TEXT PRIMARY KEY REFERENCES series(series_id) ON DELETE CASCADE
-                    );
-                    CREATE TRIGGER protect_series_from_implicit_prune
-                    BEFORE DELETE ON series
-                    WHEN NOT EXISTS(
-                      SELECT 1 FROM registry_prune_authorizations
-                      WHERE series_id = OLD.series_id
-                    )
-                    BEGIN
-                      SELECT RAISE(ABORT, 'explicit registry prune authorization required');
-                    END;
-                    CREATE TRIGGER unexpected_migration_trigger
-                    BEFORE INSERT ON aliases
-                    BEGIN
-                      SELECT RAISE(ABORT, 'unexpected');
-                    END;
-                    """
-                )
-                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
-
-            with self.assertRaisesRegex(IndicatorsSchemaError, "trigger contract mismatch"):
-                open_connection(database)
-
-            with closing(sqlite3.connect(database)) as connection, connection:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-                retired_objects = connection.execute(
-                    "SELECT count(*) FROM sqlite_master WHERE name IN "
-                    "('registry_prune_authorizations', "
-                    "'protect_series_from_implicit_prune')"
-                ).fetchone()[0]
-            self.assertEqual(version, SQLITE_SCHEMA_VERSION - 1)
-            self.assertEqual(retired_objects, 2)
-
-    def test_an_unsupported_older_schema_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            with closing(sqlite3.connect(database)) as connection, connection:
-                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 2}")
-
-            with self.assertRaisesRegex(
-                IndicatorsSchemaError,
-                f"unsupported indicator SQLite schema: {SQLITE_SCHEMA_VERSION - 2}",
-            ):
-                open_connection(database)
+                self.assertEqual(database.read_bytes(), original)
 
     def test_open_connection_preserves_series_removed_from_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,25 +174,25 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
-                insert_observations(
-                    conn,
-                    [
-                        ObservationRecord(
-                            series_id="jp.foreign_flows",
-                            observed_at=date(2024, 8, 23),
-                            value=value,
-                            unit="jpy-thousand",
-                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                            period_start=date(2024, 8, 19),
-                            period_end=date(2024, 8, 23),
-                            vintage_at=vintage_at,
-                        )
-                        for value, vintage_at in (
-                            (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                            (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                        )
-                    ],
-                )
+                for published, value in (
+                    (date(2024, 8, 29), -408854431.0),
+                    (date(2024, 9, 10), -400000000.0),
+                ):
+                    store_snapshot(
+                        conn,
+                        source_key="jquants_flows:TSEPrime",
+                        observed_at=published,
+                        fetched_at=datetime.combine(published, datetime.min.time(), UTC),
+                        records=[
+                            {
+                                "Section": "TSEPrime",
+                                "PubDate": published.isoformat(),
+                                "StDate": "2024-08-19",
+                                "EnDate": "2024-08-23",
+                                "FrgnBal": value,
+                            }
+                        ],
+                    )
                 conn.commit()
             finally:
                 conn.close()
@@ -282,28 +230,29 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
-            definition = load_definitions().by_id()["us.10y"]
-            refreshed = ObservationRecord(
-                series_id=definition.series_id,
-                observed_at=date(2026, 5, 1),
-                value=4.39,
-                unit=definition.unit,
-                source_url=definition.source_url,
-                vintage_at=datetime(2026, 5, 2, tzinfo=UTC),
-            )
+            definition = load_definitions().by_id()["jp.2y"]
+            refreshed = {
+                date(2026, 5, 1): [
+                    {
+                        "row": {"基準日": "R8.5.1", definition.provider_series_id: "4.39"},
+                        "source_url": definition.source_url,
+                        "preamble": [],
+                    }
+                ]
+            }
             stdout = io.StringIO()
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
-                    return_value=[refreshed],
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    return_value=refreshed,
                 ),
                 redirect_stdout(stdout),
             ):
                 exit_code = main(
                     [
                         "refresh",
-                        "us.10y",
+                        "jp.2y",
                         "--start",
                         "2026-05-01",
                         "--end",
@@ -348,7 +297,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "does not name at the same generation"):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"],
+                    ["us.fed_funds.upper"],
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 1),
                 )
@@ -381,7 +330,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 self.assertRaisesRegex(sqlite3.IntegrityError, "blocked"),
             ):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"],
+                    ["us.fed_funds.upper"],
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 1),
                 )
@@ -407,7 +356,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 rf"store={newer}, client={definitions.generation}.*refusing refresh",
             ):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"],
+                    ["us.fed_funds.upper"],
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 1),
                 )
@@ -445,17 +394,21 @@ class IndicatorsDBTests(unittest.TestCase):
 
                 with (
                     patch(
-                        "baibai_engine.market_context.indicators.service.print",
+                        "baibai_engine.market_context.indicator_service.print",
                         side_effect=closed_output,
                         create=True,
                     ),
                     patch(
-                        "baibai_engine.market_context.indicators.service.fetch_observations",
-                        return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
+                        "baibai_engine.market_context.indicator_service.fetch_native_records",
+                        return_value={
+                            date(2026, 5, 1): [
+                                {"observation_date": "2026-05-01", "DFEDTARU": "4.39"}
+                            ]
+                        },
                     ),
                 ):
                     IndicatorsService(database).refresh_series(
-                        ["us.10y"], start=date(2026, 5, 1), end=date(2026, 5, 1)
+                        ["us.fed_funds.upper"], start=date(2026, 5, 1), end=date(2026, 5, 1)
                     )
                 self.assertEqual(committed, [True])
                 self.assertEqual(_retired_counts(database), (0, 0, 0))
@@ -486,16 +439,18 @@ class IndicatorsDBTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.db.prune_definitions",
+                    "baibai_engine.market_context.indicator_service.db.prune_definitions",
                     side_effect=checked_prune,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
-                    return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    return_value={
+                        date(2026, 5, 1): [{"observation_date": "2026-05-01", "DFEDTARU": "4.39"}]
+                    },
                 ),
             ):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"], start=date(2026, 5, 1), end=date(2026, 5, 1)
+                    ["us.fed_funds.upper"], start=date(2026, 5, 1), end=date(2026, 5, 1)
                 )
             self.assertEqual(blocked, [True, True])
             self.assertEqual(_retired_counts(database), (0, 0, 0))
@@ -515,7 +470,7 @@ class IndicatorsDBTests(unittest.TestCase):
             try:
                 with (
                     patch(
-                        "baibai_engine.market_context.indicators.service.print", create=True
+                        "baibai_engine.market_context.indicator_service.print", create=True
                     ) as report,
                     self.assertRaisesRegex(sqlite3.OperationalError, "commit failed"),
                 ):
@@ -538,7 +493,7 @@ class IndicatorsDBTests(unittest.TestCase):
             )
             try:
                 with patch(
-                    "baibai_engine.market_context.indicators.service.print", create=True
+                    "baibai_engine.market_context.indicator_service.print", create=True
                 ) as report:
                     _prune_registry_for_refresh(connection, definitions)
                 report.assert_not_called()
@@ -875,7 +830,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 ):
                     open_connection(database)
 
-    def test_jquants_range_excludes_vintages_published_after_end(self) -> None:
+    def test_scalar_range_excludes_vintages_after_query_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
@@ -884,32 +839,30 @@ class IndicatorsDBTests(unittest.TestCase):
                     conn,
                     [
                         ObservationRecord(
-                            series_id="jp.foreign_flows",
+                            series_id="us.10y",
                             observed_at=date(2024, 8, 23),
                             value=value,
-                            unit="jpy-thousand",
-                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                            period_start=date(2024, 8, 19),
-                            period_end=date(2024, 8, 23),
+                            unit="percent",
+                            source_url="https://example.com/synthetic-us10y.csv",
                             vintage_at=vintage_at,
                         )
                         for value, vintage_at in (
-                            (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                            (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
+                            (4.3, datetime(2024, 8, 29, tzinfo=UTC)),
+                            (4.4, datetime(2024, 9, 10, tzinfo=UTC)),
                         )
                     ],
                 )
 
                 august = observations_in_range(
                     conn,
-                    "jp.foreign_flows",
+                    "us.10y",
                     date(2024, 8, 1),
                     date(2024, 8, 31),
                     point_in_time=True,
                 )
                 september = observations_in_range(
                     conn,
-                    "jp.foreign_flows",
+                    "us.10y",
                     date(2024, 8, 1),
                     date(2024, 9, 30),
                     point_in_time=True,
@@ -917,8 +870,8 @@ class IndicatorsDBTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            self.assertEqual([item.value for item in august], [-408854431.0])
-            self.assertEqual([item.value for item in september], [-400000000.0])
+            self.assertEqual([item.value for item in august], [4.3])
+            self.assertEqual([item.value for item in september], [4.4])
 
     def test_insert_observations_skips_unchanged_later_vintage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -108,9 +108,24 @@ describe('earnings calendar annotation', () => {
 
 
 it("信用残は日次移行後も基準日として表示する", () => {
-  const row = stockAnalysisRow({ margin_week_end: "2026-09-25" })
+  const row = stockAnalysisRow({ margin_balance_date: "2026-09-25" })
   const markup = renderToStaticMarkup(createElement(ScreeningMetrics, { row }))
   expect(markup).toContain("信用残の基準日")
   expect(markup).toContain("2026-09-25")
   expect(markup).not.toContain("信用残の観測週")
+})
+
+
+it('labels price-history span without presenting it as a verified listing age', () => {
+  const html = renderQuality(null, null, { price_history_span_days: 20 })
+  expect(html).toContain('日足履歴の観測期間（上場日未確認）')
+  expect(html).toMatch(/日足履歴の観測期間（上場日未確認）<\/dt><dd[^>]*>20 日<\/dd>/)
+  expect(html).not.toContain('listing span')
+})
+
+it.each([true, false, null])('describes the forecast profit comparison without asserting its cause: %s', (flag) => {
+  const html = renderQuality(null, null, { forecast_special_gain_flag: flag })
+  expect(html).toContain('予想純利益＞予想経常利益')
+  expect(html).not.toContain('special gain flag')
+  expect(html).not.toContain('一時益予想')
 })

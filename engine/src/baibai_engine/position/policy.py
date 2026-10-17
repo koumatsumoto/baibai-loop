@@ -30,27 +30,10 @@ PORTFOLIO_POLICY: dict[str, Any] = {
     },
 }
 
-_REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
-    ("cash_management", "dry_powder_warning_pct"),
-    ("cash_management", "override_max_days"),
-    ("risk_budget", "max_ticker_concentration_pct"),
-    ("risk_budget", "max_sector_concentration_pct"),
-    ("risk_budget", "max_common_factor_concentration_pct"),
-    ("risk_budget", "max_adv_participation_pct"),
-    ("order_constraints", "board_lot"),
-    ("valuation", "market_price_max_age_days"),
-    ("valuation", "minimum_required_annual_return_pct"),
-)
-
 
 def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
     """Fail fast when a code-owned policy threshold is missing or mistyped."""
 
-    for path in _REQUIRED_NUMERIC_PATHS:
-        value = _value_at(policy, path)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            dotted = ".".join(path)
-            raise RuntimeError(f"PORTFOLIO_POLICY.{dotted} must be numeric")
     positive_integer_paths = (
         ("cash_management", "override_max_days"),
         ("order_constraints", "board_lot"),

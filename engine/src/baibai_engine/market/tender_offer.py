@@ -1,16 +1,14 @@
-"""Realized cash exit values for names a completed tender offer took off the market.
+"""Tender-offer-price proxies for delisted calibration windows.
 
-A delisted name has no market close to end a forward window with, so the calibration
-authority brackets it between a total loss and what the rest of its cohort returned. A
-takeover can settle above the neutral case, so that bracket is not an upper bound.
-When the offer actually completed in cash, the price it paid is the observed exit
-and no imputation is needed.
+The filings establish the reported cash-offer outcome and its ordinary-share price. They do
+not establish a non-tendering holder's squeeze-out proceeds or payment date. The
+calibration convention uses that offer price at the delisting date as an exit proxy,
+not as a broker execution or a confirmed shareholder cash receipt.
 
-Everything here is fail-closed. A case is realized only when the registration statement,
-its corrections, the absence of a withdrawal and the result statement agree on one
-ordinary-share cash price for one target. Anything else is left to the bracket rather
-than estimated, because a wrong exit price is worse than an acknowledged gap. The rules
-are pre-registered in reports/studies/2026-08-11-capital-control-exit-values/.
+Registration statements, corrections, withdrawal status and result statements must
+agree before the proxy is used. Unresolved cases remain subject to the calibration
+sensitivity cases; those cases do not bound every possible recovery value.
+Historical measurement rules are in reports/studies/2026-08-11-capital-control-exit-values/.
 """
 
 from __future__ import annotations
@@ -20,13 +18,15 @@ import io
 import re
 import sqlite3
 import zipfile
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.market.delistings import DelistingRecord, read_jpx_delistings
+from baibai_engine.market.edinet_decode import is_usable_filing_status
+from baibai_engine.market.edinet_document_store import read_current_filing_documents
 from baibai_engine.market.valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
@@ -34,7 +34,6 @@ from baibai_engine.market.valuation_catalysts import (
     TENDER_OFFER_RESULT_DOC_TYPE,
     TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
     edinet_code_to_ticker,
-    is_usable_filing_status,
 )
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
@@ -93,7 +92,7 @@ class TenderOfferFiling:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TenderOfferExitValue:
-    """One realized cash exit, keyed by the ticker and the day it stopped trading."""
+    """A verified offer price used as an exit proxy on the delisting date."""
 
     ticker: str
     delisted_on: date
@@ -108,6 +107,7 @@ class TenderOfferExitSummary:
     delisting_count: int
     candidate_delisting_count: int
     resolved_count: int
+    # Provider payloads received, including archives that cannot be decoded.
     downloaded_document_count: int
     rejection_reason_counts: Mapping[str, int]
 
@@ -176,55 +176,44 @@ def read_document_blocks(content: bytes) -> dict[str, str]:
                 raise TenderOfferError(f"tender-offer filing CSV is unreadable: {error}") from error
             for row in csv.reader(io.StringIO(decoded), delimiter="\t"):
                 if len(row) >= 2:
-                    blocks[row[0]] = row[-1]
+                    element, value = row[0], row[-1]
+                    # Keep disagreement present-but-unreadable. A later duplicate
+                    # must not restore one candidate or make an older filing inherit.
+                    blocks[element] = (
+                        "" if element in blocks and blocks[element] != value else value
+                    )
     return blocks
 
 
 def read_tender_offer_filings(
     connection: sqlite3.Connection, *, through: date
 ) -> tuple[TenderOfferFiling, ...]:
-    """Every usable tender-offer index row that names both an offeror and a target."""
-    doc_types = (
+    """Usable tender-offer origins after their retained operations have been applied."""
+    doc_types = {
         TENDER_OFFER_REGISTRATION_DOC_TYPE,
         TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
         TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
         TENDER_OFFER_RESULT_DOC_TYPE,
         TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE,
-    )
-    placeholders = ",".join("?" for _ in doc_types)
-    rows = connection.execute(
-        "SELECT doc_id, doc_type_code, doc_date, submit_datetime, sequence_number, "
-        "edinet_code, subject_edinet_code, legal_status, disclosure_status, withdrawal_status, "
-        "parent_doc_id "
-        f"FROM edinet_documents WHERE doc_date <= ? AND doc_type_code IN ({placeholders}) "  # nosec B608
-        "AND edinet_code IS NOT NULL AND subject_edinet_code IS NOT NULL",
-        (through.isoformat(), *doc_types),
-    ).fetchall()
+    }
     filings = [
         TenderOfferFiling(
-            doc_id=str(doc_id),
-            doc_type_code=str(doc_type_code),
-            doc_date=date.fromisoformat(str(doc_date)),
-            submit_datetime=str(submit_datetime or ""),
-            sequence_number=int(sequence_number),
-            offeror_edinet_code=str(offeror),
-            subject_edinet_code=str(subject),
-            parent_doc_id=str(parent) if parent else None,
+            doc_id=str(doc["docID"]),
+            doc_type_code=str(doc["docTypeCode"]),
+            doc_date=date.fromisoformat(str(doc["doc_date"])),
+            submit_datetime=str(doc.get("submitDateTime") or ""),
+            sequence_number=int(doc["seqNumber"]),
+            offeror_edinet_code=str(doc["edinetCode"]),
+            subject_edinet_code=str(doc["subjectEdinetCode"]),
+            parent_doc_id=str(doc["parentDocID"]) if doc.get("parentDocID") else None,
         )
-        for (
-            doc_id,
-            doc_type_code,
-            doc_date,
-            submit_datetime,
-            sequence_number,
-            offeror,
-            subject,
-            legal,
-            disclosure,
-            withdrawal,
-            parent,
-        ) in rows
-        if is_usable_filing_status(legal, disclosure, withdrawal)
+        for doc in read_current_filing_documents(connection, through=through)
+        if str(doc.get("docTypeCode")) in doc_types
+        and doc.get("edinetCode")
+        and doc.get("subjectEdinetCode")
+        and is_usable_filing_status(
+            doc.get("legalStatus"), doc.get("disclosureStatus"), doc.get("withdrawalStatus")
+        )
     ]
     return tuple(sorted(filings, key=_filing_order))
 
@@ -240,7 +229,8 @@ def build_tender_offer_exit_values(
     if connection is None:
         raise TenderOfferError(f"market store is not readable: {sqlite_path}")
     try:
-        ticker_by_code = edinet_code_to_ticker(connection)
+        connection.execute("BEGIN")
+        ticker_by_code = edinet_code_to_ticker(connection, through=asof)
         filings = read_tender_offer_filings(connection, through=asof)
     finally:
         connection.close()
@@ -255,17 +245,23 @@ def build_tender_offer_exit_values(
     exits: list[TenderOfferExitValue] = []
     reasons: dict[str, int] = {}
     downloads = 0
+
+    def download_blocks(doc_id: str) -> Mapping[str, str]:
+        nonlocal downloads
+        content = provider.download_csv_zip(doc_id)
+        downloads += 1
+        return read_document_blocks(content)
+
     for delisting in candidates:
         case, reason = _select_case(by_target.get(delisting.ticker, ()), delisting=delisting)
         if case is None:
             reasons[reason] = reasons.get(reason, 0) + 1
             continue
         try:
-            value, used_downloads = _realize_case(case, delisting=delisting, provider=provider)
+            value = _realize_case(case, delisting=delisting, read_blocks=download_blocks)
         except TenderOfferError:
             reasons["document_unreadable"] = reasons.get("document_unreadable", 0) + 1
             continue
-        downloads += used_downloads
         if value is None:
             reasons["price_or_outcome_unreadable"] = (
                 reasons.get("price_or_outcome_unreadable", 0) + 1
@@ -286,26 +282,14 @@ def build_tender_offer_exit_values(
 def store_tender_offer_exit_values(
     sqlite_path: Path, values: Sequence[TenderOfferExitValue]
 ) -> int:
-    """Replace the derived table wholesale: it is a function of the two sources.
+    """Replace derived proxies with exactly the currently established values.
 
-    A derivation that established nothing does not clear a table that already holds
-    values. It reads the same as a real emptying, but the way it actually happens is a
-    run against a store whose EDINET identity columns are not filled in yet, and the
-    published copy cannot restore what it erases — the merge treats this table as owned
-    by whichever store derived it last.
+    An empty successful derivation retracts old proxies just as a partial result
+    retracts omitted ones. Source acquisition failures must propagate before this
+    write; unavailable evidence is never permission to retain an old conclusion.
     """
     connection = open_connection(sqlite_path)
     try:
-        if not values:
-            stored = int(
-                connection.execute("SELECT COUNT(*) FROM tender_offer_exit_values").fetchone()[0]
-                or 0
-            )
-            if stored:
-                raise TenderOfferError(
-                    f"refusing to replace {stored} exit values with an empty derivation; "
-                    "run `screening backfill-edinet-identity` and retry"
-                )
         connection.execute("DELETE FROM tender_offer_exit_values")
         connection.executemany(
             "INSERT INTO tender_offer_exit_values("
@@ -466,8 +450,13 @@ def _latest_offer_round(
             ):
                 return None
         else:
-            # Older index rows can lack parent IDs. Keep their existing chronological
-            # association, including every active tier for a result or withdrawal.
+            if filing.doc_type_code in {
+                TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
+                TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE,
+            }:
+                return None  # A correction must identify the document it changes.
+            # A result or withdrawal without a parent applies to this offeror's
+            # active registrations, including every active tier.
             roots = {
                 root
                 for root in open_roots
@@ -494,26 +483,27 @@ def _latest_offer_round(
 
 
 def _realize_case(
-    case: _Case, *, delisting: DelistingRecord, provider: TenderOfferDocumentSource
-) -> tuple[TenderOfferExitValue | None, int]:
+    case: _Case,
+    *,
+    delisting: DelistingRecord,
+    read_blocks: Callable[[str], Mapping[str, str]],
+) -> TenderOfferExitValue | None:
     """Read the final price state and the reported outcome out of the filings."""
-    downloads = 0
     outcome: bool | None = None
     result_doc_id = ""
     # A correction supersedes the result it corrects, and a correction that leaves the
     # outcome alone omits the block, so the newest document that states an outcome at
     # all is the one that holds. A present but unreadable revision blocks fallback.
     for filing in (case.result_document, *case.result_corrections)[::-1]:
-        blocks = read_document_blocks(provider.download_csv_zip(filing.doc_id))
-        downloads += 1
+        blocks = read_blocks(filing.doc_id)
         outcome = read_tender_offer_outcome(blocks)
         if outcome is not None:
             result_doc_id = filing.doc_id
             break
         if _block(blocks, _SUCCESS_BLOCK_SUFFIX) is not None:
-            return None, downloads
+            return None
     if outcome is not True:
-        return None, downloads
+        return None
 
     priced: list[tuple[float, TenderOfferFiling]] = []
     for chain in case.offers:
@@ -524,18 +514,17 @@ def _realize_case(
         cash_only: bool | None = None
         priced_filing: tuple[float, TenderOfferFiling] | None = None
         for filing in chain[::-1]:
-            blocks = read_document_blocks(provider.download_csv_zip(filing.doc_id))
-            downloads += 1
+            blocks = read_blocks(filing.doc_id)
             if cash_only is None:
                 cash_only = pays_in_cash_only(blocks)
                 if cash_only is None and _block(blocks, _FUNDING_BLOCK_SUFFIX) is not None:
-                    return None, downloads
+                    return None
             if priced_filing is None:
                 price = parse_ordinary_share_offer_price(blocks)
                 if price is not None:
                     priced_filing = (price, filing)
                 elif _block(blocks, _PRICE_BLOCK_SUFFIX) is not None:
-                    return None, downloads
+                    return None
             if priced_filing is not None and cash_only is not None:
                 break
         if priced_filing is None or cash_only is not True:
@@ -543,21 +532,18 @@ def _realize_case(
             # happen. Dropping it would let a second tier — the one whose funding names
             # a non-cash leg, or whose price the table does not state — disappear, and
             # the remaining tier would then look like the single price of the case.
-            return None, downloads
+            return None
         priced.append(priced_filing)
     if len({price for price, _ in priced}) != 1:
-        return None, downloads
+        return None
     price, filing = priced[0]
-    return (
-        TenderOfferExitValue(
-            ticker=delisting.ticker,
-            delisted_on=delisting.delisted_on,
-            offer_price_yen=price,
-            offer_doc_id=filing.doc_id,
-            result_doc_id=result_doc_id,
-            filed_on=filing.doc_date,
-        ),
-        downloads,
+    return TenderOfferExitValue(
+        ticker=delisting.ticker,
+        delisted_on=delisting.delisted_on,
+        offer_price_yen=price,
+        offer_doc_id=filing.doc_id,
+        result_doc_id=result_doc_id,
+        filed_on=filing.doc_date,
     )
 
 
@@ -566,8 +552,7 @@ def _registration_chains(
 ) -> tuple[tuple[TenderOfferFiling, ...], ...]:
     """Split one offeror's registration filings into one chain per offer.
 
-    Parent IDs own correction membership. Index rows without a parent retain the
-    chronological association used before identity backfill.
+    Parent IDs own correction membership; missing ancestry remains unresolved.
     """
     chains: list[list[TenderOfferFiling]] = []
     chain_by_doc: dict[str, list[TenderOfferFiling]] = {}
@@ -576,7 +561,7 @@ def _registration_chains(
             chains.append([filing])
             chain_by_doc[filing.doc_id] = chains[-1]
         elif filing.doc_type_code == TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE and chains:
-            chain = chain_by_doc.get(filing.parent_doc_id) if filing.parent_doc_id else chains[-1]
+            chain = chain_by_doc.get(filing.parent_doc_id) if filing.parent_doc_id else None
             if chain is None:
                 return ()
             chain.append(filing)
@@ -589,10 +574,12 @@ def _filing_order(filing: TenderOfferFiling) -> tuple[str, str, int]:
 
 
 def _block(blocks: Mapping[str, str], suffix: str) -> str | None:
-    for element, value in blocks.items():
-        if element.endswith(suffix):
-            return value
-    return None
+    values = {value for element, value in blocks.items() if element.endswith(suffix)}
+    if not values:
+        return None
+    # Different element prefixes do not establish precedence for the same block.
+    # Empty means present but unreadable, distinct from an omitted correction.
+    return next(iter(values)) if len(values) == 1 else ""
 
 
 __all__ = (

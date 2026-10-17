@@ -3,19 +3,18 @@ from __future__ import annotations
 import csv
 import io
 import zipfile
+from collections import defaultdict
 from datetime import date
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
+from ..read_contracts import ECB_FX_SPEC
 from .base import (
     MAX_ZIP_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     fetch_bytes,
-    parse_optional_float,
-    record_observation,
 )
 
 MAX_ECB_CSV_BYTES = 8_000_000
@@ -23,13 +22,13 @@ MAX_ZIP_COMPRESSION_RATIO = 100
 ECB_FX_CSV_NAME = "eurofxref-hist.csv"
 
 
-class EcbFxProvider:
-    """ECB euro reference rates ZIP. JPY cross rates derived from a shared file."""
+class EcbFxSource:
+    """Retain ECB euro-reference CSV fields without calculating currency crosses."""
 
-    spec = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
+    spec = ECB_FX_SPEC
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -37,7 +36,7 @@ class EcbFxProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         content = fetch_bytes(
             session,
             series.source_url,
@@ -73,62 +72,23 @@ class EcbFxProvider:
             if len(payload) > MAX_ECB_CSV_BYTES:
                 raise IndicatorsProviderError(f"ECB FX CSV too large: {len(payload)} bytes")
         text = payload.decode("utf-8-sig")
-        return parse_ecb_fx_csv(series, text, start=start, end=end)
+        return parse_ecb_reference_csv(text, start=start, end=end)
 
 
-def parse_ecb_fx_csv(
-    series: SeriesDefinition,
-    text: str,
-    *,
-    start: date,
-    end: date,
-) -> list[ObservationRecord]:
+def parse_ecb_reference_csv(text: str, *, start: date, end: date) -> NativeRecords:
     reader = csv.DictReader(io.StringIO(text))
-    fieldnames = set(reader.fieldnames or ())
-    required_columns = _required_ecb_fx_columns(series.provider_series_id)
-    missing_columns = required_columns - fieldnames
-    if missing_columns:
-        missing = ", ".join(sorted(missing_columns))
-        raise IndicatorsProviderError(f"ECB FX CSV missing column(s): {missing}")
-    observations: list[ObservationRecord] = []
+    if "Date" not in (reader.fieldnames or ()):
+        raise IndicatorsProviderError("ECB FX CSV missing Date column")
+    if len(reader.fieldnames or ()) != len(set(reader.fieldnames or ())):
+        raise IndicatorsProviderError("ECB FX CSV has duplicate columns")
+    by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
     for row in reader:
-        observed_at_raw = row.get("Date")
-        if not observed_at_raw:
-            continue
-        observed_at = date.fromisoformat(observed_at_raw)
-        if not start <= observed_at <= end:
-            continue
-        jpy = parse_optional_float(row.get("JPY"))
-        if jpy is None:
-            continue
-        match series.provider_series_id:
-            case "EURJPY":
-                value = jpy
-            case "USDJPY":
-                usd = parse_optional_float(row.get("USD"))
-                if usd is None or usd == 0:
-                    continue
-                value = jpy / usd
-            case "AUDJPY":
-                aud = parse_optional_float(row.get("AUD"))
-                if aud is None or aud == 0:
-                    continue
-                value = jpy / aud
-            case _:
-                raise IndicatorsProviderError(
-                    f"unsupported ECB FX series: {series.provider_series_id}"
-                )
-        observations.append(record_observation(series, observed_at=observed_at, value=value))
-    return observations
-
-
-def _required_ecb_fx_columns(provider_series_id: str) -> set[str]:
-    match provider_series_id:
-        case "EURJPY":
-            return {"Date", "JPY"}
-        case "USDJPY":
-            return {"Date", "JPY", "USD"}
-        case "AUDJPY":
-            return {"Date", "JPY", "AUD"}
-        case _:
-            raise IndicatorsProviderError(f"unsupported ECB FX series: {provider_series_id}")
+        if None in row:
+            raise IndicatorsProviderError("ECB FX row has more fields than the header")
+        try:
+            observed_at = date.fromisoformat(row["Date"])
+        except (TypeError, ValueError) as error:
+            raise IndicatorsProviderError("ECB FX row has an invalid Date") from error
+        if start <= observed_at <= end:
+            by_date[observed_at].append(dict(row))
+    return dict(by_date)

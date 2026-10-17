@@ -79,10 +79,12 @@ def _stop_child(process: subprocess.Popen[str]) -> None:
         process.wait()
 
 
-def command(argv: list[str], *, timeout: float | None = None) -> str:
+def command(
+    argv: list[str], *, timeout: float | None = None, env: dict[str, str] | None = None
+) -> str:
     # fixed commands with parsed date/path arguments
     process = subprocess.Popen(  # nosec B603
-        argv, cwd=ROOT, stdout=subprocess.PIPE, text=True, start_new_session=True
+        argv, cwd=ROOT, stdout=subprocess.PIPE, text=True, start_new_session=True, env=env
     )
     try:
         output, _ = process.communicate(timeout=timeout)
@@ -102,7 +104,7 @@ def _report(output: str, allowed: set[str]) -> dict[str, object]:
 
             def count(key: str) -> int:
                 number = value.get(key)
-                if type(number) is not int:
+                if type(number) is not int or number < 0:
                     raise ValueError()
                 return number
 
@@ -139,9 +141,9 @@ def preflight(day: date) -> dict[str, object]:
     return tradingview_preflight(ROOT / MARKET_DB_PATH, day, now=now)
 
 
-def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0) -> int:
-    if batch_size != 50 or not 15 <= interval <= 3600:
-        raise StageFailure("Observations require 50 symbols and interval >=15")
+def run_local(state_file: Path, *, interval: float = 15.0) -> int:
+    if not 15 <= interval <= 3600:
+        raise StageFailure("Observation interval must be between 15 and 3600 seconds")
     day, _, eligible, reason = resolve_tradingview_target(
         datetime.now(UTC), event_name="workflow_dispatch", schedule=""
     )
@@ -191,8 +193,6 @@ def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0)
                         day.isoformat(),
                         "--state-file",
                         str(state_file),
-                        "--batch-size",
-                        str(batch_size),
                         "--interval",
                         str(interval),
                         "--progress-output",
@@ -209,14 +209,12 @@ def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0)
                         "skipped_historical_asof",
                     },
                 )
-                added = result.get("rows_added")
-                if (
-                    result["status"] in {"saved", "partial"}
-                    and isinstance(added, int)
-                    and added > 0
-                ):
+                if result["status"] in {"saved", "partial"}:
                     print(
-                        command([str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"]),
+                        command(
+                            [str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"],
+                            env={**os.environ, "PUBLICATION_LEASE_HANDLE": str(handle)},
+                        ),
                         end="",
                     )
     except BaseException:
@@ -245,8 +243,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="independent local OAuth file outside this dedicated runtime checkout",
     )
-    parser.add_argument("--batch-size", type=int, choices=range(1, 51), default=50)
-    parser.add_argument("--interval", type=float, default=15.0)
+    parser.add_argument(
+        "--interval", type=float, default=15.0, help="request interval, 15..3600 seconds"
+    )
     return parser
 
 
@@ -258,7 +257,6 @@ def main(argv: list[str] | None = None) -> int:
             raise StageFailure("Run from the dedicated repository root")
         return run_local(
             args.state_file.expanduser().resolve(),
-            batch_size=args.batch_size,
             interval=args.interval,
         )
     except lease.LeaseError:

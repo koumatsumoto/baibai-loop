@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from collections.abc import Iterable, Mapping
+from datetime import date, datetime, timedelta
 
 from baibai_engine.read_api import PortfolioLedgerError
 from baibai_web.readmodel.builders.presentation import (
     _JST,
-    holding_view,
     latest_research_by_ticker,
+    reservation_last_valid_day,
     security_names_for_run,
-    upcoming_events,
 )
 from baibai_web.readmodel.models import (
-    ReservationView,
     TasksView,
     TaskView,
+    UpcomingEventView,
 )
 from baibai_web.sources.protocols import (
     LedgerSource,
@@ -25,6 +25,9 @@ from baibai_web.sources.protocols import (
     TaskSource,
 )
 from baibai_web.sources.types import TaskRecord
+
+_EVENT_WINDOW_DAYS = 14
+_EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
 
 
 def build_tasks(
@@ -65,40 +68,19 @@ def build_tasks(
     security_names = security_names_for_run(screening.latest_run())
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
     earnings_dates = market.next_earnings_dates(holding_tickers, as_of=today)
-    holdings = [
-        holding_view(
-            holding,
-            market=market,
-            revision=latest_research.get(holding.ticker),
-            security_name=security_names.get(holding.ticker),
-            next_earnings_date=earnings_dates.get(holding.ticker),
-        )
-        for holding in snapshot.holdings
-    ]
-    reservations = [
-        ReservationView(
-            reservation_id=item.reservation_id,
-            side=item.side,
-            ticker=item.ticker,
-            sector=item.sector,
-            remaining_quantity=item.remaining_quantity,
-            price_guard_yen=str(item.price_guard_yen),
-            reserved_yen=item.reserved_yen,
-            expires_at=item.expires_at,
-            expiry_label=item.expiry_label,
-            route_label=item.route_label,
-        )
-        for item in snapshot.active_reservations
-    ]
+    security_names.update(
+        {ticker: revision.company_name for ticker, revision in latest_research.items()}
+    )
     return TasksView(
         generated_at=now,
         tasks_exist=tasks_exist,
         open_tasks=open_tasks,
         next_task=next_task,
-        upcoming_events=upcoming_events(
+        upcoming_events=_upcoming_events(
             today=today,
-            holdings=holdings,
-            reservations=reservations,
+            earnings=earnings_dates,
+            names=security_names,
+            expiries=((item.ticker, item.expires_at) for item in snapshot.active_reservations),
         ),
         ledger_error=None,
     )
@@ -129,3 +111,52 @@ def _task_view(record: TaskRecord, *, today: date) -> TaskView:
         event_date=record.event_date,
         overdue=record.due_date < today,
     )
+
+
+def _upcoming_events(
+    *,
+    today: date,
+    earnings: Mapping[str, date],
+    names: Mapping[str, str],
+    expiries: Iterable[tuple[str, datetime | None]],
+) -> list[UpcomingEventView]:
+    """Collapse holding earnings and reservation expiries into one chronological list
+    within the next ``_EVENT_WINDOW_DAYS`` days.
+
+    The window is inclusive on both ends: an event dated today (days_until 0) through
+    ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped.
+    Reservation deadlines are exclusive instants, displayed on their last valid JST day.
+    This calendar shows one milestone per ticker and day, not individual orders.
+    """
+
+    window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)
+    events: list[UpcomingEventView] = []
+    for ticker, event_date in earnings.items():
+        if today <= event_date <= window_end:
+            events.append(
+                UpcomingEventView(
+                    event_date=event_date,
+                    kind="earnings",
+                    ticker=ticker,
+                    label=names.get(ticker) or ticker,
+                    days_until=(event_date - today).days,
+                )
+            )
+    expiry_days = {
+        (ticker, reservation_last_valid_day(expires_at))
+        for ticker, expires_at in expiries
+        if expires_at is not None
+    }
+    for ticker, event_date in expiry_days:
+        if today <= event_date <= window_end:
+            events.append(
+                UpcomingEventView(
+                    event_date=event_date,
+                    kind="reservation_expiry",
+                    ticker=ticker,
+                    label=ticker,
+                    days_until=(event_date - today).days,
+                )
+            )
+    events.sort(key=lambda item: (item.event_date, _EVENT_KIND_ORDER[item.kind], item.ticker or ""))
+    return events

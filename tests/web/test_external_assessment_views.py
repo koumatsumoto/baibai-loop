@@ -12,6 +12,7 @@ from tests.engine.test_external_assessment_sources import (
     rakuten_no_estimates_html,
     rakuten_peer_only_html,
 )
+from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import selection
 
 from baibai_batch.jobs.external_assessment_cohorts import (
@@ -232,15 +233,12 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
     )
     tv_row(market, received, ticker="3333", status="unresolved")
     with closing(open_connection(market)) as conn, conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,sector_33) "
-            "VALUES (?,?,?,?)",
+        insert_master_rows(
+            conn,
             [
-                ("2026-10-09", "9999", "合成検索企業", "サービス業"),
-                ("2026-10-09", "2222", "合成零点企業", "情報・通信業"),
-                ("2026-10-09", "1111", None, None),
-                ("2026-10-09", "3333", "", None),
-                ("2099-01-01", "9999", "未来の名称", "小売業"),
+                ("2026-10-09", "9999", "合成検索企業", "Prime", "サービス業", "011"),
+                ("2026-10-09", "2222", "合成零点企業", "Prime", "情報・通信業", "011"),
+                ("2099-01-01", "9999", "未来の名称", "Prime", "小売業", "011"),
             ],
         )
         conn.commit()
@@ -271,3 +269,39 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
         assert detail["company_name"] == identity["name"]
     assert not (out / "views/security--4444.json").exists()
     assert market.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "instant",
+    [
+        "2026-10-15T15:30:00+00:00",
+        "2026-10-16T00:30:00+09:00",
+        "2026-10-15T22:30:00+07:00",
+    ],
+)
+def test_external_security_identity_uses_japan_date_of_the_cutoff(mocker, instant):
+    from datetime import date
+
+    from baibai_web.readmodel.stocks import build_screening
+
+    screening, ledger, research, external, market = [mocker.Mock() for _ in range(5)]
+    screening.latest_run.return_value = None
+    ledger.exists.return_value = False
+    research.revisions.return_value = []
+    research.proposals.return_value = []
+    external.observed_tickers.return_value = ["9999"]
+    market.security_identities.return_value = {
+        "9999": {"name": "合成企業", "sector_33": "サービス業"}
+    }
+    cutoff = datetime.fromisoformat(instant)
+    result = build_screening(
+        screening,
+        ledger,
+        research,
+        external_assessment=external,
+        market=market,
+        external_cutoff=cutoff,
+    )
+    market.security_identities.assert_called_once_with(as_of=date(2026, 10, 16))
+    external.observed_tickers.assert_called_once_with(cutoff=cutoff)
+    assert result.external_assessment_securities[0].name == "合成企業"

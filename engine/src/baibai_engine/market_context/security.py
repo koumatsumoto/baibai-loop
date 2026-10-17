@@ -92,7 +92,7 @@ def _price_block(
     return {
         "resolved_date": bars[-1].traded_at.isoformat(),
         "close": current,
-        "price_basis": "split_adjusted_close",
+        "price_basis": "price_adjusted_close",
         **returns,
         "high_52w": high_52w,
         "low_52w": low_52w,
@@ -177,7 +177,7 @@ def _sector_block(
         else [
             peer
             for peer, security in master.securities.items()
-            if peer != ticker and security["sector_33"] == sector
+            if peer != ticker and security["is_common_stock"] and security["sector_33"] == sector
         ]
     )
     if not peers:

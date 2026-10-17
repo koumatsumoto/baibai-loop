@@ -15,11 +15,11 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 | credential rotation | [Password rotation](../../../batch/OPERATIONS.md#password-rotation) |
 | 外部参考評価の取得停止・部分再開・公開 | [cohort stageと再開](../../../batch/OPERATIONS.md#cohort-stageの確定と再開) / [公開・成功確認・停止後の運用](../../../batch/OPERATIONS.md#公開成功確認停止後の運用) |
 | batchの失敗・欠測 | [batch OPERATIONS](../../../batch/OPERATIONS.md)の結果確認・復旧・watchdog |
-| 保有の再評価 | [Position Review](../position-review/SKILL.md) |
+| 保有の再評価 | [Researchの保有見直し](../research/SKILL.md) |
 | 人間からの注文・資金報告 | [Ledger Record](../ledger-record/SKILL.md) |
 | 手法の計測・採否 | [Estimate calibration](../../../docs/reference/estimate-calibration.md) |
 
-正本・依存は[architecture](../../../docs/architecture.md#store-authority)、操作する環境は[batch運用の実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)に従う。ここに転送command、失敗調査、no-loss条件を複写しない。`research_watch`の原評価比較は保有の売却判断ではなく、必要なら対象holdingのPosition Reviewへ進む。
+正本・依存は[architecture](../../../docs/architecture.md#store-authority)、操作する環境は[batch運用の実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)に従う。ここに転送command、失敗調査、no-loss条件を複写しない。`research_watch`の原評価比較は保有の売却判断ではなく、必要ならResearchの`review_positions`入口へ進む。
 
 ## 定期maintenance
 

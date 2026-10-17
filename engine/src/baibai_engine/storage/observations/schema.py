@@ -13,25 +13,17 @@ readers never interpret or migrate an older shape.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping
+from functools import lru_cache
 from pathlib import Path
 
 from baibai_engine.external_assessment.observations.contract import (
-    ANALYST_RATING_COLUMNS,
     ANALYST_RATING_DDL,
-    ANALYST_RATING_TABLE,
-    MODEL_VALUATION_COLUMNS,
     MODEL_VALUATION_DDL,
-    MODEL_VALUATION_TABLE,
-    QUANTS_SCORE_COLUMNS,
     QUANTS_SCORE_DDL,
-    QUANTS_SCORE_TABLE,
 )
-from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
-from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
 
-SQLITE_SCHEMA_VERSION = 32
+SQLITE_SCHEMA_VERSION = 39
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -42,9 +34,9 @@ SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 # no securities code and no parent, so a null there is not by itself evidence of expiry.
 # The company, form, timestamp and title a filing carried do not stop being true when
 # they stop being served, so a store that once observed them keeps them — the ingest
-# refuses to blank a stored value on a later list, and the merge fills a null from
-# whichever copy read the day while it was still served. Two populated values that
-# disagree still refuse the merge, which is what makes a genuine corruption visible.
+# preserves it when the later response is null and the same document occupies the same
+# list position. A new non-null provider value replaces the stored value. These document
+# facts travel through L1; the machine-store merge does not merge document rows.
 EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS: tuple[str, ...] = (
     "sec_code",
     "doc_type_code",
@@ -70,8 +62,8 @@ EDINET_DOCUMENT_RETAINED_COLUMNS: tuple[str, ...] = (
 # What EDINET currently does with the filing rather than what the filing says: whether
 # the inspection period is running, whether the document files are still downloadable,
 # and whether the filing has been withdrawn. Two stores that read the same day at
-# different moments differ here by construction and the later read is the accurate one,
-# so the ingest always takes the new answer and the merge does not compare them.
+# different moments can differ here, so ingest takes the new response rather than
+# preserving a previous lifecycle value when a field becomes null.
 EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
     "legal_status",
     "withdrawal_status",
@@ -79,321 +71,12 @@ EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
     "xbrl_flag",
 )
 
-_REQUIRED_TABLES = (
-    MODEL_VALUATION_TABLE,
-    ANALYST_RATING_TABLE,
-    QUANTS_SCORE_TABLE,
-    TV_TABLE,
-    "jquants_daily_bars",
-    "jquants_fin_summaries",
-    "jquants_master_snapshots",
-    "jpx_earnings_calendar",
-    "jquants_market_calendar",
-    "jquants_weekly_margin",
-    "jquants_margin_alerts",
-    "jquants_all_issues_daily_margin",
-    "jquants_short_sale_reports",
-    "edinet_documents",
-    "edinet_document_lists",
-    "edinet_segment_facts",
-    "edinet_debt_schedule",
-    "edinet_metrics",
-    "tse_capital_policy_snapshots",
-    "jpx_delistings",
-    "tender_offer_exit_values",
-    "jpx_regulation_flags",
-    "jpx_regulation_sources",
-    "source_coverage",
-    "lake_store_origin",
+# These two indexes are part of the required read contract. Other indexes remain
+# performance choices in the DDL; do not broaden the acceptance contract implicitly.
+_REQUIRED_INDEX_NAMES = (
+    "idx_jquants_daily_bars_traded_at",
+    "idx_source_coverage_source_window",
 )
-_REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
-    MODEL_VALUATION_TABLE: tuple(column[0] for column in MODEL_VALUATION_COLUMNS),
-    ANALYST_RATING_TABLE: tuple(column[0] for column in ANALYST_RATING_COLUMNS),
-    QUANTS_SCORE_TABLE: tuple(column[0] for column in QUANTS_SCORE_COLUMNS),
-    TV_TABLE: tuple(column[0] for column in TV_COLUMNS),
-    "jquants_daily_bars": (
-        "ticker",
-        "traded_at",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "turnover_value",
-        "adjustment_open",
-        "adjustment_high",
-        "adjustment_low",
-        "adjustment_close",
-        "adjustment_volume",
-        "adjustment_factor",
-        "upper_limit",
-        "lower_limit",
-    ),
-    "jquants_fin_summaries": (
-        "ticker",
-        "disclosed_at",
-        "forecast_eps",
-        "eps_ttm",
-        "bps",
-        "shares_outstanding",
-        "sales",
-        "cfo",
-        "cash_eq",
-        "total_assets",
-        "equity",
-        "operating_profit",
-        "ordinary_profit",
-        "profit",
-        "forecast_profit",
-        "forecast_ordinary_profit",
-        "fiscal_period",
-        "fiscal_year_end",
-        "period_start",
-        "period_end",
-        "dps_actual_annual",
-        "dps_forecast_annual",
-        "treasury_shares",
-        "equity_to_asset_ratio",
-        "dividend_q1",
-        "dividend_interim",
-        "dividend_q3",
-        "dividend_year_end",
-        "dividend_total_annual",
-        "average_shares",
-        "record_key",
-        "disclosure_number",
-        "disclosed_time",
-        "document_type",
-        "document_payload",
-    ),
-    "jquants_master_snapshots": (
-        "snapshot_date",
-        "ticker",
-        "name",
-        "market",
-        "sector_33",
-        "is_common_stock",
-    ),
-    "jpx_earnings_calendar": ("announcement_date", "ticker"),
-    "jquants_market_calendar": ("day", "is_business_day"),
-    "jquants_weekly_margin": (
-        "week_end",
-        "ticker",
-        "long_vol",
-        "short_vol",
-        "long_std_vol",
-        "long_neg_vol",
-        "short_std_vol",
-        "short_neg_vol",
-        "issue_type",
-    ),
-    "jquants_margin_alerts": (
-        "publication_date",
-        "ticker",
-        "applied_date",
-        "publication_reason",
-        "short_outstanding",
-        "short_change",
-        "short_ratio",
-        "long_outstanding",
-        "long_change",
-        "long_ratio",
-        "short_long_ratio",
-        "short_negotiable_outstanding",
-        "short_negotiable_change",
-        "short_standard_outstanding",
-        "short_standard_change",
-        "long_negotiable_outstanding",
-        "long_negotiable_change",
-        "long_standard_outstanding",
-        "long_standard_change",
-        "tse_margin_regulation_classification",
-    ),
-    "jquants_all_issues_daily_margin": (
-        "balance_date",
-        "ticker",
-        "long_vol",
-        "short_vol",
-        "long_std_vol",
-        "long_neg_vol",
-        "short_std_vol",
-        "short_neg_vol",
-        "issue_type",
-    ),
-    "jquants_short_sale_reports": (
-        "disclosed_at",
-        "source_ordinal",
-        "calculated_at",
-        "ticker",
-        "short_seller_name",
-        "discretionary_investment_contractor_name",
-        "investment_fund_name",
-        "short_ratio",
-        "short_shares",
-        "short_trading_units",
-        "previous_reported_at",
-        "previous_short_ratio",
-        "is_cancellation",
-        "notes",
-    ),
-    "edinet_documents": (
-        "doc_date",
-        "sequence_number",
-        "doc_id",
-        "sec_code",
-        "doc_type_code",
-        "csv_flag",
-        "xbrl_flag",
-        "legal_status",
-        "disclosure_status",
-        "withdrawal_status",
-        "doc_info_edit_status",
-        "parent_doc_id",
-        "operation_datetime",
-        "submit_datetime",
-        "doc_description",
-        "period_start",
-        "period_end",
-        "edinet_code",
-        "issuer_edinet_code",
-        "subject_edinet_code",
-    ),
-    "edinet_document_lists": (
-        "doc_date",
-        "process_datetime",
-        "result_count",
-        "fetched_at_utc",
-        "is_final",
-    ),
-    "edinet_segment_facts": (
-        "ticker",
-        "source_doc_id",
-        "source_submit_datetime",
-        "disclosed_on",
-        "source_element",
-        "source_context",
-        "issuer_id",
-        "period_start",
-        "period_end",
-        "consolidation_basis",
-        "segment_axis",
-        "segment_key",
-        "segment_name",
-        "segment_kind",
-        "metric",
-        "profit_basis",
-        "value",
-        "currency",
-        "source_locator",
-    ),
-    "edinet_debt_schedule": (
-        "ticker",
-        "source_doc_id",
-        "source_submit_datetime",
-        "disclosed_on",
-        "source_element",
-        "source_context",
-        "issuer_id",
-        "balance_sheet_date",
-        "consolidation_basis",
-        "debt_category",
-        "due_from_months",
-        "due_to_months",
-        "principal",
-        "currency",
-        "source_locator",
-    ),
-    "edinet_metrics": (
-        "asof_date",
-        "ticker",
-        "sales_ttm",
-        "ocf_ttm",
-        "debt",
-        "cash",
-        "ebitda_ttm",
-        "consolidation_basis",
-        "ttm_quality_ev_ebitda",
-        "ttm_quality_p_s",
-        "ttm_quality_pcfr",
-        "operating_profit_ttm",
-        "depreciation_and_amortization_ttm",
-        "capex_ttm",
-        "fcf_ttm",
-        "net_cash",
-        "equity",
-        "total_assets",
-        "ttm_quality_fcf",
-        "ttm_quality_net_cash",
-        "source_doc_id",
-        "document_type",
-        "source_submit_datetime",
-        "source_period_start",
-        "source_period_end",
-        "capex_source",
-        "failure_reasons",
-        "extractor_revision",
-        "source_document_revision",
-        "investment_securities",
-        "ocf_receivables_cash_effect",
-        "ocf_inventories_cash_effect",
-        "ocf_payables_cash_effect",
-        "ocf_contract_liabilities_cash_effect",
-        "ocf_advances_received_cash_effect",
-        "ocf_other_payables_cash_effect",
-        "capex_ppe_reported",
-        "capex_intangible_reported",
-    ),
-    "jpx_regulation_flags": (
-        "asof_date",
-        "source_name",
-        "ticker",
-        "flag",
-        "fetched_at_utc",
-    ),
-    "jpx_regulation_sources": ("asof_date", "source_name", "fetched_at_utc"),
-    "tse_capital_policy_snapshots": (
-        "snapshot_month_end",
-        "ticker",
-        "status",
-        "status_change",
-        "updated_on",
-        "contact_requested",
-        "first_disclosed_month_end",
-        "first_disclosure_left_censored",
-    ),
-    "jpx_delistings": ("delisted_on", "ticker", "name", "market", "reason"),
-    "tender_offer_exit_values": (
-        "ticker",
-        "delisted_on",
-        "offer_price_yen",
-        "offer_doc_id",
-        "result_doc_id",
-        "filed_on",
-    ),
-    "source_coverage": (
-        "source",
-        "coverage_key",
-        "coverage_start",
-        "coverage_end",
-        "fetched_at_utc",
-        "record_count",
-        "status",
-        "error",
-    ),
-    "lake_store_origin": (
-        "singleton",
-        "release_id",
-        "release_manifest_sha256",
-    ),
-}
-_EXPLICIT_INDEXES: Mapping[str, tuple[str, tuple[str, ...], bool]] = {
-    "idx_jquants_daily_bars_traded_at": ("jquants_daily_bars", ("traded_at",), False),
-    "idx_source_coverage_source_window": (
-        "source_coverage",
-        ("source", "coverage_start", "coverage_end"),
-        False,
-    ),
-}
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -405,14 +88,11 @@ CREATE TABLE IF NOT EXISTS jquants_daily_bars(
   close REAL,
   volume REAL,
   turnover_value REAL,
-  adjustment_open REAL,
-  adjustment_high REAL,
-  adjustment_low REAL,
-  adjustment_close REAL,
-  adjustment_volume REAL,
   adjustment_factor REAL,
   upper_limit TEXT,
   lower_limit TEXT,
+  ex_right_type TEXT,
+  market_cap_million_yen REAL,
   PRIMARY KEY (ticker, traded_at)
 );
 
@@ -422,61 +102,16 @@ CREATE INDEX IF NOT EXISTS idx_jquants_daily_bars_traded_at
 CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   ticker TEXT NOT NULL,
   disclosed_at TEXT NOT NULL,
-  forecast_eps REAL,
-  eps_ttm REAL,
-  bps REAL,
-  shares_outstanding REAL,
-  sales REAL,
-  cfo REAL,
-  cash_eq REAL,
-  total_assets REAL,
-  equity REAL,
-  operating_profit REAL,
-  ordinary_profit REAL,
-  profit REAL,
-  forecast_profit REAL,
-  forecast_ordinary_profit REAL,
-  fiscal_period TEXT,
-  fiscal_year_end TEXT,
-  period_start TEXT,
-  period_end TEXT,
-  dps_actual_annual REAL,
-  dps_forecast_annual REAL,
-  -- 期末自己株式数と、開示された自己資本比率。`shares_outstanding` は自己株式を含む
-  -- 発行済株式総数、`equity` は非支配株主持分を含む純資産なので、時価総額と自己資本
-  -- 比率をそれぞれ正しい分母で作るには両方が要る。
-  treasury_shares REAL,
-  equity_to_asset_ratio REAL,
-  -- 支払ごとの 1 株当たり配当と、通期に支払った配当の総額 (円)。年間 DPS は中間・期末
-  -- それぞれの基準日時点の株式基準で記載されるので、分割・併合を跨いだ年度は株価と同じ
-  -- 基準か言えない。支払ごとに持てば、各支払の基準日 (四半期末) より後の調整だけを掛けて
-  -- as-of 基準へ寄せられる。総額は円なので株式基準を持たず、自己株式を除いた株式数で
-  -- 割った値がその換算の独立した照合になる。
-  dividend_q1 REAL,
-  dividend_interim REAL,
-  dividend_q3 REAL,
-  dividend_year_end REAL,
-  dividend_total_annual REAL,
-  -- 期中平均株式数。提出者が EPS を出すのに使った株数そのもので、期末発行済と自己株から
-  -- 引いた株数が壊れていないかを同じ行の中で照合できる。`shares_outstanding` は期末の
-  -- 発行済総数で、両者は別の量なので独立した列で持つ。
-  average_shares REAL,
-  record_key TEXT NOT NULL DEFAULT 'legacy',
-  disclosure_number TEXT,
-  disclosed_time TEXT,
-  document_type TEXT,
-  document_payload TEXT,
-  PRIMARY KEY (ticker, disclosed_at, record_key)
+  disclosure_number TEXT NOT NULL,
+  document_payload TEXT NOT NULL,
+  PRIMARY KEY (ticker, disclosed_at, disclosure_number)
 );
 
 CREATE TABLE IF NOT EXISTS jquants_master_snapshots(
   snapshot_date TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  name TEXT,
-  market TEXT,
-  sector_33 TEXT,
-  is_common_stock INTEGER,
-  PRIMARY KEY (snapshot_date, ticker)
+  security_code TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  PRIMARY KEY (snapshot_date, security_code)
 );
 
 CREATE TABLE IF NOT EXISTS jpx_earnings_calendar(
@@ -487,7 +122,7 @@ CREATE TABLE IF NOT EXISTS jpx_earnings_calendar(
 
 CREATE TABLE IF NOT EXISTS jquants_market_calendar(
   day TEXT PRIMARY KEY,
-  is_business_day INTEGER NOT NULL
+  holiday_division TEXT NOT NULL
 );
 
 -- Margin balances the exchange publishes once a week, as of that week's balance
@@ -555,6 +190,13 @@ CREATE TABLE IF NOT EXISTS jquants_all_issues_daily_margin(
   short_std_vol REAL,
   short_neg_vol REAL,
   issue_type TEXT,
+  publication_date TEXT,
+  long_value REAL,
+  short_value REAL,
+  long_std_value REAL,
+  long_neg_value REAL,
+  short_std_value REAL,
+  short_neg_value REAL,
   PRIMARY KEY (balance_date, ticker)
 );
 
@@ -579,8 +221,9 @@ CREATE TABLE IF NOT EXISTS jquants_short_sale_reports(
   short_trading_units INTEGER,
   previous_reported_at TEXT,
   previous_short_ratio REAL,
-  is_cancellation INTEGER NOT NULL,
   notes TEXT,
+  short_seller_address TEXT,
+  discretionary_investment_contractor_address TEXT,
   PRIMARY KEY (disclosed_at, source_ordinal)
 );
 
@@ -616,7 +259,8 @@ CREATE TABLE IF NOT EXISTS edinet_document_lists(
   process_datetime TEXT,
   result_count INTEGER NOT NULL,
   fetched_at_utc TEXT NOT NULL,
-  is_final INTEGER NOT NULL
+  is_final INTEGER NOT NULL,
+  response_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edinet_segment_facts(
@@ -660,6 +304,14 @@ CREATE TABLE IF NOT EXISTS edinet_debt_schedule(
   source_locator TEXT NOT NULL,
   PRIMARY KEY (source_doc_id, balance_sheet_date, consolidation_basis,
                debt_category, due_from_months, due_to_months)
+);
+
+CREATE TABLE IF NOT EXISTS edinet_source_archives(
+  doc_id TEXT NOT NULL,
+  source_type INTEGER NOT NULL,
+  stored_on TEXT NOT NULL,
+  zip_content BLOB NOT NULL,
+  PRIMARY KEY (doc_id, source_type)
 );
 
 CREATE TABLE IF NOT EXISTS edinet_metrics(
@@ -800,26 +452,21 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
             )
         conn.commit()
         return conn
-    except Exception:
+    except BaseException:
         conn.close()
         raise
 
 
 def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
-    """Open an existing store only when it already matches the current schema.
-
-    Returns `None` for a missing/legacy/corrupt file so read helpers degrade to
-    "cache cannot serve this" rather than raising. Missing files are never created;
-    initialization or replacement belongs to the explicit writer path.
-    """
-    conn: sqlite3.Connection | None = None
-    try:
-        conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=rw", uri=True)
-        validate_current_schema(conn)
-    except (SQLiteSchemaError, sqlite3.Error):
-        if conn is not None:
-            conn.close()
+    """Open an existing current-schema store read-only; only absence is a cache miss."""
+    if not sqlite_path.exists():
         return None
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        validate_current_schema(conn)
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
@@ -836,23 +483,23 @@ def _validate_current_schema(conn: sqlite3.Connection, tables: set[str]) -> None
             "obsolete market SQLite schema; replace it with a current local build "
             f"(found user_version={user_version}, expected={SQLITE_SCHEMA_VERSION})"
         )
-    missing = sorted(set(_REQUIRED_TABLES) - tables)
+    expected_tables, expected_indexes = _expected_schema_shape(_SCHEMA_SQL)
+    missing = sorted(set(expected_tables) - tables)
     if missing:
         raise SQLiteSchemaError(
             "market SQLite schema is incomplete; replace it with a current local build "
             f"(missing tables: {', '.join(missing)})"
         )
-    expected_tables, expected_indexes = _expected_schema_shape()
-    for table, required_columns in _REQUIRED_COLUMNS.items():
+    for table, expected_info in expected_tables.items():
         existing_info = _table_info(conn, table)
         existing_columns = {column[0] for column in existing_info}
-        missing_columns = sorted(set(required_columns) - existing_columns)
+        missing_columns = sorted({column[0] for column in expected_info} - existing_columns)
         if missing_columns:
             raise SQLiteSchemaError(
                 "market SQLite schema is incomplete; replace it with a current local build "
                 f"(missing columns in {table}: {', '.join(missing_columns)})"
             )
-        if existing_info != expected_tables[table]:
+        if existing_info != expected_info:
             raise SQLiteSchemaError(
                 "market SQLite schema is incomplete; replace it with a current local build "
                 f"(table shape mismatch: {table})"
@@ -871,17 +518,30 @@ def validate_current_schema(conn: sqlite3.Connection) -> None:
     _validate_current_schema(conn, _existing_tables(conn))
 
 
-def _expected_schema_shape() -> tuple[
+@lru_cache(maxsize=1)
+def _expected_schema_shape(
+    schema_sql: str,
+) -> tuple[
     dict[str, tuple[tuple[str, str, int, int], ...]],
     dict[str, tuple[str, tuple[str, ...], bool]],
 ]:
+    # Only the static DDL-derived expectation is reused. Every real connection is
+    # still inspected, so changing a database cannot reuse a prior acceptance.
     expected = sqlite3.connect(":memory:")
     try:
-        expected.executescript(_SCHEMA_SQL)
-        tables = {table: _table_info(expected, table) for table in _REQUIRED_TABLES}
+        expected.executescript(schema_sql)
+        tables = {
+            table: _table_info(expected, table)
+            for table in sorted(_existing_tables(expected))
+            if not table.startswith("sqlite_")
+        }
         indexes: dict[str, tuple[str, tuple[str, ...], bool]] = {}
-        for index_name, (table, _, _) in _EXPLICIT_INDEXES.items():
-            index_info = _index_info(expected, table, index_name)
+        for index_name in _REQUIRED_INDEX_NAMES:
+            row = expected.execute(
+                "SELECT tbl_name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                (index_name,),
+            ).fetchone()
+            index_info = None if row is None else _index_info(expected, str(row[0]), index_name)
             if index_info is None:
                 raise SQLiteSchemaError(f"internal schema definition is missing {index_name}")
             indexes[index_name] = index_info

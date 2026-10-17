@@ -25,9 +25,9 @@ from baibai_engine.storage.lake.reader import (
 )
 from baibai_engine.storage.lake.release import create_l1_release
 from baibai_engine.storage.lake.writer import (
-    export_legacy_sqlite,
+    export_dataset_snapshot,
     sealed_sqlite_snapshot,
-    validate_legacy_parity,
+    validate_snapshot_parity,
 )
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
 from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
@@ -48,7 +48,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         "jquants.master_snapshots",
         NAME,
     )
-    narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
+    narrow_release_policy(monkeypatch, datasets=datasets)
     today = date(2026, 9, 20) if manual_observation else date(2026, 9, 21)
     observed = datetime(
         today.year, today.month, today.day, 1 if manual_observation else 7, tzinfo=UTC
@@ -65,10 +65,10 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
     store_jquants_market_calendar(
         path,
         [
-            {"Date": "2026-09-18", "HolidayDivision": "1"},
-            {"Date": "2026-09-19", "HolidayDivision": "0"},
-            {"Date": "2026-09-20", "HolidayDivision": "0"},
-            {"Date": "2026-09-21", "HolidayDivision": "1"},
+            {"Date": "2026-09-18", "HolDiv": "1"},
+            {"Date": "2026-09-19", "HolDiv": "0"},
+            {"Date": "2026-09-20", "HolDiv": "0"},
+            {"Date": "2026-09-21", "HolDiv": "1"},
         ],
         requested_start=DAY,
         requested_end=date(2026, 9, 21),
@@ -88,7 +88,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
     def publish(release_id, source_path=path):
         with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
             manifests = [
-                export_legacy_sqlite(
+                export_dataset_snapshot(
                     dataset_name=name,
                     mirror_root=mirror,
                     producer_git_commit="a" * 40,
@@ -228,12 +228,16 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
     next_day = date(2026, 10, 1)
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (next_day.isoformat(),))
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date=?, "
+            "record_json=json_set(record_json, '$.Date', ?)",
+            (next_day.isoformat(), next_day.isoformat()),
+        )
         conn.execute("UPDATE jquants_market_calendar SET day=?", (next_day.isoformat(),))
     asyncio.run(collect(path, next_day, fetch, clock=lambda: datetime(2026, 10, 1, 7, tzinfo=UTC)))
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
-        exported = export_legacy_sqlite(
+        exported = export_dataset_snapshot(
             dataset_name=NAME,
             mirror_root=mirror,
             producer_git_commit="a" * 40,
@@ -245,7 +249,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
         {"year": 2026, "month": 10},
     ]
     assert exported.manifest.totals.rows == 4
-    validate_legacy_parity(sqlite_path=path, mirror_root=mirror, manifest=exported.manifest)
+    validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=exported.manifest)
     manifest_path, _ = create_l1_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,

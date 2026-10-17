@@ -225,6 +225,38 @@ class TSECapitalPolicyWorkbookTest(unittest.TestCase):
         self.assertIsNone(earlier.first_disclosed_month_end)
         self.assertFalse(earlier.first_disclosure_left_censored)
 
+    def test_invalid_month_is_not_normalized_into_another_month(self) -> None:
+        for month in (0, 13):
+            with self.subTest(month=month):
+                content = _workbook(
+                    [
+                        (
+                            f"開示企業一覧（2026年{month}月末時点）",
+                            _GROUP_2026,
+                            _DETAIL_2026,
+                            [_row_2026(1301, "開示済")],
+                        )
+                    ]
+                )
+                with self.assertRaisesRegex(ValuationCatalystError, "invalid TSE snapshot month"):
+                    parse_tse_capital_policy_workbook(content)
+
+    def test_month_end_handles_leap_year_and_december(self) -> None:
+        for expected in (date(2024, 2, 29), date(2026, 12, 31)):
+            with self.subTest(expected=expected):
+                content = _workbook(
+                    [
+                        (
+                            f"開示企業一覧（{expected.year}年{expected.month}月末時点）",
+                            _GROUP_2026,
+                            _DETAIL_2026,
+                            [_row_2026(1301, "開示済")],
+                        )
+                    ]
+                )
+                (row,) = parse_tse_capital_policy_workbook(content)
+                self.assertEqual(row.snapshot_month_end, expected)
+
     def test_an_unknown_status_word_is_refused_rather_than_guessed(self) -> None:
         content = _workbook(
             [
@@ -308,21 +340,46 @@ class ControlFilingIndexTest(unittest.TestCase):
             _store_documents(
                 sqlite_path,
                 [
-                    ("2026-06-01", 1, "S1", "13010", "120", "1", "0", "0", "E1", None, None),
-                    ("2026-06-01", 2, "S2", "13011", "120", "1", "0", "0", "E2", None, None),
-                    ("2026-06-01", 3, "S3", "1301bad", "120", "1", "0", "0", "E3", None, None),
-                    ("2026-06-01", 4, "S4", "130a0", "120", "1", "0", "0", "E4", None, None),
+                    ("2026-06-01", 1, "S0001", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-06-01", 2, "S0002", "13011", "120", "1", "0", "0", "E2", None, None),
+                    ("2026-06-01", 3, "S0003", "1301bad", "120", "1", "0", "0", "E3", None, None),
+                    ("2026-06-01", 4, "S0004", "130a0", "120", "1", "0", "0", "E4", None, None),
                 ],
             )
             with closing(open_connection(sqlite_path)) as connection:
-                self.assertEqual(edinet_code_to_ticker(connection), {"E1": "1301", "E4": "130A"})
+                self.assertEqual(
+                    edinet_code_to_ticker(connection, through=self.ASOF),
+                    {"E1": "1301", "E4": "130A"},
+                )
+
+    def test_future_identity_and_conflict_do_not_change_historical_filing_context(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "market.sqlite"
+            self._listed_window(
+                path,
+                rows=[
+                    ("2026-06-01", 1, "S0001", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-08-03", 1, "S0002", None, "350", "1", "0", "0", "E9", "E1", None),
+                    ("2026-08-11", 1, "S0003", "13020", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-08-11", 2, "S0004", "13030", "120", "1", "0", "0", "E3", None, None),
+                ],
+            )
+            with closing(open_connection(path)) as connection:
+                before = edinet_code_to_ticker(connection, through=self.ASOF)
+                after = edinet_code_to_ticker(connection, through=date(2026, 8, 11))
+                index = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
+            self.assertEqual(before, {"E1": "1301"})
+            self.assertEqual(after, {"E3": "1303"})
+            assert index is not None
+            self.assertEqual(index.latest_by_target[("1301", "large_holding")], date(2026, 8, 3))
+            self.assertFalse(index.can_answer("1303", "large_holding"))
 
     def test_a_day_that_was_never_listed_makes_the_window_unobserved(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _store_documents(
                 sqlite_path,
-                [("2026-08-03", 1, "S1", "13010", "350", "1", "0", "0", "E1", "E2", None)],
+                [("2026-08-03", 1, "S0001", "13010", "350", "1", "0", "0", "E1", "E2", None)],
             )
             connection = connect_current(sqlite_path)
             assert connection is not None
@@ -340,7 +397,7 @@ class ControlFilingIndexTest(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             self._listed_window(
                 sqlite_path,
-                rows=[("2026-08-03", 1, "S1", "13010", "350", "1", "0", "0", None, "E2", None)],
+                rows=[("2026-08-03", 1, "S0001", "13010", "350", "1", "0", "0", None, "E2", None)],
             )
             connection = connect_current(sqlite_path)
             assert connection is not None
@@ -358,7 +415,7 @@ class ControlFilingIndexTest(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             self._listed_window(
                 sqlite_path,
-                rows=[("2026-08-03", 1, "S1", "13010", "350", "0", "0", "0", None, "E2", None)],
+                rows=[("2026-08-03", 1, "S0001", "13010", "350", "0", "0", "0", None, "E2", None)],
             )
             connection = connect_current(sqlite_path)
             assert connection is not None
@@ -376,12 +433,12 @@ class ControlFilingIndexTest(unittest.TestCase):
                 sqlite_path,
                 rows=[
                     # The filer is 9999; the holding is in 1301.
-                    ("2026-07-01", 1, "S1", "99990", "350", "1", "0", "0", "E9", "E1", None),
+                    ("2026-07-01", 1, "S0001", "99990", "350", "1", "0", "0", "E9", "E1", None),
                     # The offeror is 9999; the target is 1332.
-                    ("2026-07-02", 1, "S2", None, "240", "1", "0", "0", "E9", None, "E2"),
+                    ("2026-07-02", 1, "S0002", None, "240", "1", "0", "0", "E9", None, "E2"),
                     # 1301 and 1332 identify themselves through their own filings.
-                    ("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None),
-                    ("2026-06-02", 1, "S4", "13320", "120", "1", "0", "0", "E2", None, None),
+                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-06-02", 1, "S0004", "13320", "120", "1", "0", "0", "E2", None, None),
                 ],
             )
             connection = connect_current(sqlite_path)
@@ -396,14 +453,40 @@ class ControlFilingIndexTest(unittest.TestCase):
             self.assertEqual(index.latest_by_target[("1332", "tender_offer")], date(2026, 7, 2))
             self.assertNotIn(("9999", "large_holding"), index.latest_by_target)
 
+    def test_later_non_disclosure_operation_is_applied_before_filing_context(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            self._listed_window(
+                sqlite_path,
+                rows=[
+                    ("2026-07-01", 1, "S0001", "99990", "350", "1", "0", "0", "E9", "E1", None),
+                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
+                ],
+            )
+            with closing(open_connection(sqlite_path)) as connection:
+                connection.execute(
+                    "INSERT INTO edinet_documents("
+                    "doc_date, sequence_number, doc_id, disclosure_status, operation_datetime) "
+                    "VALUES ('2026-07-02', 1, 'S0001', '1', '2026-07-02T10:00')"
+                )
+                connection.commit()
+                before = read_control_filing_index(
+                    connection, start=date(2026, 1, 1), end=date(2026, 7, 1)
+                )
+                after = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
+            assert before is not None
+            assert after is not None
+            self.assertEqual(before.latest_by_target[("1301", "large_holding")], date(2026, 7, 1))
+            self.assertEqual(after.latest_by_target, {})
+
     def test_a_withdrawn_filing_is_not_an_event(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             self._listed_window(
                 sqlite_path,
                 rows=[
-                    ("2026-07-01", 1, "S1", "99990", "350", "1", "0", "1", "E9", "E1", None),
-                    ("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-07-01", 1, "S0001", "99990", "350", "1", "0", "1", "E9", "E1", None),
+                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
                 ],
             )
             connection = connect_current(sqlite_path)
@@ -421,7 +504,7 @@ class ControlFilingIndexTest(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             _store_documents(
                 sqlite_path,
-                [("2026-08-03", 1, "S1", "13010", "120", "1", "0", "0", "E1", None, None)],
+                [("2026-08-03", 1, "S0001", "13010", "120", "1", "0", "0", "E1", None, None)],
             )
 
             annotations = read_valuation_catalyst_contexts(
@@ -438,7 +521,7 @@ class ControlFilingIndexTest(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             self._listed_window(
                 sqlite_path,
-                rows=[("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None)],
+                rows=[("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None)],
             )
 
             annotations = read_valuation_catalyst_contexts(
@@ -458,8 +541,8 @@ class ControlFilingIndexTest(unittest.TestCase):
                 rows=[
                     # 7777 never filed anything carrying its own securities code, so the
                     # holding filed against it cannot be attributed to a listing.
-                    ("2026-07-01", 1, "S1", None, "350", "1", "0", "0", "E9", "E7", None),
-                    ("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-07-01", 1, "S0001", None, "350", "1", "0", "0", "E9", "E7", None),
+                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
                 ],
             )
 
@@ -477,8 +560,8 @@ class ControlFilingIndexTest(unittest.TestCase):
             self._listed_window(
                 sqlite_path,
                 rows=[
-                    ("2026-07-02", 1, "S2", None, "280", "1", "0", "0", "E9", None, None),
-                    ("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-07-02", 1, "S0002", None, "280", "1", "0", "0", "E9", None, None),
+                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
                 ],
             )
 
@@ -495,7 +578,7 @@ class ControlFilingIndexTest(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             self._listed_window(
                 sqlite_path,
-                rows=[("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None)],
+                rows=[("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None)],
             )
             content = _workbook(
                 [

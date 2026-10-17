@@ -15,8 +15,8 @@ report absent source series as skipped retirement instead of reviving them.
 
 Facts are keyed, so the merge is an ``INSERT OR IGNORE`` per table after proving that every
 shared key has the same full payload. A row only the source has is then added verbatim with
-its vintage. Both stores must be on the schema this code writes; the transfer script moves
-the downloaded copy there before the merge sees it.
+its vintage. Both stores must already use the schema this code writes. A schema change
+requires an explicit cutover; an ordinary transfer never migrates the downloaded source.
 """
 
 from __future__ import annotations
@@ -61,6 +61,10 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "observations": ("series_id", "observed_at", "vintage_at"),
     "provider_runs": ("run_id",),
 }
+# Native inputs belong to their source, not a particular current reading registry.
+NATIVE_FACT_KEYS: Mapping[str, tuple[str, ...]] = {
+    "indicator_source_snapshots": ("source_key", "observed_at", "fetched_at"),
+}
 # The tables the registry owns: the target's version is the only one.
 REGISTRY_TABLES: tuple[str, ...] = (
     "series",
@@ -98,13 +102,13 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
     for path in (source, target):
         if not path.is_file():
             raise MergeError(f"indicator store does not exist: {path}")
-    uri = f"{target.resolve().as_uri()}"
+    uri = target.resolve().as_uri()
     with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
         _require_schema(connection, path=target)
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
         try:
             _require_schema(connection, path=source, schema="source")
-            require_identical_columns(connection, (*FACT_KEYS, *REGISTRY_TABLES))
+            require_identical_columns(connection, (*FACT_KEYS, *NATIVE_FACT_KEYS, *REGISTRY_TABLES))
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -125,7 +129,10 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 _validate_observations(connection, schema="main")
                 _validate_observations(connection, schema="source")
                 retired = _retired_series(connection)
-                tables = merge_fact_tables(connection, FACT_KEYS, eligible=_REGISTERED)
+                tables = (
+                    *merge_fact_tables(connection, FACT_KEYS, eligible=_REGISTERED),
+                    *merge_fact_tables(connection, NATIVE_FACT_KEYS),
+                )
                 connection.commit()
                 return IndicatorMergeReport(tables=tables, retired_series=retired)
             except BaseException:
@@ -171,21 +178,18 @@ def _validate_observations(
     # The statement below reads `attached`, never the argument, so deleting this line breaks
     # the query rather than quietly letting an unchecked name through.
     attached = _schema_name(schema)
-    # A withdrawn row carries the value it withdrew, not a claim about one, so the
-    # registry band does not apply to it on either side of the merge.
-    registered = (
-        'o.series_id IN (SELECT series_id FROM main."series")' if attached == "source" else "1"
-    ) + " AND o.fetch_status != 'retracted'"
+    # Retraction changes read visibility, not the stored value/unit contract: the
+    # insertion trigger validates retracted rows too. The inner join selects retained
+    # series; target bands were already checked to be complete and finite.
     row = connection.execute(
         f"""
         SELECT o.series_id, o.observed_at, o.value, o.unit,
                s.unit, s.plausible_min, s.plausible_max
         FROM {attached}.observations o
         JOIN main.series s ON s.series_id = o.series_id
-        WHERE {registered}
-          AND (o.unit != s.unit
-           OR (s.plausible_min IS NOT NULL AND o.value < s.plausible_min)
-           OR (s.plausible_max IS NOT NULL AND o.value > s.plausible_max))
+        WHERE o.unit != s.unit
+           OR o.value < s.plausible_min
+           OR o.value > s.plausible_max
         ORDER BY o.series_id, o.observed_at, o.vintage_at
         LIMIT 1
         """  # nosec B608
@@ -198,11 +202,9 @@ def _validate_observations(
             f"{schema} observation {series_id} {observed_at} has unit "
             f"{actual_unit!r}; target registry expects {expected_unit!r}"
         )
-    rendered_low = "-inf" if low is None else f"{float(low):g}"
-    rendered_high = "inf" if high is None else f"{float(high):g}"
     raise MergeError(
         f"{schema} observation {series_id} {observed_at} value {float(value):g} "
-        f"is outside target plausible range [{rendered_low}, {rendered_high}]"
+        f"is outside target plausible range [{float(low):g}, {float(high):g}]"
     )
 
 
@@ -240,7 +242,7 @@ def _require_schema(
     *,
     path: Path,
     schema: str = "main",
-) -> int:
+) -> None:
     version = _count(connection, f"PRAGMA {_schema_name(schema)}.user_version")
     if version != SQLITE_SCHEMA_VERSION:
         raise MergeError(
@@ -251,7 +253,6 @@ def _require_schema(
         validate_current_schema(connection, schema=schema)
     except IndicatorsSchemaError as error:
         raise MergeError(f"indicator store schema contract is invalid: {path}: {error}") from error
-    return version
 
 
 def _registry_generation(connection: sqlite3.Connection, *, schema: str) -> int:

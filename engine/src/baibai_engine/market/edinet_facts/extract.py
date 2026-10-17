@@ -9,7 +9,7 @@ from .xbrl import read_instance
 
 # Increment when extraction semantics change. Separate from the existing metrics
 # revision: research fact changes must not invalidate screening's financial baseline.
-EXTRACTOR_REVISION = "edinet-research-facts-v1"
+EXTRACTOR_REVISION = "edinet-research-facts-v2"
 
 
 def extract_facts(*, content: bytes, ticker: str, doc_id: str, submitted: str) -> ExtractedFacts:

@@ -10,7 +10,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
+from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 from .models import Task, TaskKind, TaskStatus
@@ -65,15 +68,13 @@ class TaskService:
             return task
 
     def list(self, *, status: TaskStatus | None = None) -> list[Task]:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
-            sql = "SELECT payload FROM task"
-            parameters: tuple[object, ...] = ()
-            if status is not None:
-                sql += " WHERE status = ?"
-                parameters = (status,)
-            sql += " ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, due_date, task_id"
-            rows = connection.execute(sql, parameters).fetchall()
+        sql = "SELECT payload FROM task"
+        parameters: tuple[object, ...] = ()
+        if status is not None:
+            sql += " WHERE status = ?"
+            parameters = (status,)
+        sql += " ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, due_date, task_id"
+        rows = read_rows(database_path(self._db_path), sql, parameters, connector=connect_read_only)
         return [Task.model_validate_json(str(row[0])) for row in rows]
 
     def close(self, task_id: str, *, status: Literal["done", "dropped"], closed_at: date) -> Task:
@@ -104,14 +105,15 @@ class TaskService:
         return updated
 
     def get(self, task_id: str) -> Task:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
-            row = connection.execute(
-                "SELECT payload FROM task WHERE task_id = ?", (task_id,)
-            ).fetchone()
-        if row is None:
+        rows = read_rows(
+            database_path(self._db_path),
+            "SELECT payload FROM task WHERE task_id = ?",
+            (task_id,),
+            connector=connect_read_only,
+        )
+        if not rows:
             raise TaskNotFoundError(f"unknown task_id: {task_id}")
-        return Task.model_validate_json(str(row[0]))
+        return Task.model_validate_json(str(rows[0][0]))
 
     def _replace(self, before: Task, after: Task) -> None:
         initialize_database(self._db_path)

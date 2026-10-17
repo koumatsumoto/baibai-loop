@@ -17,7 +17,6 @@ from baibai_engine.market.edinet_facts.service import extract_edinet_facts_comma
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
 from baibai_engine.market.providers.edinet import EDINETProvider
-from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.read_api.market import market_calendar_business_day
@@ -159,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill_master_parser.add_argument(
         "--month-end-from",
-        help="add every calendar month end from this date through --month-end-to (YYYY-MM-DD)",
+        help="add each month's last qualifying observed date through --month-end-to (YYYY-MM-DD)",
     )
     backfill_master_parser.add_argument(
         "--month-end-to",
@@ -231,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     exits_parser = subparsers.add_parser(
         "build-tender-offer-exits",
-        help="derive realized tender-offer exit prices for delisted names",
+        help="derive tender-offer-price exit proxies for delisted names",
     )
     exits_parser.add_argument(
         "--asof",
@@ -246,7 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     invalidate_parser = subparsers.add_parser(
         "invalidate-coverage",
-        help="delete source_coverage rows so the next bootstrap-cache refetches a source",
+        help="invalidate fetch coverage without deleting stored observations",
     )
     invalidate_parser.add_argument(
         "--source",
@@ -376,7 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "resolve forward windows from market closes alone, leaving delisted names to "
-            "the imputation bracket; regenerates the comparison baseline"
+            "sensitivity scenarios; regenerates the comparison baseline"
         ),
     )
     calibration_build_parser.add_argument(
@@ -586,8 +585,11 @@ def main(argv: list[str] | None = None) -> int:
         return extract_edinet_facts_command(
             asof=_parse_iso_date(args.asof),
             sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
-            provider=EDINETFactsProvider(
-                config.edinet_api_key, config.cache_dir, cache_only=args.cache_only
+            provider=EDINETProvider(
+                config.edinet_api_key,
+                config.cache_dir,
+                sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
+                cache_only=args.cache_only,
             ),
             initialize=args.initialize,
             tickers=tuple(args.ticker),
@@ -643,7 +645,6 @@ def main(argv: list[str] | None = None) -> int:
             providers,
             rules=run_rules,
             now=args.run_at,
-            allow_stale_jpx=args.allow_stale_jpx,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             run_store_path=Path(args.runs_db) if args.runs_db else None,

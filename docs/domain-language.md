@@ -53,7 +53,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Stock Assessment | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Assessment Review | artifact / judgment | Stock Assessmentへの独立second pass |
 | Investment Proposal | artifact / judgment | 評価を価格・cash・保有に適用した行動と保存条件、全対象の比較 |
-| Limit Terms | proposal value | 提案に保存するprice / quantity / expiry / session / conditions |
+| Limit Terms | proposal value | 提案に保存するprice / quantity / session / conditions |
 | broker fact | human-confirmed fact | 人間がbroker画面等から確認して報告したorder / fill fact |
 | Portfolio Ledger | artifact | human-confirmed event ledger |
 | Reservation | ledger state / event | 買付資金または売付可能な保有数量を拘束する注文状態・event |

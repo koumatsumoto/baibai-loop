@@ -30,8 +30,6 @@ from baibai_engine.market.jquants_decode import (
     _parse_yyyymmdd_param,
     _payload_to_records,
     _stringify_dates,
-    coalesce_field,
-    first_value,
     normalize_daily_bar,
     normalize_market_calendar,
     parse_date,
@@ -50,7 +48,7 @@ from baibai_engine.market.jquants_models import (
     JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.market.master_snapshot import validate_master_snapshot
+from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.store import (
     count_daily_bars,
@@ -105,7 +103,7 @@ class _JQuantsTransport:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None,
         client: Any | None = None,
         *,
         sqlite_path: Path | None = None,
@@ -148,17 +146,11 @@ class _JQuantsTransport:
         self._fetch_missing_range_chunks("get_eq_bars_daily_range", start, end)
 
     def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
-        """Cover `[start, end]` and answer how many usable rows the store holds for it.
+        """Fetch as needed under the stored-date coverage policy and count non-null closes.
 
-        Bootstrap and backfill want the window filled and a number to report; they
-        never look at a bar. Handing them the models instead costs ~13s per call on
-        the production window and is discarded a line later.
-
-        The coverage check after the fetch is what makes the answer mean "the window
-        is filled" rather than "some rows exist". A provider that returns part of
-        what was asked for leaves a count that looks healthy and a window that is
-        not, and the run would then fail somewhere downstream, against a different
-        window, instead of here.
+        Bootstrap and backfill need a count, not one model per stored bar. The
+        post-fetch coverage check rejects windows outside that policy, but its
+        tolerated gaps do not prove every trading date or instrument is present.
         """
         if self._sqlite_path is None:
             self._raise_if_cache_only(
@@ -195,14 +187,20 @@ class _JQuantsTransport:
         self._raise_if_cache_only(
             "jquants_market_calendar", f"{start.isoformat()}..{end.isoformat()}"
         )
-        # holiday_division フィルタは掛けない。"1"=営業日だけでなく "2"=半日営業 (大納会など)
-        # も取引あり扱いすべきで、事前フィルタで "2" を落とすと正しい営業日で asof が
-        # reject される。normalize 側で "1"/"2" を営業扱いにする。
+        # Fetch every category, including non-business and holiday-trading days.
+        # Storage retains HolDiv; this cash-equity projection selects categories 1/2.
         records = self._load_or_fetch(
             "get_mkt_calendar",
             from_yyyymmdd=start.strftime("%Y%m%d"),
             to_yyyymmdd=end.strftime("%Y%m%d"),
         )
+        if self._sqlite_path is not None:
+            stored = read_market_calendar(self._sqlite_path, start, end)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "stored market calendar remains incomplete after fetching"
+                )
+            return stored
         return [normalize_market_calendar(record) for record in records]
 
     def _load_or_fetch_range(self, method: str, start: date, end: date) -> list[dict[str, Any]]:
@@ -378,6 +376,8 @@ class _JQuantsTransport:
     def _get_client(self) -> Any:
         if self._client is not None:
             return self._client
+        if not self._api_key:
+            raise JQuantsProviderError("JQUANTS_API_KEY is required for provider fetch")
         try:
             import jquantsapi
         except ModuleNotFoundError as exc:
@@ -422,16 +422,7 @@ class JQuantsProvider(_JQuantsTransport):
                 )
             return stored
         validated = validate_master_snapshot(records, requested_asof)
-        return [
-            SecurityMaster(
-                ticker=ticker,
-                name=name,
-                market_segment=market,
-                sector_33=sector,
-                is_common_stock=bool(is_common),
-            )
-            for _, ticker, name, market, sector, is_common in validated.rows
-        ]
+        return masters_from_payloads([payload for _, _, payload in validated.rows])
 
     def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
         """Fetch every ticker's margin balance for one weekly balance date.
@@ -700,7 +691,7 @@ class JQuantsProvider(_JQuantsTransport):
     def get_adjustment_factor_bars_range(
         self, start: date, end: date
     ) -> list[JQuantsAdjustmentFactorEvent]:
-        """Return only split events while still proving the full bar range is covered."""
+        """Return price-adjustment events under the daily-bar coverage policy."""
         if self._sqlite_path is not None:
             from baibai_engine.market.store import read_adjustment_factor_bars
 
@@ -714,7 +705,7 @@ class JQuantsProvider(_JQuantsTransport):
             if cached is not None:
                 return cached
             raise JQuantsProviderError(
-                "SQLite cache remained incomplete after fetching split-normalization bars "
+                "SQLite cache remained incomplete after fetching price-adjustment bars "
                 f"for {start.isoformat()}..{end.isoformat()}"
             )
         records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)
@@ -754,31 +745,11 @@ class JQuantsProvider(_JQuantsTransport):
         )
 
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
-        """Return only FY rows while still proving the full summary range is covered."""
-        if self._sqlite_path is not None:
-            from baibai_engine.storage.observations.reader import read_fy_summaries
-
-            cached = read_fy_summaries(self._sqlite_path, start, end)
-            if cached is not None:
-                return cached
-        self._raise_if_cache_only(
-            "jquants_fin_summaries", f"{start.isoformat()}..{end.isoformat()}"
-        )
-        if self._sqlite_path is not None:
-            self._fetch_missing_range_chunks("get_fin_summary_range", start, end)
-            cached = read_fy_summaries(self._sqlite_path, start, end)
-            if cached is not None:
-                return cached
-            raise JQuantsProviderError(
-                "SQLite cache remained incomplete after fetching normalized-profit summaries "
-                f"for {start.isoformat()}..{end.isoformat()}"
-            )
-        records = self._load_or_fetch_range("get_fin_summary_range", start, end)
+        """Retain every FY document, including missing EPS and unresolved revisions."""
         return [
             summary
-            for record in records
-            if (summary := normalize_financial_summary(record)) is not None
-            and summary.fiscal_period == "FY"
+            for summary in self.get_fin_summary_range(start, end)
+            if summary.fiscal_period == "FY"
         ]
 
     def refresh_fin_summary_range(
@@ -787,7 +758,6 @@ class JQuantsProvider(_JQuantsTransport):
         end: date,
         *,
         revision_overlap_days: int,
-        repair_ranges: Sequence[tuple[date, date]] = (),
         progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int:
         """Bring the summaries store current for `[start, end]` and count what it holds.
@@ -795,7 +765,7 @@ class JQuantsProvider(_JQuantsTransport):
         Two things are fetched: what the coverage says is missing, and the trailing
         ``revision_overlap_days`` regardless of coverage. The overlap is the only
         way this refresh discovers a late publication for an already covered date
-        within that trailing window. Older corrections require explicit repair ranges;
+        within that trailing window. Older corrections require refreshing their window;
         acquisition coverage alone does not prove that no later revision exists.
 
         The two are merged before anything is requested, so a stop longer than the
@@ -818,7 +788,6 @@ class JQuantsProvider(_JQuantsTransport):
             [
                 *self._missing_subranges("get_fin_summary_range", start, end),
                 (overlap_start, end),
-                *repair_ranges,
             ]
         )
         self._fetch_ranges_paced(
@@ -957,180 +926,97 @@ class JQuantsProvider(_JQuantsTransport):
 def normalize_weekly_margin(
     record: Mapping[str, Any], week_end: date
 ) -> JQuantsWeeklyMargin | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    # `coalesce_field` throughout: a zero balance is an observation, and for a
-    # 信用銘柄 the zero short balance is the normal state rather than a gap.
+    if parse_date(record.get("Date")) != week_end:
+        raise JQuantsProviderError("weekly margin balance date does not match request")
+    # Zero balances remain observations, not missing values.
     return JQuantsWeeklyMargin(
         ticker=ticker,
         week_end=week_end,
-        long_vol=to_float(coalesce_field(record, "LongVol", "long_vol")),
-        short_vol=to_float(coalesce_field(record, "ShrtVol", "shrt_vol")),
-        long_std_vol=to_float(coalesce_field(record, "LongStdVol", "long_std_vol")),
-        long_neg_vol=to_float(coalesce_field(record, "LongNegVol", "long_neg_vol")),
-        short_std_vol=to_float(coalesce_field(record, "ShrtStdVol", "shrt_std_vol")),
-        short_neg_vol=to_float(coalesce_field(record, "ShrtNegVol", "shrt_neg_vol")),
-        issue_type=_issue_type(coalesce_field(record, "IssType", "iss_type")),
+        long_vol=to_float(record.get("LongVol")),
+        short_vol=to_float(record.get("ShrtVol")),
+        long_std_vol=to_float(record.get("LongStdVol")),
+        long_neg_vol=to_float(record.get("LongNegVol")),
+        short_std_vol=to_float(record.get("ShrtStdVol")),
+        short_neg_vol=to_float(record.get("ShrtNegVol")),
+        issue_type=_issue_type(record.get("IssType")),
     )
 
 
 def normalize_all_issues_daily_margin(
     record: Mapping[str, Any],
 ) -> JQuantsAllIssuesDailyMargin | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
     return JQuantsAllIssuesDailyMargin(
         ticker=ticker,
-        balance_date=parse_date(first_value(record, "Date", "balance_date")),
-        long_vol=to_float(coalesce_field(record, "LongVol", "long_vol")),
-        short_vol=to_float(coalesce_field(record, "ShrtVol", "shrt_vol")),
-        long_std_vol=to_float(coalesce_field(record, "LongStdVol", "long_std_vol")),
-        long_neg_vol=to_float(coalesce_field(record, "LongNegVol", "long_neg_vol")),
-        short_std_vol=to_float(coalesce_field(record, "ShrtStdVol", "shrt_std_vol")),
-        short_neg_vol=to_float(coalesce_field(record, "ShrtNegVol", "shrt_neg_vol")),
-        issue_type=_issue_type(coalesce_field(record, "IssType", "iss_type")),
+        balance_date=parse_date(record.get("Date")),
+        long_vol=to_float(record.get("LongVol")),
+        short_vol=to_float(record.get("ShrtVol")),
+        long_std_vol=to_float(record.get("LongStdVol")),
+        long_neg_vol=to_float(record.get("LongNegVol")),
+        short_std_vol=to_float(record.get("ShrtStdVol")),
+        short_neg_vol=to_float(record.get("ShrtNegVol")),
+        issue_type=_issue_type(record.get("IssType")),
     )
 
 
 def normalize_margin_alert(record: Mapping[str, Any]) -> JQuantsMarginAlert | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
     return JQuantsMarginAlert(
-        publication_date=parse_date(
-            first_value(record, "PubDate", "PublicationDate", "publication_date")
-        ),
+        publication_date=parse_date(record.get("PubDate")),
         ticker=ticker,
-        applied_date=parse_optional_date(
-            coalesce_field(record, "AppDate", "ApplicationDate", "applied_date")
-        ),
-        publication_reason=_optional_text(coalesce_field(record, "PubReason", "publication_reason"))
-        or None,
-        short_outstanding=to_float(coalesce_field(record, "ShrtOut", "short_outstanding")),
-        short_change=to_float(coalesce_field(record, "ShrtOutChg", "short_change")),
-        short_ratio=to_float(coalesce_field(record, "ShrtOutRatio", "short_ratio")),
-        long_outstanding=to_float(coalesce_field(record, "LongOut", "long_outstanding")),
-        long_change=to_float(coalesce_field(record, "LongOutChg", "long_change")),
-        long_ratio=to_float(coalesce_field(record, "LongOutRatio", "long_ratio")),
-        short_long_ratio=to_float(coalesce_field(record, "SLRatio", "short_long_ratio")),
-        short_negotiable_outstanding=to_float(
-            coalesce_field(record, "ShrtNegOut", "short_negotiable_outstanding")
-        ),
-        short_negotiable_change=to_float(
-            coalesce_field(record, "ShrtNegOutChg", "short_negotiable_change")
-        ),
-        short_standard_outstanding=to_float(
-            coalesce_field(record, "ShrtStdOut", "short_standard_outstanding")
-        ),
-        short_standard_change=to_float(
-            coalesce_field(record, "ShrtStdOutChg", "short_standard_change")
-        ),
-        long_negotiable_outstanding=to_float(
-            coalesce_field(record, "LongNegOut", "long_negotiable_outstanding")
-        ),
-        long_negotiable_change=to_float(
-            coalesce_field(record, "LongNegOutChg", "long_negotiable_change")
-        ),
-        long_standard_outstanding=to_float(
-            coalesce_field(record, "LongStdOut", "long_standard_outstanding")
-        ),
-        long_standard_change=to_float(
-            coalesce_field(record, "LongStdOutChg", "long_standard_change")
-        ),
-        tse_margin_regulation_classification=_optional_text(
-            coalesce_field(
-                record,
-                "TSEMrgnRegCls",
-                "tse_margin_regulation_classification",
-            )
-        )
-        or None,
+        applied_date=parse_optional_date(record.get("AppDate")),
+        publication_reason=_optional_text(record.get("PubReason")) or None,
+        short_outstanding=to_float(record.get("ShrtOut")),
+        short_change=to_float(record.get("ShrtOutChg")),
+        short_ratio=to_float(record.get("ShrtOutRatio")),
+        long_outstanding=to_float(record.get("LongOut")),
+        long_change=to_float(record.get("LongOutChg")),
+        long_ratio=to_float(record.get("LongOutRatio")),
+        short_long_ratio=to_float(record.get("SLRatio")),
+        short_negotiable_outstanding=to_float(record.get("ShrtNegOut")),
+        short_negotiable_change=to_float(record.get("ShrtNegOutChg")),
+        short_standard_outstanding=to_float(record.get("ShrtStdOut")),
+        short_standard_change=to_float(record.get("ShrtStdOutChg")),
+        long_negotiable_outstanding=to_float(record.get("LongNegOut")),
+        long_negotiable_change=to_float(record.get("LongNegOutChg")),
+        long_standard_outstanding=to_float(record.get("LongStdOut")),
+        long_standard_change=to_float(record.get("LongStdOutChg")),
+        tse_margin_regulation_classification=_optional_text(record.get("TSEMrgnRegCls")) or None,
     )
 
 
 def normalize_short_sale_report(
     record: Mapping[str, Any],
 ) -> JQuantsShortSaleReport | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    """Read native V2 fields; a missing ratio or a note does not establish cancellation."""
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    names = (
-        _optional_text(coalesce_field(record, "ShortSellerName", "SSName", "short_seller_name")),
-        _optional_text(
-            coalesce_field(
-                record,
-                "DiscretionaryInvestmentContractorName",
-                "DICName",
-                "discretionary_investment_contractor_name",
-            )
-        ),
-        _optional_text(
-            coalesce_field(record, "InvestmentFundName", "FundName", "investment_fund_name") or ""
-        ),
-    )
-    ratio = to_float(
-        coalesce_field(
-            record,
-            "ShortPositionsToSharesOutstandingRatio",
-            "ShortPosRatio",
-            "ShrtPosToSO",
-            "short_ratio",
-        )
-    )
-    notes_value = coalesce_field(record, "Notes", "notes")
-    notes = _optional_text(notes_value) or None
-    is_cancellation = ratio is None and bool(notes)
-    if not any(names) or (ratio is None and not is_cancellation) or (ratio or 0.0) < 0.0:
+    names = tuple(_optional_text(record.get(key)) for key in ("SSName", "DICName", "FundName"))
+    if not any(names):
         return None
     return JQuantsShortSaleReport(
-        disclosed_at=parse_date(first_value(record, "DiscDate", "DisclosedDate", "disclosed_at")),
-        calculated_at=parse_date(
-            first_value(record, "CalcDate", "CalculatedDate", "calculated_at")
-        ),
+        disclosed_at=parse_date(record.get("DiscDate")),
+        calculated_at=parse_date(record.get("CalcDate")),
         ticker=ticker,
         short_seller_name=names[0],
         discretionary_investment_contractor_name=names[1],
         investment_fund_name=names[2],
-        short_ratio=ratio,
-        short_shares=_optional_int(
-            coalesce_field(
-                record,
-                "ShortPositionsInSharesNumber",
-                "ShortPosShares",
-                "ShrtPosShares",
-                "short_shares",
-            )
-        ),
-        short_trading_units=_optional_int(
-            coalesce_field(
-                record,
-                "ShortPositionsInTradingUnitsNumber",
-                "ShortPosTradingUnits",
-                "ShrtPosUnits",
-                "short_trading_units",
-            )
-        ),
-        previous_reported_at=parse_optional_date(
-            coalesce_field(
-                record,
-                "PrevRptDate",
-                "CalculationInPreviousReportingDate",
-                "previous_reported_at",
-            )
-        ),
-        previous_short_ratio=to_float(
-            coalesce_field(
-                record,
-                "ShortPositionsInPreviousReportingRatio",
-                "PrevShortPosRatio",
-                "PrevRptRatio",
-                "previous_short_ratio",
-            )
-        ),
-        is_cancellation=is_cancellation,
-        notes=notes,
+        short_ratio=to_float(record.get("ShrtPosToSO")),
+        short_shares=_optional_int(record.get("ShrtPosShares")),
+        short_trading_units=_optional_int(record.get("ShrtPosUnits")),
+        previous_reported_at=parse_optional_date(record.get("PrevRptDate")),
+        previous_short_ratio=to_float(record.get("PrevRptRatio")),
+        notes=_optional_text(record.get("Notes")) or None,
+        short_seller_address=_optional_text(record.get("SSAddr")) or None,
+        discretionary_investment_contractor_address=_optional_text(record.get("DICAddr")) or None,
     )
 
 

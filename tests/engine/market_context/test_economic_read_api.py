@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.indicator_store import store_h15_observations
 
 from baibai_engine.market_context.indicators.db import (
     get_series,
@@ -14,6 +15,8 @@ from baibai_engine.market_context.indicators.db import (
     retract_observations,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 from baibai_engine.read_api.market_context import (
@@ -45,7 +48,7 @@ def test_indicator_series_aggregates_each_period_to_its_last_observation(
         current += timedelta(days=1)
     connection = initialize_database(database)
     try:
-        insert_observations(connection, observations)
+        store_h15_observations(connection, observations)
         connection.commit()
     finally:
         connection.close()
@@ -88,7 +91,7 @@ def test_indicator_series_filters_range_before_aggregation_and_keeps_latest_vint
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        insert_observations(
+        store_h15_observations(
             connection,
             [
                 ObservationRecord(
@@ -125,25 +128,25 @@ def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> 
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        insert_observations(
-            connection,
-            [
-                ObservationRecord(
-                    series_id="jp.foreign_flows",
-                    observed_at=date(2024, 8, 23),
-                    value=value,
-                    unit="jpy-thousand",
-                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                    period_start=date(2024, 8, 19),
-                    period_end=date(2024, 8, 23),
-                    vintage_at=vintage_at,
-                )
-                for value, vintage_at in (
-                    (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                    (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                )
-            ],
-        )
+        for published, value in [
+            (date(2024, 8, 29), -408854431.0),
+            (date(2024, 9, 10), -400000000.0),
+        ]:
+            store_snapshot(
+                connection,
+                source_key="jquants_flows:TSEPrime",
+                observed_at=published,
+                fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
+                records=[
+                    {
+                        "Section": "TSEPrime",
+                        "PubDate": published.isoformat(),
+                        "StDate": "2024-08-19",
+                        "EnDate": "2024-08-23",
+                        "FrgnBal": value,
+                    }
+                ],
+            )
         connection.commit()
     finally:
         connection.close()
@@ -175,39 +178,36 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        insert_observations(
-            connection,
-            [
-                ObservationRecord(
-                    series_id="jp.foreign_flows",
-                    observed_at=date(2024, 8, 23),
-                    value=value,
-                    unit="jpy-thousand",
-                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                    period_start=date(2024, 8, 19),
-                    period_end=date(2024, 8, 23),
-                    vintage_at=vintage_at,
-                )
-                for value, vintage_at in (
-                    (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                    (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                )
-            ]
-            + [
-                ObservationRecord(
-                    series_id="jp.nikkei225",
-                    observed_at=date(2024, 8, 23),
-                    value=value,
-                    unit="index",
-                    source_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225",
-                    vintage_at=vintage_at,
-                )
-                for value, vintage_at in (
-                    (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                    (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                )
-            ],
-        )
+        for published, value in [(date(2024, 8, 29), 100.0), (date(2024, 9, 10), 120.0)]:
+            store_snapshot(
+                connection,
+                source_key="jquants_flows:TSEPrime",
+                observed_at=published,
+                fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
+                records=[
+                    {
+                        "Section": "TSEPrime",
+                        "PubDate": published.isoformat(),
+                        "StDate": "2024-08-19",
+                        "EnDate": "2024-08-23",
+                        "FrgnBal": value,
+                    }
+                ],
+            )
+        definition = get_series(connection, "jp.nikkei225")
+        for value, vintage_at in (
+            (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
+            (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
+        ):
+            store_snapshot(
+                connection,
+                source_key=native_source_key(definition),
+                observed_at=date(2024, 8, 23),
+                fetched_at=vintage_at,
+                records=[
+                    {"observation_date": "2024-08-23", definition.provider_series_id: str(value)}
+                ],
+            )
         connection.commit()
     finally:
         connection.close()
@@ -340,12 +340,12 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        series = get_series(connection, "us.10y")
+        series = get_series(connection, "jp.bankruptcies")
         insert_observations(
             connection,
             [
                 ObservationRecord(
-                    series_id="us.10y",
+                    series_id="jp.bankruptcies",
                     observed_at=observed_at,
                     value=value,
                     unit=series.unit,
@@ -353,30 +353,30 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
                     vintage_at=datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
                 )
                 for observed_at, value in (
-                    (date(2026, 5, 1), 4.39),
-                    (date(2026, 5, 4), 4.41),
+                    (date(2026, 5, 1), 439.0),
+                    (date(2026, 6, 1), 441.0),
                 )
             ],
         )
         retract_observations(
             connection,
-            "us.10y",
+            "jp.bankruptcies",
             [
                 (
-                    date(2026, 5, 4),
-                    datetime.combine(date(2026, 5, 4), datetime.min.time(), tzinfo=UTC),
+                    date(2026, 6, 1),
+                    datetime.combine(date(2026, 6, 1), datetime.min.time(), tzinfo=UTC),
                 )
             ],
-            vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+            vintage_at=datetime(2026, 6, 10, tzinfo=UTC),
         )
         connection.commit()
     finally:
         connection.close()
 
-    chart = indicator_series(database, series_id="us.10y", granularity="daily")
+    chart = indicator_series(database, series_id="jp.bankruptcies", granularity="daily")
 
     assert chart is not None
-    assert chart["points"] == [{"observed_at": "2026-05-01", "value": 4.39}]
+    assert chart["points"] == [{"observed_at": "2026-05-01", "value": 439.0}]
     assert indicator_latest_observed_at(database) == date(2026, 5, 1)
 
 

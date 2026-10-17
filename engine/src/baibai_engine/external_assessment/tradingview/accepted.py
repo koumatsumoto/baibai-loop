@@ -6,8 +6,9 @@ import hashlib
 import json
 import re
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,6 +19,14 @@ from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABL
 from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
 from baibai_engine.external_assessment.tradingview.observations import COLUMNS as REQUEST_COLUMNS
 from baibai_engine.external_assessment.tradingview.observations import normalize_batch
+from baibai_engine.storage.lake.datasets import TRADINGVIEW_FORECAST_SNAPSHOTS
+from baibai_engine.storage.lake.duck import LakeSession
+from baibai_engine.storage.lake.objects import LakeObjectCache
+from baibai_engine.storage.lake.reader import (
+    FixedRelease,
+    iter_partition_rows,
+    materialize_partitions,
+)
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 NAMES = tuple(item[0] for item in COLUMNS)
@@ -41,8 +50,6 @@ class ReceiptTiming(BaseModel):
 
     @model_validator(mode="after")
     def validate_times(self) -> ReceiptTiming:
-        if self.start.utcoffset() != timedelta(0) or self.end.utcoffset() != timedelta(0):
-            raise ValueError("receipt timestamps must be UTC")
         if self.end < self.start:
             raise ValueError("receipt end precedes start")
         return self
@@ -63,7 +70,7 @@ class ObservationInput(BaseModel):
     source_ref: SourceReference
     observation_date_jst: date
     columns: list[str]
-    observations: list[Receipt] = Field(min_length=1, max_length=2)
+    observations: list[Receipt] = Field(min_length=1)
 
 
 @dataclass(frozen=True)
@@ -202,30 +209,66 @@ def accept_observations(path: Path, accepted: AcceptedObservations) -> dict[str,
         conn.close()  # An uncommitted transaction is rolled back on every failure.
 
 
-def verify_observations(
-    path: Path, accepted: AcceptedObservations, report: dict[str, object]
+def _verify_history(
+    rows: Iterable[tuple[object, ...]], accepted: AcceptedObservations, report: dict[str, object]
 ) -> None:
-    """Check a fresh fixed-release hydrate against accepted rows and retained history."""
-    try:
-        if (
-            report.get("input_sha256") != accepted.sha256
-            or report.get("source_ref") != accepted.document.source_ref.model_dump()
-            or report.get("coverage_status") != "partial"
-        ):
-            raise ValueError("acceptance report identity mismatch")
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
-        try:
-            validate_current_schema(conn)
-            if any(_existing(conn, row) != row for row in accepted.values):
+    if (
+        report.get("input_sha256") != accepted.sha256
+        or report.get("source_ref") != accepted.document.source_ref.model_dump()
+        or report.get("coverage_status") != "partial"
+    ):
+        raise ValueError("acceptance report identity mismatch")
+    expected = {(row[0], row[1]): row for row in accepted.values}
+    found = set()
+    total, retained = hashlib.sha256(), hashlib.sha256()
+    total_count = retained_count = 0
+    for row in rows:
+        encoded = (
+            json.dumps(row, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode()
+            + b"\n"
+        )
+        total.update(encoded)
+        total_count += 1
+        key = (row[0], row[1])
+        if key in expected:
+            if row != expected[key]:
                 raise ValueError("accepted observation differs")
-            if _digest_rows(conn, exclude=accepted.keys) != (
-                report.get("retained_rows"),
-                report.get("retained_rows_sha256"),
-            ):
-                raise ValueError("retained history differs")
-            if _digest_rows(conn) != (report.get("total_rows"), report.get("total_rows_sha256")):
-                raise ValueError("total observations differ")
-        finally:
-            conn.close()
-    except (ValueError, sqlite3.Error, SQLiteSchemaError):
+            found.add(key)
+        else:
+            retained.update(encoded)
+            retained_count += 1
+    if found != set(expected):
+        raise ValueError("accepted observation missing")
+    if (retained_count, retained.hexdigest()) != (
+        report.get("retained_rows"),
+        report.get("retained_rows_sha256"),
+    ):
+        raise ValueError("retained history differs")
+    if (total_count, total.hexdigest()) != (
+        report.get("total_rows"),
+        report.get("total_rows_sha256"),
+    ):
+        raise ValueError("total observations differ")
+
+
+def verify_release_observations(
+    session: LakeSession,
+    *,
+    release: FixedRelease,
+    cache: LakeObjectCache,
+    accepted: AcceptedObservations,
+    report: dict[str, object],
+) -> None:
+    """Verify the fixed TV dataset directly, without pretending to hydrate a full store."""
+    dataset = TRADINGVIEW_FORECAST_SNAPSHOTS
+    manifest = release.dataset_manifest(dataset.name)
+    paths = materialize_partitions(cache, dataset=dataset, partitions=manifest.partitions)
+    rows = (
+        row
+        for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=NAMES)
+        for row in batch
+    )
+    try:
+        _verify_history(rows, accepted, report)
+    except ValueError:
         raise SourceDataError("Saved TradingView readback differs") from None

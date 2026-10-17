@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from tests.helpers.screening_sqlite import add_source_coverage
+from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_batch.storage.merge_market_store import (
     ALL_TABLES,
@@ -19,7 +19,9 @@ from baibai_batch.storage.merge_market_store import (
     main,
     merge_stores,
 )
+from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
@@ -69,9 +71,14 @@ def _add_coverage(
 def _add_fin_summary(path: Path, *, ticker: str = "1301", disclosed_at: str = "2020-02-07") -> None:
     conn = open_connection(path)
     try:
-        conn.execute(
-            "INSERT INTO jquants_fin_summaries(ticker, disclosed_at, sales) VALUES (?, ?, 100.0)",
-            (ticker, disclosed_at),
+        insert_financial_record(
+            conn,
+            {
+                "Code": f"{ticker}0",
+                "DiscDate": disclosed_at,
+                "DiscNo": f"{ticker}-{disclosed_at}",
+                "Sales": 100.0,
+            },
         )
         conn.commit()
     finally:
@@ -82,9 +89,8 @@ def _add_bar(path: Path, ticker: str, traded_at: str, close: float) -> None:
     conn = open_connection(path)
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO jquants_daily_bars"
-            "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-            (ticker, traded_at, close, close),
+            "INSERT OR REPLACE INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+            (ticker, traded_at, close),
         )
         conn.commit()
     finally:
@@ -457,7 +463,7 @@ class TestFinancialSummaryCoverage:
         Writing this store's smaller number in would ship a ledger that understates the
         release. The next fill restores the rows, the ledger keeps the smaller number,
         and `verify-cache-coverage` then refuses every screening run while no re-fetch is
-        ever planned — `covered_intervals` drops a window only when its count is zero.
+        ever planned: a clean financial range is considered fetched even when it has no filings.
         """
 
         source = _store(tmp_path / "source.sqlite")
@@ -501,6 +507,34 @@ class TestFinancialSummaryCoverage:
 
 
 class TestRetractedCoverage:
+    @pytest.mark.parametrize("repaired_inputs", [("source",), ("target",), ("source", "target")])
+    def test_existing_partial_repair_is_preserved(self, tmp_path: Path, repaired_inputs) -> None:
+        stores = {name: _store(tmp_path / f"{name}.sqlite") for name in ("source", "target")}
+        for path in stores.values():
+            _add_fin_summary(path, disclosed_at="2026-01-05")
+            _add_fin_summary(path, disclosed_at="2026-01-15")
+        for name in repaired_inputs:
+            with closing(open_connection(stores[name])) as connection, connection:
+                for start, end, status, error in (
+                    (1, 31, "partial", "some records were rejected"),
+                    (10, 20, "ok", None),
+                ):
+                    record_range_source_coverage(
+                        connection,
+                        source="jquants_fin_summaries",
+                        operation="get_fin_summary_range",
+                        table="jquants_fin_summaries",
+                        date_column="disclosed_at",
+                        requested_start=date(2026, 1, start),
+                        requested_end=date(2026, 1, end),
+                        status=status,
+                        error=error,
+                    )
+        expected = _coverage(stores[repaired_inputs[0]], "jquants_fin_summaries")
+        merge_stores(stores["source"], stores["target"])
+        actual = _coverage(stores["target"], "jquants_fin_summaries")
+        assert [row[:3] for row in actual] == [row[:3] for row in expected]
+
     def test_a_window_a_failed_fetch_retracted_is_not_reinstated(self, tmp_path: Path) -> None:
         """The ledger is not append-only: a failed fetch cuts its range out of the ok windows.
 
@@ -592,7 +626,9 @@ class TestShortSaleCoverage:
             )
         ]
 
-    def test_a_complete_claim_beats_a_newer_partial_one(self, tmp_path: Path) -> None:
+    def test_a_newer_partial_claim_is_not_overridden_by_an_older_success(
+        self, tmp_path: Path
+    ) -> None:
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
         _store_short_snapshot(
@@ -607,7 +643,7 @@ class TestShortSaleCoverage:
 
         merge_stores(source, target)
 
-        assert _coverage(target, "jquants_short_sale_reports")[0][2] == "ok"
+        assert _coverage(target, "jquants_short_sale_reports")[0][2] == "partial"
 
     def test_a_date_the_release_filled_before_its_claim_arrived_still_merges(
         self,
@@ -839,12 +875,18 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
 
     source, target = _store(tmp_path / "source.sqlite"), _store(tmp_path / "target.sqlite")
     # Two documents submitted the same day are independent claims.
-    store_facts(target, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
+    store_facts(
+        target, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts()
+    )
     record_failure(target, doc_id="S100FAIL", disclosed_on="2026-07-22", reason="unavailable")
     # Target successfully retried the source's failure.
     record_failure(source, doc_id="S100YR5P", disclosed_on="2026-07-22", reason="old failure")
     # A remote-only success is not proof of the target's extracted fact generation.
-    store_facts(source, doc_id="S100YJ24", disclosed_on="2026-07-22", facts=facts("S100YJ24"))
+    store_facts(
+        source,
+        identity=filing_identity("1873", "S100YJ24", "2026-07-22 10:00"),
+        facts=facts("S100YJ24"),
+    )
     record_initialized(source, date(2026, 9, 18))
     merge_stores(source, target)
     statuses = extraction_status(target)
@@ -853,7 +895,9 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     assert statuses["S100YJ24"] == ("failed", "imported_document_requires_recheck")
     assert json.loads(statuses["initialized"][1]) == {"since": "2026-09-18"}
     # Different extractor revisions retain the target claim attached to its facts.
-    store_facts(source, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
+    store_facts(
+        source, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts()
+    )
     with closing(sqlite3.connect(target)) as conn, conn:
         conn.execute(
             "UPDATE source_coverage SET error=? WHERE source='edinet_research_facts' AND coverage_key='S100YR5P'",
@@ -865,3 +909,88 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     )
     with closing(sqlite3.connect(target)) as conn, conn:
         assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 40
+
+
+@pytest.mark.parametrize(
+    ("source_name", "status"),
+    [
+        ("edinet_documents", "ok"),
+        ("jquants_fin_summaries", "failed"),
+        ("jquants_fin_summaries", "partial"),
+    ],
+)
+def test_shared_non_reconcilable_coverage_counts_must_match(tmp_path, source_name, status):
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    for path, amount in ((source, 2), (target, 1)):
+        _add_coverage(
+            path,
+            source_name,
+            _FIN_RANGE,
+            record_count=amount,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+            status=status,
+            error=None if status == "ok" else "provider error",
+        )
+    before = target.read_bytes()
+    with pytest.raises(MergeError, match="source_coverage payload disagrees"):
+        merge_stores(source, target)
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("source_count", [1, 2, 3])
+def test_shared_clean_financial_claim_is_checked_before_target_wins(tmp_path, source_count):
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(target, ticker="1301")
+    _add_fin_summary(target, ticker="1302")
+    for path, amount in ((source, source_count), (target, 1)):
+        _add_coverage(
+            path,
+            "jquants_fin_summaries",
+            _FIN_RANGE,
+            record_count=amount,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+        )
+    before = target.read_bytes()
+    if source_count > 2:
+        with pytest.raises(MergeError, match="claims 3 row"):
+            merge_stores(source, target)
+        assert target.read_bytes() == before
+    else:
+        merge_stores(source, target)
+        assert _coverage(target, "jquants_fin_summaries")[0][1] == 2
+
+
+@pytest.mark.parametrize("newer_side", ["source", "target"])
+def test_short_sale_partial_refetch_cannot_be_relabelled_complete_by_merge(tmp_path, newer_side):
+    from baibai_engine.storage.observations.reader import read_short_sale_reports
+
+    stores = {name: _store(tmp_path / f"{name}.sqlite") for name in ("source", "target")}
+    day = date(2026, 8, 1)
+    for path in stores.values():
+        _store_short_snapshot(
+            path,
+            [_short_record("A", 0.5), _short_record("B", 0.6)],
+            fetched_at_utc="2026-08-02T00:00:00+00:00",
+        )
+    newer = stores[newer_side]
+    # Exercise the real writer: one invalid record makes a received replacement partial.
+    store_jquants_short_sale_reports(
+        newer,
+        [_short_record("A", 0.7), {**_short_record("B", 0.6), "Code": "invalid"}],
+        requested_start=day,
+        requested_end=day,
+    )
+    with closing(open_connection(newer)) as connection, connection:
+        connection.execute(
+            "UPDATE source_coverage SET fetched_at_utc='2026-08-03T00:00:00+00:00' "
+            "WHERE source='jquants_short_sale_reports'"
+        )
+    assert _coverage(newer, "jquants_short_sale_reports")[0][2] == "partial"
+    merge_stores(stores["source"], stores["target"])
+    claim = _coverage(stores["target"], "jquants_short_sale_reports")[0]
+    assert claim[1:] == (1, "partial", "2026-08-03T00:00:00+00:00")
+    assert read_short_sale_reports(stores["target"], day, day) is None

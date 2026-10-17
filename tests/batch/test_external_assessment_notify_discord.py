@@ -140,7 +140,7 @@ def test_explicit_partial_publication_reports_uncertain_and_unattempted_as_degra
 
 
 @pytest.mark.parametrize("status", ["already_published", "already_partially_published"])
-def test_prior_publication_is_skipped_and_retains_complete_or_partial_identity(monkeypatch, status):
+def test_prior_publication_is_skipped_without_claiming_complete_acquisition(monkeypatch, status):
     message = invoke(
         monkeypatch,
         "--plan-result",
@@ -158,11 +158,12 @@ def test_prior_publication_is_skipped_and_retains_complete_or_partial_identity(m
     assert (
         "以前の部分公開確認済み"
         if status == "already_partially_published"
-        else "以前の完全公開確認済み"
+        else "以前の公開確認済み"
     ) in message
     assert "今回の再取得/再公開なし" in message
     assert "固定 pair=4; typed pair=2" in message
     assert "既知失敗 pair=不明" in message
+    assert "完全" not in message
     assert "追加 row=0" in message
 
 
@@ -290,7 +291,7 @@ def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
     )
 
 
-def test_legacy_terminal_missing_counters_remain_unknown_without_reconstruction(
+def test_full_terminal_missing_counters_remain_unknown_without_reconstruction(
     tmp_path, monkeypatch
 ):
     path = tmp_path / "github-output"

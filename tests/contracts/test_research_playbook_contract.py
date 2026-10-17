@@ -36,12 +36,6 @@ def test_active_research_playbooks_map_explicitly_to_valuation_approaches() -> N
         metadata = active[approach_id]
         assert metadata["research_playbook_id"] == playbook_id
         assert metadata["applies_to_valuation_approach_ids"] == [approach_id]
-        assert "applies_to_evidence_pattern_ids" not in metadata
-
-
-def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
-    text = RESEARCH_SKILL.read_text(encoding="utf-8")
-    assert "明示mappingされたplaybook" in text
 
 
 def test_research_skill_completes_the_investment_proposal_session() -> None:
@@ -54,4 +48,3 @@ def test_research_skill_completes_the_investment_proposal_session() -> None:
     assert "record-unfinished" in text
     assert "operation complete --payload" in text
     assert "人間の採否・broker操作・実約定を完了条件へ補完しない" in text
-    assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" not in text

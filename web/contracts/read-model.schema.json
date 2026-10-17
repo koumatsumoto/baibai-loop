@@ -1012,7 +1012,7 @@
         "valuation_as_of": {
           "anyOf": [
             {
-              "format": "date-time",
+              "format": "date",
               "type": "string"
             },
             {
@@ -2447,7 +2447,7 @@
         "market_price_as_of": {
           "anyOf": [
             {
-              "format": "date-time",
+              "format": "date",
               "type": "string"
             },
             {
@@ -3263,11 +3263,6 @@
           "title": "Target Session",
           "type": "string"
         },
-        "expires_at": {
-          "format": "date-time",
-          "title": "Expires At",
-          "type": "string"
-        },
         "valuation_as_of": {
           "format": "date",
           "title": "Valuation As Of",
@@ -3309,7 +3304,6 @@
         "quantity",
         "notional_yen",
         "target_session",
-        "expires_at",
         "valuation_as_of",
         "maximum_entry_price_yen",
         "price_grid_rule_id",
@@ -5874,7 +5868,7 @@
           "type": "number"
         },
         "price_basis": {
-          "const": "split_adjusted_close",
+          "const": "price_adjusted_close",
           "title": "Price Basis",
           "type": "string"
         },
@@ -6085,7 +6079,7 @@
         "candidate": {
           "$ref": "#/$defs/StockCandidateContextView"
         },
-        "listing_span_days": {
+        "price_history_span_days": {
           "anyOf": [
             {
               "type": "number"
@@ -6094,7 +6088,7 @@
               "type": "null"
             }
           ],
-          "title": "Listing Span Days"
+          "title": "Price History Span Days"
         },
         "jpx_flags": {
           "anyOf": [
@@ -6732,7 +6726,7 @@
           ],
           "title": "Next Earnings Date"
         },
-        "margin_week_end": {
+        "margin_balance_date": {
           "anyOf": [
             {
               "format": "date",
@@ -6743,7 +6737,7 @@
             }
           ],
           "default": null,
-          "title": "Margin Week End"
+          "title": "Margin Balance Date"
         },
         "margin_long_to_adv": {
           "anyOf": [
@@ -6859,7 +6853,7 @@
       },
       "required": [
         "candidate",
-        "listing_span_days",
+        "price_history_span_days",
         "jpx_flags",
         "forecast_special_gain_flag",
         "forecast_full_year_loss_flag",
@@ -6916,7 +6910,7 @@
         "price_change_20d",
         "gap_from_52w_low",
         "next_earnings_date",
-        "margin_week_end",
+        "margin_balance_date",
         "margin_long_to_adv",
         "margin_short_to_adv",
         "margin_long_share",

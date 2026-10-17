@@ -8,8 +8,8 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.financial_documents import normalize_financial_summary
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.financial_documents import required_disclosure_number
+from baibai_engine.market.jquants_decode import provider_record_payload
 from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
@@ -23,7 +23,7 @@ from baibai_engine.storage.observations.convert import (
     NormalizedRows,
     code_quality,
     date_iso,
-    first,
+    distinct_source_rows,
     to_float,
     to_str_or_none,
 )
@@ -52,7 +52,6 @@ def store_jquants_fin_summaries(
     *,
     requested_start: date,
     requested_end: date,
-    requested_ticker: str | None = None,
 ) -> int:
     if requested_start > requested_end:
         raise ValueError("financial request start must not follow end")
@@ -62,68 +61,36 @@ def store_jquants_fin_summaries(
         not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat() for row in rows
     ):
         raise ValueError("financial payload contains a disclosure date outside the request")
-    if requested_ticker is not None and any(row[0] != requested_ticker for row in rows):
-        raise ValueError("financial payload contains a different requested ticker")
     conn = open_connection(db_path)
     try:
-        if requested_ticker is None:
-            replace_date_range(
-                conn,
-                "jquants_fin_summaries",
-                "disclosed_at",
-                requested_start,
-                requested_end,
-                replacement_row_count=len(rows),
-            )
-        else:
-            held = conn.execute(
-                "SELECT COUNT(*) FROM jquants_fin_summaries WHERE ticker = ? "
-                "AND disclosed_at BETWEEN ? AND ?",
-                (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
-            ).fetchone()[0]
-            if held and not rows:
-                raise EmptyRangeReplacementError("refusing empty issuer financial replacement")
-            conn.execute(
-                "DELETE FROM jquants_fin_summaries WHERE ticker = ? "
-                "AND disclosed_at BETWEEN ? AND ?",
-                (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
-            )
+        replace_date_range(
+            conn,
+            "jquants_fin_summaries",
+            "disclosed_at",
+            requested_start,
+            requested_end,
+            replacement_row_count=len(rows),
+        )
         if rows:
             conn.executemany(
                 """
-                INSERT OR REPLACE INTO jquants_fin_summaries(
-                  ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
-                  sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit,
-                  profit, forecast_profit, forecast_ordinary_profit,
-                  fiscal_period, fiscal_year_end, period_start, period_end,
-                  dps_actual_annual, dps_forecast_annual,
-                  treasury_shares, equity_to_asset_ratio,
-                  dividend_q1, dividend_interim, dividend_q3, dividend_year_end,
-                  dividend_total_annual, average_shares, record_key, disclosure_number,
-                  disclosed_time,
-                  document_type, document_payload
-                ) VALUES (
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
+                INSERT INTO jquants_fin_summaries(
+                  ticker, disclosed_at, disclosure_number, document_payload
+                ) VALUES (?, ?, ?, ?)
                 """,
                 rows,
             )
-        if requested_ticker is None:
-            persisted_count = record_range_source_coverage(
-                conn,
-                source="jquants_fin_summaries",
-                operation="get_fin_summary_range",
-                table="jquants_fin_summaries",
-                date_column="disclosed_at",
-                requested_start=requested_start,
-                requested_end=requested_end,
-                status=normalized.status,
-                error=normalized.error,
-            )
-        else:
-            # An issuer repair does not establish all-market acquisition coverage.
-            persisted_count = len(rows)
+        persisted_count = record_range_source_coverage(
+            conn,
+            source="jquants_fin_summaries",
+            operation="get_fin_summary_range",
+            table="jquants_fin_summaries",
+            date_column="disclosed_at",
+            requested_start=requested_start,
+            requested_end=requested_end,
+            status=normalized.status,
+            error=normalized.error,
+        )
         conn.commit()
         return persisted_count
     finally:
@@ -286,8 +253,10 @@ def store_jquants_all_issues_daily_margin(
                 """
                 INSERT INTO jquants_all_issues_daily_margin(
                   balance_date, ticker, long_vol, short_vol, long_std_vol, long_neg_vol,
-                  short_std_vol, short_neg_vol, issue_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  short_std_vol, short_neg_vol, issue_type, publication_date,
+                  long_value, short_value, long_std_value, long_neg_value,
+                  short_std_value, short_neg_value
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 normalized.rows,
             )
@@ -361,8 +330,9 @@ def store_jquants_short_sale_reports(
                       disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
                       discretionary_investment_contractor_name, investment_fund_name,
                       short_ratio, short_shares, short_trading_units,
-                      previous_reported_at, previous_short_ratio, is_cancellation, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      previous_reported_at, previous_short_ratio, notes,
+                      short_seller_address, discretionary_investment_contractor_address
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     day_rows,
                 )
@@ -402,108 +372,41 @@ def _short_sale_report_rows_with_quality(
     excluded_count = 0
     next_ordinal_by_date: dict[str, int] = {}
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        disclosed_at = date_iso(
-            first(record, "DiscDate", "DisclosedDate", "disclosed_at", "disc_date")
-        )
-        calculated_at = date_iso(
-            first(record, "CalcDate", "CalculatedDate", "calculated_at", "calc_date")
-        )
-        short_ratio = to_float(
-            first(
-                record,
-                "ShortPositionsToSharesOutstandingRatio",
-                "ShortPosRatio",
-                "ShrtPosToSO",
-                "short_ratio",
-            )
-        )
-        short_seller_name = _text_or_empty(
-            first(record, "ShortSellerName", "SSName", "short_seller_name")
-        )
-        contractor_name = _text_or_empty(
-            first(
-                record,
-                "DiscretionaryInvestmentContractorName",
-                "DICName",
-                "discretionary_investment_contractor_name",
-            )
-        )
-        fund_name = _text_or_empty(
-            first(record, "InvestmentFundName", "FundName", "investment_fund_name")
-        )
-        notes = to_str_or_none(first(record, "Notes", "notes"))
-        is_cancellation = short_ratio is None and bool(notes and notes.strip())
-        if (
-            disclosed_at is None
-            or calculated_at is None
-            or (short_ratio is None and not is_cancellation)
-            or (short_ratio is not None and short_ratio < 0.0)
-            or not any((short_seller_name, contractor_name, fund_name))
-        ):
+        disclosed_at = date_iso(record.get("DiscDate"))
+        calculated_at = date_iso(record.get("CalcDate"))
+        names = tuple(_text_or_empty(record.get(key)) for key in ("SSName", "DICName", "FundName"))
+        if disclosed_at is None or calculated_at is None or not any(names):
             rejected_count += 1
             continue
         source_ordinal = next_ordinal_by_date.get(disclosed_at, 0)
         next_ordinal_by_date[disclosed_at] = source_ordinal + 1
-        row = (
-            disclosed_at,
-            source_ordinal,
-            calculated_at,
-            ticker,
-            short_seller_name,
-            contractor_name,
-            fund_name,
-            short_ratio,
-            _to_int_or_none(
-                first(
-                    record,
-                    "ShortPositionsInSharesNumber",
-                    "ShortPosShares",
-                    "ShrtPosShares",
-                    "short_shares",
-                )
-            ),
-            _to_int_or_none(
-                first(
-                    record,
-                    "ShortPositionsInTradingUnitsNumber",
-                    "ShortPosTradingUnits",
-                    "ShrtPosUnits",
-                    "short_trading_units",
-                )
-            ),
-            date_iso(
-                first(
-                    record,
-                    "PrevRptDate",
-                    "CalculationInPreviousReportingDate",
-                    "previous_reported_at",
-                )
-            ),
-            to_float(
-                first(
-                    record,
-                    "ShortPositionsInPreviousReportingRatio",
-                    "PrevShortPosRatio",
-                    "PrevRptRatio",
-                    "previous_short_ratio",
-                )
-            ),
-            int(is_cancellation),
-            notes,
+        # Notes is free text, not a cancellation flag. Preserve missing/invalid
+        # ratios as source evidence; the L2 state reader decides usability.
+        rows.append(
+            (
+                disclosed_at,
+                source_ordinal,
+                calculated_at,
+                ticker,
+                *names,
+                to_float(record.get("ShrtPosToSO")),
+                _to_int_or_none(record.get("ShrtPosShares")),
+                _to_int_or_none(record.get("ShrtPosUnits")),
+                date_iso(record.get("PrevRptDate")),
+                to_float(record.get("PrevRptRatio")),
+                to_str_or_none(record.get("Notes")),
+                to_str_or_none(record.get("SSAddr")),
+                to_str_or_none(record.get("DICAddr")),
+            )
         )
-        rows.append(row)
-    return NormalizedRows(
-        rows=rows,
-        rejected_count=rejected_count,
-        excluded_count=excluded_count,
-    )
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
 def _to_int_or_none(value: Any) -> int | None:
@@ -523,33 +426,35 @@ def _weekly_margin_rows_with_quality(
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
-    seen: set[str] = set()
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        if ticker in seen:
+        if date_iso(record.get("Date")) != week_end.isoformat():
             rejected_count += 1
             continue
-        seen.add(ticker)
         rows.append(
             (
                 week_end.isoformat(),
                 ticker,
-                to_float(first(record, "LongVol", "long_vol")),
-                to_float(first(record, "ShrtVol", "shrt_vol")),
-                to_float(first(record, "LongStdVol", "long_std_vol")),
-                to_float(first(record, "LongNegVol", "long_neg_vol")),
-                to_float(first(record, "ShrtStdVol", "shrt_std_vol")),
-                to_float(first(record, "ShrtNegVol", "shrt_neg_vol")),
-                to_str_or_none(first(record, "IssType", "iss_type")),
+                to_float(record.get("LongVol")),
+                to_float(record.get("ShrtVol")),
+                to_float(record.get("LongStdVol")),
+                to_float(record.get("LongNegVol")),
+                to_float(record.get("ShrtStdVol")),
+                to_float(record.get("ShrtNegVol")),
+                to_str_or_none(record.get("IssType")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="weekly margin"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def _margin_alert_rows_with_quality(
@@ -558,39 +463,38 @@ def _margin_alert_rows_with_quality(
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
-    seen: set[tuple[str, str]] = set()
+    required_payload_fields = (
+        "AppDate",
+        "PubReason",
+        "ShrtOut",
+        "ShrtOutChg",
+        "ShrtOutRatio",
+        "LongOut",
+        "LongOutChg",
+        "LongOutRatio",
+        "SLRatio",
+        "ShrtNegOut",
+        "ShrtNegOutChg",
+        "ShrtStdOut",
+        "ShrtStdOutChg",
+        "LongNegOut",
+        "LongNegOutChg",
+        "LongStdOut",
+        "LongStdOutChg",
+        "TSEMrgnRegCls",
+    )
     for record in records:
-        required_payload_fields = (
-            ("AppDate", "ApplicationDate", "applied_date"),
-            ("PubReason", "publication_reason"),
-            ("ShrtOut", "short_outstanding"),
-            ("ShrtOutChg", "short_change"),
-            ("ShrtOutRatio", "short_ratio"),
-            ("LongOut", "long_outstanding"),
-            ("LongOutChg", "long_change"),
-            ("LongOutRatio", "long_ratio"),
-            ("SLRatio", "short_long_ratio"),
-            ("ShrtNegOut", "short_negotiable_outstanding"),
-            ("ShrtNegOutChg", "short_negotiable_change"),
-            ("ShrtStdOut", "short_standard_outstanding"),
-            ("ShrtStdOutChg", "short_standard_change"),
-            ("LongNegOut", "long_negotiable_outstanding"),
-            ("LongNegOutChg", "long_negotiable_change"),
-            ("LongStdOut", "long_standard_outstanding"),
-            ("LongStdOutChg", "long_standard_change"),
-            ("TSEMrgnRegCls", "tse_margin_regulation_classification"),
-        )
-        if any(not any(key in record for key in aliases) for aliases in required_payload_fields):
+        if any(key not in record for key in required_payload_fields):
             rejected_count += 1
             continue
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        publication_date = date_iso(first(record, "PubDate", "PublicationDate", "publication_date"))
+        publication_date = date_iso(record.get("PubDate"))
         if publication_date is None:
             rejected_count += 1
             continue
@@ -599,27 +503,24 @@ def _margin_alert_rows_with_quality(
         except ValueError:
             rejected_count += 1
             continue
-        identity = (publication_date, ticker)
-        applied_date = date_iso(first(record, "AppDate", "ApplicationDate", "applied_date"))
-        publication_reason = to_str_or_none(first(record, "PubReason", "publication_reason"))
+        applied_date = date_iso(record.get("AppDate"))
+        publication_reason = to_str_or_none(record.get("PubReason"))
         core_balances = (
-            to_float(first(record, "ShrtOut", "short_outstanding")),
-            to_float(first(record, "LongOut", "long_outstanding")),
-            to_float(first(record, "ShrtNegOut", "short_negotiable_outstanding")),
-            to_float(first(record, "ShrtStdOut", "short_standard_outstanding")),
-            to_float(first(record, "LongNegOut", "long_negotiable_outstanding")),
-            to_float(first(record, "LongStdOut", "long_standard_outstanding")),
+            to_float(record.get("ShrtOut")),
+            to_float(record.get("LongOut")),
+            to_float(record.get("ShrtNegOut")),
+            to_float(record.get("ShrtStdOut")),
+            to_float(record.get("LongNegOut")),
+            to_float(record.get("LongStdOut")),
         )
         if (
             not requested_start <= publication_day <= requested_end
-            or identity in seen
             or applied_date is None
             or publication_reason is None
             or any(value is None or not isfinite(value) or value < 0.0 for value in core_balances)
         ):
             rejected_count += 1
             continue
-        seen.add(identity)
         rows.append(
             (
                 publication_date,
@@ -627,30 +528,28 @@ def _margin_alert_rows_with_quality(
                 applied_date,
                 publication_reason,
                 core_balances[0],
-                to_float(first(record, "ShrtOutChg", "short_change")),
-                to_float(first(record, "ShrtOutRatio", "short_ratio")),
+                to_float(record.get("ShrtOutChg")),
+                to_float(record.get("ShrtOutRatio")),
                 core_balances[1],
-                to_float(first(record, "LongOutChg", "long_change")),
-                to_float(first(record, "LongOutRatio", "long_ratio")),
-                to_float(first(record, "SLRatio", "short_long_ratio")),
+                to_float(record.get("LongOutChg")),
+                to_float(record.get("LongOutRatio")),
+                to_float(record.get("SLRatio")),
                 core_balances[2],
-                to_float(first(record, "ShrtNegOutChg", "short_negotiable_change")),
+                to_float(record.get("ShrtNegOutChg")),
                 core_balances[3],
-                to_float(first(record, "ShrtStdOutChg", "short_standard_change")),
+                to_float(record.get("ShrtStdOutChg")),
                 core_balances[4],
-                to_float(first(record, "LongNegOutChg", "long_negotiable_change")),
+                to_float(record.get("LongNegOutChg")),
                 core_balances[5],
-                to_float(first(record, "LongStdOutChg", "long_standard_change")),
-                to_str_or_none(
-                    first(
-                        record,
-                        "TSEMrgnRegCls",
-                        "tse_margin_regulation_classification",
-                    )
-                ),
+                to_float(record.get("LongStdOutChg")),
+                to_str_or_none(record.get("TSEMrgnRegCls")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="margin alerts"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def _all_issues_daily_margin_rows_with_quality(
@@ -659,43 +558,54 @@ def _all_issues_daily_margin_rows_with_quality(
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
-    seen: set[str] = set()
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        payload_date = date_iso(first(record, "Date", "balance_date"))
-        if payload_date != balance_date.isoformat() or ticker in seen:
+        payload_date = date_iso(record.get("Date"))
+        if payload_date != balance_date.isoformat():
             rejected_count += 1
             continue
         balances = (
-            to_float(first(record, "LongVol", "long_vol")),
-            to_float(first(record, "ShrtVol", "shrt_vol")),
-            to_float(first(record, "LongStdVol", "long_std_vol")),
-            to_float(first(record, "LongNegVol", "long_neg_vol")),
-            to_float(first(record, "ShrtStdVol", "shrt_std_vol")),
-            to_float(first(record, "ShrtNegVol", "shrt_neg_vol")),
+            to_float(record.get("LongVol")),
+            to_float(record.get("ShrtVol")),
+            to_float(record.get("LongStdVol")),
+            to_float(record.get("LongNegVol")),
+            to_float(record.get("ShrtStdVol")),
+            to_float(record.get("ShrtNegVol")),
         )
-        issue_type = to_str_or_none(first(record, "IssType", "iss_type"))
+        issue_type = to_str_or_none(record.get("IssType"))
         if issue_type is None or any(
             value is None or not isfinite(value) or value < 0.0 for value in balances
         ):
             rejected_count += 1
             continue
-        seen.add(ticker)
         rows.append(
             (
                 balance_date.isoformat(),
                 ticker,
                 *balances,
                 issue_type,
+                date_iso(record.get("PubDate")),
+                # Keep native balance values without unit conversion or inference
+                # from shares and a market price. Their source missingness remains null.
+                to_float(record.get("LongVal")),
+                to_float(record.get("ShrtVal")),
+                to_float(record.get("LongStdVal")),
+                to_float(record.get("LongNegVal")),
+                to_float(record.get("ShrtStdVal")),
+                to_float(record.get("ShrtNegVal")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="daily all-issues margin"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def store_jquants_master(
@@ -704,61 +614,23 @@ def store_jquants_master(
     *,
     requested_asof: date,
 ) -> int:
-    # Materialize and validate the complete response before opening SQLite. An
-    # invalid provider batch must not create a DB or begin a transaction that
-    # can disturb an already accepted snapshot.
-    records_list = list(records)
-    validated = validate_master_snapshot(records_list, requested_asof)
+    validated = validate_master_snapshot(list(records), requested_asof)
     conn = open_connection(db_path)
     try:
         iso = requested_asof.isoformat()
         conn.execute("BEGIN")
-        conn.execute(
-            "DELETE FROM jquants_master_snapshots WHERE snapshot_date = ?",
-            (iso,),
-        )
-        # Remove coverage only for this requested snapshot. This also cleans a
-        # same-date legacy key while retaining every other captured date.
+        conn.execute("DELETE FROM jquants_master_snapshots WHERE snapshot_date = ?", (iso,))
         conn.execute(
             "DELETE FROM source_coverage WHERE source = ? "
             "AND coverage_start = ? AND coverage_end = ?",
             (MASTER_SOURCE, iso, iso),
         )
         conn.executemany(
-            """
-            INSERT INTO jquants_master_snapshots(
-              snapshot_date, ticker, name, market, sector_33, is_common_stock
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
+            "INSERT INTO jquants_master_snapshots(snapshot_date, security_code, record_json) "
+            "VALUES (?, ?, ?)",
             validated.rows,
         )
-        count_row = conn.execute(
-            "SELECT COUNT(*) FROM jquants_master_snapshots WHERE snapshot_date = ?",
-            (iso,),
-        ).fetchone()
-        persisted_count = int(count_row[0] or 0)
-        if persisted_count != validated.persisted_count:
-            raise JQuantsProviderError(
-                "J-Quants master persisted count mismatch before coverage write: "
-                f"expected={validated.persisted_count} actual={persisted_count}"
-            )
-        if validated.raw_count != persisted_count + validated.excluded_count:
-            raise JQuantsProviderError(
-                "J-Quants master raw/persisted/excluded count mismatch after insert: "
-                f"raw={validated.raw_count} persisted={persisted_count} "
-                f"excluded={validated.excluded_count}"
-            )
-        common_row = conn.execute(
-            "SELECT COUNT(*) FROM jquants_master_snapshots "
-            "WHERE snapshot_date = ? AND is_common_stock = 1",
-            (iso,),
-        ).fetchone()
-        persisted_common_count = int(common_row[0] or 0)
-        if persisted_common_count != validated.common_stock_count:
-            raise JQuantsProviderError(
-                "J-Quants master common-stock count mismatch after insert: "
-                f"expected={validated.common_stock_count} actual={persisted_common_count}"
-            )
+        persisted_count = validated.persisted_count
         record_source_coverage(
             conn,
             source=MASTER_SOURCE,
@@ -769,16 +641,9 @@ def store_jquants_master(
             status="ok",
             error=None,
         )
-        coverage = conn.execute(
-            "SELECT coverage_start, coverage_end, record_count, status, error "
-            "FROM source_coverage WHERE source = ? AND coverage_key = ?",
-            (MASTER_SOURCE, master_coverage_key(requested_asof)),
-        ).fetchone()
-        if coverage != (iso, iso, persisted_count, "ok", None):
-            raise JQuantsProviderError("J-Quants master coverage write did not round-trip exactly")
         conn.commit()
         return persisted_count
-    except Exception:
+    except BaseException:
         conn.rollback()
         raise
     finally:
@@ -787,66 +652,30 @@ def store_jquants_master(
 
 def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
     rows: list[tuple[Any, ...]] = []
+    seen: dict[tuple[str, str, str], str] = {}
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded":
             excluded_count += 1
             continue
-        disclosed_at = date_iso(
-            first(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date")
-        )
+        disclosed_at = date_iso(record.get("DiscDate"))
         if ticker is None or disclosed_at is None:
             rejected_count += 1
             continue
-        summary = normalize_financial_summary(record)
-        if summary is None:
-            excluded_count += 1
+        disclosed_at = date.fromisoformat(disclosed_at).isoformat()
+        # Store provider fields, not selected forecasts or a second numeric truth.
+        # Source record JSON is not the original HTTP response or Bulk CSV bytes.
+        key = (ticker, disclosed_at, required_disclosure_number(record))
+        payload = provider_record_payload(record)
+        if key in seen:
+            if seen[key] != payload:
+                raise ValueError(f"conflicting financial document identity: {key}")
             continue
-        columns = (
-            "ticker",
-            "disclosed_at",
-            "forecast_eps",
-            "eps_ttm",
-            "bps",
-            "shares_outstanding",
-            "sales",
-            "cfo",
-            "cash_eq",
-            "total_assets",
-            "equity",
-            "operating_profit",
-            "ordinary_profit",
-            "profit",
-            "forecast_profit",
-            "forecast_ordinary_profit",
-            "fiscal_period",
-            "fiscal_year_end",
-            "period_start",
-            "period_end",
-            "dps_actual_annual",
-            "dps_forecast_annual",
-            "treasury_shares",
-            "equity_to_asset_ratio",
-            "dividend_q1",
-            "dividend_interim",
-            "dividend_q3",
-            "dividend_year_end",
-            "dividend_total_annual",
-            "average_shares",
-            "record_key",
-            "disclosure_number",
-            "disclosed_time",
-            "document_type",
-            "document_payload",
-        )
-        values = []
-        for column in columns:
-            value = getattr(summary, column)
-            values.append(value.isoformat() if isinstance(value, date) else value)
-        rows.append(tuple(values))
+        seen[key] = payload
+        rows.append((*key, payload))
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

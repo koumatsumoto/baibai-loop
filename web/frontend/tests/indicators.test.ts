@@ -9,10 +9,13 @@ const marketContextPageSource = readFileSync(resolve(import.meta.dirname, '../sr
 
 describe('Market Context information architecture', () => {
   it('puts current context before indicators and history', () => {
-    const headings = ['現在のマクロ局面', 'マクロ経済指標', '過去の経済分析レポート']
+    const sections = ['<MarketSnapshotSection', '<LatestContext context=', '>マクロ経済指標</h2>', '保存済み市場判断・過去の経済分析レポート（']
     expect(marketContextPageSource).toContain('title="市場環境"')
-    expect(marketContextPageSource.indexOf(headings[0])).toBeLessThan(marketContextPageSource.indexOf(headings[1]))
-    expect(marketContextPageSource.indexOf(headings[1])).toBeLessThan(marketContextPageSource.indexOf(headings[2]))
+    const positions = sections.map(section => marketContextPageSource.indexOf(section))
+    for (const position of positions) expect(position).toBeGreaterThanOrEqual(0)
+    for (let index = 1; index < positions.length; index++) {
+      expect(positions[index - 1]).toBeLessThan(positions[index])
+    }
   })
 
   it('does not restore the retired daily comparison presentation', () => {
@@ -24,6 +27,7 @@ describe('Market Context information architecture', () => {
 
 function readingSeries(overrides: Partial<ReadingSeriesView> = {}): ReadingSeriesView {
   return {
+    read_semantics: null,
     series_id: 'us.cpi_yoy',
     name: 'US CPI YoY',
     category: 'inflation',
@@ -77,6 +81,7 @@ function fetchRun(series_id: string, status: string): IndicatorFetchHealthView {
 
 function readingView(overrides: Partial<ReadingView> = {}): ReadingView {
   return {
+    read_semantics: null,
     as_of: '2026-07-27',
     rules_revision: 'v6',
     series: [],
@@ -133,6 +138,24 @@ describe('lazy series history', () => {
       { observed_at: '2025-01-31', value: 3 },
       { observed_at: '2026-01-31', value: 4 },
     ])
+  })
+})
+
+describe('history calendar-year boundaries', () => {
+  it.each([
+    ['1y', '2023-02-27', '2023-02-28'],
+    ['5y', '2019-02-27', '2019-02-28'],
+    ['10y', '2014-02-27', '2014-02-28'],
+  ] as const)('clamps a leap-day %s window to February month-end', (period, before, boundary) => {
+    const series = panelSeries({
+      points: [
+        { observed_at: before, value: 1 },
+        { observed_at: boundary, value: 2 },
+        { observed_at: '2024-02-29', value: 3 },
+      ],
+    })
+    expect(transformSeriesHistory(series, period, 'daily').points).toEqual(series.points.slice(1))
+    expect(transformSeriesHistory(series, 'max', 'daily').points).toEqual(series.points)
   })
 })
 

@@ -9,7 +9,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
@@ -24,10 +23,6 @@ from baibai_engine.screening.earnings_lag import (
     build_earnings_lag,
     index_calendar_announcements,
     tickers_without_calendar_rows,
-)
-from baibai_engine.screening.freshness import (
-    detect_edinet_freshness_warnings,
-    load_disclosure_events,
 )
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 from baibai_engine.screening.metrics.snapshot import (
@@ -53,6 +48,7 @@ from baibai_engine.screening.universe import (
     build_universe,
     candidate_comparison_population,
 )
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.valuation.metrics.capital import build_shares_outstanding_index
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
@@ -68,7 +64,6 @@ def run_command(
     *,
     rules: ScreeningRules | None = None,
     now: datetime | None = None,
-    allow_stale_jpx: bool = False,
     output_path: Path | None = None,
     force: bool = False,
     run_store_path: Path | None = None,
@@ -86,19 +81,7 @@ def run_command(
         print("--run-at must include a UTC offset", file=sys.stderr)
         return 1
     run_id = f"screening-{asof_date:%Y%m%d}"
-    today = run_now.astimezone(JST).date()
-    if (
-        not allow_stale_jpx
-        and asof_date < today
-        and weekday_distance(asof_date, today) > 7
-        and not providers.jpx.has_regulation_cache(asof_date)
-    ):
-        print(
-            "JPX regulation cache is missing for a stale backfill; "
-            "rerun with --allow-stale-jpx to fetch the latest JPX snapshot explicitly",
-            file=sys.stderr,
-        )
-        return 1
+    # CLI preflight owns source freshness; injected providers here supply the inputs.
 
     # 窓の正本は metrics/snapshot.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
     # (較正リプレイと共有)。fin を bars と同じ 1200 日にしないのは、J-Quants Light
@@ -178,7 +161,7 @@ def run_command(
             file=out,
             flush=True,
         )
-    except (JQuantsProviderError, JPXProviderError, sqlite3.Error) as exc:
+    except (JQuantsProviderError, JPXProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
         # exception はラップ済みなので str(exc) 表示で安全。
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -270,10 +253,6 @@ def run_command(
         margin_prior_26w=margin_prior_26w,
         adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
-    disclosure_load_result = load_disclosure_events(
-        config.cache_dir / "disclosures",
-        asof_date=asof_date,
-    )
 
     stock_analyses: list[StockAnalysis] = []
     for ticker in sorted(universe_result.snapshots):
@@ -281,17 +260,12 @@ def run_command(
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
         security = securities_by_ticker[ticker]
-        freshness_warnings = detect_edinet_freshness_warnings(
-            ticker=ticker,
-            financial=financial,
-            events_by_ticker=disclosure_load_result.events_by_ticker,
-            asof_date=asof_date,
-        )
         normalized_profit = build_normalized_profit_signals(
             normalized_fy_by_ticker.get(ticker, ()),
             normalized_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=financial.market_price_yen,
+            ttm_rules=rules.ttm,
         )
         stock_analyses.append(
             build_stock_analysis(
@@ -300,7 +274,6 @@ def run_command(
                 financial=financial,
                 derived=derived,
                 universe_snapshot=universe_snapshot,
-                freshness_warnings=freshness_warnings,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 earnings_lag=build_earnings_lag(
                     asof=asof_date,
@@ -326,7 +299,7 @@ def run_command(
     approx_total = metric_result.ttm_quality_counts.get(
         "approximated", 0
     ) + metric_result.ttm_quality_counts.get("unavailable", 0)
-    # Quality gates watch data degradation for the investable population so
+    # Quality notices describe data degradation for the comparison population so
     # the wider all-common-stock scope does not dilute the warning ratios.
     population_financials = [
         snapshot
@@ -361,45 +334,16 @@ def run_command(
         fallback_lines.append(
             f"業績YoY入力欠損(common eligible母集団): {population_yoy_missing} 銘柄"
         )
-    if disclosure_load_result.load_errors:
-        fallback_lines.append(
-            f"Disclosure title scan 読み込み失敗: {len(disclosure_load_result.load_errors)} 件"
-        )
-    if disclosure_load_result.skipped_record_count:
-        fallback_lines.append(
-            "Disclosure title scan 必須 key 欠損/不正 record: "
-            f"{disclosure_load_result.skipped_record_count} 件"
-        )
-    if disclosure_load_result.unsupported_record_count:
-        fallback_lines.append(
-            "Disclosure title scan 未対応 record/layout: "
-            f"{disclosure_load_result.unsupported_record_count} 件"
-        )
-
     data_sources = [
         "j-quants-light",
         "jpx-public-earnings-calendar",
         "jpx-public-regulation",
     ]
     data_sources.append("edinet-preprocessed-metrics")
-    if disclosure_load_result.file_count:
-        data_sources.append("disclosure-title-events")
     provider_status_lines = [
         "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX（決算発表予定・規制）"
     ]
     provider_status_lines.append("EDINET preprocessed metrics: loaded")
-    if disclosure_load_result.file_count:
-        provider_status_lines.append(
-            "Disclosure title material-event scan: "
-            f"{disclosure_load_result.event_count} events from "
-            f"{disclosure_load_result.file_count} files "
-            f"(skipped={disclosure_load_result.skipped_record_count}, "
-            f"unsupported={disclosure_load_result.unsupported_record_count}, "
-            f"errors={len(disclosure_load_result.load_errors)})"
-        )
-    else:
-        provider_status_lines.append("Disclosure title material-event scan: optional unavailable")
-
     cap_null_count = sum(
         1 for snapshot in universe_result.snapshots.values() if snapshot.market_cap_oku is None
     )

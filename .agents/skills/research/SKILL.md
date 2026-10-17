@@ -7,7 +7,7 @@ description: ユーザーの明示開始で有限対象を調査し、独立Revi
 
 ## 開始条件
 
-通常の「投資提案して」は `discover_new` とし、AIが保存分析・候補を比較して対象を選び、同じ依頼で深掘り、独立Review、Investment Proposalと具体条件まで進める。全候補Triage発行やユーザーによる銘柄選択を要求しない。銘柄指定は候補外も含む `specified_stocks`、保有見直し・売却提案は売却を前提にしない `review_positions` という同じResearchの別入口とする。保有の深掘りを通常探索へ混ぜない。
+通常の「投資提案して」は `discover_new` とし、AIが保存分析・候補を比較して対象を選び、同じ依頼で深掘り、独立Review、Investment Proposalと具体条件まで進める。全候補Triage発行やユーザーによる銘柄選択を要求しない。銘柄指定は候補外も含む `specified_stocks`、保有見直し・売却提案は売却を前提にしない `review_positions` という同じResearchの別入口とする。保有の深掘りを通常探索へ混ぜない。全保有quoteの更新や無関係な入出金の再確認を企業調査の前提にせず、提案条件に必要な現在入力は第3・4節で確認する。
 
 既保有への新規追加は現在方針で禁止されている。意図が保有見直しと明確ならそのscopeで開始し、明示的な追加購入依頼には方針を説明する。不明な場合だけ質問する。
 
@@ -56,7 +56,7 @@ uv run baibai-engine research prepare \
 
 小型であることやFCFが0・負であることだけで経済的見送りにしない。サイズ・ADVは執行の制約、負FCFは維持投資/成長投資・運転資金・回収・資金余力の問いへ接続する。CFのsourceと品質・期間を保ち、半期の`approximated`値を通年実績と読み替えず、資料で確認すべき重大な不足を免除しない。
 
-短い価格bar期間も一律の見送り条件にしない。`listing_span_days`は利用可能な価格履歴の日数proxyであり、実上場日や財務履歴ではない。企業評価に必要な財務期間は一次資料で確認し、短い自己価格レンジを長期の価値根拠と読み替えない。
+短い価格bar期間も一律の見送り条件にしない。`price_history_span_days`は利用可能な価格履歴の日数proxyであり、実上場日や財務履歴ではない。企業評価に必要な財務期間は一次資料で確認し、短い自己価格レンジを長期の価値根拠と読み替えない。
 
 市場・業種との個別相対値は[Market Context読取](../../../docs/reference/market-context.md#market-context-reads)で比較基準日・母集団とともに確認し、乖離を企業価値認定へ置き換えない。
 
@@ -90,7 +90,7 @@ uv run baibai-engine research proposal-scaffold \
 
 固定scopeの全対象と完成/未完了をProposalへ投影し、保存入力を固定する。全対象についてbuy/hold/sell/no_action/deferを区別し、未調査はdeferとする。0対象では空Proposalを作らず、選定理由を保持して第5節へ進む。比較は完成対象だけを経済比較し、未完成を経済的な見送りへ混ぜない。詳細は[Investment Proposal](../../../docs/reference/investment-proposal.md)が所有する。
 
-buyは実quoteと試算limitを分け、Pmax以下の指値待ちも許される。closeを架空の安い値へ変えず、価格以外の仮説・保有・予約・権利単位・cash等のgateを確認する。価格・数量・次session・期限・条件を記し、current limitは即約定を保証しない。分類や共通gridの確認不足は具体terms未確定として残す。holdは今回の仮説維持確認と当日の収益算術を分け、算術不足だけで仮説を無効にしない。brokenを確認したsellはquote不明でも経済判断を残せるが、具体売却条件が未完了であることを示す。
+buyは実quoteと試算limitを分け、Pmax以下の指値待ちも許される。closeを架空の安い値へ変えず、価格以外の仮説・保有・予約・権利単位・cash等のgateを確認する。価格・数量・次session・条件を記し、current limitは即約定を保証しない。分類や共通gridの確認不足は具体terms未確定として残す。holdは今回の仮説維持確認と当日の収益算術を分け、算術不足だけで仮説を無効にしない。brokenを確認したsellはquote不明でも経済判断を残せるが、具体売却条件が未完了であることを示す。
 
 ```bash
 uv run baibai-engine research proposal-check <DRAFT> --db stores/application/baibai.sqlite

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.assessment_history import historical_context_payload, seed_history
+from tests.helpers.indicator_store import store_h15_observations, store_mof_observations
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
@@ -63,13 +64,6 @@ def _seed_indicator_observations(root: Path) -> None:
             conn,
             [
                 ObservationRecord(
-                    series_id="us.10y",
-                    observed_at=date(2026, 7, 15),
-                    value=4.3,
-                    unit="percent",
-                    source_url="https://example.com/us10y",
-                ),
-                ObservationRecord(
                     series_id="jp.10y",
                     observed_at=date(2026, 7, 17),
                     value=1.1,
@@ -84,6 +78,30 @@ def _seed_indicator_observations(root: Path) -> None:
                     source_url="https://example.com/jp10y",
                     fetch_status="failed",
                 ),
+            ],
+        )
+        store_mof_observations(
+            conn,
+            [
+                ObservationRecord(
+                    series_id="jp.10y",
+                    observed_at=date(2026, 7, 17),
+                    value=1.1,
+                    unit="percent",
+                    source_url="https://example.com/jp10y",
+                )
+            ],
+        )
+        store_h15_observations(
+            conn,
+            [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=date(2026, 7, 15),
+                    value=4.3,
+                    unit="percent",
+                    source_url="https://example.com/us10y",
+                )
             ],
         )
         conn.commit()
@@ -156,10 +174,10 @@ def test_build_meta_freshness_ignores_retained_unregistered_series(
     assert view.data_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
 
 
-def test_build_meta_takes_the_latest_judgment_write_across_stores(
+def test_build_meta_takes_the_latest_business_record_timestamp(
     app_method_root: Path,
 ) -> None:
-    # The fixture's newest judgment write without a macro context is a task created
+    # The fixture's latest business-record timestamp without a macro context is a task created
     # on 2026-07-18; its date-only column is read at JST midnight.
     view = build_meta(_meta_source(app_method_root))
 
@@ -168,10 +186,10 @@ def test_build_meta_takes_the_latest_judgment_write_across_stores(
     assert view.batch is None
 
 
-def test_build_meta_reflects_a_newly_written_operation_session(
+def test_build_meta_reflects_the_operation_session_start_time(
     app_method_root: Path,
 ) -> None:
-    # A judgment write in a table beyond ledger/research/market-context must move freshness.
+    # Operation start time contributes to freshness; this is not the physical database write time.
     started_at = datetime(2026, 8, 1, 9, 30, tzinfo=JST)
     database = app_method_root / "stores/application/baibai.sqlite"
     with closing(sqlite3.connect(database)) as connection, connection:
@@ -271,6 +289,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "security--0001.json",
         "security--0002.json",
         "security--2331.json",
+        "security--8929.json",
     } | {f"indicator-series--{item.series_id}.json" for item in load_definitions().series}
     assert {item.name for item in views.iterdir()} == expected
 
@@ -296,6 +315,13 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
         assert detail.stock_analysis is not None
+
+    reserved = SecurityDetailView.model_validate_json(
+        (views / "security--8929.json").read_text(encoding="utf-8")
+    )
+    assert reserved.ticker == "8929"
+    assert reserved.holding is None
+    assert reserved.stock_analysis is None
 
     assert not (output_dir / "history/select").exists()
 
@@ -450,7 +476,7 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
     service = LedgerStoreService(app_method_root / "stores/application/baibai.sqlite")
     draft = build_sell_execution_draft(
         service,
-        occurred_at=datetime(2026, 7, 12, 10, tzinfo=JST),
+        occurred_on=date(2026, 7, 12),
         ticker="2331",
         quantity=100,
         price_yen=Decimal("1100"),

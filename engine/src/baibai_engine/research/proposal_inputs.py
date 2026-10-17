@@ -6,7 +6,7 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 
@@ -20,7 +20,7 @@ from baibai_engine.position.ledger import (
     summarize_portfolio,
 )
 from baibai_engine.position.ledger_read import load_ledger_in_transaction
-from baibai_engine.position.market_source import quantity_basis_is_confirmed, read_unadjusted_close
+from baibai_engine.position.market_source import market_basis_is_confirmed, read_unadjusted_close
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.research.assessment import AssessmentRef
 from baibai_engine.research.assessment_store import (
@@ -57,10 +57,9 @@ def proposal_input_policy_id() -> str:
 
 def _holding_episode(
     ledger: PortfolioLedgerDocument, ticker: str, now: datetime
-) -> tuple[datetime | None, str | None, datetime | None]:
+) -> tuple[ExecutionEvent | None, datetime | None]:
     balance = 0
-    first_buy: datetime | None = None
-    reference: str | None = None
+    first_buy: ExecutionEvent | None = None
     last_trade: datetime | None = None
     for event in ledger.events:
         if (
@@ -72,22 +71,32 @@ def _holding_episode(
         last_trade = event.occurred_at
         if event.side == "buy":
             if balance == 0:
-                first_buy, reference = event.occurred_at, event.decision_reference
+                first_buy = event
             balance += event.quantity
         else:
             balance -= event.quantity
             if balance == 0:
-                first_buy, reference = None, None
-    return first_buy, reference, last_trade
+                first_buy = None
+    return first_buy, last_trade
 
 
 def _original_assessment(
     connection: sqlite3.Connection,
     *,
     ticker: str,
-    reference: str | None,
-    bought_at: datetime | None,
+    bought: ExecutionEvent | None,
 ) -> tuple[AssessmentRef | None, str | None]:
+    reference = None if bought is None else bought.decision_reference
+
+    def follows_reported_buy(published_at: datetime) -> bool:
+        if bought is None:
+            return True
+        if bought.occurred_on is not None:
+            # A date-only report explicitly names its proposal, but supplies no
+            # execution clock. Its replay key must not invent an intraday conflict.
+            return published_at.astimezone(JST).date() > bought.occurred_on
+        return published_at > bought.occurred_at
+
     if reference is not None:
         row = connection.execute(
             "SELECT ticker,origin,proposal_id FROM position_decision_reference WHERE reference=?",
@@ -109,7 +118,7 @@ def _original_assessment(
                 "SELECT published_at FROM stock_assessment WHERE assessment_id=?",
                 (item.assessment_ref.assessment_id,),
             ).fetchone()
-            if bought_at is None or datetime.fromisoformat(str(published[0])) > bought_at:
+            if follows_reported_buy(datetime.fromisoformat(str(published[0]))):
                 return (
                     None,
                     (
@@ -117,7 +126,7 @@ def _original_assessment(
                         "買付時の評価と確認できず、現在評価を当初理由として補完しない。"
                     ),
                 )
-            if proposal.published_at > bought_at:
+            if follows_reported_buy(proposal.published_at):
                 return (
                     None,
                     (
@@ -161,22 +170,21 @@ def collect_proposal_inputs(
         quote = QuoteInput(
             ticker=ticker,
             price_yen=finite_decimal(observed.close_yen),
-            observed_at=datetime.combine(observed.price_as_of, time(15, 30), tzinfo=JST),
             price_as_of=observed.price_as_of,
             price_basis="last_close_unadjusted",
             source_ref="jquants_daily_bars",
-            basis_confirmed=not observed.corporate_action_unresolved,
         )
         quotes.append(quote)
         if ticker in held_tickers:
-            first_buy, _, last_trade = _holding_episode(ledger, ticker, now)
+            first_buy, last_trade = _holding_episode(ledger, ticker, now)
             confirmed = (
                 first_buy is not None
                 and last_trade is not None
-                and quantity_basis_is_confirmed(
+                and market_basis_is_confirmed(
+                    basis="shares",
                     sqlite_path=sqlite_path,
                     ticker=ticker,
-                    from_date=min(first_buy.astimezone(JST).date(), quote.price_as_of),
+                    from_date=min(first_buy.occurred_at.astimezone(JST).date(), quote.price_as_of),
                     through_date=max(last_trade.astimezone(JST).date(), quote.price_as_of),
                 )
             )
@@ -190,7 +198,7 @@ def collect_proposal_inputs(
                 prices[ticker] = MarketPrice(
                     ticker=ticker,
                     price_yen=quote.price_yen,
-                    observed_at=quote.observed_at,
+                    price_as_of=quote.price_as_of,
                     source_kind="market_api",
                     price_basis="unadjusted_close",
                     source_ref=quote.source_ref,
@@ -198,9 +206,9 @@ def collect_proposal_inputs(
     portfolio = summarize_portfolio(ledger, state, prices)
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:
-        bought_at, reference, _ = _holding_episode(ledger, holding.ticker, now)
+        bought, _ = _holding_episode(ledger, holding.ticker, now)
         original_ref, unavailable = _original_assessment(
-            connection, ticker=holding.ticker, reference=reference, bought_at=bought_at
+            connection, ticker=holding.ticker, bought=bought
         )
         positions.append(
             PositionInput(
@@ -230,12 +238,12 @@ def collect_proposal_inputs(
     if master is not None:
         for ticker in sorted(set(tickers) | held_tickers):
             row = master.securities.get(ticker)
-            if row is not None and row["market_segment"] and row["sector_33"]:
+            if row is not None and row["market_segment"]:
                 classifications.append(
                     SecurityClassification(
                         ticker=ticker,
                         market_segment=str(row["market_segment"]),
-                        sector_33=str(row["sector_33"]),
+                        is_common_stock=bool(row["is_common_stock"]),
                         snapshot_date=master.as_of,
                     )
                 )
@@ -413,7 +421,7 @@ def _context_calculations(
                         maximum,
                         target_session=session,
                         market_segment=classification.market_segment,
-                        sector_33=classification.sector_33,
+                        is_common_stock=classification.is_common_stock,
                     )
                 )
                 row["maximum_common_grid_price_yen"] = None if grid is None else str(grid)

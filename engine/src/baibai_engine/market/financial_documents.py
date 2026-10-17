@@ -2,175 +2,104 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, time
-from math import isfinite
 from typing import Any
 
 from baibai_engine.market.jquants_decode import (
-    coalesce_field,
-    first_period_float,
-    first_value,
+    JQuantsProviderError,
     has_period_slot,
     parse_date,
     parse_jquants_code_parts,
     parse_optional_date,
+    provider_record_payload,
     to_float,
     to_period,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 
+AccountingPeriodKey = tuple[date, int, date, date, int]
+
+_FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
+
+
+def accounting_period_identity(
+    summary: JQuantsFinancialSummary,
+) -> AccountingPeriodKey:
+    """Period-first order for actual facts and capital state.
+
+    A delayed correction may be disclosed after the current quarter while describing
+    an older period.  A valid completed-period end therefore precedes accounting labels
+    and source revision order in this key.  A future reported period uses only its
+    period-start lower bound; an inverted period has no chronology authority.  This
+    preserves a lone future-labelled actual observation, prevents a malformed Q1 from
+    replacing a valid Q2, and lets a completed short fiscal year outrank an earlier
+    quarter whose nominal fiscal-year end happens to be later.
+    """
+
+    reported_end = summary.period_end or summary.fiscal_year_end
+    completed = (
+        reported_end
+        if reported_end is not None
+        and reported_end <= summary.disclosed_at
+        and (summary.period_start is None or summary.period_start <= reported_end)
+        else None
+    )
+    chronology = completed or (
+        summary.period_start
+        if reported_end is not None
+        and reported_end > summary.disclosed_at
+        and summary.period_start is not None
+        else date.min
+    )
+    period_order = _FISCAL_PERIOD_ORDER.get(summary.fiscal_period or "", 0)
+    return (
+        chronology,
+        int(completed is not None),
+        summary.fiscal_year_end or date.min,
+        summary.period_start or date.min,
+        period_order,
+    )
+
 
 def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSummary | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    """Decode native provider fields; select forecast period and basis only in L2 projection."""
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    # 会社予想の純利益/経常のペアは forecast_eps と同一予想期から採る。当期予想 EPS
-    # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
-    # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
-    # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
-    legacy_forecast = _period(record, "current") is None
-    if not legacy_forecast:
-        forecast_profit = forecast_ordinary_profit = None
-    elif has_period_slot(record, "FEPS"):
-        forecast_profit = to_float(coalesce_field(record, "FNP"))
-        forecast_ordinary_profit = to_float(coalesce_field(record, "FOdP"))
-    else:
-        forecast_profit = to_float(coalesce_field(record, "NxFNp"))
-        forecast_ordinary_profit = to_float(coalesce_field(record, "NxFOdP"))
-    # すべて `coalesce_field` 経由にして 0.0 の数値フィールドを欠損と誤判定しないようにする
-    # (EPS=0 の赤字転換点、Sales=0 の新規事業初期、OP=0 の損益分岐点ちょうど、など)。
     return JQuantsFinancialSummary(
         ticker=ticker,
-        disclosed_at=parse_date(
-            first_value(
-                record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date", "date"
-            )
-        ),
-        # ClientV2 の fin-summary は短縮キーを返す。FEPS=当期予想 EPS は本決算(FY)
-        # 開示で空になり、翌期ガイダンスは NxFEPS に入る。FEPS→NxFEPS の順で各時点の
-        # 最良 forward EPS(per_forward の基)を埋める。
-        forecast_eps=first_period_float(record, "FEPS", "NxFEPS") if legacy_forecast else None,
-        eps_ttm=to_float(
-            coalesce_field(
-                record,
-                "EpsTtm",
-                "eps_ttm",
-                "EarningsPerShare",
-                "earnings_per_share",
-                "EPS",
-                "eps",
-            )
-        ),
-        bps=to_float(
-            coalesce_field(record, "BPS", "bps", "BookValuePerShare", "book_value_per_share")
-        ),
-        shares_outstanding=to_float(
-            coalesce_field(
-                record,
-                "SharesOutstanding",
-                "shares_outstanding",
-                "IssuedShareEquityQuote",
-                "issued_share_equity_quote",
-                "ShOutFY",
-            )
-        ),
-        sales=to_float(coalesce_field(record, "NetSales", "net_sales", "Sales", "sales")),
-        cfo=to_float(
-            coalesce_field(
-                record,
-                "CashFlowsFromOperatingActivities",
-                "cash_flows_from_operating_activities",
-                "OperatingCashFlow",
-                "operating_cash_flow",
-                "CFO",
-                "cfo",
-            )
-        ),
-        cash_eq=to_float(
-            coalesce_field(
-                record,
-                "CashAndEquivalents",
-                "cash_and_equivalents",
-                "CashEq",
-                "cash_eq",
-            )
-        ),
-        total_assets=to_float(coalesce_field(record, "TotalAssets", "total_assets", "TA", "ta")),
-        equity=to_float(coalesce_field(record, "Equity", "equity", "Eq", "eq")),
-        operating_profit=to_float(
-            coalesce_field(record, "OperatingProfit", "operating_profit", "OP")
-        ),
-        ordinary_profit=to_float(
-            coalesce_field(record, "OrdinaryProfit", "ordinary_profit", "OdP")
-        ),
-        profit=to_float(coalesce_field(record, "Profit", "profit", "NP")),
-        forecast_profit=forecast_profit,
-        forecast_ordinary_profit=forecast_ordinary_profit,
-        fiscal_period=to_period(
-            coalesce_field(
-                record,
-                "TypeOfCurrentPeriod",
-                "type_of_current_period",
-                "CurPerType",
-            )
-        ),
-        fiscal_year_end=parse_optional_date(
-            coalesce_field(
-                record,
-                "CurrentFiscalYearEndDate",
-                "current_fiscal_year_end_date",
-                "CurFYEn",
-            )
-        ),
-        period_start=parse_optional_date(
-            coalesce_field(
-                record,
-                "CurrentPeriodStartDate",
-                "current_period_start_date",
-                "CurPerSt",
-            )
-        ),
-        period_end=parse_optional_date(
-            coalesce_field(
-                record,
-                "CurrentPeriodEndDate",
-                "current_period_end_date",
-                "CurPerEn",
-            )
-        ),
-        # DivAnn=実績年間 DPS。予想年間は FDivAnn (四半期) → NxFDivAnn (本決算の
-        # 進行期ガイダンス) の順で埋める (FEPS→NxFEPS と同型)。
-        dps_actual_annual=to_float(coalesce_field(record, "DivAnn")),
-        dps_forecast_annual=first_period_float(record, "FDivAnn", "NxFDivAnn")
-        if legacy_forecast
-        else None,
-        # TrShFY = 期末自己株式数、EqAR = 開示された自己資本比率。ShOutFY (発行済・自己株
-        # 込み) と Eq (純資産) だけでは時価総額も自己資本比率も正しい分母で作れない。
-        treasury_shares=to_float(
-            coalesce_field(record, "TrShFY", "treasury_shares", "TreasuryStock")
-        ),
-        equity_to_asset_ratio=to_float(
-            coalesce_field(record, "EqAR", "equity_to_asset_ratio", "EquityToAssetRatio")
-        ),
-        # 支払ごとの 1 株当たり配当。各支払の基準日 (四半期末) より後の調整だけを掛ければ
-        # as-of 基準へ寄せられる。DivTotalAnn は円なので株式基準を持たず、自己株式を除いた
-        # 株式数で割った値がその換算の独立した照合になる。AvgSh はその株数の健全性を同じ
-        # 行の中で確かめるためのアンカー。
-        dividend_q1=to_float(coalesce_field(record, "Div1Q")),
-        dividend_interim=to_float(coalesce_field(record, "Div2Q")),
-        dividend_q3=to_float(coalesce_field(record, "Div3Q")),
-        dividend_year_end=to_float(coalesce_field(record, "DivFY")),
-        dividend_total_annual=to_float(coalesce_field(record, "DivTotalAnn")),
-        average_shares=to_float(coalesce_field(record, "AvgSh")),
-        record_key=financial_document_key(record),
-        disclosure_number=_text(record.get("DiscNo")),
+        disclosed_at=parse_date(record.get("DiscDate")),
+        eps_ttm=to_float(record.get("EPS")),
+        bps=to_float(record.get("BPS")),
+        shares_outstanding=to_float(record.get("ShOutFY")),
+        sales=to_float(record.get("Sales")),
+        cfo=to_float(record.get("CFO")),
+        cash_eq=to_float(record.get("CashEq")),
+        total_assets=to_float(record.get("TA")),
+        equity=to_float(record.get("Eq")),
+        operating_profit=to_float(record.get("OP")),
+        ordinary_profit=to_float(record.get("OdP")),
+        profit=to_float(record.get("NP")),
+        fiscal_period=to_period(record.get("CurPerType")),
+        fiscal_year_end=parse_optional_date(record.get("CurFYEn")),
+        period_start=parse_optional_date(record.get("CurPerSt")),
+        period_end=parse_optional_date(record.get("CurPerEn")),
+        dps_actual_annual=to_float(record.get("DivAnn")),
+        treasury_shares=to_float(record.get("TrShFY")),
+        equity_to_asset_ratio=to_float(record.get("EqAR")),
+        dividend_q1=to_float(record.get("Div1Q")),
+        dividend_interim=to_float(record.get("Div2Q")),
+        dividend_q3=to_float(record.get("Div3Q")),
+        dividend_year_end=to_float(record.get("DivFY")),
+        dividend_total_annual=to_float(record.get("DivTotalAnn")),
+        average_shares=to_float(record.get("AvgSh")),
+        disclosure_number=required_disclosure_number(record),
         disclosed_time=_disclosed_time(record.get("DiscTime")),
         document_type=_text(record.get("DocType")),
-        document_payload=financial_document_payload(record),
+        document_payload=provider_record_payload(record),
     )
 
 
@@ -190,23 +119,12 @@ def _disclosed_time(value: Any) -> str | None:
     return parsed.isoformat() if parsed.tzinfo is None else None
 
 
-def financial_document_payload(record: Mapping[str, Any]) -> str:
-    """Retain every provider field, including empty slots and both bases.
-
-    Non-finite SDK values are explicit unknown strings, not JSON NaN or zero.
-    """
-    values = {
-        str(key): str(value) if isinstance(value, float) and not isfinite(value) else value
-        for key, value in record.items()
-    }
-    return json.dumps(values, ensure_ascii=False, sort_keys=True, allow_nan=False, default=str)
-
-
-def financial_document_key(record: Mapping[str, Any]) -> str:
+def required_disclosure_number(record: Mapping[str, Any]) -> str:
+    """Use the native disclosure identity; a content digest is not a disclosure number."""
     number = _text(record.get("DiscNo"))
-    if number is not None:
-        return f"doc:{number}"
-    return "payload:" + hashlib.sha256(financial_document_payload(record).encode()).hexdigest()
+    if number is None:
+        raise JQuantsProviderError("financial source record has no native DiscNo")
+    return number
 
 
 def disclosure_revision(row: JQuantsFinancialSummary) -> tuple[date, str]:
@@ -238,9 +156,9 @@ def statement_basis(row: JQuantsFinancialSummary) -> str:
 def _statement_basis_state(rows: Sequence[JQuantsFinancialSummary]) -> str:
     if not rows:
         return "primary_unknown"
-    end = max(row.fiscal_year_end or date.min for row in rows)
+    period = max(map(accounting_period_identity, rows))
     candidates = latest_disclosure_candidates(
-        [row for row in rows if (row.fiscal_year_end or date.min) == end]
+        [row for row in rows if accounting_period_identity(row) == period]
     )
     bases = {statement_basis(row) for row in candidates}
     return next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
@@ -276,6 +194,32 @@ def _period(record: Mapping[str, Any], slot: str) -> tuple[date, date] | None:
     return (start, end) if start is not None and end is not None and start <= end else None
 
 
+def _annual_earnings_revision(record: Mapping[str, Any], keys: tuple[str, ...]) -> bool:
+    """An explicit revision with no usable annual value must not revive old guidance.
+
+    Half-year-only revisions leave annual guidance untouched. Empty annual revisions
+    may mean an undecided forecast or a range, not necessarily a withdrawal.
+    """
+    if record.get("DocType") != "EarnForecastRevision":
+        return False
+    annual_keys = (*keys, "FNCSales", "FNCOP") if keys[0] == "FNCEPS" else (*keys, "FSales", "FOP")
+    half_year_keys = (
+        "FSales2Q",
+        "FOP2Q",
+        "FOdP2Q",
+        "FNP2Q",
+        "FEPS2Q",
+        "FNCSales2Q",
+        "FNCOP2Q",
+        "FNCOdP2Q",
+        "FNCNP2Q",
+        "FNCEPS2Q",
+    )
+    return any(has_period_slot(record, key) for key in annual_keys) or not any(
+        has_period_slot(record, key) for key in half_year_keys
+    )
+
+
 def project_financial_documents(
     summaries: Sequence[JQuantsFinancialSummary], asof_date: date
 ) -> list[JQuantsFinancialSummary]:
@@ -284,8 +228,8 @@ def project_financial_documents(
     Choose fiscal-period state before looking for numeric guidance. An empty new
     period cannot revive an older period's forecast. Earnings and DPS are independent
     document streams; the three earnings fields stay in one slot and one basis.
-    Rows without source period metadata retain the legacy mechanical inputs, explicitly
-    unconfirmed. They cannot override confirmed document guidance.
+    Raw decoding never substitutes a forecast from another period when metadata is
+    absent or invalid. Actual observations remain available independently of guidance.
     """
     by_ticker: dict[str, list[JQuantsFinancialSummary]] = {}
     for row in summaries:
@@ -352,19 +296,37 @@ def project_financial_documents(
                         if any(has_period_slot(record, key) for key in keys)
                         else "missing"
                     )
+                    unresolved_revision = (
+                        selected_slot == "current"
+                        and earnings_status == "missing"
+                        and _annual_earnings_revision(record, keys)
+                    )
+                    if unresolved_revision:
+                        earnings_status = "unresolved"
                     eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
                     for field, key in zip(
                         ("forecast_eps", "forecast_profit", "forecast_ordinary_profit"),
                         keys,
                         strict=True,
                     ):
-                        if has_period_slot(record, key) and row.record_key:
-                            field_sources.append((field, (row.record_key,)))
+                        if (
+                            has_period_slot(record, key) or unresolved_revision
+                        ) and row.disclosure_number:
+                            field_sources.append((field, (row.disclosure_number,)))
                 dps_key = f"{prefix}DivAnn"
                 dividend_status = "confirmed" if has_period_slot(record, dps_key) else "missing"
+                unresolved_dividend_revision = (
+                    selected_slot == "current"
+                    and dividend_status == "missing"
+                    and row.document_type == "DividendForecastRevision"
+                )
+                if unresolved_dividend_revision:
+                    dividend_status = "unresolved"
                 dps = to_float(record.get(dps_key))
-                if has_period_slot(record, dps_key) and row.record_key:
-                    field_sources.append(("dps_forecast_annual", (row.record_key,)))
+                if (
+                    has_period_slot(record, dps_key) or unresolved_dividend_revision
+                ) and row.disclosure_number:
+                    field_sources.append(("dps_forecast_annual", (row.disclosure_number,)))
             projected.append(
                 replace(
                     row,
@@ -389,11 +351,8 @@ def latest_forecast_source(
 ) -> JQuantsFinancialSummary | None:
     """Resolve revision ties by value agreement, never by DocNo or input order."""
     status_field = "dividend_forecast_status" if dividend else "forecast_status"
-    known = any(getattr(row, status_field) != "legacy_unknown" for row in rows)
-    candidates = (
-        [row for row in rows if getattr(row, status_field) == "confirmed"] if known else list(rows)
-    )
-    if not candidates and known:
+    candidates = [row for row in rows if getattr(row, status_field) in {"confirmed", "unresolved"}]
+    if not candidates:
         candidates = [row for row in rows if getattr(row, status_field) == "missing"]
     if not candidates:
         return None
@@ -445,12 +404,11 @@ def latest_forecast_source(
             if name == field
             for key in keys
         }
-        records.update(row.record_key for row in observed if row.record_key)
+        records.update(row.disclosure_number for row in observed if row.disclosure_number)
         field_sources.append((field, tuple(sorted(records))))
     if len(latest) > 1:
         source = replace(
             source,
-            record_key=None,
             document_payload=None,
             forecast_field_sources=tuple(field_sources),
         )

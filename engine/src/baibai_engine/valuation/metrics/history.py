@@ -19,7 +19,6 @@ VALUATION_HISTORY_SESSIONS = 750
 
 
 def build_valuation_history(
-    latest_price: float,
     bars: Sequence[JQuantsDailyBar],
     snapshot: FinancialSnapshot,
     asof_date: date,
@@ -27,14 +26,13 @@ def build_valuation_history(
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     history_sessions: int = VALUATION_HISTORY_SESSIONS,
 ) -> dict[str, list[float]]:
-    # asof 以前の bar に限定し、look-ahead bias を防ぐ。
+    # asof より後の価格barを除く。配信元の後日訂正まで復元するものではない。
     eligible = sorted(
         (bar for bar in bars if bar.traded_at <= asof_date),
         key=lambda item: item.traded_at,
     )
-    # 価格の不連続 (分割) を valuation history に持ち込まないため調整済み系列を使う。
-    # cache の adjustment_close は incremental 取得で基準が混在するため使わず、
-    # 不変イベントの adjustment_factor から asof 基準の系列を自前で組む。
+    # 分割・併合・ライツイシューを含む価格factorで、同一asof基準の系列を組む。
+    # 係数にも配信元の訂正があるため、永久に不変のイベントとは扱わない。
     prices = asof_basis_closes(eligible[-history_sessions:], adjustment_events, asof_date=asof_date)
     ev_ebitda_history: list[float] = []
     if (
@@ -50,8 +48,9 @@ def build_valuation_history(
             if (value := _historical_ev_ebitda(price, snapshot)) is not None
         ]
     pbr_history: list[float] = []
+    latest_price = snapshot.market_price_yen
     pbr = snapshot.pbr
-    if pbr is not None and pbr != 0:
+    if latest_price is not None and latest_price > 0 and pbr is not None and pbr != 0:
         pbr_basis = latest_price / pbr
         pbr_history = [price / pbr_basis for price in prices]
     p_s_history: list[float] = []
@@ -68,7 +67,12 @@ def build_valuation_history(
     # matching the trailing-PER history convention and keeping range metrics
     # available for the forward valuation input.
     per_forward_history: list[float] = []
-    if snapshot.per_forward is not None and snapshot.per_forward != 0:
+    if (
+        latest_price is not None
+        and latest_price > 0
+        and snapshot.per_forward is not None
+        and snapshot.per_forward != 0
+    ):
         per_forward_basis = latest_price / snapshot.per_forward
         if per_forward_basis > 0:
             per_forward_history = [price / per_forward_basis for price in prices]
@@ -91,8 +95,8 @@ def _historical_ev_ebitda(
     """Return the EV/EBITDA value for one historical price.
 
     Caller must ensure ``shares_ex_treasury`` / ``debt`` / ``cash`` are not
-    None and ``ebitda_ttm`` is positive. v1 has only the latest balance sheet
-    and TTM EBITDA, so those are held constant across price history while
+    None and ``ebitda_ttm`` is positive. The current snapshot inputs
+    are held constant across price history while
     market cap varies with the (adjusted) historical close.
 
     Negative EV or non-positive EBITDA is outside the valuation multiple
@@ -113,7 +117,8 @@ def _historical_ev_ebitda(
     return enterprise_value / ebitda_ttm
 
 
-def self_range_percentile(history: Sequence[float], current: float | None) -> float | None:
+def self_range_position(history: Sequence[float], current: float | None) -> float | None:
+    """Position between historical extrema, not an observation-rank percentile."""
     if not history or current is None:
         return None
     low = min(history)

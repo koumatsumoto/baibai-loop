@@ -8,21 +8,38 @@ in real test code.
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import sqlite3
 import tempfile
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from baibai_engine.storage.observations.schema import open_connection
+from tests.helpers.master import insert_master_rows
+
+
+def insert_financial_record(conn: sqlite3.Connection, record: dict[str, Any]) -> None:
+    """Insert a constructed provider-native document, without financial projection."""
+    conn.execute(
+        "INSERT OR REPLACE INTO jquants_fin_summaries "
+        "(ticker, disclosed_at, disclosure_number, document_payload) VALUES (?, ?, ?, ?)",
+        (
+            str(record["Code"])[:4],
+            record["DiscDate"],
+            str(record["DiscNo"]),
+            json.dumps(record, ensure_ascii=False),
+        ),
+    )
 
 
 def make_master_records(
     asof: date,
     *,
     count: int = 2500,
-    excluded_count: int = 0,
+    secondary_class_count: int = 0,
 ) -> list[dict[str, str]]:
     """Return a complete official-key master response for offline tests."""
     records = [
@@ -32,6 +49,7 @@ def make_master_records(
             "CoName": f"Company {index}",
             "MktNm": "Prime",
             "S33Nm": "情報・通信業",
+            "ProdCat": "011",
         }
         for index in range(count)
     ]
@@ -39,11 +57,12 @@ def make_master_records(
         {
             "Date": asof.isoformat(),
             "Code": f"{9000 + index:04d}1",
-            "CoName": f"Excluded {index}",
+            "CoName": f"Secondary class {index}",
             "MktNm": "Prime",
             "S33Nm": "情報・通信業",
+            "ProdCat": "011",
         }
-        for index in range(excluded_count)
+        for index in range(secondary_class_count)
     )
     return records
 
@@ -79,31 +98,17 @@ def insert_daily_bars_from_closes(
     end_date: date,
     turnover_value: float | None = None,
 ) -> None:
-    """Insert ``len(closes)`` consecutive daily bars ending on ``end_date``.
-
-    ``adjustment_close`` mirrors ``close`` (the test fixtures are unadjusted by
-    design). ``turnover_value`` is included only when supplied, so callers that
-    do not need a turnover column do not get a non-NULL row.
-    """
+    """Insert consecutive raw closes; absent turnover remains SQL NULL."""
     start = end_date - timedelta(days=len(closes) - 1)
-    if turnover_value is None:
-        columns = "ticker, traded_at, close, adjustment_close"
-        rows: list[tuple[object, ...]] = [
-            (ticker, (start + timedelta(days=index)).isoformat(), close, close)
-            for index, close in enumerate(closes)
-        ]
-        placeholders = "?, ?, ?, ?"
-    else:
-        columns = "ticker, traded_at, close, adjustment_close, turnover_value"
-        rows = [
-            (ticker, (start + timedelta(days=index)).isoformat(), close, close, turnover_value)
-            for index, close in enumerate(closes)
-        ]
-        placeholders = "?, ?, ?, ?, ?"
+    rows = [
+        (ticker, (start + timedelta(days=index)).isoformat(), close, turnover_value)
+        for index, close in enumerate(closes)
+    ]
     conn = open_connection(sqlite_path)
     try:
         conn.executemany(
-            f"INSERT OR REPLACE INTO jquants_daily_bars({columns}) VALUES ({placeholders})",
+            "INSERT OR REPLACE INTO jquants_daily_bars"
+            "(ticker, traded_at, close, turnover_value) VALUES (?, ?, ?, ?)",
             rows,
         )
         conn.commit()
@@ -148,13 +153,11 @@ def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
 
     conn = open_connection(sqlite_path)
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_master_snapshots("
-            "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
+        insert_master_rows(
+            conn,
             [
-                ("2026-06-01", "9001", "キャッシュリッチ", "プライム", "サービス業", 1),
-                ("2026-06-01", "9002", "割高", "プライム", "サービス業", 1),
+                ("2026-06-01", "9001", "キャッシュリッチ", "プライム", "サービス業", "011"),
+                ("2026-06-01", "9002", "割高", "プライム", "サービス業", "011"),
             ],
         )
         add_source_coverage(
@@ -165,70 +168,64 @@ def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
             min_date="2026-06-01",
             max_date="2026-06-01",
         )
-        fin_columns = (
-            "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
-            "sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, "
-            "profit, fiscal_period, fiscal_year_end, period_start, period_end, "
-            "dps_actual_annual, dps_forecast_annual, treasury_shares, equity_to_asset_ratio"
-        )
-        conn.executemany(
-            f"INSERT OR REPLACE INTO jquants_fin_summaries({fin_columns}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    "9001",
-                    "2026-05-10",
-                    11.0,
-                    10.0,
-                    200.0,
-                    1e8,
-                    5e9,
-                    1e9,
-                    4e9,
-                    3e10,
-                    2e10,
-                    5e8,
-                    5e8,
-                    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。
-                    # 自己資本も `bps x 自己株控除後株数 == 総資産 x 自己資本比率`
-                    # (200 x 1e8 == 3e10 x 2/3) を満たす。倍率はこの行から出るので、
-                    # 行の中で両方の恒等式が成り立っている必要がある。
-                    1e9,
-                    "FY",
-                    "2026-03-31",
-                    "2025-04-01",
-                    "2026-03-31",
-                    4.0,
-                    4.5,
-                    0.0,
-                    2e10 / 3e10,
-                ),
-                (
-                    "9002",
-                    "2026-05-10",
-                    1.0,
-                    1.0,
-                    10.0,
-                    1e8,
-                    5e9,
-                    1e8,
-                    1e8,
-                    2e10,
-                    5e9,
-                    5e8,
-                    5e8,
-                    1e8,
-                    "FY",
-                    "2026-03-31",
-                    "2025-04-01",
-                    "2026-03-31",
-                    None,
-                    None,
-                    0.0,
-                    5e9 / 2e10,
-                ),
-            ],
-        )
+        for ticker, values in (
+            (
+                "9001",
+                {
+                    "EPS": 10.0,
+                    "BPS": 200.0,
+                    "Sales": 5e9,
+                    "CFO": 1e9,
+                    "CashEq": 4e9,
+                    "TA": 3e10,
+                    "Eq": 2e10,
+                    "OP": 5e8,
+                    "OdP": 5e8,
+                    "NP": 1e9,
+                    "DivAnn": 4.0,
+                    "NxFEPS": 11.0,
+                    "NxFDivAnn": 4.5,
+                    "EqAR": 2e10 / 3e10,
+                },
+            ),
+            (
+                "9002",
+                {
+                    "EPS": 1.0,
+                    "BPS": 10.0,
+                    "Sales": 5e9,
+                    "CFO": 1e8,
+                    "CashEq": 1e8,
+                    "TA": 2e10,
+                    "Eq": 5e9,
+                    "OP": 5e8,
+                    "OdP": 5e8,
+                    "NP": 1e8,
+                    "NxFEPS": 1.0,
+                    "EqAR": 5e9 / 2e10,
+                },
+            ),
+        ):
+            insert_financial_record(
+                conn,
+                {
+                    "Code": f"{ticker}0",
+                    "DiscDate": "2026-05-10",
+                    "DiscTime": "15:00:00",
+                    "DiscNo": f"statement-{ticker}",
+                    "DocType": "FYFinancialStatements_Consolidated_JP",
+                    "CurPerType": "FY",
+                    "CurFYSt": "2025-04-01",
+                    "CurFYEn": "2026-03-31",
+                    "CurPerSt": "2025-04-01",
+                    "CurPerEn": "2026-03-31",
+                    "NxtFYSt": "2026-04-01",
+                    "NxtFYEn": "2027-03-31",
+                    "ShOutFY": 1e8,
+                    "TrShFY": 0.0,
+                    **values,
+                },
+            )
         add_source_coverage(
             conn,
             source="jquants_fin_summaries",
@@ -238,8 +235,8 @@ def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
             max_date="2026-06-30",
         )
         conn.execute(
-            # 総資産と基準は、EDINET の貸借対照表が短信と同じ実体を指すことを示す事実として
-            # 持つ。短信の総資産 (3e10) と揃わない行は EDINET 由来の値を出さない。
+            # 同じ連結scopeを申告し、総資産の規模比較を通る入力。
+            # 数値の一致だけで会計entityの同一性が証明されるわけではない。
             "INSERT INTO edinet_metrics("
             "asof_date, ticker, debt, cash, net_cash, investment_securities, "
             "total_assets, consolidation_basis, failure_reasons, extractor_revision"

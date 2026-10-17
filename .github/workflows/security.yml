@@ -30,7 +30,7 @@ jobs:
           enable-cache: true
 
       - name: Sync
-        run: uv sync --frozen --all-groups
+        run: uv sync --locked --all-groups
 
       # Pull requests are where a widened credential boundary is refused, and their
       # merge ref is main only until main moves under them. This asks the question

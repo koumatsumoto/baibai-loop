@@ -1,4 +1,4 @@
-// Research工程の閲覧資格情報をowner永続保存とshared sessionに分けて保持する。
+// Web閲覧の資格情報をowner永続保存とshared sessionに分けて保持する。
 const VIEW_PASSWORD_KEY = 'baibai-view-password'
 
 export function getViewPassword(): string | null {

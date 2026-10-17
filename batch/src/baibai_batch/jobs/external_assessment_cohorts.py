@@ -273,18 +273,6 @@ def new_result(plan: RunPlan, cohort_index: int) -> CohortResult:
     )
 
 
-def _replace_entry(result: CohortResult, entry: PairEntry) -> CohortResult:
-    if (entry.source, entry.ticker) not in {(item.source, item.ticker) for item in result.entries}:
-        raise ValueError("outcome is outside the fixed cohort")
-    return replace(
-        result,
-        entries=tuple(
-            entry if (item.source, item.ticker) == (entry.source, entry.ticker) else item
-            for item in result.entries
-        ),
-    )
-
-
 def record_outcome(
     plan: RunPlan,
     result: CohortResult,
@@ -330,7 +318,13 @@ def record_outcome(
         return result
     if current.state != "unattempted":
         raise ValueError("an existing pair payload cannot change")
-    return _replace_entry(result, entry)
+    return replace(
+        result,
+        entries=tuple(
+            entry if (item.source, item.ticker) == (entry.source, entry.ticker) else item
+            for item in result.entries
+        ),
+    )
 
 
 def summarize(

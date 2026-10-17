@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from tests.helpers.proposal_v1 import (
+from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
@@ -45,9 +45,8 @@ def test_collect_preserves_meta_cutoff_and_stable_daily_label(tmp_path):
     assert first.checked_at != second.checked_at
     assert first.ledger_as_of == second.ledger_as_of == case.ledger.as_of
     assert first.ledger_head == second.ledger_head == 1
-    assert first.quotes[0].observed_at == second.quotes[0].observed_at
-    assert first.quotes[0].observed_at.hour == 15
-    assert first.quotes[0].observed_at.minute == 30
+    assert first.quotes[0].price_as_of == second.quotes[0].price_as_of == PREPARED.date()
+    assert "observed_at" not in first.quotes[0].model_dump()
     assert proposal_inputs_fingerprint(first) == proposal_inputs_fingerprint(second)
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
@@ -226,18 +225,27 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
 
 
 @pytest.mark.parametrize(
-    ("reservation_at", "execution_at", "unavailable_reason"),
+    ("reservation_at", "execution_at", "occurred_on", "unavailable_reason"),
     [
-        ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", None),
-        ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", "評価公開は買付より後"),
-        ("2026-10-14T16:09:00+09:00", "2026-10-14T16:10:00+09:00", "提案公開は買付より後"),
-        ("2026-10-14T16:19:00+09:00", "2026-10-14T07:20:00Z", None),
+        ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", None, None),
+        ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", None, "評価公開は買付より後"),
+        ("2026-10-14T16:09:00+09:00", "2026-10-14T16:10:00+09:00", None, "提案公開は買付より後"),
+        ("2026-10-14T16:19:00+09:00", "2026-10-14T07:20:00Z", None, None),
+        ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", "2026-10-14", None),
+        ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", "2026-10-15", None),
+        (
+            "2026-10-13T09:00:00+09:00",
+            "2026-10-13T09:01:00+09:00",
+            "2026-10-13",
+            "評価公開は買付より後",
+        ),
     ],
 )
-def test_original_reason_requires_both_pair_and_proposal_before_first_buy(
-    tmp_path, reservation_at, execution_at, unavailable_reason
+def test_original_reason_respects_reported_buy_time_precision(
+    tmp_path, reservation_at, execution_at, occurred_on, unavailable_reason
 ):
-    case = backend_case(tmp_path)
+    # The earlier-day negative case needs cash to exist before its reported fill.
+    case = backend_case(tmp_path, opening_at="2026-10-13T09:00:00+09:00")
     proposal = reviewed_proposal(case)
     InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
@@ -270,6 +278,7 @@ def test_original_reason_requires_both_pair_and_proposal_before_first_buy(
             "event_id": "next-real-fill",
             "execution_id": "next-broker-fill",
             "occurred_at": execution_at,
+            "occurred_on": occurred_on,
             "ticker": "1234",
             "side": "buy",
             "reservation_id": reservation.reservation_id,
@@ -312,3 +321,53 @@ def test_original_reason_requires_both_pair_and_proposal_before_first_buy(
     )
     assert context.inputs.prior_buy_execution_references == (execution.execution_id,)
     assert context.inputs.positions[0].quantity == 100
+
+
+@pytest.mark.parametrize(("kind", "unchanged"), [("3", True), ("1", False)])
+def test_holding_quantity_uses_share_units_not_the_price_adjustment(tmp_path, kind, unchanged):
+    from baibai_engine.position.valuation import current_portfolio
+
+    case = backend_case(tmp_path, holding=True)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_daily_bars "
+            "(ticker, traded_at, close, adjustment_factor, ex_right_type) VALUES (?, ?, ?, ?, ?)",
+            [
+                ("1234", "2026-10-15", 1000.0, 0.8, kind),
+                ("1234", "2026-10-16", 1000.0, 1.0, None),
+            ],
+        )
+    now = PUBLISHED + timedelta(days=2)
+    inputs = _collect(case, now=now)
+    assert inputs.positions[0].quantity == 100
+    assert inputs.positions[0].cost_yen == Decimal(90000)
+    assert inputs.positions[0].quantity_basis_confirmed is unchanged
+    assert inputs.total_capital_yen == (Decimal(310000) if unchanged else None)
+    portfolio = current_portfolio(case.ledger, sqlite_path=case.market, now=now)
+    assert portfolio.holdings[0].quantity == 100
+    assert portfolio.holdings[0].market_value_yen == (100000 if unchanged else None)
+
+
+@pytest.mark.parametrize(("product_category", "expected_common"), [("011", True), ("014", False)])
+def test_classification_uses_native_product_not_sector(tmp_path, product_category, expected_common):
+    case = backend_case(tmp_path)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_master_snapshots SET record_json = "
+            "json_set(record_json, '$.ProdCat', ?, '$.S33Nm', '新業種') "
+            "WHERE security_code = '12340'",
+            (product_category,),
+        )
+    classification = next(
+        row for row in _collect(case).security_classification if row.ticker == "1234"
+    )
+    assert classification.is_common_stock is expected_common
+    context = build_proposal_context(
+        operation_id=case.operation.operation_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PREPARED,
+    )
+    assert context.calculations["1234"]["maximum_common_grid_price_yen"] == (
+        "1000" if expected_common else None
+    )

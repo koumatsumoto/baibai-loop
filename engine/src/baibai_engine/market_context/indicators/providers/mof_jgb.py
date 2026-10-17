@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import csv
+import io
 import re
+from collections import defaultdict
+from dataclasses import replace
 from datetime import date
 from urllib.parse import urljoin
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -14,15 +17,13 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
     fetch_bytes,
-    parse_optional_float,
-    record_observation,
 )
 
 _ERA_OFFSETS = {"S": 1925, "H": 1988, "R": 2018}
 _ERA_DATE_RE = re.compile(r"^(?P<era>[SHR])(?P<year>\d+)\.(?P<month>\d+)\.(?P<day>\d+)$")
 
 
-class MofJgbProvider:
+class MofJgbSource:
     """MOF JGB constant-maturity yield CSV.
 
     The Ministry of Finance publishes a Shift_JIS CSV with daily constant
@@ -33,7 +34,7 @@ class MofJgbProvider:
     spec = ProviderSpec(name="mof_jgb", all_history_start=date(1974, 1, 1))
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -41,70 +42,65 @@ class MofJgbProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
-        content = fetch_bytes(
-            session,
-            series.source_url,
-            params=None,
-            max_bytes=MAX_CSV_RESPONSE_BYTES,
-            context=context,
-        )
-        observations_by_date = {
-            observation.observed_at: observation
-            for observation in parse_mof_jgb_csv(
-                series, content.decode("cp932"), start=start, end=end
+    ) -> NativeRecords:
+        records: dict[date, list[dict[str, object]]] = defaultdict(list)
+        for url in (series.source_url, _current_month_csv_url(series.source_url)):
+            content = fetch_bytes(
+                session,
+                url,
+                params=None,
+                max_bytes=MAX_CSV_RESPONSE_BYTES,
+                context=context,
             )
-        }
-        current_content = fetch_bytes(
-            session,
-            _current_month_csv_url(series.source_url),
-            params=None,
-            max_bytes=MAX_CSV_RESPONSE_BYTES,
-            context=context,
-        )
-        observations_by_date.update(
-            {
-                observation.observed_at: observation
-                for observation in parse_mof_jgb_csv(
-                    series, current_content.decode("cp932"), start=start, end=end
-                )
-            }
-        )
-        return [observations_by_date[key] for key in sorted(observations_by_date)]
+            native = parse_mof_jgb_csv(
+                replace(series, source_url=url),
+                content.decode("cp932"),
+                start=start,
+                end=end,
+            )
+            for day, rows in native.items():
+                records[day].extend(dict(row) for row in rows)
+        return dict(records)
 
 
 def parse_mof_jgb_csv(
     series: SeriesDefinition, text: str, *, start: date, end: date
-) -> list[ObservationRecord]:
-    reader = csv.reader(text.splitlines())
+) -> NativeRecords:
+    reader = csv.reader(io.StringIO(text))
     header: list[str] | None = None
-    observations: list[ObservationRecord] = []
+    preamble: list[list[str]] = []
+    records: dict[date, list[dict[str, object]]] = defaultdict(list)
     for row in reader:
         if not row:
             continue
         if row[0] == "基準日":
             header = row
+            if len(header) != len(set(header)):
+                raise IndicatorsProviderError("MOF JGB CSV has duplicate columns")
             if series.provider_series_id not in header:
                 raise IndicatorsProviderError(
                     f"MOF JGB CSV missing column {series.provider_series_id}"
                 )
             continue
         if header is None:
+            preamble.append(row)
             continue
         observed_at = _parse_era_date(row[0])
         if observed_at is None or not start <= observed_at <= end:
             continue
-        value_index = header.index(series.provider_series_id)
-        raw_value = row[value_index] if value_index < len(row) else None
-        if raw_value == "-":
-            continue
-        value = parse_optional_float(raw_value)
-        if value is None:
-            continue
-        observations.append(record_observation(series, observed_at=observed_at, value=value))
+        if len(row) > len(header):
+            raise IndicatorsProviderError("MOF JGB CSV row has more fields than its header")
+        cells = {column: row[i] if i < len(row) else None for i, column in enumerate(header)}
+        records[observed_at].append(
+            {
+                "row": cells,
+                "source_url": series.source_url,
+                "preamble": list(preamble),
+            }
+        )
     if header is None:
         raise IndicatorsProviderError("MOF JGB CSV missing header row")
-    return observations
+    return dict(records)
 
 
 def _parse_era_date(raw: str) -> date | None:

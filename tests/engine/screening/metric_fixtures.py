@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import unittest
 from datetime import date, timedelta
-from pathlib import Path
 
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
@@ -64,10 +60,13 @@ def _summary(
     # 別の利益値を試す test は `profit` を明示する。
     if profit is None and eps_ttm is not None:
         profit = eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
+    # Calculation-ready fixture; native document/period resolution has separate tests.
     return JQuantsFinancialSummary(
         ticker=code,
         disclosed_at=disclosed_at,
         forecast_eps=forecast_eps,
+        forecast_status="confirmed",
+        dividend_forecast_status="confirmed" if dps_forecast_annual is not None else "missing",
         eps_ttm=eps_ttm,
         bps=120.0,
         shares_outstanding=shares_outstanding,
@@ -152,8 +151,5 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
         close=100.0,
         turnover_value=300_000_000.0,
         adjustment_factor=factor,
+        ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
     )
-
-
-if __name__ == "__main__":
-    unittest.main()

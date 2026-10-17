@@ -32,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         conn = indicators_db.open_read_only_connection(args.db)
         try:
+            conn.execute("BEGIN")
             snapshot = read_store_snapshot(conn, asof=args.asof, rules_path=args.rules)
         finally:
             conn.close()
@@ -56,7 +57,8 @@ def main(argv: list[str] | None = None) -> int:
 def _print_table(snapshot: ReadingSnapshot) -> None:
     print(f"# Reading asof={snapshot.asof.isoformat()} rules={snapshot.rules_revision}")
     print(
-        "series_id\tlatest\tobserved_at\tnext_print\tdue_days\tstale_days\t3m\t12m\t"
+        "series_id\tlatest\tobserved_at\tnext_print\tdue_days\tstale_days\t"
+        "short_trend\tlong_trend\t"
         "statistic\tstat_value\tpercentile\tz\twindow\tnotes",
     )
     for reading in snapshot.series:
@@ -95,7 +97,7 @@ def _direction_cell(reading: SeriesReading, attribute: str) -> str:
     trend = getattr(reading, attribute)
     if trend is None:
         return "-"
-    return f"{trend.direction}({trend.change:+g})"
+    return f"{trend.months}m:{trend.direction}({trend.change:+g})"
 
 
 def _number(value: float | None, *, digits: int = 4) -> str:

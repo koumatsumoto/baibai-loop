@@ -13,15 +13,18 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.helpers.master import insert_master_rows
+
 ROOT = Path(__file__).resolve().parents[2]
 
-from tests.helpers.screening_sqlite import add_source_coverage
+from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.market.providers.jquants import JQuantsProvider
-from baibai_engine.screening.cli import ProviderBundle, run_command
+from baibai_engine.screening.cli.providers import ProviderBundle
+from baibai_engine.screening.cli.run import run_command
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.run_store import ScreeningRunReader, run_store_path
 from baibai_engine.storage.observations.schema import open_connection
@@ -66,11 +69,19 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
                 for index in range(2499)
             ],
         ]
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots("
-            "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
-            master_rows,
+        insert_master_rows(
+            conn,
+            [
+                (
+                    _master_row[0],
+                    _master_row[1],
+                    _master_row[2],
+                    _master_row[3],
+                    _master_row[4],
+                    "011",
+                )
+                for _master_row in master_rows
+            ],
         )
         add_source_coverage(
             conn,
@@ -86,29 +97,14 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             (
                 ticker,
                 (history_start + timedelta(days=index)).isoformat(),
-                None,
-                None,
-                None,
                 float(100 + index),
-                None,
                 300_000_000.0,
-                None,
-                None,
-                None,
-                float(100 + index),
-                None,
-                None,
-                None,
-                None,
             )
             for index in range(history_days)
         ]
         conn.executemany(
-            "INSERT INTO jquants_daily_bars("
-            "ticker, traded_at, open, high, low, close, volume, turnover_value, "
-            "adjustment_open, adjustment_high, adjustment_low, adjustment_close, "
-            "adjustment_volume, adjustment_factor, upper_limit, lower_limit"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
+            "VALUES (?, ?, ?, ?)",
             bars_rows,
         )
         # Mark the API request bracket the screening run will use; the
@@ -123,68 +119,47 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             max_date=history_end.isoformat(),
         )
 
-        # Fin summaries: current rows plus three consecutive FY rows for normalized PER.
+        # Construct source documents, not precomputed financial columns.
         fin_rows = [
-            *[
-                (
-                    ticker,
-                    (asof - timedelta(days=365 * years_ago - 30)).isoformat(),
-                    None,
-                    eps,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    "FY",
-                    date(asof.year - years_ago, 3, 31).isoformat(),
-                    None,
-                    None,
-                )
-                for years_ago, eps in ((3, 10.0), (2, 20.0), (1, 30.0))
-            ],
-            (
-                ticker,
-                (asof - timedelta(days=120)).isoformat(),
-                20.0,
-                15.0,
-                120.0,
-                400_000_000.0,
-                1000.0,
-                100.0,
-                None,
-                None,
-                "Q4",
-                None,
-                None,
-                None,
-            ),
-            (
-                ticker,
-                (asof - timedelta(days=15)).isoformat(),
-                22.0,
-                18.0,
-                130.0,
-                400_000_000.0,
-                1100.0,
-                110.0,
-                None,
-                None,
-                "Q1",
-                None,
-                None,
-                None,
-            ),
+            {
+                "Code": f"{ticker}0",
+                "DiscDate": (asof - timedelta(days=365 * years_ago - 30)).isoformat(),
+                "DiscNo": f"fy-{asof.year - years_ago}",
+                "DiscTime": "15:00:00",
+                "DocType": "FYFinancialStatements_Consolidated_JP",
+                "CurPerType": "FY",
+                "CurFYSt": date(asof.year - years_ago - 1, 4, 1).isoformat(),
+                "CurFYEn": date(asof.year - years_ago, 3, 31).isoformat(),
+                "CurPerSt": date(asof.year - years_ago - 1, 4, 1).isoformat(),
+                "CurPerEn": date(asof.year - years_ago, 3, 31).isoformat(),
+                "EPS": eps,
+            }
+            for years_ago, eps in ((3, 10.0), (2, 20.0), (1, 30.0))
         ]
-        conn.executemany(
-            "INSERT INTO jquants_fin_summaries("
-            "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
-            "sales, operating_profit, ordinary_profit, profit, "
-            "fiscal_period, fiscal_year_end, period_start, period_end"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            fin_rows,
+        fin_rows.append(
+            {
+                "Code": f"{ticker}0",
+                "DiscDate": (asof - timedelta(days=15)).isoformat(),
+                "DiscNo": "current-fy",
+                "DiscTime": "15:00:00",
+                "DocType": "FYFinancialStatements_Consolidated_JP",
+                "CurPerType": "FY",
+                "CurFYSt": date(asof.year - 1, 4, 1).isoformat(),
+                "CurFYEn": date(asof.year, 3, 31).isoformat(),
+                "CurPerSt": date(asof.year - 1, 4, 1).isoformat(),
+                "CurPerEn": date(asof.year, 3, 31).isoformat(),
+                "NxtFYSt": date(asof.year, 4, 1).isoformat(),
+                "NxtFYEn": date(asof.year + 1, 3, 31).isoformat(),
+                "EPS": 18.0,
+                "BPS": 130.0,
+                "ShOutFY": 400_000_000.0,
+                "Sales": 1100.0,
+                "OP": 110.0,
+                "NxFEPS": 22.0,
+            }
         )
+        for record in fin_rows:
+            insert_financial_record(conn, record)
         add_source_coverage(
             conn,
             source="jquants_fin_summaries",
@@ -223,7 +198,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             for index in range(history_days)
         ]
         conn.executemany(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
             calendar_rows,
         )
         add_source_coverage(
@@ -298,7 +273,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
 
 
 class ScreeningRunOverSqliteTests(unittest.TestCase):
-    def test_run_command_succeeds_using_only_sqlite_cache(self) -> None:
+    def test_run_command_publishes_using_only_sqlite_cache(self) -> None:
         asof = date(2026, 4, 24)
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)

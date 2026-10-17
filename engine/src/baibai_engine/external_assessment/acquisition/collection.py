@@ -637,15 +637,6 @@ def collect_pair(
         )
         result = replace(
             result,
-            observations=tuple(
-                type(observation).model_validate(
-                    {
-                        **observation.model_dump(exclude={"snapshot_date"}),
-                        "fetched_at_utc": wrapped.finished_at_utc,
-                    }
-                )
-                for observation in result.observations
-            ),
             requests=wrapped.requests,
             last_response_finished_at_utc=wrapped.finished_at_utc,
             response_content_bytes=wrapped.content_bytes,

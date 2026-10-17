@@ -36,3 +36,19 @@ describe('記述較正分布', () => {
     expect(html).toContain('差は配当効果を表しません')
   })
 })
+
+
+it('固定帯の閾値は画面定数ではなく保存された境界を表示する', () => {
+  const changed = structuredClone(context)
+  const band = changed.horizons[0].bands[0]
+  band.quintile = null
+  band.band_id = 'fixed-threshold'
+  band.lower_er_annual = .12
+  const html = renderToStaticMarkup(createElement(CalibrationDistribution, { context: changed }))
+  expect(html).toContain('E[r] ≥ 12%')
+  expect(html).not.toContain('8.5%')
+  band.lower_er_annual = null
+  const missing = renderToStaticMarkup(createElement(CalibrationDistribution, { context: changed }))
+  expect(missing).toContain('E[r]の閾値未記録')
+  expect(missing).not.toContain('8.5%')
+})

@@ -20,6 +20,7 @@ from baibai_engine.position.broker_fact_recording import (
     BrokerFactStatus,
     _provided_execution_suffix,
     _validate_execution_id,
+    find_reported_execution,
     record_broker_fact,
     record_terminal_broker_facts,
 )
@@ -194,11 +195,18 @@ def build_broker_fact_draft(
     # consulting the buy binding or looking for an active reservation.
     if (
         status == "filled"
-        and execution_id is not None
-        and any(
-            isinstance(event, ExecutionEvent) and event.execution_id == execution_id
-            for event in source.events
+        and ticker is not None
+        and find_reported_execution(
+            source,
+            execution_id=execution_id,
+            decision_reference=decision_reference,
+            side=side,
+            ticker=ticker,
+            reservation_id=requested_ids[0] if requested_ids else None,
+            occurred_at=occurred_at,
+            occurred_on=occurred_on,
         )
+        is not None
     ):
         result = record_single_fact()
         assert not result.changed
@@ -351,11 +359,14 @@ def build_override_draft(
     source, expected_head = service.load_with_head()
     if any(item.override_id == override.override_id for item in source.overrides):
         raise ValueError(f"duplicate override_id: {override.override_id}")
-    replacement = source.model_copy(
-        update={
-            "overrides": tuple(
-                sorted((*source.overrides, override), key=lambda item: item.override_id)
-            )
+    replacement = PortfolioLedgerDocument.model_validate(
+        {
+            **source.model_dump(mode="json"),
+            "as_of": max(source.as_of, override.approved_at).isoformat(),
+            "overrides": [
+                item.model_dump(mode="json")
+                for item in sorted((*source.overrides, override), key=lambda item: item.override_id)
+            ],
         }
     )
     active_human_overrides(replacement.overrides, as_of=replacement.as_of)
@@ -439,56 +450,48 @@ def build_sell_execution_draft(
         )
         if saved_order is not None:
             decision_reference = saved_order.decision_reference
-    if execution_id is not None:
-        existing = next(
+    existing = find_reported_execution(
+        source,
+        execution_id=execution_id,
+        decision_reference=decision_reference,
+        side="sell",
+        ticker=ticker,
+        reservation_id=reservation_id,
+        occurred_at=occurred_at,
+        occurred_on=occurred_on,
+    )
+    if existing is not None:
+        existing_suffix = existing.event_id.removeprefix("human-sell-")
+        fee = next(
             (
                 event
                 for event in source.events
-                if isinstance(event, ExecutionEvent) and event.execution_id == execution_id
+                if event.event_id == f"human-sell-fee-{existing_suffix}"
             ),
             None,
         )
-        if existing is not None:
-            existing_suffix = existing.event_id.removeprefix("human-sell-")
-            fee = next(
-                (
-                    event
-                    for event in source.events
-                    if event.event_id == f"human-sell-fee-{existing_suffix}"
-                ),
-                None,
-            )
-            tax = next(
-                (
-                    event
-                    for event in source.events
-                    if event.event_id == f"human-sell-tax-{existing_suffix}"
-                ),
-                None,
-            )
-            if not (
-                existing.side == "sell"
-                and (occurred_on is not None or existing.occurred_at == occurred_at)
-                and existing.occurred_on == occurred_on
-                and existing.ticker == ticker
-                and existing.quantity == quantity
-                and existing.price_yen == price_yen
-                and existing.reservation_id == reservation_id
-                and existing.decision_reference == decision_reference
-                and (fee.amount_yen if isinstance(fee, CostEvent) else None) == fees_yen
-                and (tax.amount_yen if isinstance(tax, ConfirmedTaxEvent) else None) == tax_yen
-            ):
-                raise ValueError("conflicting human report for existing execution_id")
-            return None
-    elif occurred_on is not None and any(
-        isinstance(event, ExecutionEvent)
-        and event.side == "sell"
-        and event.ticker == ticker
-        and event.reservation_id == reservation_id
-        and event.occurred_on == occurred_on
-        for event in source.events
-    ):
-        raise ValueError("another date-only sell fill needs an execution_id to distinguish it")
+        tax = next(
+            (
+                event
+                for event in source.events
+                if event.event_id == f"human-sell-tax-{existing_suffix}"
+            ),
+            None,
+        )
+        if not (
+            existing.side == "sell"
+            and (occurred_on is not None or existing.occurred_at == occurred_at)
+            and existing.occurred_on == occurred_on
+            and existing.ticker == ticker
+            and existing.quantity == quantity
+            and existing.price_yen == price_yen
+            and existing.reservation_id == reservation_id
+            and existing.decision_reference == decision_reference
+            and (fee.amount_yen if isinstance(fee, CostEvent) else None) == fees_yen
+            and (tax.amount_yen if isinstance(tax, ConfirmedTaxEvent) else None) == tax_yen
+        ):
+            raise ValueError("conflicting human report for existing execution_id")
+        return None
     if reservation_id is not None:
         active = {
             item.reservation_id: item
@@ -522,7 +525,6 @@ def build_sell_execution_draft(
             "quantity": quantity,
             "price_yen": str(price_yen),
             "decision_reference": decision_reference,
-            **({"occurred_on": occurred_on.isoformat()} if occurred_on is not None else {}),
         }
     ]
     if fees_yen is not None:
@@ -547,6 +549,9 @@ def build_sell_execution_draft(
                 "amount_yen": tax_yen,
             }
         )
+    if occurred_on is not None:
+        for addition in additions:
+            addition["occurred_on"] = occurred_on.isoformat()
     raw = source.model_dump(mode="json")
     raw["events"] = sorted(
         [*raw["events"], *additions],

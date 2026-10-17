@@ -18,23 +18,25 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicator_service import (
+    IndicatorsService,
+    RefreshFailure,
+    RefreshSuccess,
+)
+from baibai_engine.market_context.indicators.db import initialize_database
 from baibai_engine.market_context.indicators.providers import jquants_options, registry
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     ProviderFetchStoppedError,
 )
-from baibai_engine.market_context.indicators.providers.option_iv import (
-    fear_readings,
+from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
+from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
+from baibai_engine.market_context.option_acquisition import OptionAcquisition
+from baibai_engine.market_context.reading.option_iv import (
+    option_iv_readings,
     quotes_from_records,
 )
-from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
-from baibai_engine.market_context.indicators.service import (
-    IndicatorsService,
-    RefreshFailure,
-    RefreshSuccess,
-    _fetch_observations_with_retry,
-)
+from baibai_engine.market_context.reading.options import OptionSeriesReader
 
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
 READINGS = ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term")
@@ -46,7 +48,7 @@ class BodyTimeout(io.BytesIO):
 
 
 @pytest.fixture
-def wire(monkeypatch):
+def wire(monkeypatch, tmp_path):
     class Wire:
         elapsed = 0.0
         calls = []
@@ -79,12 +81,21 @@ def wire(monkeypatch):
             )
 
         def fetch(self, series_id=READINGS[0], *, start=ASOF, end=ASOF):
-            return _fetch_observations_with_retry(
-                _registered(series_id), start=start, end=end, context=self.context
+            if self.acquisition_context is not self.context:
+                if self.acquisition is not None:
+                    self.acquisition.close()
+                self.acquisition = OptionAcquisition(self.connection, self.context)
+                self.acquisition_context = self.context
+            observations, _ = self.acquisition.query(
+                _registered(series_id), start=start, end=end, refresh=True
             )
+            return observations
 
     wire = Wire()
     wire.context = FetchContext()
+    wire.connection = initialize_database(tmp_path / "wire.sqlite")
+    wire.acquisition_context = None
+    wire.acquisition = None
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
@@ -104,10 +115,11 @@ def wire(monkeypatch):
         pytest.fail("offline SDK transport must never connect")
 
     monkeypatch.setattr("socket.socket.connect", no_socket)
-    wire.provider = jquants_options.JQuantsOptionsProvider()
-    monkeypatch.setitem(registry._PROVIDERS, "jquants_options", wire.provider)
     yield wire
+    if wire.acquisition is not None:
+        wire.acquisition.close()
     wire.context.close()
+    wire.connection.close()
 
 
 def chain(day=ASOF):
@@ -129,7 +141,7 @@ def test_same_get_has_initial_plus_five_retries_and_keeps_success_value(wire, fa
             wire.fetch()
     else:
         records = wire.fetch()
-        expected = fear_readings(quotes_from_records(_chain_records(), ASOF), ASOF).iv_30d
+        expected = option_iv_readings(quotes_from_records(_chain_records()), ASOF).iv_30d
         assert len(records) == 1
         assert records[0].value == expected
     assert len(wire.calls) == min(failures + 1, 6)
@@ -341,13 +353,11 @@ def test_days_share_one_deadline_and_completed_day_stays_readable(wire):
     assert wire.waits == [900]
 
 
-def test_terminal_day_failure_is_not_carried_into_a_new_provider_process(wire, monkeypatch):
+def test_terminal_day_failure_is_not_carried_into_a_new_acquisition(wire):
     wire.reply = lambda url: (403, {}, {})
     with pytest.raises(ProviderFetchStoppedError):
         wire.fetch()
-    monkeypatch.setitem(
-        registry._PROVIDERS, "jquants_options", jquants_options.JQuantsOptionsProvider()
-    )
+    wire.acquisition_context = None
     wire.reply = lambda url: success()
     assert len(wire.fetch()) == 1
     assert len(wire.calls) == 2
@@ -426,7 +436,7 @@ def test_separate_pages_have_separate_get_budgets_and_the_same_calculation(wire)
     wire.reply = reply
     for series_id, field in zip(READINGS, ("iv_30d", "iv_skew", "iv_term"), strict=True):
         records = wire.fetch(series_id)
-        expected = getattr(fear_readings(quotes_from_records(_chain_records(), ASOF), ASOF), field)
+        expected = getattr(option_iv_readings(quotes_from_records(_chain_records()), ASOF), field)
         assert len(records) == 1
         assert records[0].value == expected
     assert counts == {"first": 6, "second": 6}
@@ -485,43 +495,55 @@ def test_normal_tls_proxy_pool_timeout_and_other_sdk_clients_are_unchanged(wire)
     assert all(t.connect_timeout == t.read_timeout == 30 for t in wire.timeouts)
 
 
-def test_failed_options_keep_stored_observations_and_another_series_can_commit(
+def test_failed_options_keep_native_chain_readable_and_another_series_can_commit(
     wire, monkeypatch, tmp_path
 ):
-    provider_name = _registered("us.10y").provider
+    provider_name = _registered("jp.bankruptcies").provider
 
     class OtherProvider:
         spec = registry._PROVIDERS[provider_name].spec
 
         def fetch(self, series, *, start, end, session, context):
-            return [observation(series, ASOF, 4.2)]
+            return [observation(series, ASOF, 420.0)]
 
     monkeypatch.setitem(registry._PROVIDERS, provider_name, OtherProvider())
     database = tmp_path / "indicators.sqlite"
     conn = initialize_database(database)
-    for series_id, value in zip(READINGS, (20.0, 1.0, -1.0), strict=True):
-        insert_observations(
-            conn, [observation(_registered(series_id), ASOF - timedelta(days=1), value)]
-        )
+    store_snapshot(
+        conn,
+        source_key="jquants_options:n225",
+        observed_at=ASOF,
+        fetched_at=datetime.combine(ASOF, datetime.min.time(), UTC),
+        records=_chain_records(ASOF),
+    )
     conn.commit()
-    before = conn.execute("SELECT * FROM observations ORDER BY series_id").fetchall()
+    before = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
+    reader = OptionSeriesReader(conn)
+    before_values = {
+        series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
+        for series_id in READINGS
+    }
+    assert all(before_values.values())
     conn.close()
     wire.reply = lambda url: (403, {}, {"message": "synthetic-key"})
     results = IndicatorsService(database).refresh_series(
-        [*READINGS, "us.10y"], start=ASOF, end=ASOF
+        [*READINGS, "jp.bankruptcies"], start=ASOF, end=ASOF
     )
     assert all(isinstance(r, RefreshFailure) for r in results[:3])
     assert isinstance(results[3], RefreshSuccess)
     conn = initialize_database(database)
     try:
-        after = conn.execute(
-            "SELECT * FROM observations WHERE series_id != 'us.10y' ORDER BY series_id"
-        ).fetchall()
+        after = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
         assert after == before
+        reader = OptionSeriesReader(conn)
+        assert {
+            series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
+            for series_id in READINGS
+        } == before_values
         assert (
-            conn.execute("SELECT COUNT(*) FROM observations WHERE series_id = 'us.10y'").fetchone()[
-                0
-            ]
+            conn.execute(
+                "SELECT COUNT(*) FROM observations WHERE series_id = 'jp.bankruptcies'"
+            ).fetchone()[0]
             == 1
         )
         assert conn.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 4
@@ -544,3 +566,42 @@ def test_new_pass_refreshes_successful_and_empty_chain_results(wire, initially_e
     for series_id in READINGS:
         assert len(wire.fetch(series_id)) == (1 if initially_empty else 0)
     assert len(wire.calls) == 2
+
+
+@pytest.mark.parametrize("payload", [{}, {"data": None}, {"data": {}}, {"data": [None]}])
+def test_malformed_native_page_is_not_a_successful_empty_day(wire, payload):
+    wire.reply = lambda url: (200, {}, payload)
+    with pytest.raises(ProviderFetchStoppedError, match="data"):
+        wire.fetch()
+    assert len(wire.calls) == 1
+    assert wire.waits == []
+
+
+def test_native_pages_keep_all_fields_and_source_date_strings(wire):
+    rows = [{**row, "EO": "", "extra_source_field": None} for row in chain()]
+    wire.reply = lambda url: success(rows=rows)
+    result = jquants_options.OptionChainSource(wire.context).fetch(ASOF)
+    assert result == rows
+    assert isinstance(result[0]["Date"], str)
+    assert result[0]["EO"] == ""
+    assert result[0]["extra_source_field"] is None
+
+
+def test_later_malformed_page_does_not_return_a_partial_day(wire):
+    wire.reply = lambda url: (
+        (200, {}, {"data": None})
+        if "pagination_key" in parse_qs(urlsplit(url).query)
+        else success(rows=chain()[:1], next_page="second")
+    )
+    with pytest.raises(ProviderFetchStoppedError, match="data list"):
+        wire.fetch()
+    assert len(wire.calls) == 2
+    assert wire.waits == []
+
+
+def test_repeated_pagination_key_cannot_loop_or_complete_a_day(wire):
+    wire.reply = lambda url: success(rows=[], next_page="same")
+    with pytest.raises(ProviderFetchStoppedError, match=r"repeated.*pagination_key"):
+        wire.fetch()
+    assert len(wire.calls) == 2
+    assert wire.waits == []

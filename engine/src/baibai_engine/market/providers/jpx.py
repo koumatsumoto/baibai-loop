@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import csv
 import logging
 import re
 from collections.abc import Mapping, Sequence
 from datetime import date
 from html.parser import HTMLParser
 from io import BytesIO
+from itertools import groupby
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -62,6 +62,7 @@ class _EarningsCalendarFile:
     entries: tuple[JPXEarningsCalendarEntry, ...]
     raw_record_count: int
     excluded_record_count: int
+    undated_tickers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -176,6 +177,7 @@ class _JpxHtmlIndexer(HTMLParser):
             text = re.sub(r"\s+", " ", "".join(self._heading_buffer)).strip()
             if self._heading_tag == "h2":
                 self._last_h2 = text
+                self._last_h3 = None
                 self.section_text.setdefault(text, [])
             else:
                 self._last_h3 = text
@@ -280,7 +282,7 @@ class JPXProvider:
         self._raise_if_cache_only("jpx_regulation_flags", asof_date.isoformat())
         if not self._regulation_urls:
             raise JPXProviderError(
-                "JPX regulation data is required but no public CSV/Excel/HTML URL is configured"
+                "JPX regulation data is required but no public HTML URL is configured"
             )
 
         flags: dict[str, set[str]] = {}
@@ -339,33 +341,50 @@ class JPXProvider:
         raw_count = sum(source.raw_record_count for source in files)
         excluded_count = sum(source.excluded_record_count for source in files)
         _warn_on_unexpected_earnings_sources(files)
-        entries: dict[str, date] = {}
-        winner_urls: dict[str, str] = {}
+        entries: dict[str, date | None] = {}
         superseded: list[str] = []
-        # Issuers reschedule, so cohort files published on different days
-        # legitimately disagree. The most current view wins.
+        conflicts: list[str] = []
         ordered = sorted(files, key=lambda source: _earnings_source_precedence(source, asof_date))
-        for source in ordered:
-            for entry in source.entries:
-                previous = entries.get(entry.ticker)
-                if previous is None:
-                    entries[entry.ticker] = entry.announcement_date
-                    winner_urls[entry.ticker] = source.url
-                    continue
-                if previous != entry.announcement_date:
-                    superseded.append(
-                        f"{entry.ticker}: kept {previous} from {winner_urls[entry.ticker]}, "
-                        f"dropped {entry.announcement_date} from {source.url}"
+        # URL orders traversal only. Equally current sources must agree on a date;
+        # explicit unknowns and conflicts block fallback to an older file.
+        for _, sources in groupby(
+            ordered, key=lambda source: _earnings_source_precedence(source, asof_date)[:2]
+        ):
+            candidates: dict[str, list[date | None]] = {}
+            for source in sources:
+                for ticker in source.undated_tickers:
+                    candidates.setdefault(ticker, []).append(None)
+                for entry in source.entries:
+                    candidates.setdefault(entry.ticker, []).append(entry.announcement_date)
+            for ticker, dates in candidates.items():
+                if ticker in entries:
+                    superseded.extend(
+                        f"{ticker}: kept {entries[ticker]}, dropped {on_date}"
+                        for on_date in dates
+                        if on_date is not None and on_date != entries[ticker]
                     )
+                    continue
+                distinct = set(dates)
+                entries[ticker] = next(iter(distinct)) if len(distinct) == 1 else None
+                if len(distinct) > 1:
+                    conflicts.append(ticker)
+        if conflicts:
+            _LOGGER.warning(
+                "JPX earnings calendar has equally current conflicting schedules: %s",
+                ", ".join(sorted(conflicts)),
+            )
         if superseded:
             _LOGGER.warning(
-                "JPX earnings calendar superseded %d stale date(s): %s",
+                "JPX earnings calendar superseded %d lower-precedence date(s): %s",
                 len(superseded),
                 "; ".join(superseded[:20]),
             )
         normalized_entries = tuple(
             JPXEarningsCalendarEntry(ticker=ticker, announcement_date=on_date)
-            for ticker, on_date in sorted(entries.items(), key=lambda item: (item[1], item[0]))
+            for ticker, on_date in sorted(
+                ((ticker, day) for ticker, day in entries.items() if day is not None),
+                key=lambda item: (item[1], item[0]),
+            )
         )
         if not normalized_entries:
             raise JPXProviderError("JPX earnings calendar snapshot has zero valid rows")
@@ -385,14 +404,6 @@ class JPXProvider:
 
             store_jpx_earnings_calendar_snapshot(self._sqlite_path, snapshot)
         return snapshot
-
-    def has_regulation_cache(self, asof_date: date) -> bool:
-        if self._sqlite_path is not None:
-            from baibai_engine.storage.observations.reader import has_jpx_regulation_data
-
-            if has_jpx_regulation_data(self._sqlite_path, asof_date):
-                return True
-        return False
 
     def _raise_if_cache_only(self, source: str, requirement: str) -> None:
         if not self._cache_only:
@@ -506,12 +517,8 @@ class JPXProvider:
                 break
         if header_index is None or code_column is None or date_column is None:
             raise JPXProviderError(f"unexpected JPX earnings calendar header layout: {url}")
-        entries: dict[str, JPXEarningsCalendarEntry] = {}
-        raw_count = 0
-        excluded_count = 0
-        seen: dict[str, date] = {}
-        conflicted: set[str] = set()
-        conflicts: list[str] = []
+        dates_by_ticker: dict[str, set[date | None]] = {}
+        counts_by_ticker: dict[str, int] = {}
         unparsable: list[str] = []
         for _, raw_row in frame.iloc[header_index + 1 :].iterrows():
             values = [str(value).strip() for value in raw_row.tolist()]
@@ -521,35 +528,30 @@ class JPXProvider:
                 continue
             if not date_raw and re.match(r"^(?:※|注|備考|note\b)", code_raw, re.IGNORECASE):
                 continue
-            raw_count += 1
             ticker = parse_jpx_code(code_raw)
-            if not date_raw or date_raw.startswith("未定"):
-                excluded_count += 1
-                continue
-            announcement_date = _parse_jpx_earnings_date(date_raw)
-            if announcement_date is None:
-                # A cell that is not a date is that issuer's row, not the file's: it
-                # leaves as undated, like a 未定 row.
-                excluded_count += 1
-                unparsable.append(f"{ticker}: {date_raw!r}")
-                continue
-            if ticker in conflicted:
-                excluded_count += 1
-                continue
-            previous = seen.get(ticker)
-            if previous is None:
-                seen[ticker] = announcement_date
-                entries[ticker] = JPXEarningsCalendarEntry(
-                    ticker=ticker, announcement_date=announcement_date
-                )
-            elif previous != announcement_date:
-                # One issuer dated twice in one file is that issuer's ambiguity, not a
-                # missing input for the day: it goes out as undated, like a 未定 row,
-                # and the rest of the file stands.
-                conflicted.add(ticker)
-                del entries[ticker]
-                excluded_count += 2
-                conflicts.append(f"{ticker}: {previous} and {announcement_date}")
+            announcement_date = None
+            if date_raw and not date_raw.startswith("未定"):
+                announcement_date = _parse_jpx_earnings_date(date_raw)
+                if announcement_date is None:
+                    unparsable.append(f"{ticker}: {date_raw!r}")
+            dates_by_ticker.setdefault(ticker, set()).add(announcement_date)
+            counts_by_ticker[ticker] = counts_by_ticker.get(ticker, 0) + 1
+
+        entries: dict[str, JPXEarningsCalendarEntry] = {}
+        undated: set[str] = set()
+        conflicts: list[str] = []
+        for ticker, dates in dates_by_ticker.items():
+            if len(dates) == 1 and None not in dates:
+                on_date = next(iter(dates))
+                assert on_date is not None
+                entries[ticker] = JPXEarningsCalendarEntry(ticker=ticker, announcement_date=on_date)
+            else:
+                undated.add(ticker)
+                if len(dates) > 1:
+                    rendered = sorted(str(day) if day is not None else "undated" for day in dates)
+                    conflicts.append(f"{ticker}: " + " and ".join(rendered))
+        raw_count = sum(counts_by_ticker.values())
+        excluded_count = sum(counts_by_ticker[ticker] for ticker in undated)
         if conflicts or unparsable:
             _LOGGER.warning(
                 "JPX earnings calendar dropped undated ticker(s) in %s: "
@@ -565,6 +567,7 @@ class JPXProvider:
             entries=tuple(entries.values()),
             raw_record_count=raw_count,
             excluded_record_count=excluded_count,
+            undated_tickers=tuple(sorted(undated)),
         )
 
     def _download_rows(self, source_name: str, url: str) -> list[dict[str, str]]:
@@ -577,10 +580,6 @@ class JPXProvider:
         suffix = Path(urlparse(url).path).suffix.lower()
         content_type_header = response.headers.get("content-type", "")
         content_type = content_type_header.split(";", 1)[0].strip().lower()
-        if suffix == ".csv":
-            return self._parse_csv_rows(response.content, url)
-        if suffix in {".xls", ".xlsx"}:
-            return self._parse_excel_rows(response.content, url)
         if suffix == ".html" or content_type == "text/html":
             return self._parse_html_rows(source_name, response.content, url, content_type_header)
         raise JPXProviderError(f"unsupported JPX regulation source format: {url}")
@@ -589,38 +588,6 @@ class JPXProvider:
         parsed = urlparse(url)
         if parsed.scheme != _JPX_ALLOWED_SCHEME or parsed.netloc != _JPX_ALLOWED_HOST:
             raise JPXProviderError(f"JPX regulation source must use https://www.jpx.co.jp/: {url}")
-
-    def _parse_csv_rows(self, content: bytes, url: str) -> list[dict[str, str]]:
-        try:
-            text = content.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            try:
-                text = content.decode("cp932")
-            except UnicodeDecodeError as exc:
-                raise JPXProviderError(f"failed to decode JPX regulation source: {url}") from exc
-        reader = csv.DictReader(text.splitlines())
-        return [dict(row) for row in reader]
-
-    def _parse_excel_rows(self, content: bytes, url: str) -> list[dict[str, str]]:
-        try:
-            import pandas as pd
-        except ModuleNotFoundError as exc:
-            raise JPXProviderError("pandas is required to read JPX Excel sources") from exc
-
-        try:
-            frame = pd.read_excel(BytesIO(content), dtype=str)
-        except ImportError as exc:
-            raise JPXProviderError(
-                f"missing Excel reader dependency for JPX source: {url}"
-            ) from exc
-        except Exception as exc:
-            raise JPXProviderError(f"failed to parse JPX Excel source: {url}") from exc
-
-        normalized = frame.fillna("")
-        return [
-            {str(column): str(value).strip() for column, value in row.items()}
-            for row in normalized.to_dict(orient="records")
-        ]
 
     def _parse_html_rows(
         self,
@@ -765,7 +732,8 @@ class JPXProvider:
                 preceding_h2="本日の売買停止情報",
             )
         except JPXProviderError:
-            if _TRADING_HALT_EMPTY_MARKER in html:
+            section = indexer.section_text.get("本日の売買停止情報", [])
+            if _TRADING_HALT_EMPTY_MARKER in "".join(section):
                 return []
             raise
         return self._rows_from_parsed_table(
@@ -910,15 +878,16 @@ def _earnings_source_precedence(
 ) -> tuple[int, int, str]:
     """Order cohort files by how current their view of the schedule is.
 
-    A file holding no date on or after the as-of has no forward schedule left to
-    contribute, and a file whose publication stamp cannot be read cannot be
-    placed among the dated ones, so both sit below every file known to be
-    current. Publication order is kept inside the demoted rank so a stale file
-    never reorders its cohort. Files we genuinely cannot separate fall back to
-    their URL, which keeps the snapshot independent of the index listing order.
+    A file with only past dates and no explicit unknowns is demoted. Unknown
+    schedules must retain their source precedence so older dates cannot replace
+    them. Publication order is kept inside each rank. URL gives stable traversal
+    only; equally ranked conflicting schedules remain unresolved during merge.
+    This is the adapter's policy, not an official JPX conflict-resolution rule.
     """
     published_rank = 0 if source.published_on is None else -source.published_on.toordinal()
-    if not any(entry.announcement_date >= asof_date for entry in source.entries):
+    if not source.undated_tickers and not any(
+        entry.announcement_date >= asof_date for entry in source.entries
+    ):
         return (_EARNINGS_RANK_NO_FORWARD_VIEW, published_rank, source.url)
     if _is_rolling_earnings_file(source.url):
         return (_EARNINGS_RANK_ROLLING, 0, source.url)
@@ -930,12 +899,8 @@ def _earnings_source_precedence(
 def _warn_on_unexpected_earnings_sources(files: Sequence[_EarningsCalendarFile]) -> None:
     """Say when the JPX layout stopped matching what precedence relies on."""
     rolling = [source.url for source in files if _is_rolling_earnings_file(source.url)]
-    if not rolling:
-        _LOGGER.warning(
-            "JPX earnings calendar index has no rolling `kessan` file; "
-            "cohort archives alone decide the schedule: %s",
-            ", ".join(source.url for source in files),
-        )
+    # JPX omits the daily workbook when no next-business-day disclosure is listed.
+    # Its absence alone is not a layout error; monthly files can still supply dates.
     if len(rolling) > 1:
         _LOGGER.warning(
             "JPX earnings calendar index lists several rolling `kessan` files, "

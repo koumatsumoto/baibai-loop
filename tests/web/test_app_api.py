@@ -121,7 +121,7 @@ def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
     body = response.json()
     assert body["screening_as_of"] == "2026-07-08"
     assert body["indicators_as_of"] is None
-    # Newest judgment write in the fixture is a task created on 2026-07-18 (JST date).
+    # The latest business-record timestamp is the task creation date, not a DB write time.
     assert datetime.fromisoformat(body["app_db_updated_at"]) == datetime(
         2026, 7, 18, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo")
     )
@@ -482,3 +482,44 @@ def test_cli_binds_uvicorn_to_loopback(app_method_root: Path, mocker) -> None:
 
     assert run.call_count == 1
     assert run.call_args.kwargs == {"host": "127.0.0.1", "port": 9012}
+
+
+@pytest.mark.parametrize(
+    "known_at",
+    ["2026-07-18T15:00:00+00:00", "2026-07-19T00:00:00+09:00", "2026-07-18T08:00:00-07:00"],
+)
+@pytest.mark.parametrize("as_of", [None, "2026-07-17"])
+def test_market_context_default_date_uses_jst_for_the_same_instant(
+    app_method_root: Path, known_at: str, as_of: str | None
+) -> None:
+    parameters = {"known_at": known_at}
+    if as_of is not None:
+        parameters["as_of"] = as_of
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/market-context", params=parameters)
+    assert response.status_code == 200
+    assert response.json()["reading"]["as_of"] == (as_of or "2026-07-19")
+
+
+def test_market_context_rejects_a_cutoff_without_timezone(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/market-context", params={"known_at": "2026-07-19T00:00:00"})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(("field", "value"), [("payload", "[]"), ("as_of", "2026-07-01")])
+def test_existing_context_corruption_is_not_reported_as_missing(
+    app_method_root: Path, field: str, value: str
+) -> None:
+    db_path = app_method_root / "stores/application/baibai.sqlite"
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(db_path, document.document, supersedes=None)
+    with closing(sqlite3.connect(db_path)) as connection, connection:
+        connection.execute(
+            f"UPDATE market_context_assessment SET {field} = ? WHERE context_id = ?",
+            (value, document.context_id),
+        )
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get(f"/api/market-context/assessments/{document.context_id}")
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "invalid_source"

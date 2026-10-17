@@ -11,7 +11,7 @@ import yaml
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.metric_quality import TTMQuality
 
-from .schema import FreshnessWarning, ScreeningRunDocument, StockAnalysis
+from .schema import FreshnessWarning, MetricValueMap, ScreeningRunDocument, StockAnalysis
 
 _DECIMAL_PLACES = {
     "per_forward": 2,
@@ -21,10 +21,6 @@ _DECIMAL_PLACES = {
     "p_s": 2,
     "pcfr": 1,
 }
-
-
-class ScreeningRunSerializationError(ValueError):
-    """Raised when a Screening Run YAML export cannot be serialized safely."""
 
 
 class QuotedString(str):
@@ -75,12 +71,7 @@ def _quoted_payload(value: object) -> object:
 
 
 def screening_run_payload(document: ScreeningRunDocument) -> dict[str, object]:
-    if document.run_date != document.asof_date:
-        raise ScreeningRunSerializationError("run_date must equal asof_date")
-    if document.run_at.tzinfo is None:
-        raise ScreeningRunSerializationError("run_at must be timezone-aware")
-    if document.run_at.utcoffset() != JST.utcoffset(None):
-        raise ScreeningRunSerializationError("run_at must use JST (+09:00)")
+    # The document owns date validity; export one canonical display timezone.
     front_matter: dict[str, object] = {"schema_version": 1, "kind": "stock_analysis_run"}
     front_matter["run_date"] = QuotedString(document.run_date.isoformat())
     front_matter["asof_date"] = QuotedString(document.asof_date.isoformat())
@@ -88,7 +79,7 @@ def screening_run_payload(document: ScreeningRunDocument) -> dict[str, object]:
     front_matter["filters"] = dict(document.filters.items())
     front_matter["generated_by"] = QuotedString(document.generated_by)
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
-    front_matter["run_at"] = QuotedString(document.run_at.isoformat())
+    front_matter["run_at"] = QuotedString(document.run_at.astimezone(JST).isoformat())
     front_matter["run_id"] = QuotedString(document.run_id)
     front_matter["screening_rules_hash"] = QuotedString(document.screening_rules_hash)
     front_matter["er_model_version"] = QuotedString(document.er_model_version)
@@ -126,7 +117,7 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
     entry["avg_turnover_oku"] = (
         round(analysis.avg_turnover_oku, 1) if analysis.avg_turnover_oku is not None else None
     )
-    entry["listing_span_days"] = analysis.listing_span_days
+    entry["price_history_span_days"] = analysis.price_history_span_days
     entry["jpx_flags"] = [QuotedString(flag) for flag in analysis.jpx_flags]
     entry["price_change_1d"] = _round_ratio(analysis.price_change_1d)
     entry["price_change_5d"] = _round_ratio(analysis.price_change_5d)
@@ -145,7 +136,6 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
         if analysis.next_earnings_date is not None
         else None
     )
-    entry["split_adjustment_flag"] = analysis.split_adjustment_flag
     entry["freshness_warnings"] = [
         _build_freshness_warning(warning) for warning in analysis.freshness_warnings
     ]
@@ -199,13 +189,8 @@ def _round_value(metric: str, value: float | None) -> float | None:
     return round(float(value), _DECIMAL_PLACES[metric])
 
 
-def _round_metrics(values: Mapping[str, object] | object) -> dict[str, object]:
-    if not isinstance(values, Mapping):
-        return {}
-    rounded: dict[str, object] = {}
-    for key, value in values.items():
-        if isinstance(value, bool) or value is None or isinstance(value, str | int):
-            rounded[key] = value
-        elif isinstance(value, float):
-            rounded[key] = _round_ratio(value)
-    return rounded
+def _round_metrics(values: MetricValueMap) -> dict[str, object]:
+    return {
+        key: _round_ratio(value) if isinstance(value, float) else value
+        for key, value in values.items()
+    }

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import csv
 import io
+from collections import defaultdict
 from datetime import date
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -13,8 +14,6 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
     fetch_text,
-    parse_float,
-    record_observation,
 )
 
 # The Surveys of Consumers publish their index tables as CSV keyed by a spelled-out
@@ -37,7 +36,7 @@ _MONTH_NUMBERS = {
 }
 
 
-class UmichScaProvider:
+class UmichScaSource:
     """University of Michigan Surveys of Consumers index table (no auth).
 
     ``provider_series_id`` names the value column (``ICS_ALL`` is the Index of
@@ -56,7 +55,7 @@ class UmichScaProvider:
     spec = ProviderSpec(name="umich_sca", all_history_start=date(1952, 11, 1))
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -64,7 +63,7 @@ class UmichScaProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         text = fetch_text(
             session,
             series.source_url,
@@ -77,8 +76,8 @@ class UmichScaProvider:
 
 def parse_umich_table(
     series: SeriesDefinition, text: str, *, start: date, end: date
-) -> list[ObservationRecord]:
-    """Read the requested column of a Surveys of Consumers table.
+) -> NativeRecords:
+    """Retain the whole Surveys of Consumers row, including missing cells.
 
     A row whose month or year cannot be read is rejected rather than skipped: the
     table has one shape, so an unreadable row means the source changed and the
@@ -86,19 +85,20 @@ def parse_umich_table(
     """
 
     reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None or series.provider_series_id not in reader.fieldnames:
-        raise IndicatorsProviderError(f"UMich table missing column {series.provider_series_id}")
-    observations: list[ObservationRecord] = []
+    columns = reader.fieldnames or []
+    for column in ("Month", "YYYY", series.provider_series_id):
+        if column not in columns:
+            raise IndicatorsProviderError(f"UMich table missing column {column}")
+    if len(columns) != len(set(columns)):
+        raise IndicatorsProviderError("UMich table has duplicate columns")
+    records: dict[date, list[dict[str, object]]] = defaultdict(list)
     for row in reader:
-        value_raw = (row.get(series.provider_series_id) or "").strip()
-        if not value_raw:
-            continue
+        if None in row:
+            raise IndicatorsProviderError("UMich table row has more fields than its header")
         observed_at = _observed_at(row)
         if start <= observed_at <= end:
-            observations.append(
-                record_observation(series, observed_at=observed_at, value=parse_float(value_raw))
-            )
-    return observations
+            records[observed_at].append(dict(row))
+    return dict(records)
 
 
 def _observed_at(row: dict[str, str | None]) -> date:

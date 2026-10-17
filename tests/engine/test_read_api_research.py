@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, review_id, update_review_hash
-from tests.helpers.proposal_v1 import PREPARED, PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_proposal
 from tests.helpers.screening_sqlite import seed_daily_bars
 
 import baibai_engine.read_api as read_api
@@ -214,4 +214,25 @@ def test_original_held_assessment_projection_keeps_original_price_and_pair(tmp_p
     assert preview["status"] == "blocked"
     assert preview["items"][0]["saved_terms"] == proposal.items[0].terms.model_dump(mode="json")
     assert read_api.investment_proposal_payload(case.app, proposal_id=proposal.proposal_id) == saved
+    assert case.app.read_bytes() == before
+
+
+def test_projection_loads_and_validates_its_saved_pair_once(tmp_path, monkeypatch):
+    from baibai_engine.read_api import research as research_read
+
+    case = backend_case(tmp_path)
+    original = research_read.load_reviewed_assessment
+    loaded = []
+
+    def load(connection, identifier):
+        loaded.append(identifier)
+        return original(connection, identifier)
+
+    monkeypatch.setattr(research_read, "load_reviewed_assessment", load)
+    before = case.app.read_bytes()
+    projection = research_read.reviewed_assessment_projection(
+        case.app, assessment_id=case.pair.assessment_id
+    )
+    assert loaded == [case.pair.assessment_id]
+    assert projection["raw"] == case.pair.document.model_dump(mode="json")
     assert case.app.read_bytes() == before

@@ -36,6 +36,7 @@ def store_edinet_documents(
     process_datetime: str | None = None,
     result_count: int | None = None,
     is_final: bool = False,
+    response_json: str | None = None,
 ) -> int:
     conn = open_connection(db_path)
     try:
@@ -79,14 +80,15 @@ def store_edinet_documents(
         )
         conn.execute(
             "INSERT OR REPLACE INTO edinet_document_lists("
-            "doc_date, process_datetime, result_count, fetched_at_utc, is_final"
-            ") VALUES (?, ?, ?, ?, ?)",
+            "doc_date, process_datetime, result_count, fetched_at_utc, is_final, response_json"
+            ") VALUES (?, ?, ?, ?, ?, ?)",
             (
                 on_date.isoformat(),
                 process_datetime,
                 expected_count,
                 datetime.now(UTC).isoformat(),
                 int(is_final),
+                response_json,
             ),
         )
         conn.commit()
@@ -273,13 +275,13 @@ def _edinet_metric_rows(
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     for record in records:
-        ticker = normalize_ticker_or_none(first(record, "secCode", "ticker", "code", "Code"))
+        ticker = normalize_ticker_or_none(record.get("ticker"))
         if ticker is None:
             continue
-        extractor_revision = to_str_or_none(first(record, "extractor_revision"))
+        extractor_revision = to_str_or_none(record.get("extractor_revision"))
         if extractor_revision is None:
             raise ValueError(f"EDINET metric row {ticker} is missing extractor_revision")
-        raw_investment_securities = first(record, "investment_securities", "InvestmentSecurities")
+        raw_investment_securities = record.get("investment_securities")
         investment_securities = to_float(raw_investment_securities)
         if raw_investment_securities is not None and (
             investment_securities is None
@@ -291,42 +293,42 @@ def _edinet_metric_rows(
             (
                 asof_date,
                 ticker,
-                to_float(first(record, "sales_ttm", "SalesTTM")),
-                to_float(first(record, "ocf_ttm", "OperatingCashFlowTTM")),
-                to_float(first(record, "debt", "Debt")),
-                to_float(first(record, "cash", "Cash")),
-                to_float(first(record, "ebitda_ttm", "EBITDATTM")),
-                to_str_or_none(first(record, "consolidation_basis", "ConsolidationBasis")),
-                to_str_or_none(first(record, "ttm_quality_ev_ebitda", "TTMQualityEvEbitda")),
-                to_str_or_none(first(record, "ttm_quality_p_s", "TTMQualityPS")),
-                to_str_or_none(first(record, "ttm_quality_pcfr", "TTMQualityPCFR")),
-                to_float(first(record, "operating_profit_ttm")),
-                to_float(first(record, "depreciation_and_amortization_ttm")),
-                to_float(first(record, "capex_ttm")),
-                to_float(first(record, "fcf_ttm")),
-                to_float(first(record, "net_cash")),
-                to_float(first(record, "equity")),
-                to_float(first(record, "total_assets")),
-                to_str_or_none(first(record, "ttm_quality_fcf")),
-                to_str_or_none(first(record, "ttm_quality_net_cash")),
-                to_str_or_none(first(record, "source_doc_id")),
-                to_str_or_none(first(record, "document_type")),
-                to_str_or_none(first(record, "source_submit_datetime")),
-                to_str_or_none(first(record, "source_period_start")),
-                to_str_or_none(first(record, "source_period_end")),
-                to_str_or_none(first(record, "capex_source")),
-                json.dumps(first(record, "failure_reasons") or (), ensure_ascii=False),
+                to_float(record.get("sales_ttm")),
+                to_float(record.get("ocf_ttm")),
+                to_float(record.get("debt")),
+                to_float(record.get("cash")),
+                to_float(record.get("ebitda_ttm")),
+                to_str_or_none(record.get("consolidation_basis")),
+                to_str_or_none(record.get("ttm_quality_ev_ebitda")),
+                to_str_or_none(record.get("ttm_quality_p_s")),
+                to_str_or_none(record.get("ttm_quality_pcfr")),
+                to_float(record.get("operating_profit_ttm")),
+                to_float(record.get("depreciation_and_amortization_ttm")),
+                to_float(record.get("capex_ttm")),
+                to_float(record.get("fcf_ttm")),
+                to_float(record.get("net_cash")),
+                to_float(record.get("equity")),
+                to_float(record.get("total_assets")),
+                to_str_or_none(record.get("ttm_quality_fcf")),
+                to_str_or_none(record.get("ttm_quality_net_cash")),
+                to_str_or_none(record.get("source_doc_id")),
+                to_str_or_none(record.get("document_type")),
+                to_str_or_none(record.get("source_submit_datetime")),
+                to_str_or_none(record.get("source_period_start")),
+                to_str_or_none(record.get("source_period_end")),
+                to_str_or_none(record.get("capex_source")),
+                json.dumps(record.get("failure_reasons") or (), ensure_ascii=False),
                 extractor_revision,
-                to_str_or_none(first(record, "source_document_revision")),
+                to_str_or_none(record.get("source_document_revision")),
                 investment_securities,
-                to_float(first(record, "ocf_receivables_cash_effect")),
-                to_float(first(record, "ocf_inventories_cash_effect")),
-                to_float(first(record, "ocf_payables_cash_effect")),
-                to_float(first(record, "ocf_contract_liabilities_cash_effect")),
-                to_float(first(record, "ocf_advances_received_cash_effect")),
-                to_float(first(record, "ocf_other_payables_cash_effect")),
-                to_float(first(record, "capex_ppe_reported")),
-                to_float(first(record, "capex_intangible_reported")),
+                to_float(record.get("ocf_receivables_cash_effect")),
+                to_float(record.get("ocf_inventories_cash_effect")),
+                to_float(record.get("ocf_payables_cash_effect")),
+                to_float(record.get("ocf_contract_liabilities_cash_effect")),
+                to_float(record.get("ocf_advances_received_cash_effect")),
+                to_float(record.get("ocf_other_payables_cash_effect")),
+                to_float(record.get("capex_ppe_reported")),
+                to_float(record.get("capex_intangible_reported")),
             )
         )
     return rows

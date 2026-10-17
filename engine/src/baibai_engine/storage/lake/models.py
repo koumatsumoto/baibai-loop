@@ -196,10 +196,11 @@ class DatasetManifest(BaseModel):
     population_count: int | None = Field(default=None, ge=0)
     """How many distinct subjects the dataset covers, where that is a meaningful count.
 
-    A per-issue fact table answers "how much of the market is in here", which is what a
-    release policy checks before serving it. A calendar or a filing index has no such
-    subject: every row is about a day or a document. Reporting zero there would claim an
-    empty population instead of an inapplicable question, so the absence is `None`.
+    A per-issue fact table reports how many subjects are actually represented.
+    Historical counts are not a minimum size promised by the provider. A trading
+    calendar or a filing index has no such subject: each row is a day or document.
+    Reporting zero there would claim an empty population instead of an inapplicable
+    question, so the absence is `None`.
     """
     coverage_status: CoverageStatus
     partition_by: tuple[str, ...] = Field(min_length=1)
@@ -384,14 +385,13 @@ class ReleaseDatasetPolicy(BaseModel):
 
     dataset: str
     required: bool
-    accepted_contract_versions: tuple[int, ...] = Field(min_length=1)
     carries_history: bool
     """Whether this dataset accumulates an archive, so its start must never move forward.
 
     A dataset whose SQLite table is replaced by each fetch holds a current view rather
     than an archive: `jpx.earnings_calendar` is the forward announcement calendar, so
     its earliest row moves forward every time the exchange drops a past announcement.
-    False exempts it; every other check (rows, population) still applies.
+    False exempts it; source coverage and structural checks still apply.
 
     For the rest the floor is the release already serving, not a date written here. A
     pinned date states the value it had the day it was written, and measured on
@@ -401,9 +401,6 @@ class ReleaseDatasetPolicy(BaseModel):
     published says the thing actually meant — this release must not drop history the last
     one served — and needs no maintenance to keep saying it.
     """
-    minimum_rows: int = Field(gt=0)
-    minimum_population_count: int | None = Field(default=None, gt=0)
-    """Absent for datasets whose rows have no per-subject population to count."""
     require_complete_coverage: bool = True
     """Whether this dataset must prove complete coverage to enter a release.
 
@@ -418,15 +415,6 @@ class ReleaseDatasetPolicy(BaseModel):
     def validate_dataset(cls, value: str) -> str:
         return validate_dataset_name(value)
 
-    @field_validator("accepted_contract_versions")
-    @classmethod
-    def validate_versions(cls, values: tuple[int, ...]) -> tuple[int, ...]:
-        if any(isinstance(value, bool) or value < 1 for value in values):
-            raise ValueError("accepted contract versions must be positive integers")
-        if len(values) != len(set(values)):
-            raise ValueError("accepted contract versions cannot contain duplicates")
-        return values
-
 
 class ReleasePolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -436,12 +424,6 @@ class ReleasePolicy(BaseModel):
     datasets: tuple[ReleaseDatasetPolicy, ...] = Field(min_length=1)
     max_manifest_bytes: int = Field(gt=0)
     max_objects: int = Field(gt=0)
-    # Whether every dataset in the release must have been exported from one and the same
-    # sealed SQLite generation. That is a property of how a profile's datasets are
-    # produced, not of what a release is: a dataset produced without reading a store has
-    # no SQLite generation to share, and a rule stated here lets such a dataset join a
-    # release under its own profile instead of requiring the constructor to change.
-    require_shared_snapshot_generation: bool
 
     @model_validator(mode="after")
     def validate_dataset_inventory(self) -> ReleasePolicy:
@@ -460,216 +442,156 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset=QUANTS_SCORE_DATASET,
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset=MODEL_VALUATION_DATASET,
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset=ANALYST_RATING_DATASET,
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="tradingview.forecast_snapshots",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.daily_bars",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=9_634_243,
-            minimum_population_count=5_097,
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.short_sale_reports",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1_342_362,
-            minimum_population_count=3_907,
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.weekly_margin",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1_960_849,
-            minimum_population_count=4_866,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.master_snapshots",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=548_341,
-            minimum_population_count=5_073,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.fin_summaries",
             required=True,
-            accepted_contract_versions=(2,),
             carries_history=True,
-            minimum_rows=173_198,
-            minimum_population_count=4_425,
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.market_calendar",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=3_524,
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.earnings_calendar",
             required=True,
-            accepted_contract_versions=(1,),
             # Replaced by every snapshot fetch, so its earliest row is whatever the
             # exchange still publishes rather than a history this release keeps.
             carries_history=False,
-            # A forward calendar's size is seasonal, so a floor taken from one snapshot
-            # bounds the season it was taken in rather than a broken fetch. Measured on
-            # actual disclosures 2023-08 onward, the number of companies announcing in
-            # any 68-day window (this snapshot's span) ranges 978 to 4,699 with a median
-            # of 3,985; the trough is mid-November three years running. The previous
-            # floor of 3,232 — one observation of 3,403 times 0.95 — sits above 32% of
-            # those windows, so it refused a healthy publication every autumn. What the
-            # floor is for is a fetch that returned a fraction of the calendar, so it is
-            # set at half the observed minimum: low enough that no measured window
-            # breaches it, high enough that a truncated response does.
-            minimum_rows=489,
-            minimum_population_count=489,
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.margin_alerts",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1_657,
-            minimum_population_count=214,
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.all_issues_daily_margin",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.documents",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=160_990,
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.segment_facts",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.debt_schedule",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.metrics",
             required=True,
-            accepted_contract_versions=(2,),
             carries_history=True,
-            minimum_rows=131_909,
-            minimum_population_count=3_788,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="edinet.source_archives",
+            required=False,
+            carries_history=True,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.document_lists",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=706,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.regulation_flags",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=4_534,
-            minimum_population_count=141,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.delistings",
             required=True,
-            accepted_contract_versions=(1,),
             # Accumulating by construction: the store keeps a delisting that JPX's
             # archive page has since dropped, so its earliest row does not move.
             carries_history=True,
-            # Half the 760 rows held on 2026-08-19. A derivation that returned a
-            # fraction of the archive breaches it; normal growth never approaches it.
-            minimum_rows=380,
-            minimum_population_count=380,
             # No fetch record: the operator derives this rather than a provider serving
             # it, so nothing can prove the archive was read completely.
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.tender_offer_exit_values",
-            required=True,
-            accepted_contract_versions=(1,),
+            required=False,
             # Replaced wholesale by each derivation, so a reclassified offer moves the
             # earliest row. Pinning a start date would refuse exactly the correction the
             # derivation exists to make.
             carries_history=False,
-            # Half the 152 rows held on 2026-08-19.
-            minimum_rows=76,
-            minimum_population_count=76,
+            # Recomputed exit proxies can legitimately disappear when evidence is
+            # withdrawn. No historical count is a minimum economic truth. An empty
+            # result is omitted by the exporter.
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.regulation_sources",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
-            minimum_rows=133,
             require_complete_coverage=False,
         ),
     ),
     max_manifest_bytes=16 * 1024 * 1024,
     max_objects=10_000,
-    require_shared_snapshot_generation=True,
 )
 
 
@@ -677,9 +599,9 @@ def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
     """Return the registered release policy; an unconfigured profile fails closed.
 
     There is one profile because there is one set of requirements. The gates that
-    matter are per dataset — the row floor that catches a lossy export, the coverage
-    boundary, and population floor — and they do not become different
-    requirements because a release is read by a different caller. A second profile
+    matter are the declared datasets, coverage and source/manifest consistency.
+    They do not become different requirements because a release is read by a
+    different caller. A second profile
     carrying the same dataset entries would be two tables free to rot apart, so the
     manifest records which gate it passed and there is exactly one gate to pass.
     """
@@ -801,8 +723,7 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: historical dataset served previously cannot disappear")
     # Whether these datasets are one picture of the store at all comes before what the
     # picture says.
-    if policy.require_shared_snapshot_generation:
-        _require_shared_snapshot_generation(manifests.values())
+    _require_shared_snapshot_generation(manifests.values())
 
     total_manifest_bytes = len(canonical_lake_model_bytes(release))
     total_objects = 0
@@ -813,10 +734,11 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: release accepts matching L1 dataset manifests only")
         if manifest.created_at > release.created_at:
             raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")
-        if manifest.contract_version not in dataset_policy.accepted_contract_versions:
+        current_version = LAKE_DATASETS[dataset].contract_version
+        if manifest.contract_version != current_version:
             raise ValueError(
-                f"{dataset}: contract v{manifest.contract_version} is not accepted by its "
-                f"profile {dataset_policy.accepted_contract_versions}"
+                f"{dataset}: contract v{manifest.contract_version} does not match "
+                f"current contract v{current_version}"
             )
         manifest_bytes = canonical_lake_model_bytes(manifest)
         if release_dataset.manifest_sha256 != sha256(manifest_bytes).hexdigest():
@@ -846,19 +768,13 @@ def validate_release_policy(
                 "in the store, or set carries_history=False if this source stopped "
                 "accumulating"
             )
-        if manifest.totals.rows < dataset_policy.minimum_rows:
-            raise ValueError(
-                f"{dataset}: {manifest.totals.rows} row(s) is below the profile floor "
-                f"{dataset_policy.minimum_rows}"
-            )
-        if dataset_policy.minimum_population_count is not None:
-            if manifest.population_count is None:
-                raise ValueError(f"{dataset}: does not report the population it is floored on")
-            if manifest.population_count < dataset_policy.minimum_population_count:
-                raise ValueError(
-                    f"{dataset}: population {manifest.population_count} is below the profile "
-                    f"floor {dataset_policy.minimum_population_count}"
-                )
+        if manifest.totals.rows == 0:
+            raise ValueError(f"{dataset}: a published dataset must contain observations")
+        if (
+            LAKE_DATASETS[dataset].population_column is not None
+            and manifest.population_count is None
+        ):
+            raise ValueError(f"{dataset}: does not report the population declared by its contract")
         total_manifest_bytes += len(manifest_bytes)
         total_objects += manifest.totals.objects
 
@@ -869,7 +785,7 @@ def validate_release_policy(
 
 
 def _require_shared_snapshot_generation(manifests: Iterable[DatasetManifest]) -> None:
-    """Every dataset was exported from one sealed read of the legacy store.
+    """Every dataset was exported from one sealed read of the market store.
 
     Two datasets exported from different seals describe the store at two different
     moments, and a release presents them as one consistent picture of it.

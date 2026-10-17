@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from calendar import monthrange
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -18,7 +19,8 @@ from typing import Literal
 import openpyxl
 import requests
 
-from baibai_engine.market.edinet_decode import parse_sec_code
+from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
+from baibai_engine.market.edinet_document_store import read_current_filing_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.storage.observations.schema import connect_current, open_connection
@@ -261,6 +263,7 @@ def read_valuation_catalyst_contexts(
     if connection is None:
         return {}
     try:
+        connection.execute("BEGIN")
         policy_month = connection.execute(
             "SELECT MAX(snapshot_month_end) FROM tse_capital_policy_snapshots "
             "WHERE snapshot_month_end <= ?",
@@ -309,18 +312,21 @@ def read_control_filing_index(
     """
     if not edinet_identity_covered(connection, start=start, end=end):
         return None
-    ticker_by_edinet_code = edinet_code_to_ticker(connection)
-    rows = connection.execute(
-        "SELECT doc_date, doc_type_code, issuer_edinet_code, subject_edinet_code, "
-        "legal_status, disclosure_status, withdrawal_status "
-        "FROM edinet_documents WHERE doc_date BETWEEN ? AND ? "
-        "AND doc_type_code IN "
-        f"({_placeholders(LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES)})",  # nosec B608
-        (start.isoformat(), end.isoformat(), *LARGE_HOLDING_DOC_TYPES, *TENDER_OFFER_DOC_TYPES),
-    ).fetchall()
+    ticker_by_edinet_code = edinet_code_to_ticker(connection, through=end)
     index: dict[tuple[str, ControlFilingKind], date] = {}
     anonymous: set[ControlFilingKind] = set()
-    for doc_date, doc_type, issuer, subject, legal, disclosure, withdrawal in rows:
+    for doc in read_current_filing_documents(connection, through=end):
+        doc_type = str(doc.get("docTypeCode"))
+        if doc_type not in LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES:
+            continue
+        doc_date = date.fromisoformat(str(doc["doc_date"]))
+        if doc_date < start:
+            continue
+        legal = doc.get("legalStatus")
+        disclosure = doc.get("disclosureStatus")
+        withdrawal = doc.get("withdrawalStatus")
+        issuer = doc.get("issuerEdinetCode")
+        subject = doc.get("subjectEdinetCode")
         if not is_usable_filing_status(legal, disclosure, withdrawal):
             continue
         filing_kind: ControlFilingKind = (
@@ -338,7 +344,7 @@ def read_control_filing_index(
             # The target is named but its listing cannot be resolved. That is a gap for
             # the company behind that code, which `identified_tickers` already excludes.
             continue
-        observed = date.fromisoformat(str(doc_date))
+        observed = doc_date
         key = (ticker, filing_kind)
         if observed > index.get(key, date.min):
             index[key] = observed
@@ -382,15 +388,18 @@ def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end:
     return stale_rows == 0
 
 
-def edinet_code_to_ticker(connection: sqlite3.Connection) -> dict[str, str]:
+def edinet_code_to_ticker(connection: sqlite3.Connection, *, through: date) -> dict[str, str]:
     """Resolve EDINET codes through the (edinetCode, secCode) pairs the list observed.
 
-    A code seen against more than one ticker is dropped rather than picked between.
+    Only filing dates through the caller's cutoff participate. Later discoveries
+    or conflicts must not change an earlier lookup. A code seen against more than
+    one ticker in that window is dropped rather than picked between.
     """
     observed: dict[str, set[str]] = {}
     for edinet_code, sec_code in connection.execute(
         "SELECT DISTINCT edinet_code, sec_code FROM edinet_documents "
-        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL"
+        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL AND doc_date <= ?",
+        (through.isoformat(),),
     ):
         try:
             ticker = parse_sec_code(sec_code)
@@ -398,33 +407,6 @@ def edinet_code_to_ticker(connection: sqlite3.Connection) -> dict[str, str]:
             continue
         observed.setdefault(str(edinet_code), set()).add(ticker)
     return {code: next(iter(values)) for code, values in observed.items() if len(values) == 1}
-
-
-def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:
-    """Same usability rule the metric extraction applies to a list row."""
-    return (
-        _status_text(legal) in (None, "1", "2")
-        and _status_text(disclosure) in (None, "0")
-        and _status_text(withdrawal) in (None, "0")
-    )
-
-
-def edinet_filing_counts(sqlite_path: Path, *, through: date) -> dict[str, int]:
-    """Form-code histogram of the stored index, for the source-coverage record."""
-    connection = connect_current(sqlite_path)
-    if connection is None:
-        return {}
-    doc_types = LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES
-    try:
-        rows = connection.execute(
-            "SELECT doc_type_code, COUNT(*) FROM edinet_documents "
-            f"WHERE doc_date <= ? AND doc_type_code IN ({_placeholders(doc_types)}) "  # nosec B608
-            "GROUP BY doc_type_code ORDER BY doc_type_code",
-            (through.isoformat(), *doc_types),
-        ).fetchall()
-    finally:
-        connection.close()
-    return {str(code): int(count) for code, count in rows}
 
 
 def _policy_by_ticker(
@@ -576,8 +558,10 @@ def _excel_date(value: object) -> date | None:
 
 
 def _calendar_month_end(year: int, month: int) -> date:
-    first_next = date(year + int(month == 12), month % 12 + 1, 1)
-    return first_next - timedelta(days=1)
+    try:
+        return date(year, month, monthrange(year, month)[1])
+    except ValueError as exc:
+        raise ValuationCatalystError(f"invalid TSE snapshot month: {year}-{month}") from exc
 
 
 def _cell(values: Sequence[object], index: int) -> object | None:
@@ -586,10 +570,6 @@ def _cell(values: Sequence[object], index: int) -> object | None:
 
 def _text(value: object) -> str:
     return re.sub(r"\s+", "", str(value or "")).strip()
-
-
-def _status_text(value: object) -> str | None:
-    return None if value is None else str(value)
 
 
 def _placeholders(values: Sequence[object]) -> str:
@@ -621,9 +601,7 @@ __all__ = (
     "ValuationCatalystContext",
     "ValuationCatalystError",
     "edinet_code_to_ticker",
-    "edinet_filing_counts",
     "edinet_identity_covered",
-    "is_usable_filing_status",
     "parse_tse_capital_policy_workbook",
     "read_control_filing_index",
     "read_valuation_catalyst_contexts",

@@ -1,33 +1,32 @@
-"""Canonical validation and provenance contract for J-Quants master snapshots."""
+"""Native J-Quants master snapshots and their current security projection."""
 
 from __future__ import annotations
 
-import logging
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Final
 
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.storage.observations.convert import code_quality, is_common_stock_flag
+from baibai_engine.market.jquants_decode import (
+    JQuantsProviderError,
+    parse_jquants_code_parts,
+    provider_record_payload,
+)
+from baibai_engine.market.models import SecurityMaster
 
 MASTER_SOURCE: Final = "jquants_master_snapshots"
 MASTER_OPERATION: Final = "get_eq_master"
 MIN_COMMON_STOCK_MASTER_ROWS: Final = 2500
-
-_LOGGER = logging.getLogger(__name__)
-_REQUIRED_FIELDS: Final = ("Date", "Code", "CoName", "MktNm", "S33Nm")
+_REQUIRED_FIELDS: Final = ("Date", "Code", "CoName", "MktNm", "S33Nm", "ProdCat")
 
 
 @dataclass(frozen=True, slots=True)
 class ValidatedMasterSnapshot:
-    """A complete requested-date batch ready for one SQLite transaction."""
+    """Native records for one requested date, including non-common issue classes."""
 
     requested_asof: date
-    rows: tuple[tuple[str, str, str, str, str, int], ...]
-    raw_count: int
-    excluded_count: int
-    common_stock_count: int
+    rows: tuple[tuple[str, str, str], ...]
 
     @property
     def persisted_count(self) -> int:
@@ -40,124 +39,86 @@ def master_coverage_key(asof: date) -> str:
 
 
 def master_coverage_count(value: object) -> int | None:
-    """Accept only SQLite INTEGER values for an exact master row count."""
-    if type(value) is not int or value < 0:
-        return None
-    return value
+    """Accept only SQLite INTEGER values for an exact native-record count."""
+    return value if type(value) is int and value >= 0 else None
 
 
 def normalize_sector_name(value: Any) -> str:
-    """Normalize the two middle-dot forms emitted for the same TSE sector."""
+    """Normalize sector spelling only in the reading projection, never in the raw record."""
     return str(value or "").replace("･", "・")
+
+
+def normalize_master_record(record: Mapping[str, Any]) -> SecurityMaster | None:
+    """Project a primary issue line; product category distinguishes domestic shares.
+
+    ProdCat 011 includes ordinary and preferred domestic shares. The issue suffix
+    must also be zero. ETFs and REITs may have suffix zero but are not ordinary shares.
+    https://jpx-jquants.com/ja/spec/eq-master/product-category
+    """
+    ticker, primary_issue = parse_jquants_code_parts(record.get("Code"))
+    if not primary_issue:
+        return None
+    return SecurityMaster(
+        ticker=ticker,
+        name=str(record.get("CoName") or "").strip(),
+        market_segment=str(record.get("MktNm") or "").strip(),
+        sector_33=normalize_sector_name(record.get("S33Nm")).strip(),
+        is_common_stock=record.get("ProdCat") == "011",
+    )
+
+
+def masters_from_payloads(payloads: Sequence[str]) -> list[SecurityMaster]:
+    """Decode stored native records without guessing product type from old derived flags."""
+    result = []
+    for payload in payloads:
+        try:
+            record = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise JQuantsProviderError("stored master record is not valid JSON") from exc
+        if not isinstance(record, dict) or not _nonempty(record.get("ProdCat")):
+            raise JQuantsProviderError("master record has no native product category")
+        security = normalize_master_record(record)
+        if security is not None:
+            result.append(security)
+    return sorted(result, key=lambda security: security.ticker)
 
 
 def validate_master_snapshot(
     records: Sequence[Mapping[str, Any]], requested_asof: date
 ) -> ValidatedMasterSnapshot:
-    """Validate a whole response without opening or mutating SQLite.
-
-    A master snapshot is useful only as one complete point-in-time population.
-    One malformed persisted row therefore rejects the whole response. The sole
-    intentional exclusion is a five-character code with a non-zero suffix,
-    which J-Quants uses for a non-common security class.
-    """
+    """Validate native identities/date before atomically replacing the snapshot."""
     if not records:
-        raise JQuantsProviderError(
-            f"empty J-Quants master response for requested as-of {requested_asof.isoformat()}"
-        )
-
-    rows: list[tuple[str, str, str, str, str, int]] = []
-    response_dates: set[date] = set()
-    seen_tickers: set[str] = set()
-    excluded_count = 0
-    common_stock_count = 0
-
+        raise JQuantsProviderError("empty J-Quants master response")
+    rows: list[tuple[str, str, str]] = []
+    seen_codes: set[str] = set()
+    common_count = 0
     for index, record in enumerate(records):
         missing = [field for field in _REQUIRED_FIELDS if not _nonempty(record.get(field))]
         if missing:
             raise JQuantsProviderError(
-                "J-Quants master response has missing/invalid required field(s) "
-                f"at row {index}: {', '.join(missing)}"
+                f"J-Quants master missing required fields at row {index}: {', '.join(missing)}"
             )
-
         snapshot_date = _parse_snapshot_date(record["Date"], row_index=index)
-        response_dates.add(snapshot_date)
-
-        raw_code = record["Code"]
-        ticker, code_status = code_quality(raw_code)
-        if code_status == "excluded":
-            code_text = str(raw_code).strip().upper()
-            if len(code_text) != 5 or code_text.endswith("0"):
-                raise JQuantsProviderError(
-                    f"unexpected J-Quants master code exclusion at row {index}: {raw_code!r}"
-                )
-            excluded_count += 1
-            continue
-        if code_status != "ok" or ticker is None:
-            raise JQuantsProviderError(f"invalid J-Quants master code at row {index}: {raw_code!r}")
-        if ticker in seen_tickers:
+        if snapshot_date != requested_asof:
             raise JQuantsProviderError(
-                f"duplicate normalized ticker in J-Quants master response: {ticker}"
+                "J-Quants master response Date does not match requested as-of: "
+                f"requested={requested_asof.isoformat()} response={snapshot_date.isoformat()}"
             )
-        seen_tickers.add(ticker)
-
-        is_common = is_common_stock_flag(record)
-        if not is_common:
-            raise JQuantsProviderError(
-                "J-Quants master common-code row contradicts its security type "
-                f"at row {index}: {raw_code!r}"
-            )
-        common_stock_count += 1
-        rows.append(
-            (
-                snapshot_date.isoformat(),
-                ticker,
-                str(record["CoName"]).strip(),
-                str(record["MktNm"]).strip(),
-                normalize_sector_name(record["S33Nm"]).strip(),
-                1,
-            )
-        )
-
-    if len(response_dates) != 1:
-        rendered = ", ".join(sorted(value.isoformat() for value in response_dates)) or "<none>"
-        raise JQuantsProviderError(
-            f"J-Quants master response contains multiple Date values: {rendered}"
-        )
-    response_date = next(iter(response_dates))
-    if response_date != requested_asof:
-        raise JQuantsProviderError(
-            "J-Quants master response Date does not match requested as-of: "
-            f"requested={requested_asof.isoformat()} response={response_date.isoformat()}"
-        )
-    if common_stock_count < MIN_COMMON_STOCK_MASTER_ROWS:
+        code = str(record["Code"]).strip().upper()
+        _, primary_issue = parse_jquants_code_parts(code)
+        if len(code) != 5:
+            raise JQuantsProviderError("native J-Quants master Code must have five characters")
+        if code in seen_codes:
+            raise JQuantsProviderError(f"duplicate J-Quants master security code: {code}")
+        seen_codes.add(code)
+        common_count += int(primary_issue and record["ProdCat"] == "011")
+        rows.append((snapshot_date.isoformat(), code, provider_record_payload(record)))
+    if common_count < MIN_COMMON_STOCK_MASTER_ROWS:
         raise JQuantsProviderError(
             "J-Quants master common-stock population is below the production floor: "
-            f"{common_stock_count} < {MIN_COMMON_STOCK_MASTER_ROWS}"
+            f"{common_count} < {MIN_COMMON_STOCK_MASTER_ROWS}"
         )
-    if len(records) != len(rows) + excluded_count:
-        raise JQuantsProviderError(
-            "J-Quants master classification count mismatch: "
-            f"raw={len(records)} persisted={len(rows)} excluded={excluded_count}"
-        )
-
-    result = ValidatedMasterSnapshot(
-        requested_asof=requested_asof,
-        rows=tuple(rows),
-        raw_count=len(records),
-        excluded_count=excluded_count,
-        common_stock_count=common_stock_count,
-    )
-    _LOGGER.info(
-        "validated J-Quants master snapshot requested_asof=%s raw=%d persisted=%d "
-        "intentional_excluded=%d rejected=0 duplicate=0 common=%d",
-        requested_asof.isoformat(),
-        result.raw_count,
-        result.persisted_count,
-        result.excluded_count,
-        result.common_stock_count,
-    )
-    return result
+    return ValidatedMasterSnapshot(requested_asof, tuple(rows))
 
 
 def _nonempty(value: object) -> bool:

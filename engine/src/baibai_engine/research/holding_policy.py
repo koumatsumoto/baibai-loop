@@ -41,6 +41,7 @@ def evaluate_holding_proposal(
     position: PositionInput,
     as_of: date,
     quote: QuoteInput | None,
+    price_basis_confirmed: bool,
     remaining_reward: RemainingReward | None,
     case_reassessment_reason: str | None,
     primary_verified: bool,
@@ -91,7 +92,7 @@ def evaluate_holding_proposal(
         unavailable_code = "quote_missing_or_stale"
     elif not position.quantity_basis_confirmed:
         unavailable_code = "quantity_basis_unconfirmed"
-    elif not quote.basis_confirmed:
+    elif not price_basis_confirmed:
         unavailable_code = "corporate_action_unresolved"
     projection = current_price_projection(
         assessment,

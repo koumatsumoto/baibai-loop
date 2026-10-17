@@ -41,12 +41,12 @@ async function settle() {
 }
 function start(id: string | null) {
   hooks.setters = []
-  hooks.values.set(7, id)
+  hooks.values.set(6, id)
   MarketContextPage()
   const effect = hooks.effects.at(-1)!
   expect(effect.dependencies).toEqual([id])
   const cleanup = effect.setup()
-  const setters = hooks.setters.slice(8)
+  const setters = hooks.setters.slice(7)
   expect(setters.map(s => s.mock.calls)).toEqual([[[null]], [[id !== null]], [[false]]])
   return { cleanup, setters }
 }
@@ -144,4 +144,21 @@ it.each([45, 46])('keeps the v5 date, age, stale badge and detail link at %s day
   expect(html).toContain(`href="/market-context/assessments/${contextId}"`)
   expect(html).toContain('保存済みの市場環境判断')
   expect(html.includes('>stale<')).toBe(age > 45)
+})
+
+
+it('does not render the previous series history during a new selection', () => {
+  hooks.values.set(0, { groups: [], reports: [], reading: null })
+  const dialog = elements(MarketContextPage()).find(e => typeof e.type === 'function' && e.type.name === 'IndicatorDialog')!
+  const render = dialog.type as (props: Record<string, unknown>) => ReactNode
+  const detail = render({ ...dialog.props, row: {
+    series: { name: 'Japan CPI', series_id: 'jp.cpi_yoy', unit: '%', tradingview_symbol: null },
+    reading: null, failedFetch: null,
+  }, history: {
+    name: 'US CPI', series_id: 'us.cpi_yoy', unit: '%', tradingview_symbol: null,
+    points: [{ observed_at: '2026-10-01', value: 2 }],
+  }, historyLoading: false, historyError: false, period: 'max', granularity: 'monthly' })
+  expect(text(detail)).toContain('Japan CPI')
+  expect(text(detail)).not.toContain('US CPI')
+  expect(elements(detail).some(e => typeof e.type === 'function' && e.type.name === 'FullChart')).toBe(false)
 })

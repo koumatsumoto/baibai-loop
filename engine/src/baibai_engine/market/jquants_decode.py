@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from math import isfinite
@@ -25,6 +26,7 @@ def parse_jquants_code(code: Any) -> str:
 
 
 def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
+    """Decode the primary issue suffix; ETF/REIT classification requires master ProdCat."""
     try:
         return parse_security_code_parts(code)
     except SecurityCodeError as exc:
@@ -32,107 +34,73 @@ def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
 
 
 def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    # `or` チェーンは 0.0 を falsy 扱いして次キーに進むため、0 close/turnover の銘柄を
-    # 欠損と誤判定する。キー存在と非 None を基準に最初の値を取る。
-    close = to_float(coalesce_field(record, "Close", "close", "C", "c"))
+    # Decode native V2 fields without substituting adjusted values or legacy aliases.
+    close = to_float(record.get("C"))
     if close is None:
-        # An adjusted-only observation cannot supply a raw price bar. Its source
-        # fields and independent factor event remain available through the store.
+        # An adjusted-only observation cannot supply a raw price bar. The
+        # independent factor event remains available through the store.
         return None
-    # 配信元の調整済みcloseも観測値として分けて保持する。取得時期の異なる
-    # adjustment_closeは株式基準が混在するため、履歴比較では使用せず
-    # bars.asof_basis_pricesがraw closeと独立factorから同一基準へ換算する。
-    adjustment_close = to_float(
-        coalesce_field(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")
-    )
-    adjustment_factor = to_float(
-        coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")
-    )
+    adjustment_factor = to_float(record.get("AdjFactor"))
     return JQuantsDailyBar(
         ticker=ticker,
-        traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
+        traded_at=parse_date(record.get("Date")),
         close=close,
-        adjustment_close=adjustment_close,
         adjustment_factor=adjustment_factor,
-        volume=to_float(coalesce_field(record, "Volume", "volume", "Vo", "vo")),
-        turnover_value=to_float(
-            coalesce_field(
-                record,
-                "TurnoverValue",
-                "turnover_value",
-                "TradingValue",
-                "trading_value",
-                "Va",
-                "va",
-            )
-        ),
+        ex_right_type=normalize_ex_right_type(record.get("ExRT")),
+        volume=to_float(record.get("Vo")),
+        turnover_value=to_float(record.get("Va")),
     )
 
 
 def normalize_adjustment_factor_event(
     record: Mapping[str, Any],
 ) -> JQuantsAdjustmentFactorEvent | None:
-    """Decode a split/reverse-split event without requiring a close price."""
+    """Decode a corporate action without requiring a close or a non-unit factor."""
 
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    factor = to_float(coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor"))
-    if factor in (None, 0.0, 1.0):
+    factor = to_float(record.get("AdjFactor"))
+    kind = normalize_ex_right_type(record.get("ExRT"))
+    if factor is None:
+        if kind is not None:
+            raise JQuantsProviderError("reported corporate action has no usable adjustment factor")
         return None
-    assert factor is not None
+    if factor == 1.0 and kind is None:
+        return None
     return JQuantsAdjustmentFactorEvent(
         ticker=ticker,
-        traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
+        traded_at=parse_date(record.get("Date")),
         adjustment_factor=factor,
+        ex_right_type=kind,
     )
 
 
+def normalize_ex_right_type(value: Any) -> str | None:
+    """Keep the source event kind; unknown future values are not relabelled as splits."""
+    return None if is_missing_scalar(value) else str(value).strip() or None
+
+
 def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalendarDay:
+    """Project the source calendar to cash-equity sessions, not derivatives sessions."""
     return JQuantsMarketCalendarDay(
-        day=parse_date(first_value(record, "Date", "date")),
-        is_business_day=bool(
-            record.get("is_business_day")
-            if "is_business_day" in record
-            # "1"=営業日、"2"=半日営業 (大納会など取引あり)。両方を営業扱い。
-            else str(
-                record.get("HolidayDivision")
-                or record.get("holiday_division")
-                or record.get("HolDiv")
-                or record.get("hol_div")
-                or ""
-            ).lower()
-            in {"1", "2", "business_day", "trading_day", "half_day"}
-        ),
+        day=parse_date(record.get("Date")),
+        is_business_day=str(record["HolDiv"]) in {"1", "2"},
     )
 
 
 def _payload_to_records(payload: Any) -> list[dict[str, Any]]:
-    if hasattr(payload, "to_dict"):
-        try:
-            return _ensure_list(payload.to_dict(orient="records"))
-        except TypeError:
-            converted = payload.to_dict()
-            return _ensure_list(converted)
-    if isinstance(payload, Mapping):
-        for key in ("data", "items", "info", "daily_quotes", "fin_summary", "calendar"):
-            if key in payload and isinstance(payload[key], Sequence):
-                return [dict(item) for item in payload[key]]
-        return [dict(payload)]
-    if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes, bytearray)):
-        return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in payload]
-    raise JQuantsProviderError("unsupported J-Quants payload shape")
-
-
-def _ensure_list(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, list):
-        return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in value]
-    if isinstance(value, Mapping):
-        return [dict(value)]
-    raise JQuantsProviderError("cached payload is not a list-like mapping")
+    """Read ClientV2 record rows without guessing obsolete envelope shapes."""
+    to_dict = getattr(payload, "to_dict", None)
+    records = to_dict(orient="records") if callable(to_dict) else payload
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+        raise JQuantsProviderError("J-Quants payload must contain record rows")
+    if any(not isinstance(row, Mapping) for row in records):
+        raise JQuantsProviderError("J-Quants payload contains a non-record row")
+    return [dict(row) for row in records]
 
 
 def _stringify_dates(params: Mapping[str, Any]) -> dict[str, Any]:
@@ -196,8 +164,8 @@ def to_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     # ClientV2 DataFrames preserve pandas' non-finite markers when converted to
-    # records. They are not numeric observations; the period-slot selector separately
-    # decides whether an ambiguous marker may fall through to another forecast period.
+    # records. They are not numeric observations. Fiscal-period selection is independent
+    # of value availability; an unknown number cannot select another forecast period.
     if not isfinite(result):
         return None
     return result
@@ -216,32 +184,10 @@ def has_period_slot(record: Mapping[str, Any], key: str) -> bool:
     return not (isinstance(value, str) and value.strip() in {"", "-", "null"})
 
 
-def first_period_float(record: Mapping[str, Any], *keys: str) -> float | None:
-    """Return a numeric value without crossing a present-but-unknown forecast period."""
-
-    for key in keys:
-        if has_period_slot(record, key):
-            return to_float(record[key])
-    return None
-
-
-def first_value(record: Mapping[str, Any], *keys: str) -> Any:
-    """The first key a record actually carries, or a refusal naming all of them."""
-
-    for key in keys:
-        if key in record and not is_missing_scalar(record[key]):
-            return record[key]
-    joined = ", ".join(keys)
-    raise JQuantsProviderError(f"missing required field in payload: {joined}")
-
-
-def coalesce_field(record: Mapping[str, Any], *keys: str) -> Any:
-    """Return the first key's value that is explicitly present and non-null/empty.
-
-    Unlike chained `or`, this does NOT treat 0 / 0.0 / False as missing — so it is safe
-    to use for numeric payload fields that may legitimately be zero.
-    """
-    for key in keys:
-        if key in record and not is_missing_scalar(record[key]):
-            return record[key]
-    return None
+def provider_record_payload(record: Mapping[str, Any]) -> str:
+    """Retain every SDK field; non-finite missing markers are strings, not JSON NaN."""
+    values = {
+        str(key): str(value) if isinstance(value, float) and not isfinite(value) else value
+        for key, value in record.items()
+    }
+    return json.dumps(values, ensure_ascii=False, sort_keys=True, allow_nan=False, default=str)

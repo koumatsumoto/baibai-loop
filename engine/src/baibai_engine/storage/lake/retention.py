@@ -267,7 +267,9 @@ def _unreachable(
     root = mirror_root.resolve()
     candidates: list[GcCandidate] = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file():
+        # A link is not an owned object. Resolving a staging alias during apply
+        # could otherwise unlink its reachable or non-lake target instead.
+        if path.is_symlink() or not path.is_file():
             continue
         key = path.relative_to(root).as_posix()
         try:

@@ -50,15 +50,15 @@ class FinancialSnapshot:
     sales_ttm: float | None
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
-    # 直近実績の年間 DPS (asof の株式基準)・進行期の予想年間 DPS・carry 用配当利回り。
+    # 比較可能な直近実績の年間 DPS (原本値)・進行期の予想年間 DPS・carry 用配当利回り。
     # dividend_yield は将来 carry なので明示 0 を含む非負の予想 DPS を優先する
     # (forecast_annual)。ただし正の実績 DPS の 2 倍を超える予想は実績へ倒す。
-    # 予想不使用時は、配当計算窓の累積 factor が 1 の正規化済み年間実績と明示 0 を追加の
-    # 支払別再計算なしで採用する (actual_reported)。正の実績を期間内の分割に沿って
-    # 換算した場合は actual_record_date_resolved とする。
-    # 掛け直せない年度は利回りを出さず (unresolved_split_basis)、E[r] も付けない。
-    # dividend_split_factor は既存の配当計算窓の累積 factor が 1 以外なら記録し、
-    # 1 なら None。全splitの有無を表すflagではない。
+    # 予想不使用時は、会計期間から asof まで単位変更がない年間実績と明示 0 を追加の
+    # 支払別再計算なしで採用する (actual_reported)。期間内に分割・併合がある正の実績は
+    # 原本の基準を特定できないため未解決 (unresolved_split_basis)。独立して利用できる
+    # 予想があれば使い、無ければ利回りと E[r] を出さない。
+    # dividend_split_factor は配当計算窓に調整があれば累積 factor を記録する。
+    # 相殺して 1 でも記録する。変更なし・factor 不明は None。値だけでは解決状態を表さない。
     earnings_forecast_source: dict[str, str | None] | None = None
     dividend_forecast_source: dict[str, str | None] | None = None
     dps_actual_annual: float | None = None
@@ -131,7 +131,7 @@ class FinancialSnapshot:
     shares_outstanding: float | None = None
     # accruals_to_assets = (profit_ttm - cfo_ttm) / average total assets — Sloan
     # 1996. High positive accruals are an earnings-quality flag (reported NI
-    # not converting to cash). None if any input is missing.
+    # not converting to cash). Prior assets are optional; without them use current assets.
     accruals_to_assets: float | None = None
     # グロス発行済株式数の前年比。正は増加、負は減少。
     # 自己株買いの実行額や将来の買戻しを直接表すものではない。

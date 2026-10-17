@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from baibai_engine.market.edinet_decode import normalize_metric_record
+from baibai_engine.market.edinet_document_store import read_stored_documents
 from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.storage.observations.schema import connect_current
@@ -34,49 +35,26 @@ class EDINETMetricBaseline:
     rows: Mapping[str, EDINETMetricBaselineRow]
 
 
-def _normalize_edinet_metric_sql_row(row: Sequence[Any]) -> EdinetMetricRecord:
-    """Reuse the shared pure decoder so SQLite rows get the same coercion.
+_METRIC_SELECT = (
+    "SELECT ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, consolidation_basis, "
+    "ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr, operating_profit_ttm, "
+    "depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, "
+    "total_assets, ttm_quality_fcf, ttm_quality_net_cash, source_doc_id, "
+    "document_type, source_submit_datetime, source_period_start, source_period_end, "
+    "capex_source, failure_reasons, investment_securities, "
+    "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
+    "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
+    "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
+    "capex_ppe_reported, capex_intangible_reported"
+)
 
-    The typed columns already match the normalizer's key set, so the payload it
-    receives is the one it expects from the JSON path.
-    """
-    payload = {
-        "ticker": row[0],
-        "sales_ttm": row[1],
-        "ocf_ttm": row[2],
-        "debt": row[3],
-        "cash": row[4],
-        "ebitda_ttm": row[5],
-        "consolidation_basis": row[6],
-        "ttm_quality_ev_ebitda": row[7],
-        "ttm_quality_p_s": row[8],
-        "ttm_quality_pcfr": row[9],
-        "operating_profit_ttm": row[10],
-        "depreciation_and_amortization_ttm": row[11],
-        "capex_ttm": row[12],
-        "fcf_ttm": row[13],
-        "net_cash": row[14],
-        "equity": row[15],
-        "total_assets": row[16],
-        "ttm_quality_fcf": row[17],
-        "ttm_quality_net_cash": row[18],
-        "source_doc_id": row[19],
-        "document_type": row[20],
-        "source_submit_datetime": row[21],
-        "source_period_start": row[22],
-        "source_period_end": row[23],
-        "capex_source": row[24],
-        "failure_reasons": json.loads(row[25]) if row[25] else [],
-        "investment_securities": row[26],
-        "ocf_receivables_cash_effect": row[27],
-        "ocf_inventories_cash_effect": row[28],
-        "ocf_payables_cash_effect": row[29],
-        "ocf_contract_liabilities_cash_effect": row[30],
-        "ocf_advances_received_cash_effect": row[31],
-        "ocf_other_payables_cash_effect": row[32],
-        "capex_ppe_reported": row[33],
-        "capex_intangible_reported": row[34],
-    }
+
+def _normalize_edinet_metric_sql_row(row: sqlite3.Row) -> EdinetMetricRecord:
+    """Decode named SQL columns without a parallel positional field mapping."""
+    payload = dict(row)
+    payload["failure_reasons"] = (
+        json.loads(row["failure_reasons"]) if row["failure_reasons"] else []
+    )
     return normalize_metric_record(payload)
 
 
@@ -90,6 +68,7 @@ def read_edinet_metric_baseline(
     conn = connect_current(sqlite_path)
     if conn is None:
         return None
+    conn.row_factory = sqlite3.Row
     try:
         coverage_rows = conn.execute(
             "SELECT coverage_key, coverage_start, coverage_end, record_count, status, error "
@@ -130,18 +109,7 @@ def read_edinet_metric_baseline(
                     f"EDINET metric baseline coverage is inconsistent for {key}"
                 )
             rows = conn.execute(
-                "SELECT ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
-                "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, "
-                "ttm_quality_pcfr, operating_profit_ttm, "
-                "depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, "
-                "equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
-                "source_doc_id, document_type, source_submit_datetime, "
-                "source_period_start, source_period_end, capex_source, failure_reasons, "
-                "investment_securities, ocf_receivables_cash_effect, "
-                "ocf_inventories_cash_effect, ocf_payables_cash_effect, "
-                "ocf_contract_liabilities_cash_effect, ocf_advances_received_cash_effect, "
-                "ocf_other_payables_cash_effect, capex_ppe_reported, "
-                "capex_intangible_reported, extractor_revision, source_document_revision "
+                _METRIC_SELECT + ", extractor_revision, source_document_revision "
                 "FROM edinet_metrics WHERE asof_date = ? ORDER BY ticker",
                 (key,),
             ).fetchall()
@@ -161,8 +129,16 @@ def read_edinet_metric_baseline(
                         )
                     baseline_rows[record.ticker] = EDINETMetricBaselineRow(
                         record=record,
-                        extractor_revision=str(row[35]) if row[35] is not None else None,
-                        source_document_revision=(str(row[36]) if row[36] is not None else None),
+                        extractor_revision=(
+                            str(row["extractor_revision"])
+                            if row["extractor_revision"] is not None
+                            else None
+                        ),
+                        source_document_revision=(
+                            str(row["source_document_revision"])
+                            if row["source_document_revision"] is not None
+                            else None
+                        ),
                     )
             except (TypeError, ValueError, EDINETProviderError) as exc:
                 raise EDINETMetricBaselineError(
@@ -181,8 +157,9 @@ def read_edinet_metric_baseline(
 
 
 def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:
-    """Return raw EDINET document records for `on_date` from SQLite, or
-    `None` if the cache cannot serve the date.
+    """Read retained origins and source-key-preserving operations for one day.
+
+    Missing coverage returns None; database query failures propagate.
     """
     if not sqlite_path.exists():
         return None
@@ -192,63 +169,9 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
     try:
         if not date_covered(conn, "edinet_documents", on_date):
             return None
-        rows = conn.execute(
-            "SELECT sequence_number, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, "
-            "legal_status, disclosure_status, withdrawal_status, doc_info_edit_status, "
-            "parent_doc_id, operation_datetime, submit_datetime, doc_description, "
-            "period_start, period_end, edinet_code, issuer_edinet_code, subject_edinet_code "
-            "FROM edinet_documents WHERE doc_date = ? ORDER BY sequence_number",
-            (on_date.isoformat(),),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return None
+        return read_stored_documents(conn, through=on_date, start=on_date)
     finally:
         conn.close()
-    return [
-        {
-            "doc_date": on_date.isoformat(),
-            "seqNumber": sequence_number,
-            "docID": doc_id,
-            "secCode": sec_code,
-            "docTypeCode": doc_type_code,
-            "csvFlag": csv_flag,
-            "xbrlFlag": xbrl_flag,
-            "legalStatus": legal_status,
-            "disclosureStatus": disclosure_status,
-            "withdrawalStatus": withdrawal_status,
-            "docInfoEditStatus": doc_info_edit_status,
-            "parentDocID": parent_doc_id,
-            "opeDateTime": operation_datetime,
-            "submitDateTime": submit_datetime,
-            "docDescription": doc_description,
-            "periodStart": period_start,
-            "periodEnd": period_end,
-            "edinetCode": edinet_code,
-            "issuerEdinetCode": issuer_edinet_code,
-            "subjectEdinetCode": subject_edinet_code,
-        }
-        for (
-            sequence_number,
-            doc_id,
-            sec_code,
-            doc_type_code,
-            csv_flag,
-            xbrl_flag,
-            legal_status,
-            disclosure_status,
-            withdrawal_status,
-            doc_info_edit_status,
-            parent_doc_id,
-            operation_datetime,
-            submit_datetime,
-            doc_description,
-            period_start,
-            period_end,
-            edinet_code,
-            issuer_edinet_code,
-            subject_edinet_code,
-        ) in rows
-    ]
 
 
 def read_unfinalized_edinet_document_dates(sqlite_path: Path, *, before: date) -> tuple[date, ...]:
@@ -264,8 +187,6 @@ def read_unfinalized_edinet_document_dates(sqlite_path: Path, *, before: date) -
             "WHERE is_final = 0 AND doc_date < ? ORDER BY doc_date",
             (before.isoformat(),),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return ()
     finally:
         conn.close()
     return tuple(date.fromisoformat(str(row[0])) for row in rows)
@@ -282,32 +203,17 @@ def read_edinet_metrics(
     conn = connect_current(sqlite_path)
     if conn is None:
         return None
+    conn.row_factory = sqlite3.Row
     try:
         if not date_covered(conn, "edinet_metrics", asof_date):
             return None
         rows = conn.execute(
-            "SELECT ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
-            "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr, "
-            "operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, "
-            "net_cash, equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
-            "source_doc_id, document_type, source_submit_datetime, source_period_start, "
-            "source_period_end, capex_source, failure_reasons, investment_securities, "
-            "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
-            "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
-            "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
-            "capex_ppe_reported, capex_intangible_reported "
-            "FROM edinet_metrics WHERE asof_date = ?",
+            _METRIC_SELECT + " FROM edinet_metrics WHERE asof_date = ?",
             (asof_date.isoformat(),),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
 
-    # Reuse the shared pure decoder so SQLite-backed records pick up
-    # the same TTMQuality coercion / shape as the JSON path. Pass an
-    # already-normalized payload that the function expects (typed columns
-    # already match its key set).
     records: dict[str, EdinetMetricRecord] = {}
     for row in rows:
         record = _normalize_edinet_metric_sql_row(row)

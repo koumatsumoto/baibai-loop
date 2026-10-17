@@ -22,7 +22,6 @@ from baibai_engine.screening.calibration.evaluation.policy import (
     RETURN_CHANGE_CONTROL_FIELDS,
     REVERSION_AXES,
     SECTOR_MEDIAN_AXES,
-    TRAP_EXCESS_THRESHOLD,
     AxisSpec,
 )
 from baibai_engine.screening.calibration.evaluation.statistics import (
@@ -42,13 +41,12 @@ from baibai_engine.screening.calibration.panel import PanelRow
 
 
 def _adjustment_factor_status(rows: Sequence[ForwardReturnRow]) -> str:
-    """Say whether every bar behind these rows carried a split adjustment factor.
+    """Summarize adjustment-factor coverage reported by the forward calculation.
 
-    This is the only corporate-action question the bar store can answer. Actions
-    it does not adjust — a merger's consideration, a rights offering — leave no
-    local trace, so the residual is disclosed in the reference doc instead of
-    being folded into this value. ``unknown`` means no row reported a factor at
-    all and is kept distinct from a factor that is present but incomplete.
+    This describes the factors required for that price comparison, not complete
+    corporate-action coverage. Native event kinds can identify rights events, but
+    a factor alone does not establish consideration or shareholder cash flows.
+    ``unknown`` means at least one row has unknown coverage, or there are no rows.
     """
     values = {str(row.adjustment_factor_coverage) for row in rows}
     if not values or "unknown" in values:
@@ -82,14 +80,7 @@ def _evaluate_axis(
         "rank_ic": round(ic, 4) if ic is not None else None,
         "best_decile_median_excess": round(best_median, 6) if best_median is not None else None,
         "best_decile_mean_excess": round(fmean(best_values), 6) if best_values else None,
-        "best_decile_trap_rate": (
-            round(
-                sum(1 for value in best_values if value < TRAP_EXCESS_THRESHOLD) / len(best_values),
-                4,
-            )
-            if best_values
-            else None
-        ),
+        "best_decile_trap_rate": deciles[-1]["trap_rate"],
         "decile_spread_median": (
             round(best_median - worst_median, 6)
             if best_median is not None and worst_median is not None
@@ -490,7 +481,7 @@ def _evaluate_sector_median_basis(
                 "market_fallback" if metric in row.smg_market_fallback.split("|") else "own_sector"
             )
             groups[basis].append((value * spec.direction, excess[row.ticker]))
-            screened[basis] += row.in_review_set
+            screened[basis] += row.in_nomination_union
         entry: dict[str, object] = {}
         for basis, pairs in groups.items():
             decile_values = _decile_values(pairs) if len(pairs) >= MIN_AXIS_SAMPLE else None
@@ -711,7 +702,7 @@ def _evaluate_er_level_calibration(
         "calibration_error_basis": "realized_minus_predicted",
         "component_basis": {
             "predicted_reversion": "er_reversion_annual",
-            "predicted_carry": "er_carry_annual_dividend_plus_buyback",
+            "predicted_carry": "er_carry_annual_dividend_plus_share_count_yield",
             "realized_price": "adjusted_close_price_return_annualized",
             "realized_dividend": "annualized_total_minus_annualized_price",
         },

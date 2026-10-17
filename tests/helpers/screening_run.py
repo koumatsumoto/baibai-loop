@@ -31,7 +31,7 @@ def stock_analysis(
     sector_33: str = "水産・農林業",
     market_cap_oku: float = 1000.0,
     avg_turnover_oku: float = 10.0,
-    listing_span_days: int = 1000,
+    price_history_span_days: int = 1000,
     jpx_flags: Sequence[str] = (),
     metrics: Mapping[str, Any] | _Omitted | None = OMIT,
     **extra: Any,
@@ -49,7 +49,7 @@ def stock_analysis(
         "sector_33": sector_33,
         "market_cap_oku": market_cap_oku,
         "avg_turnover_oku": avg_turnover_oku,
-        "listing_span_days": listing_span_days,
+        "price_history_span_days": price_history_span_days,
         "jpx_flags": list(jpx_flags),
         **extra,
     }

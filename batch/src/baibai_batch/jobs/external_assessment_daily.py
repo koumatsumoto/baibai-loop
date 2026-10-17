@@ -33,6 +33,7 @@ from baibai_batch.storage.external_assessment_staging import (
     read_stages,
     read_terminal,
     save_new_plan,
+    terminal_result,
     terminal_status,
 )
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
@@ -128,18 +129,6 @@ def initialize(
     return plan
 
 
-def _terminal_result(terminal: dict[str, object]) -> dict[str, object]:
-    return {
-        **terminal,
-        "status": terminal_status(terminal),
-        "readback": "previously_verified",
-        "rows_added": 0,
-        "uploaded_bytes": 0,
-        "uploaded_objects": 0,
-        "publication_transfers": None,
-    }
-
-
 def _wait_for_retry(deadline: datetime, *, started: float, budget: float) -> bool:
     while True:
         waiting = max(0.0, (deadline - datetime.now(UTC)).total_seconds())
@@ -199,7 +188,7 @@ def acquire_cohort(
     timings = {"collection_elapsed_seconds": 0.0, "storage_elapsed_seconds": 0.0}
     terminal = read_terminal(store, plan)
     if terminal is not None:
-        return {**_terminal_result(terminal), "provider_requests": 0, "http_requests": 0}
+        return {**terminal_result(terminal), "provider_requests": 0, "http_requests": 0}
     previous = read_stage(store, plan, index)
     stage = previous[0] if previous else CohortStage(new_result(plan, index))
     timings["storage_elapsed_seconds"] = time.monotonic() - started
@@ -338,7 +327,7 @@ def write_outputs(
             for key, value in values.items():
                 print(f"{key}={value}", file=stream)
     if terminal is not None:
-        write_publication_outputs(_terminal_result(terminal))
+        write_publication_outputs(terminal_result(terminal))
 
 
 def write_publication_outputs(report: dict[str, object]) -> None:
@@ -449,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
                 require_binding(plan)
             write_outputs(plan, terminal, cohort_indices=cohorts)
             report = (
-                _terminal_result(terminal)
+                terminal_result(terminal)
                 if terminal is not None
                 else {
                     "tickers": len(plan.tickers),
@@ -467,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             terminal = read_terminal(store, plan)
             if terminal is not None:
-                report = _terminal_result(terminal)
+                report = terminal_result(terminal)
             else:
                 if args.directory is None or args.lease_handle is None:
                     raise ValueError("private publish directory and lease handle required")

@@ -61,6 +61,8 @@ def runtime(tmp_path, monkeypatch):
             assert args[args.index("--asof") + 1] == "2026-09-28"
         else:
             name = args[-1]
+        if name == "publish-lake":
+            assert kwargs["env"]["PUBLICATION_LEASE_HANDLE"] == str(settings["handle"])
         calls.append(name)
         if name == settings["fail"]:
             raise runner.StageFailure("stage failed")
@@ -108,14 +110,14 @@ def test_local_partial_with_existing_master_publishes_without_master_fetch(runti
     state, calls, settings = runtime
     settings["preflight"] = {"status": "needs_fetch", "needs_master": False, "rows": 2}
     settings["refresh"] = "partial"
-    assert runner.main(["--state-file", str(state), "--batch-size", "50", "--interval", "15"]) == 0
+    assert runner.main(["--state-file", str(state), "--interval", "15"]) == 0
     assert "master" not in calls
     assert calls[-3:] == ["refresh", "publish-lake", "release"]
 
 
 def test_local_invalid_pacing_stops_before_cloud_operations(runtime):
     state, calls, _ = runtime
-    assert runner.main(["--state-file", str(state), "--batch-size", "2", "--interval", "3"]) == 1
+    assert runner.main(["--state-file", str(state), "--interval", "3"]) == 1
     assert calls == []
 
 
@@ -173,7 +175,8 @@ def test_bad_success_payload_does_not_publish(runtime):
     assert calls[-1] == "release"
 
 
-def test_zero_new_rows_cannot_publish_a_previous_partial(runtime, monkeypatch):
+@pytest.mark.parametrize(("added", "expected", "remaining"), [(0, 51, 1), (1, 49, -1)])
+def test_invalid_partial_counts_do_not_publish(runtime, monkeypatch, added, expected, remaining):
     state, calls, _ = runtime
     original = runner.command
 
@@ -183,10 +186,10 @@ def test_zero_new_rows_cannot_publish_a_previous_partial(runtime, monkeypatch):
             return json.dumps(
                 {
                     "status": "partial",
-                    "rows_added": 0,
+                    "rows_added": added,
                     "rows": 50,
-                    "expected_universe": 51,
-                    "remaining": 1,
+                    "expected_universe": expected,
+                    "remaining": remaining,
                 }
             )
         return original(args, **kwargs)
@@ -196,13 +199,13 @@ def test_zero_new_rows_cannot_publish_a_previous_partial(runtime, monkeypatch):
     assert "publish-lake" not in calls
 
 
-def test_before_close_does_not_read_credentials_or_acquire(runtime, monkeypatch):
+def test_before_observation_hours_does_not_read_credentials_or_acquire(runtime, monkeypatch):
     state, calls, _ = runtime
     state.unlink()
     monkeypatch.setattr(
         runner,
         "resolve_tradingview_target",
-        lambda *_a, **_kw: (date(2026, 9, 28), "manual", False, "before_close"),
+        lambda *_a, **_kw: (date(2026, 9, 28), "manual", False, "before_observation"),
     )
     assert runner.main(["--state-file", str(state)]) == 0
     assert calls == []
@@ -354,3 +357,11 @@ def test_timeout_reports_safe_progress_before_release_and_removes_file(
     assert not progress_path.exists()
     assert not settings["handle"].parent.exists()
     assert "category=timeout" in capsys.readouterr().err
+
+
+def test_batch_size_is_not_a_configurable_operational_option(runtime):
+    state, calls, _ = runtime
+    with pytest.raises(SystemExit) as error:
+        runner.main(["--state-file", str(state), "--batch-size", "50"])
+    assert error.value.code == 2
+    assert calls == []

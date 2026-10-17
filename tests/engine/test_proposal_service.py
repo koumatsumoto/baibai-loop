@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import UTC, timedelta
 
 import pytest
-from tests.helpers.proposal_v1 import PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
 from baibai_engine.research.proposal import ProposalConflictError, ProposalError
 from baibai_engine.research.proposal_query import get_investment_proposal
@@ -36,7 +36,7 @@ def _ledger_snapshot(path):
     with closing(sqlite3.connect(path)) as connection, connection:
         return {
             table: connection.execute(f"SELECT * FROM {table}").fetchall()
-            for table in ("ledger_event", "ledger_meta", "ledger_market_price")
+            for table in ("ledger_event", "ledger_meta")
         }
 
 
@@ -111,7 +111,7 @@ def test_same_id_retry_requires_the_exact_signed_typed_payload(case):
         service.publish(InvestmentProposal.model_validate(raw))
 
 
-@pytest.mark.parametrize("change", ["head", "meta", "quote", "source", "basis"])
+@pytest.mark.parametrize("change", ["head", "meta", "quote", "source"])
 def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change):
     proposal = reviewed_proposal(case)
     if change == "head":
@@ -137,12 +137,9 @@ def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change)
             expected_document=ledger,
             replacement=ledger.model_copy(update={"as_of": ledger.as_of + timedelta(minutes=1)}),
         )
-    elif change in {"quote", "basis"}:
+    elif change == "quote":
         with closing(sqlite3.connect(case.market)) as connection, connection:
-            connection.execute(
-                "UPDATE jquants_daily_bars SET "
-                + ("close=1099" if change == "quote" else "adjustment_factor=0.5")
-            )
+            connection.execute("UPDATE jquants_daily_bars SET close=1099")
     else:
         raw = proposal.payload()
         raw["inputs"]["quotes"][0]["source_ref"] = "other-real-source"
@@ -157,7 +154,6 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     proposal = reviewed_proposal(case)
     raw = proposal.payload()
     raw["inputs"]["ledger_as_of"] = "2026-10-14T06:00:00Z"
-    raw["inputs"]["quotes"][0]["observed_at"] = "2026-10-14T06:30:00Z"
     raw["inputs"]["quotes"][0]["price_yen"] = "1100.00"
     raw["inputs"]["available_cash_yen"] = "3E+5"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
@@ -173,7 +169,11 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     ("checked_at", "blocker_code", "message"),
     [
         ("2026-10-14T16:19:00+09:00", "proposal_inputs_after_review", "独立Review以前"),
-        ("2026-10-14T15:20:00+09:00", "quote_observed_after_inputs", "保存入力の収集時刻以前"),
+        (
+            "2026-10-14T15:20:00+09:00",
+            "quote_session_after_inputs",
+            "入力収集時点で利用できる取引日以前",
+        ),
     ],
 )
 def test_saved_input_and_quote_times_must_precede_their_reviewed_cutoffs(
@@ -196,7 +196,6 @@ def test_saved_input_and_quote_times_must_precede_their_reviewed_cutoffs(
 def test_saved_input_review_and_quote_boundaries_accept_the_same_utc_instant(case, checked_at):
     raw = reviewed_proposal(case).payload()
     raw["inputs"]["checked_at"] = checked_at
-    raw["inputs"]["quotes"][0]["observed_at"] = "2026-10-14T06:30:00Z"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = InvestmentProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED.astimezone(UTC)
@@ -329,3 +328,12 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
         InvestmentProposalService(
             case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=3)
         ).publish(new)
+
+
+def test_same_session_adjustment_does_not_change_native_quote_or_comparison(case):
+    proposal = reviewed_proposal(case)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET adjustment_factor=0.5, ex_right_type='1'")
+    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(proposal).valid
+    assert service.publish(proposal).proposal_id == proposal.proposal_id

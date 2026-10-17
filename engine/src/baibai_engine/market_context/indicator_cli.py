@@ -1,0 +1,298 @@
+"""Indicator commands compose source acquisition and L2 calculation above both layers."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sqlite3
+import sys
+from collections.abc import Iterable, Sequence
+from datetime import date, datetime
+from pathlib import Path
+from typing import assert_never
+
+from baibai_engine.foundation.env import load_project_env
+
+from .indicator_service import (
+    IndicatorsService,
+    QueryResult,
+    RefreshFailure,
+    RefreshSuccess,
+    list_series,
+    search,
+)
+from .indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
+from .indicators.definitions import SeriesDefinition
+from .indicators.providers import IndicatorsProviderError, provider_spec
+
+
+def format_refresh_failure_rollup(failed_series_ids: Sequence[str], *, total: int) -> str:
+    """The single line that says how much of a multi-series refresh failed.
+
+    A caller that only keeps the tail of stderr reads its counts from here, so
+    the wording is a contract rather than free text. :func:`parse_refresh_failure_count`
+    is the reader; both live here so neither can move without the other.
+    """
+
+    return (
+        f"error: refresh failed for {len(failed_series_ids)} of {total} series: "
+        f"{', '.join(failed_series_ids)}"
+    )
+
+
+_REFRESH_FAILURE_ROLLUP_RE = re.compile(
+    r"^error: refresh failed for (?P<failed>\d+) of \d+ series: ", re.MULTILINE
+)
+
+
+def parse_refresh_failure_count(stderr: str) -> int | None:
+    """How many series a refresh reported as failed, or ``None`` if it did not say.
+
+    Lets a caller count the series that actually failed instead of assuming every
+    series it asked for did. ``None`` means the run failed some other way (a crash
+    before the roll-up, a bad argument), which is the caller's cue to fall back to
+    its own estimate rather than trust a count it does not have.
+    """
+
+    matches = list(_REFRESH_FAILURE_ROLLUP_RE.finditer(stderr))
+    if not matches:
+        return None
+    return int(matches[-1]["failed"])
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="baibai-engine market-context indicators")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    list_parser = subparsers.add_parser("list", help="list registered economic indicator series")
+    list_parser.add_argument("--category")
+    list_parser.add_argument("--format", choices=("table", "json"), default="table")
+
+    search_parser = subparsers.add_parser("search", help="search registered series")
+    search_parser.add_argument("query")
+
+    get_parser = subparsers.add_parser("get", help="get observations for a series")
+    get_parser.add_argument("series_id")
+    get_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    get_parser.add_argument("--latest", action="store_true")
+    get_parser.add_argument("--start", type=date.fromisoformat)
+    get_parser.add_argument("--end", type=date.fromisoformat)
+
+    refresh_parser = subparsers.add_parser("refresh", help="force provider refresh for series")
+    refresh_parser.add_argument("series_ids", nargs="+")
+    refresh_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    refresh_range = refresh_parser.add_mutually_exclusive_group(required=True)
+    refresh_range.add_argument("--start", type=date.fromisoformat)
+    refresh_range.add_argument("--all-history", action="store_true")
+    refresh_parser.add_argument("--end", required=True, type=date.fromisoformat)
+
+    retract_parser = subparsers.add_parser(
+        "retract",
+        help="withdraw stored observation dates from every read",
+    )
+    retract_parser.add_argument("series_id")
+    retract_parser.add_argument(
+        "--observed-at",
+        required=True,
+        action="append",
+        dest="observed_at",
+        type=date.fromisoformat,
+        help="observation date to withdraw (repeatable)",
+    )
+    retract_parser.add_argument(
+        "--expected-vintage",
+        required=True,
+        action="append",
+        dest="expected_vintage",
+        type=datetime.fromisoformat,
+        help="the vintage each --observed-at is expected to withdraw (repeatable, paired)",
+    )
+    retract_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    args = build_parser().parse_args(arguments)
+    if args.command in {"get", "refresh", "retract"}:
+        load_project_env()
+        service = IndicatorsService(args.db)
+    try:
+        match args.command:
+            case "list":
+                series = list_series(category=args.category)
+                if args.format == "json":
+                    _print_series_json(series)
+                else:
+                    _print_series(series)
+                return 0
+            case "search":
+                _print_series(search(args.query))
+                return 0
+            case "get":
+                result = _run_get(service, args)
+                _print_observations(result)
+                return 0
+            case "refresh":
+                return _run_refresh(service, args)
+            case "retract":
+                return _run_retract(service, args)
+    except KeyError as exc:
+        message = exc.args[0] if exc.args else str(exc)
+        print(f"error: {message}", file=sys.stderr)
+        return 1
+    except IndicatorsSchemaError as exc:
+        print(
+            f"error: {exc}; follow batch/OPERATIONS.md store-identity-recovery before retrying",
+            file=sys.stderr,
+        )
+        return 1
+    except (sqlite3.Error, OSError) as exc:
+        print(f"error: indicators {args.command}: {exc}", file=sys.stderr)
+        return 1
+    except (ValueError, IndicatorsProviderError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    raise AssertionError(f"unreachable command: {args.command!r}")
+
+
+def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
+    """Refresh every requested series, then report the failures as a set.
+
+    One failing source must not leave the rest of the requested series stale, so
+    each series is refreshed independently and the exit code reflects whether any
+    failed. The detail lines are followed by a single-line roll-up of the failed
+    series IDs: a batch log reader keeps only the tail of stderr (the daily batch
+    summarizes the last 20 lines), so with many failures that one line is what
+    survives.
+    """
+
+    outcomes = service.refresh_series(
+        args.series_ids,
+        start=None if args.all_history else args.start,
+        end=args.end,
+    )
+    failures: list[RefreshFailure] = []
+    for outcome in outcomes:
+        match outcome:
+            case RefreshSuccess(result=result):
+                if args.all_history:
+                    _print_refresh_summary(result)
+                else:
+                    _print_observations(result)
+            case RefreshFailure():
+                failures.append(outcome)
+            case _:  # pragma: no cover - exhaustiveness guard over RefreshOutcome
+                assert_never(outcome)
+    if not failures:
+        return 0
+    print(
+        f"error: {len(failures)} of {len(outcomes)} series failed to refresh:",
+        file=sys.stderr,
+    )
+    for failure in failures:
+        print(f"- {failure.series_id}: {failure.message}", file=sys.stderr)
+    print(
+        format_refresh_failure_rollup(
+            [failure.series_id for failure in failures], total=len(outcomes)
+        ),
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _run_retract(service: IndicatorsService, args: argparse.Namespace) -> int:
+    """Print what each date lost and what it fell back to, so the change reads at a glance."""
+
+    if len(args.observed_at) != len(args.expected_vintage):
+        raise ValueError("--observed-at and --expected-vintage must be given in pairs")
+    requested = sorted(set(zip(args.observed_at, args.expected_vintage, strict=True)))
+    outcomes = service.retract(args.series_id, requested)
+    handled = {item.observed_at for item in outcomes}
+    restored = sum(1 for item in outcomes if item.restored is not None)
+    print("series_id\tobserved_at\toutcome\twithdrawn_value\trestored_value")
+    for item in outcomes:
+        outcome = "withdrawn" if item.restored is None else "restored-previous"
+        restored_value = "-" if item.restored is None else f"{item.restored.value:g}"
+        print(
+            f"{item.series_id}\t{item.observed_at.isoformat()}\t{outcome}\t"
+            f"{item.withdrawn.value:g}\t{restored_value}"
+        )
+    for observed_at, _ in requested:
+        if observed_at not in handled:
+            print(f"{args.series_id}\t{observed_at.isoformat()}\talready-retracted\t-\t-")
+    print(
+        f"retracted {len(outcomes)} of {len(requested)} requested observation dates; "
+        f"{restored} fell back to an earlier vintage, {len(outcomes) - restored} left the reads"
+    )
+    return 0
+
+
+def _run_get(service: IndicatorsService, args: argparse.Namespace) -> QueryResult:
+    if args.latest:
+        if args.start is not None or args.end is not None:
+            raise ValueError("--latest cannot be combined with --start/--end")
+        return service.get_latest(args.series_id)
+    if args.start is None or args.end is None:
+        raise ValueError("get requires either --latest or both --start and --end")
+    return service.get_range(args.series_id, start=args.start, end=args.end)
+
+
+def _print_series(series: Iterable[SeriesDefinition]) -> None:
+    for item in series:
+        print(
+            f"{item.series_id}\t{item.name}\t{item.category}\t{item.geography}\t"
+            f"{item.frequency}\t{item.unit}\t{item.provider}"
+        )
+
+
+def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
+    # Structured contract for machine consumers (the daily batch), so callers
+    # parse fields instead of splitting the human table output.
+    payload = [
+        {
+            "series_id": item.series_id,
+            "name": item.name,
+            "category": item.category,
+            "geography": item.geography,
+            "frequency": item.frequency,
+            "unit": item.unit,
+            "provider": item.provider,
+            # "http" fetches externally; "local" is computed on read from
+            # stored inputs and is excluded from acquisition batches.
+            "kind": provider_spec(item.provider).kind,
+        }
+        for item in series
+    ]
+    print(json.dumps(payload, ensure_ascii=False))
+
+
+def _print_observations(result: QueryResult) -> None:
+    query = (
+        "computed"
+        if result.series.provider == "derived"
+        else ("cached" if result.cache_hit else "refreshed")
+    )
+    print(
+        "series_id\tobserved_at\tvalue\tunit\tprovider\tquery",
+    )
+    for item in result.observations:
+        print(
+            f"{result.series.series_id}\t{item.observed_at.isoformat()}\t{item.value:g}\t"
+            f"{item.unit}\t{result.series.provider}\t{query}"
+        )
+
+
+def _print_refresh_summary(result: QueryResult) -> None:
+    first = result.observations[0].observed_at.isoformat() if result.observations else "-"
+    last = result.observations[-1].observed_at.isoformat() if result.observations else "-"
+    print(
+        f"{result.series.series_id}\t{result.series.provider}\t"
+        f"{len(result.observations)}\t{first}\t{last}"
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

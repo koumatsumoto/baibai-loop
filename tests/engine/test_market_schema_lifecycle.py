@@ -35,3 +35,111 @@ def test_connect_current_accepts_uri_sensitive_path_characters(tmp_path):
     connection = schema.connect_current(path)
     assert connection is not None
     connection.close()
+
+
+@pytest.mark.parametrize(
+    ("extra_ddl", "message"),
+    [
+        ("CREATE TABLE contract_probe(value TEXT);", "missing tables: contract_probe"),
+        (
+            "ALTER TABLE jpx_earnings_calendar ADD COLUMN contract_probe TEXT;",
+            "missing columns in jpx_earnings_calendar: contract_probe",
+        ),
+    ],
+)
+def test_schema_validation_derives_tables_and_columns_from_ddl(
+    tmp_path, monkeypatch, extra_ddl, message
+):
+    path = tmp_path / "market.sqlite"
+    schema.open_connection(path).close()
+    before = path.read_bytes()
+    monkeypatch.setattr(schema, "_SCHEMA_SQL", schema._SCHEMA_SQL + "\n" + extra_ddl)
+    with (
+        closing(sqlite3.connect(path)) as conn,
+        pytest.raises(schema.SQLiteSchemaError, match=message),
+    ):
+        schema.validate_current_schema(conn)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
+@pytest.mark.parametrize(
+    "failure", [RuntimeError, KeyboardInterrupt, schema.SQLiteSchemaError, sqlite3.OperationalError]
+)
+def test_schema_validation_failure_closes_the_owned_connection(
+    tmp_path, monkeypatch, opener, failure
+):
+    path = tmp_path / "market.sqlite"
+    schema.open_connection(path).close()
+    before = path.read_bytes()
+    connect = sqlite3.connect
+    opened = []
+
+    def track(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    def fail(connection):
+        raise failure("interrupted validation")
+
+    monkeypatch.setattr(sqlite3, "connect", track)
+    monkeypatch.setattr(schema, "validate_current_schema", fail)
+    with pytest.raises(failure, match="interrupted validation"):
+        opener(path)
+    assert opened
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
+    assert path.read_bytes() == before
+
+
+def test_connect_current_cannot_write_to_the_market_store(tmp_path):
+    path = tmp_path / "market.sqlite"
+    schema.open_connection(path).close()
+    before = path.read_bytes()
+    connection = schema.connect_current(path)
+    assert connection is not None
+    with closing(connection) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == schema.SQLITE_SCHEMA_VERSION
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-15', 1)")
+    assert path.read_bytes() == before
+
+
+def test_schema_reuses_static_expectation_but_checks_database_changes(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    with closing(schema.open_connection(path)) as connection:
+        schema._expected_schema_shape.cache_clear()
+        connect = sqlite3.connect
+        derivations = []
+
+        def track(database, *args, **kwargs):
+            if database == ":memory:":
+                derivations.append(database)
+            return connect(database, *args, **kwargs)
+
+        monkeypatch.setattr(sqlite3, "connect", track)
+        schema.validate_current_schema(connection)
+        schema.validate_current_schema(connection)
+        assert derivations == [":memory:"]
+        connection.execute("DROP TABLE jpx_earnings_calendar")
+        with pytest.raises(schema.SQLiteSchemaError, match="missing tables: jpx_earnings_calendar"):
+            schema.validate_current_schema(connection)
+        assert derivations == [":memory:"]
+
+
+@pytest.mark.parametrize("damage", ["version", "corrupt"])
+def test_existing_unreadable_store_is_not_an_absent_cache(tmp_path, damage):
+    path = tmp_path / "market.sqlite"
+    if damage == "corrupt":
+        path.write_bytes(b"not a SQLite database")
+        error = sqlite3.DatabaseError
+    else:
+        with closing(schema.open_connection(path)) as connection, connection:
+            connection.execute("PRAGMA user_version = 1")
+        error = schema.SQLiteSchemaError
+    before = path.read_bytes()
+    with pytest.raises(error):
+        schema.connect_current(path)
+    assert path.read_bytes() == before

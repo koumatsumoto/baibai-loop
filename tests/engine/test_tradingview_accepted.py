@@ -8,17 +8,28 @@ from contextlib import closing
 
 import pytest
 from tests.engine.test_tradingview_collector import payload, stored
+from tests.helpers.master import insert_master_rows
 
 from baibai_engine.external_assessment.tradingview import cli
 from baibai_engine.external_assessment.tradingview.accepted import (
+    NAMES,
+    _verify_history,
     accept_observations,
     load_observations,
-    verify_observations,
 )
 from baibai_engine.external_assessment.tradingview.collector import preflight_snapshot
 from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
 from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
 from baibai_engine.storage.observations.schema import open_connection
+
+
+def verify_saved_rows(path, accepted, report):
+    # Exercise the same stream verifier used for fixed-release Parquet readback.
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
+        rows = conn.execute(
+            f"SELECT {','.join(NAMES)} FROM tradingview_forecast_snapshots ORDER BY snapshot_date,ticker"  # nosec B608
+        )
+        _verify_history(rows, accepted, report)
 
 
 def document():
@@ -61,9 +72,7 @@ def market(tmp_path):
     conn = open_connection(path)
     with conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-11',0)")
-        conn.execute(
-            "INSERT INTO jquants_master_snapshots VALUES ('2026-10-09','1000','IPO','プライム','機械',1)"
-        )
+        insert_master_rows(conn, [("2026-10-09", "1000", "IPO", "プライム", "機械", "011")])
         conn.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES ('1000','2026-10-09',123)"
         )
@@ -96,7 +105,7 @@ def test_explicit_weekend_receipts_keep_exact_times_and_other_market_data(tmp_pa
         ]
     with pytest.raises(SourceDataError, match="Previous business day"):
         preflight_snapshot(path, accepted.document.observation_date_jst)
-    verify_observations(path, accepted, report)
+    verify_saved_rows(path, accepted, report)
     original = path.read_bytes()
     again = accept_observations(path, accepted)
     assert again["status"] == "already_recorded"
@@ -133,7 +142,7 @@ def test_insert_failure_rolls_back_entire_acceptance(tmp_path):
 
 @pytest.mark.parametrize(
     "mutation",
-    ["date", "columns", "source", "zone", "order", "overlap", "accounting", "no_timezone"],
+    ["date", "columns", "source", "order", "overlap", "accounting", "no_timezone"],
 )
 def test_invalid_receipts_are_rejected_before_store_open(tmp_path, mutation):
     value = document()
@@ -143,8 +152,6 @@ def test_invalid_receipts_are_rejected_before_store_open(tmp_path, mutation):
         value["columns"] = list(reversed(COLUMNS))
     if mutation == "source":
         value["source_ref"]["sha256"] = "private-header"
-    if mutation == "zone":
-        value["observations"][0]["timing"]["end"] = "2026-10-11T10:58:46.209+09:00"
     if mutation == "order":
         value["observations"][0]["timing"]["start"] = "2026-10-11T02:00:00Z"
     if mutation == "overlap":
@@ -184,7 +191,7 @@ def test_readback_checks_all_values_and_retained_history(tmp_path, change):
     source, digest = input_file(tmp_path)
     accepted = load_observations(source, sha256=digest)
     report = accept_observations(path, accepted)
-    verify_observations(path, accepted, report)
+    verify_saved_rows(path, accepted, report)
     if change == "source_ref":
         report = copy.deepcopy(report)
         report["source_ref"]["sha256"] = "b" * 64
@@ -194,8 +201,8 @@ def test_readback_checks_all_values_and_retained_history(tmp_path, change):
                 "UPDATE tradingview_forecast_snapshots SET quote_close=777 WHERE ticker=?",
                 ("1000" if change == "accepted_value" else "1003",),
             )
-    with pytest.raises(SourceDataError, match="readback"):
-        verify_observations(path, accepted, report)
+    with pytest.raises(ValueError, match=r"differs|mismatch"):
+        verify_saved_rows(path, accepted, report)
 
 
 def test_cli_acceptance_never_loads_credentials_and_never_echoes_invalid_input(
@@ -246,3 +253,31 @@ def test_empty_document_is_not_replaced_with_valid_receipts(tmp_path):
     assert json.loads(source.read_text()) == {}
     with pytest.raises(FetchError):
         load_observations(source, sha256=digest)
+
+
+def test_equivalent_aware_receipt_offsets_keep_the_same_stored_instants(tmp_path):
+    original, digest = input_file(tmp_path)
+    utc = load_observations(original, sha256=digest)
+    value = document()
+    value["observations"][0]["timing"] = {
+        "start": "2026-10-11T10:58:14.800+09:00",
+        "end": "2026-10-11T10:58:46.209+09:00",
+    }
+    shifted, digest = input_file(tmp_path, value)
+    actual = load_observations(shifted, sha256=digest)
+    assert actual.values == utc.values
+    assert actual.document.observation_date_jst == utc.document.observation_date_jst
+
+
+def test_more_than_two_received_batches_can_be_accepted_within_input_size_limit(tmp_path):
+    value = document()
+    third = copy.deepcopy(value["observations"][1])
+    third["trial"] = 23
+    third["result"] = payload(["TSE:1004"])
+    value["observations"].append(third)
+    source, digest = input_file(tmp_path, value)
+    accepted = load_observations(source, sha256=digest)
+    report = accept_observations(market(tmp_path), accepted)
+    assert report["rows_added"] == 4
+    assert [receipt["trial"] for receipt in report["receipts"]] == [21, 22, 23]
+    assert report["coverage_status"] == "partial"

@@ -38,7 +38,7 @@ def _validate_finite(value: float | None) -> float | None:
 class UniverseSnapshot:
     market_cap_oku: int | None
     avg_turnover_oku: float | None
-    listing_span_days: int | None = None
+    price_history_span_days: int | None = None
     jpx_flags: tuple[str, ...] = ()
 
     @field_validator("jpx_flags", mode="before")
@@ -71,14 +71,13 @@ class DerivedMetrics:
     # 値は `SECTOR_MEDIAN_BASIS_SECTOR` /
     # `SECTOR_MEDIAN_BASIS_MARKET` のいずれか。
     sector_median_basis: StringMap = Field(default_factory=dict)
-    self_range_percentile: NullableFloatMap = Field(default_factory=dict)
+    self_range_position: NullableFloatMap = Field(default_factory=dict)
     self_range_median: NullableFloatMap = Field(default_factory=dict)
     sigma_gap: NullableFloatMap = Field(default_factory=dict)
     sector_relative_strength_percentile: float | None = None
     ticker_return_4w: float | None = None
     sector_return_4w: float | None = None
     short_history_flag: bool = False
-    split_adjustment_flag: bool = False
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
     # Supply/demand read from the exchange's published margin balances. Definitions
@@ -87,7 +86,7 @@ class DerivedMetrics:
     # readable. The retained field name also holds daily balance dates after the
     # weekly-to-daily transition. Publication delays, holidays and missing releases
     # affect actual age; daily frequency does not guarantee one-day freshness.
-    margin_week_end: date | None = None
+    margin_balance_date: date | None = None
     margin_issue_type: str | None = None
     margin_long_to_adv: float | None = None
     margin_short_to_adv: float | None = None
@@ -124,6 +123,8 @@ class DerivedMetrics:
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class FreshnessWarning:
+    """Retained warning claims in saved Stock Analyses, not a current title scanner."""
+
     source_family: NonEmptyString
     stale_metric: NonEmptyString
     reason: NonEmptyString
@@ -149,7 +150,7 @@ class StockAnalysis:
     ttm_quality: Mapping[str, TTMQuality]
     market_cap_oku: int | None = None
     avg_turnover_oku: float | None = None
-    listing_span_days: int | None = None
+    price_history_span_days: int | None = None
     jpx_flags: tuple[str, ...] = ()
     price_change_1d: float | None = None
     price_change_5d: float | None = None
@@ -162,7 +163,6 @@ class StockAnalysis:
     price_history_coverage_750d: float | None = None
     metrics: MetricValueMap = Field(default_factory=dict)
     next_earnings_date: date | None = None
-    split_adjustment_flag: bool = False
     freshness_warnings: tuple[FreshnessWarning, ...] = ()
     candidate: StockCandidateContext | None = None
 

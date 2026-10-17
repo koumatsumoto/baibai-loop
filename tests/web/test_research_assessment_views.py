@@ -102,7 +102,7 @@ def test_partial_proposal_preserves_scope_exact_pair_and_saved_terms_in_api_and_
     assert linked["assessment_projection"]["raw"] == pair.document.model_dump(mode="json")
     assert linked["terms"] is None
     assert view["draft_sha256"] == proposal.review.draft_sha256
-    assert operation.payload.human_confirmation is None
+    assert "human_confirmation" not in operation.payload.model_dump()
 
     # A newer public assessment advances only the stock's current assessment.
     newer = seed_web_assessment(

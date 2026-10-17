@@ -97,7 +97,7 @@ series:
     provider_series_id: ECBDFR
     source_id: fred-ecbdfr
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBDFR
-    notes: ECB預金ファシリティ金利(現行ECBの主要政策金利)。Fed・BOJと並べてグローバル中銀の同期スタンス(同時引き締め/緩和)を読む。FRED系列は廃止がありlive確認必須
+    notes: ECB預金ファシリティ金利(日次・percent)。政策金利の設定値であり、市場で成立した翌日物実効金利とは区別する。
     aliases: [ECB金利, ECB政策金利, ECB deposit rate, ECBDFR, 欧州中銀金利, ユーロ圏金利]
   - series_id: silver
     name: 銀先物(COMEX, USD/oz)
@@ -126,7 +126,7 @@ series:
     provider_series_id: "097741"
     source_id: cftc-cot-jpy
     source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
-    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。円。負=ネット売り越し。ネット玉だけで取引目的やキャリー取引の全体量は判定しない
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。L1はcontractのnative record全項目を保持し、L2で同じ原本行のlong-shortを計算する。円。負=ネット売り越し。ネット玉だけで取引目的やキャリー取引の全体量は判定しない
     aliases: [円ポジション, JPY spec net, CFTC yen net]
   - series_id: positioning.ust10y_noncomm_net
     name: 米10Y投機筋ネット玉
@@ -140,7 +140,7 @@ series:
     provider_series_id: "043602"
     source_id: cftc-cot-ust10y
     source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
-    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。UST 10Y NOTE(CBOT, code 043602)
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。L1はcontractのnative record全項目を保持し、L2で同じ原本行のlong-shortを計算する。UST 10Y NOTE(CBOT, code 043602)
     aliases: [米10Yポジション, UST10Y spec net]
   - series_id: positioning.sp500_noncomm_net
     name: S&P500投機筋ネット玉
@@ -154,7 +154,7 @@ series:
     provider_series_id: 13874A
     source_id: cftc-cot-sp500
     source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
-    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。E-MINI S&P 500(CME)
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。L1はcontractのnative record全項目を保持し、L2で同じ原本行のlong-shortを計算する。E-MINI S&P 500(CME)
     aliases: [S&P500ポジション, SP500 spec net]
   - series_id: ecb.balance_sheet
     name: ユーロシステム総資産

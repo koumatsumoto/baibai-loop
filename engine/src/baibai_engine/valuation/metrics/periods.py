@@ -9,60 +9,21 @@ from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.financial_documents import (
+    AccountingPeriodKey,
+    accounting_period_identity,
     disclosure_revision,
     latest_disclosure_candidates,
+    statement_basis,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.valuation.metrics.models import TTMRules
 
-_AccountingPeriodKey = tuple[date, int, date, date, int]
-_AccountingObservationKey = tuple[_AccountingPeriodKey, tuple[date, str]]
-
-_FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
-
-
-def _accounting_period_identity(
-    summary: JQuantsFinancialSummary,
-) -> _AccountingPeriodKey:
-    """Period-first order for actual facts and capital state.
-
-    A delayed correction may be disclosed after the current quarter while describing
-    an older period.  A valid completed-period end therefore precedes accounting labels
-    and source revision order in this key.  A future reported period uses only its
-    period-start lower bound; an inverted period has no chronology authority.  This
-    preserves a lone future-labelled actual observation, prevents a malformed Q1 from
-    replacing a valid Q2, and lets a completed short fiscal year outrank an earlier
-    quarter whose nominal fiscal-year end happens to be later.
-    """
-
-    reported_end = summary.period_end or summary.fiscal_year_end
-    completed = (
-        reported_end
-        if reported_end is not None
-        and reported_end <= summary.disclosed_at
-        and (summary.period_start is None or summary.period_start <= reported_end)
-        else None
-    )
-    chronology = completed or (
-        summary.period_start
-        if reported_end is not None
-        and reported_end > summary.disclosed_at
-        and summary.period_start is not None
-        else date.min
-    )
-    period_order = _FISCAL_PERIOD_ORDER.get(summary.fiscal_period or "", 0)
-    return (
-        chronology,
-        int(completed is not None),
-        summary.fiscal_year_end or date.min,
-        summary.period_start or date.min,
-        period_order,
-    )
+_AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
 
 
 def _accounting_observation_key(summary: JQuantsFinancialSummary) -> _AccountingObservationKey:
-    return _accounting_period_identity(summary), disclosure_revision(summary)
+    return accounting_period_identity(summary), disclosure_revision(summary)
 
 
 def _latest_consistent_actual(
@@ -70,9 +31,9 @@ def _latest_consistent_actual(
 ) -> JQuantsFinancialSummary | None:
     if not candidates:
         return None
-    period = max(map(_accounting_period_identity, candidates))
+    period = max(map(accounting_period_identity, candidates))
     latest = latest_disclosure_candidates(
-        [row for row in candidates if _accounting_period_identity(row) == period]
+        [row for row in candidates if accounting_period_identity(row) == period]
     )
     for field in fields:
         if any(field in row.unresolved_actual_fields for row in latest):
@@ -113,9 +74,9 @@ def resolve_actual_conflicts(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
     """Mask only contradictory fields in a period/revision cohort; keep source rows."""
-    groups: dict[_AccountingPeriodKey, list[JQuantsFinancialSummary]] = {}
+    groups: dict[AccountingPeriodKey, list[JQuantsFinancialSummary]] = {}
     for row in summaries:
-        groups.setdefault(_accounting_period_identity(row), []).append(row)
+        groups.setdefault(accounting_period_identity(row), []).append(row)
     changes: dict[int, JQuantsFinancialSummary] = {}
     for group in groups.values():
         for field in _ACTUAL_ANCHOR_FIELDS:
@@ -204,12 +165,12 @@ def _latest_actual_row_by_field_priority(
     latest = _latest_actual_row_with_any(summaries, field_names)
     if latest is None:
         return None
-    period_key = _accounting_period_identity(latest)
+    period_key = accounting_period_identity(latest)
     for field_name in field_names:
         candidates = [
             summary
             for summary in summaries
-            if _accounting_period_identity(summary) == period_key
+            if accounting_period_identity(summary) == period_key
             and (
                 getattr(summary, field_name) is not None
                 or field_name in summary.unresolved_actual_fields
@@ -295,28 +256,23 @@ def _prior_year_summary(
     )
     if latest is None:
         return None
-    if latest.period_start is not None and latest.period_end is not None:
-        matched = _matched_prior_period_summary(
-            summaries,
-            latest,
-            ttm_rules,
-            field_name=field_name,
-        )
-        if matched is not None:
-            return matched
-    if latest.fiscal_period is None or latest.fiscal_year_end is None:
-        return None
-    target_fiscal_year_end = add_months_clamped(latest.fiscal_year_end, -12)
-    candidates = [
-        summary
-        for summary in _actual_rows(summaries)
-        if field_name is None or getattr(summary, field_name) is not None
-        if summary.fiscal_period == latest.fiscal_period
-        and summary.fiscal_year_end == target_fiscal_year_end
-    ]
-    return _latest_consistent_actual(
-        candidates, (field_name,) if field_name else _ACTUAL_ANCHOR_FIELDS
+    # Native accounting dates own comparability; FY/Q labels cannot replace them.
+    prior = _matched_prior_period_summary(
+        summaries,
+        latest,
+        ttm_rules,
+        field_name=field_name,
     )
+    # Issued shares describe the issuer, not its consolidated reporting scope.
+    # Financial YoY must not compare individual amounts with group amounts, and
+    # a mismatching latest revision must not revive an older convenient basis.
+    if (
+        prior is not None
+        and field_name != "shares_outstanding"
+        and statement_basis(prior) != statement_basis(latest)
+    ):
+        return None
+    return prior
 
 
 def _ttm_value(
@@ -340,19 +296,14 @@ def _ttm_value(
             [
                 row
                 for row in actuals
-                if _accounting_period_identity(row) == _accounting_period_identity(anchor)
+                if accounting_period_identity(row) == accounting_period_identity(anchor)
             ]
         )
         if anchor is not None
         else []
     )
     latest = _latest_actual_row(cohort, field_names=(field,))
-    if (
-        latest is None
-        or getattr(latest, field) is None
-        or latest.period_start is None
-        or latest.period_end is None
-    ):
+    if latest is None or latest.period_start is None or latest.period_end is None:
         return None, TTMQuality.UNAVAILABLE
     latest_value = getattr(latest, field)
     if latest_value is None:
@@ -373,6 +324,11 @@ def _ttm_value(
         value_field=field,
     )
     if prior_fy is None or prior_same is None:
+        return None, TTMQuality.UNAVAILABLE
+    # A fiscal-date match cannot make individual and consolidated amounts additive.
+    # Keep each reported operand intact rather than searching older revisions for
+    # a convenient basis. Matching labels alone do not prove unchanged group scope.
+    if len({statement_basis(row) for row in (latest, prior_fy, prior_same)}) != 1:
         return None, TTMQuality.UNAVAILABLE
     prior_fy_value = getattr(prior_fy, field)
     prior_same_value = getattr(prior_same, field)
@@ -416,7 +372,11 @@ def _matched_prior_period_summary(
     max_length_delta = max(1, round(latest_days * ttm_rules.period_length_tolerance_ratio))
     candidates: list[JQuantsFinancialSummary] = []
     for summary in _actual_rows(summaries):
-        if field_name is not None and getattr(summary, field_name) is None:
+        if (
+            field_name is not None
+            and getattr(summary, field_name) is None
+            and field_name not in summary.unresolved_actual_fields
+        ):
             continue
         if summary.period_start is None or summary.period_end is None:
             continue
@@ -435,7 +395,11 @@ def _matched_prior_period_summary(
 
 
 def _period_days(summary: JQuantsFinancialSummary) -> int | None:
-    if summary.period_start is None or summary.period_end is None:
+    if (
+        summary.period_start is None
+        or summary.period_end is None
+        or summary.period_end > summary.disclosed_at
+    ):
         return None
     days = (summary.period_end - summary.period_start).days + 1
     return days if days > 0 else None

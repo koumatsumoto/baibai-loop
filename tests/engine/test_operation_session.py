@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 from tests.helpers.research_selection import selection
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.read_api.operations import list_operation_sessions, operation_session
+from baibai_engine.read_api.operations import list_operation_sessions
 from baibai_engine.research.operation.cli import main as operation_main
 from baibai_engine.research.operation.models import SESSION_KINDS, OperationPayload, SessionKind
 from baibai_engine.research.operation.service import (
@@ -113,8 +114,7 @@ def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,
         artifacts=(selection(now=NOW).model_dump(mode="json"),),
-        human_confirmation={"request": "confirm the reviewed result"},
-        next="wait for confirmation",
+        next="continue the reviewed research",
     )
 
 
@@ -175,52 +175,12 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     assert service.get(operation.operation_id).status == "active"
 
 
-@pytest.mark.parametrize("kind", ["capital-allocation"])
-def test_no_research_is_readable_history_but_rejected_by_all_writers(
-    tmp_path: Path, kind: SessionKind, subtests: pytest.Subtests
-) -> None:
-    db = tmp_path / "app.sqlite"
-    service = OperationService(db)
-    historical = OperationPayload(
-        checkpoint="final",
-        completion_reason="no-research",
-        result="all skipped",
-        next="next triage",
-        artifacts=({"kind": "research_triage", "ref": "triage-old", "research_count": 0},),
-        canonical_refs=("triage-old",),
-    )
-    with pytest.raises(OperationCompletionError, match="read-only history"):
-        service.start(
-            session_kind=kind, ticker=None, as_of=NOW.date(), started_at=NOW, payload=historical
-        )
-    operation = service.start(
-        session_kind=kind,
-        ticker=None,
-        as_of=NOW.date(),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-    for command, invoke in (
-        ("checkpoint", lambda: service.checkpoint(operation.operation_id, historical)),
-        (
-            "complete",
-            lambda: service.complete(operation.operation_id, historical, completed_at=NOW),
-        ),
-    ):
-        with subtests.test(command=command):
-            with pytest.raises(OperationCompletionError, match="read-only history"):
-                invoke()
-            assert service.get(operation.operation_id) == operation
-    # Seed an already completed row exactly as it was persisted before writer retirement.
-    with closing(connect_rw(db)) as connection, connection:
-        connection.execute(
-            "UPDATE operation_session SET status='completed', completed_at=?, payload=? "
-            "WHERE operation_id=?",
-            (NOW.isoformat(), historical.model_dump_json(), operation.operation_id),
-        )
-    assert service.get(operation.operation_id).payload == historical
-    assert operation_session(db, operation.operation_id) is not None
-    assert len(list_operation_sessions(db)) == 1
+@pytest.mark.parametrize("field", ["completion_reason", "human_confirmation"])
+def test_operation_payload_rejects_retired_workflow_fields(field: str) -> None:
+    raw = _active_payload().model_dump(mode="json")
+    raw[field] = "no-research" if field == "completion_reason" else {"request": "old workflow"}
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        OperationPayload.model_validate(raw)
 
 
 def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None:
@@ -251,3 +211,54 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
             )
     finally:
         connection.close()
+
+
+def test_operation_list_does_not_create_an_unwritten_database(tmp_path: Path) -> None:
+    db = tmp_path / "unwritten.sqlite"
+    assert OperationService(db).list() == []
+    assert list_operation_sessions(db) == []
+    assert not db.exists()
+    db.touch()
+    assert OperationService(db).list() == []
+    assert list_operation_sessions(db) == []
+    assert db.stat().st_size == 0
+
+
+def test_operation_lists_sort_by_instant_not_offset_text(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    initialize_database(db)
+    records = (
+        ("research-op-" + "1" * 32, "2026-07-19T09:00:00+09:00"),
+        ("research-op-" + "2" * 32, "2026-07-19T01:00:00+00:00"),
+        ("research-op-" + "3" * 32, "2026-07-19T10:00:00+09:00"),
+    )
+    with closing(connect_rw(db)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO operation_session "
+            "(operation_id, session_kind, status, as_of, ticker, "
+            "started_at, completed_at, payload) "
+            "VALUES (?, 'capital-allocation', 'completed', '2026-07-19', NULL, ?, ?, ?)",
+            [
+                (identifier, instant, instant, _active_payload().model_dump_json())
+                for identifier, instant in records
+            ],
+        )
+    expected = [identifier for identifier, _ in reversed(records)]
+    assert [item.operation_id for item in OperationService(db).list()] == expected
+    assert [item["operation_id"] for item in list_operation_sessions(db)] == expected
+    assert OperationService(db).list(status="active") == []
+    assert list_operation_sessions(db, status="active") == []
+
+
+def test_operation_start_requires_the_explicit_payload_at_the_cli_boundary(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    with pytest.raises(SystemExit) as error:
+        operation_main(
+            ["--db", str(db), "start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
+            now=NOW,
+        )
+    assert error.value.code == 2
+    assert "--payload" in capsys.readouterr().err
+    assert not db.exists()

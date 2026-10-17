@@ -19,12 +19,11 @@ from baibai_engine.external_assessment.tradingview.auth import (
 )
 from baibai_engine.external_assessment.tradingview.observations import (
     COLUMNS,
-    AllMissingError,
     FetchError,
     ProviderHTTPError,
     ProviderPayloadError,
 )
-from baibai_engine.market.universe import UniverseSourceDriftError
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 
@@ -77,7 +76,6 @@ def failure_category(exc: BaseException) -> str:
             "auth",
             "time_guard",
             "storage",
-            "provider_all_missing",
             "provider_rate_limit",
             "provider_response",
             "provider_transport",
@@ -91,12 +89,8 @@ def failure_category(exc: BaseException) -> str:
         return "auth"
     if isinstance(exc, TimeGuardError):
         return "time_guard"
-    if isinstance(
-        exc, (SourceDataError, SQLiteSchemaError, UniverseSourceDriftError, sqlite3.Error)
-    ):
+    if isinstance(exc, (SourceDataError, SQLiteSchemaError, JQuantsProviderError, sqlite3.Error)):
         return "storage"
-    if isinstance(exc, AllMissingError):
-        return "provider_all_missing"
     if isinstance(exc, (httpx2.HTTPStatusError, ProviderHTTPError)):
         status = exc.status_code if isinstance(exc, ProviderHTTPError) else exc.response.status_code
         if status in (401, 403):

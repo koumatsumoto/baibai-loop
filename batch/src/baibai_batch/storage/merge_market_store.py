@@ -3,9 +3,10 @@
 The source may be dehydrated; its lake-owned facts are not copied by this merge.
 General coverage rows are unioned with matching payloads except fetch timestamps.
 Financial-summary counts are validated against hydrated target rows and may only
-be raised. Overlapping clean and failed/partial ranges are rejected.
+be raised. New clean/failed overlaps introduced by the union are rejected; existing
+partial repairs retain the writer's coverage semantics.
 
-Short-sale coverage is selected by success status and then fetch time. Imported
+Short-sale coverage follows the latest fetch, including an incomplete correction. Imported
 EDINET document claims require recheck; target document claims remain authoritative.
 Target-derived capital-policy snapshots and the lake-origin marker are not merged.
 Both files must already satisfy the current schema; this is not a migration.
@@ -128,6 +129,9 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 # reconciliation rules. Count around all passes for the combined report.
                 source_rows = count(connection, "SELECT count(*) FROM source.source_coverage")
                 before = count(connection, "SELECT count(*) FROM main.source_coverage")
+                known_overlaps = _coverage_overlaps(connection, schema="main") | _coverage_overlaps(
+                    connection, schema="source"
+                )
                 _require_no_overclaimed_coverage(connection)
                 _merge_short_sale_coverage(connection)
                 _merge_edinet_fact_coverage(connection)
@@ -138,8 +142,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                     uncompared=_MERGE_EXEMPTIONS,
                 )
                 _raise_fin_summary_coverage_counts(connection)
-                _require_fin_summary_coverage_counts(connection, schema="main")
-                _require_no_reinstated_coverage(connection)
+                _require_no_reinstated_coverage(connection, known_overlaps=known_overlaps)
                 retained = _retain_target_tables(connection)
                 after = count(connection, "SELECT count(*) FROM main.source_coverage")
                 connection.commit()
@@ -181,60 +184,82 @@ def _retain_target_tables(connection: sqlite3.Connection) -> tuple[TableMerge, .
 
 
 def _require_no_overclaimed_coverage(connection: sqlite3.Connection) -> None:
-    """Refuse a target claim that asserts more rows than the target holds.
+    """Validate both ledgers against hydrated target facts before the union.
 
-    Only the target is checked. The source is the copy R2 carries, whose lake-owned
-    tables were emptied by the publication that put those rows in the release, so every
-    claim in it would read as an overclaim about a file that was never meant to hold
-    the rows.
-
-    The check is one-directional because the two errors are not symmetric. A claim above
-    the rows describes a store that is not this one, and the reconcile below would lower
-    it to what this store holds — quietly replacing the record of what was fetched with
-    a smaller number nobody asked for. A claim below the rows is an ordinary state after
-    the cutover: the rows arrive by hydration and the ledger arrives by this merge, so a
-    store filled from a release newer than its own ledger holds more than it claims until
-    the reconcile raises the claim.
-
-    Refusing the dangerous direction is also what requires the target to be hydrated. A
-    store whose claims say tens of thousands of rows and whose tables are empty fails
-    here rather than having its claims quietly rewritten down to zero.
+    The source may be dehydrated, so its fact tables are not counted. A larger source
+    claim must not disappear when an existing target row wins on the same coverage key.
+    Lower counts can be raised after the union; counts beyond the target facts are
+    refused rather than reduced to whatever happens to be locally available.
     """
 
     _require_fin_summary_coverage_states(connection, schema="source")
     _require_fin_summary_coverage_states(connection, schema="main")
-    for coverage_key, start, end, claim in _clean_fin_summary_claims(connection, schema="main"):
-        actual = _fin_summary_range_count(connection, schema="main", start=start, end=end)
-        if claim > actual:
-            raise MergeError(
-                "jquants_fin_summaries coverage claims more rows than the store holds for "
-                f"'jquants_fin_summaries', {coverage_key!r}: claims {claim}, holds {actual}"
-            )
+    _require_matching_coverage_counts(connection)
+    for schema in ("main", "source"):
+        for coverage_key, start, end, claim in _clean_fin_summary_claims(connection, schema=schema):
+            actual = _fin_summary_range_count(connection, schema="main", start=start, end=end)
+            if claim > actual:
+                if schema == "main":
+                    raise MergeError(
+                        "jquants_fin_summaries coverage claims more rows than the store holds for "
+                        f"'jquants_fin_summaries', {coverage_key!r}: claims {claim}, holds {actual}"
+                    )
+                raise MergeError(
+                    f"jquants_fin_summaries coverage claims {claim} row(s) for {coverage_key!r} "
+                    f"but the target holds {actual}; "
+                    "hydrate from the published release before merging"
+                )
 
 
-def _require_no_reinstated_coverage(connection: sqlite3.Connection) -> None:
-    """Refuse a ledger where a clean window covers a range a fetch recorded as failed.
-
-    No fetcher writes that: `record_range_source_coverage` cuts the failed range out of
-    every overlapping `ok` window before it records the failure, so the gap shows. Only a
-    key-wise union can put the wide window back — the older copy still holds it — and the
-    result reads as covered exactly where the other writer proved it is not.
-    """
-
+def _require_matching_coverage_counts(connection: sqlite3.Connection) -> None:
+    """Only clean financial-summary claims may reconcile differing counts."""
     row = connection.execute(
+        "SELECT s.source, s.coverage_key "
+        "FROM source.source_coverage s JOIN main.source_coverage t "
+        "ON t.source = s.source AND t.coverage_key = s.coverage_key "
+        "WHERE s.source NOT IN ('jquants_short_sale_reports', 'edinet_research_facts') "
+        "AND s.record_count IS NOT t.record_count "
+        "AND NOT (s.source = 'jquants_fin_summaries' AND s.status = 'ok' AND t.status = 'ok') "
+        "ORDER BY s.source, s.coverage_key LIMIT 1"
+    ).fetchone()
+    if row is not None:
+        raise MergeError(f"source_coverage payload disagrees for shared key: {row!r}")
+
+
+def _coverage_overlaps(
+    connection: sqlite3.Connection, *, schema: str
+) -> set[tuple[str, str, str, str]]:
+    attached = schema_name(schema)
+    rows = connection.execute(
         "SELECT ok.source, ok.coverage_key, bad.coverage_key, bad.status "
-        "FROM main.source_coverage ok "
-        "JOIN main.source_coverage bad ON bad.source = ok.source "
+        f"FROM {attached}.source_coverage ok "  # nosec B608
+        f"JOIN {attached}.source_coverage bad ON bad.source = ok.source "
         "WHERE ok.status = 'ok' AND bad.status IN ('failed', 'partial') "
         "AND ok.source <> 'edinet_research_facts' "
         "AND ok.coverage_start IS NOT NULL AND ok.coverage_end IS NOT NULL "
         "AND bad.coverage_start IS NOT NULL AND bad.coverage_end IS NOT NULL "
         "AND ok.coverage_start <= bad.coverage_end "
-        "AND ok.coverage_end >= bad.coverage_start "
-        "ORDER BY ok.source, ok.coverage_key LIMIT 1"
-    ).fetchone()
-    if row is not None:
-        source, clean_key, failed_key, status = row
+        "AND ok.coverage_end >= bad.coverage_start"
+    ).fetchall()
+    return {
+        (str(source), str(clean_key), str(failed_key), str(status))
+        for source, clean_key, failed_key, status in rows
+    }
+
+
+def _require_no_reinstated_coverage(
+    connection: sqlite3.Connection, *, known_overlaps: set[tuple[str, str, str, str]]
+) -> None:
+    """Refuse new overlap introduced by combining different acquisition histories.
+
+    A writer can retain a wide partial complaint after repairing only its interior.
+    Such an overlap already present in either input is not caused by this merge.
+    Shared-key payload checks keep its ranges and statuses unchanged. A new pairing
+    can instead revive a clean window that the other writer had retracted.
+    """
+    introduced = _coverage_overlaps(connection, schema="main") - known_overlaps
+    if introduced:
+        source, clean_key, failed_key, status = min(introduced)
         raise MergeError(
             f"{source} coverage {clean_key!r} would cover the range {failed_key!r} "
             f"recorded as {status}; the merge would reinstate a window a fetch retracted"
@@ -264,11 +289,11 @@ def _merge_edinet_fact_coverage(connection: sqlite3.Connection) -> None:
 
 
 def _merge_short_sale_coverage(connection: sqlite3.Connection) -> None:
-    """Select the better claim per disclosure date, and carry it whole.
+    """Select the latest claim per disclosure date, and carry it whole.
 
     Each disclosure date is a correction-prone complete snapshot, so its claim is chosen
-    rather than unioned: a successful fetch beats an incomplete one whatever their ages,
-    and between two of the same kind the newer one wins.
+    rather than unioned. A newer partial fetch can replace the stored rows; an older
+    success must not relabel that incomplete correction as complete.
 
     The count travels with the claim it belongs to rather than being recounted here. It
     records what that fetch returned, and the rows are the release's — a target filled
@@ -372,10 +397,6 @@ def _select_short_claim(
         return target
     if target is None:
         return source
-    if source.status == "ok" and target.status != "ok":
-        return source
-    if target.status == "ok" and source.status != "ok":
-        return target
     return source if source.fetched_at > target.fetched_at else target
 
 
@@ -419,7 +440,7 @@ def _require_fin_summary_coverage_states(connection: sqlite3.Connection, *, sche
 def _clean_fin_summary_claims(
     connection: sqlite3.Connection, *, schema: str
 ) -> list[tuple[str, str, str, int]]:
-    """Every clean financial-summary range claim, with its shape already validated."""
+    """Clean claims from the inputs already validated before this transaction's union."""
 
     rows = connection.execute(
         f"SELECT coverage_key, coverage_start, coverage_end, record_count "  # nosec B608
@@ -427,67 +448,24 @@ def _clean_fin_summary_claims(
         "WHERE source = 'jquants_fin_summaries' AND status = 'ok' AND error IS NULL "
         "ORDER BY coverage_key"
     ).fetchall()
-    claims: list[tuple[str, str, str, int]] = []
-    for coverage_key, start, end, record_count in rows:
-        if (
-            start is None
-            or end is None
-            or coverage_key != f"get_fin_summary_range:{start}..{end}"
-            or not isinstance(record_count, int)
-            or record_count < 0
-        ):
-            key = f"'jquants_fin_summaries', {coverage_key!r}"
-            raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
-        claims.append((str(coverage_key), str(start), str(end), record_count))
-    return claims
-
-
-def _require_fin_summary_coverage_counts(connection: sqlite3.Connection, *, schema: str) -> None:
-    """Prove every clean range claim against the facts held by that store."""
-
-    for coverage_key, start, end, record_count in _clean_fin_summary_claims(
-        connection, schema=schema
-    ):
-        actual = _fin_summary_range_count(connection, schema=schema, start=start, end=end)
-        if actual != record_count:
-            raise MergeError(
-                "jquants_fin_summaries coverage claims "  # nosec B608 - no SQL here
-                f"{record_count} row(s) for {coverage_key!r} but the store holds {actual}; "
-                "the published ledger describes a release this store was not filled from, "
-                "so hydrate from the release the lake serves and merge again"
-            )
+    return [
+        (str(coverage_key), str(start), str(end), record_count)
+        for coverage_key, start, end, record_count in rows
+    ]
 
 
 def _raise_fin_summary_coverage_counts(connection: sqlite3.Connection) -> None:
-    """Lift a clean claim that understates the rows this target holds, and only that.
+    """Align clean claims with target rows after the validated coverage union.
 
-    A claim carried over from the source states a count proved against a store that is
-    not this one. Where this target already holds more rows than the claim names, the
-    claim is behind and is lifted, which is what keeps the ledger describing the store a
-    reader will meet.
-
-    Lowering is the direction this must never take. A claim above this target's rows is
-    describing a release this store has not been filled from — the cloud's ledger of a
-    generation published after the operator hydrated — and writing the smaller number in
-    would ship a ledger that understates the release. The next fill restores the rows,
-    the ledger keeps the smaller number, and `verify-cache-coverage` then refuses every
-    screening run while no re-fetch is ever planned: `covered_intervals` drops a window
-    only when its count is zero, so an understated non-zero window still reads as held.
-    The post-merge proof turns that case into a refusal here instead.
+    Both inputs were checked before the union in this transaction; neither the union
+    nor the specialized coverage merges change financial fact rows. Counts may only
+    rise, so a retained target claim cannot hide an overclaim from the source.
     """
-
-    rows = connection.execute(
-        "SELECT coverage_key, coverage_start, coverage_end, record_count "
-        "FROM main.source_coverage "
-        "WHERE source = 'jquants_fin_summaries' AND status = 'ok' AND error IS NULL "
-        "ORDER BY coverage_key"
-    ).fetchall()
-    for coverage_key, start, end, record_count in rows:
-        if start is None or end is None:
-            key = f"'jquants_fin_summaries', {coverage_key!r}"
-            raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
-        actual = _fin_summary_range_count(connection, schema="main", start=str(start), end=str(end))
-        if actual <= int(record_count or 0):
+    for coverage_key, start, end, record_count in _clean_fin_summary_claims(
+        connection, schema="main"
+    ):
+        actual = _fin_summary_range_count(connection, schema="main", start=start, end=end)
+        if actual <= record_count:
             continue
         connection.execute(
             "UPDATE main.source_coverage SET record_count = ? "

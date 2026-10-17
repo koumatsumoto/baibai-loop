@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from tests.helpers.proposal_v1 import PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
 from baibai_engine.research.proposal_query import get_investment_proposal, preview_current_terms
 from baibai_engine.research.proposal_service import InvestmentProposalService
@@ -74,7 +74,7 @@ def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_
     assert _snapshot(case.app) == before
 
 
-def test_expired_preview_is_blocked_and_does_not_invent_expiry_fact(tmp_path):
+def test_changed_target_session_blocks_preview_without_mutating_saved_terms(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
     InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
@@ -95,7 +95,8 @@ def test_expired_preview_is_blocked_and_does_not_invent_expiry_fact(tmp_path):
         reason["code"] == "target_session_not_next_available"
         for reason in preview.items[0]["saved_limit_revalidation"]["hard_blockers"]
     )
-    assert preview.items[0]["saved_terms"]["expires_at"] == "2026-10-15T15:30:00+09:00"
+    assert preview.items[0]["saved_terms"]["target_session"] == "2026-10-15"
+    assert "expires_at" not in preview.items[0]["saved_terms"]
     assert _snapshot(case.app) == before
 
 

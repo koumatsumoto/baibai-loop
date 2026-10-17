@@ -27,7 +27,7 @@ from baibai_engine.storage.lake.reader import (
 )
 from baibai_engine.storage.lake.release import create_l1_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, apply_gc, plan_gc
-from baibai_engine.storage.lake.writer import export_lake_legacy
+from baibai_engine.storage.lake.writer import export_market_store
 from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
 
 WRITE_COMMANDS = frozenset(
@@ -91,7 +91,7 @@ def main(argv: list[str]) -> int:
     if args.command == "dehydrate":
         return _dehydrate(args)
     if args.command == "export-all":
-        export_report = export_lake_legacy(
+        export_report = export_market_store(
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
             producer_git_commit=verified_git_commit(),

@@ -13,6 +13,7 @@ from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioLedgerError,
     ReleaseEvent,
+    ReservationEvent,
     ReservationSnapshot,
     replay_events_through,
     reservation_snapshots,
@@ -72,45 +73,19 @@ def record_broker_fact(
     if status == "expired" and reservation_id is None:
         raise BrokerFactRecordingError("expired requires reservation_id")
 
-    existing_by_id = {event.event_id: event for event in document.events}
-    if ticker is not None and status in {"open", "filled"}:
-        suffix = (
-            (
-                _provided_execution_suffix(execution_id)
-                if execution_id is not None
-                else _fill_suffix(
-                    decision_reference,
-                    side,
-                    ticker,
-                    occurred_at,
-                    occurred_on,
-                    reservation_id,
-                )
-            )
-            if status == "filled"
-            else _event_suffix(
-                decision_reference,
-                f"sell-{status}" if side == "sell" else status,
-                ticker,
-                occurred_at,
-                occurred_on,
-            )
+    if ticker is not None and status == "filled":
+        existing = find_reported_execution(
+            document,
+            execution_id=execution_id,
+            decision_reference=decision_reference,
+            side=side,
+            ticker=ticker,
+            reservation_id=reservation_id,
+            occurred_at=occurred_at,
+            occurred_on=occurred_on,
         )
-        prefix = "human-open" if status == "open" else "human-fill"
-        existing = (
-            next(
-                (
-                    event
-                    for event in document.events
-                    if isinstance(event, ExecutionEvent) and event.execution_id == execution_id
-                ),
-                None,
-            )
-            if execution_id is not None
-            else existing_by_id.get(f"{prefix}-{suffix}")
-        )
-        if existing is not None and status == "filled":
-            if not isinstance(existing, ExecutionEvent) or not _same_fill_report(
+        if existing is not None:
+            if not _same_fill_report(
                 existing,
                 decision_reference=decision_reference,
                 occurred_at=occurred_at,
@@ -121,24 +96,11 @@ def record_broker_fact(
                 price_yen=price_yen,
                 reservation_id=reservation_id,
             ):
-                raise BrokerFactRecordingError("conflicting human report for existing fill event")
+                raise BrokerFactRecordingError(
+                    "conflicting human report for existing fill event; "
+                    "another fill needs an execution_id to distinguish it"
+                )
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
-        if (
-            status == "filled"
-            and occurred_on is not None
-            and execution_id is None
-            and any(
-                isinstance(event, ExecutionEvent)
-                and event.side == side
-                and event.ticker == ticker
-                and event.reservation_id == reservation_id
-                and event.occurred_on == occurred_on
-                for event in document.events
-            )
-        ):
-            raise BrokerFactRecordingError(
-                "another date-only fill needs an execution_id to distinguish it"
-            )
     if status in {"cancelled", "expired"} and reservation_id is not None:
         release_reason: Literal["cancelled", "expired"] = (
             "cancelled" if status == "cancelled" else "expired"
@@ -161,9 +123,11 @@ def record_broker_fact(
     resolved_common_factors = (
         common_factors if common_factors else (holding_metadata[1] if holding_metadata else ())
     )
+    # A ticker alone cannot identify which order produced a confirmed fill.
+    # The draft builder resolves a reported broker order ID to its reservation.
     reservation = (
         None
-        if status == "open"
+        if status == "open" or (status == "filled" and reservation_id is None)
         else _select_reservation(
             reservation_snapshots(state),
             reservation_id=reservation_id,
@@ -179,21 +143,44 @@ def record_broker_fact(
         assert ticker is not None
         if price_guard_yen is None:
             raise BrokerFactRecordingError("open requires price_guard_yen")
+        matches = [
+            event
+            for event in document.events
+            if isinstance(event, ReservationEvent)
+            and (
+                (reservation_id is not None and event.reservation_id == reservation_id)
+                or (order_id is not None and event.order_id == order_id)
+                or (
+                    reservation_id is None
+                    and order_id is None
+                    and event.decision_reference == decision_reference
+                    and event.side == side
+                    and event.ticker == ticker
+                    and event.occurred_on == occurred_on
+                    and (occurred_on is not None or event.occurred_at == occurred_at)
+                )
+            )
+        ]
+        if len(matches) > 1:
+            raise BrokerFactRecordingError("multiple orders match; provide order_id")
+        saved_order = matches[0] if matches else None
         suffix = _event_suffix(
             decision_reference,
             f"sell-{status}" if side == "sell" else status,
-            ticker,
+            f"{ticker}|{reservation_id}|{order_id}",
             occurred_at,
             occurred_on,
         )
         additions.append(
             {
-                "event_id": f"human-open-{suffix}",
+                "event_id": saved_order.event_id if saved_order else f"human-open-{suffix}",
                 "type": "reservation",
                 "side": side,
                 "occurred_at": occurred_at.isoformat(),
-                "reservation_id": reservation_id or f"reservation-{suffix}",
-                "order_id": order_id or f"repository-order-{suffix}",
+                "reservation_id": reservation_id
+                or (saved_order.reservation_id if saved_order else f"reservation-{suffix}"),
+                "order_id": order_id
+                or (saved_order.order_id if saved_order else f"repository-order-{suffix}"),
                 "ticker": ticker,
                 "sector": resolved_sector,
                 "common_factors": sorted(resolved_common_factors),
@@ -513,6 +500,46 @@ def _provided_execution_suffix(execution_id: str) -> str:
 def _validate_decision_reference(value: str) -> None:
     if not value.strip():
         raise BrokerFactRecordingError("decision_reference must be non-empty")
+
+
+def find_reported_execution(
+    document: PortfolioLedgerDocument,
+    *,
+    execution_id: str | None,
+    decision_reference: str | None,
+    side: Literal["buy", "sell"],
+    ticker: str,
+    reservation_id: str | None,
+    occurred_at: datetime,
+    occurred_on: date | None,
+) -> ExecutionEvent | None:
+    """Find a reported fill without treating a timezone spelling as its identity.
+
+    An explicit execution ID distinguishes separate fills. Without one, a
+    matching reference, order, ticker, side and occurrence must be unambiguous;
+    callers then compare all supplied economic facts before accepting a retry.
+    Generated event IDs remain opaque and existing records are never rewritten.
+    """
+    matches = [
+        event
+        for event in document.events
+        if isinstance(event, ExecutionEvent)
+        and (
+            event.execution_id == execution_id
+            if execution_id is not None
+            else (
+                event.decision_reference == decision_reference
+                and event.side == side
+                and event.ticker == ticker
+                and (reservation_id is None or event.reservation_id == reservation_id)
+                and event.occurred_on == occurred_on
+                and (occurred_on is not None or event.occurred_at == occurred_at)
+            )
+        )
+    ]
+    if len(matches) > 1:
+        raise BrokerFactRecordingError("multiple fills match; provide execution_id")
+    return matches[0] if matches else None
 
 
 def _same_fill_report(

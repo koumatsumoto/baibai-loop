@@ -1,5 +1,7 @@
 # 予想 DPS spike guard の採用記録
 
+本書は2026-08-30時点の採用判断と測定結果を残す履歴であり、以下のCLI・review set・v20は当時の契約である。現在の配当算術は[Valuation metrics](../../../docs/reference/valuation-metrics.md)、操作は[運用手順](../../../batch/OPERATIONS.md)を参照する。
+
 価値tier: T1 — 一回性の特別配当を5年反復する収益として順位付けせず、持続的な割安候補へreview枠を渡す
 
 ## 結論

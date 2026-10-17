@@ -35,7 +35,7 @@ def _service(tmp_path: Path) -> tuple[LedgerStoreService, Path]:
         path,
         PortfolioLedgerDocument.model_validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "portfolio_scope": "repository_only",
                 "as_of": NOW.isoformat(),
                 "events": [
@@ -46,7 +46,6 @@ def _service(tmp_path: Path) -> tuple[LedgerStoreService, Path]:
                         "amount_yen": 300000,
                     }
                 ],
-                "market_prices": [],
             }
         ),
     )
@@ -106,10 +105,10 @@ def test_exception_after_ledger_append_rolls_back_binding_and_events(
     service, path = _service(tmp_path)
     draft = _draft(service)
 
-    def fail_prices(*_args):
+    def fail_meta(*_args):
         raise RuntimeError("synthetic failure after append")
 
-    monkeypatch.setattr("baibai_engine.position.store._replace_prices", fail_prices)
+    monkeypatch.setattr("baibai_engine.position.store._replace_meta", fail_meta)
     with pytest.raises(RuntimeError, match="after append"):
         apply_draft(service, draft, human_confirmed=True)
     assert service.load() == draft.source
@@ -232,3 +231,23 @@ def test_old_saved_draft_requests_reprepare(tmp_path: Path) -> None:
     path.write_text("schema_version: 1\n")
     with pytest.raises(ValueError, match="prepare a new draft"):
         load_draft(path)
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_draft_output_path_accepts_explicit_paths_without_overwriting(
+    tmp_path: Path, absolute: bool
+) -> None:
+    from baibai_engine.position.cli import _root_path
+
+    service, _ = _service(tmp_path)
+    draft = _draft(service)
+    relative = Path("drafts") / "buy.yaml"
+    supplied = tmp_path / relative if absolute else relative
+    output = _root_path(tmp_path, supplied)
+    assert output == tmp_path / relative
+    write_draft(output, draft)
+    assert load_draft(output) == draft
+    before = output.read_bytes()
+    with pytest.raises(FileExistsError):
+        write_draft(output, draft)
+    assert output.read_bytes() == before

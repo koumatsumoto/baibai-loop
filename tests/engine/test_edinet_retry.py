@@ -12,7 +12,6 @@ from tests.helpers.http_doubles import FakeSession, json_response, response
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
 from baibai_engine.market.providers import edinet
 from baibai_engine.market.providers.edinet import EDINETProvider
-from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
 
 
 @pytest.fixture
@@ -45,9 +44,7 @@ def success(kind):
 
 
 def request(kind, path, session):
-    provider = (EDINETFactsProvider if kind == "xbrl" else EDINETProvider)(
-        "test-key", path, session=session
-    )
+    provider = EDINETProvider("test-key", path, session=session)
     if kind == "list":
         return provider.list_documents(date(2026, 10, 9))
     if kind == "xbrl":

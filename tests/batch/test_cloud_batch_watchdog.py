@@ -102,6 +102,7 @@ def _run_main(
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", webhook)
     monkeypatch.setenv("GITHUB_REPOSITORY", "koumatsumoto/baibai-loop")
     monkeypatch.setenv("GITHUB_RUN_ID", "42")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     used = transport if transport is not None else FakeTransport()
     runs_json = _write_listing(tmp_path, payload)
     exit_code = main(
@@ -586,13 +587,14 @@ def test_a_non_positive_window_is_rejected() -> None:
 # --- message ---------------------------------------------------------------
 
 
-def test_the_alert_names_the_empty_window_when_the_schedule_never_fired() -> None:
+def test_the_alert_names_the_empty_window_without_guessing_why() -> None:
     verdict = evaluate((), window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
 
     message = render_alert(verdict, repository="owner/repo", watchdog_run_url="https://run")
 
     assert "[MISSING]" in message
     assert "runs in window: none" in message
+    assert "schedule did not fire" not in message
     assert "https://run" in message
 
 
@@ -661,7 +663,9 @@ def test_main_alerts_once_when_no_run_succeeded_in_the_window(
     )
 
     assert exit_code == 0
-    assert "[MISSING]" in _delivered_message(transport)
+    message = _delivered_message(transport)
+    assert "[MISSING]" in message
+    assert "https://github.com/koumatsumoto/baibai-loop/actions/runs/42/attempts/2" in message
     assert "alert delivered" in capsys.readouterr().out
 
 

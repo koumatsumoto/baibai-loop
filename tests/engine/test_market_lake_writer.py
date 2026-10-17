@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.helpers.l1_release import market_store
@@ -24,10 +25,10 @@ from baibai_engine.storage.lake.retention import LakeRetentionError, apply_gc, p
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
-    export_lake_legacy,
-    export_legacy_sqlite,
+    export_dataset_snapshot,
+    export_market_store,
     sealed_sqlite_snapshot,
-    validate_legacy_parity,
+    validate_snapshot_parity,
 )
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
@@ -38,7 +39,7 @@ _COMMIT = "a" * 40
 def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBuildReport:
     """One whole export operation: seal the store, export from it, release the seal."""
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
-        return export_legacy_sqlite(
+        return export_dataset_snapshot(
             mirror_root=mirror_root,
             source_snapshot=snapshot,
             **kwargs,  # type: ignore[arg-type]
@@ -73,7 +74,7 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
     assert (first.partitions, first.new_objects) == (2, 2)
     # Every partition was derived again; content addressing landed each on its key.
     assert (second.partitions, second.new_objects) == (2, 0)
-    validate_legacy_parity(
+    validate_snapshot_parity(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         manifest=second.manifest,
@@ -119,7 +120,7 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
     assert before[(2026, 2)] != after[(2026, 2)]
     assert second.partitions == 2
     assert second.new_objects == 1
-    validate_legacy_parity(
+    validate_snapshot_parity(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         manifest=second.manifest,
@@ -136,8 +137,8 @@ def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: P
     ):
         legacy.execute("PRAGMA case_sensitive_like=OFF")
         for period in ((2026, 1), (2026, 2)):
-            legacy_rows = writer_module._period_rows(legacy, dataset, period)
-            indexed_rows = writer_module._period_rows(indexed, dataset, period)
+            legacy_rows = list(writer_module._period_rows(legacy, dataset, period))
+            indexed_rows = list(writer_module._period_rows(indexed, dataset, period))
             assert indexed_rows == legacy_rows
 
 
@@ -207,7 +208,7 @@ def test_short_sale_export_preserves_pk_values_and_cancellation(tmp_path) -> Non
     )
 
     assert result.manifest.totals.rows == 2
-    validate_legacy_parity(
+    validate_snapshot_parity(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         manifest=result.manifest,
@@ -224,7 +225,7 @@ def test_release_manifest_composes_exact_dataset_builds(
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="release-generation"
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
@@ -320,7 +321,7 @@ def test_wal_snapshot_is_one_generation_for_both_pilot_datasets(tmp_path: Path) 
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="wal-generation"
     ) as snapshot:
         reports = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
@@ -350,7 +351,7 @@ def test_pilot_orchestration_exports_one_release_generation(
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
-    report = export_lake_legacy(
+    report = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -387,7 +388,7 @@ def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path)
                 "VALUES ('9984', '2026-02-03', 333.0)"
             )
 
-        report = export_legacy_sqlite(
+        report = export_dataset_snapshot(
             dataset_name="jquants.daily_bars",
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
@@ -396,7 +397,7 @@ def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path)
         )
 
         assert report.manifest.totals.rows == 4
-        validate_legacy_parity(
+        validate_snapshot_parity(
             sqlite_path=snapshot.path,
             mirror_root=mirror,
             manifest=report.manifest,
@@ -407,7 +408,7 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
-        report = export_legacy_sqlite(
+        report = export_dataset_snapshot(
             dataset_name="jquants.daily_bars",
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
@@ -419,7 +420,7 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
         )
 
         with pytest.raises(LakeBuildError, match="partition inventories differ"):
-            validate_legacy_parity(
+            validate_snapshot_parity(
                 sqlite_path=snapshot.path,
                 mirror_root=mirror,
                 manifest=incomplete,
@@ -522,7 +523,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
     narrow_release_policy(monkeypatch)
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    report = export_lake_legacy(
+    report = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -563,6 +564,7 @@ def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_pat
     connection.commit()
     connection.close()
     report_path = tmp_path / "report.json"
+    source_before = sqlite_path.read_bytes()
 
     report = benchmark(
         sqlite_path=sqlite_path,
@@ -575,6 +577,8 @@ def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_pat
     assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
     assert report["correction"]["new_object_count"] == 1  # type: ignore[index]
     assert report_path.is_file()
+    assert report["producer_git_commit"] == _COMMIT
+    assert sqlite_path.read_bytes() == source_before
 
 
 def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path) -> None:
@@ -588,7 +592,7 @@ def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path)
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
-    report = export_lake_legacy(
+    report = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -637,7 +641,7 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
 
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    report = export_lake_legacy(
+    report = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -738,7 +742,7 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
 
     monkeypatch.setattr(writer_module, "_promote_partitions", damage_final)
     if failure == "inventory":
-        parity = writer_module.validate_legacy_parity
+        parity = writer_module.validate_snapshot_parity
 
         def incomplete_inventory(*, manifest, **kwargs):
             parity(
@@ -746,7 +750,7 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
                 **kwargs,
             )
 
-        monkeypatch.setattr(writer_module, "validate_legacy_parity", incomplete_inventory)
+        monkeypatch.setattr(writer_module, "validate_snapshot_parity", incomplete_inventory)
     with pytest.raises(LakeBuildError, match=r"checksum|inventories"):
         _export(
             dataset_name="jquants.daily_bars",
@@ -762,3 +766,57 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
     assert release.datasets["jquants.daily_bars"].build_id == "baseline"
     for path, payload in objects.items():
         assert path.read_bytes() == payload
+
+
+@pytest.mark.parametrize("failure", ["space", "schema", "capture", "interrupted"])
+def test_sealed_snapshot_cleans_capture_failures_without_touching_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    source = tmp_path / "market.sqlite"
+    source.write_bytes(b"unchanged source")
+    mirror = tmp_path / "mirror"
+    workspace = mirror / "lake/staging/failed-capture"
+
+    def capture(_source: Path, destination: Path) -> int:
+        destination.write_bytes(b"incomplete temporary copy")
+        if failure == "capture":
+            raise OSError("synthetic capture failure")
+        if failure == "interrupted":
+            raise KeyboardInterrupt("synthetic interruption")
+        return writer_module.SQLITE_SCHEMA_VERSION - 1
+
+    monkeypatch.setattr(writer_module, "create_snapshot", capture)
+    if failure == "space":
+        monkeypatch.setattr(writer_module.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    error = KeyboardInterrupt if failure == "interrupted" else LakeBuildError
+    message = {
+        "space": "insufficient disk space",
+        "schema": "schema",
+        "capture": "capture failed",
+        "interrupted": "synthetic interruption",
+    }[failure]
+    with (
+        pytest.raises(error, match=message),
+        sealed_sqlite_snapshot(
+            sqlite_path=source, mirror_root=mirror, snapshot_id="failed-capture"
+        ),
+    ):
+        pytest.fail("failed capture exposed a snapshot")
+    assert not workspace.exists()
+    assert source.read_bytes() == b"unchanged source"
+
+
+def test_gc_does_not_follow_staging_symlink_into_unowned_file(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    retained = mirror / "operator-data.bin"
+    retained.write_bytes(b"not a lake object")
+    alias = mirror / "lake" / "staging" / "old-run" / "alias.bin"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(retained)
+
+    plan = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=40))
+    assert plan.candidates == ()
+    assert apply_gc(mirror, plan, plan_hash=plan.plan_hash) == ()
+    assert retained.read_bytes() == b"not a lake object"
+    assert alias.is_symlink()

@@ -2,7 +2,7 @@
 
 台帳上の買付予約・約定・解放を集計し、失効後の観測終値と指値の差を補足する。
 前日終値固定の旧ルールやProposalの承認を参照IDだけから推定しない。
-価格差は実現できた利益・因果効果ではなく、株式数basisを確認できる場合の記述統計。
+価格差は実現できた利益・因果効果ではなく、価格basisを確認できる場合の記述統計。
 read-only。asofはJST日付で、ledgerとmarket storeを書き換えない。
 """
 
@@ -29,7 +29,7 @@ from baibai_engine.position.ledger import (
     ReleaseEvent,
     ReservationEvent,
 )
-from baibai_engine.position.market_source import quantity_basis_is_confirmed
+from baibai_engine.position.market_source import market_basis_is_confirmed
 from baibai_engine.position.store import LedgerStoreService
 
 DEFAULT_APP_DB = Path("stores/application/baibai.sqlite")
@@ -245,14 +245,15 @@ def _order_outcome(
             forgone_pct=None,
         )
     assert release is not None
-    window_end = min(release.occurred_at.date(), asof)
+    window_end = min(release.occurred_at.astimezone(JST).date(), asof)
     bars = _bars(connection, reservation.ticker, placed_on, window_end)
     window_low = min((low for _, low, _ in bars), default=None)
     forward = _forward_closes(
         connection, reservation.ticker, window_end, asof, POST_EXPIRY_SESSIONS
     )
     through_date = forward[-1][0] if forward else bars[-1][0] if bars else None
-    comparable = through_date is not None and quantity_basis_is_confirmed(
+    comparable = through_date is not None and market_basis_is_confirmed(
+        basis="price",
         sqlite_path=market_db,
         ticker=reservation.ticker,
         from_date=placed_on,
@@ -270,7 +271,7 @@ def _order_outcome(
         limit_yen=reservation.price_guard_yen,
         quantity=reservation.quantity,
         outcome="expired",
-        price_comparison_unavailable_reason=None if comparable else "share_basis_unconfirmed",
+        price_comparison_unavailable_reason=None if comparable else "price_basis_unconfirmed",
         filled_quantity=filled_quantity,
         remaining_quantity=0,
         release_reason=release.reason,

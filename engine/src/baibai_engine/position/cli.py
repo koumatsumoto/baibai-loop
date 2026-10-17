@@ -8,8 +8,6 @@ dependencies.
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import sqlite3
 import sys
 from datetime import date, datetime
@@ -21,13 +19,12 @@ import yaml
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 from baibai_engine.market.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
+from baibai_engine.market.store import read_portfolio_market_inputs
 from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.decision_references import resolve_buy_reference
@@ -60,6 +57,7 @@ from baibai_engine.position.ledger import (
     snapshot_to_payload,
 )
 from baibai_engine.position.ledger_read import LedgerConflictError
+from baibai_engine.position.market_source import market_basis_is_confirmed
 from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
 from baibai_engine.position.outcome_store import (
     PortfolioOutcomePublication,
@@ -67,6 +65,7 @@ from baibai_engine.position.outcome_store import (
 )
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
+from baibai_engine.storage.observations.read import connect_read_only
 
 
 def _datetime_argument(value: str) -> datetime:
@@ -284,17 +283,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if args.command == "meta-draft":
         return _run_meta_draft(args)
     if args.command == "outcome":
-        benchmark_path = (
-            args.benchmark_observation
-            if args.benchmark_observation.is_absolute()
-            else args.root / args.benchmark_observation
-        )
-        sqlite_path = args.sqlite if args.sqlite.is_absolute() else args.root / args.sqlite
-        out_path = (
-            None
-            if args.out is None
-            else (args.out if args.out.is_absolute() else args.root / args.out)
-        )
+        benchmark_path = _root_path(args.root, args.benchmark_observation)
+        sqlite_path = _root_path(args.root, args.sqlite)
+        out_path = None if args.out is None else _root_path(args.root, args.out)
         return _run_outcome(
             benchmark_path,
             sqlite_path,
@@ -436,7 +427,7 @@ def _run_outcome(
     *,
     db_path: Path | None = None,
 ) -> int:
-    """Emit a source-bound TWR result without fetching market data at runtime."""
+    """Emit TWR from one market snapshot without fetching data at runtime."""
 
     try:
         benchmark = load_benchmark_observation(benchmark_path)
@@ -454,44 +445,57 @@ def _run_outcome(
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    calendar_days = read_market_calendar(
-        sqlite_path, benchmark.period_start_date, benchmark.period_end_date
+    tickers = tuple(
+        sorted(
+            {
+                event.ticker
+                for event in ledger.events
+                if isinstance(event, (ExecutionEvent, ReservationEvent))
+            }
+        )
     )
-    if calendar_days is None:
-        payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
-        market_fingerprint = None
-    else:
-        tickers = tuple(
-            sorted(
-                {
-                    event.ticker
-                    for event in ledger.events
-                    if isinstance(event, (ExecutionEvent, ReservationEvent))
-                }
-            )
-        )
-        bars = read_daily_bars_for_tickers(
-            sqlite_path, tickers, benchmark.period_start_date, benchmark.period_end_date
-        )
-        if bars is None:
-            payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
-            market_fingerprint = None
+    connection = connect_read_only(sqlite_path) if sqlite_path.exists() else None
+    try:
+        if connection is None:
+            calendar_days, bars = None, None
         else:
+            connection.execute("BEGIN")
+            calendar_days, bars = read_portfolio_market_inputs(
+                sqlite_path,
+                tickers,
+                benchmark.period_start_date,
+                benchmark.period_end_date,
+                connection=connection,
+            )
+        if calendar_days is None:
+            payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
+        elif bars is None:
+            payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
+        else:
+            assert connection is not None
             outcome = compute_portfolio_outcome(
                 ledger,
                 benchmark,
                 business_days=tuple(day.day for day in calendar_days if day.is_business_day),
                 bars=tuple(bars),
+                confirm_price_basis=lambda ticker, first, last: market_basis_is_confirmed(
+                    basis="price",
+                    sqlite_path=sqlite_path,
+                    ticker=ticker,
+                    from_date=first,
+                    through_date=last,
+                    connection=connection,
+                ),
             )
             payload = outcome_to_payload(outcome)
-            market_fingerprint = _market_data_fingerprint(bars)
+    finally:
+        if connection is not None:
+            connection.close()
     payload.update(
         benchmark_id=benchmark.benchmark_id,
         market_data_ref=str(sqlite_path),
-        market_data_sha256=_sha256(sqlite_path) if sqlite_path.is_file() else None,
         market_data_coverage_start_date=benchmark.period_start_date.isoformat(),
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
-        market_data_fingerprint=market_fingerprint,
     )
     payload["benchmark_observation"] = benchmark.model_dump(mode="json")
     outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
@@ -525,7 +529,7 @@ def _run_outcome(
 
 def _outcome_unresolved_payload(benchmark: BenchmarkObservation, reason: str) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "portfolio_outcome",
         "status": "unresolved",
         "reason": reason,
@@ -533,24 +537,6 @@ def _outcome_unresolved_payload(benchmark: BenchmarkObservation, reason: str) ->
         "period_start_date": benchmark.period_start_date.isoformat(),
         "period_end_date": benchmark.period_end_date.isoformat(),
     }
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
-    rows = [
-        (
-            bar.ticker,
-            bar.traded_at.isoformat(),
-            bar.close,
-            bar.adjustment_factor,
-        )
-        for bar in bars
-    ]
-    encoded = json.dumps(rows, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -> int:
@@ -580,7 +566,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             now=now,
         )
         if draft is not None:
-            output_path = _draft_output_path(args.root, args.out, label="ledger draft")
+            output_path = _root_path(args.root, args.out)
             write_draft(output_path, draft)
         else:
             output_path = None
@@ -639,9 +625,7 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
             execution_id=args.execution_id,
         )
         if draft is not None:
-            output_path = _draft_output_path(
-                args.root, args.out, label="sell execution ledger draft"
-            )
+            output_path = _root_path(args.root, args.out)
             source_event_ids = {event.event_id for event in draft.source.events}
             write_draft(output_path, draft)
         else:
@@ -672,28 +656,9 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
     return 0
 
 
-def _draft_output_path(root: Path, output: Path, *, label: str) -> Path:
-    """Resolve a new draft below root without following repository symlinks."""
-
-    if output.is_absolute() or ".." in output.parts:
-        raise ValueError(f"{label} --out must be a relative path below --root")
-    resolved_root = root.resolve()
-    if not resolved_root.is_dir():
-        raise ValueError(f"--root is not a directory: {root}")
-    candidate = resolved_root / output
-    current = resolved_root
-    for part in output.parts:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"{label} --out must not traverse a symlink: {output}")
-    resolved = candidate.resolve()
-    try:
-        resolved.relative_to(resolved_root)
-    except ValueError as error:
-        raise ValueError(f"{label} --out escapes --root: {output}") from error
-    if resolved.exists():
-        raise ValueError(f"refusing to overwrite existing {label}: {resolved}")
-    return resolved
+def _root_path(root: Path, path: Path) -> Path:
+    """Resolve explicit CLI paths consistently; writers own overwrite protection."""
+    return path if path.is_absolute() else root / path
 
 
 if __name__ == "__main__":

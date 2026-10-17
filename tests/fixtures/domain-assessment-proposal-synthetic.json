@@ -227,7 +227,7 @@
   },
   "investment_proposal": {
     "kind": "investment_proposal",
-    "schema_version": 1,
+    "schema_version": 3,
     "proposal_id": "investment-proposal-00000000-0000-4000-8000-000000000003",
     "as_of": "2026-10-14",
     "prepared_at": "2026-10-14T16:10:00+09:00",
@@ -271,11 +271,9 @@
         {
           "ticker": "1234",
           "price_yen": "1100",
-          "observed_at": "2026-10-14T15:30:00+09:00",
           "price_as_of": "2026-10-14",
           "price_basis": "last_close_unadjusted",
-          "source_ref": "fixture:daily_bars",
-          "basis_confirmed": true
+          "source_ref": "fixture:daily_bars"
         }
       ],
       "policy_id": "synthetic-existing-policy",
@@ -286,8 +284,8 @@
         {
           "ticker": "1234",
           "market_segment": "Prime",
-          "sector_33": "情報・通信業",
-          "snapshot_date": "2026-10-14"
+          "snapshot_date": "2026-10-14",
+          "is_common_stock": true
         }
       ],
       "total_capital_yen": "300000"
@@ -319,7 +317,6 @@
           "quantity": 300,
           "notional_yen": "300000",
           "target_session": "2026-10-15",
-          "expires_at": "2026-10-15T15:30:00+09:00",
           "valuation_as_of": "2026-10-14",
           "maximum_entry_price_yen": "1000",
           "price_grid_rule_id": "tse-common-conservative-20261014",
@@ -347,7 +344,7 @@
       "reviewer_identity": "synthetic-independent-reviewer",
       "reviewed_at": "2026-10-14T16:15:00+09:00",
       "conclusion": "pass",
-      "draft_sha256": "77c287a8cbd18286ccf2c2f80fce44ed6b12e96dadf5d3fc4821e89deae4d100",
+      "draft_sha256": "09cfdd68af8bc3cb61f280dd166c975be44f82c4d25aa6ad421387900c335388",
       "open_findings": []
     },
     "warnings": [],

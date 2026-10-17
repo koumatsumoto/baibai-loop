@@ -9,6 +9,7 @@ from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, st
 from tests.batch.test_external_assessment_raw import Session
 from tests.batch.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
+from tests.helpers.master import insert_master_rows
 
 from baibai_batch.jobs import external_assessment_daily as external_assessment_daily
 from baibai_batch.jobs.external_assessment_cohorts import make_plan
@@ -172,7 +173,7 @@ def test_daily_denial_or_rate_limit_stops_before_next_ticker(connect, monkeypatc
     assert not any(key.startswith(RAW_PREFIX) for key in store.objects)
 
 
-def test_new_daily_plan_has_three_sources_and_old_two_source_plan_stays_valid():
+def test_daily_plan_defaults_to_three_sources_and_accepts_an_explicit_subset():
     p = make_plan(
         run_id="synthetic",
         tickers=("130A", "8306"),
@@ -188,9 +189,8 @@ def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter
     path = tmp_path / "market.sqlite"
     seed_database(path)
     with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
-            (ASOF.isoformat(), "8306", "合成銀行", "PRIME", "銀行業", 0),
+        insert_master_rows(
+            connection, [(ASOF.isoformat(), "8306", "合成銀行", "PRIME", "銀行業", "011")]
         )
     tickers, _ = frozen_universe(path, ASOF)
     assert "8306" in tickers

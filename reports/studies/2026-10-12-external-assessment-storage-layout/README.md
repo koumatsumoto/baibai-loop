@@ -7,7 +7,7 @@ status: historical
 
 # 構造移設比較
 
-基準commit `cc5afa9a629ad6011369b80bb1905ccd4ccd7faa` の全tracked 1,020ファイルを `file-map.csv` に記録する。move 99・update 208・unchanged 713と最終path/owner/理由を照合した。#1426・#1428でmainへ入ったResearch/Triageの変更と4件の所有移設も最終pathへ統合しているため、この比較表全体を#1427単独の変更数とは扱わない。追加fileはPR差分で確認する。後続のValuation/Market Context整理を完了扱いにしない。
+基準commit `cc5afa9a629ad6011369b80bb1905ccd4ccd7faa` の全tracked 1,020ファイルの対応は[当時の固定記録](https://github.com/koumatsumoto/baibai-loop/blob/7ca7e5e3a62243f5cc9d40f41f3eb55cc53b0a52/reports/studies/2026-10-12-external-assessment-storage-layout/file-map.csv)に残す。一回限りの対応表を現行ツリーへ複製し続けない。move 99・update 208・unchanged 713と最終path/owner/理由を照合した。#1426・#1428でmainへ入ったResearch/Triageの変更と4件の所有移設も最終pathへ統合しているため、この比較表全体を#1427単独の変更数とは扱わない。追加fileはPR差分で確認する。後続のValuation/Market Context整理を完了扱いにしない。
 
 実DB/table/dataset/raw prefix/plan形式とworkflow登録名・concurrencyは保持する。旧packageのimport再exportは作らない。実データ取得・書込・移動・削除は行っていない。
 

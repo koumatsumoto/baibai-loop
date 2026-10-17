@@ -1,58 +1,33 @@
+"""Keep native TOPIX OHLC records; the reading layer selects the close."""
+
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date
 
 from baibai_engine.foundation.env import load_project_env
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
-from .base import (
-    FetchContext,
-    HttpSession,
-    IndicatorsProviderError,
-    ProviderFetchStoppedError,
-    ProviderSpec,
-    parse_float,
-    record_observation,
-)
-from .read_retry import ReadDeadline, jquants_read_client, read_deadline
+from ..observations import NativeRecords
+from ..read_contracts import JQUANTS_INDICES_SPEC
+from .base import FetchContext, HttpSession, ProviderFetchStoppedError
+from .jquants_native import read_native_pages
+from .read_retry import jquants_read_client, read_deadline
 
-# jquants_flows と同じ資格情報。indicators 用に別 secret を増やさない。
-# Env var name (a credential key, not a secret value); B105 false positive.
-_API_KEY_ENV = "JQUANTS_API_KEY"  # nosec B105
-
-# provider_series_id -> ClientV2 の index bars メソッド名。registry に series を
-# 持つ index だけを明示登録する。読む経路のない系列を store に入れないため、
-# provider が答えられる index の全量ではなくこの表が取得対象を決める。
-_INDEX_METHODS: Mapping[str, str] = {
-    "topix": "get_idx_bars_daily_topix",
-}
-
-# index レベルの妥当域。大きな列・単位の誤りを検出するが、範囲内の誤値は判別できない。
-_PLAUSIBLE_MIN = 100.0
-_PLAUSIBLE_MAX = 20000.0
-
-_DATE_KEYS: tuple[str, ...] = ("Date",)
-_CLOSE_KEYS: tuple[str, ...] = ("C", "Close")
+_API_KEY_ENV = JQUANTS_INDICES_SPEC.required_env[0]
 
 
-class JQuantsIndicesProvider:
-    """J-Quants の指数日次バーから終値を返す。指数ごとに専用 endpoint を割り当てる。
+def _read_api_key() -> str:
+    load_project_env()
+    token = os.environ.get(_API_KEY_ENV)
+    if not token:
+        raise ProviderFetchStoppedError(f"missing {_API_KEY_ENV}")
+    return token
 
-    auth/HTTP は jquantsapi.ClientV2 が担うため共有 requests セッションは使わない。
-    fetch は認証と取得だけを行い、解析は純粋関数 parse_index_bars に委譲する。
-    """
 
-    spec = ProviderSpec(
-        name="jquants_indices",
-        all_history_rolling_years=10,
-        required_env=(_API_KEY_ENV,),
-    )
-    name = spec.name
-
-    def fetch(
+class JQuantsIndicesSource:
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -60,158 +35,38 @@ class JQuantsIndicesProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
+        if series.provider_series_id != "topix":
+            raise ProviderFetchStoppedError(f"unsupported index {series.provider_series_id!r}")
         api_key = _read_api_key()
+        client = jquants_read_client(api_key, deadline=read_deadline("jquants_indices", context))
         try:
-            rows = _fetch_index_bars(
-                api_key,
-                series.provider_series_id,
-                start=start,
-                end=end,
-                deadline=read_deadline(self.name, context),
+            rows = read_native_pages(
+                client,
+                "/indices/bars/daily/topix",
+                {"from": start.strftime("%Y%m%d"), "to": end.strftime("%Y%m%d")},
+                provider="jquants_indices",
+                api_key=api_key,
             )
-            return parse_index_bars(series, rows, start=start, end=end)
-        except IndicatorsProviderError as exc:
-            raise ProviderFetchStoppedError(_redact(str(exc), api_key)) from None
+            return group_index_records(rows, start=start, end=end)
+        finally:
+            client._request_session().close()
 
 
-def parse_index_bars(
-    series: SeriesDefinition,
+def group_index_records(
     rows: Sequence[Mapping[str, object]],
     *,
     start: date,
     end: date,
-) -> list[ObservationRecord]:
-    observations_by_date: dict[date, ObservationRecord] = {}
+) -> NativeRecords:
+    grouped: dict[date, list[Mapping[str, object]]] = {}
     for row in rows:
-        # 日付・終値はレンジ外行も検証して、列が欠けた schema 崩れを必ず捕捉する。
-        observed_at = _row_date(row)
-        close = _close_value(row)
-        if not start <= observed_at <= end:
-            continue
-        if not _PLAUSIBLE_MIN <= close <= _PLAUSIBLE_MAX:
-            raise IndicatorsProviderError(
-                f"jquants_indices {series.series_id} close {close} outside plausible "
-                f"[{_PLAUSIBLE_MIN}, {_PLAUSIBLE_MAX}]"
-            )
-        observations_by_date[observed_at] = record_observation(
-            series, observed_at=observed_at, value=close
-        )
-    return [observations_by_date[key] for key in sorted(observations_by_date)]
-
-
-def _read_api_key() -> str:
-    load_project_env()
-    token = os.environ.get(_API_KEY_ENV)
-    if not token:
-        raise ProviderFetchStoppedError(
-            f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_indices"
-        )
-    return token
-
-
-def _fetch_index_bars(
-    api_key: str, provider_series_id: str, *, start: date, end: date, deadline: ReadDeadline
-) -> list[Mapping[str, object]]:
-    method_name = _INDEX_METHODS.get(provider_series_id)
-    if method_name is None:
-        supported = ", ".join(sorted(_INDEX_METHODS))
-        raise IndicatorsProviderError(
-            f"unsupported jquants_indices series {provider_series_id!r}; supported: {supported}"
-        )
-    client = jquants_read_client(api_key, deadline=deadline)
-    method = getattr(client, method_name, None)
-    if not callable(method):
-        raise IndicatorsProviderError(f"jquantsapi.ClientV2 has no callable {method_name}")
-    try:
-        frame = method(
-            from_yyyymmdd=start.strftime("%Y%m%d"),
-            to_yyyymmdd=end.strftime("%Y%m%d"),
-        )
-    except Exception as exc:
-        # api_key が例外文字列に混入し得るので redact し、from None で原因チェーンも断つ。
-        sanitized = _redact(str(exc), api_key)
-        raise IndicatorsProviderError(
-            f"failed to fetch jquants_indices {provider_series_id}: "
-            f"{type(exc).__name__}: {sanitized}"
-        ) from None
-    return _frame_to_rows(frame)
-
-
-def _frame_to_rows(frame: object) -> list[Mapping[str, object]]:
-    to_dict = getattr(frame, "to_dict", None)
-    if not callable(to_dict):
-        raise IndicatorsProviderError("unexpected jquants_indices payload: not a DataFrame")
-    records = to_dict(orient="records")
-    if not isinstance(records, list):
-        raise IndicatorsProviderError("unexpected jquants_indices payload: records is not a list")
-    rows: list[Mapping[str, object]] = []
-    for item in records:
-        if not isinstance(item, Mapping):
-            raise IndicatorsProviderError(
-                "unexpected jquants_indices payload: row is not a mapping"
-            )
-        rows.append({str(key): value for key, value in item.items()})
-    return rows
-
-
-def _row_date(row: Mapping[str, object]) -> date:
-    raw = _coalesce(row, _DATE_KEYS)
-    if raw is None:
-        raise IndicatorsProviderError(
-            f"jquants_indices row missing a date column; tried {', '.join(_DATE_KEYS)}"
-        )
-    return _parse_date(raw)
-
-
-def _close_value(row: Mapping[str, object]) -> float:
-    raw = _coalesce(row, _CLOSE_KEYS)
-    if raw is None:
-        raise IndicatorsProviderError(
-            f"jquants_indices row missing a close column; tried {', '.join(_CLOSE_KEYS)}"
-        )
-    return _coerce_float(raw, column=_CLOSE_KEYS[0])
-
-
-def _coalesce(row: Mapping[str, object], keys: tuple[str, ...]) -> object | None:
-    for key in keys:
-        if key in row:
-            value = row[key]
-            if value is not None and value != "":
-                return value
-    return None
-
-
-def _parse_date(value: object) -> date:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
+        raw = row.get("Date")
         try:
-            return date.fromisoformat(value[:10])
-        except ValueError as exc:
-            raise IndicatorsProviderError(f"invalid jquants_indices date: {value!r}") from exc
-    raise IndicatorsProviderError(f"jquants_indices date column is not date-like: {value!r}")
-
-
-def _coerce_float(value: object, *, column: str) -> float:
-    if isinstance(value, bool):
-        raise IndicatorsProviderError(
-            f"jquants_indices column {column} is boolean, expected a number"
-        )
-    if isinstance(value, int):
-        return float(value)
-    if isinstance(value, float):
-        if value != value:  # NaN は欠損なので明示的に弾く
-            raise IndicatorsProviderError(f"jquants_indices column {column} is NaN")
-        return value
-    if isinstance(value, str):
-        return parse_float(value)
-    raise IndicatorsProviderError(f"jquants_indices column {column} is non-numeric: {value!r}")
-
-
-def _redact(text: str, secret: str) -> str:
-    if secret and secret in text:
-        return text.replace(secret, "<redacted>")
-    return text
+            observed = date.fromisoformat(raw) if isinstance(raw, str) else None
+        except ValueError:
+            observed = None
+        if observed is None or not start <= observed <= end:
+            raise ProviderFetchStoppedError("jquants_indices has an invalid or out-of-window Date")
+        grouped.setdefault(observed, []).append(dict(row))
+    return grouped

@@ -45,7 +45,6 @@ from baibai_web.sources.protocols import (
     ResearchSource,
     ScreeningSource,
 )
-from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -101,7 +100,7 @@ def build_screening(
 ) -> ScreeningView:
     """Build the latest Stock Analysis view with portfolio/research annotations."""
 
-    run = operative_screening_run(screening)
+    run = screening.latest_run()
     cutoff = external_cutoff or datetime.now(_JST)
     held, reserved = _held_and_reserved_tickers(ledger)
     revisions = research.revisions()
@@ -114,7 +113,7 @@ def build_screening(
     identities = (
         {}
         if market is None or not external_tickers
-        else market.security_identities(as_of=cutoff.date())
+        else market.security_identities(as_of=cutoff.astimezone(_JST).date())
     )
     external_securities = [
         ExternalAssessmentSecurityView(
@@ -232,10 +231,8 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("BS前期繰越")
     if row.get("freshness_warnings"):
         flags.append("鮮度warning")
-    if row.get("split_adjustment_flag") is True:
-        flags.append("分割補正")
     if metrics.get("forecast_special_gain_flag") is True:
-        flags.append("一時益予想")
+        flags.append("予想純利益＞予想経常利益")
     if metrics.get("stale_fin_flag") is True:
         flags.append("予定日到来・財務未照合")
     dividend_basis = metrics.get("dividend_basis")
@@ -295,7 +292,7 @@ def _stock_analysis_row_view(
         meets_hurdle = len(bands) > 1
     return StockAnalysisRowView(
         candidate=StockCandidateContextView.model_validate(row.get("candidate")),
-        listing_span_days=number(row.get("listing_span_days")),
+        price_history_span_days=number(row.get("price_history_span_days")),
         jpx_flags=list(flags_raw) if isinstance(flags_raw, list | tuple) else None,
         forecast_special_gain_flag=_optional_bool(metrics.get("forecast_special_gain_flag")),
         forecast_full_year_loss_flag=_optional_bool(metrics.get("forecast_full_year_loss_flag")),
@@ -328,7 +325,7 @@ def _stock_analysis_row_view(
         name=text(row.get("name")),
         sector_33=text(row.get("sector_33")),
         next_earnings_date=text(row.get("next_earnings_date")),
-        margin_week_end=text(metrics.get("margin_week_end")),
+        margin_balance_date=text(metrics.get("margin_balance_date")),
         data_quality_flags=flags,
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,

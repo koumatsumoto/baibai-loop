@@ -12,6 +12,7 @@ import pytest
 import yaml
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.master import insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 from tools.quality.drift.check_workflow_trust import check_workflow
 
@@ -79,13 +80,12 @@ def publication(tmp_path, monkeypatch):
         external_assessment.RATING_DATASET,
         external_assessment.QUANTS_DATASET,
     )
-    narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
+    narrow_release_policy(monkeypatch, datasets=datasets)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
     database = market_store(tmp_path / "market.sqlite")
     with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
-            ("2026-09-30", "7203", "合成会社", "PRIME", "輸送用機器", 1),
+        insert_master_rows(
+            connection, [("2026-09-30", "7203", "合成会社", "PRIME", "輸送用機器", "011")]
         )
     common = {
         "ticker": "7203",

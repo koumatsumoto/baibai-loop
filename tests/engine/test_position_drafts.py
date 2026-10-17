@@ -22,17 +22,7 @@ LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 def _seeded_db(tmp_path: Path) -> Path:
     db = tmp_path / "app.sqlite"
     source = load_portfolio_ledger(LEDGER)
-    seed_ledger(
-        db,
-        source.model_copy(
-            update={
-                "market_prices": tuple(
-                    price.model_copy(update={"source_kind": "licensed_dataset"})
-                    for price in source.market_prices
-                )
-            }
-        ),
-    )
+    seed_ledger(db, source)
     return db
 
 

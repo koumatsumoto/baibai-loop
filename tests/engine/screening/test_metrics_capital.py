@@ -18,15 +18,12 @@ from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.valuation.metrics.capital import (
     _closer_share_basis,
     _common_equity_yen,
-    _edinet_describes_same_entity,
+    _edinet_passes_entity_scale_check,
     _normalize_summaries_to_asof_basis,
     _normalize_summaries_with_status,
     _resolve_capital_basis,
     _ShareBasis,
     build_shares_outstanding_index,
-)
-from baibai_engine.valuation.metrics.dividends import (
-    _shares_for_per_share,
 )
 from baibai_engine.valuation.metrics.periods import _actual_rows, _ttm_value
 
@@ -47,6 +44,7 @@ class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):
             close=1000.0,
             turnover_value=3e8,
             adjustment_factor=factor,
+            ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
         )
 
     def test_a_split_going_ex_on_the_disclosure_date_normalizes_that_row(self) -> None:
@@ -191,6 +189,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
             close=1000.0,
             turnover_value=3e8,
             adjustment_factor=factor,
+            ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
         )
 
     def _normalized_shares(self, *, reported: float, reference: float) -> float | None:
@@ -268,8 +267,8 @@ class InterimSplitShareBasisTests(unittest.TestCase):
             ),
         ]
         events = [
-            JQuantsAdjustmentFactorEvent("3936", date(2021, 9, 15), 0.2),
-            JQuantsAdjustmentFactorEvent("3936", date(2021, 11, 1), 1.0 / 3.0),
+            JQuantsAdjustmentFactorEvent("3936", date(2021, 9, 15), 0.2, "1"),
+            JQuantsAdjustmentFactorEvent("3936", date(2021, 11, 1), 1.0 / 3.0, "1"),
         ]
 
         normalized = _normalize_summaries_to_asof_basis(
@@ -303,7 +302,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
                 average_shares=138_793_927.0,
             ),
         ]
-        events = [JQuantsAdjustmentFactorEvent("3350", date(2024, 7, 30), 10.0)]
+        events = [JQuantsAdjustmentFactorEvent("3350", date(2024, 7, 30), 10.0, "2")]
 
         normalized = _normalize_summaries_to_asof_basis(
             summaries,
@@ -337,7 +336,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
                 average_shares=33_700_601.0,
             ),
         ]
-        events = [JQuantsAdjustmentFactorEvent("6628", date(2020, 7, 20), 5.0)]
+        events = [JQuantsAdjustmentFactorEvent("6628", date(2020, 7, 20), 5.0, "2")]
 
         normalized = _normalize_summaries_to_asof_basis(
             summaries,
@@ -440,7 +439,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
 
         asof = date(2026, 5, 29)
         bars = [self._bar(date(2026, 5, 15))]
-        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5, "1")]
         summaries = [
             _summary(
                 "1111",
@@ -482,7 +481,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
 
         asof = date(2026, 5, 29)
         bars = [self._bar(date(2026, 5, 15))]
-        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5, "1")]
         capital = _summary(
             "1111",
             date(2026, 2, 10),
@@ -515,7 +514,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
         """曖昧行後にissuedとtreasuryを再観測すれば、その状態から再開する。"""
 
         asof = date(2026, 6, 30)
-        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5, "1")]
         summaries = [
             _summary(
                 "1111",
@@ -573,8 +572,21 @@ class CapitalBasisStateMachineTests(unittest.TestCase):
         self.assertIsNone(result.shares_ex_treasury)
         self.assertEqual(
             result.failure_reason,
-            "indeterminate_positive_treasury_after_later_issued_observation",
+            "indeterminate_treasury_after_later_issued_observation",
         )
+
+    def test_complete_zero_pair_carries_when_neither_share_count_is_observed(self) -> None:
+        current = _summary(
+            "1111", date(2026, 5, 14), shares_outstanding=1_000.0, treasury_shares=0.0
+        )
+        later = replace(
+            _summary("1111", date(2026, 6, 14)),
+            shares_outstanding=None,
+            treasury_shares=None,
+        )
+        result = _resolve_capital_basis([current, later])
+        self.assertEqual(result.shares_ex_treasury, 1_000.0)
+        self.assertIsNone(result.failure_reason)
 
     def test_future_summary_cannot_change_asof_share_index(self) -> None:
         asof = date(2026, 7, 1)
@@ -622,7 +634,7 @@ class MissingCloseAdjustmentEventTests(unittest.TestCase):
             for index in range(90)
             if asof - timedelta(days=89 - index) != event_day
         ]
-        events = [JQuantsAdjustmentFactorEvent("1111", event_day, 100.0)]
+        events = [JQuantsAdjustmentFactorEvent("1111", event_day, 100.0, "2")]
         summary = _summary(
             "1111",
             date(2024, 1, 31),
@@ -648,31 +660,6 @@ class MissingCloseAdjustmentEventTests(unittest.TestCase):
         self.assertIsNotNone(derived.gap_from_52w_low)
         self.assertAlmostEqual(derived.price_change_60d, 0.0, places=12)
         self.assertAlmostEqual(derived.gap_from_52w_low, 0.0, places=12)
-        self.assertTrue(derived.split_adjustment_flag)
-
-
-def test_the_share_count_anchor_admits_a_double_and_refuses_past_it() -> None:
-    """Pin the configured average/end-share plausibility band with literal boundaries.
-
-    Passing the band does not identify a buyback or issuance, nor prove matching bases.
-    """
-
-    def resolved(average_shares: float) -> float | None:
-        return _shares_for_per_share(
-            _summary(
-                "130A",
-                date(2026, 5, 10),
-                shares_outstanding=2_000_000.0,
-                treasury_shares=0.0,
-                average_shares=average_shares,
-            )
-        )
-
-    # 2.0x and its reciprocal are inside the band; a hair past either end is not.
-    assert resolved(1_000_000.0) == 2_000_000.0
-    assert resolved(4_000_000.0) == 2_000_000.0
-    assert resolved(999_999.0) is None
-    assert resolved(4_000_001.0) is None
 
 
 def test_the_edinet_balance_sheet_must_be_within_a_double_of_the_statement() -> None:
@@ -682,15 +669,15 @@ def test_the_edinet_balance_sheet_must_be_within_a_double_of_the_statement() -> 
     this heuristic band also does not establish the cause of the discrepancy.
     """
 
-    def same_entity(edinet_total_assets: float) -> bool:
-        return _edinet_describes_same_entity(
+    def passes_scale_check(edinet_total_assets: float) -> bool:
+        return _edinet_passes_entity_scale_check(
             _edinet_metric_record(total_assets=edinet_total_assets), 1_000.0
         )
 
-    assert same_entity(2_000.0)
-    assert same_entity(500.0)
-    assert not same_entity(2_001.0)
-    assert not same_entity(499.0)
+    assert passes_scale_check(2_000.0)
+    assert passes_scale_check(500.0)
+    assert not passes_scale_check(2_001.0)
+    assert not passes_scale_check(499.0)
 
 
 def test_the_common_equity_routes_must_agree_within_five_percent() -> None:

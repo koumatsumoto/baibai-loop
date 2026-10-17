@@ -50,14 +50,14 @@ class CommonEligibilityRules(BaseModel):
     min_market_cap_oku: float = Field(default=0, ge=0)
     # IPOの価格履歴は必要財務履歴ではない。期間をcontextへ残す (#1481)。
     # docs/reference/screening-runtime.md#history-context
-    min_listing_span_days: int = Field(default=0, ge=0)
+    min_price_history_span_days: int = Field(default=0, ge=0)
     exclude_jpx_flagged: bool = True
 
     def matches(
         self,
         *,
         market_cap_oku: float | None,
-        listing_span_days: float | None,
+        price_history_span_days: float | None,
         jpx_flags: Sequence[str] | None,
         required_jpx_flags: frozenset[str],
         require_facts: bool,
@@ -70,16 +70,19 @@ class CommonEligibilityRules(BaseModel):
         欠測を確認済みの無規制・正の尺度へ読み替えない:
         docs/reference/screening-runtime.md#history-context
         """
-        facts = (market_cap_oku, listing_span_days, jpx_flags)
+        facts = (market_cap_oku, price_history_span_days, jpx_flags)
         if require_facts and any(value is None for value in facts):
             return False
         if market_cap_oku is not None and (not isfinite(market_cap_oku) or market_cap_oku <= 0):
             return False
-        if listing_span_days is not None and not isfinite(listing_span_days):
+        if price_history_span_days is not None and not isfinite(price_history_span_days):
             return False
         if market_cap_oku is not None and market_cap_oku < self.min_market_cap_oku:
             return False
-        if listing_span_days is not None and listing_span_days < self.min_listing_span_days:
+        if (
+            price_history_span_days is not None
+            and price_history_span_days < self.min_price_history_span_days
+        ):
             return False
         return not (
             self.exclude_jpx_flagged and jpx_flags and required_jpx_flags.intersection(jpx_flags)

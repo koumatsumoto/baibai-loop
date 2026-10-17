@@ -456,3 +456,13 @@ def test_notice_does_not_repeat_previous_candidate_delta_when_screening_did_not_
     assert len(lines) == 1
     assert "Screening更新なし" in lines[0]
     assert "old-entry" not in lines[0]
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://[private-token/api/webhooks/1/a", "https://private-token／host/api/webhooks/1/a"],
+)
+def test_malformed_url_is_a_sanitized_delivery_failure(url):
+    transport = FakeTransport()
+    assert deliver(url, "hello", transport=transport) == "webhook URL is malformed"
+    assert transport.calls == []

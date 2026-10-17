@@ -12,6 +12,7 @@ import pytest
 import requests
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
+from baibai_engine.external_assessment import store as observation_store
 from baibai_engine.external_assessment.acquisition import cli, collection
 from baibai_engine.external_assessment.acquisition.sources import ParseError, monex
 from baibai_engine.storage.observations.schema import open_connection
@@ -267,9 +268,11 @@ def test_cli_collect_stages_only_and_import_requires_explicit_db(monkeypatch, tm
     result = collection.CollectionResult(
         (observed,), (collection.CollectionOutcome("monex", "7203", "observed"),), 1
     )
-    monkeypatch.setattr(cli, "collect", lambda *args, **kwargs: result)
+    monkeypatch.setattr(collection, "collect", lambda *args, **kwargs: result)
     writes = []
-    monkeypatch.setattr(cli, "save_observations", lambda *args: writes.append(args) or 1)
+    monkeypatch.setattr(
+        observation_store, "save_observations", lambda *args: writes.append(args) or 1
+    )
     path = tmp_path / "private.json"
     assert cli.main(["collect", "--output", str(path)]) == 0
     assert writes == []
@@ -286,9 +289,9 @@ def test_cli_import_reports_storage_failure_without_values_or_http(monkeypatch, 
     def fail(*args):
         raise ValueError("secret licensed numeric data")
 
-    monkeypatch.setattr(cli, "load_staging", fail)
+    monkeypatch.setattr(collection, "load_staging", fail)
     monkeypatch.setattr(
-        cli, "collect", lambda *args, **kwargs: pytest.fail("import accessed provider")
+        collection, "collect", lambda *args, **kwargs: pytest.fail("import accessed provider")
     )
     assert (
         cli.main(
@@ -452,7 +455,9 @@ def test_cli_existing_output_is_rejected_before_any_http(
             target.write_text("earlier private observation")
         output.symlink_to(target)
     monkeypatch.setattr(
-        cli, "collect", lambda *args, **kwargs: pytest.fail("existing stage accessed provider")
+        collection,
+        "collect",
+        lambda *args, **kwargs: pytest.fail("existing stage accessed provider"),
     )
     assert cli.main(["collect", "--output", str(output)]) == 1
     assert json.loads(capsys.readouterr().err)["category"] == "staging_destination_exists"
@@ -486,7 +491,7 @@ def test_partial_stage_survives_all_failed_second_collection(monkeypatch, tmp_pa
             (), (collection.CollectionOutcome("monex", "7203", "http_failure", http_status=500),), 1
         )
 
-    monkeypatch.setattr(cli, "collect", collect_once)
+    monkeypatch.setattr(collection, "collect", collect_once)
     output = tmp_path / "stage.json"
     assert cli.main(["collect", "--output", str(output)]) == 1
     original = output.read_bytes()

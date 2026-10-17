@@ -1,4 +1,4 @@
-"""Measure T1/T2 E[r] evidence through the shared typed artifact contract."""
+"""保存済み較正文脈の有効性を確認し、候補E[r]を既存の評価帯へ対応づける。"""
 
 from __future__ import annotations
 

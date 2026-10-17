@@ -9,11 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.screening.discovery.contracts import (
-    CandidateDiscoverySummary,
-    StockCandidateContext,
-    validate_candidate_run,
-)
+from baibai_engine.screening.discovery.contracts import validate_candidate_run
 
 from .schema import RUN_STORE_SCHEMA_VERSION
 from .store import (
@@ -259,13 +255,6 @@ def stored_run_page(
 
     if kind == "stock_analysis":
         parent = filters["run_revision_id"]
-        if (
-            connection.execute(
-                "SELECT 1 FROM screening_run WHERE run_revision_id = ?", (parent,)
-            ).fetchone()
-            is None
-        ):
-            raise FileNotFoundError("run unavailable")
         _require_candidate_shape(connection, str(parent))
         equal = {key: value for key, value in filters.items() if key != "candidates_only"}
         ranges: list[tuple[str, str, object]] = (
@@ -310,64 +299,25 @@ def stored_run_page(
     for row in rows:
         if "payload" in row:
             row["payload"] = dict(decode_payload(row["payload"]))
-            if kind == "stock_analysis":
-                StockCandidateContext.model_validate(row["payload"].get("candidate"))
     return rows
 
 
 def _require_candidate_shape(connection: sqlite3.Connection, run_revision_id: str) -> None:
-    """Reject broken candidate rows before any ticker or candidates-only filtering."""
+    """Use the domain contract before filtering, without loading full analysis payloads."""
     row = connection.execute(
         "SELECT payload FROM screening_run WHERE run_revision_id = ?", (run_revision_id,)
     ).fetchone()
     if row is None:
         raise FileNotFoundError("run unavailable")
-    header = decode_payload(row[0])
-    if (
-        type(header.get("schema_version")) is not int
-        or header["schema_version"] != 1
-        or header.get("kind") != "stock_analysis_run"
-    ):
-        raise ValueError("invalid stock analysis run header")
-    CandidateDiscoverySummary.model_validate(header.get("candidate_discovery"))
-    invalid = connection.execute(
+    contexts = connection.execute(
         """
-        SELECT 1 FROM stock_analysis
-        WHERE run_revision_id = ? AND (
-            json_type(payload, '$.candidate') IS NOT 'object'
-            OR json_type(payload, '$.candidate.common_eligible') NOT IN ('true', 'false')
-            OR json_type(payload, '$.candidate.common_eligible') IS NULL
-            OR json_type(payload, '$.candidate.reasons') IS NOT 'array'
-            OR json_type(payload, '$.candidate.normalized_per_3fy_sector_gap')
-                NOT IN ('integer', 'real', 'null')
-            OR json_type(payload, '$.candidate.normalized_per_3fy_sector_gap') IS NULL
-            OR (json_extract(payload, '$.candidate.common_eligible') = 0 AND (
-                json_array_length(json_extract(payload, '$.candidate.reasons')) != 0
-                OR json_type(payload, '$.candidate.normalized_per_3fy_sector_gap') IS NOT 'null'
-            ))
-        ) LIMIT 1
+        SELECT json_object(
+            'ticker', json_extract(payload, '$.ticker'),
+            'candidate', json_extract(payload, '$.candidate')
+        ) FROM stock_analysis WHERE run_revision_id = ? ORDER BY ordinal
         """,
         (run_revision_id,),
-    ).fetchone()
-    if invalid is not None:
-        raise ValueError("invalid saved candidate context")
-    invalid_reason = connection.execute(
-        """
-        SELECT 1 FROM stock_analysis a, json_each(a.payload, '$.candidate.reasons') reason
-        WHERE a.run_revision_id = ? AND (
-            reason.type IS NOT 'object'
-            OR json_type(reason.value, '$.valuation_approach_id') IS NOT 'text'
-            OR json_extract(reason.value, '$.valuation_approach_id') NOT IN (
-                'current-earnings-power', 'normalized-earnings-power',
-                'asset-value', 'reinvestment-value'
-            )
-            OR json_type(reason.value, '$.valuation_method_id') IS NOT 'text'
-            OR length(json_extract(reason.value, '$.valuation_method_id')) = 0
-            OR json_type(reason.value, '$.rank') IS NOT 'integer'
-            OR json_extract(reason.value, '$.rank') < 1
-        ) LIMIT 1
-        """,
-        (run_revision_id,),
-    ).fetchone()
-    if invalid_reason is not None:
-        raise ValueError("invalid saved candidate reason")
+    )
+    validate_candidate_run(
+        decode_payload(row[0]), [decode_payload(context[0]) for context in contexts]
+    )

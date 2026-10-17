@@ -183,52 +183,12 @@ class BrowserFetcher:
             page.close()
 
     def fetch_pdf(self, url: str, *, max_bytes: int = _MAX_DOWNLOAD_BYTES) -> bytes:
-        """Navigate to ``url`` and return the downloaded PDF bytes.
+        """Read one download and require PDF bytes; the refresh service owns retries."""
 
-        ``max_bytes`` is the caller's own ceiling so one resource does not have
-        two different limits depending on which route reached it.
-        """
-
-        try:
-            return self._fetch_pdf(url, max_bytes=min(max_bytes, _MAX_DOWNLOAD_BYTES))
-        except PlaywrightError as exc:
-            # A crashed browser, a closed page or a failed download read surfaces
-            # anywhere in the attempt loop; every one of them must reach the caller
-            # as a provider failure so one dead browser cannot abort a refresh pass.
-            raise IndicatorsProviderError(f"browser failed fetching PDF from {url}: {exc}") from exc
-
-    def _fetch_pdf(self, url: str, *, max_bytes: int) -> bytes:
-        context = self._ensure_context()
-        last_error = "no download started"
-        for _attempt in range(_NAV_ATTEMPTS):
-            page = context.new_page()
-            try:
-                try:
-                    with (
-                        page.expect_download(timeout=_NAV_TIMEOUT_MS) as download_info,
-                        suppress(PlaywrightError),
-                    ):
-                        page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-                    download = download_info.value
-                except PlaywrightTimeoutError:
-                    last_error = "navigation timed out before a download started"
-                    continue
-                path = download.path()
-                size = Path(path).stat().st_size
-                if size > max_bytes:
-                    with suppress(PlaywrightError):
-                        download.delete()
-                    raise IndicatorsProviderError(
-                        f"browser PDF download exceeds {max_bytes} bytes: {size}"
-                    )
-                content = Path(path).read_bytes()
-                if not content.startswith(b"%PDF"):
-                    last_error = "downloaded file is not a PDF"
-                    continue
-                return content
-            finally:
-                page.close()
-        raise IndicatorsProviderError(f"browser could not fetch PDF from {url}: {last_error}")
+        content = self.fetch_download(url, max_bytes=max_bytes)
+        if not content.startswith(b"%PDF"):
+            raise IndicatorsProviderError(f"browser download from {url} is not a PDF")
+        return content
 
     def fetch_html(self, url: str) -> str:
         """Navigate to ``url`` and return the fully rendered HTML."""

@@ -44,11 +44,13 @@ uv run baibai-engine screening candidates show --run-revision-id run-revision-01
 
 Stock Analysisは`observed / derived / estimate`を混同しない。欠損を0へ補完せず、解釈・因果・売買判断を書かない。field・table・schema versionはengine modelとDB schemaが所有する。
 
+任意のローカルJSONの題名からEDINET指標の陳腐化を推測する旧scanは行わない。現行取得処理に入力producerがなく、題名の単語だけでは指標への影響を確認できないためである。実際のEDINET文書・抽出値・取得失敗と、予定日/財務開示日のcontextは引き続き保持する。保存済みStock Analysisの`freshness_warnings`は当時の主張として読めるが、新規runの現行検査や検証済みの因果関係を表さない。
+
 ## Candidate Discovery
 
 <a id="input-scope"></a>
 
-Stock Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。sourceの分割factor `0` はイベントなしを示し、終値以前・当日・以後のどの位置でも銘柄除外の理由にしない。factorを適用するのは価格日より後・as-of以前のイベントだけである。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。required-field preflightとrepairの資本判定は、評価計算と同じ会計期間・文書revision・株式basis resolverを使う。同日の別文書から発行済と自己株を合成しない。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+Stock Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。価格調整factorは価格日より後・as-of以前の換算にだけ適用し、使う係数は正の有限値を要求する。原本の`0`を「イベントなし」へ読み替えない。最新価格の換算に必要な係数が不正なら、そのas-of価格は評価できない。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`price_history_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。資本判定は評価計算の会計期間・文書revision・株式basis resolverが所有し、同日の別文書から発行済と自己株を合成しない。計算上の欠測を原本の未取得とみなして再取得しない。cache coverageのbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
 
 <a id="history-context"></a>
 
@@ -81,9 +83,9 @@ primary coordinateがnull、非有限、またはapproachの要件を満たさ�
 
 候補純関数は丸め済み行をproductionと較正で共有する。normalized gapの母集団、reinvestment qualityのresolved母集団・sector minimum・market fallback、tie-breakはmethod契約で固定する。既存method hashのpreimageに残る`review_set_membership`等と`nomination_depth`はアルゴリズムidentityの凍結wireであり、旧publicationの存続ではない。候補正本の統合だけではproduction rules hash、ER model version、Valuation calculation revisionを変更しない。
 
-exact読取は保存された値・methodを返し、現在rulesを読み直さない。旧rules fileを指定した新しい計算を、過去の算式・当時値の再現とは扱わない。旧schemaのrun cacheは復元可能に退避し、新pathでObservationから新時刻・新UUIDのrunを作る。一回の最終code/store切替へまとめ、中間schemaの通常互換readerは作らない。現在必要な評価・提案・draftの旧根拠を保全する前に旧cacheを退避しない。
+exact読取は保存された値・methodを返し、現在rulesを読み直さない。旧rules fileを指定した新しい計算を、過去の算式・当時値の再現とは扱わない。旧run cacheの退避と現行schemaへの切替は[Research domainの切替](../../batch/OPERATIONS.md#research-domain-cutover)で完了している。旧schemaを通常readerで読み替えたり、旧cacheを現行正本へ戻したりしない。今後のschema変更は[明示的な切替手順](../../batch/OPERATIONS.md#schema-cutoverを修正するとき)に従い、必要な評価・提案・保存入力の根拠を保持する。
 
-較正cohort/forward rows/ER artifactはrun cacheと別の測定正本であり、run cacheの切替で再生成・削除しない。`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`等は既存測定wireとして保持する。その値は同じ純関数の候補理由から導出する。[較正](./estimate-calibration.md)のidentity一致条件を保つ。
+較正cohort/forward rows/ER artifactはrun cacheと別の測定正本である。`PanelRow.in_nomination_union`、`valuation_approaches`、`valuation_approach_ranks`等は同じ純関数の候補理由から導出し、旧Review Setの互換wireを残さない。較正schema変更では[較正](./estimate-calibration.md)の現行契約で再構築し、既存artifactへ新identityを付け替えない。
 
 <a id="data-quality-context"></a>
 
@@ -107,9 +109,17 @@ read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下の
 
 ## Market store inputs
 
+価格観測期間は`price_history_span_days`で表し、上場後の経過日数とは呼ばない。現行rulesも`min_price_history_span_days`を使う。閾値の値は変えず、旧field名への互換aliasは持たない。保存済みrun・cohort・公開viewは現行契約で再構築する。
+
+信用残高の観測日は `margin_balance_date` とする。週次・日次のいずれも原典の残高日を保持し、週末日や公表日へ置き換えない。
+
 価格、財務、銘柄master、calendar、信用・空売り、JPX規制、EDINET、上場廃止・現金公開買付けとcoverageを読む。現行table/columnはschema、lake datasetは`baibai-engine lake inventory`を参照する。
 
 値の意味は[valuation metrics](./valuation-metrics.md)、sourceの選択は[data sources](./data-sources.md)、PIT・coverage・hydrateは[market lake](./market-lake.md)に従う。
+
+<a id="jpx-earnings-calendar"></a>
+
+[JPXの決算予定](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html)は、3月期・9月期決算会社の翌営業日分の日次資料と、期末・四半期末を迎えた月別資料で対象が異なる。日次資料は予定なしならリンクが掲載されないことがあり、欠落だけでlayout障害と判定しない。月別資料は翌月上旬掲載後に更新される。ファイル名の日付、本文の基準日、取得時刻は別であり、現在取得した資料だけで過去時点の完全履歴を再現できるとは扱わない。[予定変更後が未決なら「未定」と登録する](https://faq.jpx.co.jp/disclo/tse/web/knowledge7701.html)ため、未定は単なる不正日付ではない。ファイル間の優先順位はprovider側の解決方針であり、JPX公式の優先規則と説明しない。 同じ銘柄の未定・判読不能・矛盾は統合まで保持し、上位の資料で日付が未解決なら下位の古い日付で補わない。同順位の資料が食い違う場合もURL順で日付を決めず、その銘柄の予定は不明とする。他銘柄の既知予定は残す。
 
 JPX決算calendarは銘柄ごとの次回決算日の注記だが、snapshotの取得失敗は現行`run`全体を保存前に止める。個別銘柄にcalendar行がないことと同じ停止条件ではない。予定日当日・経過後の状態は`scheduled_date_reached`であり、発表確認を意味しない。保存済みの旧`announced`もWeb APIの投影とResearch入力では同じ意味として扱い、exact読取と元snapshotは保全する（[#1507](https://github.com/koumatsumoto/baibai-loop/issues/1507)）。EDINETのCSV抽出にhard failureが1件でもあると前処理snapshotを書かず、dailyもScreeningを進めない。いずれも取得・成果物の完全性に関する現行運用境界であり、銘柄の経済的な除外根拠や停止による機会損失の実測ではない。
 
@@ -119,4 +129,4 @@ J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/provide
 
 候補集合・rank・母集団・丸め・method/rules/model identityと、同じ入力のPanelRow全値を旧commitの合成goldenへ照合する。保存では全行context、空分析/空候補、rollback、完全冪等、rules mismatch、日時の内容Conflictを確認する。readはexact revision・同日複数・Research cutoffと、破損をfilterで隠さない経路を検証する。
 
-最終consumer treeでCLI、Research、Web/batch、生成contracts、materialize、frontendと完全local gateを実行する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。
+最終consumer treeのCLI、Research、Web/batch、生成contracts、materialize、frontendは[対象HEADのCIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)で確認する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。

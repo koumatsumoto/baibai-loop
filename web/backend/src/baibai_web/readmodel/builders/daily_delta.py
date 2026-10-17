@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date, datetime
+from decimal import Decimal
 
 from baibai_engine.read_api import PortfolioSnapshot, candidate_rows
 from baibai_web.readmodel.builders.presentation import _JST, latest_research_by_ticker, number, text
@@ -94,6 +95,7 @@ def build_daily_delta(
                 previous_entries,
                 market=market if market_ready else None,
                 previous_as_of=previous.as_of,
+                current_as_of=latest.as_of,
             )
             if not er_comparable:
                 # E[r] is context, not membership authority. Keep entries/exits but
@@ -105,13 +107,15 @@ def build_daily_delta(
     if not ledger.exists():
         unavailable.append("holdings")
     elif market_ready:
-        holdings, holdings_without_price = _holding_deltas(
+        holdings, holdings_without_price, comparison_incomplete = _holding_deltas(
             ledger.snapshot(),
             research=research,
             market=market,
             as_of=today,
             previous_as_of=None if previous is None else previous.as_of,
         )
+        if comparison_incomplete:
+            unavailable.append("holdings")
 
     return DailyDeltaView(
         generated_at=now,
@@ -165,6 +169,7 @@ def _candidate_deltas(
     *,
     market: MarketPriceSource | None,
     previous_as_of: date,
+    current_as_of: date,
 ) -> tuple[
     list[CandidateEntryDeltaView],
     list[CandidateEntryDeltaView],
@@ -173,14 +178,18 @@ def _candidate_deltas(
 ]:
     entered_tickers = sorted(set(current) - set(earlier))
     exited_tickers = sorted(set(earlier) - set(current))
-    # A name that reported between the two runs entered on new numbers, not on a price
-    # move alone. The run output carries no disclosure date, so it is read from
-    # the market store for the tickers that actually changed side. When that store
-    # cannot answer, the fact stays unknown instead of reading as "no disclosure".
+    # Read only disclosures between the compared runs. A newer market store must
+    # not attach later news to an earlier candidate change. This is date context,
+    # not a causal claim or proof that the run incorporated the disclosed figures.
+    # An absent store leaves this context unknown, not "no disclosure".
     disclosed: set[str] | None = None
     if market is not None:
         disclosed = set(
-            market.disclosures_after(entered_tickers + exited_tickers, after=previous_as_of)
+            market.disclosures_after(
+                entered_tickers + exited_tickers,
+                after=previous_as_of,
+                through_date=current_as_of,
+            )
         )
     entered = [
         _candidate_entry_delta(
@@ -194,26 +203,31 @@ def _candidate_deltas(
         )
         for ticker in exited_tickers
     ]
-    moves: list[CandidateExpectedReturnDeltaView] = []
+    moves: list[tuple[Decimal, CandidateExpectedReturnDeltaView]] = []
     for ticker in sorted(set(current) & set(earlier)):
-        current_er = _percent(_candidate_er(current[ticker]))
-        previous_er = _percent(_candidate_er(earlier[ticker]))
+        current_er = _candidate_er(current[ticker])
+        previous_er = _candidate_er(earlier[ticker])
         if current_er is None or previous_er is None:
             continue
-        change = round(current_er - previous_er, 1)
+        # Decide membership and rank before display rounding. Decimal preserves
+        # the stored decimal boundary instead of losing exact 3 pp to subtraction.
+        change = (Decimal(str(current_er)) - Decimal(str(previous_er))) * 100
         if abs(change) < _DELTA_ER_MOVE_MIN_PP:
             continue
         moves.append(
-            CandidateExpectedReturnDeltaView(
-                ticker=ticker,
-                company_name=text(current[ticker].get("name")),
-                er_annual_pct=current_er,
-                previous_er_annual_pct=previous_er,
-                change_pp=change,
+            (
+                abs(change),
+                CandidateExpectedReturnDeltaView(
+                    ticker=ticker,
+                    company_name=text(current[ticker].get("name")),
+                    er_annual_pct=round(current_er * 100, 1),
+                    previous_er_annual_pct=round(previous_er * 100, 1),
+                    change_pp=float(round(change, 1)),
+                ),
             )
         )
-    moves.sort(key=lambda item: (-abs(item.change_pp), item.ticker))
-    return entered, exited, moves[:_DELTA_ER_MOVERS_SHOWN], len(moves)
+    moves.sort(key=lambda item: (-item[0], item[1].ticker))
+    return entered, exited, [item for _, item in moves[:_DELTA_ER_MOVERS_SHOWN]], len(moves)
 
 
 def _holding_deltas(
@@ -223,10 +237,10 @@ def _holding_deltas(
     market: MarketPriceSource,
     as_of: date,
     previous_as_of: date | None,
-) -> tuple[list[HoldingDeltaView], int]:
+) -> tuple[list[HoldingDeltaView], int, bool]:
     tickers = [holding.ticker for holding in snapshot.holdings]
     if not tickers:
-        return [], 0
+        return [], 0, False
     latest_by_ticker = market.latest_closes(tickers)
     # The change is asked of the market layer so both ends land on the same share
     # basis; dividing two stored closes would report a split as a price move.
@@ -257,7 +271,7 @@ def _holding_deltas(
                 ),
             )
         )
-    return rows, without_price
+    return rows, without_price, any(ticker not in changes for ticker in tickers)
 
 
 def _percent(value: float | None) -> float | None:

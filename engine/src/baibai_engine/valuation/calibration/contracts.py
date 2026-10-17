@@ -1,4 +1,4 @@
-"""Stop invalid E[r] evidence before Research selection consumes it."""
+"""保存済みE[r]較正文脈の構造と分母・分布の整合契約。"""
 
 from __future__ import annotations
 
@@ -21,8 +21,7 @@ ER_CALIBRATION_SECONDARY_WEIGHTING = "cohort_equal"
 ER_CALIBRATION_REFERENCE_HORIZON = "3y"
 ER_CALIBRATION_HORIZONS = ("3y", "5y")
 ER_CALIBRATION_BAND_IDS = ("q1", "q2", "q3", "q4", "q5", "er_gte_8_5pct")
-# 機械E[r]の固定較正帯。通常購入のpolicy floorへ連動させない。
-# 歴史分布の固定診断帯。Researchの購入要求率へ追随させない (#1481)。
+# 機械E[r]の固定較正帯。通常購入のpolicy floorへ追随させない (#1481)。
 # docs/reference/estimate-calibration.md#estimator-vs-decision
 HURDLE_ER_ANNUAL = 0.085
 
@@ -167,6 +166,8 @@ class ErCalibrationHorizon(BaseModel):
 
 
 class ErCalibrationCommonWindow(BaseModel):
+    """Nested wire shape; the root validates equality with declared horizons."""
+
     model_config = ConfigDict(extra="forbid", strict=True)
 
     asof_start: date | None
@@ -178,22 +179,6 @@ class ErCalibrationCommonWindow(BaseModel):
     @classmethod
     def parse_optional_date(cls, value: object) -> object:
         return date.fromisoformat(value) if isinstance(value, str) else value
-
-    @model_validator(mode="after")
-    def validate_window(self) -> Self:
-        if self.cohort_count == 0:
-            if self.asof_start is not None or self.asof_end is not None or self.horizons:
-                raise ValueError("empty common window must not carry evidence")
-            return self
-        if (
-            self.asof_start is None
-            or self.asof_end is None
-            or self.asof_end < self.asof_start
-            or [item.horizon for item in self.horizons] != list(ER_CALIBRATION_HORIZONS)
-            or any(item.cohort_count != self.cohort_count for item in self.horizons)
-        ):
-            raise ValueError("common-window evidence is incomplete")
-        return self
 
 
 class ErCalibrationWeighting(BaseModel):

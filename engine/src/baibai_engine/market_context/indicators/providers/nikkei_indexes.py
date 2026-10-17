@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections import defaultdict
+from collections.abc import Iterator, Mapping
 from datetime import date
+from html.parser import HTMLParser
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -13,8 +15,6 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
     fetch_text,
-    parse_float,
-    record_observation,
 )
 
 # The Nikkei index valuation page renders its PER/PBR history with JavaScript,
@@ -34,34 +34,16 @@ _DATALOAD_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
 }
 
-# provider_series_id -> the dataload `list` value and the plausible band of the
-# weighted-average metric. These catch large deviations, not every column/scale error.
-_METRICS: dict[str, tuple[float, float]] = {
-    "per": (5.0, 40.0),
-    "pbr": (0.5, 4.0),
-}
-
-# Each row carries the date, the weighted-average metric (加重平均, the headline
-# Nikkei figure) and an index-based figure. We take the weighted average.
-_ROW_RE = re.compile(
-    r"<td>(\d{4})\.(\d{2})\.(\d{2})</td>\s*"
-    r"<!--daily_changing--><td>([\d.]+)</td>\s*"
-    r"<!--daily_changing--><td>([\d.]+)</td>"
-)
+_METRICS = frozenset({"per", "pbr"})
 
 
-class NikkeiIndexesProvider:
-    """Nikkei 225 valuation anchors (PER/PBR) from the official index statistics.
-
-    provider_series_id selects the metric ("per"/"pbr"). The weighted-average
-    column is the market-quoted Nikkei figure. Range checks reject large deviations,
-    but cannot detect a layout change that produces an in-range wrong value.
-    """
+class NikkeiIndexesSource:
+    """Retain both published PER/PBR columns; L2 selects the weighted average."""
 
     spec = ProviderSpec(name="nikkei_indexes", all_history_start=date(2010, 1, 1))
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -69,14 +51,14 @@ class NikkeiIndexesProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         metric = series.provider_series_id
         if metric not in _METRICS:
             supported = ", ".join(sorted(_METRICS))
             raise IndicatorsProviderError(
                 f"unsupported nikkei_indexes metric {metric!r}; supported: {supported}"
             )
-        by_date: dict[date, ObservationRecord] = {}
+        by_date: dict[date, list[Mapping[str, object]]] = defaultdict(list)
         for year, month in _months(start, end):
             text = fetch_text(
                 session,
@@ -86,9 +68,9 @@ class NikkeiIndexesProvider:
                 headers=_DATALOAD_HEADERS,
                 context=context,
             )
-            for observation in parse_nikkei_valuation(series, text, start=start, end=end):
-                by_date[observation.observed_at] = observation
-        return [by_date[key] for key in sorted(by_date)]
+            for day, records in parse_nikkei_valuation(series, text, start=start, end=end).items():
+                by_date[day].extend(records)
+        return dict(by_date)
 
 
 def parse_nikkei_valuation(
@@ -97,20 +79,59 @@ def parse_nikkei_valuation(
     *,
     start: date,
     end: date,
-) -> list[ObservationRecord]:
-    low, high = _METRICS[series.provider_series_id]
-    observations: list[ObservationRecord] = []
-    for year, month, day, weighted, _index_based in _ROW_RE.findall(text):
-        observed_at = date(int(year), int(month), int(day))
-        value = parse_float(weighted)
-        if not start <= observed_at <= end:
-            continue
-        if not low <= value <= high:
-            raise IndicatorsProviderError(
-                f"nikkei_indexes {series.series_id} value {value} outside plausible [{low}, {high}]"
+) -> NativeRecords:
+    parser = _ValuationRows()
+    parser.feed(text)
+    parser.close()
+    if not parser.rows:
+        raise IndicatorsProviderError("Nikkei valuation data rows missing")
+    records: dict[date, list[dict[str, object]]] = defaultdict(list)
+    for cells in parser.rows:
+        if not cells or not re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", cells[0].strip()):
+            raise IndicatorsProviderError("Nikkei valuation row has an invalid date")
+        if len(cells) != 3:
+            raise IndicatorsProviderError("Nikkei valuation row must have three cells")
+        observed_at = date.fromisoformat(cells[0].strip().replace(".", "-"))
+        if start <= observed_at <= end:
+            records[observed_at].append(
+                {"date_text": cells[0], "weighted_text": cells[1], "index_based_text": cells[2]}
             )
-        observations.append(record_observation(series, observed_at=observed_at, value=value))
-    return observations
+    return dict(records)
+
+
+class _ValuationRows(HTMLParser):
+    """Read data cells, leaving numeric and missing-marker interpretation to L2."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[str]] = []
+        self.cells: list[str] = []
+        self.data_row = False
+        self.cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "tr":
+            self.cells = []
+            self.data_row = False
+        elif tag == "td":
+            self.cell = []
+
+    def handle_comment(self, data: str) -> None:
+        if data.strip() == "daily_changing":
+            self.data_row = True
+
+    def handle_data(self, data: str) -> None:
+        if self.cell is not None:
+            self.cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "td" and self.cell is not None:
+            self.cells.append("".join(self.cell))
+            self.cell = None
+        elif tag == "tr" and self.cells:
+            if self.data_row or re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", self.cells[0].strip()):
+                self.rows.append(self.cells)
+            self.cells = []
 
 
 def _months(start: date, end: date) -> Iterator[tuple[int, int]]:

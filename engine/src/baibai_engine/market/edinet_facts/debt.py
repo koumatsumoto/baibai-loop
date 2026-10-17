@@ -20,6 +20,7 @@ _UNITS = {"百万円": 1_000_000, "千円": 1_000, "円": 1}
 _CURRENT_ROWS = {
     "短期借入金": "short_term_borrowings",
     "1年以内に返済予定の長期借入金": "long_term_borrowings",
+    "1年内に返済予定の長期借入金": "long_term_borrowings",
     "1年内返済予定の長期借入金": "long_term_borrowings",
 }
 

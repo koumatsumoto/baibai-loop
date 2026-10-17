@@ -77,8 +77,8 @@ def read_margin_supply_demand_inputs(
 
     `latest` is the newest published balance date whichever series published it, so
     the level axes keep describing the most recent balance the exchange has stated.
-    `prior` is 26 weeks back in the sampled column, so the delta axis keeps comparing
-    across half a year rather than across however many rows the cadence produced.
+    `prior` is 26 observed ISO weeks back in the sampled column. Missing weeks
+    can make the calendar interval longer; this is not a fixed half-year duration.
     """
     published = published_margin_balance_dates(sqlite_path, asof)
     if not published or (asof - published[-1][0]).days > MARGIN_MAX_STALE_DAYS:

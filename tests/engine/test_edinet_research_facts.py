@@ -8,20 +8,28 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import Mock
 
-import duckdb
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
 from baibai_engine.market.edinet_facts.extract import extract_facts
-from baibai_engine.market.edinet_facts.service import annual_documents, extract_edinet_facts_command
-from baibai_engine.market.edinet_facts.store import extraction_status, store_facts
+from baibai_engine.market.edinet_facts.models import ExtractedFacts, filing_identity
+from baibai_engine.market.edinet_facts.selection import (
+    annual_documents,
+    latest_annual_filing,
+    usable_document,
+)
+from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
+from baibai_engine.market.edinet_facts.store import (
+    document_inventory,
+    extraction_status,
+    store_facts,
+)
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
+from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.storage.observations.schema import open_connection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
-ROOT = Path(__file__).parents[2]
 
 
 def source_zip(doc_id="S100YR5P", replace=None):
@@ -82,6 +90,24 @@ def test_source_exact_segments_periods_labels_and_principal_buckets():
         ("bonds", 48): 780000000,
     }
     assert all(r.currency == "JPY" and "/table[" in r.source_locator for r in extracted.debt)
+
+
+def test_current_long_term_borrowing_label_keeps_the_one_year_principal():
+    extracted = facts("S100YCUF")
+    borrowings = [r for r in extracted.debt if r.debt_category != "bonds"]
+    assert {
+        (r.debt_category, r.due_from_months, r.due_to_months): r.principal for r in borrowings
+    } == {
+        ("short_term_borrowings", 0, 12): 15750000000,
+        ("long_term_borrowings", 0, 12): 10533000000,
+        ("long_term_borrowings", 12, 24): 7578000000,
+        ("long_term_borrowings", 24, 36): 2715000000,
+        ("long_term_borrowings", 36, 48): 2815000000,
+        ("long_term_borrowings", 48, 60): 112000000,
+    }
+    assert {r.balance_sheet_date for r in borrowings} == {"2026-03-31"}
+    assert {r.source_context for r in borrowings} == {"CurrentYearDuration"}
+    assert {r.currency for r in borrowings} == {"JPY"}
 
 
 def test_leases_are_excluded_and_no_bonds_does_not_become_zero():
@@ -184,6 +210,7 @@ def insert_documents(path, documents):
         "submitDateTime": "submit_datetime",
         "parentDocID": "parent_doc_id",
         "periodEnd": "period_end",
+        "docDescription": "doc_description",
         "doc_date": "doc_date",
         "opeDateTime": "operation_datetime",
     }
@@ -244,19 +271,15 @@ def test_new_correction_failure_preserves_original_and_does_not_reuse_it(tmp_pat
 
 
 def selected_filing(path, cutoff):
-    sql = (ROOT / "docs/reference/queries/edinet-research-filing.sql").read_text()
-    source = sqlite3.connect(path)
-    source.row_factory = sqlite3.Row
-    docs = [dict(row) for row in source.execute("select * from edinet_documents")]
-    source.close()
-    import pyarrow as pa
-
-    conn = duckdb.connect()
-    conn.register("docs", pa.Table.from_pylist(docs))
-    try:
-        return conn.execute(sql, {"cutoff": cutoff, "ticker": "1873"}).fetchone()
-    finally:
-        conn.close()
+    doc = latest_annual_filing(document_inventory(path, date.fromisoformat(cutoff)), "1873")
+    if doc is None:
+        return None
+    return (
+        doc["docID"],
+        doc.get("submitDateTime"),
+        doc["_research_annual_period_end"],
+        "usable" if usable_document(doc) else "validity_unknown",
+    )
 
 
 def test_query_selects_latest_before_validity_and_handles_events(tmp_path):
@@ -275,11 +298,25 @@ def test_query_selects_latest_before_validity_and_handles_events(tmp_path):
     )
     correction.update(xbrlFlag="1", parentDocID="S100LOST")
     insert_documents(path, [original, correction])
-    assert selected_filing(path, "2026-08-01")[-1] == "validity_unknown"
+    assert selected_filing(path, "2026-08-01") is None
+    assert annual_documents([original, correction]) == []
     event = document("S100EDIT", "2026-08-02 10:00", parentDocID="S100TEST")
     event.update(withdrawalStatus="1")
     insert_documents(path, [original, event])
-    assert selected_filing(path, "2026-08-02")[-1] == "validity_unknown"
+    assert selected_filing(path, "2026-08-02") is None
+
+
+def test_query_and_runtime_order_duplicate_origins_by_operation_time(tmp_path):
+    path = tmp_path / "market.sqlite"
+    later = document()
+    later.update(seqNumber=1, opeDateTime="2026-06-24 16:00", periodEnd="2026-03-31")
+    earlier = document()
+    earlier.update(seqNumber=2, opeDateTime="2026-06-24 15:00", periodEnd="2025-03-31")
+    insert_documents(path, [later, earlier])
+
+    selected = selected_filing(path, "2026-06-24")
+    assert selected == ("S100TEST", "2026-06-24 14:00", "2026-03-31", "usable")
+    assert [row["periodEnd"] for row in annual_documents([later, earlier])] == ["2026-03-31"]
 
 
 def test_retained_annual_family_receives_later_corrections():
@@ -294,7 +331,7 @@ def test_retained_annual_family_receives_later_corrections():
 
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
-    provider = EDINETFactsProvider("test-key", tmp_path, session=session)
+    provider = EDINETProvider("test-key", tmp_path, session=session)
     monkeypatch.setattr("baibai_engine.market.providers.edinet.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data
@@ -309,7 +346,7 @@ def test_store_keeps_vintages_and_coverage_reasons(tmp_path):
     one = facts()
     two = facts("S100YJ24")
     for doc, rows in [("S100YR5P", one), ("S100YJ24", two), ("S100YR5P", one)]:
-        store_facts(path, doc_id=doc, disclosed_on="2026-07-22", facts=rows)
+        store_facts(path, identity=filing_identity("1873", doc, "2026-07-22 10:00"), facts=rows)
     conn = sqlite3.connect(path)
     assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 72
     conn.close()
@@ -374,7 +411,11 @@ def test_unresolved_event_only_blocks_a_relevant_newer_annual(
     event = document("S100NEXT", event_date + " 10:00")
     event.update(docTypeCode=doc_type, docInfoEditStatus="1", periodEnd=None, parentDocID=parent)
     insert_documents(path, [old, event])
-    assert selected_filing(path, "2027-06-26")[-1] == ("validity_unknown" if blocked else "usable")
+    selected = selected_filing(path, "2027-06-26")
+    if blocked:
+        assert selected is None
+    else:
+        assert selected[-1] == "usable"
     assert [d["docID"] for d in annual_documents([old, event])] == ([] if blocked else ["S100TEST"])
 
 
@@ -391,7 +432,7 @@ def test_event_linked_to_old_family_keeps_new_annual_usable(tmp_path):
         periodEnd=None,
     )
     insert_documents(path, [old, event])
-    assert selected_filing(path, "2027-07-02")[-1] == "validity_unknown"
+    assert selected_filing(path, "2027-07-02") is None
     assert annual_documents([old, event], retained={"S100TEST"}) == []
     insert_documents(path, [new])
     selected = selected_filing(path, "2027-07-02")
@@ -399,3 +440,258 @@ def test_event_linked_to_old_family_keeps_new_annual_usable(tmp_path):
     assert [d["docID"] for d in annual_documents([old, new, event], retained={"S100TEST"})] == [
         "S100NEW1"
     ]
+
+
+def test_operation_cannot_introduce_a_cycle_before_annual_family_selection():
+    original = document()
+    correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
+    correction["docTypeCode"] = "130"
+    event = {**correction, "doc_date": "2026-08-02", "docInfoEditStatus": "1"}
+    event["parentDocID"] = "S100CORR"
+
+    with pytest.raises(EDINETProviderError, match="parent relation cycle"):
+        annual_documents([original, correction, event])
+
+
+def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
+    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+
+    original = document()
+    newer = document("S100NEW1", "2027-06-24 10:00")
+    correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
+    correction["docTypeCode"] = "130"
+    edit = {**correction, "doc_date": "2027-07-01", "docInfoEditStatus": "1"}
+    edit["parentDocID"] = "S100NEW1"
+    withdrawal = document("S100WTHD", "2027-07-02 10:00", parentDocID="S100NEW1")
+    withdrawal.update(docTypeCode="350", withdrawalStatus="1")
+
+    folded, quarantined = _canonicalize_document_events(
+        [original, newer, correction, edit, withdrawal], origin_start=None
+    )
+    by_id = {row["docID"]: row for row in folded}
+    assert not quarantined
+    assert by_id["S100NEW1"]["withdrawalStatus"] == "2"
+    assert by_id["S100CORR"]["withdrawalStatus"] == "2"
+    assert by_id["S100TEST"]["withdrawalStatus"] == "0"
+
+
+@pytest.mark.parametrize("include_withdrawal", [False, True])
+def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
+    include_withdrawal,
+):
+    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+
+    original = document()
+    original.update(withdrawalStatus="2", legalStatus="0", docInfoEditStatus="2")
+    edit = document()
+    edit.update(
+        doc_date="2026-07-01",
+        docInfoEditStatus="1",
+        opeDateTime="2026-07-01 10:00",
+        periodEnd="2026-04-30",
+    )
+    withdrawal = document("S100WTHD", "2026-07-02 10:00", parentDocID="S100TEST")
+    withdrawal.update(docTypeCode="350", withdrawalStatus="1")
+    inputs = [original, edit, *([withdrawal] if include_withdrawal else [])]
+
+    folded, quarantined = _canonicalize_document_events(inputs, origin_start=None)
+
+    assert not quarantined
+    assert len(folded) == 1
+    assert folded[0]["periodEnd"] == "2026-04-30"
+    assert folded[0]["withdrawalStatus"] == "2"
+    assert folded[0]["legalStatus"] == "0"
+    assert original["periodEnd"] == "2026-03-31"
+
+
+@pytest.mark.parametrize("through_sqlite", [False, True])
+def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, through_sqlite):
+    from baibai_engine.market.edinet_metrics.store import read_edinet_documents
+    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+    from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
+
+    original = document()
+    correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
+    correction["docTypeCode"] = "130"
+    correction["docInfoEditStatus"] = "2"
+    edit = {**correction, "doc_date": "2026-08-02", "docInfoEditStatus": "1"}
+    edit.update(parentDocID=None, periodEnd=None)
+    documents = [original, correction, edit]
+    if through_sqlite:
+        path = tmp_path / "market.sqlite"
+        documents = []
+        for row in (original, correction, edit):
+            day = date.fromisoformat(row["doc_date"])
+            native = {key: value for key, value in row.items() if key != "doc_date"}
+            native["seqNumber"] = 1
+            store_edinet_documents(
+                path,
+                day,
+                [native],
+                response_json=json.dumps(
+                    {"metadata": {"resultset": {"count": 1}}, "results": [native]}
+                ),
+            )
+            stored = read_edinet_documents(path, day)
+            assert stored is not None
+            documents.extend(stored)
+    folded, quarantined = _canonicalize_document_events(documents, origin_start=None)
+    current = next(row for row in folded if row["docID"] == "S100CORR")
+    assert not quarantined
+    assert current["parentDocID"] is None
+    assert current["periodEnd"] is None
+    assert current["docTypeCode"] == "130"
+    assert correction["parentDocID"] == "S100TEST"
+    assert correction["periodEnd"] == "2026-03-31"
+
+
+@pytest.mark.parametrize("edited", ["0", "2"])
+def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
+    from baibai_engine.market.providers.edinet import select_document_candidates
+
+    # EDINET API v2 section 3-1-6: 2 identifies the edited filing, not a withdrawal.
+    original = document()
+    original["docInfoEditStatus"] = edited
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, [original])
+    assert selected_filing(path, "2026-06-24")[-1] == "usable"
+    assert usable_document(annual_documents([original])[0])
+    assert select_document_candidates([original]).candidates["1873"].doc_id == "S100TEST"
+
+
+@pytest.mark.parametrize("field", ["legalStatus", "disclosureStatus", "withdrawalStatus"])
+@pytest.mark.parametrize("missing", [None, "", "omitted"])
+def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missing):
+    from baibai_engine.market.providers.edinet import select_document_candidates
+
+    original = document()
+    if missing == "omitted":
+        original.pop(field)
+    else:
+        original[field] = missing
+    assert not select_document_candidates([original]).candidates
+    assert not usable_document(annual_documents([original])[0])
+
+
+def test_orphan_correction_does_not_block_a_later_annual_family():
+    old = document()
+    orphan = document("S100CORR", "2026-08-01 10:00", parentDocID="S100LOST")
+    orphan["docTypeCode"] = "130"
+    newer = document("S100NEXT", "2027-06-24 10:00")
+    newer["periodEnd"] = "2027-03-31"
+    assert [row["docID"] for row in annual_documents([old, orphan, newer])] == ["S100NEXT"]
+
+
+@pytest.mark.parametrize("refreshed", [False, True])
+def test_saved_selection_resolves_metadata_edit_without_permanent_rejection(tmp_path, refreshed):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    edit = {
+        **original,
+        "doc_date": "2026-07-01",
+        "docInfoEditStatus": "1",
+        "opeDateTime": "2026-07-01 10:00",
+        "periodEnd": "2026-04-30",
+    }
+    documents = [original, edit]
+    if refreshed:
+        documents.append({**edit, "doc_date": "2026-07-02", "docInfoEditStatus": "2"})
+    insert_documents(path, documents)
+    assert selected_filing(path, "2026-06-30") == (
+        "S100TEST",
+        "2026-06-24 14:00",
+        "2026-03-31",
+        "usable",
+    )
+    for cutoff in ["2026-07-01", "2026-07-02"]:
+        assert selected_filing(path, cutoff) == (
+            "S100TEST",
+            "2026-06-24 14:00",
+            "2026-04-30",
+            "usable",
+        )
+
+
+@pytest.mark.parametrize("description_period", [False, True])
+@pytest.mark.parametrize("orphan_end", ["2022-03-31", "2024-03-31", "2025-03-31", None])
+def test_orphan_correction_is_scoped_to_its_fiscal_period(tmp_path, description_period, orphan_end):
+    # Saved EDINET shape: a 2024 filing and correction coexist with a later
+    # correction of the 2022 report whose parent predates retained coverage.
+    original = document("S100TXF4", "2024-06-28 10:31")
+    original["periodEnd"] = "2024-03-31"
+    linked = document("S100UZ4I", "2024-12-20 11:36", parentDocID="S100TXF4")
+    linked.update(docTypeCode="130", periodEnd=None)
+    orphan = document("S100UZ44", "2024-12-20 11:11", parentDocID="S100OLL4")
+    orphan.update(docTypeCode="130", periodEnd=orphan_end)
+    if description_period:
+        orphan["periodEnd"] = None
+        if orphan_end is not None:
+            year = int(orphan_end[:4])
+            orphan["docDescription"] = f"訂正有価証券報告書－第44期({year - 1}/04/01－{year}/03/31)"
+    documents = [original, linked, orphan]
+    expected = ["S100TXF4", "S100UZ4I"] if orphan_end == "2022-03-31" else []
+    assert [row["docID"] for row in annual_documents(documents)] == expected
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, documents)
+    selected = selected_filing(path, "2024-12-21")
+    if expected:
+        assert selected == ("S100UZ4I", "2024-12-20 11:36", "2024-03-31", "usable")
+    else:
+        assert selected is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("secCode", "99990"), ("submitDateTime", "2026-06-24 15:00")]
+)
+def test_research_facts_reextract_when_document_identity_changes(tmp_path, field, value):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    insert_documents(path, [original])
+    provider = Mock()
+    provider.download_xbrl_zip.return_value = source_zip()
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
+    changed = {**original, field: value}
+    insert_documents(path, [changed])
+    assert extract_edinet_facts_command(**kwargs) == 0
+    expected = filing_identity(changed["secCode"][:4], changed["docID"], changed["submitDateTime"])
+    with sqlite3.connect(path) as conn:
+        for table in ("edinet_segment_facts", "edinet_debt_schedule"):
+            assert conn.execute(
+                f"SELECT DISTINCT ticker, source_submit_datetime FROM {table}"
+            ).fetchall() == [(expected.ticker, expected.source_submit_datetime)]
+    assert provider.download_xbrl_zip.call_count == 2
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 2
+
+
+def test_research_facts_identity_uses_normalized_submission_time(tmp_path):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    insert_documents(path, [original])
+    provider = Mock()
+    provider.download_xbrl_zip.return_value = source_zip()
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
+    insert_documents(path, [{**original, "submitDateTime": "2026-06-24T14:00:00+09:00"}])
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 1
+
+
+def test_empty_research_facts_still_bind_the_extraction_identity(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    insert_documents(path, [original])
+    provider = Mock()
+    provider.download_xbrl_zip.return_value = source_zip()
+    monkeypatch.setattr(
+        "baibai_engine.market.edinet_facts.service.extract_facts",
+        lambda **kwargs: ExtractedFacts((), ()),
+    )
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 1
+    insert_documents(path, [{**original, "secCode": "99990"}])
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 2

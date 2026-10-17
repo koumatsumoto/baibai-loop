@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 
+from baibai_engine.foundation.sqlite_read import is_missing_table_error
+
 _DELETE_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (
         "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
@@ -55,10 +57,6 @@ _COUNT_DATE_RANGE_SQL = {
     ("jpx_regulation_flags", "asof_date"): (
         "SELECT COUNT(*) FROM jpx_regulation_flags WHERE asof_date BETWEEN ? AND ?"
     ),
-}
-_COUNT_TABLE_SQL = {
-    "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
-    "jpx_earnings_calendar": "SELECT COUNT(*) FROM jpx_earnings_calendar",
 }
 
 
@@ -239,11 +237,8 @@ def _trim_ok_coverage_around(
     a gap exactly where the fetch failed, and its `record_count` is recounted from
     the rows so the row stays a statement about what the store actually holds.
 
-    A part narrower than the disclosure cadence can recount to zero, and for the
-    sources that require rows `range_covered` treats a zero-count window as no claim
-    at all. Such a part is therefore re-fetched next time rather than trusted -- the
-    conservative direction, and the same one the whole-window delete took, but over
-    days instead of years.
+    A surviving financial window can contain no disclosures. It remains fetched:
+    absence of filings is a valid observation, not a reason to request it again.
     """
     rows = conn.execute(
         "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc "
@@ -345,11 +340,6 @@ def date_range_row_count(
     return int(row[0] or 0)
 
 
-def table_row_count(conn: sqlite3.Connection, table: str) -> int:
-    row = conn.execute(_COUNT_TABLE_SQL[table]).fetchone()
-    return int(row[0] or 0)
-
-
 def record_source_coverage(
     conn: sqlite3.Connection,
     *,
@@ -389,9 +379,7 @@ def _range_coverage_key(operation: str, start: date, end: date) -> str:
     return f"{operation}:{start.isoformat()}..{end.isoformat()}"
 
 
-_RANGE_SOURCES_REQUIRING_ROWS = frozenset(
-    {"jquants_daily_bars", "jquants_fin_summaries", "jquants_market_calendar"}
-)
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_daily_bars", "jquants_market_calendar"})
 
 
 def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, date], ...]:
@@ -418,9 +406,9 @@ def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, 
 def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date, date], ...]:
     """Merge the coverage windows a source can actually be read through.
 
-    A window counts only when it is `ok`, and for the sources that require rows,
-    only when it holds some: `_trim_ok_coverage_around` deliberately leaves `ok`
-    windows whose recount came out zero, and those are not a claim on anything.
+    A window counts only when it is `ok`. Daily bars and calendars additionally
+    require rows; financial disclosures may legitimately be absent in a fetched
+    window. Acquisition coverage does not establish analytical sufficiency.
     Abutting windows are merged, so two fetches that stopped either side of a
     chunk boundary describe one continuous range.
 
@@ -434,7 +422,9 @@ def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date
             "FROM source_coverage WHERE source = ?",
             (source,),
         ).fetchall()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as error:
+        if not is_missing_table_error(error):
+            raise
         return ()
     intervals: list[tuple[date, date]] = []
     for coverage_start, coverage_end, record_count, status in rows:
@@ -533,7 +523,9 @@ def daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date)
         rows = conn.execute(
             _DAILY_BARS_COVERAGE_QUERY, (start.isoformat(), end.isoformat())
         ).fetchall()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as error:
+        if not is_missing_table_error(error):
+            raise
         return False
     dates: list[date] = []
     for (value,) in rows:

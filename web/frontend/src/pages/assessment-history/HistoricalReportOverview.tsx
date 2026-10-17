@@ -13,14 +13,14 @@ export function HistoricalReportOverview({ data, regime, risk }: { data: Assessm
       <Card className="shadow-sm">
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle aria-level={2} id="historical-overview-title" role="heading">現局面</CardTitle>
+            <CardTitle aria-level={2} id="historical-overview-title" role="heading">保存当時の局面</CardTitle>
           </div>
           <CardDescription className="break-all">
             公開 {formatJstDateTime(data.published_at)} · {data.context_id}
           </CardDescription>
         </CardHeader>
         <div className="grid gap-5 px-4 pb-4 sm:px-6">
-          <p className="max-w-4xl text-base leading-7">{data.summary}</p>
+          <p className="max-w-4xl whitespace-pre-wrap text-base leading-7">{data.summary}</p>
           {regime?.change_since_previous && <div className="rounded-lg border-l-4 border-primary bg-muted/45 p-4 text-sm"><h3 className="font-semibold">前回からの変化</h3><p className="mt-1">{regime.change_since_previous}</p></div>}
           {regime && (
             <div className="grid gap-2 rounded-lg bg-muted/45 p-4">

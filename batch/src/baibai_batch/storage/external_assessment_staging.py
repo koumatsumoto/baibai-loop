@@ -116,6 +116,18 @@ def terminal_status(terminal: dict[str, object]) -> str:
     )
 
 
+def terminal_result(terminal: dict[str, object]) -> dict[str, object]:
+    return {
+        **terminal,
+        "status": terminal_status(terminal),
+        "readback": "previously_verified",
+        "rows_added": 0,
+        "uploaded_bytes": 0,
+        "uploaded_objects": 0,
+        "publication_transfers": None,
+    }
+
+
 def _terminal_object(items: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in items:

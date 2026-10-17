@@ -11,7 +11,6 @@ import requests
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
 from ..provider_specs import ProviderSpec as ProviderSpec
-from ..provider_specs import RangeReplacementPolicy as RangeReplacementPolicy
 
 if TYPE_CHECKING:
     from .browser import BrowserFetcher
@@ -22,8 +21,8 @@ MAX_CSV_RESPONSE_BYTES = 8_000_000
 MAX_ZIP_RESPONSE_BYTES = 16_000_000
 
 # Reads a stored series' observations (latest ok vintage per observed_at) for a
-# derived provider that computes from other series. Bound to the live connection
-# by the service so a derived fetch sees inputs already committed this run.
+# source provider that can reuse existing input (for example published PMI months).
+# Bound to the live connection; L2 formulas do not depend on fetch context.
 type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
 
 # What a fetch pass is for. ``read`` serves a query whose window the store cannot
@@ -47,14 +46,12 @@ class ProviderFetchStoppedError(IndicatorsProviderError):
 
 
 class SourceWithheldError(IndicatorsProviderError):
-    """A source declined to serve this client rather than failing to serve at all.
+    """An empty successful response or HTTP 403, kept distinct from other failures.
 
-    An edge bot-mitigation withholds data it holds in two shapes: a success
-    status carrying no body, and a 403. Both say the resource exists and that
-    another route may still reach it, which is what separates them from a size
-    cap, a 404, a 5xx or a network fault — none of those give a fallback anything
-    to work with, so they stay plain :class:`IndicatorsProviderError` and no
-    provider reads them as an invitation to fetch the same thing a costlier way.
+    This existing response category covers an empty successful response and HTTP
+    403. It does not establish that a resource exists, why access was refused, or
+    whether another route is permitted or will succeed. Size caps, 404, 429, 5xx
+    and network failures remain ordinary provider errors, not fallback signals.
     """
 
 

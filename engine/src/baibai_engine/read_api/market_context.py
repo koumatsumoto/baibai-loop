@@ -78,7 +78,7 @@ def indicator_fetch_health(path: Path) -> list[dict[str, object]]:
 
 def indicator_series_names() -> dict[str, str]:
     """Return canonical indicator series display names for read-only consumers."""
-    return {item.series_id: item.name for item in load_definitions().series}
+    return {item.series_id: item.name for item in _registry_by_id().values()}
 
 
 def registered_indicator(series_id: str) -> dict[str, str | None] | None:
@@ -156,7 +156,7 @@ def indicator_series(
         "series_id": series_id,
         "name": str(series[0]),
         "unit": str(series[1]),
-        "tradingview_symbol": _tradingview_symbols().get(series_id),
+        "tradingview_symbol": registry[series_id].tradingview_symbol,
         "points": points,
     }
 
@@ -164,15 +164,6 @@ def indicator_series(
 @lru_cache(maxsize=1)
 def _registry_by_id() -> dict[str, SeriesDefinition]:
     return load_definitions().by_id()
-
-
-@lru_cache(maxsize=1)
-def _tradingview_symbols() -> dict[str, str]:
-    return {
-        item.series_id: item.tradingview_symbol
-        for item in load_definitions().series
-        if item.tradingview_symbol is not None
-    }
 
 
 def _aggregate_period_end(

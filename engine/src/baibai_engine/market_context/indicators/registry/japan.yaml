@@ -9,6 +9,7 @@ series:
     plausible_max: 2000
     provider: ecb_fx
     provider_series_id: USDJPY
+    notes: ECBのEUR建て参照レート全通貨列をL1へ保持し、同じ原本行からL2でJPY crossを計算する。市場のリアルタイム約定レートではない。
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
     tradingview_symbol: FX:USDJPY
@@ -23,6 +24,7 @@ series:
     plausible_max: 2000
     provider: ecb_fx
     provider_series_id: EURJPY
+    notes: ECBのEUR建て参照レート全通貨列をL1へ保持し、同じ原本行からL2でJPY crossを計算する。市場のリアルタイム約定レートではない。
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
     tradingview_symbol: FX:EURJPY
@@ -37,6 +39,7 @@ series:
     plausible_max: 2000
     provider: ecb_fx
     provider_series_id: AUDJPY
+    notes: ECBのEUR建て参照レート全通貨列をL1へ保持し、同じ原本行からL2でJPY crossを計算する。市場のリアルタイム約定レートではない。
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
     tradingview_symbol: FX:AUDJPY
@@ -142,7 +145,7 @@ series:
     provider_series_id: "0301010000020020010"
     source_id: estat-dashboard-unemployment-sa
     source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0301010000020020010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
-    notes: 総務省統計局 労働力調査の完全失業率(男女計・季節調整値)を統計ダッシュボードから読む。IndicatorCodeは月次/四半期/年 × 原数値/季節調整値を同時に返すので、source_urlのselectorで1本に固定する。selectorを訂正したときは`refresh --all-history`を1回通す(旧selectorの観測をsource違いとして掃除するのはこの経路だけで、窓付きrefreshは掃除しない)。公表は対象月の翌月末。1953-01起点
+    notes: 総務省統計局 労働力調査の完全失業率(男女計・季節調整値)を統計ダッシュボードから読む。IndicatorCodeは月次/四半期/年 × 原数値/季節調整値を同時に返すので、source_urlのselectorで1本に固定する。selector変更後は新しいsource identityの必要履歴を取得する。旧selectorのnative記録は新しいReadingへ混ぜない。公表は対象月の翌月末。1953-01起点
     aliases: [日本失業率, JP unemployment, 失業率, 完全失業率]
   - series_id: jp.nominal_wage_index
     name: 日本名目賃金指数(現金給与総額)
@@ -156,7 +159,7 @@ series:
     provider_series_id: "0302030202010090010"
     source_id: estat-dashboard-nominal-wage-index
     source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030202010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
-    notes: 厚労省 毎月勤労統計の名目賃金指数(現金給与総額・事業所規模5人以上・調査産業計・季節調整値)。月額の給与水準であり時間当たり賃金ではない。原数値は賞与月に指数が倍近くまで跳ねるため、月次の水準比較を賞与の有無で支配させない季節調整値を読む(前年比は原数値とほぼ一致する)。賃金は日銀の反応関数の中心で、前年比を読む。毎月勤労統計はe-StatのDB配信が2021年で止まり月次結果はrelease毎のファイルのみなので、統計ダッシュボードのIndicatorCodeを機械可読な経路とする。確報のみを載せる(速報は入らない)ため公表は対象月+約85日。2012-01起点。selectorを訂正したときと基準改定(現行2020年=100)のときは`refresh --all-history`を1回通す(窓付きrefreshは旧selector・旧基準の観測を残す)。事業所入替えとベンチマーク更新により2024年1月以降と2023年12月以前には段差があり、10年窓の前年比percentileはその水準シフトを含む
+    notes: 厚労省 毎月勤労統計の名目賃金指数(現金給与総額・事業所規模5人以上・調査産業計・季節調整値)。月額の給与水準であり時間当たり賃金ではない。原数値は賞与月に指数が倍近くまで跳ねるため、月次の水準比較を賞与の有無で支配させない季節調整値を読む(前年比は原数値とほぼ一致する)。賃金は日銀の反応関数の中心で、前年比を読む。毎月勤労統計はe-StatのDB配信が2021年で止まり月次結果はrelease毎のファイルのみなので、統計ダッシュボードのIndicatorCodeを機械可読な経路とする。原本は速報も保持し、Readingは確報のみを使うため想定公表ラグは対象月+約85日。2012-01起点。selector変更後は新identityの必要履歴を取得する。基準改定(現行2020年=100)時は同じidentityの全履歴を`refresh --all-history`で揃える。事業所入替えとベンチマーク更新により2024年1月以降と2023年12月以前には段差があり、10年窓の前年比percentileはその水準シフトを含む
     aliases: [日本名目賃金, 名目賃金指数, 現金給与総額, JP nominal wage index, 日本賃金指数]
   - series_id: jp.real_effective_exchange_rate
     name: 日本実質実効為替レート
@@ -212,7 +215,7 @@ series:
     provider_series_id: jp_manufacturing
     source_id: spglobal-jp-pmi-mfg
     source_url: https://www.pmi.spglobal.com/
-    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する
+    notes: S&P Global Japan Manufacturing PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する
     aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
   - series_id: jp.pmi_services
     name: 日本サービス業PMI
@@ -226,7 +229,7 @@ series:
     provider_series_id: jp_services
     source_id: spglobal-jp-pmi-svc
     source_url: https://www.pmi.spglobal.com/
-    notes: au Jibun Bank / S&P Global 日本サービス業PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。製造業PMIと対で内需サイクルを読む
+    notes: S&P Global Japan Services PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。製造業PMIと対で内需サイクルを読む
     aliases: [サービス業PMI, 日本サービスPMI, JP services PMI, au Jibun services PMI]
   - series_id: jp.monetary_base
     name: 日本マネタリーベース
@@ -254,7 +257,7 @@ series:
     provider_series_id: "0004052037?cdCat01=0001&cdArea=00000&cdTab=1"
     source_id: estat-cpi
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: e-Stat 2025年基準CPI表 0004052037 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
+    notes: e-Stat 2025年基準CPI表 0004052037 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。e-Statの公表指数を取得する。
     aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
   - series_id: jp.cpi.core
     name: 日本CPIコア(生鮮食品を除く総合)
@@ -310,7 +313,7 @@ series:
     provider_series_id: foreigners_net_value
     source_id: jquants-trades-spec
     source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
-    notes: 東証プライムの投資部門別売買状況。API/JPX公表値の単位は千円。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
+    notes: 東証プライムの投資部門別売買状況。API/JPX公表値の単位は千円。全native項目を公表日単位で保存し、L2がFrgnBalを選ぶ。読み値は集計週末をobserved_at、公表日をvintage_atとする。
     aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
   - series_id: jp.growth250
     name: 東証グロース市場250指数(2516連動ETF proxy)
@@ -353,7 +356,7 @@ series:
     provider_series_id: n225_iv_30d
     source_id: jquants-options-n225-iv30
     source_url: https://jpx-jquants.com/
-    notes: 日経225オプションのATM IVを分散線形補間で30日定数満期化したもの。保護の値段であり、恐怖の水準を指数の値動きとは別に観測する。判断材料であって機械的なtiming入力ではない
+    notes: 日経225オプションのATM IVを分散線形補間で30日定数満期化した独自指標。採用限月が残存30日ちょうどなら補間せずその値を使う。IVの年率水準であり、保険料の金額や市場心理を直接測る値ではない。公式の日経平均VIとも計算方法が異なる。判断材料であって機械的なtiming入力ではない
     aliases: [日経225 IV, N225 IV, オプションIV, iv30]
   - series_id: jp.n225_iv_skew
     name: 日経225オプションIVスキュー
@@ -367,7 +370,7 @@ series:
     provider_series_id: n225_iv_skew
     source_id: jquants-options-n225-skew
     source_url: https://jpx-jquants.com/
-    notes: moneyness0.95 put IV から ATM put IV を引いた差を、満期の逆平方根軸上で30日へ補間したもの。スキューは満期の逆平方根でほぼ減衰するので、この軸で補間するとSQ周期による変動がほぼ消える(実測で残差は四分位範囲の1/8)。両脚をput側に揃えるので出所側のput/call基準ずれが差に乗りにくいが、その基準は行使価格の選択にも効くので基準不整合日は出さない。下方保護が高いほど正で、恐怖の非対称を測る。水準の高低は reading の percentile で読む
+    notes: moneyness0.95 put IV から ATM put IV を引いたIVポイント差を、採用した逆平方根満期軸で30日へ補間する。採用限月が残存30日ちょうどならその限月だけを使い、使わない限月の基準差では欠測にしない。正値は対象putのIVがATM putより高いことを示すが、保険料や市場心理の直接測定ではない。期間調整は分析上の仮定であり、SQ周期の除去を一般に保証しない。両脚の差で基準誤差が相殺するとも限らないため、現行の基準不整合判定日は欠測とする。水準の高低はreadingのpercentileで読む
     aliases: [IVスキュー, skew, オプションスキュー]
   - series_id: jp.n225_iv_term
     name: 日経225オプションIV期間構造
@@ -381,7 +384,7 @@ series:
     provider_series_id: n225_iv_term
     source_id: jquants-options-n225-term
     source_url: https://jpx-jquants.com/
-    notes: 第2限月ATM IVから手前限月ATM IVを引いた差。負の場合は手前限月のIVが高い。水準の高低はreadingのpercentileで読む。定数満期化していないので手前限月の位置で意味が動く
+    notes: 第2限月ATM IVから手前限月ATM IVを引いたIVポイント差。負の場合は手前限月のIVが高い。水準の高低はreadingのpercentileで読む。定数満期化していないので手前限月の位置で意味が動く
     aliases: [IV期間構造, term structure, IVターム]
   - series_id: jp.nikkei_per
     name: 日経平均PER(加重平均)

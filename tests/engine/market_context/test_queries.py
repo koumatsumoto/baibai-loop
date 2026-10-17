@@ -6,9 +6,11 @@ import sqlite3
 import subprocess
 import sys
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 
 import pytest
 from tests.helpers.assessment_history import historical_context_payload, seed_history
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.market_context.assessment.models import StoredAssessment
@@ -31,10 +33,19 @@ ASOF = date(2026, 5, 29)
 def master(path, snapshot, memberships):
     connection = open_connection(path)
     try:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots "
-            "(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,'プライム',?,1)",
-            [(snapshot, ticker, ticker, sector) for ticker, sector in memberships.items()],
+        insert_master_rows(
+            connection,
+            [
+                (
+                    snapshot,
+                    ticker,
+                    ticker,
+                    "プライム",
+                    sector,
+                    "014" if sector == "その他" else "011",
+                )
+                for ticker, sector in memberships.items()
+            ],
         )
         connection.commit()
     finally:
@@ -262,3 +273,47 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
         is None
     )
     assert not missing.exists()
+
+
+def test_security_price_basis_includes_rights_price_adjustments(tmp_path):
+    path = tmp_path / "market.sqlite"
+    bars(path, "AAAA", 0.0)
+    connection = open_connection(path)
+    try:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET close=80,adjustment_factor=0.8,ex_right_type='3' "
+            "WHERE ticker='AAAA' AND traded_at=?",
+            (ASOF.isoformat(),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    price = security(path)["price"]
+    assert price["price_basis"] == "price_adjusted_close"
+    assert price["close"] == 80
+    assert price["return_20d"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("reader", ["prices", "master"])
+def test_market_context_readers_reject_obsolete_market_schema(tmp_path, reader):
+    from baibai_engine.storage.observations.schema import (
+        SQLITE_SCHEMA_VERSION,
+        SQLiteSchemaError,
+    )
+
+    path = tmp_path / "market.sqlite"
+    bars(path, "AAAA", 0.1)
+    master(path, "2026-05-28", {"AAAA": "機械"})
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+        connection.commit()
+    finally:
+        connection.close()
+    read = (
+        partial(read_price_bars, path, start=ASOF - timedelta(days=90), end=ASOF)
+        if reader == "prices"
+        else partial(read_master_snapshot, path, as_of=ASOF)
+    )
+    with pytest.raises(SQLiteSchemaError, match="obsolete market SQLite schema"):
+        read()

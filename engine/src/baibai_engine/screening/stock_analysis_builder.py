@@ -14,7 +14,6 @@ from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
 from baibai_engine.screening.schema import (
     DerivedMetrics,
-    FreshnessWarning,
     StockAnalysis,
     UniverseSnapshot,
 )
@@ -39,7 +38,6 @@ def build_stock_analysis(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
     universe_snapshot: UniverseSnapshot,
-    freshness_warnings: tuple[FreshnessWarning, ...] = (),
     next_earnings_date: date | None = None,
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
@@ -71,7 +69,7 @@ def build_stock_analysis(
         },
         market_cap_oku=universe_snapshot.market_cap_oku,
         avg_turnover_oku=universe_snapshot.avg_turnover_oku,
-        listing_span_days=universe_snapshot.listing_span_days,
+        price_history_span_days=universe_snapshot.price_history_span_days,
         jpx_flags=universe_snapshot.jpx_flags,
         price_change_1d=derived.price_change_1d,
         price_change_5d=derived.price_change_5d,
@@ -85,24 +83,18 @@ def build_stock_analysis(
         metrics=build_stock_analysis_metrics(
             financial,
             derived=derived,
-            freshness_warning_count=len(freshness_warnings),
-            estimate=estimate_expected_return(
-                expected_return_inputs(financial, derived, close=_close_from_snapshot(financial))
-            ),
+            estimate=estimate_expected_return(expected_return_inputs(financial, derived)),
             normalized_per_3fy=normalized_per_3fy,
             earnings_lag=earnings_lag,
             valuation_catalyst_context=valuation_catalyst_context,
         ),
         next_earnings_date=next_earnings_date,
-        split_adjustment_flag=derived.split_adjustment_flag,
-        freshness_warnings=freshness_warnings,
     )
 
 
 def build_stock_analysis_metrics(
     financial: FinancialSnapshot,
     *,
-    freshness_warning_count: int,
     derived: DerivedMetrics,
     estimate: ExpectedReturnEstimate | None = None,
     normalized_per_3fy: float | None = None,
@@ -146,7 +138,7 @@ def build_stock_analysis_metrics(
         "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
         "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
         "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
-        "margin_week_end": _date_iso(derived.margin_week_end),
+        "margin_balance_date": _date_iso(derived.margin_balance_date),
         "margin_issue_type": derived.margin_issue_type,
         "margin_long_to_adv": derived.margin_long_to_adv,
         "margin_short_to_adv": derived.margin_short_to_adv,
@@ -197,7 +189,6 @@ def build_stock_analysis_metrics(
         ),
         "next_earnings_status": None if earnings_lag is None else earnings_lag.next_earnings_status,
         "stale_fin_flag": None if earnings_lag is None else earnings_lag.stale_fin_flag,
-        "edinet_freshness_warning_count": freshness_warning_count,
         # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は valuation/estimates.py。
         "er_annual": estimate.er_annual if estimate else None,
         "er_reversion_annual": estimate.reversion_annual if estimate else None,
@@ -249,16 +240,12 @@ def build_stock_analysis_metrics(
     }
 
 
-def _close_from_snapshot(financial: FinancialSnapshot) -> float | None:
-    return financial.market_price_yen
-
-
 def _date_iso(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
 def expected_return_inputs(
-    financial: FinancialSnapshot, derived: DerivedMetrics, *, close: float | None
+    financial: FinancialSnapshot, derived: DerivedMetrics
 ) -> ExpectedReturnInputs:
     """Screening の大きな snapshot から Valuation の計算入力へ変換する。"""
     return ExpectedReturnInputs(
@@ -271,5 +258,5 @@ def expected_return_inputs(
         net_share_change_yoy=financial.net_share_change_yoy,
         dividend_basis_resolved=financial.dividend_basis
         not in {UNRESOLVED_DIVIDEND_BASIS, UNRESOLVED_ACTUAL_DIVIDEND_BASIS},
-        close=close,
+        close=financial.market_price_yen,
     )

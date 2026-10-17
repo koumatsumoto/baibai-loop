@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.universe import ELIGIBLE_MARKETS, TSE_33_SECTORS
-from baibai_engine.position.market_source import next_order_session, quantity_basis_is_confirmed
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.position.market_source import market_basis_is_confirmed, next_order_session
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.price_grid import PRICE_GRID_CONFIRMED_AT, PRICE_GRID_VALID_UNTIL
 from baibai_engine.research.assessment import StockAssessmentDocument
@@ -43,9 +43,9 @@ def assessment_quote_basis(
     )
     return (
         quote is not None
-        and quote.basis_confirmed
         and price_fact is not None
-        and quantity_basis_is_confirmed(
+        and market_basis_is_confirmed(
+            basis="price",
             sqlite_path=sqlite_path,
             ticker=quote.ticker,
             from_date=price_fact.as_of,
@@ -139,12 +139,12 @@ def terms_unavailable_reasons(
     if (
         classification is None
         or classification.market_segment.strip().upper() not in ELIGIBLE_MARKETS
-        or classification.sector_33 not in TSE_33_SECTORS
+        or not classification.is_common_stock
     ):
         reasons.append(
             GateReason(
                 code="security_classification_unavailable",
-                message="対象が既存分類の東証普通株と確認できません。",
+                message="原本の商品区分・銘柄コード・市場から東証普通株と確認できません。",
             )
         )
     session = next_order_session(sqlite_path=sqlite_path, now=now)

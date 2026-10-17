@@ -8,8 +8,9 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.db import initialize_database
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
@@ -59,7 +60,7 @@ def _panel_source(
     try:
         # This is how a store written before the registry grew looks: it has no
         # row at all for the series added since.
-        insert_observations(
+        store_h15_observations(
             connection,
             [
                 ObservationRecord(
@@ -129,7 +130,7 @@ def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Pa
                         source_url="https://example.com/series",
                     )
                 )
-        insert_observations(connection, observations)
+        store_h15_observations(connection, observations)
         connection.commit()
     finally:
         connection.close()

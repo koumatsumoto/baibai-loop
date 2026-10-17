@@ -1,4 +1,4 @@
-"""Deterministic legacy SQLite to L1 Canonical Parquet export."""
+"""Deterministic market SQLite to L1 Canonical Parquet export."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 
@@ -80,12 +81,16 @@ class LakeExportReport:
     store_origin: LakeStoreOrigin | None
     datasets: Mapping[str, LakeBuildReport]
     empty_datasets: tuple[str, ...] = ()
-    """Datasets the registry declares whose source has not published a row yet."""
+    """Declared datasets whose source table currently holds no rows.
+
+    This does not distinguish not-yet-acquired data from a verified empty response
+    or a derivation that withdrew its previous result.
+    """
 
 
 @dataclass(frozen=True)
-class LegacySQLiteSnapshot:
-    """A sealed read of the legacy store, valid only inside the operation that took it."""
+class SealedSQLiteSnapshot:
+    """A sealed read of the market store, valid only inside the operation that took it."""
 
     path: Path
     ref: SQLiteSnapshotSourceRef
@@ -104,8 +109,8 @@ def sealed_sqlite_snapshot(
     sqlite_path: Path,
     mirror_root: Path,
     snapshot_id: str | None = None,
-) -> Iterator[LegacySQLiteSnapshot]:
-    """Give one operation a fixed read of the legacy store, then take it back.
+) -> Iterator[SealedSQLiteSnapshot]:
+    """Give one operation a fixed read of the market store, then take it back.
 
     The sealed copy is the size of the whole store. It exists to stop the store from
     moving underneath a build that reads it for minutes, which is a property of the
@@ -125,37 +130,36 @@ def sealed_sqlite_snapshot(
     workspace.mkdir(parents=True)
     sealed = workspace / "snapshot.sqlite"
     try:
-        required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
-        if shutil.disk_usage(workspace).free < required:
-            raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
-        schema_version = create_snapshot(sqlite_path, sealed)
-        if schema_version != SQLITE_SCHEMA_VERSION:
-            raise LakeBuildError(
-                f"legacy SQLite schema is {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
+        try:
+            required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
+            if shutil.disk_usage(workspace).free < required:
+                raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
+            schema_version = create_snapshot(sqlite_path, sealed)
+            if schema_version != SQLITE_SCHEMA_VERSION:
+                raise LakeBuildError(
+                    f"market SQLite schema: {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
+                )
+            digest = sha256_file(sealed)
+            ref = SQLiteSnapshotSourceRef(
+                kind="sqlite_snapshot",
+                source_id=f"market-v{schema_version}-{digest[:24]}",
+                sha256=digest,
+                schema_version=schema_version,
+                captured_at=captured_at,
             )
-        digest = sha256_file(sealed)
-        ref = SQLiteSnapshotSourceRef(
-            kind="sqlite_snapshot",
-            source_id=f"market-v{schema_version}-{digest[:24]}",
-            sha256=digest,
-            schema_version=schema_version,
-            captured_at=captured_at,
-        )
-    except (OSError, sqlite3.Error, ValueError) as exc:
-        shutil.rmtree(workspace, ignore_errors=True)
-        raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
-    try:
-        yield LegacySQLiteSnapshot(path=sealed, ref=ref)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
+        yield SealedSQLiteSnapshot(path=sealed, ref=ref)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
 
-def export_legacy_sqlite(
+def export_dataset_snapshot(
     *,
     dataset_name: str,
     mirror_root: Path,
     producer_git_commit: str,
-    source_snapshot: LegacySQLiteSnapshot,
+    source_snapshot: SealedSQLiteSnapshot,
     build_id: str | None = None,
     created_at: datetime | None = None,
 ) -> LakeBuildReport:
@@ -173,7 +177,7 @@ def export_legacy_sqlite(
 
     dataset = require_lake_dataset(dataset_name)
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
-    actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-legacy-{uuid.uuid4().hex[:8]}"
+    actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
     staging_root = _workspace_path(mirror_root, "staging", actual_build_id)
     if staging_root.exists():
@@ -197,8 +201,7 @@ def export_legacy_sqlite(
                 )
                 for period in periods
             ]
-            data_as_of = _data_as_of(connection, dataset, periods=periods)
-            coverage_status, coverage_start, population_count = _coverage_assessment(
+            coverage_status, coverage_start, data_as_of, population_count = _coverage_assessment(
                 connection, dataset
             )
 
@@ -226,7 +229,7 @@ def export_legacy_sqlite(
             totals=totals,
         )
         new_objects = _promote_partitions(mirror_root, built)
-        validate_legacy_parity(
+        validate_snapshot_parity(
             sqlite_path=snapshot.path,
             mirror_root=mirror_root,
             manifest=manifest,
@@ -255,7 +258,7 @@ def export_legacy_sqlite(
         raise LakeBuildError(str(exc)) from exc
 
 
-def export_lake_legacy(
+def export_market_store(
     *,
     sqlite_path: Path,
     mirror_root: Path,
@@ -275,17 +278,16 @@ def export_lake_legacy(
                     "sealed SQLite store origin differs from the serving L1 release; "
                     "hydrate from current before publishing"
                 )
-            # A dataset whose source has not started publishing yet holds no row, and a
-            # canonical build with no partition is not a release input. Skipping it keeps
-            # "this source has not begun" distinct from "this build failed", which is the
-            # difference an operator needs on the day the source does begin.
+            # Empty source tables produce no partition. Omit them here without claiming
+            # why they are empty; release policy decides whether an omitted dataset is
+            # allowed, including required inputs and previously published history.
             populated = tuple(
                 name for name in sorted(LAKE_DATASETS) if _has_rows(probe, LAKE_DATASETS[name])
             )
         if not populated:
             raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
         reports = {
-            dataset_name: export_legacy_sqlite(
+            dataset_name: export_dataset_snapshot(
                 dataset_name=dataset_name,
                 mirror_root=mirror_root,
                 producer_git_commit=producer_git_commit,
@@ -309,7 +311,7 @@ def _has_rows(connection: sqlite3.Connection, dataset: LakeDataset) -> bool:
     return row is not None
 
 
-def validate_legacy_parity(
+def validate_snapshot_parity(
     *,
     sqlite_path: Path,
     mirror_root: Path,
@@ -341,30 +343,53 @@ def validate_legacy_parity(
             )
 
 
+def _row_batch_size(dataset: LakeDataset) -> int:
+    # A source ZIP can be large; keep at most one archive row in an Arrow batch.
+    # Ordinary scalar observations keep the existing row-group budget.
+    return 1 if dataset.has_binary_payload else _ROW_GROUP_SIZE
+
+
 def _build_period(
     *,
     dataset: LakeDataset,
     period: Period,
     staging_root: Path,
-    rows: Sequence[tuple[object, ...]],
+    rows: Iterable[tuple[object, ...]],
     sources: tuple[SourceRef, ...],
 ) -> _BuiltPartition:
-    table = pa.Table.from_pylist(
-        [dict(zip((column.name for column in dataset.columns), row, strict=True)) for row in rows],
-        schema=dataset.arrow_schema,
-    )
     provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}.parquet"
-    pq.write_table(
-        table,
+    names = tuple(column.name for column in dataset.columns)
+    pk_indexes = _pk_indexes(dataset)
+    batch_size = _row_batch_size(dataset)
+    iterator = iter(rows)
+    count = 0
+    min_key: tuple[str, ...] | None = None
+    max_key: tuple[str, ...] | None = None
+    with pq.ParquetWriter(
         provisional,
+        dataset.arrow_schema,
         compression=_COMPRESSION,
         compression_level=_COMPRESSION_LEVEL,
         data_page_version="1.0",
-        row_group_size=_ROW_GROUP_SIZE,
         use_dictionary=False,
         version=_PARQUET_VERSION,
-        write_statistics=True,
-    )
+        write_statistics=[
+            column.name for column in dataset.columns if column.sqlite_type != "BLOB"
+        ],
+    ) as writer:
+        while batch := list(islice(iterator, batch_size)):
+            table = pa.Table.from_pylist(
+                [dict(zip(names, row, strict=True)) for row in batch],
+                schema=dataset.arrow_schema,
+            )
+            writer.write_table(table, row_group_size=batch_size)
+            count += len(batch)
+            for row in batch:
+                key = tuple(str(row[index]) for index in pk_indexes)
+                min_key = key if min_key is None else min(min_key, key)
+                max_key = key if max_key is None else max(max_key, key)
+    if min_key is None or max_key is None:
+        raise LakeBuildError("cannot build an empty calendar partition")
     content_sha256 = sha256_file(provisional)
     object_key = canonical_object_key(
         layer="l1_canonical",
@@ -377,14 +402,13 @@ def _build_period(
     staged = staging_root / object_key
     staged.parent.mkdir(parents=True, exist_ok=True)
     provisional.replace(staged)
-    primary_keys = [tuple(str(row[index]) for index in _pk_indexes(dataset)) for row in rows]
     lake_object = LakeObject(
         key=object_key,
         sha256=content_sha256,
         bytes=staged.stat().st_size,
-        rows=len(rows),
-        min_key=min(primary_keys),
-        max_key=max(primary_keys),
+        rows=count,
+        min_key=min_key,
+        max_key=max_key,
     )
     return _BuiltPartition(
         period=period,
@@ -399,8 +423,8 @@ def _build_period(
 
 def _coverage_assessment(
     connection: sqlite3.Connection, dataset: LakeDataset
-) -> tuple[CoverageStatus, date, int | None]:
-    """Derive completeness from the authority defined for the legacy source."""
+) -> tuple[CoverageStatus, date, date, int | None]:
+    """Derive operational coverage from the evidence defined for this SQLite source."""
     bounds = connection.execute(
         f"SELECT MIN({dataset.date_column}), MAX({dataset.date_column}) "  # nosec B608
         f"FROM {dataset.sqlite_table}"  # nosec B608
@@ -419,7 +443,7 @@ def _coverage_assessment(
         )
         if population_count <= 0:
             raise LakeBuildError(f"{dataset.name} has no {dataset.population_column} population")
-    return _coverage_status(connection, dataset, start=start, end=end), start, population_count
+    return _coverage_status(connection, dataset, start=start, end=end), start, end, population_count
 
 
 def _coverage_status(
@@ -447,31 +471,40 @@ def _validate_parquet(
     *,
     dataset: LakeDataset,
     period: Period,
-    expected_rows: Sequence[tuple[object, ...]],
+    expected_rows: Iterable[tuple[object, ...]],
     expected_object: LakeObject,
 ) -> None:
     if not path.is_file() or path.stat().st_size <= 0:
         raise LakeBuildError(f"Parquet object missing or empty: {path}")
     if sha256_file(path) != expected_object.sha256 or path.stat().st_size != expected_object.bytes:
         raise LakeBuildError(f"Parquet checksum or size mismatch: {path}")
-    table = pq.read_table(path)
-    if not table.schema.equals(dataset.arrow_schema, check_metadata=True):
-        raise LakeBuildError(f"Parquet Arrow schema mismatch: {path}")
     names = tuple(column.name for column in dataset.columns)
-    actual_rows = [tuple(item[name] for name in names) for item in table.to_pylist()]
-    if actual_rows != list(expected_rows):
-        raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
-    pk_indexes = _pk_indexes(dataset)
-    keys = [tuple(str(row[index]) for index in pk_indexes) for row in actual_rows]
-    if len(keys) != len(set(keys)):
-        raise LakeBuildError(f"Parquet primary key is not unique: {path}")
     date_index = names.index(dataset.date_column)
+    pk_indexes = _pk_indexes(dataset)
     prefix = f"{period_label(period)}-"
-    if any(not str(row[date_index]).startswith(prefix) for row in actual_rows):
-        raise LakeBuildError(f"Parquet row escapes its calendar partition: {path}")
-    if len(actual_rows) != expected_object.rows:
+    expected = iter(expected_rows)
+    keys: set[tuple[str, ...]] = set()
+    count = 0
+    with pq.ParquetFile(path, pre_buffer=False) as parquet:
+        if not parquet.schema_arrow.equals(dataset.arrow_schema, check_metadata=True):
+            raise LakeBuildError(f"Parquet Arrow schema mismatch: {path}")
+        for batch in parquet.iter_batches(batch_size=_row_batch_size(dataset)):
+            actual = [tuple(item[name] for name in names) for item in batch.to_pylist()]
+            if actual != list(islice(expected, len(actual))):
+                raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
+            count += len(actual)
+            for row in actual:
+                key = tuple(str(row[index]) for index in pk_indexes)
+                if key in keys:
+                    raise LakeBuildError(f"Parquet primary key is not unique: {path}")
+                keys.add(key)
+                if not str(row[date_index]).startswith(prefix):
+                    raise LakeBuildError(f"Parquet row escapes its calendar partition: {path}")
+    if next(expected, None) is not None:
+        raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
+    if count != expected_object.rows:
         raise LakeBuildError(f"Parquet row count mismatch: {path}")
-    if min(keys) != expected_object.min_key or max(keys) != expected_object.max_key:
+    if not keys or min(keys) != expected_object.min_key or max(keys) != expected_object.max_key:
         raise LakeBuildError(f"Parquet min/max primary key mismatch: {path}")
 
 
@@ -501,7 +534,7 @@ def _period_rows(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     period: Period,
-) -> list[tuple[object, ...]]:
+) -> Iterator[tuple[object, ...]]:
     prefix = f"{period_label(period)}-"
     columns = ", ".join(column.name for column in dataset.columns)
     order = ", ".join(dataset.primary_key)
@@ -509,13 +542,14 @@ def _period_rows(
         f"SELECT {columns} FROM {dataset.sqlite_table} "  # nosec B608
         f"WHERE {dataset.date_column} LIKE ? ORDER BY {order}"
     )
-    return [tuple(row) for row in connection.execute(query, (f"{prefix}%",))]
+    for row in connection.execute(query, (f"{prefix}%",)):
+        yield tuple(row)
 
 
 def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDataset) -> None:
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     if version != SQLITE_SCHEMA_VERSION:
-        raise LakeBuildError(f"legacy SQLite schema is {version}; expected {SQLITE_SCHEMA_VERSION}")
+        raise LakeBuildError(f"market SQLite schema is {version}; expected {SQLITE_SCHEMA_VERSION}")
     actual = tuple(connection.execute(f"PRAGMA table_info({dataset.sqlite_table})"))
     expected = tuple(
         (
@@ -529,7 +563,7 @@ def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDatas
         for index, column in enumerate(dataset.columns)
     )
     if actual != expected:
-        raise LakeBuildError(f"legacy SQLite table contract mismatch: {dataset.sqlite_table}")
+        raise LakeBuildError(f"market SQLite table contract mismatch: {dataset.sqlite_table}")
 
 
 def _manifest_partitions(manifest: DatasetManifest) -> dict[Period, PartitionManifest]:
@@ -559,21 +593,6 @@ def _promote_partitions(mirror_root: Path, built: Sequence[_BuiltPartition]) -> 
         except ImmutableInstallError as exc:
             raise LakeBuildError(f"content-addressed key collision: {target}") from exc
     return created
-
-
-def _data_as_of(
-    connection: sqlite3.Connection,
-    dataset: LakeDataset,
-    *,
-    periods: Iterable[Period],
-) -> date:
-    latest = max(periods)
-    names = tuple(column.name for column in dataset.columns)
-    date_index = names.index(dataset.date_column)
-    rows = _period_rows(connection, dataset, latest)
-    if not rows:
-        raise LakeBuildError("latest manifest partition is absent from the legacy SQLite")
-    return max(_iso_date(row[date_index], dataset=dataset) for row in rows)
 
 
 def _iso_date(value: object, *, dataset: LakeDataset) -> date:

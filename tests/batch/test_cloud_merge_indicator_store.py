@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.indicator_store import downgrade_to_pre_retraction_schema, observation
+from tests.helpers.indicator_store import observation
 
 from baibai_batch.storage.merge_indicator_store import (
     MergeError,
@@ -20,6 +20,7 @@ from baibai_batch.storage.merge_indicator_store import (
 )
 from baibai_engine.market_context.indicators.db import (
     SCHEMA_PATH,
+    SQLITE_SCHEMA_VERSION,
     initialize_database,
     insert_observations,
     observations_in_range,
@@ -32,6 +33,7 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 STARTED_AT = datetime(2026, 7, 24, 11, 47, tzinfo=UTC)
 # Every observation carries an explicit vintage so a row present in both stores collides on
@@ -78,7 +80,7 @@ def _observation(series_id: str, day: date, value: float) -> ObservationRecord:
 
 
 def _rows(path: Path, sql: str) -> list[tuple[object, ...]]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return [tuple(row) for row in connection.execute(sql)]
     finally:
@@ -207,7 +209,7 @@ def test_merge_carries_a_retraction_to_the_other_store(tmp_path: Path) -> None:
 
 
 def _read_range(path: Path) -> tuple[object, ...]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         return tuple(
@@ -220,16 +222,16 @@ def _read_range(path: Path) -> tuple[object, ...]:
 def test_merge_refuses_a_source_behind_the_target(tmp_path: Path) -> None:
     """Both stores must be on the schema this code writes, whatever the gap.
 
-    The source is the copy R2 holds, and the transfer script moves it forward before the
-    merge sees it. Accepting a behind source here instead would mean merging under two
-    different shapes and deciding which one the payload comparison speaks about.
+    Transfer does not silently migrate the source. A schema cutover is separate
+    operator work; ordinary merge accepts only the current contract on both sides.
     """
     source = tmp_path / "source.sqlite"
     target = tmp_path / "target.sqlite"
     observation = _observation("jp.10y", date(2026, 7, 23), 1.62)
     _build_store(source, series_ids=("jp.10y",), observations=(observation,))
     _build_store(target, series_ids=("jp.10y",), observations=())
-    downgrade_to_pre_retraction_schema(source)
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(MergeError, match=r"schema is \d+ but this code expects"):
         merge_stores(source, target)
@@ -649,3 +651,91 @@ def _inject_source_observation(path: Path, observation: ObservationRecord) -> No
         insert_observations(connection, [observation], deduplicate_unchanged=False)
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         connection.commit()
+
+
+@pytest.mark.parametrize("side", ["source", "target"])
+@pytest.mark.parametrize("value", [1.62, 999.0])
+def test_retracted_rows_keep_the_storage_contract(tmp_path, side, value):
+    source = tmp_path / "source.sqlite"
+    target = tmp_path / "target.sqlite"
+    for path in (source, target):
+        _build_store(path, series_ids=("jp.10y",), observations=())
+    _inject_source_observation(
+        source if side == "source" else target,
+        ObservationRecord(
+            series_id="jp.10y",
+            observed_at=date(2026, 7, 23),
+            value=value,
+            unit="percent",
+            source_url="https://example.com/series",
+            vintage_at=VINTAGE,
+            fetch_status="retracted",
+        ),
+    )
+
+    before = target.read_bytes()
+    if value == 999.0:
+        with pytest.raises(MergeError, match="outside target plausible range"):
+            merge_stores(source, target)
+        assert target.read_bytes() == before
+    else:
+        merge_stores(source, target)
+        assert _rows(target, "SELECT value, fetch_status FROM observations") == [
+            (value, "retracted")
+        ]
+        assert _read_range(target) == ()
+
+
+def test_native_option_facts_merge_independently_of_registered_readings(tmp_path: Path) -> None:
+    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    for path in (source, target):
+        _build_store(path, series_ids=("us.10y",), observations=())
+    with closing(sqlite3.connect(source)) as conn, conn:
+        store_snapshot(
+            conn,
+            source_key="jquants_options:n225",
+            observed_at=date(2026, 7, 20),
+            fetched_at=VINTAGE,
+            records=[{"Date": "2026-07-20", "unused": None}],
+        )
+    with closing(sqlite3.connect(target)) as conn, conn:
+        store_snapshot(
+            conn,
+            source_key="jquants_options:n225",
+            observed_at=date(2026, 7, 21),
+            fetched_at=VINTAGE,
+            records=[],
+        )
+    report = merge_stores(source, target)
+    raw = next(table for table in report.tables if table.table == "indicator_source_snapshots")
+    assert raw.inserted == 1
+    assert raw.skipped == 0
+    assert raw.target_rows_after == 2
+    assert merge_stores(source, target).inserted == 0
+    assert _rows(source, "SELECT * FROM indicator_source_snapshots") == _rows(
+        target, "SELECT * FROM indicator_source_snapshots WHERE observed_at = '2026-07-20'"
+    )
+
+
+def test_raw_payload_conflict_rolls_back_scalar_rows_in_the_same_merge(tmp_path: Path) -> None:
+    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    _build_store(
+        source,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2026, 7, 20), 4.0),),
+    )
+    _build_store(target, series_ids=("us.10y",), observations=())
+    for path, rows in ((source, [{"Date": "2026-07-20", "IV": 20}]), (target, [])):
+        with closing(sqlite3.connect(path)) as conn, conn:
+            store_snapshot(
+                conn,
+                source_key="jquants_options:n225",
+                observed_at=date(2026, 7, 20),
+                fetched_at=VINTAGE,
+                records=rows,
+            )
+    before = _rows(target, "SELECT * FROM indicator_source_snapshots")
+    with pytest.raises(MergeError, match="indicator_source_snapshots payload disagrees"):
+        merge_stores(source, target)
+    assert _observations(target) == set()
+    assert _rows(target, "SELECT * FROM indicator_source_snapshots") == before

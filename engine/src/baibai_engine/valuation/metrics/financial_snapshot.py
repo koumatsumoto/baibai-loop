@@ -18,7 +18,7 @@ from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQualit
 from .capital import (
     ENTITY_SCALE_MISMATCH,
     _common_equity_yen,
-    _edinet_describes_same_entity,
+    _edinet_passes_entity_scale_check,
     _normalize_summaries_with_status,
     _resolve_capital_basis,
     _shares_excluding_treasury,
@@ -39,12 +39,11 @@ from .periods import (
 from .profit import (
     _accruals_to_assets,
     _loss_narrowing,
-    _resolve_earnings_forecast,
     _select_operating_profit,
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "offsetting-dividend-actions-v28"
+VALUATION_CALCULATION_REVISION = "annual-period-cohort-v42"
 
 
 def build_financial_snapshot(
@@ -64,13 +63,13 @@ def build_financial_snapshot(
     summaries = normalization.summaries
     capital_basis_barrier = normalization.capital_basis_barrier
     latest = _latest_summary(summaries)
-    forecast = _resolve_earnings_forecast(summaries)
-    forecast_eps = forecast.eps if forecast is not None else None
+    forecast = latest_forecast_source(summaries)
+    forecast_eps = forecast.forecast_eps if forecast is not None else None
     # 同じ予想期の純利益>経常利益はdata-quality注記。原因・持続性は一次開示で確認する。
     # 純利益/経常は同じ予想期・basis・開示候補から投影する分割不変の絶対額なので、
     # 両方揃うときだけ比較する。flag は warning で per_forward / E[r] / rank を変えない。
-    forecast_profit = forecast.profit if forecast is not None else None
-    forecast_ordinary_profit = forecast.ordinary_profit if forecast is not None else None
+    forecast_profit = forecast.forecast_profit if forecast is not None else None
+    forecast_ordinary_profit = forecast.forecast_ordinary_profit if forecast is not None else None
     forecast_special_gain_flag = (
         forecast_profit is not None
         and forecast_ordinary_profit is not None
@@ -119,11 +118,8 @@ def build_financial_snapshot(
     bs_carry_forward_lag_days = max(
         (lag for lag in carried_lags.values() if lag is not None), default=None
     )
-    # carry 用の配当利回りは予想 DPS を優先する。ただし正の実績 DPS の 2 倍を超える
-    # 跳ねは 5 年反復させず、実績へ倒す。予想を使えなければ accrual 期間の分割 factor で
-    # 調整した実績 DPS を使う。実績 DPS は
-    # FY 開示にしか載らないため直近の非 null 行から取り、split-safe 化した値を
-    # snapshot の実績 DPS として記録する (株価と同じ分割後基準で表示・比較できる)。
+    # 配当側で原本実績の比較可能性を判断する。資本の換算値を DPS へ流用しない。
+    # 独立して使える現行予想を優先し、受理した実績または未解決を snapshot へ渡す。
     dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price, asof_date)
     dps_actual_annual = dividend.dps_actual_annual
     dps_forecast_annual = dividend.dps_forecast_annual
@@ -165,9 +161,10 @@ def build_financial_snapshot(
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", ttm_rules)
     # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
     # TTM 系列は短信由来である。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の
-    # 分子と分母が別の会社を指す。両側が総資産を持つので実体の一致は直接確かめられる。
-    entity_matches = _edinet_describes_same_entity(edinet, total_assets)
-    edinet_metrics = edinet if entity_matches else None
+    # 分子と分母の範囲がずれ得る。総資産の倍率で大きな規模差を検出するが、
+    # 通過しても同一時点・連結範囲の一致を証明するものではない。
+    edinet_usable = _edinet_passes_entity_scale_check(edinet, total_assets)
+    edinet_metrics = edinet if edinet_usable else None
     edinet_ocf_ttm = edinet_metrics.ocf_ttm if edinet_metrics else None
     debt = edinet_metrics.debt if edinet_metrics else None
     cash = edinet_metrics.cash if edinet_metrics else None
@@ -176,7 +173,7 @@ def build_financial_snapshot(
     net_cash = edinet_metrics.net_cash if edinet_metrics else None
     investment_securities = edinet_metrics.investment_securities if edinet_metrics else None
     edinet_failure_reasons = (
-        ",".join((*edinet.failure_reasons, *(() if entity_matches else (ENTITY_SCALE_MISMATCH,))))
+        ",".join((*edinet.failure_reasons, *(() if edinet_usable else (ENTITY_SCALE_MISMATCH,))))
         if edinet
         else None
     )
@@ -194,21 +191,9 @@ def build_financial_snapshot(
     # `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
     per_trailing = _safe_positive_ratio(latest_market_cap, profit_ttm)
     eps_ttm = _safe_ratio(profit_ttm, shares_ex_treasury)
-    # 純資産倍率も円で組む。自己資本は `総資産 x 開示自己資本比率` で出せるので 1 株当たり
-    # 純資産を経由せずに済み、`bps` が四半期開示に載らないことによる古さを避けられる
-    # (実測: 両方を持つ 4,032 銘柄で bps 経路の齢が中央値 90 日、円経路は 11 日、円経路が
-    # 古い銘柄は 0)。
-    #
-    # **ただし 2 経路は同じ量とは限らない。** 自己資本比率の分子は優先株・非支配株主持分を
-    # 含みうる一方、`bps` は普通株主に帰属する 1 株当たり純資産である。実測では通期行
-    # 40,477 のうち 97.2% が 1% 以内で一致するが、447 行は円経路が 20% 以上大きく、155 行は
-    # 2 倍を超える。円経路をそのまま使うと、その銘柄の PBR だけが割安側へ倒れる。
-    #
-    # 差は会社の資本構成から来るので銘柄ごとに判定できる。両方を持つ直近の行で突き合わせ、
-    # 一致する会社だけ円経路の鮮度を使い、食い違う会社は普通株基準の `bps` を使う。
-    # `total_assets` と `equity_to_asset_ratio` は同じ資本状態の組である。一方だけを新しい
-    # 開示から採ると、資産変動率をそのまま自己資本へ混入させるため、両方を観測した最新行
-    # から円経路を組む。個別の carry 値は表示・staleness fact として引き続き保持する。
+    # 同じ開示行のTAとEqARから円経路を作り、普通株BPS経路との照合と鮮度で選ぶ。
+    # 別開示日の値を掛け合わせたり、carry後の差だけで古いBPSへ戻したりしない。
+    # 行内の近さは経路選択の条件であり、差の経済的な原因を確定するものではない。
     common_equity_row = _latest_complete_row(summaries, ("total_assets", "equity_to_asset_ratio"))
     same_state_equity_yen = None
     if common_equity_row is not None:
@@ -261,9 +246,9 @@ def build_financial_snapshot(
     )
     # 同じ前年行を、自己株式を除いた株数で測り直したもの。日本の自社株買いは取得した株式を
     # 自己株式へ入れるだけで発行済株式総数を減らさないので、上の量が動くのは主に消却年で
-    # あって取得年ではない。どちらが forward 実現をよく説明するかは事前登録した比較で決める
-    # ので (reports/studies/2026-08-17-tradable-share-change/)、ここでは両方を fact として
-    # 出すだけで、carry の計算は変えない。
+    # あって取得年ではない。当時の比較は既存 carry を維持する結論だった
+    # (reports/studies/2026-08-17-tradable-share-change/)。ここでは両方の fact を出し、
+    # carry の計算は変えない。
     tradable_share_change_yoy = _yoy_ratio(
         shares_ex_treasury,
         _shares_excluding_treasury(
@@ -274,7 +259,7 @@ def build_financial_snapshot(
     return FinancialSnapshot(
         latest_financial_disclosure_date=latest.disclosed_at if latest else None,
         per_forward=per_forward,
-        earnings_forecast_source=forecast_source_trace(forecast.source if forecast else None),
+        earnings_forecast_source=forecast_source_trace(forecast),
         dividend_forecast_source=forecast_source_trace(
             latest_forecast_source(summaries, dividend=True), dividend=True
         ),

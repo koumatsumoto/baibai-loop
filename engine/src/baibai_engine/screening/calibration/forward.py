@@ -9,11 +9,11 @@ from datetime import date, timedelta
 from math import isfinite
 from pathlib import Path
 
-from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
     asof_basis_closes,
+    asof_basis_prices,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
@@ -21,16 +21,10 @@ from baibai_engine.storage.observations.reader import read_financial_documents
 
 # 配当・株数の基準はValuationのcarryと同じにする。較正と本番が異なる量を扱わないよう、
 # 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
-from baibai_engine.valuation.metrics.capital import (
-    SHARE_COUNT_ANCHOR_TOLERANCE,
-    _cumulative_adjustment_factor_after,
-)
 from baibai_engine.valuation.metrics.dividends import (
-    DIVIDEND_RECORD_DATE_GUARD_DAYS,
-    DIVIDEND_ROUTE_TOLERANCE,
-    _dividend_basis_factor,
+    _dividend_basis_requires_resolution,
 )
-from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
+from baibai_engine.valuation.metrics.periods import _latest_consistent_actual, _period_days
 
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
@@ -48,7 +42,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "fy-dividend-document-revisions-v2"
+FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v7"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -83,11 +77,13 @@ TOTAL_RETURN_STATUSES = frozenset(
         "resolved",
         "unresolved_price_return",
         "unresolved_adjustment_factor",
+        "unresolved_rights_issue",
         "unresolved_no_fy_observation",
         "unresolved_missing_dividend",
+        "unresolved_dividend_period_gap",
         "unresolved_invalid_dividend",
         "unresolved_invalid_total_return",
-        # 会計期間に分割・併合が入り、支払ごとの換算でも株式基準を確定できない年度。
+        # 会計期間から開示までに分割・併合が入り、原本の株式基準を特定できない年度。
         # 総リターンは配当を含む定義なので、基準の分からない配当を足した値を resolved と
         # 名乗らせない。この窓は総リターンを読む metric の標本から外れる。
         "unresolved_dividend_split_basis",
@@ -97,10 +93,9 @@ TOTAL_RETURN_STATUSES = frozenset(
 
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
-# A window that ended in a completed cash tender offer is resolved by the price that
-# offer paid, not by the last close before the target date. The status is separate from
-# `resolved` so that a reader can always tell an observed market close from a settled
-# takeover; the rules that produce these values are pre-registered in
+# A delisted window may use the verified cash offer price as an analytical exit proxy.
+# Keep a distinct status: this is neither a target-date market close nor proof of an
+# individual shareholder's cash receipt. Historical rules and measurements are in
 # reports/studies/2026-08-11-capital-control-exit-values/.
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
 
@@ -183,7 +178,7 @@ class ForwardReturnRow:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ControlEventExit:
-    """The cash a completed tender offer paid, and the day trading stopped."""
+    """The offer-price proxy and delisting date, not confirmed payment facts."""
 
     delisted_on: date
     offer_price_yen: float
@@ -202,28 +197,21 @@ class _FYDividendObservation:
     fiscal_year_end: date
     disclosed_at: date
     dps_actual_annual: float | None
-    # 会計期間と支払ごとの内訳。期間内に分割・併合が入った年度は、報告された年間値では
-    # なくこちらを基準日ごとに換算する。総額と株数はその換算の独立した照合に使う。
     period_start: date | None = None
-    payments: tuple[float | None, ...] = (None, None, None, None)
-    dividend_total_annual: float | None = None
-    shares_outstanding: float | None = None
-    treasury_shares: float | None = None
-    average_shares: float | None = None
 
 
 FORWARD_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(ForwardReturnRow))
 
 
 def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventExit, ...]]:
-    """Load realized tender-offer exits, keyed by ticker.
+    """Load tender-offer-price exit proxies, keyed by ticker.
 
     A ticker can appear more than once — a name can be taken private, relist and be
     taken private again — so the caller matches the one that falls inside its window
     and leaves the row unresolved when more than one does.
     """
     # No fallback to an empty mapping. A store that cannot answer would produce a build
-    # that is byte-identical to the baseline while presenting itself as the actual-exit
+    # that is byte-identical to the baseline while presenting itself as the offer-price exit
     # contract, and the before/after comparison would then read "nothing was replaced"
     # as a result rather than as a missing input.
     conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
@@ -246,12 +234,12 @@ def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventE
 def read_failure_exits(sqlite_path: Path) -> dict[str, tuple[FailureExit, ...]]:
     """Load the delistings that removed a failing company, keyed by ticker.
 
-    The reason is carried through so a row can say which phrase realized it, and so a
+    The reason is carried through so a row can show its classification, and so a
     later reading of the same store can tell a reclassification from a data change.
     """
     # No fallback to an empty mapping, for the same reason `read_control_event_exits`
     # has none: a store that cannot answer would build a byte-identical baseline while
-    # presenting itself as the realized-exit contract.
+    # presenting itself as the delisting-exit contract.
     conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute("SELECT ticker, delisted_on, reason FROM jpx_delistings").fetchall()
@@ -297,9 +285,10 @@ def compute_forward_returns(
             # selected after entry can belong to a fiscal year that began almost a
             # year earlier, so its factor events need a separate, earlier boundary.
             dividend_period_starts = [
-                observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
+                observation.period_start
                 for observation in fy_dividends
                 if min_asof < observation.fiscal_year_end <= latest_target
+                and observation.period_start is not None
             ]
             event_start = min([min_asof, *dividend_period_starts])
             adjustment_events = _load_ticker_adjustment_events(conn, ticker, start=event_start)
@@ -477,7 +466,7 @@ def _ticker_forward_rows(
 def _matching_control_event_exit(
     exits: Sequence[ControlEventExit], *, entry_date: date | None, target: date
 ) -> ControlEventExit | None:
-    """The one settled offer that ended trading inside this window, if exactly one did."""
+    """The one offer-price proxy whose delisting falls inside this window."""
     if entry_date is None:
         return None
     matching = [
@@ -500,10 +489,10 @@ def _control_event_row(
 ) -> ForwardReturnRow | None:
     """Price the window with the offer, or decline and leave it to the bracket.
 
-    The offer is quoted per share as of the delisting, while entry closes are carried to
-    the share basis of the final bar. Those two bases agree only when no split or reverse
-    split followed the delisting, so a non-unit cumulative factor after that day means
-    the offer cannot be placed on the same basis and the window is not realized.
+    This convention places the verified offer price at delisting; it does not prove
+    a holder received that amount on that date. Entry closes use the final price basis,
+    so a non-unit cumulative factor after delisting leaves the proxy incomparable.
+    The stored offer evidence does not establish a later share-unit conversion.
     """
     if control_exit is None or entry_date is None or entry_close <= 0 or not bars:
         return None
@@ -511,11 +500,11 @@ def _control_event_row(
         return None
     if price_basis_date is None:
         return None
-    factor = _cumulative_adjustment_factor_after(
-        adjustment_events,
-        after=control_exit.delisted_on,
+    factor = asof_basis_prices(
+        [(control_exit.delisted_on, 1.0)],
+        [(event.traded_at, event.adjustment_factor) for event in adjustment_events],
         asof_date=price_basis_date,
-    )
+    )[0]
     if factor != 1.0:
         return None
     price_return = control_exit.offer_price_yen / entry_close - 1
@@ -639,7 +628,7 @@ def _load_ticker_bars(
     conn: sqlite3.Connection, ticker: str, *, start: date
 ) -> list[JQuantsDailyBar]:
     rows = conn.execute(
-        "SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars "
+        "SELECT traded_at, close, adjustment_factor, ex_right_type FROM jquants_daily_bars "
         "WHERE ticker = ? AND traded_at >= ? AND close IS NOT NULL ORDER BY traded_at",
         (ticker, start.isoformat()),
     ).fetchall()
@@ -650,8 +639,9 @@ def _load_ticker_bars(
             close=float(close),
             turnover_value=None,
             adjustment_factor=float(factor) if factor is not None else None,
+            ex_right_type=ex_right_type,
         )
-        for day, close, factor in rows
+        for day, close, factor, ex_right_type in rows
     ]
 
 
@@ -659,9 +649,9 @@ def _load_ticker_adjustment_events(
     conn: sqlite3.Connection, ticker: str, *, start: date
 ) -> list[JQuantsAdjustmentFactorEvent]:
     rows = conn.execute(
-        "SELECT traded_at, adjustment_factor FROM jquants_daily_bars "
-        "WHERE ticker = ? AND traded_at >= ? AND adjustment_factor IS NOT NULL "
-        "AND adjustment_factor NOT IN (0.0, 1.0) ORDER BY traded_at",
+        "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
+        "WHERE ticker = ? AND traded_at >= ? "
+        "AND (adjustment_factor != 1.0 OR ex_right_type IS NOT NULL) ORDER BY traded_at",
         (ticker, start.isoformat()),
     ).fetchall()
     return [
@@ -669,8 +659,9 @@ def _load_ticker_adjustment_events(
             ticker=ticker,
             traded_at=date.fromisoformat(str(day)),
             adjustment_factor=float(factor),
+            ex_right_type=ex_right_type,
         )
-        for day, factor in rows
+        for day, factor, ex_right_type in rows
     ]
 
 
@@ -688,20 +679,7 @@ def _load_fy_dividends(
         # A forecast-only revision does not cancel a recorded actual dividend.
         # Same-day revisions use the shared disclosure-time/conflict contract.
         candidates = [row for row in rows if row.dps_actual_annual is not None]
-        selected = _latest_consistent_actual(
-            candidates,
-            (
-                "dps_actual_annual",
-                "dividend_q1",
-                "dividend_interim",
-                "dividend_q3",
-                "dividend_year_end",
-                "dividend_total_annual",
-                "shares_outstanding",
-                "treasury_shares",
-                "average_shares",
-            ),
-        )
+        selected = _latest_consistent_actual(candidates, ("dps_actual_annual",))
         if selected is None:
             # Retain the fiscal year as unresolved, rather than dropping its dividend.
             observations.append(
@@ -712,18 +690,10 @@ def _load_fy_dividends(
             _FYDividendObservation(
                 fiscal_year_end=year,
                 disclosed_at=selected.disclosed_at,
-                dps_actual_annual=selected.dps_actual_annual,
+                dps_actual_annual=selected.dps_actual_annual
+                if selected.dps_actual_annual == 0 or _period_days(selected) is not None
+                else None,
                 period_start=selected.period_start,
-                payments=(
-                    selected.dividend_q1,
-                    selected.dividend_interim,
-                    selected.dividend_q3,
-                    selected.dividend_year_end,
-                ),
-                dividend_total_annual=selected.dividend_total_annual,
-                shares_outstanding=selected.shares_outstanding,
-                treasury_shares=selected.treasury_shares,
-                average_shares=selected.average_shares,
             )
         )
     return observations
@@ -744,6 +714,13 @@ def _resolve_total_return(
     """Resolve retrospective FY dividends without treating absent data as zero."""
     if adjustment_coverage != "complete":
         return None, 0, None, "unresolved_adjustment_factor"
+    events = bars if adjustment_events is None else adjustment_events
+    if any(
+        entry_date < event.traded_at <= exit_date and event.ex_right_type == "3" for event in events
+    ):
+        # Price adjustment alone does not reveal proceeds from selling rights or
+        # the capital paid to exercise them. Do not call that a realized total return.
+        return None, 0, None, "unresolved_rights_issue"
     by_fiscal_year_end: dict[date, list[_FYDividendObservation]] = {}
     for observation in observations:
         if entry_date < observation.fiscal_year_end <= exit_date:
@@ -766,14 +743,38 @@ def _resolve_total_return(
             return None, 0, None, "unresolved_invalid_dividend"
         selected.append(latest)
 
+    # Missing annual documents are not zero-dividend observations. A known
+    # period starting after entry, or a break between selected fiscal periods,
+    # proves that this sum cannot represent all selected FY dividends. Use actual
+    # period boundaries rather than assuming every issuer has twelve-month years.
+    previous_end = entry_date - timedelta(days=1)
+    for observation in selected:
+        if (
+            observation.period_start is not None
+            and observation.period_start > previous_end + timedelta(days=1)
+        ):
+            return None, 0, None, "unresolved_dividend_period_gap"
+        previous_end = observation.fiscal_year_end
+
     basis_date = price_basis_date or bars[-1].traded_at
-    events = bars if adjustment_events is None else adjustment_events
     dividend_sum = 0.0
     for observation in selected:
         resolved = _asof_basis_dividend(observation, events, basis_date=basis_date)
         if resolved is None:
             return None, 0, None, "unresolved_dividend_split_basis"
         dividend_sum += resolved
+    # A later rights event rescales both prices of an already completed window.
+    # Express its cash component on that same comparison basis, without pretending
+    # the event changed share units or occurred during the holding period.
+    dividend_sum *= asof_basis_prices(
+        [(exit_date, 1.0)],
+        [
+            (event.traded_at, event.adjustment_factor)
+            for event in events
+            if event.ex_right_type == "3"
+        ],
+        asof_date=basis_date,
+    )[0]
     if not isfinite(dividend_sum) or entry_close <= 0:
         return None, 0, None, "unresolved_invalid_dividend"
     total_return = price_return + dividend_sum / entry_close
@@ -788,102 +789,25 @@ def _asof_basis_dividend(
     *,
     basis_date: date,
 ) -> float | None:
-    """その年度の年間配当を basis_date の株式基準で答える。答えられなければ None。
+    """Use reported DPS only when observed actions do not make its basis ambiguous.
 
-    報告される年間 DPS は中間・期末それぞれの基準日時点の株式基準なので、会計期間に
-    分割・併合が入ると開示日を基準にした単一の factor では換算できない。期間内に何も
-    起きていなければ開示日より後の調整だけで足り、起きていれば支払ごとにその基準日より
-    後の調整を掛ける。screening の carry と同じ規約で、較正した量とランキングへ入れる量
-    の定義を揃える。
+    No split factor reconstructs issuer payment basis, including actions after
+    disclosure. Absence of an observed action is not a guarantee that an issuer
+    did not pre-adjust for a future announced action. Keep price-only outcomes.
     """
     reported = observation.dps_actual_annual
-    if reported is None:
-        return None
-    # 無配の年度に確定すべき株式基準は無い。0 円は何倍しても 0 円なので、期間内に調整が
-    # あっても答えは 0 で確定する。拒否に倒すと、分割を出す無配銘柄を含む保有窓が丸ごと
-    # 較正の標本から落ちる。
-    if reported == 0:
-        return 0.0
-    window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
+    if reported is None or reported == 0:
+        return reported
+    window_start = observation.period_start
     if (
-        _dividend_basis_factor(
-            bars, accrual_start=window_start, disclosed_at=observation.disclosed_at
-        )
-        is None
-    ):
-        return reported * _cumulative_adjustment_factor_after(
-            bars, after=observation.disclosed_at, asof_date=basis_date
-        )
-
-    payments = tuple(
-        zip(
-            observation.payments,
-            (
-                add_months_clamped(observation.fiscal_year_end, -9),
-                add_months_clamped(observation.fiscal_year_end, -6),
-                add_months_clamped(observation.fiscal_year_end, -3),
-                observation.fiscal_year_end,
-            ),
-            strict=True,
-        )
-    )
-    if all(value is None for value, _ in payments):
-        return None
-    # 明細が一部だけ来ている行は真値の一部しか持たない。調整前の合計が報告年間値と
-    # 合わなければ、換算しても真値の一部にしかならないので答えない。
-    if abs(sum(value or 0.0 for value, _ in payments) / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
-        return None
-    guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
-    adjustments = [
-        bar.traded_at
-        for bar in bars
-        if window_start < bar.traded_at <= observation.disclosed_at
-        and bar.adjustment_factor not in (None, 0.0, 1.0)
-    ]
-    for value, record_date in payments:
-        if value and any(abs(day - record_date) <= guard for day in adjustments):
-            return None
-    resolved = sum(
-        (value or 0.0)
-        * _cumulative_adjustment_factor_after(bars, after=record_date, asof_date=basis_date)
-        for value, record_date in payments
-    )
-    if resolved <= 0:
-        return None
-    # 株数は開示日時点の値なので、basis_date 基準の `resolved` と比べる前に同じ基準へ
-    # 寄せる。寄せないと開示より後の調整のぶんだけ比がずれ、veto が誤発火する。
-    shares = _per_share_denominator(observation)
-    if shares is not None:
-        shares /= _cumulative_adjustment_factor_after(
-            bars, after=observation.disclosed_at, asof_date=basis_date
-        )
-    amount = observation.dividend_total_annual
-    if (
-        amount is not None
-        and amount > 0
-        and shares is not None
-        and abs((amount / shares) / resolved - 1.0) > DIVIDEND_ROUTE_TOLERANCE
+        window_start is None
+        or window_start > observation.fiscal_year_end
+        or observation.fiscal_year_end > observation.disclosed_at
     ):
         return None
-    return resolved
-
-
-def _per_share_denominator(observation: _FYDividendObservation) -> float | None:
-    """円の総額を 1 株当たりへ直せる株数。提出者自身の期中平均から外れる行は答えない。"""
-    shares = observation.shares_outstanding
-    treasury = observation.treasury_shares
-    if shares is None or treasury is None:
+    if _dividend_basis_requires_resolution(bars, accrual_start=window_start, basis_date=basis_date):
         return None
-    remaining = shares - treasury
-    if remaining <= 0:
-        return None
-    anchor = observation.average_shares
-    if anchor is None or anchor <= 0:
-        return remaining
-    ratio = remaining / anchor
-    if not 1 / SHARE_COUNT_ANCHOR_TOLERANCE <= ratio <= SHARE_COUNT_ANCHOR_TOLERANCE:
-        return None
-    return remaining
+    return reported
 
 
 def latest_market_data_date(sqlite_path: Path) -> date | None:

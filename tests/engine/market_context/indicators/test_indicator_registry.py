@@ -13,7 +13,7 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
 
-from baibai_engine.market_context.indicators.cli import (
+from baibai_engine.market_context.indicator_cli import (
     main,
 )
 from baibai_engine.market_context.indicators.definitions import (
@@ -27,7 +27,7 @@ from baibai_engine.market_context.indicators.providers import (
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     source_url_selectors as estat_dashboard_selectors,
 )
-from baibai_engine.market_context.indicators.providers.formulas import FORMULAS
+from baibai_engine.market_context.reading.formulas import FORMULAS
 
 
 class IndicatorsRegistryTests(unittest.TestCase):
@@ -340,7 +340,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
         for series in load_definitions().series:
             with self.subTest(series_id=series.series_id):
-                # resolve_provider (via provider_spec) raises for an unknown provider.
+                # Both external and virtual series have declared metadata.
                 self.assertEqual(provider_spec(series.provider).name, series.provider)
 
     def test_every_registered_series_declares_a_complete_plausible_range(self) -> None:
@@ -363,7 +363,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 self.assertGreaterEqual(int(metadata_column), 1)
                 self.assertTrue(expected_metadata.strip())
 
-    def test_derived_formula_and_registry_plausible_ranges_do_not_drift(self) -> None:
+    def test_derived_formulas_match_registry_membership_units_and_inputs(self) -> None:
         registry = load_definitions().by_id()
 
         self.assertEqual(
@@ -372,10 +372,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
         for series_id, formula in FORMULAS.items():
             with self.subTest(series_id=series_id):
                 series = registry[series_id]
-                self.assertEqual(
-                    (formula.plausible_min, formula.plausible_max),
-                    (series.plausible_min, series.plausible_max),
-                )
+                self.assertEqual(formula.unit, series.unit)
+                self.assertTrue(set(formula.inputs) <= registry.keys())
 
 
 def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
@@ -383,7 +381,7 @@ def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
         raise AssertionError("catalog opened a store")
 
     monkeypatch.setattr("baibai_engine.market_context.indicators.db.open_connection", unexpected)
-    monkeypatch.setattr("baibai_engine.market_context.indicators.cli.load_project_env", unexpected)
+    monkeypatch.setattr("baibai_engine.market_context.indicator_cli.load_project_env", unexpected)
     before = set(tmp_path.rglob("*"))
     monkeypatch.chdir(tmp_path)
     for command in (["list", "--format", "json"], ["search", "CPI"]):

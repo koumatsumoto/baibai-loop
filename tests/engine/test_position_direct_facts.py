@@ -299,3 +299,44 @@ def test_date_only_expiry_report_does_not_require_exact_expiry_clock_time(tmp_pa
     apply_draft(service, expired, human_confirmed=True)
     stored = service.load()
     assert not replay_events_through(stored.events, stored.as_of).active_reservations
+
+
+@pytest.mark.parametrize("open_order_count", [1, 2])
+def test_direct_fill_does_not_consume_unidentified_same_ticker_orders(tmp_path, open_order_count):
+    service, _ = _service(tmp_path)
+    for index in range(open_order_count):
+        opened, _ = open_direct(
+            service,
+            quantity=100,
+            price_guard_yen=Decimal("500"),
+            order_id=f"unrelated-order-{index}",
+        )
+        assert opened is not None
+        apply_draft(service, opened, human_confirmed=True)
+    report = dict(
+        decision_reference=None,
+        direct_fact=True,
+        status="filled",
+        occurred_on=NOW.date(),
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal("500"),
+        sector="情報・通信業",
+        execution_id="independent-confirmed-fill",
+        now=NOW,
+    )
+    with pytest.raises(BrokerFactRecordingError, match="inconsistent sector/common_factors"):
+        build_broker_fact_draft(service, unavailable, **(report | {"sector": "食料品"}))
+    draft, _ = build_broker_fact_draft(service, unavailable, **report)
+    assert draft is not None
+    fill = draft.replacement.events[-1]
+    assert isinstance(fill, ExecutionEvent)
+    assert fill.reservation_id is None
+    apply_draft(service, draft, human_confirmed=True)
+    stored = service.load()
+    state = replay_events_through(stored.events, stored.as_of)
+    assert len(state.active_reservations) == open_order_count
+    assert state.reserved_cash_yen == 50_000 * open_order_count
+    assert state.available_cash_yen == 250_000 - 50_000 * open_order_count
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 100
+    assert build_broker_fact_draft(service, unavailable, **report) == (None, ())

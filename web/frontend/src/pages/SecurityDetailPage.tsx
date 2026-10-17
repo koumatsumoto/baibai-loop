@@ -58,11 +58,11 @@ export function ScreeningMetrics({ row }: { row: StockAnalysisRowView }) {
       <Field label="OCF yield"><FractionMetric value={row.ocf_yield} /></Field>
       <Field label="売上 / 営業益 YoY"><span className="font-mono tabular-nums"><FractionMetric value={row.sales_yoy} /> / <FractionMetric value={row.operating_profit_yoy} /></span></Field>
       <Field label="信用売残 / ADV"><span className="font-mono tabular-nums">{row.margin_short_to_adv === null || row.margin_short_to_adv === undefined ? '—' : `${row.margin_short_to_adv.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} 日分`}</span></Field>
-      <Field label="信用残の基準日"><span className="font-mono tabular-nums">{row.margin_week_end ?? '—'}</span></Field>
+      <Field label="信用残の基準日"><span className="font-mono tabular-nums">{row.margin_balance_date ?? '—'}</span></Field>
       <Field label="20d"><FractionMetric value={row.price_change_20d} /></Field>
       <Field label="52w low gap"><FractionMetric value={row.gap_from_52w_low} /></Field>
       <Field label="sector RS%"><FractionMetric value={row.sector_relative_strength_percentile} /></Field>
-      <Field label="次決算"><span className="font-mono tabular-nums">{row.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
+      <Field label="次決算"><span className="font-mono tabular-nums">{row.next_earnings_date ?? LABEL.earningsUnavailable}</span></Field>
       <Field label="データ品質"><span className="text-sm">{row.data_quality_flags.length === 0 ? 'なし' : row.data_quality_flags.join(' / ')}</span></Field>
     </dl>
   )
@@ -167,7 +167,7 @@ export function SecurityDetailPage() {
               <Field label="原評価のPmax（新規買付上限）"><YenAmount value={data.holding.pmax_raw_yen} /></Field>
               <Field label="Pmaxとの差"><span><PctBadge value={data.holding.pmax_gap_pct} />{data.holding.pmax_gap_unavailable_reason && <span className="block text-xs text-muted-foreground">{data.holding.pmax_gap_unavailable_reason}</span>}</span></Field>
               <Field label="企業評価"><Badge variant="outline">{data.holding.stance ? STANCE_LABELS[data.holding.stance] ?? data.holding.stance : '—'}</Badge></Field>
-              <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
+              <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsUnavailable}</span></Field>
             </dl>
           </>
         </SectionCard>

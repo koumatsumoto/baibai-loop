@@ -44,7 +44,7 @@ function row(
     price_change_20d: 0.02,
     gap_from_52w_low: 0.25,
     next_earnings_date: '2026-09-10',
-    margin_week_end: '2026-08-28',
+    margin_balance_date: '2026-08-28',
     margin_long_to_adv: 2,
     margin_short_to_adv: 0.4,
     margin_long_share: 0.1,

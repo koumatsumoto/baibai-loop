@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
+from baibai_batch.storage.publication_lease import PublicationLeaseHandle, _load_handle, verify_held
 from baibai_batch.storage.publish_market_lake import (
     _fetch,
     _resolve_serving_release,
@@ -20,13 +21,11 @@ from baibai_engine.batch_api import (
     LakeFixedRelease,
     LakeObjectCache,
     LocalMirrorSource,
-    hydrate_market_store,
     lake_session,
-    open_market_store,
     read_lake_store_origin,
     tradingview_accept_observations,
     tradingview_load_observations,
-    tradingview_verify_observations,
+    tradingview_verify_release_observations,
 )
 
 DATASET = "tradingview.forecast_snapshots"
@@ -74,9 +73,15 @@ def _unchanged_objects(release: LakeFixedRelease, month: tuple[int, int]) -> dic
 
 
 def publish_and_verify(
-    directory: Path, *, sqlite_path: Path, mirror: Path, store: ObjectStore
+    directory: Path,
+    *,
+    sqlite_path: Path,
+    mirror: Path,
+    store: ObjectStore,
+    handle: PublicationLeaseHandle,
 ) -> dict[str, object]:
-    """Caller holds the existing publication lease from fresh pull through readback."""
+    """Keep the existing publication lease through pointer switch and readback."""
+    verify_held(store, handle)
     accepted = tradingview_load_observations(
         directory / "observations.json", sha256=(directory / "input.sha256").read_text()
     )
@@ -94,7 +99,12 @@ def publish_and_verify(
     (directory / "acceptance.json").write_text(json.dumps(acceptance, sort_keys=True))
     publication = None
     if acceptance["rows_added"]:
-        publication = publish_market_lake(sqlite_path=sqlite_path, mirror_root=mirror, store=store)
+        publication = publish_market_lake(
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            store=store,
+            before_pointer_switch=lambda: verify_held(store, handle),
+        )
         print(
             json.dumps(
                 {"status": "published_readback_pending", **publication.as_dict()}, sort_keys=True
@@ -108,7 +118,8 @@ def publish_and_verify(
         publication.release_manifest_sha256,
     ):
         raise LakePublishError("saved-observation publication changed before readback")
-    # An empty mirror forces remote GET of the complete immutable release.
+    # Independently read back all TradingView history. Unrelated dataset objects
+    # are already compared against the pinned previous graph, not downloaded again.
     readback_mirror = directory / "readback-mirror"
     readback_mirror.mkdir()
     after = _resolve_serving_release(store, readback_mirror, current)
@@ -123,21 +134,18 @@ def publish_and_verify(
     tv = after.dataset_manifest(DATASET)
     if tv.coverage_status != "partial":
         raise LakePublishError("saved-observation publication claimed complete coverage")
-    for manifest in after.dataset_manifests.values():
-        for part in manifest.partitions:
-            for obj in part.objects:
-                _fetch(store, readback_mirror, obj.key, expected_sha256=obj.sha256)
-    readback_store = directory / "readback.sqlite"
-    open_market_store(readback_store).close()
+    for part in tv.partitions:
+        for obj in part.objects:
+            _fetch(store, readback_mirror, obj.key, expected_sha256=obj.sha256)
     with lake_session() as session:
-        hydrate_market_store(
+        tradingview_verify_release_observations(
             session,
             release=after,
             cache=LakeObjectCache(root=readback_mirror, source=LocalMirrorSource(readback_mirror)),
-            store=readback_store,
-            dataset_names=tuple(after.dataset_names()),
+            accepted=accepted,
+            report=acceptance,
         )
-    tradingview_verify_observations(readback_store, accepted, acceptance)
+    verify_held(store, handle)
     report = {
         **acceptance,
         "release_id": after.release_id,
@@ -155,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("stage", "publish"))
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--event", type=Path)
+    parser.add_argument("--lease-handle", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.command == "stage":
@@ -162,9 +171,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("event required")
             stage(args.event, args.directory)
         else:
+            if args.lease_handle is None:
+                raise ValueError("publication lease handle required")
             report = publish_and_verify(
                 args.directory,
                 sqlite_path=MARKET_DB_PATH,
+                handle=_load_handle(args.lease_handle),
                 mirror=MARKET_DB_PATH.parents[1],
                 store=Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
             )

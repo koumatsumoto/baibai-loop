@@ -9,7 +9,7 @@ status: active
 
 ## 1. 目的
 
-JPX の信用取引残高は 2026-09-28 に公表粒度が変わる。L1 store は変更前後のデータを別 table・
+JPX の信用取引残高は 2026-09-28 に公表粒度が変更された。L1 store は変更前後のデータを別 table・
 別 balance date 域として保持し、指標側は「どちらの series がその balance date を公表したか」を
 明示して読む。本書は公表日、balance date、対象母集団を区別する取込契約の正本である。
 
@@ -18,8 +18,7 @@ JPX の信用取引残高は 2026-09-28 に公表粒度が変わる。L1 store �
 
 ## 2. 公式日程
 
-JPX の集計システムは 2026-09-27 に移行し、移行可否は同日 20:00 に公表される。移行が
-実施され、変更後データの初回は 2026-09-25 残高を 2026-09-28 16:00 に公表した。
+JPX の集計システムは 2026-09-27 に移行した。変更後データの初回は 2026-09-25 残高を 2026-09-28 16:00 に公表した。
 変更前の最終週次データは 2026-09-18 残高を 2026-09-25 に公表した。残高対象日と公表日は区別する。
 
 - JPX 2026-07-06 告知: <https://www.jpx.co.jp/news/1032/20260706-01.html>
@@ -45,7 +44,11 @@ JPX の集計システムは 2026-09-27 に移行し、移行可否は同日 20:
 全銘柄日次系列の `LongVol` / `ShrtVol` / standard / negotiable 内訳 / `IssType` は、同名の
 週次 payload field と同じ物理量でも cadence が異なる。したがって別 table に保存し、週次 row と
 union しない。6 残高 field は有限・非負、`IssType` は non-null を clean snapshot の必須条件とし、
-一つでも欠けた response は partial coverage として再取得対象に残す。
+一つでも欠けた response は partial coverage として再取得対象に残す。同じ取得内の同一観測の反復は一つにまとめ、値が食い違う同一identityは保存済みsnapshotの置換前に拒否する。別の取得で届いた訂正は通常どおり置換する。
+
+全銘柄日次系列では `PubDate` と六つの金額 field（`LongVal` / `ShrtVal`、standard / negotiable 内訳）も保存・lake 公開する。現在の L2 が株数だけを使うことを理由に、同じ応答で得られる金額を捨てない。値は提供元の単位のまま保持し、株数×市場価格で補完しない。欠測は null とし、金額欠測を理由に正常な株数まで再取得しない。`PubDate` は公表日であり、正確な API 利用可能時刻ではない。現行 serving の公表可否は§6の暦規約を使う。
+
+旧保存にはこの公表日・金額がないため、schema 切替だけで値を復元したことにしない。PR マージ後に利用可能な原本を再利用し、不足する期間だけ再取得して再構築する。runtime に旧schema救済は追加しない。[公式 ClientV2 の現行列定義](https://github.com/J-Quants/jquants-api-client-python/blob/main/jquantsapi/constants.py)を入力契約の確認に使う。
 
 日々公表銘柄等は `ShrtOut` / `LongOut`、各 change / ratio、standard / negotiable 内訳、
 `PubReason`、`TSEMrgnRegCls` を provider field のまま L1 列へ写す。この dataset は対象銘柄が
@@ -68,8 +71,9 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
   servingでは公表日がas-ofより前の残高だけを利用し、公表日当日のas-ofには使用しない。
 - 全銘柄日次の empty response は coverage 完了とみなさず、non-empty な clean snapshot を
   保存するまで次の batch で再取得する。
-- J-Quants client/API が field、endpoint、日付 identity、母集団を変更した場合は取込を停止し、
-  本表と fixture を更新してから再開する。既存 table への推測 mapping は行わない。
+- J-Quants client/API の変更で必須field・日付identity・母集団の意味を確認できなくなった場合は、
+  推測mappingで取込を継続しない。本表とfixtureを更新してから再開する。任意fieldの追加だけを
+  必須入力の不備とは扱わない。
 
 ## 6. `margin_*` の固定語義
 
@@ -80,9 +84,11 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 `jquants_all_issues_daily_margin` である。
 
 **軸の語義は cadence で変わらない。** level 軸は直近公表残高であり、日次化は解像度の向上で
-あって意味の変更ではない。`margin_long_delta_26w` は 26 週前との比較であり、日次側からも各
-ISO 週の最終 balance date だけを sampling して週間隔を保つ — 日次行を 26 個遡ると半年の変化が
-5 週間の変化に化ける。
+あって意味の変更ではない。`margin_long_delta_26w` は観測のある 26 ISO 週前との比較であり、日次側からも各
+ISO 週の最終 balance date だけを sampling する。欠測週を補間しないため、固定の半年差ではない。
+日次行を 26 個遡る計算とは区別する。
+
+残高は各 `balance_date`、出来高は各取引日の株式単位から、判定日の株式単位へ換算する。ExRTで分割・併合と確認できる係数だけを使い、ライツイシューの価格調整は株数へ適用しない。固定130立会日の警告で代用せず、実際の比較日からの変更を使う。換算不能な期間を含む比率・差だけを未評価とし、同一残高内のlong/short構成比まで消さない。出来高比は過去の平均出来高との規模比較であり、実際の解消日数の予測ではない。
 
 日次の高頻度性そのものを使う軸（日次 delta など）はこの列へ足さない。別名の metric と事前登録
 study を用意する。

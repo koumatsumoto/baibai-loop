@@ -1,9 +1,8 @@
-"""Build a minimal but real L1 release inside a mirror, closure and all.
+"""Build synthetic L1 release graphs and SQLite-backed export fixtures.
 
-Resolving an `L1ReleaseSourceRef` walks what it roots — dataset manifests and every
-Parquet object they name — so a stand-in payload no longer stands in. Tests that need
-a resolvable release build one here rather than each inventing a shape production
-never produces.
+`stored_release_source` supplies checksum-consistent placeholder object bytes for
+reference/retention tests, not readable Parquet. The `lake` fixture instead exports
+actual Parquet from a small SQLite store for row-level reader tests.
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ from baibai_engine.storage.lake.models import (
     canonical_lake_model_bytes,
 )
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from tests.helpers.lake_policy import narrow_release_policy
 
@@ -61,12 +60,10 @@ def _snapshot_source() -> SQLiteSnapshotSourceRef:
 
 
 def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
-    """A retained source whose whole closure is on disk, and the manifest file it names.
+    """A checksum-consistent retained graph, with placeholder rather than Parquet bytes.
 
-    A stand-in payload was enough while resolving one meant hashing one file. Resolving
-    an L1 release now walks what it roots — dataset manifests and every Parquet object
-    they name — so the fixture has to be a release the mirror actually holds, or the
-    test would be asserting against a shape production never sees.
+    This exercises reference closure and retention. It does not establish Parquet
+    schema validity, row content, or production release-policy eligibility.
     """
 
     reference = release_source()
@@ -146,10 +143,10 @@ _DEFAULT_DAILY_BARS: tuple[tuple[str, str, float, float], ...] = (
     ("1301", "2026-02-02", 110.0, 1200.0),
 )
 _DEFAULT_SHORT_SALE_REPORTS: tuple[
-    tuple[str, int, str, str, str, float | None, int | None, int | None, int], ...
+    tuple[str, int, str, str, str, float | None, int | None, int | None], ...
 ] = (
-    ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6, 0),
-    ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None, 1),
+    ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6),
+    ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None),
 )
 
 
@@ -158,7 +155,7 @@ def market_store(
     *,
     daily_bars: Sequence[tuple[str, str, float, float]] = _DEFAULT_DAILY_BARS,
     short_sale_reports: Sequence[
-        tuple[str, int, str, str, str, float | None, int | None, int | None, int]
+        tuple[str, int, str, str, str, float | None, int | None, int | None]
     ] = _DEFAULT_SHORT_SALE_REPORTS,
     short_sale_coverage: tuple[str, str, str, str, int] = (
         "test:pilot",
@@ -184,8 +181,8 @@ def market_store(
         """INSERT INTO jquants_short_sale_reports(
              disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
              discretionary_investment_contractor_name, investment_fund_name,
-             short_ratio, short_shares, short_trading_units, is_cancellation
-           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)""",
+             short_ratio, short_shares, short_trading_units
+           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?)""",
         list(short_sale_reports),
     )
     connection.execute(
@@ -214,7 +211,6 @@ def lake(tmp_path, monkeypatch):
                 "datasets": tuple(
                     item.model_copy(
                         update={
-                            "minimum_population_count": None,
                             "require_complete_coverage": False,
                         }
                     )
@@ -228,7 +224,7 @@ def lake(tmp_path, monkeypatch):
     database = market_store(tmp_path / "market.sqlite")
     connection = open_connection(database)
     connection.executemany(
-        "INSERT INTO jquants_market_calendar(day,is_business_day) VALUES (?,?)",
+        "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
         [("2025-01-05", 0), ("2026-01-05", 1), ("2026-01-20", 1)],
     )
     connection.commit()
@@ -239,7 +235,7 @@ def lake(tmp_path, monkeypatch):
         sqlite_path=database, mirror_root=mirror, snapshot_id="g0-test"
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,

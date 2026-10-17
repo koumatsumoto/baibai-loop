@@ -25,6 +25,12 @@ Baibai Loopの目的は、割安銘柄を発見し、割安幅と条件付き収
 
 AIが置く仮定を決定的算術で計算しても、仮定は観測にならず、結果は条件付き見積りである。各領域でL1/L2/L3の責務を識別するが、九つの空package、三DB、三サービスを作る区分ではない。共有するL1の純粋モデルや小さな算術にも意味の所有者を保つ。
 
+L1の保存構造は、提供元の原本・provider-native fieldと欠測の意味を可能な限り残すことを原則とする。仕様・実装を簡素化することと、元データを減らすことは分けて判断する。現在の計算が使わないという理由だけで値を捨てず、L2の再計算・分析の選択肢を残す。同じ取得で得られる値の保持を優先し、追加の取得量・保存量・利用条件に対して用途が乏しいものは対象から外す。型付け・日付形式・索引の整備で意味を変えず、元の観測を再解釈できる入力を残す。APIの原本JSONとCSVから組み立てたrecordは区別し、後者を原本API payloadと呼ばない。原本が失われた旧行を推測で補完し、原本を保持した形に見せない。
+
+取引カレンダーは提供元の休日区分（HolDiv）を保持し、現物株の営業日判定は読取時に区分1・2から導く。区分0（非営業日）と3（祝日取引あり）、区分1（営業日）と2（半日立会日）を保存時に潰さない。旧booleanから原区分は復元せず、切替時に原本から再構築する。
+
+期間集計、株式単位の換算、予想の選択、欠測の扱い、倍率・比較・見積りはL2の責務とし、加工済みの値だけをL1の正本にしない。検索や計算効率のための展開列・materializationは元入力から再生成できる副次構造とし、独立した二つの正本を作らない。既存schemaの維持や互換処理の追加より、現行ドメインに必要な保存構造への見直しを優先する。保管対象と期間は業務・再計算に必要な範囲とし、全要求の監査や一律の永久保存を目的にしない。
+
 判断用入力は値に加え、出所、対象・観測・取得・公開の時点、欠測と比較上の制約を持つ。転載を独立票と数えず、異種のrating・目標株価・Quants scoreを単一投票に潰さない。三領域の総合scoreや自動注文を追加しない。
 
 <a id="layers"></a>
@@ -97,6 +103,8 @@ storageは物理保存の技術責務であり、保存DBをL3そのものと呼
 
 <a id="edinet-metric-revision"></a>
 
+EDINETのCSV/XBRL ZIPは`edinet.source_archives`で取得bytesを保持し、既存のmarket SQLite・lake公開へ載せる。ローカルZIPは再利用可能なdownload cacheであって共有正本の代替ではない。抽出したmetric/Research factは原本から再生成するmaterializationであり、元の空欄・単位・contextや未選択項目を置き換えない。既存の抽出履歴に原本がない場合、復元したことにせず履歴を保つ。独立した監査DBや全要求履歴は追加しない。
+
 EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配置・import・transport retryでは更新しない。対象とprovenanceは[データソース](./reference/data-sources.md#edinet-metric-revision)、[反映手順](../batch/OPERATIONS.md#edinet-metrics-revision)はbatch運用が所有する。
 
 <a id="migration-status"></a>
@@ -105,7 +113,7 @@ EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配�
 
 現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Webも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
 
-Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する元bytes/pathを保持し、名前切替のための移設・複製・revision変更を行わない。
+Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する数値・fieldの意味・dated pathを保持し、名前切替のための移設・複製・revision変更を行わない。計算を変えない説明訂正は可能とし、変更前のbytesはgit履歴で確認する。
 
 実装・移行と通常運用の受入は区別する。進捗・未完了の受入・確認証拠は[Issue #1414](https://github.com/koumatsumoto/baibai-loop/issues/1414)へ集約し、現行仕様は本書とreferenceで管理する。
 
@@ -133,4 +141,4 @@ GitHub Actions ──定期処理・転送─────────┤
 <a id="four-roles"></a>
 <a id="naming-and-history"></a>
 
-変更では配置・保存・画面・CLI・docsを同じ責務へ揃え、無価値な互換層・重複・汎用化を削る。内部の旧名・aliasは原則残さず、caller・model・serializer・CLI・test・active docsを同じ変更で揃える。provider-native fieldと保存済み判断のidentity・引用・実取引事実は内部命名と区別し、命名整理で書き換えない。意味のあるデータと既存判断の履歴を保持し、意味不変を前後比較で検証する。規則や意味の変更による再生成と、単なる配置変更を区別する。成果を産む・誤りを止める・測る・見せる役割は識別するが、定型的な枠や新機構を増やす目的にしない。採否は[開発原則](./doctrine.md#development-investment-policy)、field/type/書込条件はmodel・DB constraint・domain service、完全gateは[Python foundation](./reference/python-foundation.md#9-ci-and-local-parity)に従う。
+変更では配置・保存・画面・CLI・docsを同じ責務へ揃え、無価値な互換層・重複・汎用化を削る。内部の旧名・aliasは原則残さず、caller・model・serializer・CLI・test・active docsを同じ変更で揃える。provider-native fieldと保存済み判断のidentity・引用・実取引事実は内部命名と区別し、命名整理で書き換えない。単なる配置変更では意味不変を確認する。一方、設計を改善するためのschema変更では過去の構造・履歴の維持を必須にせず、必要なデータ移行・再構築・リセットを選ぶ。保持対象と失われる範囲を区別し、過去の制約のためだけの互換層を追加しない。成果を産む・誤りを止める・測る・見せる役割は識別するが、定型的な枠や新機構を増やす目的にしない。採否は[開発原則](./doctrine.md#development-investment-policy)、field/type/書込条件はmodel・DB constraint・domain service、完全gateは[Python foundation](./reference/python-foundation.md#9-ci-and-local-parity)に従う。

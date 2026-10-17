@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, timedelta
 
+import pytest
 from tests.engine.screening.metric_fixtures import (
     _daily_bars,
     _security,
@@ -114,7 +115,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 financial = result.financials["130A"]
                 payload = build_stock_analysis_metrics(
                     financial,
-                    freshness_warning_count=0,
                     derived=result.derived["130A"],
                 )
                 self.assertIs(financial.operating_profit_source, source)
@@ -219,13 +219,23 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 for field in ("sales", "cfo", "operating_profit", "profit"):
                     self.assertEqual(_ttm_value(rows, field, rules.ttm), (110.0, TTMQuality.EXACT))
 
-    def test_prior_year_fallback_matches_february_month_end(self) -> None:
+    def test_prior_year_actual_period_matches_february_month_end(self) -> None:
         rows = [
             _summary(
-                "130A", date(2024, 4, 1), fiscal_period="FY", fiscal_year_end=date(2024, 2, 29)
+                "130A",
+                date(2024, 4, 1),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 2, 29),
+                period_start=date(2023, 3, 1),
+                period_end=date(2024, 2, 29),
             ),
             _summary(
-                "130A", date(2025, 4, 1), fiscal_period="FY", fiscal_year_end=date(2025, 2, 28)
+                "130A",
+                date(2025, 4, 1),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 2, 28),
+                period_start=date(2024, 3, 1),
+                period_end=date(2025, 2, 28),
             ),
         ]
         self.assertIs(_prior_year_summary(rows, load_screening_rules().ttm), rows[0])
@@ -237,11 +247,15 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(year, 4, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(year, 2, 29 if year == 2024 else 28),
+                period_start=date(year - 1, 3, 1),
+                period_end=date(year, 2, 29 if year == 2024 else 28),
                 eps_ttm=float((year - 2020) * 10),
             )
             for year in range(2021, 2026)
         ]
-        result = build_normalized_profit_signals(summaries, (), date(2025, 5, 1), close=1200)
+        result = build_normalized_profit_signals(
+            summaries, (), date(2025, 5, 1), close=1200, ttm_rules=load_screening_rules().ttm
+        )
         self.assertEqual(result.normalized_per_3fy, 30.0)
         self.assertEqual(result.normalized_per_5fy, 40.0)
 
@@ -267,7 +281,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
             )
         )
 
-        result = build_normalized_profit_signals(summaries, (), asof, close=200.0)
+        result = build_normalized_profit_signals(
+            summaries, (), asof, close=200.0, ttm_rules=load_screening_rules().ttm
+        )
 
         self.assertIsNone(result.normalized_per_3fy)
 
@@ -353,12 +369,15 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertAlmostEqual(financial.per_trailing, latest_close / expected_eps_ttm, places=5)
         self.assertEqual(financial.ttm_quality_per_trailing.value, "exact")
 
-    def test_nonactual_notices_preserve_ttm_but_not_withdrawn_forecast(self) -> None:
+    def test_nonactual_notices_preserve_ttm_and_keep_missing_forecast(self) -> None:
         asof = date(2026, 9, 7)
         rows = self._ttm_actual_periods()
         rules = load_screening_rules()
         for forecast in (None, 100.0):
             notice = JQuantsFinancialSummary(
+                # Calculation fixture: guidance has already been projected for this snapshot.
+                forecast_status="confirmed",
+                dividend_forecast_status="confirmed",
                 ticker="4812",
                 disclosed_at=date(2026, 8, 28),
                 fiscal_period="FY",
@@ -571,7 +590,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 cfo=20.0,
                 operating_profit=20.0,
                 fiscal_period="1Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 3, 31),
             ),
             _summary(
                 "130A",
@@ -580,7 +601,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=400.0,
                 operating_profit=80.0,
                 fiscal_period="2Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 6, 30),
             ),
             _summary(
                 "130A",
@@ -589,7 +612,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=500.0,
                 operating_profit=100.0,
                 fiscal_period="3Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 9, 30),
             ),
             _summary(
                 "130A",
@@ -598,7 +623,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=600.0,
                 operating_profit=120.0,
                 fiscal_period="FY",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
             ),
             _summary(
                 "130A",
@@ -608,7 +635,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 cfo=25.0,
                 operating_profit=25.0,
                 fiscal_period="1Q",
-                fiscal_year_end=date(2027, 3, 31),
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
             ),
         ]
         result = build_metrics(
@@ -685,7 +714,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=100.0,
                 operating_profit=20.0,
                 fiscal_period="1Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 3, 31),
             ),
             _summary(
                 "130A",
@@ -694,7 +725,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=200.0,
                 operating_profit=40.0,
                 fiscal_period="2Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 6, 30),
             ),
             _summary(
                 "130A",
@@ -703,7 +736,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=300.0,
                 operating_profit=60.0,
                 fiscal_period="3Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 9, 30),
             ),
             _summary(
                 "130A",
@@ -712,7 +747,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=800.0,
                 operating_profit=160.0,
                 fiscal_period="FY",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
             ),
             _summary(
                 "130A",
@@ -721,7 +758,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 sales=100.0,
                 operating_profit=20.0,
                 fiscal_period="1Q",
-                fiscal_year_end=date(2027, 3, 31),
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
             ),
         ]
         result = build_metrics(
@@ -746,7 +785,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2025, 4, 24),
                 eps_ttm=10.0,
                 fiscal_period="1Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 3, 31),
             ),
             _summary(
                 "130A",
@@ -760,28 +801,36 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2025, 7, 24),
                 eps_ttm=20.0,
                 fiscal_period="2Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 6, 30),
             ),
             _summary(
                 "130A",
                 date(2025, 10, 24),
                 eps_ttm=30.0,
                 fiscal_period="3Q",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 9, 30),
             ),
             _summary(
                 "130A",
                 date(2026, 1, 24),
                 eps_ttm=40.0,
                 fiscal_period="FY",
-                fiscal_year_end=date(2026, 3, 31),
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
             ),
             _summary(
                 "130A",
                 date(2026, 4, 24),
                 eps_ttm=15.0,
                 fiscal_period="1Q",
-                fiscal_year_end=date(2027, 3, 31),
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
             ),
         ]
         result = build_metrics(
@@ -840,3 +889,56 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={},
         )
         self.assertIsNone(result.financials["130A"].eps_yoy)
+
+
+@pytest.mark.parametrize("with_period_dates", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_prior_year_conflict_does_not_revive_an_older_revision(with_period_dates, reverse):
+    asof = date(2026, 8, 31)
+    old = _summary(
+        "130A",
+        date(2025, 7, 15),
+        fiscal_year_end=date(2026, 3, 31),
+        period_start=date(2025, 4, 1) if with_period_dates else None,
+        period_end=date(2025, 6, 30) if with_period_dates else None,
+        eps_ttm=80.0,
+        sales=80.0,
+        cfo=80.0,
+        operating_profit=-80.0,
+    )
+    first = replace(
+        old,
+        disclosed_at=date(2025, 8, 1),
+        eps_ttm=100.0,
+        sales=100.0,
+        cfo=100.0,
+        operating_profit=-100.0,
+    )
+    second = replace(first, eps_ttm=120.0, sales=120.0, cfo=120.0, operating_profit=-120.0)
+    current = _summary(
+        "130A",
+        date(2026, 8, 1),
+        fiscal_year_end=date(2027, 3, 31),
+        period_start=date(2026, 4, 1) if with_period_dates else None,
+        period_end=date(2026, 6, 30) if with_period_dates else None,
+        eps_ttm=110.0,
+        sales=110.0,
+        cfo=110.0,
+        operating_profit=-50.0,
+    )
+    rows = [old, first, second, current]
+    result = build_metrics(
+        asof_date=asof,
+        securities_by_ticker={"130A": _security()},
+        bars_by_ticker={"130A": _daily_bars("130A", asof, 60)},
+        summaries_by_ticker={"130A": list(reversed(rows)) if reverse else rows},
+        edinet_by_ticker={},
+    ).financials["130A"]
+    assert result.eps_yoy is None
+    assert result.sales_yoy is None
+    assert result.cfo_yoy is None
+    assert result.operating_profit_yoy is None
+    assert result.operating_profit_loss_narrowing is None
+    assert result.sales == 110.0
+    assert result.cfo == 110.0
+    assert result.operating_profit == -50.0

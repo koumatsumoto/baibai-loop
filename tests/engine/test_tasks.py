@@ -16,7 +16,7 @@ from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.tasks.cli import main as task_main
 from baibai_engine.tasks.models import Task
-from baibai_engine.tasks.service import TaskService
+from baibai_engine.tasks.service import TaskNotFoundError, TaskService
 
 ROOT = Path(__file__).parents[2]
 TASK_FIXTURE = ROOT / "tests/fixtures/task-list/valid.yaml"
@@ -135,3 +135,29 @@ def test_task_columns_and_payload_are_updated_together(tmp_path: Path) -> None:
     finally:
         connection.close()
     assert tuple(row) == ("2027-01-01", "2027-01-01")
+
+
+@pytest.mark.parametrize("empty_file", [False, True])
+def test_task_reads_do_not_initialize_an_unwritten_database(tmp_path, empty_file):
+    path = tmp_path / "unwritten.sqlite"
+    if empty_file:
+        path.touch()
+    service = TaskService(path)
+    assert service.list() == []
+    assert service.list(status="open") == []
+    with pytest.raises(TaskNotFoundError, match="unknown task_id"):
+        service.get("task-20260719-absent")
+    assert path.exists() == empty_file
+    if empty_file:
+        assert path.read_bytes() == b""
+
+
+def test_task_reads_preserve_existing_database_bytes(tmp_path):
+    path = tmp_path / "app.sqlite"
+    _seed_tasks(path)
+    before = path.read_bytes()
+    service = TaskService(path)
+    tasks = service.list()
+    assert len(tasks) == 1
+    assert service.get(tasks[0].task_id) == tasks[0]
+    assert path.read_bytes() == before

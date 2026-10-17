@@ -147,6 +147,40 @@ def test_nonfinite_or_boolean_cached_price_does_not_create_draft(case, monkeypat
     assert not (case[1] / "1234").exists()
 
 
+@pytest.mark.parametrize(
+    ("as_of", "retrieved_at", "expected_date", "expected_price"),
+    [
+        ("2026-10-14", "2026-10-15T17:00:00+09:00", "2026-10-14", 100.0),
+        ("2026-10-15", "2026-10-15T09:00:00+09:00", "2026-10-14", 100.0),
+        ("2026-10-15", "2026-10-15T17:00:00+09:00", "2026-10-15", 200.0),
+    ],
+)
+def test_scaffold_quote_respects_assessment_date_and_available_close(
+    case, as_of, retrieved_at, expected_date, expected_price
+):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    db, workspace, _ = case
+    market = workspace / "market.sqlite"
+    seed_daily_bars(
+        market,
+        [("1234", "2026-10-14", 100.0, 1.0), ("1234", "2026-10-15", 200.0, 1.0)],
+    )
+    result = scaffold_assessment(
+        workspace=workspace,
+        ticker="1234",
+        sqlite_path=market,
+        as_of=datetime.fromisoformat(as_of).date(),
+        retrieved_at=datetime.fromisoformat(retrieved_at),
+        db_path=db,
+    )
+    raw = yaml.safe_load(Path(result["assessment_draft"]).read_text())
+    assert result["price_as_of"] == expected_date
+    assert result["close_yen"] == expected_price
+    assert raw["input_snapshot"]["facts"][0]["as_of"] == expected_date
+    assert raw["input_snapshot"]["sources"][0]["retrieved_at"] == retrieved_at
+
+
 def test_review_scaffold_has_exact_hash_new_uuid_and_independent_empty_slots(case, monkeypatch):
     db, workspace, _ = case
     author(case)
@@ -370,7 +404,7 @@ def test_refresh_file_failure_retry_preserves_scaffolded_identity(case, monkeypa
 def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path, completed):
     db = tmp_path / "app"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    seed_ledger(db, ledger.model_copy(update={"market_prices": ()}))
+    seed_ledger(db, ledger)
     value = selection(now=NOW, tickers=("2331",), scope="review_positions")
     prepared = prepare_selected_workspace(
         draft=draft_for(value),
@@ -395,7 +429,7 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     )
     from baibai_engine.position.store import LedgerStoreService
 
-    assert LedgerStoreService(db).load().model_dump(mode="json") == {**before, "market_prices": []}
+    assert LedgerStoreService(db).load().model_dump(mode="json") == before
     if completed:
         from tests.engine.test_research_progression import (
             final_payload,

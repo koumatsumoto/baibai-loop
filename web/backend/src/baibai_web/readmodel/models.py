@@ -30,7 +30,7 @@ class HoldingView(BaseModel):
     quantity: int
     deployed_cost_yen: int
     market_price_yen: str | None
-    market_price_as_of: datetime | None
+    market_price_as_of: date | None
     market_value_yen: int | None
     unrealized_pnl_yen: int | None
     unrealized_pnl_pct: float | None
@@ -95,7 +95,7 @@ class DashboardView(BaseModel):
     ledger_error: str | None
     ledger_as_of: datetime | None
     ledger_stale: bool
-    valuation_as_of: datetime | None
+    valuation_as_of: date | None
     valuation_stale: bool
     total_capital_yen: int | None
     available_cash_yen: int | None = Field(
@@ -229,7 +229,7 @@ class CandidateDiscoverySummaryView(BaseModel):
 
 class StockAnalysisRowView(BaseModel):
     candidate: StockCandidateContextView
-    listing_span_days: float | None
+    price_history_span_days: float | None
     jpx_flags: list[str] | None
     forecast_special_gain_flag: bool | None
     forecast_full_year_loss_flag: bool | None
@@ -290,10 +290,8 @@ class StockAnalysisRowView(BaseModel):
     price_change_20d: float | None
     gap_from_52w_low: float | None
     next_earnings_date: str | None
-    # 需給は観測値として表示する。margin_short_to_adv は採否基準を通過しているが
-    # annotation 契約のまま warning / gate へ変換しない。制度期日偏重だけは別途検証済み
-    # の閾値に達したとき flag を持つ。
-    margin_week_end: date | None = None
+    # 需給は観測値として表示し、候補選定の順位や採否条件とは区別する。
+    margin_balance_date: date | None = None
     margin_long_to_adv: float | None
     margin_short_to_adv: float | None = None
     margin_long_share: float | None
@@ -468,7 +466,7 @@ class SecurityMarketMasterView(BaseModel):
 class SecurityPriceContextView(BaseModel):
     resolved_date: date
     close: float
-    price_basis: Literal["split_adjusted_close"]
+    price_basis: Literal["price_adjusted_close"]
     return_1d: float | None
     return_5d: float | None
     return_20d: float | None
@@ -867,7 +865,6 @@ class LimitTermsView(BaseModel):
     quantity: int
     notional_yen: str
     target_session: date
-    expires_at: datetime
     valuation_as_of: date
     maximum_entry_price_yen: str | None
     price_grid_rule_id: str

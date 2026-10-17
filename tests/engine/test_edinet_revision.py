@@ -14,8 +14,8 @@ from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_recor
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
-    csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
-        f"{element}\t{context}\t{value}" for element, context, value in rows
+    csv_text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -30,30 +30,30 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
         doc_type_code="120",
         content=_edinet_csv_zip(
             [
-                ("jpcrp_cor:NetSales", "CurrentYearConsolidatedDuration", "1000"),
+                ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
                 (
-                    "jpcrp_cor:CashFlowsFromOperatingActivities",
-                    "CurrentYearConsolidatedDuration",
+                    "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
+                    "CurrentYearDuration",
                     "150",
                 ),
-                ("jpcrp_cor:OperatingProfit", "CurrentYearConsolidatedDuration", "90"),
+                ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "90"),
                 (
-                    "jpcrp_cor:DepreciationAndAmortization",
-                    "CurrentYearConsolidatedDuration",
+                    "jppfs_cor:DepreciationAndAmortizationOpeCF",
+                    "CurrentYearDuration",
                     "30",
                 ),
                 (
-                    "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
-                    "CurrentYearConsolidatedDuration",
+                    "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
+                    "CurrentYearDuration",
                     "-40",
                 ),
-                ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearConsolidatedDuration", "0"),
-                ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
-                ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
-                ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
-                ("jpcrp_cor:LongTermBorrowings", "CurrentYearConsolidatedInstant", "50"),
-                ("jpcrp_cor:Equity", "CurrentYearConsolidatedInstant", "800"),
-                ("jpcrp_cor:TotalAssets", "CurrentYearConsolidatedInstant", "1400"),
+                ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
+                ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
+                ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
+                ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
+                ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),
+                ("jppfs_cor:NetAssets", "CurrentYearInstant", "800"),
+                ("jppfs_cor:Assets", "CurrentYearInstant", "1400"),
             ]
         ),
         submit_datetime="2026-04-01 12:00",

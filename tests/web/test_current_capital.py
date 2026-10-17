@@ -14,7 +14,7 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_web.readmodel.builders import build_dashboard
+from baibai_web.readmodel.builders import build_dashboard, dashboard
 from baibai_web.sources import db_sources
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
@@ -31,7 +31,6 @@ def holding_case(tmp_path):
     """台帳/市場だけの合成保有fixture。旧評価publicationへ依存しない。"""
     db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    ledger = ledger.model_copy(update={"market_prices": ()})
     seed_ledger(db, ledger)
     seed_daily_bars(
         market,
@@ -48,7 +47,7 @@ def holding_case(tmp_path):
 def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     holding_case, tmp_path, monkeypatch, missing
 ):
-    db, market, _ = holding_case
+    db, market, ledger = holding_case
 
     class Clock(datetime):
         @classmethod
@@ -56,6 +55,7 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
             return NOW if tz is None else NOW.astimezone(tz)
 
     monkeypatch.setattr(db_sources, "datetime", Clock)
+    monkeypatch.setattr(dashboard, "datetime", Clock)
     with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-07-01'")
         if missing:
@@ -70,11 +70,17 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
         DbMarketPriceSource(market),
     )
     assert view.ledger_error is None
+    assert view.ledger_as_of == ledger.as_of
+    assert view.ledger_stale
+    assert view.generated_at == NOW
     assert view.available_cash_yen == 10080500
     assert view.holdings[0].quantity == 200
     assert view.holdings[0].deployed_cost_yen == 203000
     assert view.holdings[0].market_value_yen == (None if missing else 200000)
     assert view.total_capital_yen == (None if missing else 10399500)
+    assert view.holdings[0].market_price_as_of == (None if missing else date(2026, 9, 4))
+    assert view.valuation_as_of == (None if missing else date(2026, 9, 4))
+    assert view.model_dump(mode="json")["valuation_as_of"] == (None if missing else "2026-09-04")
     assert view.realized_gross_pnl_yen == 0
     if missing:
         assert view.holdings[0].unrealized_pnl_yen is None

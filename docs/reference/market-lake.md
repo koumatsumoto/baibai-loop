@@ -20,7 +20,8 @@ row数・schema・digestを列挙し、L1 release manifestは同時に使うdata
 
 - partition grainはdataset契約が宣言し、row数から動的に変えない
 - object key、SHA-256、byte数、row数、Arrow schemaを読取時に照合する
-- releaseは`production` profileだけを持ち、required dataset・coverage・row/population floorを満たす
+- releaseは`production` profileだけを持ち、required dataset・coverage・非空の観測と世代整合を満たす
+- coverageはdatasetごとの運用判定である。日次株価は保存日の端点・間隔による再取得判定を使い、全営業日・全銘柄の網羅を証明しない。過去に保存した件数や銘柄数を新しい取得範囲の最低値にしない。件数は実際に保持する量であり、完全性の証明ではない
 - prefix listing、glob、`union_by_name`、provider fallbackで欠損を補わない
 - 一つのdatasetへ同時に二つのcanonical writerを持たない
 - readerは開始時にcurrentを一度だけ解決し、以後は固定releaseだけを読む
@@ -45,13 +46,17 @@ dataset追加時は次を同じ変更で揃える。
 
 1. `storage/lake/datasets.py`のtyped契約
 2. SQLite schemaとingest
-3. release profileのrequired/optional、coverage、floor
+3. release profileのrequired/optional、coverage、非空の観測
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
 
-`jquants.fin_summaries`はcontract version 2、market SQLiteはschema 32で、主キーは`ticker / disclosed_at / record_key`である。同日文書を保持し、DocNo・開示時刻・DocType・全文document payloadを保存する。DocNo未取得のsourceはpayload digestで識別し、date-only既存行は`legacy`とする。digestやDocNoをrevision順序に使わない。既存actual列とlegacyのcollapsed forecast列は維持し、新文書の予想はpayloadから共通純粋投影で解決する。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)に従う。
+`jquants.fin_summaries`はcontract version 4で、主キーは`ticker / disclosed_at / disclosure_number`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
 
-旧contract 1 releaseは元codeと組み合わせて保持する。現行の財務文書store/releaseへの切替は完了しており、runtimeの旧schema読替え・自動移行は行わない。通常の取得・発行・復旧は[batch運用](../../batch/OPERATIONS.md)に従う。
+財務の取得範囲内に開示が0件でも、正常に取得した期間は取得済みとして再利用する。未取得・不正recordを含むpartialとは区別し、計算に必要な履歴・銘柄数の充足とは別に判定する。訂正確認のための明示的な再取得と直近期間の更新は継続する。
+
+文書は原本の`DiscNo`で識別し、番号がないrecordへpayload digestによる代替identityを生成しない。必須identityがない応答は保存済み範囲の置換前に拒否する。同じidentityの同一recordは一度だけ保存し、内容が異なる場合は入力順で選ばず拒否する。開示番号はrevision順序ではない。[公式仕様](https://jpx-jquants.com/ja/spec/fin-summary)に従い、開示日・時刻と会計期間で判断する。型変換・当期/翌期予想の選択・財務計算は読込後の共通純粋投影で行う。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)、物理schemaは[観測store](../../engine/src/baibai_engine/storage/observations/schema.py)を正本とする。
+
+旧contractのreleaseは対応codeと組み合わせて保持し、runtimeの旧schema読替え・自動移行は行わない。原本を欠く旧flattened行を原本recordに見せかけて変換しない。schema変更時の再構築・検証・明示切替と、通常の取得・発行・復旧を分ける。運用は[batch運用](../../batch/OPERATIONS.md)に従う。
 
 個別dataset専用の移行runnerは作らない。現行storeからreleaseを再構築し、hydrateで現行schemaへ満たす。
 
@@ -88,7 +93,7 @@ named releaseはIDだけでは受理せずmanifest SHA-256を必須とする。�
 - pointerとrelease manifestのidentity
 - release entryとdataset manifestのidentity・contract
 - objectのSHA-256、byte数、row数、Arrow schema
-- required dataset、coverage、row/population floor
+- required dataset、coverage、非空の観測と世代整合
 
 `lake resolve`はmanifestを解決してidentityとdataset一覧を表示する。任意SQLの実行やdata objectの検証は行わない。
 Pythonで同じreleaseを固定し、必要なdatasetのmanifestに列挙されたobjectを検証してDuckDBへ渡す。
@@ -118,10 +123,7 @@ paths = materialize_partitions(
 )
 with lake_session() as session:
     session.connection.read_parquet([str(path) for path in paths]).create_view(alias)
-    sql = Path("docs/reference/queries/edinet-research-filing.sql").read_text()
-    rows = session.connection.execute(
-        sql, {"ticker": "<TICKER>", "cutoff": "<YYYY-MM-DD>"}
-    ).fetchall()
+    rows = session.connection.execute("SELECT * FROM docs").fetchall()
 ```
 
 同じsessionへ必要なviewを追加し、以下のSQL例もparameterをbindして実行する。optional datasetが一覧にない場合や
@@ -167,8 +169,8 @@ uv run baibai-engine lake hydrate \
   --store stores/market/market.sqlite
 ```
 
-hydrateは同一filesystem上のtemporary storeへ書き、`integrity_check`、foreign key、manifest row数を
-確認してから`os.replace`する。途中失敗時は直前のstoreを保持する。current以外を使う場合は
+hydrateは同一filesystem上のtemporary storeへ書き、SQLiteの`quick_check`・対象列・manifest row数を
+確認してからatomic replaceする。途中失敗時は直前のstoreを保持する。current以外を使う場合は
 `--release`と`--manifest-sha256`、またはtyped `--release-ref`で固定する。
 
 ## 保持とGC
@@ -208,19 +210,40 @@ operator-local CLIは復旧に必要なlocal pathを表示してよい。R2 toke
 finalizerで権限を分け、production bucketを試験用途に使わない。remote実装のprotocol確認はdeterministic
 unit testとlocal fakeで行い、専用acceptance workflowやexact workflow auditを運用条件にしない。
 
+## EDINET原本archive
+
+`edinet.source_archives`はCSV/XBRLの取得ZIP bytesを保持する任意datasetである。旧releaseの抽出値から原本を捏造せず、新規取得・既存cache再利用から増やす。日付partitionは初回保存日であり、書類の観測日ではない。抽出値の正本と混同せず、[原本保存の運用](../../batch/OPERATIONS.md#edinet-source-archives)に従って不足確認・再計算・公開受入を行う。
+
 <a id="edinet-research-query"></a>
 
 ## Researchのセグメント・負債満期照会
 
 最初に[解決と読み取り](#fixed-release-read)の`lake resolve`でrelease IDとmanifest SHA-256を固定する。2 datasetはoptionalであり、同じreleaseのdataset一覧で存在を確かめる。導入前のreleaseも他datasetを読み続けられるが、存在しないdatasetへのqueryは行わず原典へ戻る。両datasetのpartitionは提出月、日付filterは`disclosed_on`である。企業別・期間別の行の存在は、questionの解決や全債務のcoverageを意味しない。
 
-1. 固定releaseの`edinet.documents`からDuckDB view `docs`を作り、[書類選択SQL](./queries/edinet-research-filing.sql)へ`ticker`と`cutoff`（JST日付、当日末まで）を渡す。viewには保持したdocumentの全範囲を含める。狭い範囲にすると訂正のparentや取下げイベントを落とす。最新年次family内の提出版を先に選び、抽出済みかどうかで古い版へ戻らない。
-2. `validity=usable`の書類だけについて、同じreleaseで下記のfact queryを行う。選択0件・`validity_unknown`・抽出行なしは原典確認へ戻り、訂正前の値で補わない。現行inventoryが履歴を確定できない情報修正・不開示・取下げも、選択familyに紐づく場合、またはfamily不明の年次イベントがそれ以降の年次に影響し得る場合はunknownに倒す。既知の別familyだけに紐づくイベントでは選択familyを止めない。年次familyに関連しない非年次イベントだけでは止めない。日中時点のPIT再現にはこの日次例を使わない。
-3. 年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
+書類選択は抽出工程と同じ純粋な `edinet_facts.selection` を使う。独立したSQL版の訂正・取下げ判定は持たない。固定releaseを[Storeの復元](#store-hydration)で明示的な作業コピーへhydrateし、次のように全保持範囲から選ぶ。hydrateにも同じrelease ID・manifest SHA-256を指定し、currentへ乗り換えない。
+
+```python
+from datetime import date
+from pathlib import Path
+from baibai_engine.market.edinet_facts.selection import latest_annual_filing, usable_document
+from baibai_engine.market.edinet_facts.store import document_inventory
+
+cutoff = date.fromisoformat("<YYYY-MM-DD>")
+doc = latest_annual_filing(
+    document_inventory(Path("/tmp/research-fixed.sqlite"), cutoff), "<TICKER>"
+)
+if doc is None or not usable_document(doc):
+    raise ValueError("年次書類を確定できません。原典を確認してください。")
+doc_id = doc["docID"]
+```
+
+cutoffはJST日付で当日末までを含む。保存済み原本のkey存在・明示nullを保持して操作イベントを畳み、最新年次familyとその訂正を選んでから利用可否を確認する。解決できた情報修正を永久に拒否せず、親不明の訂正を落として古い年次へ戻らない。選択なしは書類の不存在を意味しない。未確認・未抽出なら原典へ戻り、同じrelease内でも古い版へfallbackしない。日中時点のPIT再現にはこの日次例を使わない。
+
+年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
 
 `edinet.metrics`の年次書類120/130には、売上債権・棚卸資産・仕入債務・契約負債・前受金・未払金のOCF寄与と、報告された有形・無形CapEx内訳をnullableで持つ。OCF内訳は報告符号、CapEx内訳はpositive expenditure magnitudeである。内訳を0と仮定した値は原因分解の感応度に過ぎず、「正常FCF」や維持投資の機械判定として扱わない。nullはゼロではなく、対象標準conceptの不存在、context・unitの不一致や曖昧さ、またはv1対象外conceptを含み得る。必要な場合は原典を確認する。
 
-同じreleaseの`edinet.segment_facts`をview `segments`として、選ばれた`doc`をparameterに渡す。partitionを絞る場合は選択書類の提出月を含め、`disclosed_on`のcutoffも照合する。
+同じreleaseの`edinet.segment_facts`をview `segments`として、選ばれた`doc_id`をSQLの`doc` parameterに渡す。partitionを絞る場合は選択書類の提出月を含め、`disclosed_on`のcutoffも照合する。
 
 ```sql
 SELECT period_start, period_end, consolidation_basis, segment_key, segment_name,

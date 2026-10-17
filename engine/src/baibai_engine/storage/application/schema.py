@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 24
+APPLICATION_SCHEMA_VERSION = 25
 
 SCHEMA_SQL = """
 CREATE TABLE task (
@@ -166,15 +166,6 @@ ON ledger_event(occurred_at, same_instant_order, append_seq);
 CREATE INDEX ledger_event_decision_idx
 ON ledger_event(decision_reference) WHERE decision_reference IS NOT NULL;
 
-CREATE TABLE ledger_market_price (
-    ticker TEXT PRIMARY KEY,
-    observed_at TEXT NOT NULL,
-    price_yen TEXT NOT NULL,
-    source_kind TEXT NOT NULL,
-    price_basis TEXT NOT NULL,
-    source_ref TEXT NOT NULL,
-    payload TEXT NOT NULL CHECK (json_valid(payload))
-) STRICT;
 CREATE TABLE ledger_meta (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     schema_version INTEGER NOT NULL,

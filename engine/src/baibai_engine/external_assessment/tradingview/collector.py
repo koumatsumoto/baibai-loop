@@ -31,17 +31,12 @@ from baibai_engine.external_assessment.tradingview.diagnostics import (
 from baibai_engine.external_assessment.tradingview.diagnostics import failure_category, failure_line
 from baibai_engine.external_assessment.tradingview.observations import (
     FIELDS,
-    AllMissingError,
     FetchError,
     ProviderPayloadError,
     normalize_batch,
 )
-from baibai_engine.market.universe import (
-    ELIGIBLE_MARKETS,
-    NON_COMMON_STOCK_SECTORS,
-    TSE_33_SECTORS,
-    UniverseSourceDriftError,
-)
+from baibai_engine.market.master_snapshot import masters_from_payloads
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.observations.schema import (
     SQLiteSchemaError,
     open_connection,
@@ -58,23 +53,19 @@ ProgressHook = Callable[[CollectionProgress], None]
 
 def universe(conn: sqlite3.Connection, day: date) -> list[str]:
     rows = conn.execute(
-        "SELECT ticker,market,sector_33 FROM jquants_master_snapshots "
-        "WHERE snapshot_date=? ORDER BY ticker",
+        "SELECT record_json FROM jquants_master_snapshots "
+        "WHERE snapshot_date=? ORDER BY security_code",
         (day.isoformat(),),
     ).fetchall()
     if not rows:
         raise SourceDataError("Exact-date J-Quants master is unavailable")
     result = []
-    for ticker, market, sector in rows:
-        if str(market).upper() not in ELIGIBLE_MARKETS:
+    for security in masters_from_payloads([row[0] for row in rows]):
+        if not security.is_common_stock or security.market_segment.upper() not in ELIGIBLE_MARKETS:
             continue
-        if sector not in TSE_33_SECTORS | NON_COMMON_STOCK_SECTORS:
-            raise UniverseSourceDriftError("Unknown J-Quants sector classification")
-        if sector not in TSE_33_SECTORS:
-            continue
-        if not re.fullmatch(r"[0-9][0-9A-Z]{3}", ticker):
+        if not re.fullmatch(r"[0-9][0-9A-Z]{3}", security.ticker):
             raise SourceDataError("Invalid J-Quants ticker")
-        result.append("TSE:" + ticker)
+        result.append("TSE:" + security.ticker)
     if not result:
         raise SourceDataError("Empty TradingView universe")
     return result
@@ -117,7 +108,8 @@ def _snapshot_state(
     now: datetime | None = None,
 ) -> tuple[list[str] | None, dict[str, object]]:
     calendar = conn.execute(
-        "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
+        "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day=?",
+        (day.isoformat(),),
     ).fetchone()
     if calendar is None:
         raise SourceDataError("Exact-date trading calendar is unavailable")
@@ -126,7 +118,8 @@ def _snapshot_state(
         basis = day
     else:
         previous = conn.execute(
-            "SELECT MAX(day) FROM jquants_market_calendar WHERE day<? AND is_business_day=1",
+            "SELECT MAX(day) FROM jquants_market_calendar "
+            "WHERE day<? AND holiday_division IN ('1', '2')",
             (day.isoformat(),),
         ).fetchone()[0]
         if previous is None:
@@ -325,7 +318,7 @@ async def collect(
                 if category in {"internal", "storage"}:
                     raise
                 last_error = exc
-                if isinstance(exc, (AllMissingError, ProviderPayloadError)):
+                if isinstance(exc, ProviderPayloadError):
                     consecutive_bad += 1
                     stop_reason = category
                     if consecutive_bad >= 3:
@@ -354,7 +347,7 @@ async def collect(
                 break
             try:
                 rows = normalize_batch(payload, chunk, fetched)
-            except (AllMissingError, ProviderPayloadError) as exc:
+            except ProviderPayloadError as exc:
                 consecutive_bad += 1
                 last_error = exc
                 stop_reason = failure_category(exc)

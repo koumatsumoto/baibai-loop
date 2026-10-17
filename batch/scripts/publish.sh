@@ -16,6 +16,7 @@ if [[ $# -ne 0 ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${repo_root}"
 uv run baibai-engine position ledger \
   --db "${repo_root}/stores/application/baibai.sqlite" >/dev/null
 "${repo_root}/batch/scripts/r2_transfer.sh" push-app

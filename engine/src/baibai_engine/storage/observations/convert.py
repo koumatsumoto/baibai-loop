@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
-from math import isfinite
 from typing import Any
 
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_decode import is_missing_scalar as _is_missing_scalar
+from baibai_engine.market.jquants_decode import to_float as to_float
 from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
 
 
@@ -45,27 +47,7 @@ def code_quality(value: Any) -> tuple[str | None, str]:
 
 
 def normalize_ticker_or_none(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    try:
-        ticker, common_code = parse_security_code_parts(value)
-    except SecurityCodeError:
-        return None
-    if not common_code:
-        return None
-    return ticker
-
-
-def is_common_stock_flag(record: Mapping[str, Any]) -> bool:
-    if "is_common_stock" in record:
-        return bool(record["is_common_stock"])
-    code = str(first(record, "Code", "code") or "").strip()
-    if len(code) == 5 and not code.endswith("0"):
-        return False
-    raw_type = to_str_or_none(first(record, "TypeOfDocument", "SecurityType", "security_type"))
-    if raw_type is None:
-        return True
-    return raw_type.lower() in {"common", "common stock", "普通株"}
+    return code_quality(value)[0]
 
 
 def first(record: Mapping[str, Any], *keys: str) -> Any:
@@ -77,18 +59,6 @@ def first(record: Mapping[str, Any], *keys: str) -> Any:
             continue
         return value
     return None
-
-
-def to_float(value: Any) -> float | None:
-    if _is_missing_scalar(value) or value == "-":
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not isfinite(result):
-        return None
-    return result
 
 
 def to_str_or_none(value: Any) -> str | None:
@@ -122,16 +92,13 @@ def optional_date(value: object) -> date | None:
         return None
 
 
-def _is_missing_scalar(value: Any) -> bool:
-    """Recognize scalar missing markers produced by JSON and pandas without importing pandas."""
-
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return value.strip() in {"", "NaT", "nan", "null", "<NA>"}
-    if str(value).strip() in {"NaT", "nan", "<NA>"}:
-        return True
-    try:
-        return bool(value != value)
-    except (TypeError, ValueError):
-        return False
+def distinct_source_rows(
+    rows: Iterable[tuple[Any, ...]], *, identity_columns: int, source: str
+) -> list[tuple[Any, ...]]:
+    """Collapse repeated observations, but never choose a conflicting value by row order."""
+    by_identity: dict[tuple[Any, ...], tuple[Any, ...]] = {}
+    for row in rows:
+        identity = row[:identity_columns]
+        if by_identity.setdefault(identity, row) != row:
+            raise JQuantsProviderError(f"conflicting {source} observation: {identity}")
+    return list(by_identity.values())

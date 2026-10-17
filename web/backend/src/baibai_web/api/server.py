@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import AwareDatetime
 
 from baibai_engine.read_api import (
     APPLICATION_DB_PATH,
@@ -253,12 +254,12 @@ def create_app(
     def market_context_overview(
         sources: _SourceDependency,
         as_of: date | None = None,
-        known_at: datetime | None = None,
+        known_at: AwareDatetime | None = None,
     ) -> MarketContextView:
         cutoff = known_at or datetime.now(_JST)
         return build_market_context(
             sources.market_context,
-            as_of=as_of or cutoff.date(),
+            as_of=as_of or cutoff.astimezone(_JST).date(),
             known_at=cutoff,
             market=sources.market,
         )
@@ -292,10 +293,10 @@ def create_app(
                 context_id=context_id,
                 as_of=as_of or datetime.now(_JST).date(),
             )
-        except ValueError as error:
-            # An arbitrary ID may have no readable history. The analytical as_of
-            # only supplies age metadata; it does not exclude a saved exact ID.
+        except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise _research_source_error(error) from error
 
     @app.get("/api/operations", response_model=OperationsView)
     def operations(sources: _SourceDependency) -> OperationsView:

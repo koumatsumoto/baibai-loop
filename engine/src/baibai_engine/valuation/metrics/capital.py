@@ -6,14 +6,19 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum
-from math import exp, isclose, log
+from math import exp, log
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    cumulative_share_unit_factor_after,
+    share_unit_factor,
+)
 from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.financial_documents import accounting_period_identity
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
-    _accounting_period_identity,
     _AccountingObservationKey,
     _actual_rows,
     _latest_non_null_row,
@@ -37,33 +42,6 @@ class _NormalizedSummaryResult:
 
     summaries: Sequence[JQuantsFinancialSummary]
     capital_basis_barrier: _AccountingObservationKey | None
-
-
-def _cumulative_adjustment_factor_after(
-    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
-    after: date,
-    asof_date: date,
-    *,
-    include_boundary_day: bool = False,
-) -> float:
-    """`after` より後・asof 以前の bar の adjustment_factor の累積を返す。
-
-    `include_boundary_day` は境界日当日の権利落ちも数える。財務開示行が申告する株式基準は
-    期末であって開示日ではないので、開示日当日に権利落ちがあった行は分割前基準のまま公表
-    される (store 全数で該当 3 行、いずれも直前開示行と同じ株数=分割前基準。分割後基準の
-    例は無い)。開示行の正規化はこれを数える。期末と開示日の間に権利落ちがある行は逆に
-    134 行中 103 行が既に分割後基準なので、境界を期末側へ広げると大半を二重換算する。
-    """
-    factor = 1.0
-    for bar in ticker_bars:
-        before_start = bar.traded_at < after if include_boundary_day else bar.traded_at <= after
-        if before_start or bar.traded_at > asof_date:
-            continue
-        if bar.adjustment_factor in (None, 0.0, 1.0):
-            continue
-        assert bar.adjustment_factor is not None
-        factor *= bar.adjustment_factor
-    return factor
 
 
 class _ShareBasis(Enum):
@@ -142,10 +120,12 @@ def _interim_split_basis(
     for bar in ticker_bars:
         if not (period_end < bar.traded_at < summary.disclosed_at):
             continue
-        if bar.adjustment_factor in (None, 0.0, 1.0):
+        adjustment = share_unit_factor(bar)
+        if adjustment is None:
+            return 1.0, _ShareBasis.INDETERMINATE
+        if adjustment == 1.0:
             continue
-        assert bar.adjustment_factor is not None
-        interim *= bar.adjustment_factor
+        interim *= adjustment
         if first_ex is None or bar.traded_at < first_ex:
             first_ex = bar.traded_at
     if interim in (0.0, 1.0) or first_ex is None:
@@ -158,8 +138,10 @@ def _interim_split_basis(
                 row
                 for row in summaries
                 if row.disclosed_at < first_ex
-                and getattr(row, field_name) is not None
-                and getattr(row, field_name) > 0
+                and (
+                    field_name in row.unresolved_actual_fields
+                    or (getattr(row, field_name) is not None and getattr(row, field_name) > 0)
+                )
             ],
             field_name,
         )
@@ -171,13 +153,13 @@ def _interim_split_basis(
         # 現在行の期末基準ではない。先に同じ基準へ移さないと、連続した分割・併合をすべて
         # 今回の interim action の差と誤認する。開示日当日の権利落ちは開示行の正規化と同じ
         # 契約で数える。
-        previous_to_period_end = _cumulative_adjustment_factor_after(
+        previous_to_period_end = cumulative_share_unit_factor_after(
             ticker_bars,
             previous_row.disclosed_at,
             period_end,
             include_boundary_day=True,
         )
-        if previous_to_period_end <= 0:
+        if previous_to_period_end is None or previous_to_period_end <= 0:
             return _ShareBasis.INDETERMINATE
         previous_on_period_end_basis = previous / previous_to_period_end
         return _closer_share_basis(current / previous_on_period_end_basis, interim)
@@ -196,7 +178,7 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
 
     円の総額 (総資産・売上・利益) は基準に依存しないので残す。株数と per-share は
     どちらの基準か分からないまま価格と組むと時価総額が分割比だけずれるので答えない。
-    時価総額が出ない銘柄は母集団に入らない。
+    時価総額が出ない銘柄は母集団に入らない。実績 DPS は配当側が独立に判断するため残す。
     """
 
     return replace(
@@ -204,7 +186,6 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
         eps_ttm=None,
         forecast_eps=None,
         bps=None,
-        dps_actual_annual=(0.0 if summary.dps_actual_annual == 0 else None),
         dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
         shares_outstanding=None,
         average_shares=None,
@@ -217,19 +198,14 @@ def _normalize_summaries_to_asof_basis(
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     asof_date: date,
 ) -> Sequence[JQuantsFinancialSummary]:
-    """financial summary 行の per-share 値と株数を asof 時点の株式基準へ換算する。
+    """Return rows normalized to the as-of share basis.
 
-    J-Quants の財務開示行は as-reported (分割の遡及調整なし) のため、開示後に
-    分割・併合 (権利落ち bar の adjustment_factor) があると、行同士の比較・合成
-    (TTM 合成・YoY・株数変化) や「開示時点株数 x 権利落ち後価格」の market cap で
-    per-share 基準が混在する (1:2 分割なら時価総額が半分・合成 EPS が過大に見える)。
-    各行の開示日より後・asof 以前の adjustment_factor を累積し、実績系の
-    per-share 値 (eps_ttm / bps) には掛け、株数には割って現在基準へ揃える。
-    実績系と株数は同一行内で開示日基準に揃っている (1899/1911 の実データで確認) が、
-    forecast_eps だけは「会社が分割考慮後の値で開示する」慣行が混在し、開示時点の
-    基準を機械では判別できない。分割を跨ぐ行の forecast_eps は正規化せず None に
-    落とす (偽の per_forward を出さない。split_adjustment_recent risk tag が
-    research の手動検算へ誘導する)。
+    Classify period-end versus disclosure basis when actions intervene, then apply
+    subsequent factors to per-share values and their inverses to share counts.
+    Indeterminate bases lose dependent values; forecasts across a split are not
+    relabelled as split-safe. Callers needing the capital carry barrier use the
+    result-returning variant directly. Actual DPS is deliberately preserved raw;
+    only the dividend resolver decides whether it is comparable at the as-of date.
     """
     return _normalize_summaries_with_status(summaries, ticker_bars, asof_date).summaries
 
@@ -243,20 +219,18 @@ def _normalize_summaries_with_status(
 
     summaries = resolve_actual_conflicts(summaries)
     has_adjustment = any(
-        bar.adjustment_factor not in (None, 0.0, 1.0)
-        for bar in ticker_bars
-        if bar.traded_at <= asof_date
+        share_unit_factor(bar) != 1.0 for bar in ticker_bars if bar.traded_at <= asof_date
     )
     if not has_adjustment:
         return _NormalizedSummaryResult(summaries=summaries, capital_basis_barrier=None)
     normalized: list[JQuantsFinancialSummary] = []
     capital_basis_barrier: _AccountingObservationKey | None = None
     for index, summary in enumerate(summaries):
-        factor = _cumulative_adjustment_factor_after(
+        factor = cumulative_share_unit_factor_after(
             ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
         )
         interim, basis = _interim_split_basis(summaries, index, ticker_bars)
-        if basis is _ShareBasis.INDETERMINATE:
+        if factor is None or basis is _ShareBasis.INDETERMINATE:
             normalized.append(_without_share_basis(summary))
             observation_key = _accounting_observation_key(summary)
             if (summary.shares_outstanding is not None or summary.treasury_shares is not None) and (
@@ -275,13 +249,7 @@ def _normalize_summaries_with_status(
                 summary,
                 eps_ttm=summary.eps_ttm * factor if summary.eps_ttm is not None else None,
                 forecast_eps=None,
-                # 実績 DPS は per-share 実績と同じ換算。予想 DPS は基準不明の
-                # 正値だけ落とし、どの株式基準でも同じ明示 0 は残す。
-                dps_actual_annual=(
-                    summary.dps_actual_annual * factor
-                    if summary.dps_actual_annual is not None
-                    else None
-                ),
+                # 実績 DPS は原本のまま配当 resolver へ渡す。予想の明示 0 は残す。
                 dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
                 bps=summary.bps * factor if summary.bps is not None else None,
                 shares_outstanding=(
@@ -289,9 +257,7 @@ def _normalize_summaries_with_status(
                     if summary.shares_outstanding is not None
                     else None
                 ),
-                # 期中平均株式数も株数なので同じ換算を掛ける。掛けないと、開示より後に
-                # 分割のある行で「発行済 - 自己株」との比が factor 倍ずれ、健全性 gate が
-                # 本来効かせたい (分割が複数ある) 行でだけ静かに無効になる。
+                # 期中平均株式数も同じ株数単位へ換算する。
                 average_shares=(
                     summary.average_shares / factor if summary.average_shares is not None else None
                 ),
@@ -311,34 +277,6 @@ def _normalize_summaries_with_status(
     )
 
 
-def _issued_matches_average_alias(
-    summary: JQuantsFinancialSummary,
-    treasury: float,
-    summaries: Sequence[JQuantsFinancialSummary],
-) -> bool:
-    """Identify a stored AvgSh fallback only when an earlier gross issue count proves it."""
-
-    issued = summary.shares_outstanding
-    average = summary.average_shares
-    if issued is None or average is None or treasury <= 0:
-        return False
-    if not isclose(issued, average, rel_tol=1e-12, abs_tol=1e-6):
-        return False
-    reconstructed_gross = issued + treasury
-    source_key = _accounting_observation_key(summary)
-    return any(
-        row.shares_outstanding is not None
-        and _accounting_observation_key(row) < source_key
-        and isclose(
-            reconstructed_gross,
-            row.shares_outstanding,
-            rel_tol=1e-12,
-            abs_tol=1e-6,
-        )
-        for row in summaries
-    )
-
-
 def _resolve_capital_basis(
     summaries: Sequence[JQuantsFinancialSummary],
     *,
@@ -346,16 +284,14 @@ def _resolve_capital_basis(
 ) -> _CapitalBasisResolution:
     """発行済と自己株式を、両方が成立する資本状態でだけ組み合わせる。
 
-    自己株式0株がJ-Quantsで欠損値になる行があるため、正の自己株式を観測した後に発行済株式を
-    持つ新しい行が自己株式を欠く場合、旧自己株式が現在状態でも有効か判別できない。
-    自己株式の消却、処分、新株発行と処分の同時実施を区別できないので、新しい自己株式を
-    観測するまで旧正値をcarryせずfail closedにする。自己株式0株は二重控除を起こさない
-    ため、明示的な0観測は通常どおりcarryできる。
+    新しい発行済株式の観測が自己株式を欠く場合、過去の自己株式数を現在値と
+    組み合わせない。過去の明示0も現在の0を証明せず、取得・処分・消却などによる
+    変化を欠測から判別できない。両方を再観測するまで控除後株数を答えない。
+    株数をどちらも観測しない行では、既知の組をそのまま持ち越せる。
 
-    `AvgSh` は EPS の期中平均株式数であり、発行済株式総数ではない。発行済と期中平均が
-    同値で、さらに自己株式を足すと過去に観測した gross issued へ戻る場合、入力の発行済欄へ
-    期中平均がfallbackしたと識別できるので答えない。単なる同値は1Qの正常行にもあるため
-    failureにはしない。ingestも`ShOutFY`だけを発行済株式総数として保存する。
+    `AvgSh` は EPS の期中平均株式数であり、発行済株式総数の代替には使わない。
+    数値の一致や過去の株数との恒等式だけでは誤転記を証明できないため、報告された
+    `ShOutFY`をそのまま発行済株式総数として扱う。
     """
 
     actual_rows = _actual_rows(summaries)
@@ -387,7 +323,7 @@ def _resolve_capital_basis(
 
     if issued_row is not None and treasury_row is not None:
         same_period_day = (
-            _accounting_period_identity(issued_row) == _accounting_period_identity(treasury_row)
+            accounting_period_identity(issued_row) == accounting_period_identity(treasury_row)
             and issued_row.disclosed_at == treasury_row.disclosed_at
         )
         incomparable_time = same_period_day and (
@@ -401,7 +337,7 @@ def _resolve_capital_basis(
             complete = [
                 row
                 for row in capital_rows
-                if _accounting_period_identity(row) == _accounting_period_identity(issued_row)
+                if accounting_period_identity(row) == accounting_period_identity(issued_row)
                 and row.disclosed_at == issued_row.disclosed_at
                 and row.shares_outstanding == issued
                 and row.treasury_shares == treasury
@@ -412,9 +348,9 @@ def _resolve_capital_basis(
         treasury_source_key = _accounting_observation_key(treasury_row)
         if (
             incomparable_time
-            and issued_row.record_key is not None
-            and treasury_row.record_key is not None
-            and issued_row.record_key != treasury_row.record_key
+            and issued_row.disclosure_number is not None
+            and treasury_row.disclosure_number is not None
+            and issued_row.disclosure_number != treasury_row.disclosure_number
         ):
             return _CapitalBasisResolution(
                 issued=issued,
@@ -422,7 +358,7 @@ def _resolve_capital_basis(
                 shares_ex_treasury=None,
                 failure_reason="conflicting_capital_document_sources",
             )
-        if issued_source_key != treasury_source_key and treasury > 0:
+        if issued_source_key != treasury_source_key:
             issued_at_treasury = treasury_row.shares_outstanding
             if issued_at_treasury is None:
                 return _CapitalBasisResolution(
@@ -443,18 +379,8 @@ def _resolve_capital_basis(
                     issued=issued,
                     treasury=treasury,
                     shares_ex_treasury=None,
-                    failure_reason=(
-                        "indeterminate_positive_treasury_after_later_issued_observation"
-                    ),
+                    failure_reason=("indeterminate_treasury_after_later_issued_observation"),
                 )
-
-        if _issued_matches_average_alias(issued_row, treasury, capital_rows):
-            return _CapitalBasisResolution(
-                issued=issued,
-                treasury=treasury,
-                shares_ex_treasury=None,
-                failure_reason="issued_matches_average_with_positive_treasury",
-            )
 
     return _CapitalBasisResolution(
         issued=issued,
@@ -476,12 +402,11 @@ def build_shares_outstanding_index(
 ) -> dict[str, float | None]:
     """Shares the market can price: issued less treasury, on the as-of split basis.
 
-    universe の時価総額はこの index から作られ、時価総額 gate (100 億円) の判定値になる。
+    universe の時価総額はこの index から作られ、比較母集団の時価総額条件に使う。
     `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
     2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
-    直近の非 null 行から carry-forward する。ただし正の自己株式より後に発行済だけを
-    再観測した状態や、期中平均株式数と区別できない発行済は同じ資本状態と確認できないため、
-    時価総額を答えない。
+    直近の非 null 行から carry-forward する。ただし自己株式の観測より後に発行済だけを
+    再観測した状態では同じ資本状態と確認できないため、時価総額を答えない。
     """
     shares: dict[str, float | None] = {}
     for ticker, summaries in summaries_by_ticker.items():
@@ -500,12 +425,8 @@ def build_shares_outstanding_index(
     return shares
 
 
-# 期末発行済から自己株を引いた株数が、提出者自身が EPS を出すのに使った期中平均株数から
-# この倍率を超えて外れる行は、株数を per-share の分母に使わない。
-SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
-
-# EDINET の総資産が短信の総資産からこの倍率を超えて外れる行は、同じ会社の貸借対照表では
-# ないとみなし、EDINET 由来の値を判断面へ出さない。
+# EDINETと短信の総資産比がこの倍率帯を外れる行は、規模差の検査で不採用にする。
+# 帯内という結果だけでは同じ時点・連結範囲であるとは確定しない。
 ENTITY_SCALE_TOLERANCE = 2.0
 
 CONSOLIDATED_BASIS = "consolidated"
@@ -513,20 +434,16 @@ CONSOLIDATED_BASIS = "consolidated"
 ENTITY_SCALE_MISMATCH = "entity_scale_mismatch"
 
 
-def _edinet_describes_same_entity(
+def _edinet_passes_entity_scale_check(
     edinet: EdinetMetricRecord | None,
     total_assets: float | None,
 ) -> bool:
-    """EDINET の記録が短信と同じ実体を指しているか。
+    """Apply the total-assets scale heuristic, not a proof of accounting identity.
 
-    抽出器は 1 つの書類を連結・単体のどちらかの基準で読む。連結財務諸表を持つ会社の
-    書類を単体基準で読むと、負債・現金・EBITDA が親会社単独の値になる。時価総額と TTM
-    系列は短信由来なので、比率の分子と分母が別の会社を指す (実測では総資産が 1/1000 に
-    なる行がある)。両側が総資産を持つので、実体の一致は直接確かめられる。
-
-    連結基準で読めた行は照合できた 3,117 行すべてで一致するため、総資産を持たない
-    連結行はそのまま通す。単体基準・基準不明の行はその母集団の 17.6% が桁でずれており、
-    どれがずれているかを他の field では言えないので、照合できなければ答えない。
+    Positive total assets on both sides must lie within the configured ratio band.
+    If either amount is unavailable, only a consolidated EDINET row is accepted.
+    Passing does not establish matching dates or consolidation scope; rejection does
+    not identify whether scope, timing, or another source discrepancy caused it.
     """
     if edinet is None:
         return True
@@ -537,8 +454,7 @@ def _edinet_describes_same_entity(
     return edinet.consolidation_basis == CONSOLIDATED_BASIS
 
 
-# 円経路の自己資本を普通株基準として採るために要求する一致幅。実測では通期行の 97.2% が
-# 1% 以内に収まり、外れる 677 行は優先株・非支配株主持分を含む資本構成である。
+# 円経路とBPS経路を比較する許容幅。通過や不一致だけでは資本構成の原因を特定しない。
 _COMMON_EQUITY_BASIS_TOLERANCE = 0.05
 
 _EQUITY_RATIO_REPORTING_HALF_UNIT = 0.0005
@@ -570,19 +486,16 @@ def _common_equity_yen(
     bps: float | None,
     shares_ex_treasury: float | None,
 ) -> float | None:
-    """普通株主に帰属する自己資本 (円)。
+    """Choose the yen or BPS equity route under the comparable-row policy.
 
-    `総資産 x 自己資本比率` は四半期行にも載るので新しいが、分子が普通株主の持分とは
-    限らない。`bps x 自己株控除後株数` は普通株基準だが古い。両方を持つ直近の行で 2 つが
-    一致するなら、その会社では円経路も普通株基準なので鮮度を採る。食い違う会社は基準の
-    違いなので `bps` 側を採る。どちらか一方しか無ければそれを使う。
+    When both routes are available, compare the newest eligible row's TA/EqAR
+    product with its BPS/share product. Agreement within tolerance or reporting
+    precision permits the yen route; otherwise use BPS. The comparison does not
+    establish the economic cause of a discrepancy or prove accounting identity.
+    A later carried-value difference is not a second rejection test.
 
-    判定は突き合わせ行の中で行い、carry 後の 2 値が離れていることは理由にしない。乖離は
-    ほとんどが実際の資本変動だからである — as-of 2026-07-31 で 1.5 倍を超えた 55 社のうち、
-    未適用の分割で説明できるのは 1 社だけで、残り 54 社は `bps` の出所行から as-of まで
-    調整係数を 1 つも持たない。倍率で切ると、減損や大幅増資で自己資本が実際に動いた会社の
-    新しい値を捨てて古い `bps` を採ることになり、7069 (自己資本比率 0.441 -> 0.062) の
-    PBR は 36.3 から 3.08 へ、割安側へ 12 倍ずれる。
+    If only one route is available, use it. With both routes but no comparable row,
+    prefer BPS. The caller separately resolves capital basis and relative freshness.
     """
     yen_equity = (
         total_assets * equity_to_asset_ratio

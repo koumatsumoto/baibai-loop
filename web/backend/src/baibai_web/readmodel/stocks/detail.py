@@ -16,7 +16,7 @@ from baibai_web.readmodel.models import (
     SecurityDetailView,
     SecurityMarketContextView,
 )
-from baibai_web.readmodel.stocks.presentation import _safe_snapshot
+from baibai_web.readmodel.stocks.presentation import _optional_ledger_snapshot
 from baibai_web.readmodel.stocks.research import (
     _assessment_detail_view,
     _proposal_summary_view,
@@ -34,7 +34,6 @@ from baibai_web.sources.protocols import (
     ResearchSource,
     ScreeningSource,
 )
-from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
     ResearchRevision,
     ScreeningRunRecord,
@@ -75,12 +74,12 @@ def prepare_security_inputs(
             if not isinstance(item, Mapping):
                 raise ValueError("investment proposal item must be an object")
             proposals.setdefault(str(item["ticker"]), []).append(summary)
-    run = operative_screening_run(screening)
+    run = screening.latest_run()
     rows: dict[str, Mapping[str, object]] = {}
     if run is not None:
         for row in run.rows:
             rows.setdefault(str(row.get("ticker", "")), row)
-    snapshot = _safe_snapshot(ledger)
+    snapshot = _optional_ledger_snapshot(ledger)
     return PreparedSecurityInputs(
         today=today,
         external_cutoff=external_cutoff,
@@ -137,6 +136,7 @@ def build_security_detail(
         and raw_stock_analysis is None
         and not has_external
         and not proposals
+        and ticker not in inputs.reserved
     ):
         return None
 
@@ -144,7 +144,7 @@ def build_security_detail(
     security_sector = (
         text(raw_stock_analysis.get("sector_33")) if raw_stock_analysis is not None else None
     )
-    if raw_stock_analysis is None and has_external:
+    if raw_stock_analysis is None:
         identity = market.security_identities(as_of=today).get(ticker, {})
         security_name = text(identity.get("name")) or None
         security_sector = text(identity.get("sector_33"))

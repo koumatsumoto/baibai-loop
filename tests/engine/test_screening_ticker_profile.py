@@ -11,14 +11,16 @@ from pathlib import Path
 import pytest
 from tests.engine.test_screening_run_store import _run as _stock_run_payload
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_run import stock_analysis as stock_analysis
-from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
+from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
-from baibai_engine.screening.cli import build_parser, ticker_profile_command
+from baibai_engine.screening.cli.app import build_parser
+from baibai_engine.screening.cli.query import ticker_profile_command
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.storage.observations.schema import open_connection
@@ -33,16 +35,10 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
 def _insert_reference_rows(sqlite_path: Path) -> None:
     conn = open_connection(sqlite_path)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', 'AAAA', 'テスト製作所', 'プライム', '機械', 1)"
+        insert_master_rows(
+            conn, [("2026-05-28", "AAAA", "テスト製作所", "プライム", "機械", "011")]
         )
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', 'BBBB', '同業ペア', 'プライム', '機械', 1)"
-        )
+        insert_master_rows(conn, [("2026-05-28", "BBBB", "同業ペア", "プライム", "機械", "011")])
         conn.execute(
             "INSERT OR REPLACE INTO jpx_earnings_calendar"
             "(announcement_date, ticker) VALUES ('2026-06-10', 'AAAA')"
@@ -65,6 +61,13 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
             "INSERT OR REPLACE INTO jpx_regulation_flags"
             "(asof_date, source_name, ticker, flag)"
             " VALUES ('2026-05-29', '特別注意銘柄', 'AAAA', '特別注意銘柄')"
+        )
+        add_source_coverage(
+            conn,
+            source="jpx_regulation_flags",
+            coverage_key="2026-05-29",
+            min_date="2026-05-29",
+            max_date="2026-05-29",
         )
         conn.commit()
     finally:
@@ -166,6 +169,28 @@ class BuildTickerProfileTests(unittest.TestCase):
             stock_analysis = screening["stock_analysis"]
             assert isinstance(stock_analysis, dict)
             self.assertEqual(stock_analysis["metrics"], {"ocf_yield": 0.11})
+
+    def test_empty_regulation_snapshot_replaces_older_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sqlite_path = root / "market.sqlite"
+            _insert_reference_rows(sqlite_path)
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                add_source_coverage(
+                    conn,
+                    source="jpx_regulation_flags",
+                    coverage_key="2026-05-30",
+                    min_date="2026-05-30",
+                    max_date="2026-05-30",
+                    record_count=0,
+                )
+            profile = _dated_profile(root, date(2026, 5, 30))
+            self.assertEqual(
+                profile["events"]["jpx_regulation"],
+                {"snapshot_date": "2026-05-30", "flags": []},
+            )
+            earlier = _dated_profile(root, _ASOF)
+            self.assertEqual(earlier["events"]["jpx_regulation"]["flags"], ["特別注意銘柄"])
 
     def test_price_series_keeps_an_action_event_without_a_close(self) -> None:
         """売買停止日のfactorを落とさず、前後価格を同じ株式基準へ揃える。"""
@@ -295,14 +320,12 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots"
-                    "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-                    " VALUES ('2026-05-29', ?, ?, 'プライム', '機械', 1)",
-                    (
-                        ("AAAA", "テスト製作所"),
-                        ("CCCC", "現構成ペア"),
-                    ),
+                insert_master_rows(
+                    conn,
+                    [
+                        ("2026-05-29", "AAAA", "テスト製作所", "プライム", "機械", "011"),
+                        ("2026-05-29", "CCCC", "現構成ペア", "プライム", "機械", "011"),
+                    ],
                 )
                 conn.commit()
             finally:
@@ -404,7 +427,7 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
         root / "app.sqlite",
         PortfolioLedgerDocument.model_validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "portfolio_scope": "repository_only",
                 "as_of": "2026-05-29T15:30:00+09:00",
                 "estimated_exit_tax_rate_bps": None,
@@ -441,44 +464,17 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
                         "price_yen": price_yen,
                     },
                 ],
-                "market_prices": [
-                    {
-                        "ticker": ticker,
-                        "price_yen": price_yen,
-                        "observed_at": "2026-05-29T15:30:00+09:00",
-                        "source_kind": "licensed_dataset",
-                        "price_basis": "unadjusted_close",
-                        "source_ref": "test:ledger-price",
-                    }
-                ],
                 "overrides": [],
             }
         ),
     )
 
 
-@pytest.mark.parametrize("price_state", ["missing", "stale"])
-def test_portfolio_facts_survive_unavailable_ledger_valuation(tmp_path, price_state):
-    """Cost concentration uses confirmed trades, including after price transcription stops."""
-    from baibai_engine.position.store import LedgerStoreService
+def test_portfolio_facts_do_not_require_market_prices(tmp_path):
+    """Cost concentration uses confirmed trades without a market-price dependency."""
     from baibai_engine.read_api.ticker_profile import _portfolio_block
 
     _write_portfolio_ledger(tmp_path, ticker="BBBB", sector="機械", price_yen=500)
-    service = LedgerStoreService(tmp_path / "app.sqlite")
-    source, head = service.load_with_head()
-    prices = (
-        ()
-        if price_state == "missing"
-        else tuple(
-            price.model_copy(update={"observed_at": source.as_of - timedelta(days=30)})
-            for price in source.market_prices
-        )
-    )
-    service.apply_document(
-        expected_head=head,
-        expected_document=source,
-        replacement=source.model_copy(update={"market_prices": prices}),
-    )
     portfolio = _portfolio_block(app_db_path=tmp_path / "app.sqlite", ticker="BBBB", sector="機械")
     assert portfolio["holds_this_ticker"] is True
     assert portfolio["open_position_count"] == 1
@@ -571,11 +567,8 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
         _insert_dated_bars(sqlite_path, ticker, prices)
     conn = open_connection(sqlite_path)
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', ?, 'peer', 'プライム', '機械', 1)",
-            [(ticker,) for ticker in peers],
+        insert_master_rows(
+            conn, [("2026-05-28", ticker, "peer", "プライム", "機械", "011") for ticker in peers]
         )
         conn.commit()
     finally:

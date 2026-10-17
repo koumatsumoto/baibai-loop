@@ -302,7 +302,11 @@ for name in (
     'baibai_engine.storage.lake.reader',
 ):
     assert name not in sys.modules, name
-assert len(contract.MODEL_VALUATION_COLUMNS) == len(models.ModelValuationObservation.model_fields)
-assert len(contract.ANALYST_RATING_COLUMNS) == len(models.AnalystRatingObservation.model_fields)
+for columns, model in (
+    (contract.MODEL_VALUATION_COLUMNS, models.ModelValuationObservation),
+    (contract.ANALYST_RATING_COLUMNS, models.AnalystRatingObservation),
+    (contract.QUANTS_SCORE_COLUMNS, models.QuantsScoreObservation),
+):
+    assert {column[0] for column in columns} == set(model.model_fields)
 """
     subprocess.run([sys.executable, "-c", code], check=True, env=os.environ.copy())

@@ -37,9 +37,10 @@ def _margin(**overrides: object) -> MarginBalance:
 def _axes(**overrides: object) -> MarginSupplyDemand:
     values: dict[str, object] = {
         "latest": _margin(),
-        "prior_26w": _margin(long_vol=1500.0),
+        "prior_26w": _margin(balance_date=WEEK - timedelta(weeks=26), long_vol=1500.0),
         "avg_daily_volume_shares": 500.0,
         "shares_outstanding": 100_000.0,
+        "asof_date": WEEK,
     }
     values.update(overrides)
     return margin_supply_demand(**values)  # type: ignore[arg-type]
@@ -49,7 +50,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
     def test_axes_are_computed_from_the_published_balance(self) -> None:
         axes = _axes()
 
-        self.assertEqual(axes.margin_week_end, WEEK)
+        self.assertEqual(axes.margin_balance_date, WEEK)
         self.assertEqual(axes.margin_long_to_adv, 2.0)
         self.assertEqual(axes.margin_short_to_adv, 0.5)
         self.assertEqual(axes.margin_long_share, 0.8)
@@ -73,18 +74,6 @@ class MarginSupplyDemandTest(unittest.TestCase):
         self.assertIsNone(axes.margin_short_to_adv)
         self.assertIsNotNone(axes.margin_long_to_adv)
 
-    def test_a_split_inside_a_window_declines_that_axis(self) -> None:
-        # Balances are reported on the balance date's share basis and are not
-        # restated, so a split inside the window compares two different bases.
-        adv = _axes(split_within_adv_window=True)
-        delta = _axes(split_within_delta_window=True)
-
-        self.assertIsNone(adv.margin_long_to_adv)
-        self.assertIsNone(adv.margin_short_to_adv)
-        self.assertIsNotNone(adv.margin_long_delta_26w)
-        self.assertIsNone(delta.margin_long_delta_26w)
-        self.assertIsNotNone(delta.margin_long_to_adv)
-
     def test_a_zero_long_balance_is_no_overhang_but_not_a_zero_share(self) -> None:
         axes = _axes(latest=_margin(long_vol=0.0, long_std_vol=0.0))
 
@@ -105,9 +94,8 @@ class MarginSupplyDemandTest(unittest.TestCase):
 
 class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
     def test_every_supply_demand_field_reaches_derived_metrics(self) -> None:
-        # `DerivedMetrics` silently drops unknown keys, so a rename on one side
-        # would leave the axis permanently None with nothing failing. This pins
-        # the two field sets together.
+        # The domain output and screening snapshot share these facts. Keep their
+        # field sets aligned; the dataclass constructor rejects unknown keys.
         supply_demand = {field.name for field in fields(MarginSupplyDemand)}
         derived = {field.name for field in fields(DerivedMetrics)}
 
@@ -121,7 +109,7 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         self.assertEqual(derived.margin_long_share, 0.8)
         self.assertEqual(derived.margin_long_delta_26w, -0.005)
         self.assertEqual(derived.margin_std_long_share, 0.8)
-        self.assertEqual(derived.margin_week_end, WEEK)
+        self.assertEqual(derived.margin_balance_date, WEEK)
 
     def test_stock_analysis_output_carries_short_to_adv_and_observation_week(self) -> None:
         metrics = build_stock_analysis_metrics(
@@ -137,11 +125,10 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
                 sales_ttm=None,
                 ocf_ttm=None,
             ),
-            freshness_warning_count=0,
-            derived=DerivedMetrics(margin_week_end=WEEK, margin_short_to_adv=0.5),
+            derived=DerivedMetrics(margin_balance_date=WEEK, margin_short_to_adv=0.5),
         )
 
-        self.assertEqual(metrics["margin_week_end"], WEEK.isoformat())
+        self.assertEqual(metrics["margin_balance_date"], WEEK.isoformat())
         self.assertEqual(metrics["margin_short_to_adv"], 0.5)
 
 
@@ -176,13 +163,17 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         from baibai_engine.storage.observations.schema import open_connection
 
         for week_end in week_ends:
-            store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
+            store_jquants_weekly_margin(
+                db,
+                [{"Date": week_end.isoformat(), "Code": "72030", "LongVol": 1.0}],
+                week_end=week_end,
+            )
         conn = open_connection(db)
         try:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_daily_bars"
-                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-                [("7203", day.isoformat(), 1.0, 1.0) for day in trading_days],
+                "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                [("7203", day.isoformat(), 1.0) for day in trading_days],
             )
             conn.commit()
         finally:
@@ -297,8 +288,8 @@ class MarginPublicationSeamTest(unittest.TestCase):
         try:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_daily_bars"
-                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-                [("7203", day.isoformat(), 1.0, 1.0) for day in trading],
+                "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                [("7203", day.isoformat(), 1.0) for day in trading],
             )
             conn.commit()
         finally:
@@ -311,7 +302,14 @@ class MarginPublicationSeamTest(unittest.TestCase):
         for week_end in sorted(last_of_week.values()):
             store_jquants_weekly_margin(
                 db,
-                [{"Code": "72030", "LongVol": 1000.0, "IssType": "2"}],
+                [
+                    {
+                        "Date": week_end.isoformat(),
+                        "Code": "72030",
+                        "LongVol": 1000.0,
+                        "IssType": "2",
+                    }
+                ],
                 week_end=week_end,
             )
         for day in trading:
@@ -370,8 +368,8 @@ class MarginPublicationSeamTest(unittest.TestCase):
             self.assertEqual(daily_dates(date(2026, 9, 29)), [date(2026, 9, 25)])
             self.assertEqual(daily_dates(date(2026, 9, 30)), [date(2026, 9, 25), date(2026, 9, 28)])
 
-    def test_the_delta_keeps_reaching_back_half_a_year_once_the_cadence_changes(self) -> None:
-        """26 rows back into a daily column would be five weeks, not half a year."""
+    def test_the_delta_uses_weekly_steps_across_the_cadence_change(self) -> None:
+        """In this continuous fixture, 26 observed weekly steps span about half a year."""
         from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:

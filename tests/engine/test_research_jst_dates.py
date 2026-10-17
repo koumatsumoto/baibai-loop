@@ -1,4 +1,4 @@
-"""Research dates use the Tokyo business day, regardless of timestamp offset."""
+"""Research dates use the Tokyo calendar date, regardless of timestamp offset."""
 
 from copy import deepcopy
 from datetime import datetime
@@ -26,6 +26,7 @@ def _assessment_pair():
     for source in assessment["input_snapshot"]["sources"]:
         source.update(as_of="2026-10-14", retrieved_at=JST_MORNING)
     assessment["input_snapshot"]["facts"][0]["observed_at"] = JST_MORNING
+    assessment["input_snapshot"]["facts"][0]["price_basis"] = "realtime"
     assessment["conclusion"]["assessed_at"] = "2026-10-14T09:00:00+09:00"
     review["reviewed_at"] = "2026-10-14T09:15:00+09:00"
     return assessment, review
@@ -120,68 +121,77 @@ def test_assessment_rejects_utc_date_that_is_next_day_in_tokyo():
 
 
 @pytest.mark.parametrize(
-    ("jst_stamp", "utc_stamp", "expected_action", "expected_reason"),
+    ("price_date", "expected_action", "expected_reason"),
     [
-        (JST_MORNING, UTC_MORNING, "hold", "sufficient_remaining_reward"),
-        (
-            "2026-10-14T21:00:00+09:00",
-            "2026-10-14T12:00:00Z",
-            "hold",
-            "sufficient_remaining_reward",
-        ),
-        (
-            "2026-10-13T08:30:00+09:00",
-            "2026-10-12T23:30:00Z",
-            "defer",
-            "quote_missing_or_stale",
-        ),
-        (
-            "2026-10-22T00:30:00+09:00",
-            "2026-10-21T15:30:00Z",
-            "defer",
-            "quote_missing_or_stale",
-        ),
+        ("2026-10-14", "hold", "sufficient_remaining_reward"),
+        ("2026-10-13", "defer", "quote_missing_or_stale"),
+        ("2026-10-22", "defer", "quote_missing_or_stale"),
     ],
 )
-def test_position_quote_age_uses_jst_day_with_unchanged_policy(
-    jst_stamp, utc_stamp, expected_action, expected_reason
+def test_position_quote_age_uses_native_date_without_receipt_clock(
+    price_date, expected_action, expected_reason
 ):
     assessment_payload, _ = pair_payload(as_of="2026-10-21", quote_as_of="2026-10-14")
     assessment = StockAssessmentDocument.model_validate(assessment_payload)
-    for stamp in (jst_stamp, utc_stamp):
-        observed = datetime.fromisoformat(stamp)
-        from baibai_engine.foundation.time import JST
-
-        quote = QuoteInput(
+    quote = QuoteInput(
+        ticker="1234",
+        price_yen=1000,
+        price_as_of=price_date,
+        price_basis="last_close_unadjusted",
+        source_ref="fixture",
+    )
+    result = evaluate_holding_proposal(
+        assessment,
+        position=PositionInput(
             ticker="1234",
-            price_yen=1000,
-            observed_at=observed,
-            price_as_of=observed.astimezone(JST).date(),
-            price_basis="realtime",
-            source_ref="fixture",
-            basis_confirmed=True,
-        )
-        result = evaluate_holding_proposal(
-            assessment,
-            position=PositionInput(
-                ticker="1234",
-                sector="情報・通信業",
-                common_factors=(),
-                quantity=100,
-                cost_yen=1000,
-                quantity_basis_confirmed=True,
-                original_investment_reason="合成の投資理由",
-            ),
-            as_of=datetime.fromisoformat("2026-10-21T17:00:00+09:00").date(),
-            quote=quote,
-            remaining_reward=RemainingReward(status="sufficient", reason="残存見返りを確認"),
-            case_reassessment_reason="現在の仮説維持を確認",
-            primary_verified=True,
-            reviewed=True,
-            latest=True,
-            max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
-        )
-        assert (result.action, result.reason_code) == (expected_action, expected_reason)
-        assert (result.current_price_projection is not None) is (expected_action == "hold")
-        if result.current_price_projection is not None:
-            assert result.current_price_projection["price_as_of"] == "2026-10-14"
+            sector="情報・通信業",
+            common_factors=(),
+            quantity=100,
+            cost_yen=1000,
+            quantity_basis_confirmed=True,
+            original_investment_reason="合成の投資理由",
+        ),
+        as_of=datetime.fromisoformat("2026-10-21T17:00:00+09:00").date(),
+        quote=quote,
+        price_basis_confirmed=True,
+        remaining_reward=RemainingReward(status="sufficient", reason="残存見返りを確認"),
+        case_reassessment_reason="現在の仮説維持を確認",
+        primary_verified=True,
+        reviewed=True,
+        latest=True,
+        max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
+    )
+    assert (result.action, result.reason_code) == (expected_action, expected_reason)
+    assert (result.current_price_projection is not None) is (expected_action == "hold")
+    if result.current_price_projection is not None:
+        assert result.current_price_projection["price_as_of"] == "2026-10-14"
+
+
+def test_daily_close_needs_its_native_date_not_an_invented_clock():
+    assessment, review = pair_payload(as_of="2026-10-14", quote_as_of="2026-10-14")
+    price = assessment["input_snapshot"]["facts"][0]
+    price.pop("observed_at", None)
+    assert price["price_basis"] == "last_close_unadjusted"
+    assert _evaluate(assessment, review, now="2026-10-14T18:00:00+09:00").errors == ()
+
+
+def test_realtime_price_still_requires_a_source_observation_time():
+    from pydantic import ValidationError
+
+    assessment, _ = pair_payload()
+    price = assessment["input_snapshot"]["facts"][0]
+    price["price_basis"] = "realtime"
+    price.pop("observed_at", None)
+    with pytest.raises(ValidationError, match="requires observed_at"):
+        StockAssessmentDocument.model_validate(assessment)
+
+
+def test_date_only_close_cannot_claim_the_unfinished_session():
+    assessment, review = _assessment_pair()
+    price = assessment["input_snapshot"]["facts"][0]
+    price["price_basis"] = "last_close_unadjusted"
+    price.pop("observed_at", None)
+    assert (
+        "market_price close date follows the available session"
+        in _evaluate(assessment, review).errors
+    )

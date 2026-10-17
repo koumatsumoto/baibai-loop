@@ -15,7 +15,7 @@ import { ResearchOperationCard } from './research/ResearchOperationCard'
 
 export function InvestmentProposals({ proposals, error }: { proposals: InvestmentProposalSummaryView[]; error?: string | null }) {
   const cards = [...proposals].sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at)).map(item => <Link className="grid gap-2 rounded-lg border p-4 transition-colors hover:bg-muted/40" key={item.proposal_id} to={`/stocks/investment-proposals/${item.proposal_id}`}>
-    <div className="flex flex-wrap items-center gap-2">{item.actions.map(action => <Badge key={action} variant={action === 'buy' ? 'default' : 'secondary'}>{ACTION_LABELS[action] ?? action}</Badge>)}<AsOfBadge value={item.as_of} /><UpdatedAtBadge value={item.published_at} /></div>
+    <div className="flex flex-wrap items-center gap-2">{[...new Set(item.actions)].map(action => <Badge key={action} variant={action === 'buy' ? 'default' : 'secondary'}>{ACTION_LABELS[action] ?? action}</Badge>)}<AsOfBadge value={item.as_of} /><UpdatedAtBadge value={item.published_at} /></div>
     <strong className="font-medium">{item.headline}</strong>
     <p className="text-xs text-muted-foreground">対象 {item.item_count}件 · 保存した行動・条件・根拠を見る →</p>
   </Link>)

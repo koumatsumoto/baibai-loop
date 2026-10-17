@@ -22,3 +22,11 @@ describe('調査・提案の入口', () => {
     expect(html).not.toContain('買い')
   })
 })
+
+it('複数銘柄に同じ行動を提案しても種類のラベルは重複しない', () => {
+  const proposals: InvestmentProposalSummaryView[] = [{ proposal_id: 'synthetic-multiple-buys', as_of: '2026-10-14', published_at: '2026-10-14T18:00:00+09:00', request_scope: 'specified_stocks', headline: '複数銘柄の比較', item_count: 3, tickers: ['1234', '5678', '9012'], actions: ['buy', 'buy', 'defer'], research_operation_id: 'research-op-original' }]
+  const html = render(createElement(InvestmentProposals, { proposals }))
+  expect(html.match(/購入の提案/g)).toHaveLength(1)
+  expect(html.match(/判断保留/g)).toHaveLength(1)
+  expect(html).toContain('対象 3件')
+})

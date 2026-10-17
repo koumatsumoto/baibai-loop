@@ -16,7 +16,7 @@ from baibai_engine.position.ledger import (
     summarize_portfolio,
 )
 from baibai_engine.position.ledger_read import load_ledger_document
-from baibai_engine.position.market_source import quantity_basis_is_confirmed
+from baibai_engine.position.market_source import market_basis_is_confirmed
 from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.read_api.market import read_rows as read_market_rows
 from baibai_engine.read_api.sqlite import (
@@ -51,8 +51,12 @@ def price_comparison_basis_is_confirmed(
             "SELECT 1 FROM jquants_daily_bars WHERE ticker=? AND traded_at=?",
             (ticker, from_date.isoformat()),
         )
-    ) and quantity_basis_is_confirmed(
-        sqlite_path=path, ticker=ticker, from_date=from_date, through_date=through_date
+    ) and market_basis_is_confirmed(
+        basis="price",
+        sqlite_path=path,
+        ticker=ticker,
+        from_date=from_date,
+        through_date=through_date,
     )
 
 

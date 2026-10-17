@@ -28,6 +28,7 @@ from pydantic import (
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sessions import latest_eligible_close_date
 from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.research.decimal_number import decimal_to_number
 from baibai_engine.storage.application.json import canonical_json
@@ -195,8 +196,10 @@ class ObservedFact(BaseModel):
     @model_validator(mode="after")
     def _market_price_metadata(self) -> ObservedFact:
         if self.fact_kind == "market_price":
-            if self.observed_at is None or self.price_basis is None:
-                raise ValueError("market_price requires observed_at and price_basis")
+            if self.price_basis is None:
+                raise ValueError("market_price requires price_basis")
+            if self.price_basis == "realtime" and self.observed_at is None:
+                raise ValueError("realtime market_price requires observed_at")
         elif self.observed_at is not None or self.price_basis is not None:
             raise ValueError("observed_at and price_basis are reserved for market_price")
         return self
@@ -748,12 +751,15 @@ def evaluate_assessment(
                 errors.append("market_price requires unadjusted JPY_per_share basis")
             if isinstance(fact.value, (bool, str)) or finite_decimal(fact.value) <= 0:
                 errors.append("market_price must be a positive number")
-            if (
-                fact.observed_at is None
-                or fact.observed_at.astimezone(JST).date() != fact.as_of
-                or fact.observed_at > proposed
+            if fact.observed_at is not None and (
+                fact.observed_at.astimezone(JST).date() != fact.as_of or fact.observed_at > proposed
             ):
                 errors.append("market_price observation time mismatch")
+            if (
+                fact.price_basis == "last_close_unadjusted"
+                and fact.as_of > latest_eligible_close_date(proposed)
+            ):
+                errors.append("market_price close date follows the available session")
         if fact.fact_kind == "valuation_metric" and (
             fact.unit not in {"ratio", "percent", "JPY_per_share"}
             or isinstance(fact.value, (bool, str))

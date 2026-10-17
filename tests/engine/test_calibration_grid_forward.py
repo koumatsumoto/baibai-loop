@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
+from tests.helpers.screening_sqlite import insert_daily_bars_from_closes, insert_financial_record
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
@@ -24,7 +24,7 @@ from baibai_engine.screening.calibration.forward import (
     read_control_event_exits,
     read_failure_exits,
 )
-from baibai_engine.screening.calibration.grid import complete_month_end_dates
+from baibai_engine.screening.calibration.grid import observed_month_end_dates
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -37,28 +37,48 @@ def _bar(
         close=close,
         turnover_value=None,
         adjustment_factor=factor,
+        ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
     )
 
 
 class MonthEndDatesTest(unittest.TestCase):
-    def test_complete_month_end_dates_picks_last_qualifying_day_per_month(self) -> None:
+    def test_sparse_dates_are_not_guaranteed_calendar_month_ends(self) -> None:
+        self.assertEqual(
+            observed_month_end_dates(
+                [(date(2025, 1, 31), 4100), (date(2025, 2, 13), 4000), (date(2025, 3, 3), 4100)],
+                end=date(2025, 2, 14),
+                min_tickers=2000,
+            ),
+            [date(2025, 1, 31), date(2025, 2, 13)],
+        )
+
+    def test_accepts_last_trading_date_before_weekend_month_end(self) -> None:
+        observed = [(date(2026, 1, 30), 4100), (date(2026, 2, 2), 4100)]
+        for cutoff in (date(2026, 1, 30), date(2026, 1, 31)):
+            with self.subTest(cutoff=cutoff):
+                self.assertEqual(
+                    observed_month_end_dates(observed, end=cutoff, min_tickers=2000),
+                    [date(2026, 1, 30)],
+                )
+
+    def test_observed_month_end_dates_picks_last_qualifying_day_per_month(self) -> None:
         day_counts = [
             (date(2025, 1, 30), 4000),
             (date(2025, 1, 31), 4100),
             (date(2025, 2, 27), 4000),
             # 部分データ日 (取込途中断面) は月末営業日として選ばない。
             (date(2025, 2, 28), 100),
-            # 翌月の営業日 = 1-2 月が完全月であることの証拠 (3 月自身は最終
-            # data 月なので cohort にならない)。
+            # 後続月の観測があるため1-2月を月次標本に選べる。
+            # 全営業日の取得完了を保証するものではなく、最終data月の3月は選ばない。
             (date(2025, 3, 3), 4100),
         ]
         self.assertEqual(
-            complete_month_end_dates(day_counts, end=date(2025, 3, 31), min_tickers=2000),
+            observed_month_end_dates(day_counts, end=date(2025, 3, 31), min_tickers=2000),
             [date(2025, 1, 31), date(2025, 2, 27)],
         )
 
-    def test_complete_month_end_dates_drops_month_truncated_by_end(self) -> None:
-        # end が 2 月の途中 → 2/13 を「月末」と誤認せず 2 月を cohort から落とす。
+    def test_observed_month_end_dates_excludes_a_known_later_date_after_cutoff(self) -> None:
+        # 同月の後続観測2/27が既知なので、end以前の2/13へ切り詰めて採用しない。
         day_counts = [
             (date(2025, 1, 31), 4100),
             (date(2025, 2, 13), 4000),
@@ -66,13 +86,13 @@ class MonthEndDatesTest(unittest.TestCase):
             (date(2025, 3, 3), 4100),
         ]
         self.assertEqual(
-            complete_month_end_dates(day_counts, end=date(2025, 2, 14), min_tickers=2000),
+            observed_month_end_dates(day_counts, end=date(2025, 2, 14), min_tickers=2000),
             [date(2025, 1, 31)],
         )
 
-    def test_complete_month_end_dates_empty_when_all_below_threshold(self) -> None:
+    def test_observed_month_end_dates_empty_when_all_below_threshold(self) -> None:
         self.assertEqual(
-            complete_month_end_dates(
+            observed_month_end_dates(
                 [(date(2025, 1, 31), 10)], end=date(2025, 1, 31), min_tickers=2000
             ),
             [],
@@ -80,21 +100,20 @@ class MonthEndDatesTest(unittest.TestCase):
 
 
 class ForwardReturnTest(unittest.TestCase):
-    def test_dividend_guard_keeps_price_return_resolved(self) -> None:
+    def test_unknown_dividend_basis_keeps_price_return_resolved(self) -> None:
         row = _ticker_forward_rows(
             "1000",
             [
                 _bar(date(2025, 1, 31), 1000.0, 1.0),
                 _bar(date(2026, 1, 31), 1000.0, 1.0),
             ],
-            adjustment_events=[JQuantsAdjustmentFactorEvent("1000", date(2024, 10, 4), 0.5)],
+            adjustment_events=[JQuantsAdjustmentFactorEvent("1000", date(2024, 10, 4), 0.5, "1")],
             fy_dividends=[
                 _FYDividendObservation(
                     fiscal_year_end=date(2025, 3, 31),
                     disclosed_at=date(2025, 5, 15),
                     dps_actual_annual=60.0,
                     period_start=date(2024, 4, 1),
-                    payments=(None, 20.0, None, 40.0),
                 )
             ],
             asofs=[date(2025, 1, 31)],
@@ -159,7 +178,7 @@ class ForwardReturnTest(unittest.TestCase):
             _bar(date(2025, 1, 31), 1.0),
             _bar(date(2025, 4, 30), 100.0),
         ]
-        events = [JQuantsAdjustmentFactorEvent("1000", date(2025, 3, 3), 100.0)]
+        events = [JQuantsAdjustmentFactorEvent("1000", date(2025, 3, 3), 100.0, "2")]
 
         fixed = _ticker_forward_rows(
             "1000",
@@ -190,12 +209,12 @@ class ForwardReturnTest(unittest.TestCase):
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("1000", "2025-01-31", 1.0, 1.0),
-                        ("1000", "2025-03-03", None, 100.0),
-                        ("1000", "2025-04-30", 100.0, 1.0),
+                        ("1000", "2025-01-31", 1.0, 1.0, None),
+                        ("1000", "2025-03-03", None, 100.0, "2"),
+                        ("1000", "2025-04-30", 100.0, 1.0, None),
                     ],
                 )
                 conn.commit()
@@ -217,7 +236,7 @@ class ForwardReturnTest(unittest.TestCase):
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1, ex_right_type = NULL "
                     "WHERE ticker = ? AND traded_at = ?",
                     ("1000", "2025-03-03"),
                 )
@@ -241,7 +260,7 @@ class ForwardReturnTest(unittest.TestCase):
             self.assertEqual(mutation.price_return, 99.0)
 
     def test_forward_reader_loads_events_from_the_first_selected_fiscal_year(self) -> None:
-        """entry前でも対象FY内のfactorは支払別DPS換算に必要である。"""
+        """entry前でも対象FY内のfactorは配当基準の未解決判定に必要である。"""
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -249,30 +268,29 @@ class ForwardReturnTest(unittest.TestCase):
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("1000", "2019-08-01", None, 0.5),
-                        ("1000", "2020-01-31", 100.0, 1.0),
-                        ("1000", "2021-01-29", 100.0, 1.0),
-                        ("1000", "2021-02-01", 100.0, 1.0),
+                        ("1000", "2019-08-01", None, 0.5, "1"),
+                        ("1000", "2020-01-31", 100.0, 1.0, None),
+                        ("1000", "2021-01-29", 100.0, 1.0, None),
+                        ("1000", "2021-02-01", 100.0, 1.0, None),
                     ],
                 )
-                conn.execute(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, fiscal_period, fiscal_year_end, period_start, "
-                    "dps_actual_annual, dividend_q1, dividend_interim"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        "1000",
-                        "2020-05-12",
-                        "FY",
-                        "2020-03-31",
-                        "2019-04-01",
-                        75.0,
-                        50.0,
-                        25.0,
-                    ),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "10000",
+                        "DiscNo": "dividends-2020",
+                        "DiscDate": "2020-05-12",
+                        "CurPerType": "FY",
+                        "CurFYEn": "2020-03-31",
+                        "CurPerSt": "2019-04-01",
+                        "CurPerEn": "2020-03-31",
+                        "DivAnn": 75.0,
+                        "Div1Q": 50.0,
+                        "Div2Q": 25.0,
+                    },
                 )
                 conn.commit()
             finally:
@@ -293,7 +311,7 @@ class ForwardReturnTest(unittest.TestCase):
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1, ex_right_type = NULL "
                     "WHERE ticker = ? AND traded_at = ?",
                     ("1000", "2019-08-01"),
                 )
@@ -313,35 +331,43 @@ class ForwardReturnTest(unittest.TestCase):
                 if row.ticker == "1000"
             )
 
-            self.assertEqual(fixed.total_return_status, "resolved")
-            self.assertEqual(fixed.realized_dividend_sum, 50.0)
-            self.assertEqual(fixed.total_return, 0.5)
+            self.assertEqual(fixed.total_return_status, "unresolved_dividend_split_basis")
+            self.assertIsNone(fixed.realized_dividend_sum)
+            self.assertIsNone(fixed.total_return)
+            self.assertEqual(fixed.price_return, 0.0)
             self.assertEqual(mutation.realized_dividend_sum, 75.0)
             self.assertEqual(mutation.total_return, 0.75)
 
-    def test_forward_reader_uses_february_month_end_for_missing_period_start(self) -> None:
-        # 2025-02-28 FY のfallback開始日は閏年の2024-02-29。
-        # 開始日当日のeventは期間外なので、明細を要求せず実績年間DPSを採れる。
+    def test_forward_reader_uses_observed_february_fiscal_period(self) -> None:
+        # 2025-02-28 FY の実際の期首は2024-03-01。
+        # 期首前のeventは期間外なので、実績年間DPSを採れる。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             conn = open_connection(sqlite_path)
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("1000", "2024-02-29", None, 0.5),
-                        ("1000", "2025-01-31", 1000.0, 1.0),
-                        ("1000", "2026-01-30", 1000.0, 1.0),
-                        ("1000", "2026-02-02", 1000.0, 1.0),
+                        ("1000", "2024-02-29", None, 0.5, "1"),
+                        ("1000", "2025-01-31", 1000.0, 1.0, None),
+                        ("1000", "2026-01-30", 1000.0, 1.0, None),
+                        ("1000", "2026-02-02", 1000.0, 1.0, None),
                     ],
                 )
-                conn.execute(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, fiscal_period, fiscal_year_end, dps_actual_annual"
-                    ") VALUES (?, ?, ?, ?, ?)",
-                    ("1000", "2025-05-15", "FY", "2025-02-28", 60.0),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "10000",
+                        "DiscNo": "dividends-2025",
+                        "DiscDate": "2025-05-15",
+                        "CurPerType": "FY",
+                        "CurFYEn": "2025-02-28",
+                        "CurPerSt": "2024-03-01",
+                        "CurPerEn": "2025-02-28",
+                        "DivAnn": 60.0,
+                    },
                 )
                 conn.commit()
             finally:
@@ -386,13 +412,21 @@ class ForwardReturnTest(unittest.TestCase):
                         ]
                         if reverse:
                             records.reverse()
-                        conn.executemany(
-                            "INSERT INTO jquants_fin_summaries("
-                            "ticker, record_key, disclosed_at, disclosed_time, fiscal_period, "
-                            "fiscal_year_end, dps_actual_annual"
-                            ") VALUES ('1000', ?, '2025-05-15', ?, 'FY', '2025-03-31', ?)",
-                            records,
-                        )
+                        for number, disclosed_time, dps in records:
+                            insert_financial_record(
+                                conn,
+                                {
+                                    "Code": "10000",
+                                    "DiscNo": number,
+                                    "DiscDate": "2025-05-15",
+                                    "DiscTime": disclosed_time,
+                                    "CurPerType": "FY",
+                                    "CurFYEn": "2025-03-31",
+                                    "CurPerSt": "2024-04-01",
+                                    "CurPerEn": "2025-03-31",
+                                    "DivAnn": dps,
+                                },
+                            )
                         observations = _load_fy_dividends(conn, "1000", cutoff=date(2025, 5, 15))
                         self.assertEqual(len(observations), 1)
                         self.assertEqual(observations[0].dps_actual_annual, expected)
@@ -448,7 +482,7 @@ class ForwardReturnTest(unittest.TestCase):
         self.assertIsNone(row.price_return)
 
     def test_forward_return_invalid_entry_when_no_recent_bar_at_asof(self) -> None:
-        # asof より 15 日超前の bar しか無い (上場前 / 廃止後) → 全 horizon 未解決。
+        # asofより15日超前のbarしかなく、近傍価格を観測できない。原因は推定しない。
         bars = [_bar(date(2024, 10, 31), 100.0)]
         rows = _ticker_forward_rows(
             "1000",
@@ -466,13 +500,23 @@ class ForwardReturnTest(unittest.TestCase):
             _bar(date(2023, 1, 31), 3000.0, 1.0, ticker="7203"),
         ]
         dividends = [
-            _FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0),
-            _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 55.0),
+            _FYDividendObservation(
+                date(2020, 3, 31), date(2020, 5, 12), 50.0, period_start=date(2019, 4, 1)
+            ),
+            _FYDividendObservation(
+                date(2021, 3, 31), date(2021, 5, 12), 55.0, period_start=date(2020, 4, 1)
+            ),
             # 同じ FY の訂正は最新 non-null だけを使い、55+60 と二重加算しない。
-            _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), 60.0),
-            _FYDividendObservation(date(2022, 3, 31), date(2022, 5, 11), 70.0),
+            _FYDividendObservation(
+                date(2021, 3, 31), date(2021, 6, 1), 60.0, period_start=date(2020, 4, 1)
+            ),
+            _FYDividendObservation(
+                date(2022, 3, 31), date(2022, 5, 11), 70.0, period_start=date(2021, 4, 1)
+            ),
             # exit 後の FY は対象外。
-            _FYDividendObservation(date(2023, 3, 31), date(2023, 5, 10), 75.0),
+            _FYDividendObservation(
+                date(2023, 3, 31), date(2023, 5, 10), 75.0, period_start=date(2022, 4, 1)
+            ),
         ]
 
         row = _ticker_forward_rows(
@@ -490,48 +534,56 @@ class ForwardReturnTest(unittest.TestCase):
         self.assertAlmostEqual(row.price_return or 0.0, 3000.0 / 2500.0 - 1)
         self.assertAlmostEqual(row.total_return or 0.0, 3000.0 / 2500.0 - 1 + 180 / 2500)
 
-    def test_total_return_normalizes_dps_to_adjusted_entry_basis(self) -> None:
+    def test_post_exit_split_keeps_price_return_but_not_ambiguous_dividends(self) -> None:
         bars = [
             _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
             _bar(date(2022, 1, 31), 120.0, 1.0, ticker="7203"),
-            # exit 後の 1:2 split も store の最終 bar basis へ entry/exit/DPS を揃える。
+            # exit 後の分割でも価格は比較できるが、実績 DPS の換算基準は確定しない。
             _bar(date(2022, 3, 1), 60.0, 0.5, ticker="7203"),
         ]
         row = _ticker_forward_rows(
             "7203",
             bars,
-            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0)],
+            fy_dividends=[
+                _FYDividendObservation(
+                    date(2021, 3, 31), date(2021, 5, 12), 40.0, period_start=date(2020, 4, 1)
+                )
+            ],
             asofs=[date(2021, 1, 31)],
             horizons=(HORIZONS["1y"],),
             eval_cap=date(2022, 3, 1),
         )[0]
 
-        self.assertEqual(row.total_return_status, "resolved")
-        self.assertEqual(row.realized_dividend_sum, 20.0)
+        self.assertEqual(row.total_return_status, "unresolved_dividend_split_basis")
+        self.assertIsNone(row.realized_dividend_sum)
         self.assertAlmostEqual(row.price_return or 0.0, 60.0 / 50.0 - 1)
-        self.assertAlmostEqual(row.total_return or 0.0, 60.0 / 50.0 - 1 + 20.0 / 50.0)
+        self.assertIsNone(row.total_return)
 
     def test_total_return_uses_close_null_event_for_price_and_dps_basis(self) -> None:
         bars = [
             _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
             _bar(date(2022, 1, 31), 120.0, 1.0, ticker="7203"),
         ]
-        events = [JQuantsAdjustmentFactorEvent("7203", date(2022, 3, 1), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("7203", date(2022, 3, 1), 0.5, "1")]
 
         row = _ticker_forward_rows(
             "7203",
             bars,
             adjustment_events=events,
-            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0)],
+            fy_dividends=[
+                _FYDividendObservation(
+                    date(2021, 3, 31), date(2021, 5, 12), 40.0, period_start=date(2020, 4, 1)
+                )
+            ],
             asofs=[date(2021, 1, 31)],
             horizons=(HORIZONS["1y"],),
             eval_cap=date(2022, 3, 1),
         )[0]
 
-        self.assertEqual(row.total_return_status, "resolved")
-        self.assertEqual(row.realized_dividend_sum, 20.0)
+        self.assertEqual(row.total_return_status, "unresolved_dividend_split_basis")
+        self.assertIsNone(row.realized_dividend_sum)
         self.assertAlmostEqual(row.price_return or 0.0, 60.0 / 50.0 - 1)
-        self.assertAlmostEqual(row.total_return or 0.0, 60.0 / 50.0 - 1 + 20.0 / 50.0)
+        self.assertIsNone(row.total_return)
 
     def test_total_return_keeps_absent_null_zero_and_negative_dividends_distinct(self) -> None:
         bars = [
@@ -541,17 +593,29 @@ class ForwardReturnTest(unittest.TestCase):
         cases = (
             ((), "unresolved_no_fy_observation", None),
             (
-                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), None),),
+                (
+                    _FYDividendObservation(
+                        date(2021, 3, 31), date(2021, 5, 12), None, period_start=date(2020, 4, 1)
+                    ),
+                ),
                 "unresolved_missing_dividend",
                 None,
             ),
             (
-                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), -1.0),),
+                (
+                    _FYDividendObservation(
+                        date(2021, 3, 31), date(2021, 5, 12), -1.0, period_start=date(2020, 4, 1)
+                    ),
+                ),
                 "unresolved_invalid_dividend",
                 None,
             ),
             (
-                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 0.0),),
+                (
+                    _FYDividendObservation(
+                        date(2021, 3, 31), date(2021, 5, 12), 0.0, period_start=date(2020, 4, 1)
+                    ),
+                ),
                 "resolved",
                 0.1,
             ),
@@ -585,8 +649,18 @@ class ForwardReturnTest(unittest.TestCase):
                     "7203",
                     bars,
                     fy_dividends=[
-                        _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 50.0),
-                        _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), invalid),
+                        _FYDividendObservation(
+                            date(2021, 3, 31),
+                            date(2021, 5, 12),
+                            50.0,
+                            period_start=date(2020, 4, 1),
+                        ),
+                        _FYDividendObservation(
+                            date(2021, 3, 31),
+                            date(2021, 6, 1),
+                            invalid,
+                            period_start=date(2020, 4, 1),
+                        ),
                     ],
                     asofs=[date(2021, 1, 31)],
                     horizons=(HORIZONS["1y"],),
@@ -602,7 +676,7 @@ class ForwardUnresolvedReasonTest(unittest.TestCase):
     """未解決の理由が、後段の分類が依存する形で観測に残ることを反証する。"""
 
     def test_entry_before_first_bar_leaves_entry_date_empty(self) -> None:
-        # asof 時点で価格が 1 本も無い = 未上場。entry_date が空であることが根拠になる。
+        # asof時点の価格を観測できない。entry_dateの不在だけで未上場とは断定しない。
         rows = _ticker_forward_rows(
             "1000",
             [_bar(date(2025, 6, 30), 100.0)],
@@ -615,7 +689,7 @@ class ForwardUnresolvedReasonTest(unittest.TestCase):
         self.assertIsNone(row.entry_date)
 
     def test_entry_gap_after_earlier_pricing_keeps_the_earlier_entry_date(self) -> None:
-        # 以前は価格が付いていたのに asof 近傍に無い = 取引可能名の取りこぼし候補。
+        # 過去の価格はあるがasof近傍にはない。取引可能性や欠落原因は未確認。
         rows = _ticker_forward_rows(
             "1000",
             [_bar(date(2024, 10, 31), 100.0), _bar(date(2025, 6, 30), 120.0)],
@@ -792,7 +866,11 @@ class AdjustmentFactorGuardTest(unittest.TestCase):
     ASOF = date(2020, 1, 31)
 
     def _dividends(self) -> list[_FYDividendObservation]:
-        return [_FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0)]
+        return [
+            _FYDividendObservation(
+                date(2020, 3, 31), date(2020, 5, 12), 50.0, period_start=date(2019, 4, 1)
+            )
+        ]
 
     def _row(self, bars: list[JQuantsDailyBar]) -> ForwardReturnRow:
         return _ticker_forward_rows(
@@ -984,7 +1062,7 @@ class FailureReasonClassificationTest(unittest.TestCase):
                 self.assertFalse(is_failure_delisting(reason))
 
     def test_a_reverse_split_that_wiped_the_equity_out_is_a_failure(self) -> None:
-        """`株式の併合` alone is a squeeze-out; next to an insolvency it is the wipeout."""
+        """The insolvency phrase selects the failure-exit convention, not a recovery value."""
 
         self.assertTrue(
             is_failure_delisting(

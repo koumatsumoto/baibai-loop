@@ -10,9 +10,9 @@ from pathlib import Path
 
 import yaml
 
+from baibai_engine.foundation.sqlite_read import connect_read_only
 from baibai_engine.storage.application.write import (
     backup_database,
-    connect_rw,
     database_path,
     initialize_database,
 )
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.exists():
             print(yaml.safe_dump({"path": str(path), "exists": False}))
             return 0
-        with closing(connect_rw(path)) as connection:
+        with closing(connect_read_only(path)) as connection:
             tables = connection.execute(
                 "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
                 "ORDER BY name"

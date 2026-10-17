@@ -31,11 +31,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
+from baibai_engine.market.financial_documents import project_financial_documents
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
 )
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.providers.edinet import (
     EDINETProvider,
@@ -122,8 +124,8 @@ class _DateJsonSession(FakeSession):
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
-    csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
-        f"{element}\t{context}\t{value}" for element, context, value in rows
+    csv_text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -333,9 +335,7 @@ class ScreeningProviderTests(unittest.TestCase):
             cached = cache / "edinet/csv_zips/S100TEST.zip"
             cached.parent.mkdir(parents=True)
             cached.write_text('{"StatusCode":"429","message":"Too Many Requests"}')
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
-            )
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             provider = EDINETProvider("key", cache, session=_SequenceBytesSession([expected]))
 
             content = provider.download_csv_zip("S100TEST")
@@ -346,9 +346,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_retries_json_rate_limit_without_caching_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
-            )
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             provider = EDINETProvider(
                 "key",
                 cache,
@@ -369,9 +367,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
-            )
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             session = _TransientThenBytesSession(content=expected)
             provider = EDINETProvider("key", cache, session=session)
 
@@ -1075,26 +1071,26 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_extracts_net_cash_and_fcf(self) -> None:
         rows = [
-            ("jpcrp_cor:NetSales", "CurrentYearConsolidatedDuration", "1000"),
+            ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
             (
-                "jpcrp_cor:CashFlowsFromOperatingActivities",
-                "CurrentYearConsolidatedDuration",
+                "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
+                "CurrentYearDuration",
                 "150",
             ),
-            ("jpcrp_cor:OperatingProfit", "CurrentYearConsolidatedDuration", "90"),
-            ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearConsolidatedDuration", "30"),
+            ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "90"),
+            ("jppfs_cor:DepreciationAndAmortizationOpeCF", "CurrentYearDuration", "30"),
             (
-                "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
-                "CurrentYearConsolidatedDuration",
+                "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
+                "CurrentYearDuration",
                 "-40",
             ),
-            ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearConsolidatedDuration", "0"),
-            ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
-            ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
-            ("jpcrp_cor:LongTermBorrowings", "CurrentYearConsolidatedInstant", "50"),
-            ("jpcrp_cor:Equity", "CurrentYearConsolidatedInstant", "800"),
-            ("jpcrp_cor:TotalAssets", "CurrentYearConsolidatedInstant", "1400"),
+            ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
+            ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
+            ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),
+            ("jppfs_cor:NetAssets", "CurrentYearInstant", "800"),
+            ("jppfs_cor:Assets", "CurrentYearInstant", "1400"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1122,21 +1118,21 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_investment_securities_uses_exact_tag_and_consolidated_basis(self) -> None:
         rows = [
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearNonConsolidatedInstant", "900"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant_NonConsolidatedMember", "900"),
             (
                 "jppfs_cor:SharesOfSubsidiariesAndAssociates",
-                "CurrentYearConsolidatedInstant",
+                "CurrentYearInstant",
                 "700",
             ),
             (
                 "jpcrp_cor:OperationalInvestmentSecurities",
-                "CurrentYearConsolidatedInstant",
+                "CurrentYearInstant",
                 "800",
             ),
             (
                 "jppfs_cor:GainOnSaleOfInvestmentSecurities",
-                "CurrentYearConsolidatedDuration",
+                "CurrentYearDuration",
                 "1000",
             ),
         ]
@@ -1149,7 +1145,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         self.assertEqual(record.investment_securities, 250.0)
-        self.assertNotIn("tag_not_found:investment_securities", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:investment_securities", record.failure_reasons)
 
     def test_investment_securities_excludes_similar_tags_and_accepts_reported_zero(self) -> None:
         excluded = parse_csv_zip_metric_record(
@@ -1160,12 +1156,12 @@ class ScreeningProviderTests(unittest.TestCase):
                 [
                     (
                         "jpcrp_cor:OperationalInvestmentSecurities",
-                        "CurrentYearConsolidatedInstant",
+                        "CurrentYearInstant",
                         "800",
                     ),
                     (
                         "jppfs_cor:ProceedsFromSaleOfInvestmentSecurities",
-                        "CurrentYearConsolidatedDuration",
+                        "CurrentYearDuration",
                         "900",
                     ),
                 ]
@@ -1176,12 +1172,12 @@ class ScreeningProviderTests(unittest.TestCase):
             doc_id="S100ZERO",
             doc_type_code="120",
             content=_edinet_csv_zip(
-                [("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "－")]
+                [("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "-")]
             ),
         )
 
         self.assertIsNone(excluded.investment_securities)
-        self.assertIn("tag_not_found:investment_securities", excluded.failure_reasons)
+        self.assertIn("metric_unavailable:investment_securities", excluded.failure_reasons)
         self.assertEqual(zero.investment_securities, 0.0)
 
     def test_investment_securities_rejects_negative_value(self) -> None:
@@ -1195,7 +1191,7 @@ class ScreeningProviderTests(unittest.TestCase):
                         [
                             (
                                 "jppfs_cor:InvestmentSecurities",
-                                "CurrentYearConsolidatedInstant",
+                                "CurrentYearInstant",
                                 value,
                             )
                         ]
@@ -1204,11 +1200,11 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_extracts_loan_payable_and_lease_debt(self) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "120"),
-            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "30"),
-            ("jppfs_cor:LeaseAssetsPPE", "CurrentYearInstant_ConsolidatedMember", "999"),
-            ("jppfs_cor:LongTermLoansReceivable", "CurrentYearInstant_ConsolidatedMember", "888"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "120"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant", "30"),
+            ("jppfs_cor:LeaseAssetsPPE", "CurrentYearInstant", "999"),
+            ("jppfs_cor:LongTermLoansReceivable", "CurrentYearInstant", "888"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1219,13 +1215,13 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(record.debt, 150.0)
         self.assertEqual(record.net_cash, 850.0)
-        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
-    def test_parse_csv_zip_metric_record_does_not_strict_quality_assumed_zero_debt(
+    def test_parse_csv_zip_metric_record_keeps_missing_debt_unavailable(
         self,
     ) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1237,13 +1233,13 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNone(record.debt)
         self.assertIsNone(record.net_cash)
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.UNAVAILABLE)
-        self.assertIn("debt_assumed_zero", record.failure_reasons)
+        self.assertIn("metric_unavailable:debt", record.failure_reasons)
 
     def test_parse_csv_zip_metric_record_allows_reported_zero_debt(self) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "－"),
-            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "－"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "-"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant", "-"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1255,7 +1251,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.debt, 0.0)
         self.assertEqual(record.net_cash, 1000.0)
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.EXACT)
-        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
     def test_edinet_provider_reads_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1287,15 +1283,15 @@ class ScreeningProviderTests(unittest.TestCase):
                 provider.download_csv_zip("S100TEST")
 
     def test_normalize_market_calendar_business_day(self) -> None:
-        calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolidayDivision": "1"})
+        calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolDiv": "1"})
         self.assertTrue(calendar_day.is_business_day)
 
-    def test_normalize_market_calendar_supports_client_v2_short_key(self) -> None:
+    def test_normalize_market_calendar_reads_native_timestamp(self) -> None:
         calendar_day = normalize_market_calendar({"Date": "2026-04-24T00:00:00", "HolDiv": "1"})
         self.assertTrue(calendar_day.is_business_day)
 
     def test_normalize_market_calendar_treats_half_day_as_business(self) -> None:
-        # HolidayDivision="2" は半日営業 (大納会など取引あり) で、business_day 扱いすべき。
+        # HolDiv="2" は半日営業 (大納会など取引あり) で、business_day 扱いすべき。
         calendar_day = normalize_market_calendar({"Date": "2026-12-30", "HolDiv": "2"})
         self.assertTrue(calendar_day.is_business_day)
 
@@ -1317,6 +1313,7 @@ class ScreeningProviderTests(unittest.TestCase):
         # EPS=0 / OP=0 / Sales=0 が None に潰れないこと (損益分岐点ちょうど、赤字転換など)。
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "10.0",
@@ -1333,7 +1330,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.sales, 0.0)
         self.assertEqual(summary.operating_profit, 0.0)
 
-    def test_normalize_daily_bar_supports_client_v2_short_keys(self) -> None:
+    def test_normalize_daily_bar_reads_native_fields(self) -> None:
         bar = normalize_daily_bar(
             {
                 "Code": "13010",
@@ -1358,36 +1355,21 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNone(bar)
 
-    def test_normalize_daily_bar_preserves_adjustment_close(self) -> None:
+    def test_normalize_daily_bar_keeps_raw_close_despite_provider_adjustment(self) -> None:
         bar = normalize_daily_bar(
             {
                 "Code": "13010",
                 "Date": "2026-04-24T00:00:00",
-                "Close": 200.0,
-                "AdjustmentClose": 100.0,
-                "AdjustmentFactor": 0.5,
+                "C": 200.0,
+                "AdjC": 100.0,
+                "AdjFactor": 0.5,
                 "Va": 526318500.0,
             }
         )
         self.assertIsNotNone(bar)
         assert bar is not None
         self.assertEqual(bar.close, 200.0)
-        self.assertEqual(bar.adjustment_close, 100.0)
         self.assertEqual(bar.adjustment_factor, 0.5)
-
-    def test_normalize_daily_bar_leaves_adjustment_close_none_when_missing(self) -> None:
-        bar = normalize_daily_bar(
-            {
-                "Code": "13010",
-                "Date": "2026-04-24T00:00:00",
-                "C": 100.0,
-                "Va": 526318500.0,
-            }
-        )
-        self.assertIsNotNone(bar)
-        assert bar is not None
-        self.assertEqual(bar.close, 100.0)
-        self.assertIsNone(bar.adjustment_close)
 
     def test_adjusted_only_record_does_not_invent_raw_close_or_lose_split_event(self) -> None:
         record = {
@@ -1403,13 +1385,36 @@ class ScreeningProviderTests(unittest.TestCase):
         assert event is not None
         self.assertEqual(event.adjustment_factor, 100.0)
 
+    def test_reported_action_without_factor_is_not_silently_discarded(self) -> None:
+        for kind in ("1", "2", "3", "unknown-future-kind"):
+            with (
+                self.subTest(kind=kind),
+                self.assertRaisesRegex(
+                    JQuantsProviderError, "corporate action has no usable adjustment factor"
+                ),
+            ):
+                normalize_adjustment_factor_event(
+                    {
+                        "Code": "13010",
+                        "Date": "2026-10-01",
+                        "C": None,
+                        "AdjFactor": None,
+                        "ExRT": kind,
+                    }
+                )
+        self.assertIsNone(
+            normalize_adjustment_factor_event(
+                {"Code": "13010", "Date": "2026-10-01", "C": None, "AdjFactor": None}
+            )
+        )
+
     def test_normalize_adjustment_event_does_not_require_close(self) -> None:
         event = normalize_adjustment_factor_event(
             {
                 "Code": "67310",
                 "Date": "2023-12-27T00:00:00",
                 "C": None,
-                "AdjustmentFactor": 100.0,
+                "AdjFactor": 100.0,
             }
         )
 
@@ -1418,9 +1423,10 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(event.ticker, "6731")
         self.assertEqual(event.adjustment_factor, 100.0)
 
-    def test_normalize_financial_summary_supports_client_v2_short_keys(self) -> None:
+    def test_normalize_financial_summary_preserves_native_fields(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "377.75",
@@ -1440,7 +1446,8 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertEqual(summary.ticker, "8891")
-        self.assertEqual(summary.forecast_eps, 377.75)
+        self.assertIsNone(summary.forecast_eps)
+        self.assertIn('"FEPS": "377.75"', summary.document_payload or "")
         self.assertEqual(summary.eps_ttm, 300.50)
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
@@ -1449,12 +1456,14 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.period_start, date(2026, 4, 1))
         self.assertEqual(summary.period_end, date(2026, 6, 30))
 
-    def test_normalize_financial_summary_falls_back_to_next_year_forecast(self) -> None:
-        # Full-year (FY) disclosures leave the current-period FEPS empty and carry the
-        # new-year guidance in NxFEPS; forecast_eps (the basis for per_forward) must
-        # still populate from the next-year forecast.
+    def test_projection_selects_next_fiscal_year_by_dates(self) -> None:
         fy = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": "",
@@ -1463,12 +1472,19 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert fy is not None
+        self.assertIsNone(fy.forecast_eps)
+        fy = project_financial_documents([fy], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(fy.forecast_eps, 360.26)
         self.assertEqual(fy.eps_ttm, 349.18)
 
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": float("nan"),
@@ -1490,6 +1506,8 @@ class ScreeningProviderTests(unittest.TestCase):
 
         assert summary is not None
         self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
+        self.assertIsNone(summary.forecast_eps)
         self.assertIsNone(summary.forecast_profit)
         self.assertIsNone(summary.forecast_ordinary_profit)
         self.assertIsNone(summary.dps_forecast_annual)
@@ -1503,6 +1521,11 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": pd.NA,
@@ -1518,13 +1541,20 @@ class ScreeningProviderTests(unittest.TestCase):
 
         assert summary is not None
         self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
+        self.assertIsNone(summary.forecast_eps)
         self.assertIsNone(summary.forecast_profit)
         self.assertIsNone(summary.forecast_ordinary_profit)
         self.assertIsNone(summary.dps_forecast_annual)
 
-    def test_normalize_financial_summary_keeps_zero_current_forecasts(self) -> None:
+    def test_projection_keeps_zero_current_forecasts(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": 0,
@@ -1539,6 +1569,8 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(summary.forecast_eps, 0.0)
         self.assertEqual(summary.forecast_profit, 1_000_000_000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 900_000_000.0)
@@ -1547,6 +1579,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_keeps_average_shares_separate(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-41670-2024-08-14",
                 "Code": "41670",
                 "DiscDate": "2024-08-14T00:00:00",
                 "AvgSh": "7563857",
@@ -1560,11 +1593,14 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.average_shares, 7_563_857.0)
         self.assertEqual(summary.treasury_shares, 352_373.0)
 
-    def test_normalize_financial_summary_prefers_current_forecast_over_next_year(self) -> None:
-        # Mid-year (Q1-Q3) disclosures carry the current-FY forecast in FEPS; it takes
-        # priority over NxFEPS so forecast_eps stays the nearest forecast.
+    def test_projection_selects_current_fiscal_year_by_dates(self) -> None:
         q3 = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-02-13",
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-02-13T00:00:00",
                 "FEPS": "300.0",
@@ -1572,13 +1608,18 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert q3 is not None
+        self.assertIsNone(q3.forecast_eps)
+        q3 = project_financial_documents([q3], date.fromisoformat("2026-02-13"))[0]
         self.assertEqual(q3.forecast_eps, 300.0)
 
-    def test_normalize_financial_summary_reads_current_forecast_profit_pair(self) -> None:
-        # 当期予想 EPS(FEPS)が埋まる四半期開示では当期予想の純利益/経常(FNP/FOdP)を採る。
-        # 翌期キー(NxFNp/NxFOdP)が併存しても当期側を採り、期をまたがない。
+    def test_projection_keeps_current_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-48490-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "48490",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": "138.72",
@@ -1590,15 +1631,19 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(summary.forecast_profit, 5464000000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 3406000000.0)
 
-    def test_normalize_financial_summary_pairs_forecast_profit_with_next_year_on_fy(self) -> None:
-        # 本決算開示で FEPS が空なら forecast_eps は NxFEPS に落ちる。純利益/経常も
-        # 同じ翌期ペア(NxFNp/NxFOdP)を採り、当期の FNP/FOdP と期をまたいで比較しない
-        # (期ズレ比較は一時益 flag の誤検出になる)。
+    def test_projection_keeps_next_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-48490-2026-04-01",
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "48490",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "",
@@ -1610,6 +1655,8 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-04-01"))[0]
         self.assertEqual(summary.forecast_eps, 120.0)
         self.assertEqual(summary.forecast_profit, 2000000000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 2500000000.0)
@@ -1617,13 +1664,14 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_preserves_fiscal_period_fields(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
-                "DisclosedDate": "2026-04-01",
-                "TypeOfCurrentPeriod": "1Q",
-                "CurrentFiscalYearEndDate": "2027-03-31",
-                "CurrentPeriodStartDate": "2026-04-01",
-                "CurrentPeriodEndDate": "2026-06-30",
-                "EarningsPerShare": "300.50",
+                "DiscDate": "2026-04-01",
+                "CurPerType": "1Q",
+                "CurFYEn": "2027-03-31",
+                "CurPerSt": "2026-04-01",
+                "CurPerEn": "2026-06-30",
+                "EPS": "300.50",
             }
         )
         self.assertIsNotNone(summary)
@@ -1636,6 +1684,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_skips_non_common_suffix(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-25935-2026-04-24",
                 "Code": "25935",
                 "DiscDate": "2026-04-24T00:00:00",
                 "EPS": "10.0",
@@ -1643,45 +1692,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNone(summary)
 
-    def test_get_eq_bars_daily_range_chunks_long_windows(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str]] = []
-
-            def get_eq_bars_daily_range(
-                self, start_dt: str, end_dt: str
-            ) -> list[dict[str, object]]:
-                self.calls.append((start_dt, end_dt))
-                # Dense bars per day so a fetched chunk satisfies the
-                # data-derived coverage check on read-back.
-                current = date.fromisoformat(start_dt)
-                stop = date.fromisoformat(end_dt)
-                rows: list[dict[str, object]] = []
-                while current <= stop:
-                    rows.append(
-                        {
-                            "Code": "13010",
-                            "Date": f"{current.isoformat()}T00:00:00",
-                            "C": 100.0,
-                            "Va": 1000.0,
-                        }
-                    )
-                    current += timedelta(days=1)
-                return rows
-
-        client = FakeClient()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
-            with patch("baibai_engine.market.providers.jquants.time.sleep", return_value=None):
-                bars = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-
-        self.assertEqual(len(client.calls), 2)
-        self.assertEqual(client.calls[0], ("2026-01-01", "2026-01-31"))
-        self.assertEqual(client.calls[1], ("2026-02-01", "2026-02-15"))
-        self.assertGreater(len(bars), 2)
-
-    def test_get_eq_bars_daily_range_skips_sleep_on_cache_hit(self) -> None:
+    def test_get_eq_bars_daily_range_chunks_and_reuses_cache(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
                 self.calls: list[tuple[str, str]] = []
@@ -1713,14 +1724,17 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_first:
                 first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-            self.assertEqual(len(client.calls), 2)
+            self.assertEqual(
+                client.calls, [("2026-01-01", "2026-01-31"), ("2026-02-01", "2026-02-15")]
+            )
+            self.assertEqual(len(first), 46)
             self.assertEqual(sleep_first.call_count, 1)
 
             with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_second:
                 second = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
             self.assertEqual(sleep_second.call_count, 0)
-            self.assertEqual(len(second), len(first))
+            self.assertEqual(second, first)
 
     def test_short_sale_refresh_rechecks_covered_disclosure_dates(self) -> None:
         class FakeClient:
@@ -1753,13 +1767,6 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(first[0].short_ratio, 0.006)
         self.assertEqual(refreshed[0].short_ratio, 0.007)
 
-    def test_jpx_parse_csv_rows_supports_cp932(self) -> None:
-        provider = JPXProvider()
-        rows = provider._parse_csv_rows(
-            "コード,規制区分\n3856,整理銘柄\n".encode("cp932"), "https://example.com/sample.csv"
-        )
-        self.assertEqual(rows, [{"コード": "3856", "規制区分": "整理銘柄"}])
-
     def test_jpx_earnings_parser_detects_header_and_normalizes_rows(self) -> None:
         provider = JPXProvider()
         content = self._earnings_xlsx(
@@ -1784,10 +1791,11 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(
             [(entry.ticker, entry.announcement_date) for entry in parsed.entries],
-            [("130A", date(2026, 7, 15)), ("7203", date(2026, 7, 16))],
+            [("130A", date(2026, 7, 15))],
         )
         self.assertEqual(parsed.raw_record_count, 3)
-        self.assertEqual(parsed.excluded_record_count, 1)
+        self.assertEqual(parsed.excluded_record_count, 2)
+        self.assertEqual(parsed.undated_tickers, ("7203",))
         self.assertIsNone(parsed.published_on)
 
     def test_jpx_earnings_parser_fails_on_layout_and_invalid_code(self) -> None:
@@ -1924,24 +1932,26 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
 
-    def test_jpx_earnings_snapshot_resolves_files_it_cannot_rank_the_same_way(self) -> None:
-        # Two archives stamped the same day cannot be separated by publication,
-        # so the snapshot must still not depend on the index listing order.
+    def test_jpx_earnings_snapshot_keeps_equal_priority_conflicts_unknown(self) -> None:
         snapshot = self._merge_earnings_files(
             (
                 self._earnings_file(
                     self._earnings_url("06_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 20)}
                 ),
                 self._earnings_file(
-                    self._earnings_url("07_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 25)}
+                    self._earnings_url("07_0715"),
+                    date(2026, 7, 15),
+                    {"130A": date(2026, 7, 25), "7203": date(2026, 7, 26)},
                 ),
             ),
             date(2026, 7, 14),
         )
+        self.assertEqual(
+            [(entry.ticker, entry.announcement_date) for entry in snapshot.entries],
+            [("7203", date(2026, 7, 26))],
+        )
 
-        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
-
-    def test_jpx_earnings_snapshot_warns_when_the_index_layout_breaks_precedence(self) -> None:
+    def test_jpx_earnings_snapshot_warns_when_archive_publication_stamp_is_missing(self) -> None:
         provider = JPXProvider()
         files = (
             self._earnings_file(
@@ -1962,8 +1972,17 @@ class ScreeningProviderTests(unittest.TestCase):
             provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
 
         messages = "\n".join(logs.output)
-        self.assertIn("no rolling `kessan` file", messages)
         self.assertIn("no readable publication stamp", messages)
+
+    def test_jpx_earnings_snapshot_without_daily_file_is_not_a_layout_warning(self) -> None:
+        files = (
+            self._earnings_file(
+                self._earnings_url("09_1009"), date(2026, 10, 8), {"130A": date(2026, 10, 20)}
+            ),
+        )
+        with self.assertNoLogs("baibai_engine.market.providers.jpx", level="WARNING"):
+            snapshot = self._merge_earnings_files(files, date(2026, 10, 15))
+        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 10, 20))
 
     def test_jpx_earnings_snapshot_warns_when_several_rolling_files_are_listed(self) -> None:
         provider = JPXProvider()
@@ -2064,7 +2083,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(parsed.excluded_record_count, 4)
         self.assertIn("conflicting=1 unparsable=1", logs.output[0])
         self.assertIn("1305: '8月上旬'", logs.output[0])
-        self.assertIn("130A: 2026-08-06 and 2026-08-07", logs.output[0])
+        self.assertIn("130A: 2026-08-06 and 2026-08-07 and 2026-08-08", logs.output[0])
 
     def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
         html = b"""
@@ -2303,12 +2322,12 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
 
     def test_jpx_get_regulation_snapshot_records_fetched_at_utc_on_fetch(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
+        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JPXProvider(
                 regulation_urls={"整理銘柄": url},
-                session=always(response(b"code\n49170\n", content_type="text/csv")),
+                session=always(html_response(self._read_jpx_fixture("reorganization.html"))),
                 sqlite_path=sqlite_path,
             )
             provider.get_regulation_snapshot(date(2026, 4, 24))
@@ -2320,17 +2339,6 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertIsNotNone(rows[0][0])
-
-    def test_jpx_get_regulation_snapshot_rejects_rows_without_code_column(self) -> None:
-        provider = JPXProvider(
-            regulation_urls={
-                "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
-            },
-            session=always(response(b"unexpected\n49170\n", content_type="text/csv")),
-        )
-
-        with self.assertRaisesRegex(JPXProviderError, "missing JPX code column"):
-            provider.get_regulation_snapshot(date(2026, 4, 24))
 
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
@@ -2397,7 +2405,7 @@ def test_capex_original_edinet_rows():
     # S100YU8C InterimDurationは2026-01-01..06-30 (会社半期報告書id=500)。
     cases = [
         ("5946", "S100YU8C", "160", 4_857_000_000, 1_136_000_000, 3_721_000_000, "approximated"),
-        ("7122", "S100YI50", "120", 15_630_000_000, 1_831_000_000, 13_799_000_000, "exact"),
+        ("7122", "S100YI50", "120", 15_630_000_000, 1_831_000_000, 13_799_000_000, "approximated"),
         ("8127", "S100XXXU", "160", 871_844_000, 100_902_000, 770_942_000, "approximated"),
     ]
     for ticker, doc, kind, ocf, capex, fcf, quality in cases:
@@ -2417,7 +2425,7 @@ def test_capex_original_edinet_rows():
         assert (record.ocf_ttm, record.capex_ttm, record.fcf_ttm) == (ocf, capex, fcf)
         assert record.ttm_quality_fcf == quality
         assert record.capex_source == "purchase_of_fixed_assets"
-        assert "tag_not_found:capex" not in record.failure_reasons
+        assert "metric_unavailable:capex" not in record.failure_reasons
 
 
 def test_annual_cash_flow_details_from_original_edinet_rows():
@@ -2524,8 +2532,8 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
     total = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF"
     tangible = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
     intangible = "jppfs_cor:PurchaseOfIntangibleAssetsInvCF"
-    current = "CurrentYearConsolidatedDuration"
-    prior = "Prior1YearConsolidatedDuration"
+    current = "InterimDuration"
+    prior = "Prior1InterimDuration"
     rows = [("jppfs_cor:NetCashProvidedByUsedInOperatingActivities", current, "4857")]
     cases = [
         ("total", [(total, current, "-1136")], 1136),
@@ -2539,6 +2547,26 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             ],
             1136,
         ),
+        (
+            "blank-total-does-not-fall-back",
+            [(total, current, ""), (tangible, current, "-1000"), (intangible, current, "-136")],
+            None,
+        ),
+        (
+            "conflicting-total-does-not-fall-back",
+            [
+                (total, current, "-1136"),
+                (total, current, "-2000"),
+                (tangible, current, "-1000"),
+                (intangible, current, "-136"),
+            ],
+            None,
+        ),
+        (
+            "explicit-zero-total-precedes-components",
+            [(total, current, "-"), (tangible, current, "-1000"), (intangible, current, "-136")],
+            0,
+        ),
         ("missing-intangible", [(tangible, current, "-1000")], None),
         ("missing-tangible", [(intangible, current, "-136")], None),
         ("prior-component", [(tangible, current, "-1000"), (intangible, prior, "-136")], None),
@@ -2547,7 +2575,7 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             [(total, prior, "-769"), (tangible, current, "-1000"), (intangible, current, "-136")],
             1136,
         ),
-        ("nonconsolidated-total", [(total, "CurrentYearNonConsolidatedDuration", "-999")], None),
+        ("nonconsolidated-total", [(total, "InterimDuration_NonConsolidatedMember", "-999")], None),
         ("missing", [], None),
         ("explicit-zero", [(total, current, "0")], 0),
     ]
@@ -2565,8 +2593,8 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             )
             assert record.capex_ttm == expected
             assert record.fcf_ttm == (None if expected is None else 4857 - expected)
-            assert ("tag_not_found:capex" in record.failure_reasons) == (expected is None)
-            assert "tag_not_found:cash" in record.failure_reasons
+            assert ("metric_unavailable:capex" in record.failure_reasons) == (expected is None)
+            assert "metric_unavailable:cash" in record.failure_reasons
 
 
 def test_missing_edinet_quality_is_unknown():

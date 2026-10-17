@@ -5,7 +5,7 @@ import json
 import zipfile
 from datetime import date
 from typing import cast
-from unittest.mock import patch
+from unittest import TestCase
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _DASHBOARD_INDICATOR,
@@ -17,10 +17,10 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _dashboard_series,
     _estat_payload,
     _parse_dashboard,
+    _read_estat,
     _RecordingSession,
     _series,
 )
-from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,
@@ -30,17 +30,28 @@ from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     parse_boj_timeseries_json,
     parse_boj_xlsx,
-    parse_estat_json,
     parse_mof_jgb_csv,
     parse_tsr_bankruptcies_json,
 )
+from baibai_engine.market_context.indicators.providers.base import record_observation
+from baibai_engine.market_context.indicators.providers.estat import parse_estat_json
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
-    EStatDashboardProvider,
+    EStatDashboardSource,
     parse_dashboard_json,
 )
+from baibai_engine.market_context.reading.native import _one_value
 
 
-class IndicatorsProviderParserTests(SnapshotFixtures):
+def _read_boj(series, content, *, start, end):
+    records = parse_boj_xlsx(series, content, start=start, end=end)
+    return [
+        record_observation(series, observed_at=day, value=value)
+        for day, rows in records.items()
+        if (value := _one_value(series, rows)) is not None
+    ]
+
+
+class IndicatorsProviderParserTests(TestCase):
     def test_parse_boj_xlsx_refuses_a_workbook_it_cannot_read_the_named_column_from(
         self,
     ) -> None:
@@ -62,19 +73,6 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                 date(2026, 1, 1),
                 date(2026, 1, 31),
                 "header mismatch",
-            ),
-            (
-                "empty_selected_column_for_in_range_dates",
-                _series("boj", "3|Monetary Base|8|Unit: 100 million yen", unit="jpy-100m"),
-                _boj_workbook_bytes(
-                    [
-                        (None, date(2026, 1, 31), None, 350000.0),
-                        (None, date(2026, 2, 28), None, 360000.0),
-                    ]
-                ),
-                date(2026, 1, 1),
-                date(2026, 2, 28),
-                "no numeric values",
             ),
             (
                 "scale_metadata_change_with_in_band_value",
@@ -113,9 +111,9 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         for name, series, content, start, end, reason in refusals:
             with (
                 self.subTest(case=name),
-                self.assertRaisesRegex(IndicatorsProviderError, reason),
+                self.assertRaisesRegex((IndicatorsProviderError, ValueError), reason),
             ):
-                parse_boj_xlsx(series, content, start=start, end=end)
+                _read_boj(series, content, start=start, end=end)
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
@@ -131,9 +129,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             unit="jpy-100m",
         )
 
-        observations = parse_boj_xlsx(
-            series, content, start=date(2026, 2, 1), end=date(2026, 3, 31)
-        )
+        observations = _read_boj(series, content, start=date(2026, 2, 1), end=date(2026, 3, 31))
 
         self.assertEqual(
             [(obs.observed_at, obs.value) for obs in observations],
@@ -154,9 +150,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             unit="jpy-100m",
         )
 
-        observations = parse_boj_xlsx(
-            series, content, start=date(2026, 1, 1), end=date(2026, 12, 31)
-        )
+        observations = _read_boj(series, content, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].value, 360000.0)
@@ -180,8 +174,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             plausible_max=2000.0,
         )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "metadata column 2 mismatch"):
-            parse_boj_xlsx(
+        with self.assertRaisesRegex(ValueError, "metadata column 2 mismatch"):
+            _read_boj(
                 series,
                 content,
                 start=date(2026, 1, 1),
@@ -199,11 +193,9 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         )
 
         with self.assertRaisesRegex(IndicatorsProviderError, "could not be read"):
-            parse_boj_xlsx(
-                series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31)
-            )
+            _read_boj(series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31))
 
-    def test_parse_mof_jgb_csv_extracts_10y_and_filters_range(self) -> None:
+    def test_parse_mof_jgb_csv_preserves_all_yields_and_missing_cells(self) -> None:
         series = _series("mof_jgb", "10年")
         text = "\n".join(
             [
@@ -222,9 +214,10 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             end=date(2026, 7, 9),
         )
 
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2026, 7, 8))
-        self.assertEqual(observations[0].value, 2.856)
+        self.assertEqual(list(observations), [date(2026, 7, 8), date(2026, 7, 9)])
+        self.assertEqual(observations[date(2026, 7, 8)][0]["row"]["10年"], "2.856")
+        self.assertEqual(observations[date(2026, 7, 9)][0]["row"]["10年"], "-")
+        self.assertEqual(observations[date(2026, 7, 9)][0]["row"]["15年"], "3.445")
 
     def test_parse_mof_jgb_csv_rejects_missing_column(self) -> None:
         series = _series("mof_jgb", "10年")
@@ -244,7 +237,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             ]
         )
 
-        observations = parse_estat_json(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
+        observations = _read_estat(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 2, 1))
@@ -254,9 +247,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         series = _series("estat", "0003427113", unit="index")
         text = _estat_payload({"@time": "2026000505", "$": "102.0"})
 
-        observations = parse_estat_json(
-            series, text, start=date(2026, 1, 1), end=date(2026, 12, 31)
-        )
+        observations = _read_estat(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 5, 1))
@@ -292,7 +283,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                     }
                     for year, value in zip((2024, 2025, 2026), values, strict=True)
                 ]
-                observations = parse_estat_json(
+                observations = _read_estat(
                     series,
                     _estat_payload(cells),
                     start=date(2024, 1, 1),
@@ -314,7 +305,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                             IndicatorsProviderError, "outside the requested narrowing"
                         ),
                     ):
-                        parse_estat_json(
+                        _read_estat(
                             series,
                             _estat_payload([*cells, {**cells[-1], attribute: wrong}]),
                             start=date(2024, 1, 1),
@@ -419,7 +410,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                 self.subTest(case=name),
                 self.assertRaisesRegex(IndicatorsProviderError, reason),
             ):
-                parse_estat_json(series, text, start=start, end=end)
+                _read_estat(series, text, start=start, end=end)
 
     def test_parse_estat_json_reads_a_month_whose_closing_month_is_left_open(self) -> None:
         """e-Stat published 2024-01 of the watcher survey as "2024000100".
@@ -431,9 +422,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         series = _series("estat", "0003348423", unit="pt")
         text = _estat_payload({"@time": "2024000100", "$": "50.2"})
 
-        observations = parse_estat_json(
-            series, text, start=date(2024, 1, 1), end=date(2024, 12, 31)
-        )
+        observations = _read_estat(series, text, start=date(2024, 1, 1), end=date(2024, 12, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2024, 1, 1))
@@ -449,12 +438,36 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             ]
         )
 
-        observations = parse_estat_json(
-            series, text, start=date(2025, 1, 1), end=date(2025, 12, 31)
-        )
+        observations = _read_estat(series, text, start=date(2025, 1, 1), end=date(2025, 12, 31))
 
         self.assertEqual(
             [(o.observed_at, o.value) for o in observations], [(date(2025, 1, 1), 110.0)]
+        )
+
+    def test_estat_native_cells_retain_null_markers_units_and_attributes(self) -> None:
+        series = _series("estat", "0003427113?cdCat01=0001", unit="index")
+        rows = [
+            {
+                "@time": "2026000505",
+                "@cat01": "0001",
+                "@unit": "指数",
+                "$": "100.8",
+                "@note": "revised",
+            },
+            {"@time": "2026000606", "@cat01": "0001", "@unit": "指数", "$": "***"},
+        ]
+        native = parse_estat_json(
+            series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30)
+        )
+        self.assertEqual(native, {date(2026, 5, 1): [rows[0]], date(2026, 6, 1): [rows[1]]})
+        self.assertEqual(
+            [
+                item.value
+                for item in _read_estat(
+                    series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30)
+                )
+            ],
+            [100.8],
         )
 
     def test_estat_dashboard_fetch_always_opens_the_request_at_the_history_floor(self) -> None:
@@ -475,7 +488,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             )
         )
 
-        observations = EStatDashboardProvider().fetch(
+        observations = EStatDashboardSource().fetch_records(
             _dashboard_series(),
             start=date(2026, 5, 1),
             end=date(2026, 5, 31),
@@ -484,8 +497,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         self.assertEqual(session.params, {"TimeFrom": "19480100", "TimeTo": "20260500"})
         self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 5, 1), 2.4)],
+            observations,
+            {date(2026, 5, 1): [_dashboard_row("20260500", "2.4")["VALUE"]]},
         )
 
     def test_parse_dashboard_json_skips_null_markers(self) -> None:
@@ -522,34 +535,26 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                 with self.assertRaisesRegex(IndicatorsProviderError, attribute):
                     _parse_dashboard([row])
 
-    def test_parse_dashboard_json_leaves_a_preliminary_month_unwritten(self) -> None:
-        # Preliminary rows are excluded from this final-value series. Their presence
-        # alone does not establish whether the final release is already overdue.
+    def test_dashboard_reading_excludes_retained_preliminary_prints(self) -> None:
         preliminary = _dashboard_row("20260600", "2.9")
         preliminary["VALUE"]["@isProvisional"] = "1"
-
-        with self.assertLogs(
-            "baibai_engine.market_context.indicators.providers.estat_dashboard", level="WARNING"
-        ) as logs:
-            observations = _parse_dashboard(
-                [
-                    _dashboard_row("20260400", "2.6"),
-                    _dashboard_row("20260500", "2.4"),
-                    preliminary,
-                ]
-            )
-
+        rows = [_dashboard_row("20260400", "2.6"), _dashboard_row("20260500", "2.4"), preliminary]
+        observations = _parse_dashboard(rows)
         self.assertEqual(
             [(item.observed_at, item.value) for item in observations],
             [(date(2026, 4, 1), 2.6), (date(2026, 5, 1), 2.4)],
         )
-        message = "\n".join(logs.output)
-        self.assertIn("test.series", message)
-        self.assertIn("2026-06-01", message)
+        native = parse_dashboard_json(
+            _dashboard_payload(rows),
+            start=date(2026, 1, 1),
+            end=date(2026, 12, 31),
+            selectors=_DASHBOARD_SELECTORS,
+        )
+        self.assertEqual(native[date(2026, 6, 1)], [preliminary["VALUE"]])
 
     def test_parse_dashboard_json_keeps_a_preliminary_month_out_of_the_unit_check(self) -> None:
-        # A preliminary row is not part of the series being written, so its unit
-        # must not read as the publisher mixing two units into one series.
+        # A retained preliminary row is not part of the final-value Reading, so its
+        # unit does not contaminate the final values selected by L2.
         preliminary = _dashboard_row("20260600", "2.9")
         preliminary["VALUE"]["@isProvisional"] = "1"
         preliminary["VALUE"]["@unit"] = "指数"
@@ -563,7 +568,6 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "1 rows for a declared total of 2"):
             parse_dashboard_json(
-                _dashboard_series(),
                 text,
                 start=date(2026, 1, 1),
                 end=date(2026, 12, 31),
@@ -577,7 +581,6 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "returned status 1"):
             parse_dashboard_json(
-                _dashboard_series(),
                 text,
                 start=date(2026, 1, 1),
                 end=date(2026, 12, 31),
@@ -599,15 +602,44 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         row = _dashboard_row("20260500", "2.4")
         row["VALUE"]["$"] = cast(str, 2.4)
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "value is not a string"):
+        with self.assertRaisesRegex(ValueError, "value is not a string"):
             _parse_dashboard([row])
 
     def test_parse_dashboard_json_rejects_two_units_in_one_series(self) -> None:
         rows = [_dashboard_row("20260400", "2.5"), _dashboard_row("20260500", "2400")]
         rows[1]["VALUE"]["@unit"] = "120"
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "mixed units"):
+        with self.assertRaisesRegex(ValueError, "mixed units"):
             _parse_dashboard(rows)
+
+    def test_dashboard_preserves_null_and_unknown_attributes_before_reading(self) -> None:
+        row = _dashboard_row("20260500", "-")
+        row["VALUE"]["publisher_note"] = "unavailable"
+        native = parse_dashboard_json(
+            _dashboard_payload([row]),
+            start=date(2026, 5, 1),
+            end=date(2026, 5, 31),
+            selectors=_DASHBOARD_SELECTORS,
+        )
+        self.assertEqual(native, {date(2026, 5, 1): [row["VALUE"]]})
+        self.assertEqual(_parse_dashboard([row]), [])
+
+    def test_dashboard_checks_units_for_the_reading_window_not_unused_history(self) -> None:
+        old = _dashboard_row("20260400", "2500")
+        old["VALUE"]["@unit"] = "120"
+        observations = _parse_dashboard(
+            [old, _dashboard_row("20260500", "2.4")], start=date(2026, 5, 1)
+        )
+        self.assertEqual([item.value for item in observations], [2.4])
+
+    def test_dashboard_reading_preserves_zero_and_does_not_hide_null_duplicates(self) -> None:
+        self.assertEqual(
+            [item.value for item in _parse_dashboard([_dashboard_row("20260500", "0")])], [0.0]
+        )
+        self.assertEqual(
+            _parse_dashboard([_dashboard_row("20260500", "2.4"), _dashboard_row("20260500", "-")]),
+            [],
+        )
 
     def test_estat_dashboard_requires_the_source_url_to_pin_one_series(self) -> None:
         """The source URL is the provenance stored on every observation.
@@ -649,7 +681,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                 self.subTest(source_url=source_url),
                 self.assertRaisesRegex(IndicatorsProviderError, message),
             ):
-                EStatDashboardProvider().fetch(
+                EStatDashboardSource().fetch_records(
                     _dashboard_series(source_url=source_url),
                     start=date(2026, 1, 1),
                     end=date(2026, 5, 31),
@@ -658,7 +690,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
     def test_estat_dashboard_refuses_a_series_that_is_not_monthly(self) -> None:
         with self.assertRaisesRegex(IndicatorsProviderError, "monthly series only"):
-            EStatDashboardProvider().fetch(
+            EStatDashboardSource().fetch_records(
                 _dashboard_series(frequency="quarterly"),
                 start=date(2026, 1, 1),
                 end=date(2026, 5, 31),
@@ -701,154 +733,70 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             [(date(2026, 5, 1), 993.0), (date(2026, 6, 1), 1021.0)],
         )
 
-    def test_parse_tsr_bankruptcies_json_refuses_a_listing_it_cannot_read_a_history_from(
-        self,
-    ) -> None:
-        # One damaged TSR listing per row. The provider reads a monthly count out of
-        # press-release titles, so a title it cannot parse, a month it never saw, and a
-        # history that does not reach the floor are all silent holes unless refused.
+    def test_parse_tsr_bankruptcies_json_rejects_unreadable_or_conflicting_months(self) -> None:
         series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        refusals: tuple[tuple[str, str, date, date, str], ...] = (
+        for rows, reason in (
+            ([{"period_division": "月次", "title": "月次の全国企業倒産状況"}], "cannot parse"),
             (
-                "unparseable_monthly_entry",
-                json.dumps(
-                    [
-                        {
-                            "period_division": "月次",
-                            "title": "月次の全国企業倒産状況",
-                            "free_word": [],
-                        }
-                    ]
-                ),
-                date(2003, 1, 1),
-                date(2026, 6, 1),
-                "cannot parse monthly entry",
+                [
+                    {"period_division": "月次", "title": "2026年6月の全国企業倒産100件"},
+                    {"period_division": "月次", "title": "2026年6月の全国企業倒産200件"},
+                ],
+                "conflicting values",
             ),
-            (
-                "history_gap",
-                json.dumps(
-                    [
-                        {"period_division": "月次", "title": "2026年4月の全国企業倒産990件"},
-                        {"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"},
-                    ]
-                ),
-                date(2026, 4, 1),
-                date(2026, 6, 1),
-                "missing monthly entries",
-            ),
-            (
-                "missing_history_floor",
-                json.dumps(
-                    [{"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"}]
-                ),
-                date(2003, 1, 1),
-                date(2026, 7, 20),
-                "must start at 2003-01-01",
-            ),
-        )
-
-        for name, text, start, end, reason in refusals:
+        ):
             with (
-                self.subTest(case=name),
+                self.subTest(reason=reason),
                 self.assertRaisesRegex(IndicatorsProviderError, reason),
             ):
-                parse_tsr_bankruptcies_json(series, text, start=start, end=end)
+                parse_tsr_bankruptcies_json(
+                    series, json.dumps(rows), start=date(2003, 1, 1), end=date(2026, 12, 31)
+                )
 
-    def test_parse_tsr_bankruptcies_json_rejects_missing_latest_release(self) -> None:
+    def test_tsr_keeps_available_months_without_inventing_missing_history(self) -> None:
         series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        rows = []
-        current = date(2003, 1, 1)
-        while current <= date(2026, 5, 1):
-            rows.append(
-                {
-                    "period_division": "月次",
-                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
-                }
-            )
-            current = (
-                date(current.year + 1, 1, 1)
-                if current.month == 12
-                else date(current.year, current.month + 1, 1)
-            )
+        rows = [
+            {"period_division": "月次", "title": "2026年4月の全国企業倒産990件"},
+            {"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"},
+        ]
+        result = parse_tsr_bankruptcies_json(
+            series, json.dumps(rows), start=date(2003, 1, 1), end=date(2027, 1, 1)
+        )
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in result],
+            [(date(2026, 4, 1), 990.0), (date(2026, 6, 1), 1021.0)],
+        )
 
-        with (
-            patch(
-                "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
-                return_value=date(2026, 7, 28),
-            ),
-            self.assertRaisesRegex(IndicatorsProviderError, "latest expected release"),
-        ):
-            parse_tsr_bankruptcies_json(
-                series,
-                json.dumps(rows),
-                start=date(2003, 1, 1),
-                end=date(2026, 7, 28),
-            )
+    def test_tsr_partial_history_is_visible_as_stale_and_insufficient_in_reading(self) -> None:
+        from tests.helpers.indicator_store import store_reader
 
-    def test_parse_tsr_bankruptcies_json_ignores_future_end_for_latest_release(
-        self,
-    ) -> None:
-        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        rows = []
-        current = date(2003, 1, 1)
-        while current <= date(2026, 6, 1):
-            rows.append(
-                {
-                    "period_division": "月次",
-                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
-                }
-            )
-            current = (
-                date(current.year + 1, 1, 1)
-                if current.month == 12
-                else date(current.year, current.month + 1, 1)
-            )
+        from baibai_engine.market_context.indicators.definitions import load_definitions
+        from baibai_engine.market_context.reading.compute import compute_reading
+        from baibai_engine.market_context.reading.rules import load_reading_rules
 
-        with patch(
-            "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
-            return_value=date(2026, 7, 24),
-        ):
-            observations = parse_tsr_bankruptcies_json(
-                series,
-                json.dumps(rows),
-                start=date(2003, 1, 1),
-                end=date(2026, 12, 31),
-            )
+        series = load_definitions().by_id()["jp.bankruptcies"]
+        result = parse_tsr_bankruptcies_json(
+            series,
+            json.dumps([{"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"}]),
+            start=date(2003, 1, 1),
+            end=date(2027, 1, 1),
+        )
+        snapshot = compute_reading(
+            series=[series],
+            reader=store_reader(result),
+            rules=load_reading_rules(),
+            rules_revision="test",
+            asof=date(2027, 1, 1),
+        )
+        reading = snapshot.series[0]
+        self.assertEqual(reading.latest_value, 1021.0)
+        self.assertEqual(reading.observed_at, date(2026, 6, 1))
+        self.assertTrue(reading.stale)
+        self.assertTrue(reading.insufficient_history)
+        self.assertIsNone(reading.percentile)
+        self.assertIsNone(reading.z_score)
 
-        self.assertEqual(len(observations), 282)
-        self.assertEqual(observations[-1].observed_at, date(2026, 6, 1))
-
-    def test_parse_tsr_bankruptcies_json_allows_prepublication_tail(self) -> None:
-        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        rows = []
-        current = date(2003, 1, 1)
-        while current <= date(2026, 5, 1):
-            rows.append(
-                {
-                    "period_division": "月次",
-                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
-                }
-            )
-            current = (
-                date(current.year + 1, 1, 1)
-                if current.month == 12
-                else date(current.year, current.month + 1, 1)
-            )
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
-            return_value=date(2026, 7, 5),
-        ):
-            observations = parse_tsr_bankruptcies_json(
-                series,
-                json.dumps(rows),
-                start=date(2003, 1, 1),
-                end=date(2026, 7, 5),
-            )
-
-        self.assertEqual(observations[-1].observed_at, date(2026, 5, 1))
-
-    def test_parse_boj_timeseries_json_filters_range_and_nulls(self) -> None:
+    def test_parse_boj_timeseries_json_filters_range_without_changing_cells(self) -> None:
         series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
         text = json.dumps(
             {
@@ -873,8 +821,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         )
 
         self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(1998, 1, 5))
-        self.assertEqual(observations[0].value, 0.49)
+        self.assertEqual(list(observations), [date(1998, 1, 5)])
+        self.assertEqual(observations[date(1998, 1, 5)][0]["value"], 0.49)
 
     def test_parse_boj_timeseries_json_reads_monthly_yyyymm_survey_dates(self) -> None:
         series = _series(
@@ -900,8 +848,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         )
 
         self.assertEqual(
-            [(o.observed_at, o.value) for o in observations],
-            [(date(2026, 5, 1), 134.9), (date(2026, 6, 1), 135.4)],
+            [(day, rows[0]["value"]) for day, rows in observations.items()],
+            [(date(2026, 5, 1), 134.9), (date(2026, 6, 1), 135.4), (date(2026, 7, 1), None)],
         )
 
     def test_parse_boj_timeseries_json_reads_quarterly_yyyy0q_survey_dates(self) -> None:
@@ -929,8 +877,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         # YYYY0Q maps Q1..Q4 to the last month of the quarter (Mar/Jun/Sep/Dec).
         self.assertEqual(
-            [(o.observed_at, o.value) for o in observations],
-            [(date(2025, 12, 1), 15.0), (date(2026, 3, 1), 17.0), (date(2026, 6, 1), 22.0)],
+            [(day, rows[0]["value"]) for day, rows in observations.items()],
+            [(date(2025, 12, 1), 15), (date(2026, 3, 1), 17), (date(2026, 6, 1), 22)],
         )
 
     def test_parse_boj_timeseries_json_rejects_wrong_length_for_frequency(self) -> None:

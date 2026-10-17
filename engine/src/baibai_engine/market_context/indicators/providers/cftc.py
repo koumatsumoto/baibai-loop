@@ -1,38 +1,36 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections import defaultdict
 from datetime import date
 from typing import cast
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
+from ..read_contracts import CFTC_SPEC
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     fetch_text,
-    record_observation,
 )
 
 # CFTC Commitments of Traders, legacy futures-only report (Socrata JSON, no auth).
 # provider_series_id is the stable cftc_contract_market_code; the market name
 # changes over time (043602 was "10-YEAR U.S. TREASURY NOTES", now "UST 10Y
 # NOTE") so the code, not the name, is the identity. The observation is the
-# non-commercial (speculative) net position = long - short, in contracts.
+# complete source record; net and gross positioning belong to L2.
 _MAX_ROWS = 50_000
-_PLAUSIBLE_ABS = 3_000_000
 
 
-class CftcProvider:
-    """CFTC COT non-commercial net position (contracts) for one contract code."""
+class CftcSource:
+    """Complete CFTC COT native records for one contract code."""
 
-    spec = ProviderSpec(name="cftc", all_history_start=date(2000, 1, 1))
+    spec = CFTC_SPEC
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -40,7 +38,7 @@ class CftcProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         code = series.provider_series_id
         where = (
             f"cftc_contract_market_code='{code}' "
@@ -51,10 +49,6 @@ class CftcProvider:
             session,
             series.source_url,
             params={
-                "$select": (
-                    "report_date_as_yyyy_mm_dd,cftc_contract_market_code,"
-                    "noncomm_positions_long_all,noncomm_positions_short_all"
-                ),
                 "$where": where,
                 "$order": "report_date_as_yyyy_mm_dd",
                 "$limit": str(_MAX_ROWS),
@@ -62,44 +56,36 @@ class CftcProvider:
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
         )
-        return parse_cftc_json(series, text, start=start, end=end)
+        return parse_cftc_records(series, text, start=start, end=end)
 
 
-def parse_cftc_json(
+def parse_cftc_records(
     series: SeriesDefinition, text: str, *, start: date, end: date
-) -> list[ObservationRecord]:
+) -> NativeRecords:
     try:
         payload: object = json.loads(text)
     except json.JSONDecodeError as exc:
         raise IndicatorsProviderError(f"CFTC response is not valid JSON: {exc}") from exc
     if not isinstance(payload, list):
         raise IndicatorsProviderError("CFTC response root is not a list")
-    by_date: dict[date, float] = {}
+    if len(payload) >= _MAX_ROWS:
+        raise IndicatorsProviderError(
+            "CFTC response reached its row limit; completeness is unknown"
+        )
+    by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
     for entry in payload:
         if not isinstance(entry, dict):
             raise IndicatorsProviderError("CFTC row is not an object")
-        row = cast(Mapping[str, object], entry)
+        row = cast(dict[str, object], entry)
         code = row.get("cftc_contract_market_code")
         if code != series.provider_series_id:
             raise IndicatorsProviderError(
                 f"CFTC row code {code!r} does not match requested {series.provider_series_id!r}"
             )
         observed_at = _parse_date(row.get("report_date_as_yyyy_mm_dd"))
-        long_positions = _parse_int(row.get("noncomm_positions_long_all"), "long")
-        short_positions = _parse_int(row.get("noncomm_positions_short_all"), "short")
-        net = float(long_positions - short_positions)
-        if abs(net) > _PLAUSIBLE_ABS:
-            raise IndicatorsProviderError(
-                f"CFTC net position {net} for {observed_at} exceeds plausible {_PLAUSIBLE_ABS}"
-            )
         if start <= observed_at <= end:
-            if observed_at in by_date and by_date[observed_at] != net:
-                raise IndicatorsProviderError(f"CFTC has conflicting values for {observed_at}")
-            by_date[observed_at] = net
-    return [
-        record_observation(series, observed_at=observed_at, value=by_date[observed_at])
-        for observed_at in sorted(by_date)
-    ]
+            by_date[observed_at].append(row)
+    return dict(by_date)
 
 
 def _parse_date(raw: object) -> date:
@@ -109,12 +95,3 @@ def _parse_date(raw: object) -> date:
         return date.fromisoformat(raw[:10])
     except ValueError as exc:
         raise IndicatorsProviderError(f"CFTC report date is invalid: {raw!r}") from exc
-
-
-def _parse_int(raw: object, label: str) -> int:
-    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
-        raise IndicatorsProviderError(f"CFTC {label} position is not numeric: {raw!r}")
-    try:
-        return int(str(raw))
-    except ValueError as exc:
-        raise IndicatorsProviderError(f"CFTC {label} position is not an integer: {raw!r}") from exc

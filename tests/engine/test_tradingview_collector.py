@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.master import insert_master_rows
 
 from baibai_engine.external_assessment.tradingview.collector import (
     SourceDataError,
@@ -17,10 +18,11 @@ from baibai_engine.external_assessment.tradingview.collector import (
 )
 from baibai_engine.external_assessment.tradingview.observations import (
     COLUMNS,
+    FIELDS,
     FetchError,
     normalize_batch,
 )
-from baibai_engine.market.universe import UniverseSourceDriftError
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.observations.schema import open_connection
 
 DAY = date(2026, 9, 18)
@@ -30,9 +32,12 @@ NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
 def store(path: Path, count: int = 51) -> Path:
     with closing(open_connection(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
-            [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(count)],
+        insert_master_rows(
+            conn,
+            [
+                (DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011")
+                for i in range(count)
+            ],
         )
     return path
 
@@ -129,9 +134,9 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
         )
     assert preflight_snapshot(path, DAY)["needs_master"] is True
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
-            [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(2)],
+        insert_master_rows(
+            conn,
+            [(DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011") for i in range(2)],
         )
 
     async def healthy(symbols):
@@ -152,7 +157,7 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
     assert calls == [["TSE:1001"]]
 
 
-@pytest.mark.parametrize("failure", ["429", "all_missing", "malformed", "crash"])
+@pytest.mark.parametrize("failure", ["429", "malformed", "crash"])
 def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -> None:
     path = store(tmp_path / "market.sqlite")
     calls = 0
@@ -162,8 +167,6 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
         calls += 1
         if calls == 1:
             return payload(symbols)
-        if failure == "all_missing":
-            return payload(symbols, missing=symbols)
         if failure == "malformed":
             return {"success": True}
         if failure == "429":
@@ -184,7 +187,6 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
             result["stop_reason"]
             == {
                 "429": "provider_rate_limit",
-                "all_missing": "provider_all_missing",
                 "malformed": "provider_response",
             }[failure]
         )
@@ -208,7 +210,7 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
 
     async def fetch(symbols):
         calls.append(symbols)
-        return payload(symbols, missing=symbols if symbols == ["TSE:1001"] else [])
+        return {"success": True} if symbols == ["TSE:1001"] else payload(symbols)
 
     async def sleep(seconds):
         pauses.append(seconds)
@@ -242,7 +244,7 @@ def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
 
     async def bad(symbols):
         calls.append(symbols)
-        return payload(symbols, missing=symbols)
+        return {"success": True}
 
     with pytest.raises(CollectionFailure):
         asyncio.run(collect(path, DAY, bad, batch_size=1, interval=0, clock=lambda: NOW))
@@ -369,7 +371,7 @@ def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
     async def fetch(symbols):
         calls.append(symbols)
         if symbols[0] in {"TSE:1000", "TSE:1001", "TSE:1003", "TSE:1004"}:
-            return payload(symbols, missing=symbols)
+            return {"success": True}
         return payload(symbols)
 
     result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
@@ -408,18 +410,20 @@ def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: P
     path = store(tmp_path / "market.sqlite", 1)
     conn = open_connection(path)
     with conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?, ?,?,1)",
+        insert_master_rows(
+            conn,
             [
-                (DAY.isoformat(), "2000", "fund", "プライム", "その他"),
-                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械"),
-                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械"),
+                (DAY.isoformat(), "2000", "fund", "プライム", "その他", "014"),
+                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械", "011"),
+                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械", "011"),
             ],
         )
     assert universe(conn, DAY) == ["TSE:1000"]
     with conn:
-        conn.execute("UPDATE jquants_master_snapshots SET sector_33='unknown' WHERE ticker='1000'")
-    with pytest.raises(UniverseSourceDriftError):
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'"
+        )
+    with pytest.raises(JQuantsProviderError, match="product category"):
         universe(conn, DAY)
     conn.close()
 
@@ -464,14 +468,14 @@ def test_response_accounting_refuses_invalid_payload(case: str) -> None:
         normalize_batch(p, symbols, NOW)
 
 
-@pytest.mark.parametrize("common", [0, None])
-def test_universe_uses_canonical_sectors_without_common_stock_flag(tmp_path, common):
+def test_native_product_category_does_not_depend_on_sector_spelling(tmp_path):
     path = store(tmp_path / "market.sqlite", 1)
-    conn = open_connection(path)
-    with conn:
-        conn.execute("UPDATE jquants_master_snapshots SET is_common_stock=?", (common,))
-    assert universe(conn, DAY) == ["TSE:1000"]
-    conn.close()
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute(
+            "UPDATE jquants_master_snapshots "
+            "SET record_json=json_set(record_json,'$.S33Nm','新業種')"
+        )
+        assert universe(conn, DAY) == ["TSE:1000"]
 
 
 class Timer:
@@ -481,9 +485,7 @@ class Timer:
         return self.value
 
 
-@pytest.mark.parametrize(
-    "failure", [None, "429", "all_missing", "malformed", "store", "time_guard"]
-)
+@pytest.mark.parametrize("failure", [None, "429", "malformed", "store", "time_guard"])
 def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
 
@@ -510,8 +512,6 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
         if calls == 2:
             if failure == "429":
                 raise ProviderHTTPError(429)
-            if failure == "all_missing":
-                return payload(symbols, missing=symbols)
             if failure == "malformed":
                 return {"success": True}
         return payload(symbols)
@@ -634,3 +634,58 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
     assert "mcp_http_status=429" in result["last_failure"]
     assert "retry_not_before_utc=2026-10-11T18:00:00+00:00" in result["last_failure"]
     assert "private" not in str(result)
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_explicit_missing_receipt_does_not_depend_on_batch_composition(batch_size):
+    symbols = ["TSE:1000", "TSE:1001"]
+    rows = []
+    for offset in range(0, len(symbols), batch_size):
+        chunk = symbols[offset : offset + batch_size]
+        response = payload(chunk, missing=[s for s in chunk if s == symbols[1]])
+        rows.extend(normalize_batch(response, chunk, NOW))
+    assert rows == normalize_batch(payload(symbols, missing=[symbols[1]]), symbols, NOW)
+    assert rows[1]["fetch_status"] == "unresolved"
+    assert all(rows[1][field] is None for field in FIELDS)
+
+
+def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tmp_path):
+    path = store(tmp_path / "market.sqlite", 51)
+    calls = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        return payload(symbols, missing=[s for s in symbols if s == "TSE:1050"])
+
+    async def no_sleep(_seconds):
+        pass
+
+    result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW, sleep=no_sleep))
+    assert (result["status"], result["rows"], result["remaining"], result["unresolved"]) == (
+        "saved",
+        51,
+        0,
+        1,
+    )
+    assert [len(call) for call in calls] == [50, 1]
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute(
+            "SELECT fetch_status, quote_close, recommendation_total "
+            "FROM tradingview_forecast_snapshots WHERE ticker='1050'"
+        ).fetchone() == ("unresolved", None, None)
+    again = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
+    assert again["status"] == "already_saved"
+    assert len(calls) == 2
+
+
+def test_successful_all_missing_day_is_accounted_but_not_normal_null_data(tmp_path):
+    path = store(tmp_path / "market.sqlite", 2)
+
+    async def fetch(symbols):
+        return payload(symbols, missing=symbols)
+
+    result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
+    assert (result["status"], result["rows"], result["unresolved"]) == ("saved", 2, 2)
+    assert all(count == 0 for count in result["normal_nulls"].values())
+    state = preflight_snapshot(path, DAY)
+    assert (state["status"], state["unresolved"]) == ("already_saved", 2)

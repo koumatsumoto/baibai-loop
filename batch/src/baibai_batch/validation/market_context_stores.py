@@ -2,8 +2,9 @@
 
 Market Context state lives in two existing stores. The L1 indicator
 store carries observations and their vintages, the application store carries the
-published context reports written against them. Their agreement is what CI cannot see —
-a workflow has no application store — so the pre-push instrument for it lives here.
+published context reports written against them. Their production agreement is not established by
+quality CI, which uses synthetic stores. This read-only operational check compares
+the actual stores supplied by the caller.
 
 The two directions of drift are asymmetric. An observation that the registry no longer
 covers is a contract violation and fails. A published report is immutable: it must still
@@ -18,6 +19,7 @@ import json
 import math
 import sqlite3
 import sys
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +35,7 @@ from baibai_engine.batch_api import (
     assessment_series_ids,
     connect_read_only,
     database_path,
+    decode_indicator_source_records,
     load_definitions,
     validate_indicator_schema,
 )
@@ -45,6 +48,7 @@ class ValidationReport:
     schema_version: int
     registry_series: int
     observations: int
+    source_snapshots: int
     violation_count: int
     violations: tuple[str, ...]
 
@@ -69,7 +73,12 @@ def validate_store(
     *,
     definitions: IndicatorDefinitions | None = None,
 ) -> ValidationReport:
-    """Check every stored vintage without opening the database for writes."""
+    """Check scalar contracts and every native payload, without changing source values.
+
+    Native checks prove that retained records decode and match their stored count,
+    not that all external dates or securities were acquired. Native fields are not
+    filtered through the current scalar registry or plausible ranges.
+    """
 
     resolved = definitions or load_definitions()
     registry = resolved.by_id()
@@ -93,12 +102,10 @@ def validate_store(
         validate_indicator_schema(connection)
         observations = 0
         for row in connection.execute(
-            # A withdrawn row is not a claim about a value, so the registry band does not
-            # apply to it. Checking it anyway would make "retract an outlier, then tighten
-            # the band" impossible: the retraction itself would fail the scan, and it
-            # cannot be deleted because the merge restores it.
+            # Retraction changes visibility, not the stored unit/value contract.
+            # Both SQLite constraints and merge validate every retained row.
             "SELECT series_id, observed_at, vintage_at, value, unit "
-            "FROM observations WHERE fetch_status != 'retracted' "
+            "FROM observations "
             "ORDER BY series_id, observed_at, vintage_at"
         ):
             observations += 1
@@ -124,6 +131,20 @@ def validate_store(
                     f"{identity}: value {value:g} outside plausible range "
                     f"[{rendered_low}, {rendered_high}]"
                 )
+        source_snapshots = 0
+        for row in connection.execute(
+            "SELECT source_key, observed_at, fetched_at, record_count, payload "
+            "FROM indicator_source_snapshots ORDER BY source_key, observed_at, fetched_at"
+        ):
+            source_snapshots += 1
+            identity = f"{row['source_key']} {row['observed_at']} fetched {row['fetched_at']}"
+            try:
+                native = decode_indicator_source_records(row["payload"])
+            except (OSError, EOFError, ValueError, zlib.error):
+                record(f"{identity}: native payload cannot be decoded")
+                continue
+            if len(native) != row["record_count"]:
+                record(f"{identity}: native record count differs from the payload")
     finally:
         connection.close()
 
@@ -131,6 +152,7 @@ def validate_store(
         schema_version=schema_version,
         registry_series=len(resolved.series),
         observations=observations,
+        source_snapshots=source_snapshots,
         violation_count=violation_count,
         violations=tuple(violations),
     )
@@ -190,7 +212,7 @@ def validate_published_contexts(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "validate every economic observation against the current registry, "
+            "validate scalar observations against the registry and native snapshot payloads, "
             "and every saved market assessment against the read path"
         )
     )
@@ -229,13 +251,15 @@ def _render_store_report(report: ValidationReport) -> int:
     if report.valid:
         print(
             f"ok: schema v{report.schema_version}; {report.registry_series} registry series; "
-            f"{report.observations} observations",
+            f"{report.observations} scalar observations; "
+            f"{report.source_snapshots} native snapshots",
             flush=True,
         )
         return 0
     print(
         f"error: {report.violation_count} indicator store contract violations "
-        f"across {report.observations} observations",
+        f"across {report.observations} scalar observations and "
+        f"{report.source_snapshots} native snapshots",
         file=sys.stderr,
     )
     for violation in report.violations:

@@ -134,6 +134,7 @@ def store_jpx_regulations(
             coverage_key=asof_date.isoformat(),
             coverage_start=asof_date.isoformat(),
             coverage_end=asof_date.isoformat(),
+            fetched_at_utc=fetched_at,
             record_count=persisted_count,
             status="partial" if rejected_count else "ok",
             error=(

@@ -4,7 +4,7 @@ import pytest
 
 from baibai_engine.cli import main
 from baibai_engine.research.workspace_cli import build_parser as build_research_parser
-from baibai_engine.screening.cli import build_parser as build_screening_parser
+from baibai_engine.screening.cli.app import build_parser as build_screening_parser
 
 
 def _choices(parser) -> set[str]:
@@ -125,3 +125,22 @@ def test_runtime_has_no_retired_triage_imports_or_prepare_flags():
                     *flags,
                 ]
             )
+
+
+def test_screening_provider_protocols_do_not_import_command_implementations():
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+from baibai_engine.screening.cli.providers import ProviderBundle
+for module in ("app", "cache", "run", "query"):
+    assert f"baibai_engine.screening.cli.{module}" not in sys.modules
+""",
+        ],
+        check=True,
+    )

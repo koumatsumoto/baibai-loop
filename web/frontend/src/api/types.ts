@@ -583,7 +583,6 @@ export interface LimitTermsView {
   quantity: number
   notional_yen: string
   target_session: string
-  expires_at: string
   valuation_as_of: string
   maximum_entry_price_yen: string | null
   price_grid_rule_id: string
@@ -965,7 +964,7 @@ export interface SecurityPeerContextView {
 export interface SecurityPriceContextView {
   resolved_date: string
   close: number
-  price_basis: 'split_adjusted_close'
+  price_basis: 'price_adjusted_close'
   return_1d: number | null
   return_5d: number | null
   return_20d: number | null
@@ -992,7 +991,7 @@ export interface SecurityRelativeContextView {
 
 export interface StockAnalysisRowView {
   candidate: StockCandidateContextView
-  listing_span_days: number | null
+  price_history_span_days: number | null
   jpx_flags: string[] | null
   forecast_special_gain_flag: boolean | null
   forecast_full_year_loss_flag: boolean | null
@@ -1049,7 +1048,7 @@ export interface StockAnalysisRowView {
   price_change_20d: number | null
   gap_from_52w_low: number | null
   next_earnings_date: string | null
-  margin_week_end: string | null
+  margin_balance_date: string | null
   margin_long_to_adv: number | null
   margin_short_to_adv: number | null
   margin_long_share: number | null

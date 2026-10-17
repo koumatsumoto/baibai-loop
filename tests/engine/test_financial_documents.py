@@ -17,9 +17,9 @@ from baibai_engine.market.financial_documents import (
     normalize_financial_summary,
     project_financial_documents,
 )
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.sqlite_coverage.required_fields import required_field_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.storage.observations.reader import read_fin_summaries, read_financial_documents
 from baibai_engine.storage.observations.schema import open_connection
@@ -100,7 +100,7 @@ def snapshot(rows: list[JQuantsFinancialSummary]):
 def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     db = tmp_path / "market.sqlite"
     records = documents()
-    # A full-market acquisition creates coverage; an issuer repair cannot claim it.
+    # Repeated complete-range replacement preserves documents and coverage.
     store_jquants_fin_summaries(db, records, requested_start=date(2026, 8, 10), requested_end=ASOF)
     for _ in range(2):
         store_jquants_fin_summaries(
@@ -108,7 +108,6 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
             records,
             requested_start=date(2026, 8, 10),
             requested_end=ASOF,
-            requested_ticker="9999",
         )
     before = db.read_bytes()
     stored = read_fin_summaries(db, date(2026, 8, 10), ASOF)
@@ -125,10 +124,12 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     assert stored[0].eps_ttm == 33.3
     assert db.read_bytes() == before
     with closing(sqlite3.connect(db)) as conn, conn:
-        values = conn.execute(
-            "SELECT forecast_eps, forecast_profit, forecast_ordinary_profit, dps_forecast_annual FROM jquants_fin_summaries"
-        ).fetchall()
-    assert values == [(None, None, None, None)] * 4
+        values = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchall()
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(jquants_fin_summaries)")}
+    assert columns == {"ticker", "disclosed_at", "disclosure_number", "document_payload"}
+    assert {json.loads(row[0])["DiscNo"]: json.loads(row[0]) for row in values} == {
+        record["DiscNo"]: record for record in records
+    }
 
 
 def test_asof_excludes_later_revision() -> None:
@@ -148,9 +149,10 @@ def test_eps_does_not_require_ordinary_profit(fields: dict[str, str]) -> None:
     assert not snapshot(rows).forecast_special_gain_flag
 
 
-def test_nonconsolidated_supplement_does_not_override_consolidated_basis() -> None:
+@pytest.mark.parametrize("standard", ["JP", "IFRS", "US"])
+def test_nonconsolidated_supplement_does_not_override_consolidated_basis(standard) -> None:
     records = documents()
-    records[0]["DocType"] = "FYFinancialStatements_Consolidated_IFRS"
+    records[0]["DocType"] = f"FYFinancialStatements_Consolidated_{standard}"
     result = snapshot(decode(records))
     assert result.per_forward == 1074 / 39.69
     assert result.earnings_forecast_source
@@ -167,7 +169,7 @@ def test_target_period_changes_before_numeric_availability() -> None:
     assert result.dps_forecast_annual is None
     assert result.earnings_forecast_source
     assert result.earnings_forecast_source["period_end"] == "2026-12-31"
-    assert result.earnings_forecast_source["status"] == "missing"
+    assert result.earnings_forecast_source["status"] == "unresolved"
 
 
 def test_unknown_present_slot_does_not_revive_old_forecast() -> None:
@@ -195,23 +197,16 @@ def test_conflicting_same_time_forecasts_are_unresolved(reverse: bool) -> None:
     assert result.dividend_forecast_source["status"] == "unresolved"
 
 
-def test_legacy_stays_unconfirmed_and_cannot_override_confirmed_period() -> None:
-    legacy = JQuantsFinancialSummary(
-        ticker="9999", disclosed_at=ASOF, forecast_eps=99, dps_forecast_annual=99
-    )
-    assert snapshot([legacy]).per_forward == 1074 / 99
-    assert snapshot([legacy]).earnings_forecast_source == {
-        "status": "legacy_unknown",
-        "disclosure_number": None,
-        "disclosed_at": ASOF.isoformat(),
-        "disclosed_time": None,
-        "document_type": None,
-        "period_start": None,
-        "period_end": None,
-        "basis": None,
-        "target_basis": None,
-    }
-    assert snapshot([*decode(documents()), legacy]).per_forward == 1074 / 31.9
+@pytest.mark.parametrize(
+    "period",
+    [{"CurFYSt": "", "CurFYEn": ""}, {"CurFYSt": "2026-10-01", "CurFYEn": "2026-03-31"}],
+)
+def test_missing_or_reversed_period_does_not_supply_forecasts(period: dict[str, str]) -> None:
+    invalid = document("invalid-period", FEPS="99", FDivAnn="99", **period)
+    result = snapshot(decode([invalid]))
+    assert result.per_forward is None
+    assert result.dps_forecast_annual is None
+    assert snapshot([*decode(documents()), *decode([invalid])]).per_forward == 1074 / 31.9
 
 
 def test_f_and_next_slots_are_retained_without_mixing() -> None:
@@ -273,7 +268,12 @@ def test_conflicting_actual_eps_is_unresolved_in_normalized_fy(reverse: bool) ->
     if reverse:
         rows.reverse()
     assert _latest_actual_row(rows, field_names=("eps_ttm",)) is None
-    assert build_normalized_profit_signals(rows, (), ASOF, close=1074).normalized_per_3fy is None
+    assert (
+        build_normalized_profit_signals(
+            rows, (), ASOF, close=1074, ttm_rules=load_screening_rules().ttm
+        ).normalized_per_3fy
+        is None
+    )
 
 
 def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> None:
@@ -282,15 +282,8 @@ def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> 
     store_jquants_fin_summaries(db, records, requested_start=date(2026, 9, 14), requested_end=ASOF)
     conn = open_connection(db)
     try:
-        conn.execute(
-            "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,?,?,?)",
-            (ASOF.isoformat(), "9999", "constructed", "STANDARD", "情報・通信業", 1),
-        )
         rows = read_financial_documents(conn, start=date(2026, 9, 14), end=ASOF)
         assert _resolve_capital_basis(rows).shares_ex_treasury is None
-        coverage = required_field_coverage(conn, start=date(2026, 9, 14), asof=ASOF)
-        assert coverage.population_tickers == 1
-        assert coverage.market_cap_required_fields_tickers == 0
     finally:
         conn.close()
 
@@ -309,9 +302,9 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
     from baibai_engine.storage.lake.reader import resolve_release
     from baibai_engine.storage.lake.release import create_l1_release
     from baibai_engine.storage.lake.writer import (
-        export_legacy_sqlite,
+        export_dataset_snapshot,
         sealed_sqlite_snapshot,
-        validate_legacy_parity,
+        validate_snapshot_parity,
     )
 
     narrow_release_policy(monkeypatch, datasets=("jquants.fin_summaries",))
@@ -321,15 +314,15 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
         db, documents(), requested_start=date(2026, 8, 10), requested_end=ASOF
     )
     with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=mirror) as sealed:
-        exported = export_legacy_sqlite(
+        exported = export_dataset_snapshot(
             dataset_name="jquants.fin_summaries",
             mirror_root=mirror,
             source_snapshot=sealed,
             producer_git_commit="a" * 40,
             created_at=datetime(2026, 10, 14, tzinfo=UTC),
         )
-    assert exported.manifest.contract_version == 2
-    validate_legacy_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
+    assert exported.manifest.contract_version == 4
+    validate_snapshot_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
     release_path, manifest = create_l1_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
@@ -341,7 +334,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
         source, manifest.release_id, manifest_sha256=sha256(release_path.read_bytes()).hexdigest()
     )
     destination = tmp_path / "arrived.sqlite"
-    # Hydration fills typed rows; source coverage belongs to the store skeleton.
+    # Hydration preserves source records; coverage belongs to the store skeleton.
     source_conn = sqlite3.connect(db)
     destination_conn = sqlite3.connect(destination)
     try:
@@ -466,18 +459,10 @@ def test_conflicting_actual_dps_does_not_hide_agreed_profit_and_sales(reverse: b
 @pytest.mark.parametrize("reverse", [False, True])
 def test_unknown_time_actual_agreement_is_kept_and_conflict_is_unresolved(reverse: bool) -> None:
     records = [
-        actual_document("legacy-origin", ShOutFY="1000", TrShFY="0"),
+        actual_document("unknown-time", DiscTime="", ShOutFY="1000", TrShFY="0"),
         actual_document("known-time", ShOutFY="1000", TrShFY="0"),
     ]
-    known = decode(records)[1]
-    unknown = replace(
-        decode(records)[0],
-        record_key="legacy",
-        disclosure_number=None,
-        disclosed_time=None,
-        document_type=None,
-        document_payload=None,
-    )
+    unknown, known = decode(records)
     rows = [unknown, known]
     if reverse:
         rows.reverse()
@@ -508,20 +493,44 @@ def test_new_raw_unknown_time_forecasts_compare_each_field(reverse: bool) -> Non
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-def test_conflicting_pre_split_reference_cannot_choose_share_basis(reverse: bool) -> None:
+@pytest.mark.parametrize("with_older_reference", [False, True])
+def test_conflicting_pre_split_reference_cannot_choose_share_basis(
+    reverse: bool, with_older_reference: bool
+) -> None:
     from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
     from baibai_engine.valuation.metrics.capital import _normalize_summaries_with_status
 
+    # Keep the conflicting reference period distinct from the later FY correction.
+    # Otherwise that correction resolves the same cohort before reference selection.
     rows = decode(
         [actual_document("before-a", ShOutFY="1000"), actual_document("before-b", ShOutFY="500")]
     )
-    rows = [replace(row, disclosed_at=date(2026, 7, 10)) for row in rows]
+    rows = [
+        replace(
+            row,
+            disclosed_at=date(2026, 7, 10),
+            fiscal_period="3Q",
+            period_end=date(2026, 3, 31),
+        )
+        for row in rows
+    ]
+    if with_older_reference:
+        older = decode([actual_document("older", ShOutFY="1000")])[0]
+        rows.insert(
+            0,
+            replace(
+                older,
+                disclosed_at=date(2026, 7, 1),
+                fiscal_period="3Q",
+                period_end=date(2026, 3, 31),
+            ),
+        )
     if reverse:
         rows.reverse()
     rows.extend(decode([actual_document("correction", ShOutFY="1000", TrShFY="0")]))
     events = [
         JQuantsAdjustmentFactorEvent(
-            ticker="9999", traded_at=date(2026, 8, 1), adjustment_factor=0.5
+            ticker="9999", traded_at=date(2026, 8, 1), adjustment_factor=0.5, ex_right_type="1"
         )
     ]
     result = _normalize_summaries_with_status(rows, events, ASOF)
@@ -559,24 +568,14 @@ def test_later_partial_actual_does_not_revive_conflicting_old_dps() -> None:
     assert snapshot(rows).sales_ttm == 1000
 
 
-def test_latest_legacy_actual_missing_ttm_field_keeps_existing_availability() -> None:
+def test_latest_actual_missing_fields_do_not_revive_older_revision() -> None:
     from baibai_engine.valuation.metrics.periods import _ttm_value
 
     old = actual_document("old-full")
     old["DiscDate"] = "2026-07-10"
     latest = actual_document("latest-partial", ShOutFY="1000")
     latest["NP"] = latest["Sales"] = ""
-    rows = [
-        replace(
-            row,
-            record_key="legacy",
-            disclosure_number=None,
-            disclosed_time=None,
-            document_type=None,
-            document_payload=None,
-        )
-        for row in decode([old, latest])
-    ]
+    rows = decode([old, latest])
     rules = load_screening_rules().ttm
     assert _ttm_value(rows, "profit", rules)[0] is None
     assert _ttm_value(rows, "sales", rules)[0] is None
@@ -600,11 +599,9 @@ def test_complementary_earnings_documents_keep_independent_fields_and_sources(
     assert result.per_forward == 1074 / 20
     assert result.forecast_special_gain_flag
     assert result.earnings_forecast_source
-    assert result.earnings_forecast_source["forecast_eps_source_records"] == "doc:eps"
-    assert result.earnings_forecast_source["forecast_profit_source_records"] == "doc:profit"
-    assert (
-        result.earnings_forecast_source["forecast_ordinary_profit_source_records"] == "doc:profit"
-    )
+    assert result.earnings_forecast_source["forecast_eps_source_records"] == "eps"
+    assert result.earnings_forecast_source["forecast_profit_source_records"] == "profit"
+    assert result.earnings_forecast_source["forecast_ordinary_profit_source_records"] == "profit"
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -686,7 +683,7 @@ def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
     result = snapshot(rows)
     assert result.per_forward is None
     assert result.earnings_forecast_source
-    assert result.earnings_forecast_source["forecast_eps_source_records"] == "doc:known,doc:unknown"
+    assert result.earnings_forecast_source["forecast_eps_source_records"] == "known,unknown"
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -712,21 +709,20 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
     rows = decode(records)
     events = [
         JQuantsAdjustmentFactorEvent(
-            ticker="9999", traded_at=date(2026, 1, 15), adjustment_factor=0.5
+            ticker="9999", traded_at=date(2026, 1, 15), adjustment_factor=0.5, ex_right_type="1"
         )
     ]
     fy_rows = _latest_fy_revisions(rows)
     assert fy_rows[0].eps_ttm == 20
     assert fy_rows[0].dps_actual_annual == 7
-    assert _asof_basis_fy_dps(fy_rows, events, asof_date=ASOF) == {}
+    assert _asof_basis_fy_dps(fy_rows, events, ASOF) == {}
     assert _resolve_dividend_carry(rows, events, 100, ASOF).dividend_yield is None
     assert _resolve_dividend_carry(rows, (), 100, ASOF).dividend_yield == 0.07
 
 
-@pytest.mark.parametrize("requested_ticker", [None, "9999"])
 @pytest.mark.parametrize("outside_day", ["2026-08-09", "2026-10-14"])
 def test_outside_financial_payload_preserves_rows_and_coverage(
-    tmp_path: Path, requested_ticker: str | None, outside_day: str
+    tmp_path: Path, outside_day: str
 ) -> None:
     db = tmp_path / "market.sqlite"
     start = date(2026, 8, 10)
@@ -738,7 +734,6 @@ def test_outside_financial_payload_preserves_rows_and_coverage(
             [document("unexpected", day=outside_day)],
             requested_start=start,
             requested_end=ASOF,
-            requested_ticker=requested_ticker,
         )
     assert db.read_bytes() == before
 
@@ -748,3 +743,545 @@ def test_reversed_financial_range_does_not_create_store(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="start must not follow end"):
         store_jquants_fin_summaries(db, [], requested_start=ASOF, requested_end=date(2026, 8, 10))
     assert not db.exists()
+
+
+def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> None:
+    db = tmp_path / "market.sqlite"
+    record = document(
+        "all-fields",
+        EPS="not-a-number",
+        ShOutFY="",
+        FEPS="0",
+        NxFEPS="20",
+        ProviderExtraField="uninterpreted",
+    )
+    store_jquants_fin_summaries(db, [record], requested_start=date(2026, 9, 14), requested_end=ASOF)
+    with closing(sqlite3.connect(db)) as conn:
+        payload = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchone()[0]
+    assert json.loads(payload) == record
+    rows = read_fin_summaries(db, date(2026, 9, 14), ASOF)
+    assert rows is not None
+    assert rows[0].eps_ttm is None
+    assert rows[0].shares_outstanding is None
+    assert rows[0].forecast_eps == 0
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_same_document_identity_preserves_store(tmp_path, reverse):
+    db = tmp_path / "market.sqlite"
+    start = date(2026, 9, 14)
+    store_jquants_fin_summaries(
+        db, [document("held", FEPS="10")], requested_start=start, requested_end=ASOF
+    )
+    before = db.read_bytes()
+    records = [document("duplicate", FEPS="20"), document("duplicate", FEPS="30")]
+    if reverse:
+        records.reverse()
+    with pytest.raises(ValueError, match="conflicting financial document identity"):
+        store_jquants_fin_summaries(db, records, requested_start=start, requested_end=ASOF)
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("late_old_correction", [False, True])
+def test_expired_dividend_guidance_cannot_replace_current_zero_actual(
+    late_old_correction: bool,
+) -> None:
+    records = [
+        document(
+            "old-guidance",
+            day="2024-09-18",
+            CurFYSt="2023-10-01",
+            CurFYEn="2024-09-30",
+            FDivAnn="17.5",
+        ),
+        document(
+            "zero-actual",
+            day="2025-11-27",
+            DocType="FYFinancialStatements_Consolidated_JP",
+            CurFYSt="2024-10-01",
+            CurFYEn="2025-09-30",
+            CurPerSt="2024-10-01",
+            CurPerEn="2025-09-30",
+            NxtFYSt="2025-10-01",
+            NxtFYEn="2026-09-30",
+            DivAnn="0",
+            NxFDivAnn="",
+        ),
+        document(
+            "current-quarter",
+            day="2026-02-13",
+            DocType="1QFinancialStatements_Consolidated_JP",
+            CurFYSt="2025-10-01",
+            CurFYEn="2026-09-30",
+            CurPerSt="2025-10-01",
+            CurPerEn="2025-12-31",
+            FDivAnn="",
+        ),
+    ]
+    if late_old_correction:
+        records.append(
+            document(
+                "late-old-actual-correction",
+                day="2026-08-10",
+                DocType="FYFinancialStatements_Consolidated_JP",
+                CurFYSt="2023-10-01",
+                CurFYEn="2024-09-30",
+                CurPerSt="2023-10-01",
+                CurPerEn="2024-09-30",
+                DivAnn="30",
+            )
+        )
+    rules = load_screening_rules()
+    result = build_financial_snapshot(
+        130, decode(records), None, rules.ttm, adjustment_events=(), asof_date=date(2026, 8, 11)
+    )
+    assert result.dps_forecast_annual is None
+    assert result.dps_actual_annual == 0
+    assert result.dividend_yield == 0
+
+
+def test_actual_correction_does_not_withdraw_a_different_period_forecast() -> None:
+    records = [
+        document(
+            "current-guidance",
+            day="2026-05-15",
+            CurFYSt="2026-04-01",
+            CurFYEn="2027-03-31",
+            FDivAnn="40",
+        ),
+        document(
+            "prior-actual-correction",
+            day="2026-05-20",
+            DocType="FYFinancialStatements_Consolidated_JP",
+            CurFYSt="2025-04-01",
+            CurFYEn="2026-03-31",
+            CurPerSt="2025-04-01",
+            CurPerEn="2026-03-31",
+            NxtFYSt="2026-04-01",
+            NxtFYEn="2027-03-31",
+            DivAnn="0",
+            NxFDivAnn="",
+        ),
+    ]
+    rules = load_screening_rules()
+    result = build_financial_snapshot(
+        1000, decode(records), None, rules.ttm, adjustment_events=(), asof_date=date(2026, 5, 20)
+    )
+    assert result.dps_actual_annual == 0
+    assert result.dps_forecast_annual == 40
+    assert result.dividend_yield == 0.04
+
+
+@pytest.mark.parametrize("standard", ["JP", "IFRS", "US"])
+def test_native_primary_financial_values_reach_l2_without_nc_substitution(tmp_path, standard):
+    record = documents()[0]
+    record.update(
+        DocType=f"FYFinancialStatements_Consolidated_{standard}",
+        Sales="1000",
+        OP="100",
+        CFO="120",
+        TA="2000",
+        Eq="800",
+        CashEq="300",
+        NCSales="9999",
+        NCOP="999",
+        NCTA="9998",
+        NCEq="9997",
+    )
+    path = tmp_path / "market.sqlite"
+    start = date(2026, 8, 10)
+    store_jquants_fin_summaries(path, [record], requested_start=start, requested_end=ASOF)
+    rows = read_fin_summaries(path, start, ASOF)
+    assert rows is not None
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.document_type == record["DocType"]
+    assert (
+        row.sales,
+        row.operating_profit,
+        row.cfo,
+        row.total_assets,
+        row.equity,
+        row.cash_eq,
+    ) == (
+        1000,
+        100,
+        120,
+        2000,
+        800,
+        300,
+    )
+    assert json.loads(row.document_payload) == record
+    result = snapshot(rows)
+    assert result.sales_ttm == 1000
+    assert result.operating_profit_ttm == 100
+    assert result.ocf_ttm == 120
+    assert result.total_assets == 2000
+    assert result.cash_eq == 300
+    # A missing primary fact is not replaced by a supplemental individual basis.
+    record.update(Sales="", OP="")
+    missing = snapshot(decode([record]))
+    assert missing.sales_ttm is None
+    assert missing.operating_profit_ttm is None
+
+
+@pytest.mark.parametrize("number", [None, "", "   "])
+def test_native_identity_is_required_before_replacing_history(tmp_path, number):
+    db = tmp_path / "market.sqlite"
+    store_jquants_fin_summaries(
+        db, documents(), requested_start=date(2026, 8, 10), requested_end=ASOF
+    )
+    before = db.read_bytes()
+    record = document("unused", FNCEPS="30")
+    if number is None:
+        record.pop("DiscNo")
+    else:
+        record["DiscNo"] = number
+    with pytest.raises(JQuantsProviderError, match="native DiscNo"):
+        normalize_financial_summary(record)
+    with pytest.raises(JQuantsProviderError, match="native DiscNo"):
+        store_jquants_fin_summaries(
+            db, [record], requested_start=date(2026, 8, 10), requested_end=ASOF
+        )
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("missing_field", ["CurPerSt", "CurPerEn"])
+def test_prior_year_comparison_requires_actual_period_dates(missing_field):
+    from baibai_engine.valuation.metrics.periods import _prior_year_summary
+
+    old = actual_document("prior")
+    old.update(
+        DiscDate="2025-08-10",
+        CurFYSt="2024-07-01",
+        CurFYEn="2025-06-30",
+        CurPerSt="2024-07-01",
+        CurPerEn="2025-06-30",
+    )
+    current = actual_document("current")
+    rules = load_screening_rules().ttm
+    assert _prior_year_summary(decode([old, current]), rules, field_name="eps_ttm") is not None
+    current[missing_field] = ""
+    assert _prior_year_summary(decode([old, current]), rules, field_name="eps_ttm") is None
+
+
+@pytest.mark.parametrize("dps", [0, 7])
+def test_actual_dividend_does_not_invent_missing_accrual_period(dps):
+    from baibai_engine.valuation.metrics.dividends import _resolve_dividend_carry
+
+    record = actual_document("missing-period", DivAnn=str(dps))
+    record["CurPerSt"] = ""
+    result = _resolve_dividend_carry(decode([record]), (), 100, ASOF)
+    assert result.dps_actual_annual == (0 if dps == 0 else None)
+    assert result.dividend_yield == (0 if dps == 0 else None)
+    assert result.basis == ("actual_reported" if dps == 0 else "unresolved_actual_dividend")
+
+
+@pytest.mark.parametrize("fields", [{}, {"FSales": "1000", "FOP": "100"}])
+def test_annual_revision_without_point_estimate_does_not_revive_old_earnings(fields):
+    old = document("old", day="2026-08-01", FEPS="20", FDivAnn="7")
+    revised = document("range-or-undecided", **fields)
+    result = snapshot(decode([old, revised]))
+    assert result.per_forward is None
+    assert result.dps_forecast_annual == 7
+    assert result.earnings_forecast_source["status"] == "unresolved"
+    assert result.earnings_forecast_source["disclosure_number"] == "range-or-undecided"
+
+
+@pytest.mark.parametrize("period_type", ["2Q", "FY"])
+@pytest.mark.parametrize("prefix", ["F", "FNC"])
+def test_half_year_only_revision_keeps_annual_earnings(period_type, prefix):
+    old = document("old", day="2026-08-01", FEPS="20")
+    half_year = document("half", CurPerType=period_type, **{prefix + "EPS2Q": "5"})
+    assert snapshot(decode([old, half_year])).per_forward == 1074 / 20
+
+
+@pytest.mark.parametrize("fields", [{}, {"FDiv2Q": "3"}, {"FDiv2Q": "3", "FDivFY": "4"}])
+def test_dividend_revision_without_annual_value_does_not_invent_or_revive_it(fields):
+    old = document("old", day="2026-08-01", FEPS="20", FDivAnn="7")
+    revised = document("undecided-dividend", DocType="DividendForecastRevision", **fields)
+    result = snapshot(decode([old, revised]))
+    assert result.dps_forecast_annual is None
+    assert result.per_forward == 1074 / 20
+    assert result.dividend_forecast_source["status"] == "unresolved"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_same_time_unknown_revision_cannot_be_hidden_by_numeric_document(reverse):
+    records = [document("numeric", FEPS="20"), document("unresolved")]
+    if reverse:
+        records.reverse()
+    assert snapshot(decode(records)).per_forward is None
+
+
+def test_new_numeric_guidance_resolves_previous_unknown_revision():
+    records = [
+        document("old", day="2026-08-01", FEPS="20"),
+        document("unresolved"),
+        document("new", day="2026-10-01", FEPS="30"),
+    ]
+    assert snapshot(decode(records)).per_forward == 1074 / 30
+
+
+@pytest.mark.parametrize(
+    "field,value",  # noqa: PT006 - preserve the existing test parameter spelling
+    [("CurPerSt", ""), ("CurPerEn", ""), ("CurPerSt", "2027-01-01")],
+)
+@pytest.mark.parametrize("dps", [0, 7])
+def test_actual_dividend_period_validity_agrees_with_forward_measurement(
+    tmp_path, field, value, dps
+):
+    from baibai_engine.screening.calibration.forward import _asof_basis_dividend, _load_fy_dividends
+    from baibai_engine.valuation.metrics.dividends import _resolve_dividend_carry
+
+    record = actual_document("invalid-period", DivAnn=str(dps))
+    record[field] = value
+    path = tmp_path / "market.sqlite"
+    store_jquants_fin_summaries(
+        path, [record], requested_start=date(2026, 8, 10), requested_end=ASOF
+    )
+    with closing(sqlite3.connect(path)) as connection:
+        observations = _load_fy_dividends(connection, "9999", cutoff=ASOF)
+    assert len(observations) == 1
+    expected = 0 if dps == 0 else None
+    assert _asof_basis_dividend(observations[0], (), basis_date=ASOF) == expected
+    assert _resolve_dividend_carry(decode([record]), (), 100, ASOF).dps_actual_annual == expected
+
+
+@pytest.mark.parametrize("new_basis", ["Consolidated", "NonConsolidated"])
+@pytest.mark.parametrize("late_old_correction", [False, True])
+@pytest.mark.parametrize("revision", [False, True])
+def test_short_fiscal_year_uses_current_statement_basis(new_basis, late_old_correction, revision):
+    old_basis = "NonConsolidated" if new_basis == "Consolidated" else "Consolidated"
+    old = document(
+        "old-quarter",
+        day="2026-08-10",
+        DocType=f"1QFinancialStatements_{old_basis}_JP",
+        CurPerType="1Q",
+        CurFYSt="2026-04-01",
+        CurFYEn="2027-03-31",
+        CurPerSt="2026-04-01",
+        CurPerEn="2026-06-30",
+    )
+    current = document(
+        "short-year",
+        day="2027-02-10",
+        DocType=f"FYFinancialStatements_{new_basis}_JP",
+        CurFYSt="2026-04-01",
+        CurFYEn="2026-12-31",
+        CurPerSt="2026-04-01",
+        CurPerEn="2026-12-31",
+        NxtFYSt="2027-01-01",
+        NxtFYEn="2027-12-31",
+        NxFEPS="20",
+    )
+    records = [old, current]
+    if late_old_correction:
+        records.append({**old, "DiscNo": "old-correction", "DiscDate": "2027-02-12"})
+    if revision:
+        records.append(
+            document(
+                "new-revision",
+                day="2027-02-13",
+                CurFYSt="2027-01-01",
+                CurFYEn="2027-12-31",
+                CurPerSt="2027-01-01",
+                CurPerEn="2027-12-31",
+                FEPS="25",
+            )
+        )
+    for ordered in (records, list(reversed(records))):
+        projected = project_financial_documents(decode(ordered), date(2027, 2, 15))
+        source = latest_forecast_source(projected)
+        assert source is not None
+        assert source.forecast_eps == (25 if revision else 20)
+        assert source.forecast_target_basis == new_basis.lower()
+        assert source.disclosure_number == ("new-revision" if revision else "short-year")
+        result = build_financial_snapshot(
+            1000,
+            decode(ordered),
+            None,
+            load_screening_rules().ttm,
+            adjustment_events=(),
+            asof_date=date(2027, 2, 15),
+        )
+        assert result.per_forward == 1000 / (25 if revision else 20)
+
+
+@pytest.mark.parametrize("different_operand", [None, 0, 1])
+@pytest.mark.parametrize("current_basis", ["Consolidated", "NonConsolidated"])
+def test_ttm_does_not_add_different_statement_bases(different_operand, current_basis):
+    from baibai_engine.market.metric_quality import TTMQuality
+    from baibai_engine.valuation.metrics.periods import _ttm_value
+
+    periods = [
+        ("prior-quarter", "2025-08-10", "2025-04-01", "2025-06-30", "2026-03-31", "1Q", "20"),
+        ("prior-year", "2026-05-10", "2025-04-01", "2026-03-31", "2026-03-31", "FY", "100"),
+        ("current-quarter", "2026-08-10", "2026-04-01", "2026-06-30", "2027-03-31", "1Q", "30"),
+    ]
+    records = []
+    for index, (number, day, start, end, fy_end, period, value) in enumerate(periods):
+        basis = current_basis
+        if index == different_operand:
+            basis = "NonConsolidated" if current_basis == "Consolidated" else "Consolidated"
+        records.append(
+            document(
+                number,
+                day=day,
+                DocType=f"{period}FinancialStatements_{basis}_JP",
+                CurFYSt=start,
+                CurFYEn=fy_end,
+                CurPerSt=start,
+                CurPerEn=end,
+                CurPerType=period,
+                Sales=value,
+                OP=value,
+                NP=value,
+                CFO=value,
+            )
+        )
+    expected = (
+        (110.0, TTMQuality.EXACT) if different_operand is None else (None, TTMQuality.UNAVAILABLE)
+    )
+    for rows in (records, list(reversed(records))):
+        decoded = decode(rows)
+        for field in ("sales", "operating_profit", "profit", "cfo"):
+            assert _ttm_value(decoded, field, load_screening_rules().ttm) == expected
+        # Single-period reported facts remain usable; no raw value is rewritten.
+        assert {row.sales for row in decoded} == {20, 100, 30}
+
+
+@pytest.mark.parametrize("new_basis", ["Consolidated", "NonConsolidated"])
+@pytest.mark.parametrize("late_correction", [False, True])
+def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares(
+    new_basis, late_correction
+):
+    old_basis = "NonConsolidated" if new_basis == "Consolidated" else "Consolidated"
+    old = document(
+        "prior-quarter",
+        day="2025-08-10",
+        DocType=f"1QFinancialStatements_{old_basis}_JP",
+        CurPerType="1Q",
+        CurFYSt="2025-04-01",
+        CurFYEn="2026-03-31",
+        CurPerSt="2025-04-01",
+        CurPerEn="2025-06-30",
+        EPS="10",
+        Sales="100",
+        CFO="20",
+        OP="30",
+        ShOutFY="1000",
+        TrShFY="0",
+    )
+    current = document(
+        "current-quarter",
+        day="2026-08-10",
+        DocType=f"1QFinancialStatements_{new_basis}_JP",
+        CurPerType="1Q",
+        CurFYSt="2026-04-01",
+        CurFYEn="2027-03-31",
+        CurPerSt="2026-04-01",
+        CurPerEn="2026-06-30",
+        EPS="20",
+        Sales="200",
+        CFO="40",
+        OP="60",
+        ShOutFY="900",
+        TrShFY="0",
+    )
+    records = [old, current]
+    if late_correction:
+        # Do not search backwards past a newer contrary basis for a comparable row.
+        earlier = {**old, "DocType": f"1QFinancialStatements_{new_basis}_JP"}
+        correction = {**old, "DiscNo": "prior-correction", "DiscDate": "2026-08-12"}
+        records = [earlier, current, correction]
+    for ordered in (records, list(reversed(records))):
+        result = build_financial_snapshot(
+            1000,
+            decode(ordered),
+            None,
+            load_screening_rules().ttm,
+            adjustment_events=(),
+            asof_date=date(2026, 8, 15),
+        )
+        assert result.eps_yoy is None
+        assert result.sales_yoy is None
+        assert result.cfo_yoy is None
+        assert result.operating_profit_yoy is None
+        assert result.operating_profit_loss_narrowing is None
+        assert result.net_share_change_yoy == pytest.approx(-0.1)
+        assert result.sales == 200
+
+
+@pytest.mark.parametrize("dps", [0, 7])
+def test_tied_fy_period_conflict_does_not_select_by_input_order(dps):
+    from baibai_engine.valuation.metrics.dividends import _latest_fy_revisions
+
+    first = actual_document("full-year", DivAnn=str(dps), ShOutFY="1000", TrShFY="0")
+    short = {**first, "DiscNo": "short-year", "CurPerSt": "2025-10-01", "EPS": "40"}
+    for records in ([first, short], [short, first]):
+        rows = decode(records)
+        selected = _latest_fy_revisions(rows)
+        assert len(selected) == 1
+        assert selected[0].eps_ttm is None
+        assert selected[0].dps_actual_annual == (0 if dps == 0 else None)
+        assert selected[0].shares_outstanding is None
+        assert {row.eps_ttm for row in rows} == {20, 40}
+
+
+def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
+    from baibai_engine.valuation.metrics.dividends import _latest_fy_revisions
+
+    individual = actual_document("individual", DivAnn="7")
+    consolidated = {
+        **individual,
+        "DiscNo": "group",
+        "DocType": "FYFinancialStatements_Consolidated_JP",
+    }
+    for records in ([individual, consolidated], [consolidated, individual]):
+        selected = _latest_fy_revisions(decode(records))
+        assert selected[0].eps_ttm is None
+        assert selected[0].dps_actual_annual == 7
+
+
+@pytest.mark.parametrize("problem", ["missing", "short", "inverted", "future", "basis"])
+@pytest.mark.parametrize("affected_index", [0, 2])
+def test_normalized_earnings_requires_comparable_completed_years(problem, affected_index):
+    records = [
+        document(
+            f"year-{year}",
+            day=f"{year}-05-15",
+            DocType="FYFinancialStatements_Consolidated_JP",
+            CurPerType="FY",
+            CurFYSt=f"{year - 1}-04-01",
+            CurFYEn=f"{year}-03-31",
+            CurPerSt=f"{year - 1}-04-01",
+            CurPerEn=f"{year}-03-31",
+            EPS="20",
+        )
+        for year in range(2022, 2027)
+    ]
+    rules = load_screening_rules().ttm
+    baseline = build_normalized_profit_signals(
+        decode(records), (), date(2026, 6, 1), close=1000, ttm_rules=rules
+    )
+    assert baseline.normalized_per_3fy == 50
+    assert baseline.normalized_per_5fy == 50
+    affected = records[affected_index]
+    year = 2022 + affected_index
+    if problem == "missing":
+        affected["CurPerSt"] = ""
+    elif problem == "short":
+        affected["CurPerSt"] = f"{year - 1}-10-01"
+    elif problem == "inverted":
+        affected["CurPerSt"] = f"{year}-04-01"
+    elif problem == "future":
+        affected["CurPerEn"] = f"{year + 1}-03-31"
+    else:
+        affected["DocType"] = "FYFinancialStatements_NonConsolidated_JP"
+    for ordered in (records, list(reversed(records))):
+        result = build_normalized_profit_signals(
+            decode(ordered), (), date(2026, 6, 1), close=1000, ttm_rules=rules
+        )
+        assert result.normalized_per_3fy == (50 if affected_index == 0 else None)
+        assert result.normalized_per_5fy is None

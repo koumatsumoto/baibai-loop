@@ -17,8 +17,8 @@ from .prices import read_price_bars
 NIKKEI225_ETF_PROXY = "1321"
 
 # Pre-registered fixed thresholds (no grid search; docs/reference/market-context.md).
-# +-3% over 20 business days is roughly a +-40% annualized drift, a conventional
-# bar for calling a directional move rather than range noise.
+# The +/-3% bands are chosen display categories, not statistical significance
+# thresholds or a claim about expected annual returns.
 RALLY_RETURN_20D_MIN = 0.03
 SELLOFF_RETURN_20D_MAX = -0.03
 
@@ -29,9 +29,9 @@ LONG_TREND_WINDOW_BARS = 60
 BREADTH_MA_WINDOW_BARS = 20
 DEFAULT_MIN_BREADTH_SAMPLE = 100
 
-# 52 trading-day weeks for the benchmark gap-from-high, matching the per-ticker
-# 52w convention in ticker_profile. The trend windows above read only the tail of
-# the series, so loading the longer window does not change the 20d/60d returns.
+# Cap the high comparison at 252 observed closes, an approximate trading year.
+# Shorter histories use the available closes; this is not proof of full-year coverage.
+# The longer input does not change the separate 20/60-bar return windows.
 _WEEK_52_WINDOW_BARS = 252
 # Load enough calendar history to cover _WEEK_52_WINDOW_BARS trading days for the
 # 52-week high (252 sessions ~ 353 calendar days; add buffer for holidays).
@@ -144,11 +144,10 @@ def _load_benchmark_series(
 
 
 def _gap_from_high(series: list[tuple[date, float]]) -> float | None:
-    """Current close vs the highest close over the trailing 52 weeks (<=0).
+    """Current close vs the highest of up to 252 available closes (<=0).
 
-    0 means the benchmark sits at its 52-week high (最高値圏). Using the 52-week
-    window (not just the recent few months) avoids a false "at the high" read when
-    the index is near a recent local high but still below its 52-week high.
+    Zero means the latest close is the high in the available comparison window.
+    It does not establish a 52-week high when the source history is shorter.
     """
     if not series:
         return None

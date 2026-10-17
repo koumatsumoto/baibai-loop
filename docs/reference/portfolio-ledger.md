@@ -11,7 +11,9 @@ status: active
 
 ## 対象範囲と正本
 
-ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、保存済みの`ledger_market_price`は既存記録として保持する。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
+ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、価格を台帳へ重複保存しない。市場価格はL1市場ストアから評価時に読み、取引事実と独立した入力として渡す。日次終値の時点は原典の取引日`price_as_of`で表し、15:30などの観測時刻を捏造しない。取引日の利用可否はJSTの立会終了境界で判定し、価格の時点とは分ける。価格観測自体に「比較可能」フラグを持たせず、保有数量との単位確認と、評価元価格との比較基準はそれぞれの期間で判定する。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
+
+台帳文書はschema version 3。切替では旧価格行を新台帳へ移さず、必要な取引・設定を現行文書へ移すか、対象を確認して新規台帳から開始する。旧draftは再作成する。価格の再取得・評価は市場ストアの責務であり、旧台帳価格による代替は行わない。
 
 DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。台帳の再構築と保存値の検査は`position/ledger_read.py`が所有し、read APIとwriterが同じ実装を使う。connectionとtransactionはcallerが所有する。未作成・未書込・初期化済み未importだけを未登録として読み、table/column欠損・metadataなし取引・不正payloadを空保有へ変換しない。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
 
@@ -43,6 +45,8 @@ IDなしで記録した日付だけの買付報告を同じ内容で再送する
 
 ## Snapshotの式
 
+snapshotの`as_of`はreplay・評価の対象時点、`ledger_as_of`は保存台帳の記録基準である。市場quoteの観測時点はholdingごとに保持する。現在の再評価だけで台帳の記録基準や鮮度を更新しない。
+
 ```text
 cash_before_reservations =
     opening_balance
@@ -66,7 +70,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 
 ## Market priceと税
 
-現在の時価は`position/valuation.py`がJ-Quants raw/unadjusted closeと現在の保有episodeの権利basisを読み、台帳への価格転記なしで評価する。quoteの欠損・古さや権利basis不明は対象holdingの時価を未評価にし、cash・予約・数量・原価を保持する。全保有を評価できなければNAVと集中比率も未評価とする。adjusted closeや保存済みの台帳価格で補完しない。
+現在の時価は`position/valuation.py`がJ-Quants raw/unadjusted closeと現在の保有episodeの権利basisを読み、台帳への価格転記なしで評価する。quoteの欠損・古さや権利basis不明は対象holdingの時価を未評価にし、cash・予約・数量・原価を保持する。全保有を評価できなければNAVと集中比率も未評価とする。adjusted closeや保存済みの台帳価格で補完しない。株数の基準と価格比較の基準は分ける。ExRTがライツイシューを示す価格調整は既存株の数量を倍率換算しないが、調整前後の価格を無調整のまま比較してよいことにはならない。権利の売却・行使・追加取得は実際の取引記録から扱い、この数量判定から推測しない。
 
 `income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。手数料0円の明示報告はamount 0のcost eventとして保存できる。費用・税のeventがないことは実費・実税がゼロと確定した意味ではない。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
 
@@ -80,7 +84,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/application/baibai.sqlite --confirmed
 ```
 
-applyは1 transactionでsource head、event replay / payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、矛盾payloadはno-writeである。
+applyは1 transactionでsource head、event replay / payload、meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、矛盾payloadはno-writeである。
 
 すべての取引事実draftは価格不要のevent replayでcash・reservation・lotを検証する。別注文の期限未解決を理由に、確認済み取引の保存を止めない。実売却、入出金、income、cost、税の記録に市場価格の更新を要求しない。readerは未報告の予約を保持し、時刻だけからreleaseを推定しない。
 
@@ -94,7 +98,7 @@ applyは1 transactionでsource head、event replay / payload、price/meta expect
 
 `broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定での失効を確認した場合にreleaseを作る。期限が保存されている場合だけ、期限前の報告との矛盾を検証する。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
 
-売付の`open`は`broker-fact-draft --side sell`で記録し、保有株数を超える重複注文を拒否する。売付の見込代金を現金へ加えず、対応する約定報告までlotを減らさない。
+売付の`open`は`broker-fact-draft --side sell`で記録し、保有株数を超える重複注文を拒否する。売付の見込代金を現金へ加えず、対応する約定報告までlotを減らさない。別の売付注文があっても、他注文へ拘束されていない保有株数の範囲なら独立した実売却を記録できる。その約定を既存注文へ推定対応付けたり、その注文の残数を減らしたりしない。拘束済み株数も売った報告は、対応する注文IDまたは取消事実を明示する。
 注文は`--occurred-on`で日付だけを記録できる。期限は任意で、未指定でも注文・約定の記録を妨げない。「今週中」などは`expiry_label`に原文を保存できるが、正確な期限への変換や追加確認を要求しない。既知の`expires_at`は排他的な期間終端として扱う。注文画面の市場・SOR等は`route_label`に原文を残し、約定した実市場とみなさない。broker固有の正確な失効時刻を意味しない。
 
 <a id="historical-outcome"></a>
@@ -109,4 +113,8 @@ portfolio outcomeは各JPX営業日closeまでeventをreplayし、日次NAVを`a
 r_d = V_d / (V_(d-1) + CF_d) - 1
 ```
 
-非営業日のeventは次のJPX営業日BODへ繰り越す。価格欠損、未解決corporate action、ゼロ以下NAVは補完せず`unresolved`にする。outcome publicationはapplication DBのimmutable recordである。
+保有期間の株数・価格単位は取得日から売却日（継続保有なら測定終了日）まで確認する。測定開始前の分割と、全売却した日の分割も検査対象であり、購入当日の調整を過去保有の単位変更とは扱わない。CLIはcalendar・価格・単位確認を同じSQLite読取世代で行い、単位確認だけのために過去終値を要求しない。
+
+非営業日のeventは次のJPX営業日BODへ繰り越す。収益率は開始日closeから終了日closeまでを測り、confirmed income/cost/taxと期間内の売却完了銘柄も同じ `(開始日, 終了日]` を対象とする。開始日closeに含まれるeventは開始NAVへ反映済みなので、期間内cashflowへ二重計上しない。
+
+価格欠損、未解決corporate action、負のNAV、ゼロ以下の開始NAV・収益率の分母は補完せず`unresolved`にする。正の投下資本が確認済み損失・費用によって0になった場合は、欠測ではなく-100%の実績である。outcome publicationはapplication DBのimmutable recordである。

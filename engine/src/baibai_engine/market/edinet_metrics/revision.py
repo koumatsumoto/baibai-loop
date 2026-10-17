@@ -3,8 +3,8 @@
 from collections.abc import Sequence
 
 # 意味変更時だけ明示更新する。配置・import・transport retryは対象外。
-# 総額がない場合の負債内訳に、転換社債型新株予約権付社債を含める。
-EDINET_METRIC_REVISION = "edinet-metrics-v2-convertible-debt"
+# native CSVの科目・当期範囲・JPY単位・欠測と12か月フローを区別する。
+EDINET_METRIC_REVISION = "edinet-metrics-v6-capex-total-presence"
 
 
 def has_hard_metric_failure(reasons: Sequence[str]) -> bool:
