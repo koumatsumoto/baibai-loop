@@ -6,11 +6,11 @@ import pytest
 from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.shared.exceptions import MCPError
 
-from baibai_engine.external_assessment.tradingview import cli, diagnostics
-from baibai_engine.external_assessment.tradingview.auth import (
+from baibai_engine.collection.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
+from baibai_engine.external_assessment.tradingview import cli, diagnostics
 from baibai_engine.external_assessment.tradingview.collector import SourceDataError, TimeGuardError
 from baibai_engine.external_assessment.tradingview.observations import FetchError
 

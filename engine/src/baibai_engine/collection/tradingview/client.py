@@ -12,11 +12,11 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientMetadata, OAuthMetadata
 from mcp.types import CallToolResult
 
-from baibai_engine.collection.tradingview.tool import BATCH_TOOL
-from baibai_engine.external_assessment.tradingview.auth import (
+from baibai_engine.collection.tradingview.auth import (
     AuthenticationError,
     CredentialStorage,
 )
+from baibai_engine.collection.tradingview.tool import BATCH_TOOL
 
 SERVER_URL = "https://mcp.tradingview.com/mcp"
 METADATA_URL = "https://www.tradingview.com/.well-known/oauth-authorization-server"

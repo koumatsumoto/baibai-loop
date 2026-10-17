@@ -283,7 +283,7 @@ forbidden_modules = [
   "baibai_engine.external_assessment.reader",
   "baibai_engine.external_assessment.query",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.cli",
 
   "baibai_engine.position",
@@ -464,9 +464,9 @@ forbidden_modules = [
   "baibai_engine.external_assessment.acquisition",
   "baibai_engine.storage",
   "baibai_engine.market.providers",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.collection.tradingview.auth",
 ]
 
 [[tool.importlinter.contracts]]
@@ -574,9 +574,9 @@ forbidden_modules = [
   "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.analysis", "baibai_engine.external_assessment.reader",
   "baibai_engine.external_assessment.query", "baibai_engine.external_assessment.cli",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.collection.tradingview.auth",
   "baibai_engine.external_assessment.tradingview.cli",
   "baibai_web", "baibai_batch", "tools",
 ]
@@ -588,9 +588,9 @@ source_modules = ["baibai_engine.external_assessment.tradingview.contract", "bai
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.providers",
   "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.collection.tradingview.auth",
   "baibai_engine.external_assessment.tradingview.cli",
   "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools",
 ]

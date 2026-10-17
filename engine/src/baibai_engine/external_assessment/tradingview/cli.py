@@ -18,7 +18,7 @@ from pathlib import Path
 from mcp.types import CallToolResult
 from pydantic import ValidationError
 
-from baibai_engine.external_assessment.tradingview.auth import (
+from baibai_engine.collection.tradingview.auth import (
     AuthenticationError,
     CredentialStorage,
     OAuthState,
@@ -26,7 +26,7 @@ from baibai_engine.external_assessment.tradingview.auth import (
     save_github_secret,
     write_local_state,
 )
-from baibai_engine.external_assessment.tradingview.client import (
+from baibai_engine.collection.tradingview.client import (
     connect,
     fetch_batch,
 )
@@ -222,7 +222,7 @@ def main(argv: list[str] | None = None, /) -> int:
             print(json.dumps(result, sort_keys=True))
             return 0
         if args.command == "authorize":
-            from baibai_engine.external_assessment.tradingview.authorize import authorize
+            from baibai_engine.collection.tradingview.authorize import authorize
 
             asyncio.run(authorize(args.state_file))
             return 0

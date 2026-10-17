@@ -13,7 +13,7 @@ import httpx2
 from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.shared.exceptions import MCPError
 
-from baibai_engine.external_assessment.tradingview.auth import (
+from baibai_engine.collection.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )

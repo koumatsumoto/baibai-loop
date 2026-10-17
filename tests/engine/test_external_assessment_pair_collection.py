@@ -13,6 +13,7 @@ from tests.engine.test_external_assessment_sources import (
 )
 
 from baibai_engine import batch_api
+from baibai_engine.collection.equity_web import http as source_http
 from baibai_engine.external_assessment.acquisition import collection
 from baibai_engine.external_assessment.normalization import monex, rakuten
 
@@ -92,7 +93,7 @@ def test_response_callback_delay_preserves_receipt_and_jst_date(clock, monkeypat
         def now(cls, tz=None):
             return baseline + timedelta(seconds=clock.now - 100)
 
-    monkeypatch.setattr(collection, "datetime", DateTime)
+    monkeypatch.setattr(source_http, "datetime", DateTime)
     client = Session([(200, monex_html())], clock=clock)
     finishes = []
 
@@ -178,7 +179,7 @@ def test_identity_unknown_is_fixed_failure_without_null_observation(clock, ticke
 
 
 def test_wall_clock_interruption_after_transport_reports_timeout(clock):
-    client = Session([collection._TimeLimit()], clock=clock)
+    client = Session([source_http.TimeLimit()], clock=clock)
     result = pair(client)
     assert result.requests == 1
     assert result.stop_reason == "wall_clock_limit"
@@ -189,7 +190,7 @@ def test_interruption_after_403_body_before_classification_reports_timeout(clock
     client = Session([(403, "synthetic denial")], clock=clock)
 
     def response(*args):
-        raise collection._TimeLimit
+        raise source_http.TimeLimit
 
     result = pair(client, response=response)
     assert result.requests == 1
@@ -269,7 +270,7 @@ def test_two_http_receipt_times_and_content_accounting_without_durable_callbacks
 
 
 def test_real_timer_interrupts_hanging_body_and_returns_controlled_timeout(monkeypatch):
-    monkeypatch.setattr(collection, "MIN_REQUEST_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(source_http, "MIN_REQUEST_INTERVAL_SECONDS", 0)
 
     class Hanging(Session):
         def get(self, url, **kwargs):

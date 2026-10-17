@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -19,6 +18,7 @@ from baibai_batch.storage import external_assessment_staging as staging
 from baibai_engine.batch_api import (
     external_assessment_collect_pair,
 )
+from baibai_engine.collection.equity_web import http as source_http
 
 BASE = datetime(2026, 10, 11, 0, tzinfo=UTC)
 
@@ -44,9 +44,8 @@ def clock(monkeypatch):
         def now(cls, tz=None):
             return value.now().astimezone(tz or UTC)
 
-    engine = sys.modules[external_assessment_collect_pair.__module__]
     monkeypatch.setattr(daily, "datetime", FrozenDatetime)
-    monkeypatch.setattr(engine, "datetime", FrozenDatetime)
+    monkeypatch.setattr(source_http, "datetime", FrozenDatetime)
     monkeypatch.setattr(daily.time, "monotonic", lambda: value.elapsed)
     monkeypatch.setattr(daily.time, "sleep", value.sleep)
     monkeypatch.setattr(daily.secrets, "randbelow", lambda upper: 0)
@@ -197,9 +196,8 @@ def test_http_date_retry_deadline_is_not_replaced_by_short_fallback(monkeypatch,
 
 def test_timeout_has_one_attempt_and_controlled_wall_clock_stop_saves_partial(monkeypatch, clock):
     p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
-    from baibai_engine.external_assessment.acquisition import collection
 
-    client = wire_collector(monkeypatch, store, p, clock, [collection._TimeLimit()])
+    client = wire_collector(monkeypatch, store, p, clock, [source_http.TimeLimit()])
     report = daily.acquire_cohort(store, p, 0)
     assert report["stop_reason"] == "wall_clock_limit"
     assert len(client.calls) == 1

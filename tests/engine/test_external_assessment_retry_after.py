@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import requests
 
+from baibai_engine.collection.equity_web import http as source_http
 from baibai_engine.external_assessment.acquisition import collection
 
 
@@ -35,14 +36,14 @@ def clock(monkeypatch):
 
     monkeypatch.setattr(collection.time, "monotonic", value.monotonic)
     monkeypatch.setattr(collection.time, "sleep", value.sleep)
-    monkeypatch.setattr(collection, "datetime", DateTime)
+    monkeypatch.setattr(source_http, "datetime", DateTime)
     return value
 
 
 class IncompleteResponse(requests.Response):
     @property
     def content(self):
-        raise collection._TimeLimit
+        raise source_http.TimeLimit
 
 
 class Session(requests.Session):
@@ -217,12 +218,12 @@ def test_retry_policy_version_changes_old_plan_binding(monkeypatch):
 
 def test_rfc850_century_window_moves_with_receipt_and_overflow_fails_closed():
     received = datetime(2090, 10, 11, 12, tzinfo=UTC)
-    assert collection._retry_after("Sunday, 18-Oct-26 12:00:00 GMT", received) == (
+    assert source_http._retry_after("Sunday, 18-Oct-26 12:00:00 GMT", received) == (
         datetime(2126, 10, 18, 12, tzinfo=UTC),
         False,
     )
     received = datetime(9990, 10, 11, 12, tzinfo=UTC)
-    assert collection._retry_after("Sunday, 18-Oct-26 12:00:00 GMT", received) == (None, True)
+    assert source_http._retry_after("Sunday, 18-Oct-26 12:00:00 GMT", received) == (None, True)
 
 
 @pytest.mark.parametrize(

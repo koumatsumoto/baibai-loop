@@ -26,6 +26,7 @@ from baibai_batch.jobs.schedule import (
     external_assessment_target_date,
 )
 from baibai_batch.storage import external_assessment_staging as staging
+from baibai_engine.collection.equity_web import http as source_http
 from baibai_engine.external_assessment.acquisition import collection
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 
@@ -231,7 +232,7 @@ def test_holiday_receipt_keeps_actual_day_and_same_plan_resume_never_repeats_htt
         def now(cls, tz=None):
             return CREATED.astimezone(tz)
 
-    monkeypatch.setattr(collection, "datetime", ReceiptDatetime)
+    monkeypatch.setattr(source_http, "datetime", ReceiptDatetime)
     report = daily.acquire_cohort(store, p, 0)
     assert report["state_counts"]["success"] == 1
     saved = staging.read_stages(store, p)[0][0]

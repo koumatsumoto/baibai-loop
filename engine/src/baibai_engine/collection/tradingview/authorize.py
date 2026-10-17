@@ -18,12 +18,12 @@ from mcp.shared.auth import (
     OAuthToken,
 )
 
-from baibai_engine.external_assessment.tradingview.auth import (
+from baibai_engine.collection.tradingview.auth import (
     AuthenticationError,
     OAuthState,
     write_local_state,
 )
-from baibai_engine.external_assessment.tradingview.client import SERVER_URL, _identify_request
+from baibai_engine.collection.tradingview.client import SERVER_URL, _identify_request
 
 
 class _BootstrapStorage:

@@ -4,6 +4,30 @@ import subprocess
 import sys
 
 
+def test_collection_http_and_mcp_adapters_do_not_load_analysis_domains():
+    code = """
+import sys
+from baibai_engine.collection.equity_web import http as equity_http
+from baibai_engine.collection.tradingview import auth, authorize, client
+for prefix in (
+    'baibai_engine.external_assessment',
+    'baibai_engine.market',
+    'baibai_engine.market_context',
+    'baibai_engine.valuation',
+    'baibai_engine.screening',
+    'baibai_engine.position',
+    'baibai_engine.research',
+    'baibai_engine.read_api',
+):
+    assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
+assert equity_http.MIN_REQUEST_INTERVAL_SECONDS == 2.0
+assert client.SERVER_URL == 'https://mcp.tradingview.com/mcp'
+assert auth.SECRET_NAME == 'TRADINGVIEW_OAUTH_STATE'
+assert callable(authorize.authorize)
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
 def test_pure_observation_and_lake_contracts_do_not_load_io():
     code = """
 import sys
@@ -14,8 +38,8 @@ for prefix in (
     'baibai_engine.external_assessment.acquisition',
     'baibai_engine.external_assessment.store',
     'baibai_engine.external_assessment.tradingview.collector',
-    'baibai_engine.external_assessment.tradingview.client',
-    'baibai_engine.external_assessment.tradingview.auth',
+    'baibai_engine.collection.tradingview.client',
+    'baibai_engine.collection.tradingview.auth',
     'baibai_engine.storage.observations',
     'baibai_engine.storage.lake.writer',
 ):

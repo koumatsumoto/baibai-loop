@@ -14,6 +14,7 @@ from tests.engine.test_external_assessment_collection import BytesSession, _orig
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 from tests.engine.test_kabumap import html as kabumap_html
 
+from baibai_engine.collection.equity_web import http as source_http
 from baibai_engine.collection.equity_web.capture import (
     EquityWebCapture,
     LegacyCaptureError,
@@ -56,7 +57,7 @@ def test_three_media_manual_collect_preserves_bytes_then_imports_without_network
         ]
     )
     original_collect = collection.collect
-    monkeypatch.setattr(collection, "MIN_REQUEST_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(source_http, "MIN_REQUEST_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(
         collection,
         "collect",
@@ -147,7 +148,7 @@ def test_failed_and_incomplete_http_200_originals_are_retained_without_selection
         ]
     )
     original_collect = collection.collect
-    monkeypatch.setattr(collection, "MIN_REQUEST_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(source_http, "MIN_REQUEST_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(
         collection,
         "collect",

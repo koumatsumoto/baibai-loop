@@ -19,6 +19,9 @@ from baibai_engine.collection.economic.store import EconomicSchemaError
 from baibai_engine.collection.economic.store import (
     validate_current_schema as validate_economic_schema,
 )
+from baibai_engine.collection.equity_web.http import (
+    HostRateLimiter as ExternalAssessmentHostRateLimiter,
+)
 from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
 from baibai_engine.collection.equity_web.models import Source as ExternalAssessmentSource
 from baibai_engine.collection.equity_web.receipts import (
@@ -38,9 +41,6 @@ from baibai_engine.external_assessment.acquisition.collection import (
 )
 from baibai_engine.external_assessment.acquisition.collection import (
     CollectionResult as ExternalAssessmentCollectionResult,
-)
-from baibai_engine.external_assessment.acquisition.collection import (
-    HostRateLimiter as ExternalAssessmentHostRateLimiter,
 )
 from baibai_engine.external_assessment.acquisition.collection import (
     collect_pair as external_assessment_collect_pair,
