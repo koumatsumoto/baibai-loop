@@ -319,16 +319,21 @@ write_machine_manifest() {
 }
 
 manifest_recorded_version() {
-  # This script is the receipt's only writer, so its shape is fixed. Anything that does
-  # not read back as one ETag is reported as no record at all, which refuses the pull
-  # instead of comparing against a value nobody can account for.
-  local file="$1" key="$2" value
-  value="$(sed -n "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
-    "${file}" | head -n 1)"
-  if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
-    value=""
-  fi
-  printf '%s\n' "${value}"
+  # Read the JSON contract, not the writer's whitespace or line layout.
+  python3 - "$1" "$2" <<'PYTHON'
+import json
+import re
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        receipt = json.load(source)
+except (OSError, ValueError):
+    receipt = None
+keys = receipt.get("keys") if isinstance(receipt, dict) else None
+value = keys.get(sys.argv[2]) if isinstance(keys, dict) else None
+print(value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]+", value) else "")
+PYTHON
 }
 
 require_machine_manifest() {

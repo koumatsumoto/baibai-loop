@@ -847,13 +847,21 @@ def test_a_bundle_pull_refuses_a_set_the_receipt_does_not_name(tmp_path: Path) -
     )
 
 
-def test_a_bundle_pull_accepts_the_set_the_receipt_names(tmp_path: Path) -> None:
-    current = (
-        '{\n  "schema_version": 1,\n  "written_at_utc": "2026-08-19T00:00:00Z",\n'
-        '  "keys": {\n'
-        '    "market.sqlite": "etag-stable",\n'
-        '    "runs.sqlite": "etag-stable",\n'
-        '    "indicators.sqlite": "etag-stable"\n  }\n}\n'
+@pytest.mark.parametrize("indent", [None, 0, 2])
+def test_a_bundle_pull_accepts_the_set_the_receipt_names(
+    tmp_path: Path, indent: int | None
+) -> None:
+    current = json.dumps(
+        {
+            "schema_version": 1,
+            "written_at_utc": "2026-08-19T00:00:00Z",
+            "keys": {
+                "market.sqlite": "etag-stable",
+                "runs.sqlite": "etag-stable",
+                "indicators.sqlite": "etag-stable",
+            },
+        },
+        indent=indent,
     )
 
     completed = _pull_machine(tmp_path, receipt=current)
@@ -868,7 +876,6 @@ def test_a_bundle_pull_accepts_the_set_the_receipt_names(tmp_path: Path) -> None
 def test_machine_receipt_requires_current_indicator_key(
     tmp_path: Path, indicator_key: str, expected_exit: int
 ) -> None:
-    # Keep the writer's line-oriented shape so failure tests the key, not JSON layout.
     receipt = json.dumps(
         {
             "keys": {
@@ -888,11 +895,24 @@ def test_machine_receipt_requires_current_indicator_key(
         assert "machine bundle receipt matches" in result.stdout
 
 
-def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "receipt",
+    [
+        '{"keys": {"market.sqlite": ""}}',
+        '{"keys": {"market.sqlite": 1}}',
+        '{"keys": []}',
+        "[]",
+        '{"elsewhere": {"market.sqlite": "etag-stable"}, "keys": {}}',
+        '{"keys": {"market.sqlite": "etag-stable"}',
+    ],
+)
+def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(
+    tmp_path: Path, receipt: str
+) -> None:
     """A receipt this script cannot parse says nothing about the set, and nothing is
     exactly what a check that waves it through would also say."""
 
-    completed = _pull_machine(tmp_path, receipt='{"keys": {"market.sqlite": ""}}\n')
+    completed = _pull_machine(tmp_path, receipt=receipt)
 
     assert completed.returncode == 1
     assert "receipt names no generation" in completed.stderr
