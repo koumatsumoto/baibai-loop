@@ -65,7 +65,7 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
 ):
     from tests.engine.market_context.indicators.test_option_iv import ASOF, _chain_records
 
-    from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
+    from baibai_engine.collection.economic_records import store_snapshot
     from baibai_engine.market_context.reading import options
 
     path = tmp_path / "indicators.sqlite"
@@ -75,7 +75,7 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
     with closing(initialize_database(path)) as writer, writer:
         store_snapshot(
             writer,
-            source_key="jquants_options:n225",
+            source_id="jquants-options-n225",
             observed_at=ASOF,
             fetched_at=first,
             records=_chain_records(),
@@ -102,7 +102,7 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
         with closing(sqlite3.connect(path)) as writer, writer:
             store_snapshot(
                 writer,
-                source_key="jquants_options:n225",
+                source_id="jquants-options-n225",
                 observed_at=ASOF,
                 fetched_at=corrected,
                 records=[],

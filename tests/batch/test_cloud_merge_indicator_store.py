@@ -18,6 +18,7 @@ from baibai_batch.storage.merge_indicator_store import (
     main,
     merge_stores,
 )
+from baibai_engine.collection.economic_records import store_snapshot
 from baibai_engine.market_context.indicators.db import (
     SCHEMA_PATH,
     SQLITE_SCHEMA_VERSION,
@@ -33,7 +34,6 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 STARTED_AT = datetime(2026, 7, 24, 11, 47, tzinfo=UTC)
 # Every observation carries an explicit vintage so a row present in both stores collides on
@@ -693,7 +693,7 @@ def test_native_option_facts_merge_independently_of_registered_readings(tmp_path
     with closing(sqlite3.connect(source)) as conn, conn:
         store_snapshot(
             conn,
-            source_key="jquants_options:n225",
+            source_id="jquants-options-n225",
             observed_at=date(2026, 7, 20),
             fetched_at=VINTAGE,
             records=[{"Date": "2026-07-20", "unused": None}],
@@ -701,19 +701,19 @@ def test_native_option_facts_merge_independently_of_registered_readings(tmp_path
     with closing(sqlite3.connect(target)) as conn, conn:
         store_snapshot(
             conn,
-            source_key="jquants_options:n225",
+            source_id="jquants-options-n225",
             observed_at=date(2026, 7, 21),
             fetched_at=VINTAGE,
             records=[],
         )
     report = merge_stores(source, target)
-    raw = next(table for table in report.tables if table.table == "indicator_source_snapshots")
+    raw = next(table for table in report.tables if table.table == "economic_source_records")
     assert raw.inserted == 1
     assert raw.skipped == 0
     assert raw.target_rows_after == 2
     assert merge_stores(source, target).inserted == 0
-    assert _rows(source, "SELECT * FROM indicator_source_snapshots") == _rows(
-        target, "SELECT * FROM indicator_source_snapshots WHERE observed_at = '2026-07-20'"
+    assert _rows(source, "SELECT * FROM economic_source_records") == _rows(
+        target, "SELECT * FROM economic_source_records WHERE observed_at = '2026-07-20'"
     )
 
 
@@ -729,13 +729,13 @@ def test_raw_payload_conflict_rolls_back_scalar_rows_in_the_same_merge(tmp_path:
         with closing(sqlite3.connect(path)) as conn, conn:
             store_snapshot(
                 conn,
-                source_key="jquants_options:n225",
+                source_id="jquants-options-n225",
                 observed_at=date(2026, 7, 20),
                 fetched_at=VINTAGE,
                 records=rows,
             )
-    before = _rows(target, "SELECT * FROM indicator_source_snapshots")
-    with pytest.raises(MergeError, match="indicator_source_snapshots payload disagrees"):
+    before = _rows(target, "SELECT * FROM economic_source_records")
+    with pytest.raises(MergeError, match="economic_source_records payload disagrees"):
         merge_stores(source, target)
     assert _observations(target) == set()
-    assert _rows(target, "SELECT * FROM indicator_source_snapshots") == before
+    assert _rows(target, "SELECT * FROM economic_source_records") == before

@@ -231,7 +231,7 @@ def test_assessment_publications_never_degrade_a_corrupt_saved_pair(
     assert case.app.read_bytes() == original
 
 
-@pytest.mark.parametrize("storage", ["scalar", "native"])
+@pytest.mark.parametrize("storage", ["document", "native"])
 @pytest.mark.parametrize("mutation", ["missing-table", "missing-column"])
 def test_indicator_partial_store_is_not_unpublished(
     tmp_path: Path, mutation: str, storage: str
@@ -243,10 +243,10 @@ def test_indicator_partial_store_is_not_unpublished(
     with closing(initialize_indicator_database(path)) as connection:
         seed_definitions(connection, load_definitions())
         connection.commit()
-    # Break the storage boundary this series actually reads. CPI is native
-    # e-Stat; an unrelated obsolete scalar table cannot invalidate its history.
-    table = "observations" if storage == "scalar" else "indicator_source_snapshots"
-    series_id = "jp.bankruptcies" if storage == "scalar" else "jp.cpi.headline"
+    # Break the storage boundary this series actually reads. Bankruptcies read
+    # original JSON documents; CPI reads native e-Stat records.
+    table = "economic_source_documents" if storage == "document" else "economic_source_records"
+    series_id = "jp.bankruptcies" if storage == "document" else "jp.cpi.headline"
     readers = [
         lambda: read_api.reading_snapshot(path, asof=date(2026, 7, 29)),
         lambda: read_api.indicator_series(path, series_id=series_id),
@@ -255,14 +255,14 @@ def test_indicator_partial_store_is_not_unpublished(
     assert read_api.indicator_series(path, series_id="unknown") is None
     with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if storage == "scalar":
-            connection.execute("DROP TABLE observations")
+        if storage == "document":
+            connection.execute("DROP TABLE economic_source_documents")
             if mutation == "missing-column":
-                connection.execute("CREATE TABLE observations (series_id TEXT)")
+                connection.execute("CREATE TABLE economic_source_documents (source_id TEXT)")
         else:
-            connection.execute("DROP TABLE indicator_source_snapshots")
+            connection.execute("DROP TABLE economic_source_records")
             if mutation == "missing-column":
-                connection.execute("CREATE TABLE indicator_source_snapshots (source_key TEXT)")
+                connection.execute("CREATE TABLE economic_source_records (source_id TEXT)")
     original = path.read_bytes()
     for reader in readers:
         with pytest.raises(

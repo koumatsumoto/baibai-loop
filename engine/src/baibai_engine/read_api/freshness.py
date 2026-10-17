@@ -12,14 +12,11 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from baibai_engine.collection.economic_records import decode_records
 from baibai_engine.collection.economic_sources import DOCUMENT_PROVIDERS
 from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.read_contracts import (
-    NATIVE_PROVIDERS,
-    native_source_key,
-)
-from baibai_engine.market_context.indicators.source_snapshots import decode_records
+from baibai_engine.market_context.indicators.read_contracts import NATIVE_PROVIDERS
 from baibai_engine.market_context.reading.documents import read_document_series
 
 from .sqlite import connect_read_only, read_application_rows, read_rows
@@ -64,35 +61,39 @@ def indicator_latest_observed_at(path: Path) -> date | None:
     # Request dates and acquisition times are not observation dates. Use the
     # same document interpretation as the chart, without an old scalar fallback.
     latest = read_store_if_written(path, document_latest)
-    native_keys = {
-        native_source_key(series) for series in definitions if series.provider in NATIVE_PROVIDERS
+    native_source_ids = {
+        series.source_id for series in definitions if series.provider in NATIVE_PROVIDERS
     }
-    if native_keys:
+    flow_source_ids = {
+        series.source_id for series in definitions if series.provider == "jquants_flows"
+    }
+    if native_source_ids:
         native = read_rows(
             path,
-            "SELECT c.source_key, max(c.observed_at) FROM indicator_source_snapshots c "
+            "SELECT c.source_id, max(c.observed_at) FROM economic_source_records c "
             "WHERE c.record_count > 0 AND c.fetched_at = ("
-            "SELECT max(n.fetched_at) FROM indicator_source_snapshots n "
-            "WHERE n.source_key = c.source_key AND n.observed_at = c.observed_at) "
-            "GROUP BY c.source_key",
+            "SELECT max(n.fetched_at) FROM economic_source_records n "
+            "WHERE n.source_id = c.source_id AND n.observed_at = c.observed_at) "
+            "GROUP BY c.source_id",
         )
-        for source_key, observed_at in native:
+        for source_id, observed_at in native:
             if (
-                source_key in native_keys
-                and source_key != "jquants_flows:TSEPrime"
+                source_id in native_source_ids
+                and source_id not in flow_source_ids
                 and observed_at is not None
             ):
                 native_date = str(observed_at)
                 latest = max(latest, native_date) if latest is not None else native_date
-    if "jquants_flows:TSEPrime" in native_keys:
-        # The table key is the publication date for flows; freshness here means
-        # the economic observation period, as it does for the scalar series.
+    for source_id in flow_source_ids:
+        # The source date is the publication date for flows; freshness here means
+        # the economic observation period, rather than the source publication day.
         publications = read_rows(
             path,
-            "SELECT c.payload FROM indicator_source_snapshots c "
-            "WHERE c.source_key = 'jquants_flows:TSEPrime' AND c.fetched_at = ("
-            "SELECT max(n.fetched_at) FROM indicator_source_snapshots n "
-            "WHERE n.source_key = c.source_key AND n.observed_at = c.observed_at)",
+            "SELECT c.payload FROM economic_source_records c "
+            "WHERE c.source_id = ? AND c.fetched_at = ("
+            "SELECT max(n.fetched_at) FROM economic_source_records n "
+            "WHERE n.source_id = c.source_id AND n.observed_at = c.observed_at)",
+            (source_id,),
         )
         for (payload,) in publications:
             for record in decode_records(payload):

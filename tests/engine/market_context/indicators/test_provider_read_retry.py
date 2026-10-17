@@ -372,7 +372,7 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
             "SELECT * FROM observations ORDER BY series_id,observed_at"
         ).fetchall()
         native_before = conn.execute(
-            "SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at"
+            "SELECT * FROM economic_source_records ORDER BY source_id,observed_at,fetched_at"
         ).fetchall()
         reader = build_store_observation_reader(conn, series=definitions.series)
         for sid, value in zip(IDS, (500, 3000, 20), strict=True):
@@ -400,7 +400,7 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
         )
         assert (
             conn.execute(
-                "SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at"
+                "SELECT * FROM economic_source_records ORDER BY source_id,observed_at,fetched_at"
             ).fetchall()
             == native_before
         )

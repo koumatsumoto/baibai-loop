@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from baibai_engine.collection.economic_records import (
+    decode_records as decode_indicator_source_records,
+)
 from baibai_engine.external_assessment.acquisition.cli import (
     main as external_assessment_acquisition_main,
 )
@@ -128,9 +131,6 @@ from baibai_engine.market_context.indicators.db import (
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
-)
-from baibai_engine.market_context.indicators.source_snapshots import (
-    decode_records as decode_indicator_source_records,
 )
 from baibai_engine.research.market_context.models import (
     ASSESSMENT_SCHEMA_VERSION,

@@ -7,11 +7,10 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from baibai_engine.collection.economic_records import store_snapshot
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 SOURCE_URL = "https://example.com/data.csv"
 
@@ -171,7 +170,7 @@ def store_h15_observations(
     for (observed_at, fetched_at), row in grouped.items():
         store_snapshot(
             connection,
-            source_key=native_source_key(definitions[records[0].series_id]),
+            source_id=definitions[records[0].series_id].source_id,
             observed_at=observed_at,
             fetched_at=fetched_at,
             records=[{"row": row, "preamble": []}],
@@ -204,7 +203,7 @@ def store_mof_observations(
         definition = definitions[records[0].series_id]
         store_snapshot(
             connection,
-            source_key=native_source_key(definition),
+            source_id=definition.source_id,
             observed_at=observed_at,
             fetched_at=fetched_at,
             records=[{"row": row, "preamble": [], "source_url": definition.source_url}],

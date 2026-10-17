@@ -7,11 +7,10 @@ from datetime import date
 from tests.helpers.indicator_store import observation
 
 from baibai_engine.collection.economic_providers import boj_timeseries
+from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
 
@@ -55,9 +54,7 @@ def test_null_revision_does_not_restore_scalar_cache_and_retains_metadata(tmp_pa
     with closing(db.open_read_only_connection(path)) as connection:
         reader = build_store_observation_reader(connection, series=load_definitions().series)
         assert reader(series.series_id, first, first) == ()
-        snapshot = next(
-            read_snapshots(connection, first, first, source_key=native_source_key(series))
-        )
+        snapshot = next(read_snapshots(connection, first, first, source_id=series.source_id))
         assert snapshot.records == (
             {
                 "response_metadata": {"STATUS": 200, "MESSAGE": "synthetic"},

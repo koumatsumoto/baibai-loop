@@ -13,6 +13,7 @@ from tests.helpers.indicator_store import (
     store_mof_observations,
 )
 
+from baibai_engine.collection.economic_records import store_snapshot
 from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
 )
@@ -30,8 +31,6 @@ from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 
 class RetractionVintageTests(unittest.TestCase):
@@ -341,7 +340,7 @@ class RetractionVintageTests(unittest.TestCase):
             try:
                 store_snapshot(
                     conn,
-                    source_key=native_source_key(registry["jp.10y"]),
+                    source_id=registry["jp.10y"].source_id,
                     observed_at=date(2026, 7, 20),
                     fetched_at=datetime(2026, 7, 22, tzinfo=UTC),
                     records=[],

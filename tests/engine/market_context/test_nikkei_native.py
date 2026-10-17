@@ -7,11 +7,10 @@ import pytest
 from tests.helpers.indicator_store import observation
 
 from baibai_engine.collection.economic_providers import nikkei_indexes
+from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
 DAY = date(2026, 7, 24)
 
@@ -45,9 +44,7 @@ def test_missing_revision_does_not_restore_scalar_or_prior_native_value(
     corrected = service.get_range(series.series_id, start=DAY, end=DAY, refresh=True)
     assert corrected.observations == ()
     with closing(db.open_read_only_connection(path)) as connection:
-        row = next(
-            read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))
-        ).records[0]
+        row = next(read_snapshots(connection, DAY, DAY, source_id=series.source_id)).records[0]
         assert row["weighted_text"] == ("—" if missing == "&mdash;" else missing)
         assert row["index_based_text"] == "25.12"
         assert connection.execute("SELECT value FROM observations").fetchone()[0] == 19.0
@@ -79,9 +76,7 @@ def test_unreadable_numeric_text_is_retained_but_not_a_successful_reading(tmp_pa
     with pytest.raises(ValueError, match="could not convert"):
         IndicatorsService(path).get_range(series.series_id, start=DAY, end=DAY, refresh=True)
     with closing(db.open_read_only_connection(path)) as connection:
-        row = next(
-            read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))
-        ).records[0]
+        row = next(read_snapshots(connection, DAY, DAY, source_id=series.source_id)).records[0]
         assert row["weighted_text"] == "unreadable"
 
 

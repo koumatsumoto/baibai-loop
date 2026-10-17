@@ -8,13 +8,12 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
+from baibai_engine.collection.economic_records import store_snapshot
 from baibai_engine.market_context.indicators.db import (
     get_series,
     initialize_database,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 from baibai_engine.read_api.market_context import (
@@ -132,7 +131,7 @@ def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> 
         ]:
             store_snapshot(
                 connection,
-                source_key="jquants_flows:TSEPrime",
+                source_id="jquants-trades-spec",
                 observed_at=published,
                 fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
                 records=[
@@ -179,7 +178,7 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
         for published, value in [(date(2024, 8, 29), 100.0), (date(2024, 9, 10), 120.0)]:
             store_snapshot(
                 connection,
-                source_key="jquants_flows:TSEPrime",
+                source_id="jquants-trades-spec",
                 observed_at=published,
                 fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
                 records=[
@@ -199,7 +198,7 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
         ):
             store_snapshot(
                 connection,
-                source_key=native_source_key(definition),
+                source_id=definition.source_id,
                 observed_at=date(2024, 8, 23),
                 fetched_at=vintage_at,
                 records=[

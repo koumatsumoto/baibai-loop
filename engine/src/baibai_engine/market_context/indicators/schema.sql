@@ -115,13 +115,13 @@ CREATE INDEX IF NOT EXISTS idx_provider_runs_series_range
 
 -- Native source records are independent of current indicator definitions.
 -- Preserve empty complete responses and later corrections; L2 selects one vintage.
-CREATE TABLE IF NOT EXISTS indicator_source_snapshots(
-  source_key TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS economic_source_records(
+  source_id TEXT NOT NULL,
   observed_at TEXT NOT NULL,
   fetched_at TEXT NOT NULL,
   record_count INTEGER NOT NULL CHECK(record_count >= 0),
   payload BLOB NOT NULL,
-  PRIMARY KEY(source_key, observed_at, fetched_at)
+  PRIMARY KEY(source_id, observed_at, fetched_at)
 );
 
 -- Original documents are Collection input, not extracted scalar observations.
@@ -136,4 +136,4 @@ CREATE TABLE IF NOT EXISTS economic_source_documents(
   PRIMARY KEY(source_id, request_key, fetched_at)
 );
 
-PRAGMA user_version = 10;
+PRAGMA user_version = 11;

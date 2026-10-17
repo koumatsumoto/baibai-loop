@@ -20,6 +20,7 @@ from baibai_engine.collection.economic_providers import (
 from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
 from baibai_engine.collection.economic_providers.documents import fetch_source_documents
 from baibai_engine.collection.economic_providers.native import fetch_native_records
+from baibai_engine.collection.economic_records import store_snapshot, stored_days
 from baibai_engine.collection.economic_sources import DOCUMENT_PROVIDERS, require_source
 from baibai_engine.foundation.redaction import redact_credentials
 
@@ -27,8 +28,7 @@ from .indicators import db
 from .indicators.db import IndicatorsSchemaError
 from .indicators.definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 from .indicators.observations import ObservationRecord
-from .indicators.read_contracts import NATIVE_BULK_PROVIDERS, native_source_key
-from .indicators.source_snapshots import store_snapshot, stored_days
+from .indicators.read_contracts import NATIVE_BULK_PROVIDERS
 from .option_acquisition import OptionAcquisition
 from .reading.documents import read_document_series
 from .reading.native import read_native_series
@@ -324,8 +324,7 @@ class IndicatorsService:
         context: FetchContext,
         require_observations: bool = False,
     ) -> QueryResult:
-        source_key = native_source_key(series)
-        known = stored_days(conn, start, end, source_key=source_key)
+        known = stored_days(conn, start, end, source_id=series.source_id)
         cache_hit = not refresh and len(known) == (end - start).days + 1
         if not cache_hit:
             started_at = datetime.now(UTC)
@@ -347,7 +346,7 @@ class IndicatorsService:
                         rows = records.get(day, ())
                         store_snapshot(
                             conn,
-                            source_key=source_key,
+                            source_id=series.source_id,
                             observed_at=day,
                             fetched_at=fetched_at,
                             records=rows,

@@ -22,6 +22,7 @@ from tests.helpers.indicator_store import (
 )
 
 import baibai_engine.market_context.indicators.db as indicators_db
+from baibai_engine.collection.economic_records import store_snapshot
 from baibai_engine.market_context.indicator_cli import (
     main,
 )
@@ -50,7 +51,6 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.reading.cli import main as reading_main
 
 
@@ -180,7 +180,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 ):
                     store_snapshot(
                         conn,
-                        source_key="jquants_flows:TSEPrime",
+                        source_id="jquants-trades-spec",
                         observed_at=published,
                         fetched_at=datetime.combine(published, datetime.min.time(), UTC),
                         records=[

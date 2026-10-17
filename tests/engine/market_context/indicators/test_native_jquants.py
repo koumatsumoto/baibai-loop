@@ -8,9 +8,9 @@ import pytest
 
 from baibai_engine.collection.economic_providers import jquants_flows, jquants_indices
 from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
+from baibai_engine.collection.economic_records import read_snapshots, store_snapshot
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
@@ -69,7 +69,7 @@ def test_flow_reader_selects_publication_before_value_and_keeps_period_freshness
         for published, value in [(FIRST, 100), (REVISED, 200)]:
             store_snapshot(
                 connection,
-                source_key="jquants_flows:TSEPrime",
+                source_id="jquants-trades-spec",
                 observed_at=published,
                 fetched_at=FETCHED,
                 records=[flow(published, value)],
@@ -91,7 +91,7 @@ def test_flow_reader_selects_publication_before_value_and_keeps_period_freshness
         later = datetime(2026, 10, 17, tzinfo=UTC)
         store_snapshot(
             connection,
-            source_key="jquants_flows:TSEPrime",
+            source_id="jquants-trades-spec",
             observed_at=REVISED,
             fetched_at=later,
             records=[flow(REVISED, None)],
@@ -100,7 +100,7 @@ def test_flow_reader_selects_publication_before_value_and_keeps_period_freshness
         assert after(foreign.series_id, PERIOD, PERIOD) == ()
         assert [item.value for item in before(foreign.series_id, PERIOD, PERIOD)] == [100]
         records = next(
-            read_snapshots(connection, REVISED, REVISED, source_key="jquants_flows:TSEPrime")
+            read_snapshots(connection, REVISED, REVISED, source_id="jquants-trades-spec")
         ).records
         assert records[0]["FrgnBuy"] == 999
         assert records[0]["FrgnBal"] is None
@@ -113,7 +113,7 @@ def test_index_reader_uses_only_native_close_and_empty_response_hides_old_payloa
     with closing(db.initialize_database(path)) as connection:
         store_snapshot(
             connection,
-            source_key="jquants_indices:topix",
+            source_id="jquants-indices-topix",
             observed_at=FIRST,
             fetched_at=FETCHED,
             records=[{"Date": FIRST.isoformat(), "C": 2000, "O": 1900}],
@@ -123,7 +123,7 @@ def test_index_reader_uses_only_native_close_and_empty_response_hides_old_payloa
         assert [item.value for item in reader("jp.topix", FIRST, FIRST)] == [2000]
         store_snapshot(
             connection,
-            source_key="jquants_indices:topix",
+            source_id="jquants-indices-topix",
             observed_at=FIRST,
             fetched_at=datetime(2026, 10, 17, tzinfo=UTC),
             records=[],
@@ -132,7 +132,7 @@ def test_index_reader_uses_only_native_close_and_empty_response_hides_old_payloa
         assert reader("jp.topix", FIRST, FIRST) == ()
         store_snapshot(
             connection,
-            source_key="jquants_indices:topix",
+            source_id="jquants-indices-topix",
             observed_at=FIRST,
             fetched_at=datetime(2026, 10, 18, tzinfo=UTC),
             records=[{"Date": FIRST.isoformat(), "Close": 2000}],
@@ -184,7 +184,7 @@ def test_flow_same_publication_does_not_choose_an_arbitrary_balance(tmp_path, va
     with closing(db.initialize_database(path)) as connection:
         store_snapshot(
             connection,
-            source_key="jquants_flows:TSEPrime",
+            source_id="jquants-trades-spec",
             observed_at=FIRST,
             fetched_at=FETCHED,
             records=[flow(FIRST, value) for value in values],
@@ -199,7 +199,5 @@ def test_flow_same_publication_does_not_choose_an_arbitrary_balance(tmp_path, va
         else:
             assert [item.value for item in reader("jp.foreign_flows", PERIOD, PERIOD)] == expected
         assert len(
-            next(
-                read_snapshots(connection, FIRST, FIRST, source_key="jquants_flows:TSEPrime")
-            ).records
+            next(read_snapshots(connection, FIRST, FIRST, source_id="jquants-trades-spec")).records
         ) == len(values)

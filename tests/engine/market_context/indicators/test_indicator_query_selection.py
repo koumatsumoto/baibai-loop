@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import observation
 
+from baibai_engine.collection.economic_records import read_snapshots, store_snapshot
 from baibai_engine.market_context import indicator_service as service
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
 
@@ -37,7 +37,7 @@ def test_fetch_cache_latest_and_rebuild_share_publication_vintage_selection(
     with closing(db.initialize_database(path)) as connection:
         store_snapshot(
             connection,
-            source_key="jquants_flows:TSEPrime",
+            source_id="jquants-trades-spec",
             observed_at=future_date,
             fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
             records=[
@@ -82,7 +82,7 @@ def test_fetch_cache_latest_and_rebuild_share_publication_vintage_selection(
         assert (
             next(
                 read_snapshots(
-                    connection, future_date, future_date, source_key="jquants_flows:TSEPrime"
+                    connection, future_date, future_date, source_id="jquants-trades-spec"
                 )
             ).records[0]["FrgnBal"]
             == 300
@@ -131,9 +131,7 @@ def test_native_refresh_failure_rolls_back_the_source_update(
         reader.get_range("us.10y", start=day, end=day, refresh=True)
     assert reader.get_range("us.10y", start=day, end=day).observations == original.observations
     with closing(db.open_read_only_connection(path)) as connection:
-        assert (
-            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0] == 1
-        )
+        assert connection.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 1
         failed = connection.execute(
             "SELECT record_count FROM provider_runs WHERE status = 'failed'"
         ).fetchall()

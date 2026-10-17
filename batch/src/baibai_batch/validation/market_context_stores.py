@@ -48,7 +48,7 @@ class ValidationReport:
     schema_version: int
     registry_series: int
     observations: int
-    source_snapshots: int
+    source_records: int
     violation_count: int
     violations: tuple[str, ...]
 
@@ -131,13 +131,13 @@ def validate_store(
                     f"{identity}: value {value:g} outside plausible range "
                     f"[{rendered_low}, {rendered_high}]"
                 )
-        source_snapshots = 0
+        source_records = 0
         for row in connection.execute(
-            "SELECT source_key, observed_at, fetched_at, record_count, payload "
-            "FROM indicator_source_snapshots ORDER BY source_key, observed_at, fetched_at"
+            "SELECT source_id, observed_at, fetched_at, record_count, payload "
+            "FROM economic_source_records ORDER BY source_id, observed_at, fetched_at"
         ):
-            source_snapshots += 1
-            identity = f"{row['source_key']} {row['observed_at']} fetched {row['fetched_at']}"
+            source_records += 1
+            identity = f"{row['source_id']} {row['observed_at']} fetched {row['fetched_at']}"
             try:
                 native = decode_indicator_source_records(row["payload"])
             except (OSError, EOFError, ValueError, zlib.error):
@@ -152,7 +152,7 @@ def validate_store(
         schema_version=schema_version,
         registry_series=len(resolved.series),
         observations=observations,
-        source_snapshots=source_snapshots,
+        source_records=source_records,
         violation_count=violation_count,
         violations=tuple(violations),
     )
@@ -252,14 +252,14 @@ def _render_store_report(report: ValidationReport) -> int:
         print(
             f"ok: schema v{report.schema_version}; {report.registry_series} registry series; "
             f"{report.observations} scalar observations; "
-            f"{report.source_snapshots} native snapshots",
+            f"{report.source_records} native records",
             flush=True,
         )
         return 0
     print(
         f"error: {report.violation_count} indicator store contract violations "
         f"across {report.observations} scalar observations and "
-        f"{report.source_snapshots} native snapshots",
+        f"{report.source_records} native records",
         file=sys.stderr,
     )
     for violation in report.violations:

@@ -15,15 +15,15 @@ from baibai_engine.collection.economic_providers.base import (
     ProviderFetchStoppedError,
 )
 from baibai_engine.collection.economic_providers.jquants_options import OptionChainSource
-from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
-from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.source_snapshots import (
+from baibai_engine.collection.economic_records import (
     read_snapshots,
     store_snapshot,
     stored_days,
 )
+from baibai_engine.market_context.indicator_service import IndicatorsService
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.option_acquisition import OptionAcquisition
 from baibai_engine.market_context.reading.option_iv import (
     CALL,
@@ -811,7 +811,7 @@ class OptionAcquisitionTest(unittest.TestCase):
                 )
         self.assertEqual(acquired, [date(2026, 7, 27), date(2026, 7, 28), ASOF])
         chains = list(
-            read_snapshots(connection, acquired[0], ASOF, source_key="jquants_options:n225")
+            read_snapshots(connection, acquired[0], ASOF, source_id="jquants-options-n225")
         )
         self.assertEqual(len(chains), 3)
         self.assertIsNone(chains[0].records[0]["UnselectedNativeField"])
@@ -855,7 +855,7 @@ class OptionAcquisitionTest(unittest.TestCase):
                     )
             self.assertEqual(fetch.call_count, 2)
         self.assertEqual(
-            stored_days(connection, first, second, source_key="jquants_options:n225"), {first}
+            stored_days(connection, first, second, source_id="jquants-options-n225"), {first}
         )
         with (
             mock.patch.object(OptionChainSource, "__init__", return_value=None),
@@ -868,7 +868,7 @@ class OptionAcquisitionTest(unittest.TestCase):
             )
         fetch.assert_called_once_with(second)
         self.assertEqual(
-            stored_days(connection, first, second, source_key="jquants_options:n225"),
+            stored_days(connection, first, second, source_id="jquants-options-n225"),
             {first, second},
         )
 
@@ -890,7 +890,7 @@ class OptionAcquisitionTest(unittest.TestCase):
                 )
         fetch.assert_called_once_with(ASOF)
         self.assertEqual(
-            next(read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225")).records,
+            next(read_snapshots(connection, ASOF, ASOF, source_id="jquants-options-n225")).records,
             tuple(rows),
         )
 
@@ -900,7 +900,7 @@ class OptionAcquisitionTest(unittest.TestCase):
         with connection:
             store_snapshot(
                 connection,
-                source_key="jquants_options:n225",
+                source_id="jquants-options-n225",
                 observed_at=ASOF,
                 fetched_at=before,
                 records=_chain_records(),
@@ -924,7 +924,7 @@ class OptionAcquisitionTest(unittest.TestCase):
         with connection:
             store_snapshot(
                 connection,
-                source_key="jquants_options:n225",
+                source_id="jquants-options-n225",
                 observed_at=ASOF,
                 fetched_at=before + timedelta(days=1),
                 records=[],
@@ -936,11 +936,11 @@ class OptionAcquisitionTest(unittest.TestCase):
             (),
         )
         self.assertEqual(
-            stored_days(connection, ASOF, ASOF, source_key="jquants_options:n225"), {ASOF}
+            stored_days(connection, ASOF, ASOF, source_id="jquants-options-n225"), {ASOF}
         )
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1)
         self.assertEqual(
-            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 2
+            connection.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0], 2
         )
 
     def test_identical_response_does_not_add_another_payload(self) -> None:
@@ -950,7 +950,7 @@ class OptionAcquisitionTest(unittest.TestCase):
             self.assertTrue(
                 store_snapshot(
                     connection,
-                    source_key="jquants_options:n225",
+                    source_id="jquants-options-n225",
                     observed_at=ASOF,
                     fetched_at=fetched_at,
                     records=_chain_records(),
@@ -959,14 +959,14 @@ class OptionAcquisitionTest(unittest.TestCase):
             self.assertFalse(
                 store_snapshot(
                     connection,
-                    source_key="jquants_options:n225",
+                    source_id="jquants-options-n225",
                     observed_at=ASOF,
                     fetched_at=fetched_at + timedelta(days=1),
                     records=_chain_records(),
                 )
             )
         self.assertEqual(
-            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 1
+            connection.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0], 1
         )
 
     def test_emergency_snapshot_is_retained_but_only_settlement_is_calculated(self) -> None:
@@ -978,7 +978,7 @@ class OptionAcquisitionTest(unittest.TestCase):
         with connection:
             store_snapshot(
                 connection,
-                source_key="jquants_options:n225",
+                source_id="jquants-options-n225",
                 observed_at=ASOF,
                 fetched_at=datetime.now(UTC),
                 records=[*settled, *intervention],
@@ -992,7 +992,7 @@ class OptionAcquisitionTest(unittest.TestCase):
         self.assertEqual(
             len(
                 next(
-                    read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225")
+                    read_snapshots(connection, ASOF, ASOF, source_id="jquants-options-n225")
                 ).records
             ),
             len(settled) + len(intervention),
@@ -1005,7 +1005,7 @@ class OptionAcquisitionTest(unittest.TestCase):
         with connection:
             store_snapshot(
                 connection,
-                source_key="jquants_options:n225",
+                source_id="jquants-options-n225",
                 observed_at=day,
                 fetched_at=datetime.now(UTC),
                 records=rows,
@@ -1018,7 +1018,7 @@ class OptionAcquisitionTest(unittest.TestCase):
             OptionSeriesReader(connection).read(_registered("jp.n225_iv_term"), start=day, end=day)
         )
         self.assertEqual(
-            next(read_snapshots(connection, day, day, source_key="jquants_options:n225")).records,
+            next(read_snapshots(connection, day, day, source_id="jquants-options-n225")).records,
             tuple(rows),
         )
 
@@ -1031,7 +1031,7 @@ class OptionAcquisitionTest(unittest.TestCase):
             with connection:
                 store_snapshot(
                     connection,
-                    source_key="jquants_options:n225",
+                    source_id="jquants-options-n225",
                     observed_at=ASOF,
                     fetched_at=datetime(2026, 7, 29, tzinfo=UTC),
                     records=[],
@@ -1070,7 +1070,7 @@ class OptionAcquisitionTest(unittest.TestCase):
             for day in days:
                 store_snapshot(
                     connection,
-                    source_key="jquants_options:n225",
+                    source_id="jquants-options-n225",
                     observed_at=day,
                     fetched_at=datetime(2026, 7, 30, tzinfo=UTC),
                     records=[],

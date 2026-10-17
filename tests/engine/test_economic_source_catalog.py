@@ -75,11 +75,10 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
     from contextlib import closing
     from datetime import date
 
+    from baibai_engine.collection.economic_records import read_snapshots
     from baibai_engine.market_context import indicator_service
     from baibai_engine.market_context.indicators import db
     from baibai_engine.market_context.indicators.definitions import load_definitions
-    from baibai_engine.market_context.indicators.read_contracts import native_source_key
-    from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
     day = date(2026, 5, 1)
     path = tmp_path / "indicators.sqlite"
@@ -98,7 +97,7 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
             service.get_range(series.series_id, start=day, end=day, refresh=refresh)
     assert calls == [series.source_id]
     with closing(db.open_read_only_connection(path)) as connection:
-        snapshots = list(read_snapshots(connection, day, day, source_key=native_source_key(series)))
+        snapshots = list(read_snapshots(connection, day, day, source_id=series.source_id))
         assert snapshots[0].records == tuple(rows)
         assert [
             tuple(row)

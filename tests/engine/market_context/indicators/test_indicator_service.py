@@ -21,6 +21,7 @@ from tests.helpers.indicator_store import (
 from baibai_engine.collection.economic_providers import (
     IndicatorsProviderError,
 )
+from baibai_engine.collection.economic_records import store_snapshot
 from baibai_engine.market_context.indicator_cli import (
     build_parser,
     main,
@@ -39,8 +40,6 @@ from baibai_engine.market_context.indicators.db import (
 from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 
 class IndicatorsServiceTests(unittest.TestCase):
@@ -69,7 +68,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                         policy = load_definitions().by_id()["jp.policy_rate"]
                         store_snapshot(
                             conn,
-                            source_key=native_source_key(policy),
+                            source_id=policy.source_id,
                             observed_at=date(2026, 7, 1),
                             fetched_at=datetime.now(UTC),
                             records=[
@@ -281,7 +280,7 @@ def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: 
     with closing(open_connection(database)) as conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=observed_at,
             fetched_at=datetime(observed_at.year, observed_at.month, observed_at.day, tzinfo=UTC),
             records=[
@@ -375,7 +374,7 @@ def test_native_revisions_are_idempotent_and_survive_a_later_source_failure(tmp_
         service.get_range("jp.10y", start=day, end=day, refresh=True)
     assert service.get_range("jp.10y", start=day, end=day).observations == revised.observations
     with closing(sqlite3.connect(database)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 2
 
 
 def test_latest_read_does_not_reacquire_stale_inputs(tmp_path, monkeypatch):
@@ -479,7 +478,7 @@ def test_invalid_l2_value_does_not_destroy_received_native_input(tmp_path, monke
     with pytest.raises(ValueError, match=r"non-finite|plausible range"):
         IndicatorsService(database).get_range("jp.10y", start=day, end=day, refresh=True)
     with closing(sqlite3.connect(database)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 1
         assert conn.execute("SELECT status, record_count FROM provider_runs").fetchall() == [
             ("ok", 1)
         ]

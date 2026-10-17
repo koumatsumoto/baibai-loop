@@ -16,13 +16,12 @@ from baibai_engine.collection.economic_providers.ecb_fx import EcbFxSource
 from baibai_engine.collection.economic_providers.estat_dashboard import (
     EStatDashboardSource,
 )
+from baibai_engine.collection.economic_records import read_snapshots, store_snapshot
 from baibai_engine.market_context import indicator_service
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
@@ -41,7 +40,7 @@ def test_cftc_keeps_paired_native_values_and_empty_correction_hides_old_scalar(
     result = service.get_range(series_id, start=DAY, end=DAY, refresh=True)
     assert result.observations[0].value == -2.0
     with closing(sqlite3.connect(database)) as conn:
-        assert next(read_snapshots(conn, DAY, DAY, source_key="cftc:097741")).records == (row,)
+        assert next(read_snapshots(conn, DAY, DAY, source_id="cftc-cot-jpy")).records == (row,)
         assert conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 0
     assert service.get_range(series_id, start=DAY, end=DAY).cache_hit
     assert len(replies) == 1
@@ -74,7 +73,7 @@ def test_ecb_crosses_use_one_native_row_and_missing_leg_never_uses_old_output(tm
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key="ecb_fx:reference",
+            source_id="ecb-fx",
             observed_at=DAY,
             fetched_at=datetime(2026, 10, 14, tzinfo=UTC),
             records=[{"Date": DAY.isoformat(), "JPY": "180", "USD": "1.2", "AUD": "N/A"}],
@@ -94,7 +93,7 @@ def test_unusable_calculation_does_not_roll_back_native_bulk_records(tmp_path, m
     with pytest.raises(ValueError, match="no observations"):
         IndicatorsService(database).refresh_all_history("positioning.jpy_noncomm_net", end=first)
     with closing(sqlite3.connect(database)) as conn:
-        assert next(read_snapshots(conn, first, first, source_key="cftc:097741")).records == (row,)
+        assert next(read_snapshots(conn, first, first, source_id="cftc-cot-jpy")).records == (row,)
         assert conn.execute("SELECT status, record_count FROM provider_runs").fetchall() == [
             ("ok", 1)
         ]
@@ -148,7 +147,7 @@ def test_native_positioning_preserves_zero_and_missingness(tmp_path, long, short
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key="cftc:097741",
+            source_id="cftc-cot-jpy",
             observed_at=DAY,
             fetched_at=datetime(2026, 10, 14, tzinfo=UTC),
             records=[{"noncomm_positions_long_all": long, "noncomm_positions_short_all": short}],
@@ -190,7 +189,7 @@ def test_conflicting_native_values_remain_stored_when_reading_refuses_them(tmp_p
             "positioning.jpy_noncomm_net", start=DAY, end=DAY, refresh=True
         )
     with closing(sqlite3.connect(database)) as conn:
-        assert next(read_snapshots(conn, DAY, DAY, source_key="cftc:097741")).records == tuple(rows)
+        assert next(read_snapshots(conn, DAY, DAY, source_id="cftc-cot-jpy")).records == tuple(rows)
 
 
 def test_dashboard_retains_publication_states_and_null_correction_without_old_scalar(
@@ -215,7 +214,7 @@ def test_dashboard_retains_publication_states_and_null_correction_without_old_sc
     with closing(sqlite3.connect(database)) as conn:
         snapshots = {
             item.observed_at: item.records
-            for item in read_snapshots(conn, may, june, source_key=native_source_key(series))
+            for item in read_snapshots(conn, may, june, source_id=series.source_id)
         }
         assert snapshots[may] == (final,)
         assert snapshots[june] == (provisional,)
@@ -229,9 +228,9 @@ def test_dashboard_retains_publication_states_and_null_correction_without_old_sc
         assert [(item.observed_at, item.value) for item in read(series_id, may, june)] == [
             (june, 2.6)
         ]
-        assert next(
-            read_snapshots(conn, may, may, source_key=native_source_key(series))
-        ).records == (correction,)
+        assert next(read_snapshots(conn, may, may, source_id=series.source_id)).records == (
+            correction,
+        )
 
 
 def test_dashboard_keeps_native_input_when_numeric_reading_fails(tmp_path, monkeypatch):
@@ -242,9 +241,7 @@ def test_dashboard_keeps_native_input_when_numeric_reading_fails(tmp_path, monke
     with pytest.raises(ValueError, match="value is not a string"):
         IndicatorsService(database).get_range(series.series_id, start=DAY, end=DAY, refresh=True)
     with closing(sqlite3.connect(database)) as conn:
-        assert next(
-            read_snapshots(conn, DAY, DAY, source_key=native_source_key(series))
-        ).records == (row,)
+        assert next(read_snapshots(conn, DAY, DAY, source_id=series.source_id)).records == (row,)
 
 
 def test_dashboard_live_response_shape_keeps_preliminary_wage_print(tmp_path, monkeypatch):
@@ -288,7 +285,7 @@ def test_dashboard_live_response_shape_keeps_preliminary_wage_print(tmp_path, mo
     with closing(sqlite3.connect(database)) as conn:
         stored = {
             item.observed_at: item.records
-            for item in read_snapshots(conn, july, august, source_key=native_source_key(series))
+            for item in read_snapshots(conn, july, august, source_id=series.source_id)
         }
         assert stored[july] == (final,)
         assert stored[august] == (provisional,)
@@ -311,9 +308,9 @@ def test_estat_missing_cell_replaces_prior_numeric_reading_without_erasing_nativ
     )
     assert service.get_range(series.series_id, start=day, end=day, refresh=True).observations == ()
     with closing(sqlite3.connect(database)) as conn:
-        assert next(
-            read_snapshots(conn, day, day, source_key=native_source_key(series))
-        ).records == (missing,)
+        assert next(read_snapshots(conn, day, day, source_id=series.source_id)).records == (
+            missing,
+        )
         assert conn.execute("SELECT count(*) FROM observations").fetchone()[0] == 0
         read = build_store_observation_reader(conn, series=load_definitions().series)
         assert read(series.series_id, day, day) == ()
@@ -325,8 +322,8 @@ def test_h15_one_native_package_drives_all_maturities_and_spread_without_scalar_
     database = tmp_path / "indicators.sqlite"
     definitions = load_definitions().by_id()
     maturities = ("us.10y", "us.2y", "us.30y")
-    assert len({native_source_key(definitions[item]) for item in maturities}) == 1
-    source_key = native_source_key(definitions["us.10y"])
+    assert len({definitions[item].source_id for item in maturities}) == 1
+    source_id = definitions["us.10y"].source_id
     raw = {
         "Time Period": DAY.isoformat(),
         "RIFLGFCY10_N.B": "4.39",
@@ -366,7 +363,7 @@ def test_h15_one_native_package_drives_all_maturities_and_spread_without_scalar_
     assert service.get_range("us.2y", start=DAY, end=DAY).observations[0].value == 3.88
     assert service.get_range("us.10y_2y_spread", start=DAY, end=DAY).observations == ()
     with closing(sqlite3.connect(database)) as connection:
-        snapshot = next(read_snapshots(connection, DAY, DAY, source_key=source_key))
+        snapshot = next(read_snapshots(connection, DAY, DAY, source_id=source_id))
         assert snapshot.records == (correction,)
         read = build_store_observation_reader(connection, series=load_definitions().series)
         assert read("us.10y", DAY, DAY) == ()
@@ -388,9 +385,9 @@ def test_h15_missing_requested_column_fails_only_after_native_rows_are_saved(tmp
     with pytest.raises(ValueError, match=r"FRB H\.15 CSV missing column RIFLGFCY10_N\.B"):
         IndicatorsService(database).get_range("us.10y", start=DAY, end=DAY, refresh=True)
     with closing(sqlite3.connect(database)) as connection:
-        assert next(
-            read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))
-        ).records == (envelope,)
+        assert next(read_snapshots(connection, DAY, DAY, source_id=series.source_id)).records == (
+            envelope,
+        )
 
 
 def test_latest_forced_refresh_repairs_malformed_native_cache_without_hiding_read_errors(
@@ -417,13 +414,13 @@ def test_latest_forced_refresh_repairs_malformed_native_cache_without_hiding_rea
     assert not result.cache_hit
     assert replies == []
     with closing(sqlite3.connect(database)) as conn:
-        assert next(
-            read_snapshots(conn, month, month, source_key=native_source_key(series))
-        ).records == (corrected,)
+        assert next(read_snapshots(conn, month, month, source_id=series.source_id)).records == (
+            corrected,
+        )
         assert (
             conn.execute(
-                "SELECT count(*) FROM indicator_source_snapshots WHERE source_key = ? AND observed_at = ?",
-                (native_source_key(series), month.isoformat()),
+                "SELECT count(*) FROM economic_source_records WHERE source_id = ? AND observed_at = ?",
+                (series.source_id, month.isoformat()),
             ).fetchone()[0]
             == 2
         )
@@ -434,8 +431,8 @@ def test_multpl_native_correction_hides_old_scalar(tmp_path, monkeypatch):
     series_id = "us.sp500_cape"
     definition = load_definitions().by_id()[series_id]
     day = date(2026, 10, 15)
-    source_key = native_source_key(definition)
-    assert source_key == "multpl:https://www.multpl.com/shiller-pe/table/by-month"
+    source_id = definition.source_id
+    assert source_id == "multpl-shiller-pe"
     first = {day: [{"date_text": "Oct 15, 2026", "value_text": "41.01", "table_row": 0}]}
     corrected = {day: [{"date_text": "Oct 15, 2026", "value_text": "null", "table_row": 0}]}
     replies = [first, corrected]
@@ -461,7 +458,7 @@ def test_multpl_native_correction_hides_old_scalar(tmp_path, monkeypatch):
         )
     assert service.get_range(series_id, start=day, end=day, refresh=True).observations == ()
     with closing(sqlite3.connect(database)) as conn:
-        assert next(read_snapshots(conn, day, day, source_key=source_key)).records == tuple(
+        assert next(read_snapshots(conn, day, day, source_id=source_id)).records == tuple(
             corrected[day]
         )
         reader = build_store_observation_reader(conn, series=load_definitions().series)
@@ -479,15 +476,15 @@ def test_multpl_same_date_conflict_retains_both_cells_and_fails_l2(tmp_path):
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=day,
             fetched_at=datetime.now(UTC),
             records=records,
         )
     with closing(sqlite3.connect(database)) as conn:
-        assert next(
-            read_snapshots(conn, day, day, source_key=native_source_key(series))
-        ).records == tuple(records)
+        assert next(read_snapshots(conn, day, day, source_id=series.source_id)).records == tuple(
+            records
+        )
         reader = build_store_observation_reader(conn, series=load_definitions().series)
         with pytest.raises(ValueError, match="conflicting native inputs"):
             reader(series.series_id, day, day)
@@ -500,7 +497,7 @@ def test_multpl_missing_duplicate_does_not_hide_missingness(tmp_path):
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=day,
             fetched_at=datetime.now(UTC),
             records=[
@@ -520,7 +517,7 @@ def test_multpl_ratio_rejects_percent_cell_after_persistence(tmp_path):
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=day,
             fetched_at=datetime.now(UTC),
             records=[
@@ -541,15 +538,13 @@ def test_multpl_percent_with_dagger_is_interpreted_only_in_l2(tmp_path):
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=day,
             fetched_at=datetime.now(UTC),
             records=[row],
         )
     with closing(sqlite3.connect(database)) as conn:
-        assert next(
-            read_snapshots(conn, day, day, source_key=native_source_key(series))
-        ).records == (row,)
+        assert next(read_snapshots(conn, day, day, source_id=series.source_id)).records == (row,)
         reader = build_store_observation_reader(conn, series=load_definitions().series)
         assert reader(series.series_id, day, day)[0].value == 3.18
 
@@ -563,15 +558,13 @@ def test_multpl_malformed_cell_fails_only_at_reading_boundary(tmp_path, cell):
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=day,
             fetched_at=datetime.now(UTC),
             records=[row],
         )
     with closing(sqlite3.connect(database)) as conn:
-        assert next(
-            read_snapshots(conn, day, day, source_key=native_source_key(series))
-        ).records == (row,)
+        assert next(read_snapshots(conn, day, day, source_id=series.source_id)).records == (row,)
         reader = build_store_observation_reader(conn, series=load_definitions().series)
         with pytest.raises(ValueError, match="invalid multpl cell"):
             reader(series.series_id, day, day)
@@ -584,7 +577,7 @@ def test_multpl_range_check_remains_at_shared_reading_boundary(tmp_path):
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=day,
             fetched_at=datetime.now(UTC),
             records=[

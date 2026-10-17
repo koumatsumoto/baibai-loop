@@ -79,7 +79,7 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションの3系列も保存済み原本をL2で計算する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。日次chainの全項目・欠測・識別子をgzip JSONとして保持し、現在の3指標が使わない項目も残す。HTTPの元bytesを保存する契約ではない。
 
-`fred_csv`・`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`・`frb_h15`・`multpl`もnative recordを`indicator_source_snapshots`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
+`fred_csv`・`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`・`frb_h15`・`multpl`もnative recordを`economic_source_records`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
 
 e-Stat dashboardのsource identityはIndicatorCodeだけではなく、頻度・季節調整・地域を固定するsource URLである。要求窓のVALUE行は速報・null記号・未使用属性もそのまま残し、L2が`@isProvisional=0`の確報だけを選ぶ。確報の欠測から旧値や速報へ戻らない。単位コードの混在は読み取りに使う期間の確報間で検証し、要求窓外の単位差だけで読み取りを止めない。取得時刻は公表時刻ではない。VALUEの単位コードだけで基準年を復元できるとは限らず、系列の意味はregistryと[公表元の系列メタデータ](https://dashboard.e-stat.go.jp/api/1.0/Json/getIndicatorInfo?Lang=JP&IndicatorCode=0302030202010090010)に従う。名目賃金の単位コード000は単位名が空欄であり、2020年平均=100という意味は系列注記から確認する。旧scalar値だけから失われた速報・属性は復元せず、マージ後に必要な原本を取得する。
 
@@ -148,7 +148,7 @@ serviceが1回再試行するのは、停止を表す`ProviderFetchStoppedError`
 
 #### 取得とrate limit
 
-`jquants_options`は営業日ごとのnative chainを取得し、`indicator_source_snapshots`へ取得時刻付きで保存する。空の正常応答も取得済み日であり、解析不能・途中ページ失敗は正常な空日にしない。原本は系列registryから独立したsource factで、同じ日・取得時刻のpayloadが異なるmergeは拒否する。応答内容が直前と同一なら重複payloadを増やさない。
+`jquants_options`は営業日ごとのnative chainを取得し、`economic_source_records`へ取得時刻付きで保存する。空の正常応答も取得済み日であり、解析不能・途中ページ失敗は正常な空日にしない。原本は系列registryから独立したsource factで、同じ日・取得時刻のpayloadが異なるmergeは拒否する。応答内容が直前と同一なら重複payloadを増やさない。
 
 GETの回数・待機は上の共通契約に従う。同じpassの全営業日・3系列で予算と日ごとの取得成否を共有する。完了した日はその都度commitし、後日の取得停止やL2計算失敗で取り消さない。`--all-history`は保存済みの古い日を再利用し、直近14日と不足日を取得する。古い日の訂正を取り直す場合は開始・終了を指定する。現行購読窓より古い原本も削除しない。通常のrange読取は完了した空日を含め再利用し、最新値の取得は新しい読みに不足する場合に再照会する。
 

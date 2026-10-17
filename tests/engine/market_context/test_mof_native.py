@@ -7,11 +7,10 @@ from urllib.parse import urljoin
 from tests.helpers.indicator_store import observation
 
 from baibai_engine.collection.economic_providers import mof_jgb
+from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
 
@@ -53,9 +52,7 @@ def test_current_month_missing_cell_overrides_history_and_prior_scalar(tmp_path,
         reader = build_store_observation_reader(connection, series=load_definitions().series)
         assert reader(series.series_id, first, first) == ()
         assert reader("jp.10y", first, first)[0].value == 2.3
-        snapshot = next(
-            read_snapshots(connection, first, first, source_key=native_source_key(series))
-        )
+        snapshot = next(read_snapshots(connection, first, first, source_id=series.source_id))
         assert snapshot.records == (
             {
                 "row": {"基準日": "R8.7.24", "2年": "1.0", "10年": "2.0"},

@@ -11,12 +11,12 @@ from baibai_engine.collection.economic_providers.base import (
     ProviderFetchStoppedError,
 )
 from baibai_engine.collection.economic_providers.jquants_options import OptionChainSource
+from baibai_engine.collection.economic_records import store_snapshot, stored_days
 from baibai_engine.foundation.redaction import redact_credentials
 
 from .indicators import db
 from .indicators.definitions import SeriesDefinition
 from .indicators.observations import ObservationRecord
-from .indicators.source_snapshots import store_snapshot, stored_days
 from .reading.options import OptionSeriesReader
 
 _RECENT_REFRESH_DAYS = 14
@@ -54,7 +54,7 @@ class OptionAcquisition:
         started_at = datetime.now(UTC)
         fetched = False
         try:
-            known = stored_days(self._connection, start, end, source_key="jquants_options:n225")
+            known = stored_days(self._connection, start, end, source_id=series.source_id)
             for offset in range((end - start).days + 1):
                 day = start + timedelta(days=offset)
                 if day.weekday() >= 5:
@@ -79,7 +79,7 @@ class OptionAcquisition:
                 with self._connection:
                     store_snapshot(
                         self._connection,
-                        source_key="jquants_options:n225",
+                        source_id=series.source_id,
                         observed_at=day,
                         fetched_at=datetime.now(UTC),
                         records=records,

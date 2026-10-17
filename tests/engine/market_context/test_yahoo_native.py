@@ -8,11 +8,10 @@ import pytest
 from tests.helpers.indicator_store import observation
 
 from baibai_engine.collection.economic_providers import yahoo
+from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
 
@@ -74,9 +73,7 @@ def test_null_close_revision_preserves_source_fields_and_removes_prior_value(tmp
     with closing(db.open_read_only_connection(path)) as connection:
         reader = build_store_observation_reader(connection, series=load_definitions().series)
         assert reader(series.series_id, first, first) == ()
-        snapshot = next(
-            read_snapshots(connection, first, first, source_key=native_source_key(series))
-        )
+        snapshot = next(read_snapshots(connection, first, first, source_id=series.source_id))
         assert snapshot.records == (
             {
                 "timestamp": stamps[0],

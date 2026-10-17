@@ -9,10 +9,9 @@ from datetime import date
 from math import isfinite
 from urllib.parse import urljoin
 
+from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
 from .boj import boj_value
 from .estat import read_estat_series
@@ -35,7 +34,7 @@ def read_native_series(
             connection, series, start=start, end=end, publication_cutoff=vintage_cutoff or end
         )
     observations = []
-    for snapshot in read_snapshots(connection, start, end, source_key=native_source_key(series)):
+    for snapshot in read_snapshots(connection, start, end, source_id=series.source_id):
         value = _one_value(series, snapshot.records)
         if value is not None:
             observations.append(

@@ -5,11 +5,9 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from baibai_engine.collection.economic_records import NativeRecords
+from baibai_engine.collection.economic_records import NativeRecords, read_snapshots
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
 from .observations import reading_observation
 
@@ -19,7 +17,7 @@ _NULL_MARKERS = frozenset({"", "-", "***", "X", "…", "..."})
 def read_estat_series(
     connection: sqlite3.Connection, series: SeriesDefinition, *, start: date, end: date
 ) -> tuple[ObservationRecord, ...]:
-    snapshots = tuple(read_snapshots(connection, start, end, source_key=native_source_key(series)))
+    snapshots = tuple(read_snapshots(connection, start, end, source_id=series.source_id))
     values = estat_values(
         {snapshot.observed_at: snapshot.records for snapshot in snapshots},
         final_only=series.provider == "estat_dashboard",

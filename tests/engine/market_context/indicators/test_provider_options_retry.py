@@ -23,13 +23,13 @@ from baibai_engine.collection.economic_providers.base import (
     ProviderFetchStoppedError,
 )
 from baibai_engine.collection.economic_providers.read_retry import read_deadline
+from baibai_engine.collection.economic_records import read_snapshots, store_snapshot
 from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,
 )
 from baibai_engine.market_context.indicators.db import initialize_database
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
 from baibai_engine.market_context.option_acquisition import OptionAcquisition
 from baibai_engine.market_context.reading.option_iv import (
     option_iv_readings,
@@ -526,13 +526,13 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
     conn = initialize_database(database)
     store_snapshot(
         conn,
-        source_key="jquants_options:n225",
+        source_id="jquants-options-n225",
         observed_at=ASOF,
         fetched_at=datetime.combine(ASOF, datetime.min.time(), UTC),
         records=_chain_records(ASOF),
     )
     conn.commit()
-    before = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
+    before = tuple(read_snapshots(conn, ASOF, ASOF, source_id="jquants-options-n225"))
     reader = OptionSeriesReader(conn)
     before_values = {
         series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
@@ -548,7 +548,7 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
     assert isinstance(results[3], RefreshSuccess)
     conn = initialize_database(database)
     try:
-        after = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
+        after = tuple(read_snapshots(conn, ASOF, ASOF, source_id="jquants-options-n225"))
         assert after == before
         reader = OptionSeriesReader(conn)
         assert {
