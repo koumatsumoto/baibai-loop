@@ -8,7 +8,7 @@ from baibai_engine.collection.economic_records import (
     store_snapshot,
     stored_days,
 )
-from baibai_engine.market_context.indicators.db import initialize_database
+from baibai_engine.collection.economic_store import initialize_database
 
 
 def test_source_identity_isolates_same_date_vintages_and_empty_responses(tmp_path):

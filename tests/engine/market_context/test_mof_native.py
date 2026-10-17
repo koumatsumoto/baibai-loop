@@ -4,17 +4,16 @@ from contextlib import closing
 from datetime import date
 from urllib.parse import urljoin
 
-from tests.helpers.indicator_store import observation
-
+from baibai_engine.collection import economic_acquisition as acquisition
+from baibai_engine.collection import economic_store as db
 from baibai_engine.collection.economic_providers import mof_jgb
 from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
 
-def test_current_month_missing_cell_overrides_history_and_prior_scalar(tmp_path, monkeypatch):
+def test_current_month_missing_cell_overrides_history_and_prior_value(tmp_path, monkeypatch):
     path = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["jp.2y"]
     first, second = date(2026, 7, 24), date(2026, 7, 27)
@@ -37,15 +36,21 @@ def test_current_month_missing_cell_overrides_history_and_prior_scalar(tmp_path,
         return next(replies).encode("cp932")
 
     monkeypatch.setattr(mof_jgb, "fetch_bytes", fetch)
-    with closing(db.initialize_database(path)) as connection, connection:
-        db.insert_observations(connection, [observation(series, first, 9.0)])
     service = IndicatorsService(path)
-    original = service.get_range(series.series_id, start=first, end=second, refresh=True)
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=first, end=second
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    original = service.get_range(series.series_id, start=first, end=second)
     assert [(row.observed_at, row.value) for row in original.observations] == [
         (first, 1.2),
         (second, 1.1),
     ]
-    corrected = service.get_range(series.series_id, start=first, end=second, refresh=True)
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=first, end=second
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    corrected = service.get_range(series.series_id, start=first, end=second)
     assert [(row.observed_at, row.value) for row in corrected.observations] == [(second, 1.1)]
     current_url = urljoin(series.source_url, "../jgbcm.csv")
     with closing(db.open_read_only_connection(path)) as connection:
@@ -65,9 +70,9 @@ def test_current_month_missing_cell_overrides_history_and_prior_scalar(tmp_path,
                 "preamble": [["synthetic rates", "unit percent"]],
             },
         )
-        assert connection.execute("SELECT value FROM observations").fetchone()[0] == 9.0
-    assert (
-        service.get_range(series.series_id, start=first, end=second, refresh=True).observations
-        == ()
-    )
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=first, end=second
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    assert service.get_range(series.series_id, start=first, end=second).observations == ()
     assert urls == [series.source_url, current_url] * 3

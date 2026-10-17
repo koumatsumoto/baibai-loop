@@ -237,7 +237,7 @@ script=""
 for argument in "$@"; do
   case "${argument}" in
     baibai_batch.storage.sqlite_snapshot) script=snapshot ;;
-    baibai_batch.storage.merge_indicator_store) script=merge ;;
+    baibai_batch.storage.merge_economic_store) script=merge ;;
     baibai_batch.storage.merge_market_store) script=merge ;;
     baibai_batch.validation.repository_layout) script=layout ;;
     baibai_batch.storage.publish_market_lake) script=publish ;;
@@ -1412,6 +1412,7 @@ def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -
 
     assert completed.returncode != 0
     commands = _transfer_commands(log)
+    assert any(command.startswith("merge ") for command in commands)
     assert not any(
         command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
         for command in commands

@@ -10,7 +10,7 @@ from baibai_engine.collection.economic_documents import (
     read_documents,
     store_document,
 )
-from baibai_engine.market_context.indicators.db import initialize_database
+from baibai_engine.collection.economic_store import initialize_database
 
 
 def document(**changes):
@@ -62,6 +62,34 @@ def test_unreadable_new_body_does_not_restore_an_older_usable_body(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM economic_source_documents").fetchone()[0] == 2
 
 
+def test_document_receipt_identity_replay_and_conflict_leave_newer_body_intact(tmp_path):
+    old_jst = datetime.fromisoformat("2026-10-17T09:00:00+09:00")
+    old = document(fetched_at=old_jst)
+    new = document(fetched_at=old_jst + timedelta(hours=1), payload=b"new body")
+    with closing(initialize_database(tmp_path / "indicators.sqlite")) as conn, conn:
+        assert store_document(conn, old)
+        assert store_document(conn, new)
+        before = conn.execute(
+            "SELECT fetched_at, source_url, content_type, payload, metadata "
+            "FROM economic_source_documents ORDER BY fetched_at"
+        ).fetchall()
+        replay = document(
+            fetched_at=old_jst.astimezone(UTC),
+            metadata=dict(reversed(list(old.metadata.items()))),
+        )
+        assert not store_document(conn, replay)
+        with pytest.raises(ValueError, match="conflicting source receipt identity"):
+            store_document(conn, document(fetched_at=old_jst, payload=b"different body"))
+        assert (
+            conn.execute(
+                "SELECT fetched_at, source_url, content_type, payload, metadata "
+                "FROM economic_source_documents ORDER BY fetched_at"
+            ).fetchall()
+            == before
+        )
+        assert list(read_documents(conn, old.source_id)) == [new]
+
+
 def test_document_write_belongs_to_caller_transaction(tmp_path):
     value = document()
     with closing(initialize_database(tmp_path / "indicators.sqlite")) as conn:
@@ -80,7 +108,7 @@ def test_document_requires_timezone(tmp_path):
 
 
 def test_document_bodies_participate_in_store_merge(tmp_path):
-    from baibai_batch.storage.merge_indicator_store import merge_stores
+    from baibai_batch.storage.merge_economic_store import merge_stores
 
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
     value = document()

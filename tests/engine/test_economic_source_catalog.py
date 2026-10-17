@@ -7,6 +7,29 @@ import pytest
 from baibai_engine.collection.economic_sources import SourceDefinition, load_sources
 
 
+def test_collection_list_and_help_do_not_load_env_or_create_a_store(tmp_path, monkeypatch, capsys):
+    import json
+    import sqlite3
+
+    from baibai_engine.collection import cli, economic_cli
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("read-only Collection command opened a store or loaded env")
+
+    monkeypatch.setattr(sqlite3, "connect", unexpected)
+    monkeypatch.setattr(economic_cli, "load_project_env", unexpected)
+    monkeypatch.chdir(tmp_path)
+    before = set(tmp_path.rglob("*"))
+    assert cli.main(["economic", "list", "--format", "json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert "fed-h15" in {item["source_id"] for item in listed}
+    with pytest.raises(SystemExit) as help_exit:
+        cli.main(["economic", "--help"])
+    assert help_exit.value.code == 0
+    assert "refresh" in capsys.readouterr().out
+    assert set(tmp_path.rglob("*")) == before
+
+
 def test_source_catalog_has_no_derived_calculations_or_l2_metadata():
     sources = load_sources()
     assert sources
@@ -75,9 +98,9 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
     from contextlib import closing
     from datetime import date
 
+    from baibai_engine.collection import economic_acquisition, economic_store
     from baibai_engine.collection.economic_records import read_snapshots
     from baibai_engine.market_context import indicator_service
-    from baibai_engine.market_context.indicators import db
     from baibai_engine.market_context.indicators.definitions import load_definitions
 
     day = date(2026, 5, 1)
@@ -90,18 +113,24 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
         calls.append(source.source_id)
         return {day: rows}
 
-    monkeypatch.setattr(indicator_service, "fetch_native_records", fetch)
+    monkeypatch.setattr(economic_acquisition, "fetch_native_records", fetch)
+    outcomes = economic_acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=day, end=day
+    )
+    assert len(outcomes) == 1
+    assert isinstance(outcomes[0], economic_acquisition.SourceRefreshSuccess)
+    assert outcomes[0].record_count == 1
     service = indicator_service.IndicatorsService(path)
-    for refresh in (True, False):
+    for _ in range(2):
         with pytest.raises(ValueError, match="MOF source missing column 10年"):
-            service.get_range(series.series_id, start=day, end=day, refresh=refresh)
+            service.get_range(series.series_id, start=day, end=day)
     assert calls == [series.source_id]
-    with closing(db.open_read_only_connection(path)) as connection:
+    with closing(economic_store.open_read_only_connection(path)) as connection:
         snapshots = list(read_snapshots(connection, day, day, source_id=series.source_id))
         assert snapshots[0].records == tuple(rows)
         assert [
             tuple(row)
-            for row in connection.execute("SELECT status, record_count FROM provider_runs")
+            for row in connection.execute("SELECT status, record_count FROM economic_source_runs")
         ] == [("ok", 1)]
 
 

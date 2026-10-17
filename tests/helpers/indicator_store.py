@@ -1,14 +1,12 @@
-"""Builders for the indicator store: series, observations, readers, and seeds."""
+"""Builders for indicator series, temporary L2 observations, and source fixtures."""
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 
 from baibai_engine.collection.economic_records import store_snapshot
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 
@@ -65,12 +63,11 @@ def observation(
     period_end: date | None = None,
     fetch_status: str = "ok",
 ) -> ObservationRecord:
-    """One stored observation.
+    """One temporary L2 calculation value used by a reader fixture.
 
-    Passing a `SeriesDefinition` takes its unit and source URL, because a record whose
-    unit disagrees with its series is one the store's own triggers refuse — a fixture
-    that builds it is testing a shape production never writes. ``period_days`` is the
-    start-to-end date offset, not an inclusive day count (4 means Monday to Friday).
+    Passing a `SeriesDefinition` takes its unit and source URL. This record is not
+    retained source input. ``period_days`` is the start-to-end date offset, not an
+    inclusive day count (4 means Monday to Friday).
     """
 
     if period_days is not None:
@@ -129,17 +126,6 @@ def store_reader(
         )
 
     return read
-
-
-def seed_store(path: Path, *records: ObservationRecord) -> None:
-    """Create an indicator store at `path` holding exactly `records`."""
-
-    connection = initialize_database(path)
-    try:
-        if records:
-            insert_observations(connection, list(records))
-    finally:
-        connection.close()
 
 
 def store_h15_observations(
@@ -214,7 +200,6 @@ __all__ = [
     "SOURCE_URL",
     "observation",
     "observations",
-    "seed_store",
     "series_definition",
     "store_h15_observations",
     "store_mof_observations",

@@ -6,6 +6,8 @@ from datetime import UTC, date, datetime
 import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse, _StaticSession
 
+from baibai_engine.collection import economic_acquisition as acquisition
+from baibai_engine.collection import economic_store as db
 from baibai_engine.collection.economic_documents import (
     SourceDocument,
     read_documents,
@@ -19,7 +21,6 @@ from baibai_engine.collection.economic_providers.base import (
 from baibai_engine.collection.economic_providers.tsr_bankruptcies import TsrBankruptciesSource
 from baibai_engine.collection.economic_sources import require_source
 from baibai_engine.market_context import indicator_service
-from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading import pmi
 from baibai_engine.market_context.reading.documents import read_document_series
@@ -88,15 +89,20 @@ def test_document_projection_failure_preserves_source_and_success(tmp_path, monk
     path = tmp_path / "data.sqlite"
     body = b'{"shape": "changed"}'
     monkeypatch.setattr(
-        indicator_service, "fetch_source_documents", lambda *a, **k: iter([tsr_document(body)])
+        acquisition, "fetch_source_documents", lambda *a, **k: iter([tsr_document(body)])
     )
+    outcome = acquisition.refresh_sources(
+        [tsr_document(body).source_id], db_path=path, start=MONTH, end=MONTH
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
     service = indicator_service.IndicatorsService(path)
     with pytest.raises(ValueError, match="root is not a list"):
-        service.get_range("jp.bankruptcies", start=MONTH, end=MONTH, refresh=True)
+        service.get_range("jp.bankruptcies", start=MONTH, end=MONTH)
     with closing(db.open_read_only_connection(path)) as conn:
         assert next(read_documents(conn, tsr_document(body).source_id)).payload == body
         assert [
-            tuple(row) for row in conn.execute("SELECT status, record_count FROM provider_runs")
+            tuple(row)
+            for row in conn.execute("SELECT status, record_count FROM economic_source_runs")
         ] == [("ok", 1)]
 
 
@@ -109,8 +115,8 @@ def test_ordinary_read_neither_acquires_nor_writes(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("read must not acquire")
 
-    monkeypatch.setattr(indicator_service, "fetch_source_documents", forbidden)
-    monkeypatch.setattr(indicator_service, "fetch_native_records", forbidden)
+    monkeypatch.setattr(acquisition, "fetch_source_documents", forbidden)
+    monkeypatch.setattr(acquisition, "fetch_native_records", forbidden)
     service = indicator_service.IndicatorsService(path)
     assert service.get_range("jp.bankruptcies", start=MONTH, end=MONTH).observations == ()
     assert service.get_range("us.10y", start=MONTH, end=MONTH).observations == ()
@@ -120,11 +126,12 @@ def test_ordinary_read_neither_acquires_nor_writes(tmp_path, monkeypatch):
 def test_wrong_document_source_is_not_saved(tmp_path, monkeypatch):
     path = tmp_path / "data.sqlite"
     wrong = replace(tsr_document(b"[]"), source_id="another-source")
-    monkeypatch.setattr(indicator_service, "fetch_source_documents", lambda *a, **k: iter([wrong]))
-    with pytest.raises(ValueError, match="another-source"):
-        indicator_service.IndicatorsService(path).get_range(
-            "jp.bankruptcies", start=MONTH, end=MONTH, refresh=True
-        )
+    monkeypatch.setattr(acquisition, "fetch_source_documents", lambda *a, **k: iter([wrong]))
+    outcome = acquisition.refresh_sources(
+        [tsr_document(b"[]").source_id], db_path=path, start=MONTH, end=MONTH
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshFailure)
+    assert "another-source" in outcome.message
     with closing(db.open_read_only_connection(path)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM economic_source_documents").fetchone()[0] == 0
 
@@ -136,15 +143,20 @@ def test_pmi_keeps_received_pdf_when_manifest_has_a_later_gap(tmp_path, monkeypa
     monkeypatch.setattr(spglobal_pmi, "load_manifest", lambda _: {"jp_manufacturing": (release,)})
     monkeypatch.setattr(spglobal_pmi, "fetch_pdf_bytes", lambda *a, **k: b"%PDF original")
     monkeypatch.setattr(pmi, "extract_pdf_text", lambda _: "The headline PMI posted 50.4 in June.")
+    source_id = load_definitions().by_id()["jp.pmi_manufacturing"].source_id
+    outcome = acquisition.refresh_sources(
+        [source_id], db_path=path, start=MONTH, end=date(2026, 8, 10)
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshFailure)
+    assert "expects 2026-07-01" in outcome.message
     service = indicator_service.IndicatorsService(path)
-    with pytest.raises(IndicatorsProviderError, match="expects 2026-07-01"):
-        service.get_range("jp.pmi_manufacturing", start=MONTH, end=date(2026, 8, 10), refresh=True)
     result = service.get_range("jp.pmi_manufacturing", start=MONTH, end=MONTH)
     assert [item.value for item in result.observations] == [50.4]
     with closing(db.open_read_only_connection(path)) as conn:
         assert next(read_documents(conn, result.series.source_id)).payload == b"%PDF original"
         assert [
-            tuple(row) for row in conn.execute("SELECT status, record_count FROM provider_runs")
+            tuple(row)
+            for row in conn.execute("SELECT status, record_count FROM economic_source_runs")
         ] == [("failed", 1)]
 
 
@@ -235,7 +247,7 @@ def test_actual_pdf_bytes_recompute_pmi_without_a_network_request(tmp_path, monk
     def forbidden(*args, **kwargs):
         raise AssertionError("L2 read must not contact the publisher")
 
-    monkeypatch.setattr(indicator_service, "fetch_source_documents", forbidden)
+    monkeypatch.setattr(acquisition, "fetch_source_documents", forbidden)
     service = indicator_service.IndicatorsService(path)
     first = service.get_range(series.series_id, start=MONTH, end=MONTH)
     second = service.get_range(series.series_id, start=MONTH, end=MONTH)

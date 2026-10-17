@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import io
 import json
-import sqlite3
 from collections.abc import Mapping, Sequence
-from contextlib import closing
 from dataclasses import replace
-from datetime import UTC, date, datetime
-from pathlib import Path
+from datetime import date
 from typing import TYPE_CHECKING, cast
 
 import openpyxl
@@ -16,7 +13,6 @@ from tests.helpers.indicator_store import (
     series_definition,
 )
 
-import baibai_engine.market_context.indicators.db as indicators_db
 from baibai_engine.collection.economic_providers import (
     parse_estat_json,
 )
@@ -30,15 +26,8 @@ from baibai_engine.collection.economic_providers.spglobal_pmi import (
     Release,
     _parse_stream,
 )
-from baibai_engine.market_context.indicators.db import (
-    get_series,
-    initialize_database,
-    insert_observations,
-    record_provider_run,
-)
 from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,
-    load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading.estat import estat_values
@@ -48,92 +37,6 @@ if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
     # onto the import path of the whole suite, which the lazy launch avoids.
     from baibai_engine.collection.economic_providers.browser import BrowserFetcher
-
-
-def _prune_store_rows(database: Path) -> dict[str, tuple[tuple[object, ...], ...]]:
-    with closing(sqlite3.connect(database)) as connection:
-        return {
-            table: tuple(sorted(connection.execute(f"SELECT * FROM {table}").fetchall(), key=repr))
-            for table in ("series", "aliases", "observations", "provider_runs", "registry_state")
-        }
-
-
-def _write_retired_series(database: Path) -> None:
-    """A store written while the series was still registered, then left behind.
-
-    The generation is one behind the current registry because retiring a series
-    changes the canonical membership, and only a client whose registry is newer
-    than the store may prune what the store still holds.
-    """
-
-    conn = initialize_database(database)
-    try:
-        indicators_db.set_registry_generation(conn, load_definitions().generation - 1)
-        conn.execute(
-            "INSERT INTO series("
-            "series_id, name, category, geography, frequency, unit, provider, "
-            "provider_series_id, source_id, source_url"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "jp.cpi.stale",
-                "stale",
-                "inflation",
-                "japan",
-                "monthly",
-                "index",
-                "fred_csv",
-                "JPNCPIALLMINMEI",
-                "fred-jp-cpi",
-                "https://example.com/stale.csv",
-            ),
-        )
-        conn.execute(
-            "INSERT INTO aliases(alias, series_id) VALUES (?, ?)",
-            ("stale alias", "jp.cpi.stale"),
-        )
-        insert_observations(
-            conn,
-            [
-                ObservationRecord(
-                    series_id="jp.cpi.stale",
-                    observed_at=date(2021, 12, 1),
-                    value=100.0,
-                    unit="index",
-                    source_url="https://example.com/stale.csv",
-                    vintage_at=datetime(2026, 5, 1, tzinfo=UTC),
-                )
-            ],
-        )
-        record_provider_run(
-            conn,
-            provider="fred_csv",
-            series_id="jp.cpi.stale",
-            start=date(2021, 1, 1),
-            end=date(2021, 12, 31),
-            started_at=datetime(2026, 5, 1, tzinfo=UTC),
-            status="ok",
-            record_count=1,
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _retired_counts(database: Path) -> tuple[int, int, int]:
-    conn = sqlite3.connect(database)
-    try:
-        return cast(
-            tuple[int, int, int],
-            tuple(
-                conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                ).fetchone()[0]
-                for table in ("series", "observations", "provider_runs")
-            ),
-        )
-    finally:
-        conn.close()
 
 
 def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None) -> str:
@@ -258,62 +161,6 @@ def _boj_workbook_bytes(
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
-
-
-def _write_observation_with_coverage(
-    db: Path,
-    series_id: str,
-    *,
-    observed_at: date,
-    value: float,
-    coverage_start: date,
-    coverage_end: date,
-) -> None:
-    _write_observation(db, series_id, observed_at=observed_at, value=value)
-    conn = sqlite3.connect(db)
-    try:
-        record_provider_run(
-            conn,
-            provider="test",
-            series_id=series_id,
-            start=coverage_start,
-            end=coverage_end,
-            started_at=datetime.now(UTC),
-            status="ok",
-            record_count=1,
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _write_observation(
-    db: Path,
-    series_id: str,
-    *,
-    observed_at: date,
-    value: float,
-    vintage_at: datetime | None = None,
-) -> None:
-    conn = initialize_database(db)
-    try:
-        series = get_series(conn, series_id)
-        insert_observations(
-            conn,
-            [
-                ObservationRecord(
-                    series_id=series_id,
-                    observed_at=observed_at,
-                    value=value,
-                    unit=series.unit,
-                    source_url=series.source_url,
-                    vintage_at=vintage_at or datetime.now(UTC),
-                )
-            ],
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 _DASHBOARD_INDICATOR = "0301010000020020010"

@@ -82,7 +82,7 @@ packages = [
 [tool.hatch.build.targets.wheel.force-include]
 "engine/src/baibai_engine/collection/economic_sources.yaml" = "baibai_engine/collection/economic_sources.yaml"
 "engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
-"engine/src/baibai_engine/market_context/indicators/schema.sql" = "baibai_engine/market_context/indicators/schema.sql"
+"engine/src/baibai_engine/collection/economic_store.sql" = "baibai_engine/collection/economic_store.sql"
 "engine/src/baibai_engine/market_context/indicators/registry/us.yaml" = "baibai_engine/market_context/indicators/registry/us.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/japan.yaml" = "baibai_engine/market_context/indicators/registry/japan.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/global.yaml" = "baibai_engine/market_context/indicators/registry/global.yaml"
@@ -639,7 +639,7 @@ source_modules = [
   "baibai_engine.market_context.reading.derived", "baibai_engine.market_context.reading.formulas",
 ]
 forbidden_modules = [
-  "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicator_service",
+  "baibai_engine.collection.economic_store", "baibai_engine.market_context.indicator_service",
   "baibai_engine.collection.economic_providers", "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
   "baibai_engine.storage", "baibai_engine.research.market_context", "baibai_engine.read_api",

@@ -6,10 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 
+from baibai_engine.collection import economic_store as db
 from baibai_engine.collection.economic_providers import jquants_flows, jquants_indices
 from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
 from baibai_engine.collection.economic_records import read_snapshots, store_snapshot
-from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at

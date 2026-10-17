@@ -4,7 +4,7 @@ import json
 import re
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -16,7 +16,8 @@ from tests.helpers.indicator_store import store_h15_observations, store_mof_obse
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
-from baibai_engine.market_context.indicators.db import insert_observations, open_connection
+from baibai_engine.collection.economic_records import store_snapshot
+from baibai_engine.collection.economic_store import open_connection, record_source_run
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading.rules import (
@@ -57,29 +58,9 @@ def _meta_source(root: Path) -> DbMetaSource:
     )
 
 
-def _seed_indicator_observations(root: Path) -> None:
+def _seed_economic_sources(root: Path) -> None:
     conn = open_connection(root / "stores/market_context/indicators.sqlite")
     try:
-        insert_observations(
-            conn,
-            [
-                ObservationRecord(
-                    series_id="jp.10y",
-                    observed_at=date(2026, 7, 17),
-                    value=1.1,
-                    unit="percent",
-                    source_url="https://example.com/jp10y",
-                ),
-                ObservationRecord(
-                    series_id="jp.10y",
-                    observed_at=date(2026, 7, 20),
-                    value=1.2,
-                    unit="percent",
-                    source_url="https://example.com/jp10y",
-                    fetch_status="failed",
-                ),
-            ],
-        )
         store_mof_observations(
             conn,
             [
@@ -104,13 +85,23 @@ def _seed_indicator_observations(root: Path) -> None:
                 )
             ],
         )
+        record_source_run(
+            conn,
+            source_id="mof-jgbcm-all",
+            start=date(2026, 7, 20),
+            end=date(2026, 7, 20),
+            started_at=datetime(2026, 7, 20, tzinfo=UTC),
+            status="failed",
+            record_count=0,
+            error_message="fixture source unavailable",
+        )
         conn.commit()
     finally:
         conn.close()
 
 
 def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path) -> None:
-    _seed_indicator_observations(app_method_root)
+    _seed_economic_sources(app_method_root)
     seed_history(
         app_method_root / "stores/application/baibai.sqlite",
         (StoredAssessment.from_payload(historical_context_payload())).document,
@@ -127,42 +118,19 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path
     assert view.generated_at.tzinfo is not None
 
 
-def test_build_meta_freshness_ignores_retained_unregistered_series(
+def test_build_meta_freshness_ignores_unreferenced_source(
     app_method_root: Path,
 ) -> None:
-    _seed_indicator_observations(app_method_root)
+    _seed_economic_sources(app_method_root)
     database = app_method_root / "stores/market_context/indicators.sqlite"
     connection = open_connection(database)
     try:
-        connection.execute(
-            "INSERT INTO series("
-            "series_id, name, category, geography, frequency, unit, provider, "
-            "provider_series_id, source_id, source_url"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "retired.series",
-                "Retired",
-                "test",
-                "world",
-                "daily",
-                "index",
-                "fred_csv",
-                "RETIRED",
-                "retired",
-                "https://example.com/retired",
-            ),
-        )
-        insert_observations(
+        store_snapshot(
             connection,
-            [
-                ObservationRecord(
-                    series_id="retired.series",
-                    observed_at=date(2026, 8, 1),
-                    value=100.0,
-                    unit="index",
-                    source_url="https://example.com/retired",
-                )
-            ],
+            source_id="unreferenced-source",
+            observed_at=date(2026, 8, 1),
+            fetched_at=datetime(2026, 8, 2, tzinfo=UTC),
+            records=[{"raw": 100}],
         )
         connection.commit()
     finally:
@@ -692,7 +660,7 @@ def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
     screening_before = json.loads(
         (output / "views/screening_latest.json").read_text(encoding="utf-8")
     )
-    _seed_indicator_observations(app_method_root)
+    _seed_economic_sources(app_method_root)
     assert (
         main(["--output-dir", str(output), "--repo-root", str(app_method_root), "--skip-history"])
         == 0

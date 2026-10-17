@@ -9,7 +9,7 @@
 | 分析前に保存情報を揃える | [クラウド正本の取得](#クラウド正本をローカルへ取得する) |
 | localで更新したmachine情報を反映する | [クラウド更新](#ローカルからクラウドを更新する) |
 | 判断・確認済み事実を表示へ反映する | [application反映](#application-db-を反映する) |
-| 指標観測・registryを直す | [撤回と退役](#指標観測とregistryの修正) |
+| 経済原本・L2系列を直す | [原本と系列定義の修正](#指標観測とregistryの修正) |
 | EDINET metricsの抽出意味を変更する | [意味revision更新](#edinet-metrics-revision) |
 | EDINET原典のResearch factsを揃える | [EDINET Research facts](#edinet-research-facts) |
 | 初回の構成を確認する | [Cloudflare / GitHub Actions構成](#cloudflare--github-actions-構成) |
@@ -353,35 +353,33 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 #### 指標履歴
 
-系列追加後やrolling窓を超える取得断を補う場合に使う。対象期間の全履歴を取得し、Readingを確認する。
+source追加後やrolling窓を超える取得断を補う場合に使う。L2系列IDではなくCollection source IDを指定する。source一覧と利用可能範囲を確認し、取得後は必要なL2系列・Readingを別途読む。
 
 ```bash
 (
   set -e
+  uv run baibai-engine collection economic list
   read -r -p '対象日 YYYY-MM-DD: ' asof
-  read -r -a series_ids -p '対象series IDを空白区切りで入力: '
-  test "${#series_ids[@]}" -gt 0
-  uv run baibai-engine market-context indicators refresh "${series_ids[@]}" --all-history --end "$asof"
+  read -r -a source_ids -p '対象source IDを空白区切りで入力: '
+  test "${#source_ids[@]}" -gt 0
+  uv run baibai-engine collection economic refresh "${source_ids[@]}" --all-history --end "$asof"
   uv run baibai-engine market-context reading --asof "$asof"
 )
 ```
 
-数値・履歴不足を確認し、系列追加を含むcodeはmainへ反映してから、[指標のcloud更新](#ローカルからクラウドを更新する)へ進む。失敗時は保存済み範囲と未完範囲を確認し、日次batchに全履歴取得を代行させない。
+取得成功は原本受領・保存の結果であり、すべてのL2値を計算できた意味ではない。数値・履歴不足を確認し、codeをmainへ反映してから[指標のcloud更新](#ローカルからクラウドを更新する)へ進む。失敗時は完了した原本と未完範囲を確認し、日次batchに全履歴取得を代行させない。
 
 #### 指標観測とregistryの修正
 
-vintage・retraction・generation・no-lossの意味は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
+原本のrevisionとL2読取は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)に従う。scalar観測の撤回CLI、registry世代台帳、系列退役に伴う原本pruneは持たない。
 
-**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`とnative原本から読む系列はscalar観測の撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
+原本が誤っている場合は、sourceの訂正取得か明示的なstore再構築を行う。localだけのDELETEをcloudとのmergeによる訂正手段にはしない。source取得失敗・原本の欠測・L2計算エラーを区別して原因を確認する。
 
-**系列の追加・退役・改名**:
+系列の追加・退役・改名では、`market_context/indicators/registry/`と必要な計算・読取を変更する。外部取得条件を変える場合だけCollection catalog/providerも変更する。既存原本から再計算できる変更に再取得を要求せず、式・単位・欠測・公開結果をテストと保存済み読取で確認する。L2系列の退役だけでsource factsや過去の発行済みContextを削除しない。判断履歴の退役系列warningは確認する。
 
-1. writerが競合しない時間に、現行mainで`uv run baibai-batch validate-market-context-stores`を実行する。
-2. `engine/src/baibai_engine/market_context/indicators/registry/`の定義を変更し、`definitions.py`の`_REGISTRY_MEMBERSHIP_GENERATIONS`へ変更後の集合に対応する、現在より大きいgenerationを設定する。過去と同じ集合へ戻る場合はdigestも同じなので、その既存keyの値を更新する。重複keyの追記や旧generation再利用はしない。
-3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`market-context indicators refresh`を実行する。退役IDだけの指定ではpruneへ進めない。base観測の同期後、派生値はReadingで再計算されるため別のrefreshは不要である。
-4. validator・Reading・意図した退役結果を確認後、`push-indicators`を実行する。件数表示はcommit後の補助出力であり、ログの組合せをcommit条件にしない。発行済みContextの退役系列warningは確認するが本文を書き換えない。
+原本storeの構造・全revisionと、判断履歴は`uv run baibai-batch validate-market-context-stores`で別々に検査する。この検査はL2の値域・数式の正しさを証明しない。原本を更新した場合は読取確認後に`push-indicators`へ進み、式だけの変更なら原本storeのpushは不要である。
 
-**optionsの集計式変更**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は原本からL2で再計算する。式変更だけなら系列退役や再導入、API履歴の取り直しは行わない。原本が不足する日だけ補い、Readingと公開結果を確認する。旧scalar行は履歴として残っていても現行の読取には使わない。取得・再開の契約は[optionsの取得と復旧](../docs/reference/market-context.md#jquants-options-provider)を参照する。
+optionsの3系列も同じ方針で原本からL2再計算する。取得・再開の契約は[optionsの取得と復旧](../docs/reference/market-context.md#jquants-options-provider)を参照する。
 
 **schema切替と原本の再構築**: 通常のopen・pull・mergeに旧schema互換を追加しない。schema変更時は実行中writerがいない切替窓を確保し、現行codeで別のcandidate storeを準備する。codeとstoreの世代を合わせ、条件付き書込みとbundle receiptの整合を確認して切り替える。
 
@@ -411,7 +409,7 @@ vintage・retraction・generation・no-lossの意味は[Market Context reference
 
 ### merge が検査するもの
 
-`push-market` / `push-indicators`はcloud-only dataや新しいgenerationを失う可能性があれば停止する。cloudとlocalのどちらかを推測で正本にして上書きしない。CAS / generation conflictでは同じ世代をblind retryせず、最新cloud stateからやり直す。local変更後にhydrateして成果を上書きしない。machine bundle途中pushは[部分 push からの復旧](#部分-push-からの復旧)へ進む。内部契約は`baibai_batch.storage.merge_market_store` / `baibai_batch.storage.merge_indicator_store`と対応testsを正本とする。
+`push-market` / `push-indicators`は原本identityの衝突やremote世代の競合があれば停止する。cloudとlocalのどちらかを推測で正本にして上書きしない。CAS / generation conflictでは同じ世代をblind retryせず、最新cloud stateからやり直す。local変更後にhydrateして成果を上書きしない。machine bundle途中pushは[部分 push からの復旧](#部分-push-からの復旧)へ進む。内部契約は`baibai_batch.storage.merge_market_store` / `baibai_batch.storage.merge_economic_store`と対応testsを正本とする。
 
 ### 手動で lake を publish する
 

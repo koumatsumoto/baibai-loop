@@ -39,7 +39,7 @@ type IndicatorGranularity = Literal["daily", "weekly", "monthly", "yearly"]
 
 
 def indicator_fetch_health(path: Path) -> list[dict[str, object]]:
-    """The latest provider run per series: did the last acquisition attempt succeed?
+    """Project each source's latest acquisition outcome onto its external L2 series.
 
     Staleness alone cannot see a provider that just went silent: a monthly series stays
     inside its staleness threshold for weeks after its source stops answering. The run
@@ -49,21 +49,21 @@ def indicator_fetch_health(path: Path) -> list[dict[str, object]]:
     rows = read_rows(
         path,
         """
-            SELECT series_id, status, finished_at, record_count, error_message FROM (
-                SELECT series_id, status, finished_at, record_count, error_message,
+            SELECT source_id, status, finished_at, record_count, error_message FROM (
+                SELECT source_id, status, finished_at, record_count, error_message,
                        row_number() OVER (
-                           PARTITION BY series_id ORDER BY finished_at DESC, run_id DESC
+                           PARTITION BY source_id ORDER BY finished_at DESC, run_id DESC
                        ) AS rank
-                FROM provider_runs
+                FROM economic_source_runs
             )
             WHERE rank = 1
-            ORDER BY series_id
+            ORDER BY source_id
             """,
     )
-    registered = _registry_by_id()
+    latest_by_source = {str(row[0]): row for row in rows}
     return [
         {
-            "series_id": str(row[0]),
+            "series_id": series.series_id,
             "status": str(row[1]),
             "finished_at": str(row[2]),
             "record_count": int(row[3]),
@@ -71,8 +71,9 @@ def indicator_fetch_health(path: Path) -> list[dict[str, object]]:
             # side masked them are still in the store and still get published.
             "error_message": None if row[4] is None else redact_credentials(str(row[4])),
         }
-        for row in rows
-        if str(row[0]) in registered
+        for series in sorted(_registry_by_id().values(), key=lambda item: item.series_id)
+        if series.provider != "derived"
+        if (row := latest_by_source.get(series.source_id)) is not None
     ]
 
 
@@ -120,11 +121,6 @@ def indicator_series(
         return None
     connection = connect_read_only(path)
     try:
-        series = connection.execute(
-            "SELECT name, unit FROM series WHERE series_id = ?", (series_id,)
-        ).fetchone()
-        if series is None:
-            return None
         reader = build_store_observation_reader(
             connection,
             series=tuple(registry.values()),
@@ -154,8 +150,8 @@ def indicator_series(
         points = points[-limit:]
     return {
         "series_id": series_id,
-        "name": str(series[0]),
-        "unit": str(series[1]),
+        "name": registry[series_id].name,
+        "unit": registry[series_id].unit,
         "tradingview_symbol": registry[series_id].tradingview_symbol,
         "points": points,
     }

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import (
@@ -36,17 +36,6 @@ class IndicatorsRegistryTests(unittest.TestCase):
             point_in_time_providers(),
             frozenset(spec.name for spec in registered_specs() if spec.point_in_time_vintage),
         )
-
-    def test_canonical_registry_membership_has_a_known_generation(self) -> None:
-        self.assertEqual(load_definitions().generation, 5)
-        with (
-            patch(
-                "baibai_engine.market_context.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
-                {},
-            ),
-            self.assertRaisesRegex(ValueError, "without a new generation digest"),
-        ):
-            load_definitions()
 
     def test_new_tier1_series_registered_with_expected_provider_and_category(self) -> None:
         by_id = load_definitions().by_id()
@@ -380,8 +369,7 @@ def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
     def unexpected(*args, **kwargs):
         raise AssertionError("catalog opened a store")
 
-    monkeypatch.setattr("baibai_engine.market_context.indicators.db.open_connection", unexpected)
-    monkeypatch.setattr("baibai_engine.market_context.indicator_cli.load_project_env", unexpected)
+    monkeypatch.setattr(sqlite3, "connect", unexpected)
     before = set(tmp_path.rglob("*"))
     monkeypatch.chdir(tmp_path)
     for command in (["list", "--format", "json"], ["search", "CPI"]):

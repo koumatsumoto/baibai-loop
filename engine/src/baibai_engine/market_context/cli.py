@@ -11,7 +11,7 @@ from typing import cast
 _COMMANDS = {
     "indicators": (
         "baibai_engine.market_context.indicator_cli",
-        "economic observations and acquisition",
+        "saved economic indicator observations",
     ),
     "reading": (
         "baibai_engine.market_context.reading.cli",

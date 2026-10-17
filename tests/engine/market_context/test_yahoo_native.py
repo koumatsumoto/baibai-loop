@@ -1,16 +1,16 @@
-"""Yahoo null close revisions retain OHLCV and cannot revive scalar history."""
+"""Yahoo null close revisions retain OHLCV and do not revive earlier values."""
 
 import json
 from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.helpers.indicator_store import observation
 
+from baibai_engine.collection import economic_acquisition as acquisition
+from baibai_engine.collection import economic_store as db
 from baibai_engine.collection.economic_providers import yahoo
 from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
@@ -60,15 +60,21 @@ def test_null_close_revision_preserves_source_fields_and_removes_prior_value(tmp
         return next(replies)
 
     monkeypatch.setattr(yahoo, "fetch_text", fetch)
-    with closing(db.initialize_database(path)) as connection, connection:
-        db.insert_observations(connection, [observation(series, first, 9999.0)])
     service = IndicatorsService(path)
-    original = service.get_range(series.series_id, start=first, end=second, refresh=True)
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=first, end=second
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    original = service.get_range(series.series_id, start=first, end=second)
     assert [(row.observed_at, row.value) for row in original.observations] == [
         (first, 4000.0),
         (second, 4050.0),
     ]
-    corrected = service.get_range(series.series_id, start=first, end=second, refresh=True)
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=first, end=second
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    corrected = service.get_range(series.series_id, start=first, end=second)
     assert [(row.observed_at, row.value) for row in corrected.observations] == [(second, 4050.0)]
     with closing(db.open_read_only_connection(path)) as connection:
         reader = build_store_observation_reader(connection, series=load_definitions().series)
@@ -86,7 +92,6 @@ def test_null_close_revision_preserves_source_fields_and_removes_prior_value(tmp
                 },
             },
         )
-        assert connection.execute("SELECT value FROM observations").fetchone()[0] == 9999.0
     assert urls == [series.source_url, series.source_url]
 
 
@@ -109,5 +114,7 @@ def test_wrong_symbol_cannot_be_read_as_the_requested_series(tmp_path, monkeypat
         }
     )
     monkeypatch.setattr(yahoo, "fetch_text", lambda *args, **kwargs: payload)
+    outcome = acquisition.refresh_sources([series.source_id], db_path=path, start=day, end=day)[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
     with pytest.raises(ValueError, match="symbol does not match"):
-        IndicatorsService(path).get_range(series.series_id, start=day, end=day, refresh=True)
+        IndicatorsService(path).get_range(series.series_id, start=day, end=day)

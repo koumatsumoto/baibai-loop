@@ -46,14 +46,25 @@ def store_snapshot(
     """
     if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
         raise ValueError("source acquisition time must include a timezone")
+    receipt_at = fetched_at.astimezone(UTC).isoformat(timespec="microseconds")
+    observed_day = observed_at.isoformat()
     payload = gzip.compress(
         json.dumps(records, ensure_ascii=False, sort_keys=True, allow_nan=False).encode("utf-8"),
         mtime=0,
     )
+    receipt = connection.execute(
+        "SELECT record_count, payload FROM economic_source_records "
+        "WHERE source_id = ? AND observed_at = ? AND fetched_at = ?",
+        (source_id, observed_day, receipt_at),
+    ).fetchone()
+    if receipt is not None:
+        if tuple(receipt) == (len(records), payload):
+            return False
+        raise ValueError("conflicting source receipt identity for economic source records")
     latest = connection.execute(
         "SELECT payload FROM economic_source_records WHERE source_id = ? AND observed_at = ? "
         "ORDER BY fetched_at DESC LIMIT 1",
-        (source_id, observed_at.isoformat()),
+        (source_id, observed_day),
     ).fetchone()
     if latest is not None and latest[0] == payload:
         return False
@@ -63,8 +74,8 @@ def store_snapshot(
         "VALUES (?, ?, ?, ?, ?)",
         (
             source_id,
-            observed_at.isoformat(),
-            fetched_at.astimezone(UTC).isoformat(timespec="microseconds"),
+            observed_day,
+            receipt_at,
             len(records),
             payload,
         ),

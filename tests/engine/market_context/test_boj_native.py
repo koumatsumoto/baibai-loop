@@ -4,17 +4,16 @@ import json
 from contextlib import closing
 from datetime import date
 
-from tests.helpers.indicator_store import observation
-
+from baibai_engine.collection import economic_acquisition as acquisition
+from baibai_engine.collection import economic_store as db
 from baibai_engine.collection.economic_providers import boj_timeseries
 from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
 
-def test_null_revision_does_not_restore_scalar_cache_and_retains_metadata(tmp_path, monkeypatch):
+def test_null_revision_does_not_restore_prior_value_and_retains_metadata(tmp_path, monkeypatch):
     path = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["jp.policy_rate"]
     first, second = date(2026, 7, 24), date(2026, 7, 27)
@@ -41,15 +40,21 @@ def test_null_revision_does_not_restore_scalar_cache_and_retains_metadata(tmp_pa
 
     replies = iter([reply([0.5, 0.6]), reply([None, 0.6])])
     monkeypatch.setattr(boj_timeseries, "fetch_text", lambda *args, **kwargs: next(replies))
-    with closing(db.initialize_database(path)) as connection, connection:
-        db.insert_observations(connection, [observation(series, first, 9.0)])
     service = IndicatorsService(path)
-    original = service.get_range(series.series_id, start=first, end=second, refresh=True)
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=first, end=second
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    original = service.get_range(series.series_id, start=first, end=second)
     assert [(row.observed_at, row.value) for row in original.observations] == [
         (first, 0.5),
         (second, 0.6),
     ]
-    corrected = service.get_range(series.series_id, start=first, end=second, refresh=True)
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=path, start=first, end=second
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    corrected = service.get_range(series.series_id, start=first, end=second)
     assert [(row.observed_at, row.value) for row in corrected.observations] == [(second, 0.6)]
     with closing(db.open_read_only_connection(path)) as connection:
         reader = build_store_observation_reader(connection, series=load_definitions().series)
@@ -64,4 +69,3 @@ def test_null_revision_does_not_restore_scalar_cache_and_retains_metadata(tmp_pa
                 "value": None,
             },
         )
-        assert connection.execute("SELECT value FROM observations").fetchone()[0] == 9.0

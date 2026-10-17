@@ -166,8 +166,8 @@ merge_store() {
   )
 }
 
-merge_indicator_store() {
-  merge_store baibai_batch.storage.merge_indicator_store "$1" "$2"
+merge_economic_store() {
+  merge_store baibai_batch.storage.merge_economic_store "$1" "$2"
 }
 
 merge_market_store() {
@@ -770,7 +770,7 @@ case "${1:-}" in
     write_machine_manifest
     ;;
   push-indicators)
-    # Deep history is fetched locally with `market-context indicators refresh --all-history`, which the
+    # Deep history is fetched locally with `collection economic refresh --all-history`, which the
     # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
     # recent observations the local store has never seen. So the local store is only
     # publishable once it contains the cloud copy: pull it, merge it in, and let the
@@ -779,7 +779,7 @@ case "${1:-}" in
     indicator_version="$(remote_version indicators.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
     check_sqlite "${transfer_staging}/indicators.sqlite"
-    merge_indicator_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
+    merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
     cleanup_staging
     transfer_staging=""
     push_key_if_version indicators.sqlite "${indicator_version}"

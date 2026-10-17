@@ -175,11 +175,11 @@ def test_reading_api_distinguishes_failed_acquisition_from_missing_observations(
     with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(
             """
-            INSERT INTO provider_runs(
-                run_id, provider, series_id, range_start, range_end,
+            INSERT INTO economic_source_runs(
+                run_id, source_id, range_start, range_end,
                 started_at, finished_at, status, record_count, error_message
             ) VALUES (
-                'run-1', 'fred_csv', 'us.10y', '2026-07-01', '2026-07-19',
+                'run-1', 'fed-h15', '2026-07-01', '2026-07-19',
                 '2026-07-19T00:00:00+00:00', '2026-07-19T00:00:05+00:00', 'failed', 0,
                 'provider returned 503'
             )
@@ -190,12 +190,19 @@ def test_reading_api_distinguishes_failed_acquisition_from_missing_observations(
         body = client.get("/api/market-context?as_of=2026-07-19").json()["reading"]
 
     failed = [item for item in body["fetch_health"] if item["status"] != "ok"]
-    assert [item["series_id"] for item in failed] == ["us.10y"]
-    assert failed[0]["error_message"] == "provider returned 503"
+    expected = {
+        item.series_id
+        for item in load_definitions().series
+        if item.source_id == "fed-h15" and item.provider != "derived"
+    }
+    assert "us.10y" in expected
+    assert len(expected) > 1
+    assert {item["series_id"] for item in failed} == expected
+    assert all(item["error_message"] == "provider returned 503" for item in failed)
     # Missing observations are stale independently of the recorded acquisition failure.
-    series = next(item for item in body["series"] if item["series_id"] == "us.10y")
-    assert series["stale"] is True
-    assert series["latest_value"] is None
+    missing = [item for item in body["series"] if item["series_id"] in expected]
+    assert len(missing) == len(expected)
+    assert all(item["stale"] is True and item["latest_value"] is None for item in missing)
 
 
 def test_market_context_overview_survives_without_an_indicator_store(

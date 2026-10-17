@@ -64,6 +64,10 @@ DOMAINS: Mapping[str, Domain] = {
         module="baibai_engine.market_context.cli",
         summary="economic observations and mechanical market readings",
     ),
+    "collection": Domain(
+        module="baibai_engine.collection.cli",
+        summary="external source collection",
+    ),
     "operation": Domain(
         module="baibai_engine.research.operation.cli",
         summary="operation sessions: one active session per trigger, with completion gates",

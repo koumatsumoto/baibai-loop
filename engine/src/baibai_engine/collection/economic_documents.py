@@ -24,15 +24,25 @@ def store_document(connection: sqlite3.Connection, document: SourceDocument) -> 
     """Stage one received body; the acquisition caller owns the transaction."""
     if document.fetched_at.tzinfo is None or document.fetched_at.utcoffset() is None:
         raise ValueError("source acquisition time must include a timezone")
+    receipt_at = document.fetched_at.astimezone(UTC).isoformat(timespec="microseconds")
     metadata = json.dumps(
         dict(document.metadata), ensure_ascii=False, sort_keys=True, allow_nan=False
     )
+    received = (document.source_url, document.content_type, document.payload, metadata)
+    receipt = connection.execute(
+        "SELECT source_url, content_type, payload, metadata FROM economic_source_documents "
+        "WHERE source_id = ? AND request_key = ? AND fetched_at = ?",
+        (document.source_id, document.request_key, receipt_at),
+    ).fetchone()
+    if receipt is not None:
+        if tuple(receipt) == received:
+            return False
+        raise ValueError("conflicting source receipt identity for economic source documents")
     previous = connection.execute(
         "SELECT source_url, content_type, payload, metadata FROM economic_source_documents "
         "WHERE source_id = ? AND request_key = ? ORDER BY fetched_at DESC LIMIT 1",
         (document.source_id, document.request_key),
     ).fetchone()
-    received = (document.source_url, document.content_type, document.payload, metadata)
     if previous is not None and tuple(previous) == received:
         return False
     connection.execute(
@@ -42,7 +52,7 @@ def store_document(connection: sqlite3.Connection, document: SourceDocument) -> 
         (
             document.source_id,
             document.request_key,
-            document.fetched_at.astimezone(UTC).isoformat(timespec="microseconds"),
+            receipt_at,
             *received,
         ),
     )

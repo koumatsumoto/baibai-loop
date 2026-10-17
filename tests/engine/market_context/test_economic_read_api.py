@@ -9,15 +9,14 @@ import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
 from baibai_engine.collection.economic_records import store_snapshot
-from baibai_engine.market_context.indicators.db import (
-    get_series,
-    initialize_database,
-)
+from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 from baibai_engine.read_api.market_context import (
     IndicatorGranularity,
+    indicator_fetch_health,
     indicator_series,
     reading_snapshot,
 )
@@ -191,7 +190,7 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
                     }
                 ],
             )
-        definition = get_series(connection, "jp.nikkei225")
+        definition = load_definitions().by_id()["jp.nikkei225"]
         for value, vintage_at in (
             (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
             (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
@@ -295,40 +294,64 @@ def test_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> Non
         indicator_series(database, series_id="us.10y", limit=0)
 
 
-def test_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -> None:
+def test_indicator_series_does_not_treat_an_unreferenced_source_as_a_series(
+    tmp_path: Path,
+) -> None:
     database = tmp_path / "indicators.sqlite"
-    connection = initialize_database(database)
-    try:
-        connection.execute(
-            "INSERT INTO series("
-            "series_id, name, category, geography, frequency, unit, provider, "
-            "provider_series_id, source_id, source_url"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "retired.series",
-                "Retired",
-                "test",
-                "world",
-                "monthly",
-                "index",
-                "fred_csv",
-                "RETIRED",
-                "retired",
-                "https://example.com/retired.csv",
-            ),
+    with closing(initialize_database(database)) as connection, connection:
+        store_snapshot(
+            connection,
+            source_id="unreferenced-source",
+            observed_at=date(2026, 5, 1),
+            fetched_at=datetime(2026, 5, 2, tzinfo=UTC),
+            records=[{"raw": 1}],
         )
-        connection.commit()
-    finally:
-        connection.close()
 
     assert indicator_series(database, series_id="retired.series") is None
     with closing(sqlite3.connect(database)) as check:
         assert (
             check.execute(
-                "SELECT COUNT(*) FROM series WHERE series_id = 'retired.series'"
+                "SELECT COUNT(*) FROM economic_source_records "
+                "WHERE source_id = 'unreferenced-source'"
             ).fetchone()[0]
             == 1
         )
+
+
+def test_source_health_is_projected_to_its_external_series_only(tmp_path: Path) -> None:
+    database = tmp_path / "sources.sqlite"
+    with closing(initialize_database(database)) as connection, connection:
+        for run_id, source_id, finished_at, status in [
+            ("a", "fed-h15", "2026-07-20T00:00:00.000000+00:00", "failed"),
+            ("b", "fed-h15", "2026-07-20T00:00:01.000000+00:00", "ok"),
+            ("c", "unreferenced-source", "2026-07-20T00:00:02.000000+00:00", "failed"),
+        ]:
+            connection.execute(
+                "INSERT INTO economic_source_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    source_id,
+                    "2026-07-20",
+                    "2026-07-20",
+                    finished_at,
+                    finished_at,
+                    status,
+                    42,
+                    None if status == "ok" else "unavailable",
+                ),
+            )
+    before = database.read_bytes()
+    result = indicator_fetch_health(database)
+    expected = {
+        item.series_id
+        for item in load_definitions().series
+        if item.source_id == "fed-h15" and item.provider != "derived"
+    }
+    assert expected
+    assert {item["series_id"] for item in result} == expected
+    assert all(item["status"] == "ok" and item["record_count"] == 42 for item in result)
+    assert all(item["error_message"] is None for item in result)
+    assert database.read_bytes() == before
 
 
 def test_document_revision_changes_chart_and_freshness(tmp_path: Path) -> None:

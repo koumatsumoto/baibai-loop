@@ -13,7 +13,7 @@ import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
 import baibai_engine.read_api as read_api
-from baibai_engine.market_context.indicators.db import (
+from baibai_engine.collection.economic_store import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.read_api.sqlite import read_rows
@@ -236,13 +236,8 @@ def test_assessment_publications_never_degrade_a_corrupt_saved_pair(
 def test_indicator_partial_store_is_not_unpublished(
     tmp_path: Path, mutation: str, storage: str
 ) -> None:
-    from baibai_engine.market_context.indicators.db import seed_definitions
-    from baibai_engine.market_context.indicators.definitions import load_definitions
-
     path = tmp_path / "indicators.sqlite"
-    with closing(initialize_indicator_database(path)) as connection:
-        seed_definitions(connection, load_definitions())
-        connection.commit()
+    initialize_indicator_database(path).close()
     # Break the storage boundary this series actually reads. Bankruptcies read
     # original JSON documents; CPI reads native e-Stat records.
     table = "economic_source_documents" if storage == "document" else "economic_source_records"
