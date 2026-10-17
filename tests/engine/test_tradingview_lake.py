@@ -23,7 +23,7 @@ from baibai_engine.storage.lake.reader import (
     resolve_release,
     selected_partitions,
 )
-from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import (
     export_dataset_snapshot,
     sealed_sqlite_snapshot,
@@ -97,7 +97,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
                 ).manifest_path
                 for i, name in enumerate(datasets)
             ]
-        manifest_path, _ = create_l1_release(
+        manifest_path, _ = create_release(
             dataset_manifest_paths=manifests,
             mirror_root=mirror,
             release_id=release_id,
@@ -250,7 +250,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     ]
     assert exported.manifest.totals.rows == 4
     validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=exported.manifest)
-    manifest_path, _ = create_l1_release(
+    manifest_path, _ = create_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="tv-release",

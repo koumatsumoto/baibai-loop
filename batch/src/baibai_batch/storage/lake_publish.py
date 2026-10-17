@@ -26,12 +26,12 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 
 from baibai_engine.batch_api import (
-    L1ReleasePointer,
     LakeDatasetManifest,
     LakeReleaseManifest,
+    LakeReleasePointer,
     LakeSQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
-    lake_current_l1_pointer_key,
+    lake_current_release_pointer_key,
     lake_dataset_manifest_key,
     lake_release_manifest_key,
     load_lake_model_json,
@@ -75,7 +75,7 @@ class PointerPrecondition:
 
 @dataclass(frozen=True, slots=True)
 class PointerSnapshot:
-    pointer: L1ReleasePointer | None
+    pointer: LakeReleasePointer | None
     precondition: PointerPrecondition
 
 
@@ -103,12 +103,12 @@ def read_pointer_snapshot(store: ObjectStore) -> PointerSnapshot:
     """Read and validate the exact mutable-pointer generation visible now."""
 
     publication = _RemotePublication(store=store)
-    key = lake_current_l1_pointer_key()
+    key = lake_current_release_pointer_key()
     remote = publication.head(key)
     if remote is None:
         return PointerSnapshot(pointer=None, precondition=PointerPrecondition(etag=None))
     try:
-        pointer = load_lake_model_json(publication.read_pointer(key, remote), L1ReleasePointer)
+        pointer = load_lake_model_json(publication.read_pointer(key, remote), LakeReleasePointer)
     except ValueError:
         raise LakePublishError("serving pointer is invalid") from None
     return PointerSnapshot(pointer=pointer, precondition=PointerPrecondition(etag=remote.etag))
@@ -363,7 +363,7 @@ class _RemotePublication:
                 temporary_path.unlink(missing_ok=True)
 
 
-def publish_l1_release(
+def publish_release(
     *,
     mirror_root: Path,
     release_manifest_path: Path,
@@ -375,13 +375,13 @@ def publish_l1_release(
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
     publication = _RemotePublication(store=store, verified_readback_root=verified_readback_root)
-    pointer_key = lake_current_l1_pointer_key()
+    pointer_key = lake_current_release_pointer_key()
     if pointer_precondition is None:
         initial = publication.head(pointer_key)
         if initial is not None:
             try:
                 load_lake_model_json(
-                    publication.read_pointer(pointer_key, initial), L1ReleasePointer
+                    publication.read_pointer(pointer_key, initial), LakeReleasePointer
                 )
             except ValueError:
                 raise LakePublishError("serving pointer is invalid") from None
@@ -413,6 +413,7 @@ def publish_l1_release(
         manifest = load_lake_model_json(manifest_payload, LakeDatasetManifest)
         if (
             manifest.dataset != dataset_name
+            or manifest.layer != release_dataset.layer
             or manifest.build_id != release_dataset.build_id
             or manifest.contract_version != release_dataset.contract_version
             or hashlib.sha256(manifest_payload).hexdigest() != release_dataset.manifest_sha256
@@ -481,7 +482,7 @@ def publish_l1_release(
     current = publication.head(pointer_key)
     if current is not None:
         serving = load_lake_model_json(
-            publication.read_pointer(pointer_key, current), L1ReleasePointer
+            publication.read_pointer(pointer_key, current), LakeReleasePointer
         )
         # Republishing the same release is the retry of an interrupted publication, and
         # it has to be exactly the same release rather than the same name.
@@ -499,7 +500,7 @@ def publish_l1_release(
                 remote_closure_seconds=pointer_started - remote_closure_started,
                 pointer_seconds=time.perf_counter() - pointer_started,
             )
-    pointer = L1ReleasePointer(
+    pointer = LakeReleasePointer(
         release_id=release.release_id,
         manifest_key=expected_release_key,
         manifest_sha256=release_sha256,
@@ -847,7 +848,7 @@ def main(argv: list[str] | None = None) -> int:
                 "low-level publication cannot replace current; use "
                 "batch/scripts/r2_transfer.sh publish-lake for a forward publication"
             )
-        release_report = publish_l1_release(
+        release_report = publish_release(
             mirror_root=args.mirror,
             release_manifest_path=args.release_manifest,
             expected_release_sha256=release_sha256,

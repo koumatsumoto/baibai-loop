@@ -1,4 +1,4 @@
-"""L1 market dataset・releaseの不整合を止めるimmutable manifest model。"""
+"""市場lake dataset・releaseの不整合を止めるimmutable manifest model。"""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from baibai_engine.external_assessment.observations.identity import (
 )
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.keys import (
+    LakeLayer,
     PartitionValue,
     canonical_object_key,
     release_manifest_key,
@@ -36,7 +37,7 @@ from baibai_engine.storage.lake.keys import (
     validate_sha256,
 )
 
-ManifestLayer = Literal["l1_canonical"]
+ManifestLayer = LakeLayer
 CoverageStatus = Literal["complete", "partial"]
 ReleaseProfile = Literal["production"]
 MAX_LAKE_JSON_BYTES = 16 * 1024 * 1024
@@ -62,7 +63,7 @@ class _SourceRefBase(BaseModel):
 
 
 class SQLiteSnapshotSourceRef(_SourceRefBase):
-    """L1 exportが読んだ一時SQLite snapshotのschema・digest・取得時刻を示す。
+    """Lake exportが読んだ一時SQLite snapshotのschema・digest・取得時刻を示す。
 
     snapshotは一回のbuild中の読取世代を固定する。sourceは保持objectのkeyを持たず、
     build完了後のsnapshot bytes取得や、全入力の再構築を保証しない。
@@ -86,25 +87,25 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
         return self
 
 
-class L1ReleaseSourceRef(_SourceRefBase):
+class LakeReleaseSourceRef(_SourceRefBase):
     """固定releaseのquery / hydrateへID・manifest key・digestを渡す読取参照。"""
 
     key: str
-    kind: Literal["l1_release"]
-    manifest_version: int = Field(ge=1)
+    kind: Literal["lake_release"]
+    manifest_version: Literal[2]
 
     @field_validator("key")
     @classmethod
     def validate_key(cls, value: str) -> str:
         key = validate_lake_object_key(value)
-        if not key.startswith("lake/manifests/releases/l1/") or not key.endswith(".json"):
-            raise ValueError("l1_release must reference an L1 release manifest")
+        if not key.startswith("lake/manifests/releases/market/") or not key.endswith(".json"):
+            raise ValueError("lake_release must reference a market release manifest")
         return key
 
     @model_validator(mode="after")
-    def validate_identity(self) -> L1ReleaseSourceRef:
+    def validate_identity(self) -> LakeReleaseSourceRef:
         if self.key != release_manifest_key(release_id=self.source_id):
-            raise ValueError("l1_release key does not match source_id")
+            raise ValueError("lake_release key does not match source_id")
         return self
 
 
@@ -183,7 +184,7 @@ class ManifestTotals(BaseModel):
 class DatasetManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    manifest_version: Literal[1]
+    manifest_version: Literal[2]
     dataset: str
     layer: ManifestLayer
     contract_version: int = Field(ge=1)
@@ -251,22 +252,24 @@ class DatasetManifest(BaseModel):
         if self.population_count is not None and self.population_count > self.totals.rows:
             raise ValueError("population_count cannot exceed total rows")
         if self.population_count is not None and self.population_count == 0:
-            raise ValueError("l1_canonical population_count must be positive")
+            raise ValueError("lake dataset population_count must be positive")
         if self.sources:
-            raise ValueError("l1_canonical keeps lineage on each partition")
+            raise ValueError("lake datasets keep lineage on each partition")
         if any(not partition.sources for partition in self.partitions):
-            raise ValueError("each L1 partition requires source lineage")
+            raise ValueError("each lake partition requires source lineage")
         if any(
             source.kind != "sqlite_snapshot"
             for partition in self.partitions
             for source in partition.sources
         ):
-            raise ValueError("L1 partitions accept SQLite snapshot sources only")
+            raise ValueError("lake partitions accept SQLite snapshot sources only")
         # A contract version pins the layout it was written under. Readers resolve
         # partitions by the layout the manifest declares, so a build that changed grain
         # under an unchanged version would be read with the old expectation and silently
         # mean something else. Changing the grain is a contract bump.
         contract = LAKE_DATASETS.get(self.dataset)
+        if contract is not None and self.layer != contract.layer:
+            raise ValueError("dataset layer does not match its current contract")
         if (
             contract is not None
             and self.contract_version == contract.contract_version
@@ -321,6 +324,7 @@ class ReleaseDataset(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     build_id: str
+    layer: LakeLayer
     contract_version: int = Field(ge=1)
     manifest_sha256: str
     data_as_of: date
@@ -341,7 +345,7 @@ class ReleaseDataset(BaseModel):
 class ReleaseManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    manifest_version: Literal[1]
+    manifest_version: Literal[2]
     release_id: str
     profile: ReleaseProfile
     created_at: datetime
@@ -665,7 +669,7 @@ def load_manifest_json(raw: str | bytes) -> Manifest:
     is_dataset = "dataset" in payload
     is_release = "release_id" in payload
     if is_dataset == is_release:
-        raise ValueError("manifest must identify exactly one dataset build or L1 release")
+        raise ValueError("manifest must identify exactly one dataset build or lake release")
     if is_dataset:
         return _validate_payload(payload, DatasetManifest)
     return _validate_payload(payload, ReleaseManifest)
@@ -731,7 +735,7 @@ def validate_release_policy(
         manifest = manifests[dataset]
         dataset_policy = policy_by_dataset[dataset]
         if manifest.dataset != dataset:
-            raise ValueError(f"{dataset}: release accepts matching L1 dataset manifests only")
+            raise ValueError(f"{dataset}: release accepts matching lake dataset manifests only")
         if manifest.created_at > release.created_at:
             raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")
         current_version = LAKE_DATASETS[dataset].contract_version
@@ -745,6 +749,7 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: release dataset manifest digest does not match")
         if (
             release_dataset.build_id != manifest.build_id
+            or release_dataset.layer != manifest.layer
             or release_dataset.contract_version != manifest.contract_version
             or release_dataset.data_as_of != manifest.data_as_of
             or release_dataset.coverage_status != manifest.coverage_status
@@ -804,4 +809,4 @@ def _require_shared_snapshot_generation(manifests: Iterable[DatasetManifest]) ->
             )
         identities.update(manifest_identities)
     if len(identities) != 1:
-        raise ValueError("L1 release datasets must share one SQLite snapshot generation")
+        raise ValueError("lake release datasets must share one SQLite snapshot generation")

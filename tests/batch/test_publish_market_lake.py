@@ -32,7 +32,7 @@ class _DownloadStore:
 
 def test_fetch_heals_a_corrupted_manifest_cache_after_digest_validation(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
-    key = "lake/manifests/releases/l1/release.json"
+    key = "lake/manifests/releases/market/release.json"
     cached = mirror / key
     cached.parent.mkdir(parents=True)
     cached.write_bytes(b"corrupted")
@@ -53,7 +53,7 @@ def test_fetch_heals_a_corrupted_manifest_cache_after_digest_validation(tmp_path
 
 def test_fetch_does_not_replace_cache_with_wrong_remote_digest(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
-    key = "lake/manifests/releases/l1/release.json"
+    key = "lake/manifests/releases/market/release.json"
     cached = mirror / key
     cached.parent.mkdir(parents=True)
     cached.write_bytes(b"existing-corruption")
@@ -73,7 +73,7 @@ def test_fetch_does_not_replace_cache_with_wrong_remote_digest(tmp_path: Path) -
 
 def test_fetch_reuses_a_cache_with_the_expected_digest(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
-    key = "lake/manifests/releases/l1/release.json"
+    key = "lake/manifests/releases/market/release.json"
     cached = mirror / key
     cached.parent.mkdir(parents=True)
     payload = b"already-valid"

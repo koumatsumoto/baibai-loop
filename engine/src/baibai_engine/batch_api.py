@@ -150,7 +150,9 @@ from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.identity import verified_git_commit as lake_verified_git_commit
-from baibai_engine.storage.lake.keys import current_l1_pointer_key as lake_current_l1_pointer_key
+from baibai_engine.storage.lake.keys import (
+    current_release_pointer_key as lake_current_release_pointer_key,
+)
 from baibai_engine.storage.lake.keys import dataset_manifest_key as lake_dataset_manifest_key
 from baibai_engine.storage.lake.keys import release_manifest_key as lake_release_manifest_key
 from baibai_engine.storage.lake.models import DatasetManifest as LakeDatasetManifest
@@ -164,8 +166,8 @@ from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSourc
 from baibai_engine.storage.lake.objects import mirror_path as lake_mirror_path
 from baibai_engine.storage.lake.reader import FixedRelease as LakeFixedRelease
 from baibai_engine.storage.lake.reader import LakeReadError, resolve_release
-from baibai_engine.storage.lake.release import L1ReleasePointer
-from baibai_engine.storage.lake.release import create_l1_release as create_lake_l1_release
+from baibai_engine.storage.lake.release import LakeReleasePointer
+from baibai_engine.storage.lake.release import create_release as create_lake_release
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
@@ -215,7 +217,6 @@ __all__ = [
     "ExternalAssessmentReceivedHTML",
     "ExternalAssessmentSource",
     "IndicatorDefinitions",
-    "L1ReleasePointer",
     "LakeBuildError",
     "LakeBuildReport",
     "LakeDatasetManifest",
@@ -223,6 +224,7 @@ __all__ = [
     "LakeObjectCache",
     "LakeReadError",
     "LakeReleaseManifest",
+    "LakeReleasePointer",
     "LakeSQLiteSnapshotSourceRef",
     "LakeStoreOrigin",
     "LakeStoreOriginError",
@@ -235,7 +237,7 @@ __all__ = [
     "assessment_series_ids",
     "canonical_lake_model_bytes",
     "connect_read_only",
-    "create_lake_l1_release",
+    "create_lake_release",
     "create_market_snapshot",
     "database_path",
     "decode_economic_source_records",
@@ -254,7 +256,7 @@ __all__ = [
     "external_assessment_verify_observations",
     "external_assessment_verify_release_history",
     "hydrate_market_store",
-    "lake_current_l1_pointer_key",
+    "lake_current_release_pointer_key",
     "lake_dataset_manifest_key",
     "lake_mirror_path",
     "lake_release_manifest_key",

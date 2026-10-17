@@ -25,7 +25,7 @@ from baibai_engine.batch_api import (
     ExternalAssessmentReceivedHTML,
     external_assessment_collector_binding,
 )
-from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.objects import LakeObjectError
 
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)
@@ -235,12 +235,12 @@ def test_initial_plan_uses_only_exact_master_year_and_resume_keeps_its_release(
     assert not any(key.endswith(".parquet") for key in store.get_keys)
 
     # Even an unreadable current release cannot silently refreeze a saved batch.
-    store.store_object(current_l1_pointer_key(), b"unreadable synthetic later pointer")
+    store.store_object(current_release_pointer_key(), b"unreadable synthetic later pointer")
     store.get_keys.clear()
     store.head_keys.clear()
     resumed = daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None)
     assert resumed == p
-    assert current_l1_pointer_key() not in store.head_keys
+    assert current_release_pointer_key() not in store.head_keys
     assert all(key == staging.prefix(p.run_id) + "/plan.json" for key in store.get_keys)
 
 

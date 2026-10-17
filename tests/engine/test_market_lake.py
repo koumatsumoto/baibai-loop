@@ -17,8 +17,9 @@ from baibai_engine.storage.lake.cli import main as lake_main
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.inventory import inventory
 from baibai_engine.storage.lake.keys import (
+    LakeLayer,
     canonical_object_key,
-    current_l1_pointer_key,
+    current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
@@ -60,7 +61,7 @@ def _dataset_payload(
     if contract.partition_grain == "month":
         partition_values["month"] = 8
     key = canonical_object_key(
-        layer="l1_canonical",
+        layer=contract.layer,
         dataset=dataset,
         contract_version=version,
         partition_values=partition_values,
@@ -68,9 +69,9 @@ def _dataset_payload(
         content_sha256=digest,
     )
     return {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "dataset": dataset,
-        "layer": "l1_canonical",
+        "layer": contract.layer,
         "contract_version": version,
         "build_id": "20260812T123456Z-58d3057a-build",
         "sources": [],
@@ -117,9 +118,44 @@ def test_dataset_manifest_is_strict_and_round_trips() -> None:
     assert manifest.model_dump(mode="json") == payload
 
 
+@pytest.mark.parametrize(
+    ("dataset", "wrong_layer"),
+    [
+        ("jquants.daily_bars", "l1_source"),
+        ("jquants.fin_summaries", "l2_processed"),
+    ],
+)
+def test_dataset_manifest_rejects_wrong_contract_layer_with_valid_object_key(
+    dataset: str, wrong_layer: LakeLayer
+) -> None:
+    payload = _dataset_payload(dataset=dataset)
+    payload["layer"] = wrong_layer
+    partitions = payload["partitions"]
+    assert isinstance(partitions, list)
+    partition = partitions[0]
+    assert isinstance(partition, dict)
+    objects = partition["objects"]
+    assert isinstance(objects, list)
+    lake_object = objects[0]
+    assert isinstance(lake_object, dict)
+    assert isinstance(partition["values"], dict)
+    assert isinstance(lake_object["sha256"], str)
+    lake_object["key"] = canonical_object_key(
+        layer=wrong_layer,
+        dataset=dataset,
+        contract_version=LAKE_DATASETS[dataset].contract_version,
+        partition_values=partition["values"],
+        partition_by=LAKE_DATASETS[dataset].partition_by,
+        content_sha256=lake_object["sha256"],
+    )
+
+    with pytest.raises(ValueError, match="dataset layer does not match its current contract"):
+        DatasetManifest.model_validate_json(json.dumps(payload))
+
+
 def _release_payload() -> dict[str, object]:
     return {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "release_id": "20260812T130000Z-release",
         "profile": "production",
         "created_at": "2026-08-12T13:00:00Z",
@@ -127,6 +163,7 @@ def _release_payload() -> dict[str, object]:
         "datasets": {
             "jquants.daily_bars": {
                 "build_id": "20260812T123456Z-58d3057a-build",
+                "layer": LAKE_DATASETS["jquants.daily_bars"].layer,
                 "contract_version": LAKE_DATASETS["jquants.daily_bars"].contract_version,
                 "manifest_sha256": "d" * 64,
                 "data_as_of": "2026-08-12",
@@ -145,6 +182,26 @@ def test_release_manifest_is_strict_and_round_trips(monkeypatch: pytest.MonkeyPa
 
     assert isinstance(manifest, ReleaseManifest)
     assert load_lake_model_json(manifest.model_dump_json(), ReleaseManifest) == manifest
+
+
+def test_release_policy_rejects_inventory_layer_mismatching_valid_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    narrow_release_policy(monkeypatch, datasets=("jquants.daily_bars",))
+    manifest = _load_dataset(_dataset_payload())
+    payload = _release_payload()
+    datasets = payload["datasets"]
+    assert isinstance(datasets, dict)
+    entry = datasets[manifest.dataset]
+    assert isinstance(entry, dict)
+    entry["manifest_sha256"] = hashlib.sha256(canonical_lake_model_bytes(manifest)).hexdigest()
+    valid = load_lake_model_json(json.dumps(payload), ReleaseManifest)
+    validate_release_policy(valid, {manifest.dataset: manifest})
+
+    entry["layer"] = "l1_source"
+    wrong_layer = load_lake_model_json(json.dumps(payload), ReleaseManifest)
+    with pytest.raises(ValueError, match="release dataset inventory does not match its manifest"):
+        validate_release_policy(wrong_layer, {manifest.dataset: manifest})
 
 
 @pytest.mark.parametrize(
@@ -232,7 +289,7 @@ def test_pilot_partition_layout_changes_only_with_contract_bump() -> None:
     objects = partition["objects"]
     assert isinstance(objects, list)
     objects[0]["key"] = canonical_object_key(
-        layer="l1_canonical",
+        layer="l2_processed",
         dataset="jquants.daily_bars",
         contract_version=next_version,
         partition_values={"date": "2026-08-12"},
@@ -249,7 +306,7 @@ def test_pilot_partition_layout_changes_only_with_contract_bump() -> None:
 def test_manifest_loader_rejects_duplicate_json_fields() -> None:
     raw = json.dumps(_dataset_payload())
     duplicate = raw.replace(
-        '"manifest_version": 1,', '"manifest_version": 1, "manifest_version": 1,'
+        '"manifest_version": 2,', '"manifest_version": 2, "manifest_version": 2,'
     )
 
     with pytest.raises(ValueError, match="duplicate JSON field"):
@@ -292,7 +349,7 @@ def test_manifest_nested_mappings_are_immutable(monkeypatch: pytest.MonkeyPatch)
         manifest.partitions[0].values["month"] = 9  # type: ignore[index]
 
     release_payload = {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "release_id": "release-1",
         "profile": "production",
         "created_at": "2026-08-12T13:00:00Z",
@@ -300,6 +357,7 @@ def test_manifest_nested_mappings_are_immutable(monkeypatch: pytest.MonkeyPatch)
         "datasets": {
             "jquants.daily_bars": {
                 "build_id": "build-1",
+                "layer": LAKE_DATASETS["jquants.daily_bars"].layer,
                 "contract_version": LAKE_DATASETS["jquants.daily_bars"].contract_version,
                 "manifest_sha256": "d" * 64,
                 "data_as_of": "2026-08-12",
@@ -350,7 +408,7 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
     )
     manifests = {manifest.dataset: manifest, short_sale.dataset: short_sale}
     release_payload = {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "release_id": "release-1",
         "profile": "production",
         "created_at": "2026-08-13T00:00:00Z",
@@ -358,6 +416,7 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
         "datasets": {
             item.dataset: {
                 "build_id": item.build_id,
+                "layer": item.layer,
                 "contract_version": item.contract_version,
                 "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(item)).hexdigest(),
                 "data_as_of": item.data_as_of.isoformat(),
@@ -463,7 +522,7 @@ def test_new_generation_uses_declared_observations_not_historical_size(
     manifests = {item.dataset: item for item in (daily, short_sale)}
     release = ReleaseManifest.model_validate(
         {
-            "manifest_version": 1,
+            "manifest_version": 2,
             "release_id": "one-day-release",
             "profile": "production",
             "created_at": datetime(2026, 8, 13, tzinfo=UTC),
@@ -471,6 +530,7 @@ def test_new_generation_uses_declared_observations_not_historical_size(
             "datasets": {
                 item.dataset: {
                     "build_id": item.build_id,
+                    "layer": item.layer,
                     "contract_version": item.contract_version,
                     "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(item)).hexdigest(),
                     "data_as_of": item.data_as_of,
@@ -511,11 +571,11 @@ def test_a_release_reference_is_not_admissible_as_partition_lineage() -> None:
                     "objects": [],
                     "sources": [
                         {
-                            "kind": "l1_release",
+                            "kind": "lake_release",
                             "source_id": "release-1",
                             "key": release_manifest_key(release_id="release-1"),
                             "sha256": "e" * 64,
-                            "manifest_version": 1,
+                            "manifest_version": 2,
                         }
                     ],
                 }
@@ -527,22 +587,23 @@ def test_a_release_reference_is_not_admissible_as_partition_lineage() -> None:
 def test_key_builders_are_deterministic_and_traversal_safe() -> None:
     digest = "d" * 64
     assert canonical_object_key(
-        layer="l1_canonical",
+        layer="l2_processed",
         dataset="jquants.daily_bars",
         contract_version=1,
         partition_values={"month": 8, "year": 2026},
         content_sha256=digest,
     ) == (
-        f"lake/l1/canonical/jquants.daily_bars/contract=v1/year=2026/month=8/part-{digest}.parquet"
+        f"lake/l2/processed/jquants.daily_bars/contract=v1/year=2026/month=8/part-{digest}.parquet"
     )
     assert (
         dataset_manifest_key(dataset="jquants.daily_bars", build_id="build-1")
         == "lake/manifests/datasets/jquants.daily_bars/build-1.json"
     )
     assert (
-        release_manifest_key(release_id="release-1") == "lake/manifests/releases/l1/release-1.json"
+        release_manifest_key(release_id="release-1")
+        == "lake/manifests/releases/market/release-1.json"
     )
-    assert current_l1_pointer_key() == "lake/pointers/l1/current.json"
+    assert current_release_pointer_key() == "lake/pointers/market/current.json"
 
     with pytest.raises(ValueError, match="path-safe"):
         dataset_manifest_key(dataset="../secret", build_id="build-1")
@@ -550,7 +611,7 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         release_manifest_key(release_id="../../release")
     with pytest.raises(ValueError, match="partition month"):
         canonical_object_key(
-            layer="l1_canonical",
+            layer="l2_processed",
             dataset="jquants.daily_bars",
             contract_version=1,
             partition_values={"year": 2026, "month": 0},
@@ -560,7 +621,7 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
 
 def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> None:
     key = (
-        "lake/l1/canonical/jquants.daily_bars/contract=v1/"
+        "lake/l2/processed/jquants.daily_bars/contract=v1/"
         f"year=2026/month=8/part-{'e' * 64}.parquet"
     )
     object_path = tmp_path / key
@@ -578,7 +639,7 @@ def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> 
     assert result["bytes"] == 7
     assert result["areas"] == [
         {
-            "prefix": "lake/l1/canonical/jquants.daily_bars",
+            "prefix": "lake/l2/processed/jquants.daily_bars",
             "objects": 1,
             "bytes": 7,
         }
@@ -589,14 +650,14 @@ def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> 
 def test_inventory_reports_an_unsafe_key_inside_the_namespace(tmp_path: Path) -> None:
     """Narrowing the walk to the namespace must not stop it reporting a bad key in it."""
 
-    stray = tmp_path / "lake" / "l1" / "canonical" / "jquants daily bars" / "part.parquet"
+    stray = tmp_path / "lake" / "l2" / "processed" / "jquants daily bars" / "part.parquet"
     stray.parent.mkdir(parents=True)
     stray.write_bytes(b"parquet")
 
     result = inventory(tmp_path)
 
     assert result["objects"] == 1
-    assert result["invalid_keys"] == ["lake/l1/canonical/jquants daily bars/part.parquet"]
+    assert result["invalid_keys"] == ["lake/l2/processed/jquants daily bars/part.parquet"]
     assert result["areas"] == []
 
 
@@ -635,7 +696,7 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     """
 
     published = tmp_path / (
-        "lake/l1/canonical/jquants.daily_bars/contract=v1/year=2026/month=8/"
+        "lake/l2/processed/jquants.daily_bars/contract=v1/year=2026/month=8/"
         f"part-{'a' * 64}.parquet"
     )
     published.parent.mkdir(parents=True)
@@ -772,7 +833,7 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
     objects = partitions[0]["objects"]
     assert isinstance(objects, list)
     objects[0]["key"] = canonical_object_key(
-        layer="l1_canonical",
+        layer="l2_processed",
         dataset="jpx.earnings_calendar",
         contract_version=1,
         partition_values={"year": 2026},
@@ -783,7 +844,7 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
     release = load_lake_model_json(
         json.dumps(
             {
-                "manifest_version": 1,
+                "manifest_version": 2,
                 "release_id": "release-calendar",
                 "profile": "production",
                 "created_at": "2026-08-13T00:00:00Z",
@@ -791,6 +852,7 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
                 "datasets": {
                     manifest.dataset: {
                         "build_id": manifest.build_id,
+                        "layer": manifest.layer,
                         "contract_version": manifest.contract_version,
                         "manifest_sha256": hashlib.sha256(
                             canonical_lake_model_bytes(manifest)
@@ -853,6 +915,7 @@ def test_optional_published_history_cannot_disappear(monkeypatch, carries_histor
         validate_release_policy(without_tv, {bars.dataset: bars}, published_coverage_start=previous)
     payload["datasets"][dataset] = {
         "build_id": tv.build_id,
+        "layer": tv.layer,
         "contract_version": tv.contract_version,
         "data_as_of": tv.data_as_of.isoformat(),
         "coverage_status": tv.coverage_status,

@@ -1,6 +1,6 @@
 ---
 title: "Market lake operations"
-summary: "R2のimmutable L1 releaseをpublishし、固定releaseからmarket storeを復元する運用契約。"
+summary: "R2のimmutable market releaseをpublishし、固定releaseからmarket storeを復元する運用契約。"
 doc_type: reference
 status: active
 ---
@@ -15,8 +15,9 @@ status: active
 ## 発行契約
 
 market factはR2のcontent-addressed Parquet objectとして保持する。dataset manifestはpartition objectと
-row数・schema・digestを列挙し、L1 release manifestは同時に使うdataset buildの集合を固定する。
-`lake/pointers/l1/current.json`だけが可変で、それ以外のobjectとmanifestはimmutableである。
+row数・schema・digest・layerを列挙し、market release manifestは同時に使うdataset buildの集合を固定する。
+lakeは物理的な公開bundleであり、各dataset契約の`l1_source`と`l2_processed`を一つのreleaseで扱う。
+`lake/pointers/market/current.json`だけが可変で、それ以外のobjectとmanifestはimmutableである。
 
 - partition grainはdataset契約が宣言し、row数から動的に変えない
 - object key、SHA-256、byte数、row数、Arrow schemaを読取時に照合する
@@ -26,7 +27,7 @@ row数・schema・digestを列挙し、L1 release manifestは同時に使うdata
 - 一つのdatasetへ同時に二つのcanonical writerを持たない
 - readerは開始時にcurrentを一度だけ解決し、以後は固定releaseだけを読む
 
-L1 releaseに含まれないstore-local tableはSQLite側が所有する。hydrateはrelease対象tableを空にしてから
+market releaseに含まれないstore-local tableはSQLite側が所有する。hydrateはrelease対象tableを空にしてから
 積み、manifest row数と一致した場合だけatomic replaceする。したがって、撤回済みrowや旧世代の残り物を
 暗黙に引き継がない。
 
@@ -139,13 +140,13 @@ Webの共有認証から、次の順序で既存manifestとParquetをraw GETし�
 [Web](../../web/README.md#共有read)、credential設定と受入手順は
 [運用手順](../../batch/OPERATIONS.md#shared-read-setup)を参照してください。
 
-1. `GET /api/lake/current`でexact `lake/pointers/l1/current.json`を一度だけ取得する。
+1. `GET /api/lake/current`でexact `lake/pointers/market/current.json`を一度だけ取得する。
 2. pointerが指すrelease manifest keyを`GET /api/lake/object?key=<key>`へ渡す。
 3. そのreleaseが列挙したdataset manifestを同じobject routeで取得する。
 4. そのdataset manifestが列挙したpartitionだけを取得する。
 
-object routeは`lake/manifests/releases/l1/`と`lake/manifests/datasets/`の`.json`、
-`lake/l1/canonical/`の`.parquet`だけを許可します。pointerはcurrent routeだけで公開し、store snapshot、
+object routeは`lake/manifests/releases/market/`と`lake/manifests/datasets/`の`.json`、
+`lake/l1/source/`と`lake/l2/processed/`の`.parquet`だけを許可します。pointerはcurrent routeだけで公開し、store snapshot、
 application DB、staging、GCには到達できません。keyはquery parserで一度decodeした文字列として判定し、
 callerがbucketやupstream hostを指定することはできません。
 

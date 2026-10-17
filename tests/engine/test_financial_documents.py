@@ -300,7 +300,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
     from baibai_engine.storage.lake.hydrate import hydrate_market_store
     from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
     from baibai_engine.storage.lake.reader import resolve_release
-    from baibai_engine.storage.lake.release import create_l1_release
+    from baibai_engine.storage.lake.release import create_release
     from baibai_engine.storage.lake.writer import (
         export_dataset_snapshot,
         sealed_sqlite_snapshot,
@@ -322,13 +322,20 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             created_at=datetime(2026, 10, 14, tzinfo=UTC),
         )
     assert exported.manifest.contract_version == 4
+    assert exported.manifest.layer == "l1_source"
+    assert all(
+        item.key.startswith("lake/l1/source/")
+        for partition in exported.manifest.partitions
+        for item in partition.objects
+    )
     validate_snapshot_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
-    release_path, manifest = create_l1_release(
+    release_path, manifest = create_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="financial-documents",
         created_at=datetime(2026, 10, 14, tzinfo=UTC),
     )
+    assert manifest.datasets["jquants.fin_summaries"].layer == "l1_source"
     source = LocalMirrorSource(mirror)
     release = resolve_release(
         source, manifest.release_id, manifest_sha256=sha256(release_path.read_bytes()).hexdigest()

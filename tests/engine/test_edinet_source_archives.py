@@ -21,7 +21,7 @@ from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.lake.reader import iter_partition_rows, resolve_release
-from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 from baibai_engine.storage.observations.schema import open_connection
@@ -130,7 +130,7 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
             with pq.ParquetFile(mirror / obj.key) as parquet:
                 assert parquet.metadata.num_row_groups == 2
                 assert parquet.metadata.row_group(0).column(3).statistics is None
-    release_path, release = create_l1_release(
+    release_path, release = create_release(
         dataset_manifest_paths=[manifest],
         mirror_root=mirror,
         release_id="source-archives",
@@ -226,7 +226,7 @@ def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
             build_id="listings",
             created_at=stamp,
         )
-    release_path, release = create_l1_release(
+    release_path, release = create_release(
         dataset_manifest_paths=[built.manifest_path],
         mirror_root=mirror,
         release_id="listings",

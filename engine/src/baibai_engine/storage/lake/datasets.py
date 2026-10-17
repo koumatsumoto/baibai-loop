@@ -1,4 +1,4 @@
-"""Concrete L1 contracts for the lake datasets."""
+"""Physical lake dataset contracts with explicit source or processed ownership."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from baibai_engine.external_assessment.observations.identity import (
 )
 from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
 from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
+from baibai_engine.storage.lake.keys import LakeLayer
 
 PartitionGrain = Literal["year", "month"]
 """How much of one dataset's history a single partition covers.
@@ -73,6 +74,7 @@ class LakeDataset:
     sqlite_table: str
     date_column: str
     columns: tuple[LakeColumn, ...]
+    layer: LakeLayer
     contract_version: int = 1
     partition_grain: PartitionGrain = "month"
     coverage_authority: CoverageAuthority = "source_coverage"
@@ -113,6 +115,7 @@ class LakeDataset:
         metadata = {
             b"baibai.contract_version": str(self.contract_version).encode(),
             b"baibai.dataset": self.name.encode(),
+            b"baibai.layer": self.layer.encode(),
             b"baibai.primary_key": ",".join(self.primary_key).encode(),
             # Existing wire tag for SQLite snapshot ingestion, not a schema version.
             b"baibai.source_kind": b"legacy_sqlite_import",
@@ -144,6 +147,7 @@ _INTEGER = pa.int64()
 
 JQUANTS_DAILY_BARS = LakeDataset(
     name="jquants.daily_bars",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_daily_bars",
     date_column="traded_at",
@@ -168,6 +172,7 @@ JQUANTS_DAILY_BARS = LakeDataset(
 
 JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
     name="jquants.short_sale_reports",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_short_sale_reports",
     date_column="disclosed_at",
@@ -192,6 +197,7 @@ JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
 
 JQUANTS_WEEKLY_MARGIN = LakeDataset(
     name="jquants.weekly_margin",
+    layer="l2_processed",
     sqlite_table="jquants_weekly_margin",
     date_column="week_end",
     coverage_authority="unproven",
@@ -210,6 +216,7 @@ JQUANTS_WEEKLY_MARGIN = LakeDataset(
 
 JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
     name="jquants.all_issues_daily_margin",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_all_issues_daily_margin",
     date_column="balance_date",
@@ -236,6 +243,7 @@ JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
 
 JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
     name="jquants.master_snapshots",
+    layer="l1_source",
     sqlite_table="jquants_master_snapshots",
     date_column="snapshot_date",
     partition_grain="year",
@@ -251,6 +259,7 @@ JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
 
 JQUANTS_FIN_SUMMARIES = LakeDataset(
     name="jquants.fin_summaries",
+    layer="l1_source",
     sqlite_table="jquants_fin_summaries",
     date_column="disclosed_at",
     partition_grain="year",
@@ -265,6 +274,7 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
 
 JQUANTS_MARKET_CALENDAR = LakeDataset(
     name="jquants.market_calendar",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_market_calendar",
     date_column="day",
@@ -278,6 +288,7 @@ JQUANTS_MARKET_CALENDAR = LakeDataset(
 
 JPX_EARNINGS_CALENDAR = LakeDataset(
     name="jpx.earnings_calendar",
+    layer="l2_processed",
     sqlite_table="jpx_earnings_calendar",
     date_column="announcement_date",
     partition_grain="year",
@@ -290,6 +301,7 @@ JPX_EARNINGS_CALENDAR = LakeDataset(
 
 JQUANTS_MARGIN_ALERTS = LakeDataset(
     name="jquants.margin_alerts",
+    layer="l2_processed",
     sqlite_table="jquants_margin_alerts",
     date_column="publication_date",
     partition_grain="year",
@@ -319,6 +331,7 @@ JQUANTS_MARGIN_ALERTS = LakeDataset(
 
 EDINET_DOCUMENTS = LakeDataset(
     name="edinet.documents",
+    layer="l2_processed",
     sqlite_table="edinet_documents",
     date_column="doc_date",
     population_column=None,
@@ -348,6 +361,7 @@ EDINET_DOCUMENTS = LakeDataset(
 
 EDINET_METRICS = LakeDataset(
     name="edinet.metrics",
+    layer="l2_processed",
     sqlite_table="edinet_metrics",
     date_column="asof_date",
     coverage_authority="unproven",
@@ -396,6 +410,7 @@ EDINET_METRICS = LakeDataset(
 
 EDINET_SOURCE_ARCHIVES = LakeDataset(
     name="edinet.source_archives",
+    layer="l1_source",
     sqlite_table="edinet_source_archives",
     date_column="stored_on",
     coverage_authority="unproven",
@@ -410,6 +425,7 @@ EDINET_SOURCE_ARCHIVES = LakeDataset(
 
 EDINET_DOCUMENT_LISTS = LakeDataset(
     name="edinet.document_lists",
+    layer="l1_source",
     contract_version=2,
     sqlite_table="edinet_document_lists",
     date_column="doc_date",
@@ -428,6 +444,7 @@ EDINET_DOCUMENT_LISTS = LakeDataset(
 
 JPX_REGULATION_FLAGS = LakeDataset(
     name="jpx.regulation_flags",
+    layer="l2_processed",
     sqlite_table="jpx_regulation_flags",
     date_column="asof_date",
     partition_grain="year",
@@ -443,6 +460,7 @@ JPX_REGULATION_FLAGS = LakeDataset(
 
 JPX_REGULATION_SOURCES = LakeDataset(
     name="jpx.regulation_sources",
+    layer="l2_processed",
     sqlite_table="jpx_regulation_sources",
     date_column="asof_date",
     partition_grain="year",
@@ -457,6 +475,7 @@ JPX_REGULATION_SOURCES = LakeDataset(
 
 JPX_DELISTINGS = LakeDataset(
     name="jpx.delistings",
+    layer="l2_processed",
     sqlite_table="jpx_delistings",
     date_column="delisted_on",
     partition_grain="year",
@@ -472,6 +491,7 @@ JPX_DELISTINGS = LakeDataset(
 
 TENDER_OFFER_EXIT_VALUES = LakeDataset(
     name="edinet.tender_offer_exit_values",
+    layer="l2_processed",
     sqlite_table="tender_offer_exit_values",
     date_column="delisted_on",
     partition_grain="year",
@@ -488,6 +508,7 @@ TENDER_OFFER_EXIT_VALUES = LakeDataset(
 
 EDINET_SEGMENT_FACTS = LakeDataset(
     name="edinet.segment_facts",
+    layer="l2_processed",
     sqlite_table="edinet_segment_facts",
     date_column="disclosed_on",
     coverage_authority="unproven",
@@ -516,6 +537,7 @@ EDINET_SEGMENT_FACTS = LakeDataset(
 
 EDINET_DEBT_SCHEDULE = LakeDataset(
     name="edinet.debt_schedule",
+    layer="l2_processed",
     sqlite_table="edinet_debt_schedule",
     date_column="disclosed_on",
     coverage_authority="unproven",
@@ -540,6 +562,7 @@ EDINET_DEBT_SCHEDULE = LakeDataset(
 
 TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
     name="tradingview.forecast_snapshots",
+    layer="l2_processed",
     sqlite_table=TV_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",
@@ -553,6 +576,7 @@ TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
 
 EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS = LakeDataset(
     name=MODEL_VALUATION_DATASET,
+    layer="l2_processed",
     sqlite_table=MODEL_VALUATION_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",
@@ -566,6 +590,7 @@ EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS = LakeDataset(
 
 EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS = LakeDataset(
     name=ANALYST_RATING_DATASET,
+    layer="l2_processed",
     sqlite_table=ANALYST_RATING_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",
@@ -579,6 +604,7 @@ EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS = LakeDataset(
 
 EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
     name=QUANTS_SCORE_DATASET,
+    layer="l2_processed",
     sqlite_table=QUANTS_SCORE_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",

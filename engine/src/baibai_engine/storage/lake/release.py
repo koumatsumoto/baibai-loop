@@ -1,4 +1,4 @@
-"""Immutable L1 release creation and mutable-pointer wire contract."""
+"""Immutable market release creation and mutable-pointer wire contract."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from baibai_engine.storage.lake.models import (
 )
 
 
-class L1ReleasePointer(BaseModel):
+class LakeReleasePointer(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     pointer_version: Literal[1] = 1
@@ -38,13 +38,13 @@ class L1ReleasePointer(BaseModel):
         return validate_identifier(value, label="release_id")
 
     @model_validator(mode="after")
-    def validate_identity(self) -> L1ReleasePointer:
+    def validate_identity(self) -> LakeReleasePointer:
         if self.manifest_key != release_manifest_key(release_id=self.release_id):
-            raise ValueError("L1 pointer key does not match release_id")
+            raise ValueError("market pointer key does not match release_id")
         return self
 
 
-def create_l1_release(
+def create_release(
     *,
     dataset_manifest_paths: list[Path],
     mirror_root: Path,
@@ -62,6 +62,7 @@ def create_l1_release(
     datasets = {
         item.dataset: ReleaseDataset(
             build_id=item.build_id,
+            layer=item.layer,
             contract_version=item.contract_version,
             manifest_sha256=hashlib.sha256(payload).hexdigest(),
             data_as_of=item.data_as_of,
@@ -71,7 +72,7 @@ def create_l1_release(
         for item, payload in zip(manifests, manifest_payloads, strict=True)
     }
     if len(datasets) != len(manifests):
-        raise ValueError("L1 release contains duplicate datasets")
+        raise ValueError("market release contains duplicate datasets")
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     inventory = hashlib.sha256(
         b"".join(payload for _, payload in sorted(zip(datasets, manifest_payloads, strict=True)))
@@ -81,7 +82,7 @@ def create_l1_release(
     )
     validate_identifier(actual_release_id, label="release_id")
     release = ReleaseManifest(
-        manifest_version=1,
+        manifest_version=2,
         release_id=actual_release_id,
         profile=profile,
         created_at=now,

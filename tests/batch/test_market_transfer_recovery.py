@@ -12,9 +12,9 @@ import pytest
 from tests.engine.test_financial_documents import documents
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.models import canonical_lake_model_bytes
-from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
@@ -64,7 +64,7 @@ def published_market(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,
         )
-    manifest_path, release = create_l1_release(
+    manifest_path, release = create_release(
         dataset_manifest_paths=[report.manifest_path],
         mirror_root=mirror,
         release_id="transfer-release",
@@ -73,12 +73,12 @@ def published_market(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     with closing(sqlite3.connect(store)) as conn:
         write_lake_store_origin(conn, origin)
         conn.commit()
-    pointer = L1ReleasePointer(
+    pointer = LakeReleasePointer(
         release_id=origin.release_id,
         manifest_key=manifest_path.relative_to(mirror).as_posix(),
         manifest_sha256=origin.release_manifest_sha256,
     )
-    pointer_path = mirror / current_l1_pointer_key()
+    pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_bytes(canonical_lake_model_bytes(pointer))
     return store, mirror, origin
@@ -120,7 +120,7 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
     state = Path(env["AWS_FAKE_STATE"])
     env["R2_LAKE_MIRROR"] = str(mirror)
     env["AWS_FAKE_EXISTING_KEY"] = ":".join(
-        (*MACHINE_KEYS, current_l1_pointer_key(), "machine-manifest.json")
+        (*MACHINE_KEYS, current_release_pointer_key(), "machine-manifest.json")
     )
     for key in MACHINE_KEYS:
         (state / f"put-{key}").write_bytes(target.read_bytes())

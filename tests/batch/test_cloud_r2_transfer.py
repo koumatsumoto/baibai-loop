@@ -1483,7 +1483,7 @@ def test_market_dehydrate_resolves_current_and_leaves_identity_check_to_the_core
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
     environment["SNAPSHOT_FAKE_COPY"] = "1"
-    environment["AWS_FAKE_EXISTING_KEY"] = "lake/pointers/l1/current.json"
+    environment["AWS_FAKE_EXISTING_KEY"] = "lake/pointers/market/current.json"
 
     completed = subprocess.run(
         [root / "batch/scripts/r2_transfer.sh", "push-market"],
@@ -1664,9 +1664,9 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     carrying the full store while still reporting success.
     """
 
-    from baibai_engine.batch_api import lake_current_l1_pointer_key
+    from baibai_engine.batch_api import lake_current_release_pointer_key
 
-    assert lake_current_l1_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
+    assert lake_current_release_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
 
 
 def test_first_publication_needs_no_sidecar_and_prints_its_result(
@@ -1750,7 +1750,7 @@ def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
     ("action", "key"),
     [
         ("pull-machine", "machine-manifest.json"),
-        ("push-machine", "lake/pointers/l1/current.json"),
+        ("push-machine", "lake/pointers/market/current.json"),
         ("push-app", "baibai.sqlite"),
         ("seed-all", "market.sqlite"),
     ],

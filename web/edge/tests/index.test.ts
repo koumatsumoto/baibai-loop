@@ -318,7 +318,7 @@ describe('shared read authentication', () => {
   })
 })
 
-describe('raw L1 gateway', () => {
+describe('market lake gateway', () => {
   function lakeEnv() {
     return {
       ...environment(vi.fn()),
@@ -330,11 +330,12 @@ describe('raw L1 gateway', () => {
   }
 
   it.each([
-    ['/api/lake/current', 'lake/pointers/l1/current.json'],
-    ['/api/lake/object?key=lake/manifests/releases/l1/r.json', 'lake/manifests/releases/l1/r.json'],
+    ['/api/lake/current', 'lake/pointers/market/current.json'],
+    ['/api/lake/object?key=lake/manifests/releases/market/r.json', 'lake/manifests/releases/market/r.json'],
     ['/api/lake/object?key=lake/manifests/datasets/new/grain/d.json', 'lake/manifests/datasets/new/grain/d.json'],
-    ['/api/lake/object?key=lake/l1/canonical/new/grain/p.parquet', 'lake/l1/canonical/new/grain/p.parquet'],
-    ['/api/lake/object?key=lake%2Fl1%2Fcanonical%2Fd%2Fp%252Fname.parquet', 'lake/l1/canonical/d/p%252Fname.parquet'],
+    ['/api/lake/object?key=lake/l1/source/new/grain/p.parquet', 'lake/l1/source/new/grain/p.parquet'],
+    ['/api/lake/object?key=lake/l2/processed/new/grain/p.parquet', 'lake/l2/processed/new/grain/p.parquet'],
+    ['/api/lake/object?key=lake%2Fl2%2Fprocessed%2Fd%2Fp%252Fname.parquet', 'lake/l2/processed/d/p%252Fname.parquet'],
   ])('streams %s via a fresh signed GET', async (path, key) => {
     const upstream = new Response('raw bytes')
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(upstream)
@@ -366,13 +367,27 @@ describe('raw L1 gateway', () => {
   })
 
   it.each([
-    '', '/lake/l1/canonical/p.parquet', 'market.sqlite', 'application/baibai.sqlite',
-    'lake/staging/p.parquet', 'lake/pointers/l1/current.json', 'lake/l1/canonical/p.json',
-    'https://other.test/lake/l1/canonical/p.parquet', 'lake/manifests/releases/other/r.json',
-    'lake/l1/canonical/../../../application/x.parquet', 'lake/l1/canonical/./p.parquet',
-    'lake/l1/canonical/a\\b.parquet', 'lake/l1/canonical/a\u0000.parquet',
-    'lake/l1/canonical/a\u007f.parquet', 'lake/l1/canonical//p.parquet',
+    '', '/lake/l1/source/p.parquet', 'market.sqlite', 'application/baibai.sqlite',
+    'lake/staging/p.parquet', 'lake/pointers/market/current.json', 'lake/l1/source/p.json',
+    'https://other.test/lake/l2/processed/p.parquet', 'lake/manifests/releases/other/r.json',
+    'lake/l1/source/../../../application/x.parquet', 'lake/l2/processed/./p.parquet',
+    'lake/l1/source/a\\b.parquet', 'lake/l2/processed/a\u0000.parquet',
+    'lake/l1/source/a\u007f.parquet', 'lake/l2/processed//p.parquet',
   ])('rejects key %s before fetching', async (key) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    try {
+      const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), lakeEnv())
+      expect(response.status).toBe(400)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { fetchMock.mockRestore() }
+  })
+
+  it.each([
+    'lake/l1/canonical/old.parquet',
+    'lake/l2/canonical/old.parquet',
+    'lake/manifests/releases/l1/r.json',
+    'lake/pointers/l1/current.json',
+  ])('rejects retired lake prefix %s', async (key) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
     try {
       const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), lakeEnv())
@@ -437,12 +452,12 @@ describe('Parquet download identity', () => {
       }
       for (const digest of ['a'.repeat(64), 'b'.repeat(64)]) {
         const filename = `part-${digest}.parquet`
-        const key = `lake/l1/canonical/daily-bars/2026-09/${filename}`
+        const key = `lake/l2/processed/daily-bars/2026-09/${filename}`
         const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
         expect(response.headers.get('Content-Disposition')).toBe(`attachment; filename="${filename}"`)
         expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([80, 65, 82, 49]))
       }
-      const key = 'lake/l1/canonical/d/悪い";name.parquet'
+      const key = 'lake/l1/source/d/悪い";name.parquet'
       const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
       expect(response.status).toBe(200)
       expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="____name.parquet"')

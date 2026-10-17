@@ -549,7 +549,7 @@ _push_keys() {
     # empty bucket being seeded) the store is still the only copy of those rows, and
     # after it the emptying is mandatory rather than best-effort.
     if [[ "${key}" == "market.sqlite" ]] \
-      && remote_object_exists "lake/pointers/l1/current.json"; then
+      && remote_object_exists "lake/pointers/market/current.json"; then
       dehydrate_market_snapshot "${transfer_staging}/${key}"
     fi
     snapshot_seconds+=("$((SECONDS - started))")

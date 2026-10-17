@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,10 +17,10 @@ from baibai_engine.storage.lake import identity as identity_module
 from baibai_engine.storage.lake import writer as writer_module
 from baibai_engine.storage.lake.datasets import require_lake_dataset
 from baibai_engine.storage.lake.immutable import install_immutable_bytes
-from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.keys import canonical_object_key, current_release_pointer_key
 from baibai_engine.storage.lake.models import canonical_lake_model_bytes
 from baibai_engine.storage.lake.objects import sha256_bytes as _sha256_bytes
-from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, apply_gc, plan_gc
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
@@ -30,6 +30,7 @@ from baibai_engine.storage.lake.writer import (
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -237,7 +238,7 @@ def test_release_manifest_composes_exact_dataset_builds(
                 ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
             )
         ]
-    path, release = create_l1_release(
+    path, release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id="release-1",
@@ -280,7 +281,7 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(
     ).manifest_path
 
     with pytest.raises(ValueError, match="share one SQLite snapshot generation"):
-        create_l1_release(
+        create_release(
             dataset_manifest_paths=[daily, short_sale],
             mirror_root=mirror,
             release_id="mixed-release",
@@ -359,7 +360,7 @@ def test_pilot_orchestration_exports_one_release_generation(
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
     manifests = [item.manifest_path for item in report.datasets.values()]
-    _, release = create_l1_release(
+    _, release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id="pilot-orchestration",
@@ -530,18 +531,18 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
         expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
-    release_path, release = create_l1_release(
+    release_path, release = create_release(
         dataset_manifest_paths=[item.manifest_path for item in report.datasets.values()],
         mirror_root=mirror,
         release_id="gc-digest-release",
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
-    pointer = L1ReleasePointer(
+    pointer = LakeReleasePointer(
         release_id=release.release_id,
         manifest_key=release_path.relative_to(mirror).as_posix(),
         manifest_sha256="0" * 64,
     )
-    pointer_path = mirror / current_l1_pointer_key()
+    pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_bytes(canonical_lake_model_bytes(pointer))
 
@@ -648,17 +649,17 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
         expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
-    release_path, release = create_l1_release(
+    release_path, release = create_release(
         dataset_manifest_paths=[item.manifest_path for item in report.datasets.values()],
         mirror_root=mirror,
         release_id="build-input-release",
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
-    pointer_path = mirror / current_l1_pointer_key()
+    pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_bytes(
         canonical_lake_model_bytes(
-            L1ReleasePointer(
+            LakeReleasePointer(
                 release_id=release.release_id,
                 manifest_key=release_path.relative_to(mirror).as_posix(),
                 manifest_sha256=_sha256_bytes(release_path.read_bytes()),
@@ -670,7 +671,7 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
     if fault is not None:
         damaged = next(iter(report.datasets.values())).manifest_path
         if fault.startswith("object_"):
-            damaged = next((mirror / "lake/l1/canonical").rglob("*.parquet"))
+            damaged = next((mirror / "lake/l2/processed").rglob("*.parquet"))
         if fault == "object_missing":
             damaged.unlink()
         elif fault == "object_changed":
@@ -687,6 +688,109 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
         assert damaged.relative_to(mirror).as_posix() in plan.unresolved_roots
         with pytest.raises(LakeRetentionError, match="unresolved"):
             apply_gc(mirror, plan, plan_hash=plan.plan_hash)
+
+
+def test_gc_keeps_source_and_processed_objects_in_current_market_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    names = ("jquants.fin_summaries", "jquants.daily_bars")
+    narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    store_jquants_fin_summaries(
+        sqlite_path,
+        [{"Code": "13010", "DiscDate": "2026-01-05", "DiscNo": "gc-source"}],
+        requested_start=date(2026, 1, 5),
+        requested_end=date(2026, 1, 5),
+    )
+    mirror = tmp_path / "mirror"
+    built = datetime(2026, 3, 1, tzinfo=UTC)
+    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
+        exports = {
+            name: export_dataset_snapshot(
+                dataset_name=name,
+                mirror_root=mirror,
+                source_snapshot=snapshot,
+                producer_git_commit=_COMMIT,
+                build_id=f"gc-{name.replace('.', '-')}",
+                created_at=built,
+            )
+            for name in names
+        }
+    release_path, release = create_release(
+        dataset_manifest_paths=[item.manifest_path for item in exports.values()],
+        mirror_root=mirror,
+        release_id="gc-mixed-release",
+        created_at=built,
+    )
+    pointer_path = mirror / current_release_pointer_key()
+    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+    pointer_path.write_bytes(
+        canonical_lake_model_bytes(
+            LakeReleasePointer(
+                release_id=release.release_id,
+                manifest_key=release_path.relative_to(mirror).as_posix(),
+                manifest_sha256=_sha256_bytes(release_path.read_bytes()),
+            )
+        )
+    )
+
+    plan = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=40))
+    objects = {
+        name: {obj.key for part in item.manifest.partitions for obj in part.objects}
+        for name, item in exports.items()
+    }
+    assert all(objects.values())
+    assert all(key.startswith("lake/l1/source/") for key in objects["jquants.fin_summaries"])
+    assert all(key.startswith("lake/l2/processed/") for key in objects["jquants.daily_bars"])
+    assert set.union(*objects.values()) <= set(plan.reachable)
+    assert plan.unresolved_roots == ()
+    assert plan.candidates == ()
+
+
+def _unreferenced_processed_object(mirror: Path) -> tuple[str, Path]:
+    dataset = require_lake_dataset("jquants.daily_bars")
+    body = b"unreferenced processed object"
+    key = canonical_object_key(
+        layer=dataset.layer,
+        dataset=dataset.name,
+        contract_version=dataset.contract_version,
+        partition_values={"year": 2026, "month": 1},
+        partition_by=dataset.partition_by,
+        content_sha256=_sha256_bytes(body),
+    )
+    path = mirror / key
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body)
+    return key, path
+
+
+def test_gc_without_pointer_marks_processed_only_mirror_unresolved(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    key, path = _unreferenced_processed_object(mirror)
+    plan = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=40))
+
+    assert plan.roots == ()
+    assert plan.unresolved_roots == (current_release_pointer_key(),)
+    assert key in {candidate.key for candidate in plan.candidates}
+    with pytest.raises(LakeRetentionError, match="root is unresolved"):
+        apply_gc(mirror, plan, plan_hash=plan.plan_hash)
+    assert path.read_bytes() == b"unreferenced processed object"
+
+
+def test_gc_classifies_old_unreferenced_processed_object_after_grace(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    key, path = _unreferenced_processed_object(mirror)
+    start = datetime.now(UTC)
+
+    before = plan_gc(mirror, now=start + timedelta(days=29))
+    after = plan_gc(mirror, now=start + timedelta(days=31))
+
+    assert before.candidates == ()
+    assert len(after.candidates) == 1
+    assert after.candidates[0].key == key
+    assert after.candidates[0].reason == "unreferenced_lake_object"
+    assert after.candidates[0].age_days >= 30
+    assert path.is_file()
 
 
 @pytest.mark.parametrize("failure", ["corrupt", "schema"])
@@ -718,7 +822,7 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
         producer_git_commit=_COMMIT,
         build_id="baseline",
     )
-    release_path, release = create_l1_release(
+    release_path, release = create_release(
         dataset_manifest_paths=[baseline.manifest_path],
         mirror_root=mirror,
         release_id="previous",

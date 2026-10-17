@@ -449,7 +449,7 @@ cross-sectionをscreeningへ渡さない）。
 
 **前提**: 失敗runのlogで部分pushとreceipt不一致を確認し、削除対象がbucket直下のexact key
 `machine-manifest.json` 1件であることを確認する。このkeyはmutableで、Bucket Lockの対象prefix
-（`lake/l1/canonical/` / `lake/manifests/`）の外にある。
+（`lake/l1/source/` / `lake/l2/processed/` / `lake/manifests/`）の外にある。
 
 **実行**:
 
