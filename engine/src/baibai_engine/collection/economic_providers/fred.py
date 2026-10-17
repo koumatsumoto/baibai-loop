@@ -8,16 +8,16 @@ from urllib.parse import urlsplit
 
 from requests import RequestException, Session
 
+from baibai_engine.collection.economic_provider_specs import ProviderSpec
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.collection.economic_sources import SourceDefinition
 
-from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
-    ProviderSpec,
     fetch_text,
 )
 from .read_retry import mount_read_retry, read_deadline

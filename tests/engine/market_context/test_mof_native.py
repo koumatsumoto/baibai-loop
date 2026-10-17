@@ -6,10 +6,10 @@ from urllib.parse import urljoin
 
 from tests.helpers.indicator_store import observation
 
+from baibai_engine.collection.economic_providers import mof_jgb
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.providers import mof_jgb
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 from baibai_engine.market_context.reading.reader import build_store_observation_reader

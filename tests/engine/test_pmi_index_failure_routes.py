@@ -3,11 +3,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from baibai_engine.market_context.indicators import pmi_manifest
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic_providers.base import (
     IndicatorsProviderError,
     SourceWithheldError,
 )
+from baibai_engine.market_context.indicators import pmi_manifest
 
 
 @pytest.mark.parametrize(

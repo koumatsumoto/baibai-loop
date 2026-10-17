@@ -5,17 +5,17 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
+from baibai_engine.collection.economic_providers.base import (
+    FetchContext,
+    IndicatorsProviderError,
+    ProviderFetchStoppedError,
+)
+from baibai_engine.collection.economic_providers.jquants_options import OptionChainSource
 from baibai_engine.foundation.redaction import redact_credentials
 
 from .indicators import db
 from .indicators.definitions import SeriesDefinition
 from .indicators.observations import ObservationRecord
-from .indicators.providers.base import (
-    FetchContext,
-    IndicatorsProviderError,
-    ProviderFetchStoppedError,
-)
-from .indicators.providers.jquants_options import OptionChainSource
 from .indicators.source_snapshots import store_snapshot, stored_days
 from .reading.options import OptionSeriesReader
 

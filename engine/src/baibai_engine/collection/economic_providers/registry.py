@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from ..read_contracts import (
+from baibai_engine.collection.economic_provider_specs import (
     CFTC_SPEC,
-    DERIVED_SPEC,
     ECB_FX_SPEC,
     JQUANTS_FLOWS_SPEC,
     JQUANTS_INDICES_SPEC,
     JQUANTS_OPTIONS_SPEC,
     MULTPL_SPEC,
+    ProviderSpec,
 )
-from .base import IndicatorsProviderError, ProviderSpec
+
+from .base import IndicatorsProviderError
 from .boj import BojSource
 from .boj_timeseries import BojTimeSeriesSource
 from .estat import EStatSource
@@ -47,8 +48,6 @@ def provider_spec(name: str) -> ProviderSpec:
         return EStatDashboardSource.spec
     if name == "multpl":
         return MULTPL_SPEC
-    if name == "derived":
-        return DERIVED_SPEC
     if name == "jquants_options":
         return JQUANTS_OPTIONS_SPEC
     if name == "jquants_flows":
@@ -70,7 +69,6 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
     return (
         SpGlobalPmiSource.spec,
         TsrBankruptciesSource.spec,
-        DERIVED_SPEC,
         EStatDashboardSource.spec,
         EStatSource.spec,
         FrbH15Source.spec,

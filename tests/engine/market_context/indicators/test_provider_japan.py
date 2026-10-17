@@ -22,30 +22,30 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
 
-from baibai_engine.market_context.indicators.definitions import (
-    SeriesDefinition,
-    load_definitions,
-)
-from baibai_engine.market_context.indicators.providers import (
+from baibai_engine.collection.economic_providers import (
     IndicatorsProviderError,
     parse_boj_timeseries_json,
     parse_boj_xlsx,
     parse_mof_jgb_csv,
 )
-from baibai_engine.market_context.indicators.providers.base import record_observation
-from baibai_engine.market_context.indicators.providers.estat import parse_estat_json
-from baibai_engine.market_context.indicators.providers.estat_dashboard import (
+from baibai_engine.collection.economic_providers.estat import parse_estat_json
+from baibai_engine.collection.economic_providers.estat_dashboard import (
     EStatDashboardSource,
     parse_dashboard_json,
 )
+from baibai_engine.market_context.indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
 from baibai_engine.market_context.reading.native import _one_value
+from baibai_engine.market_context.reading.observations import reading_observation
 from baibai_engine.market_context.reading.tsr_bankruptcies import parse_tsr_bankruptcies_json
 
 
 def _read_boj(series, content, *, start, end):
     records = parse_boj_xlsx(series, content, start=start, end=end)
     return [
-        record_observation(series, observed_at=day, value=value)
+        reading_observation(series, observed_at=day, value=value, vintage_at=None)
         for day, rows in records.items()
         if (value := _one_value(series, rows)) is not None
     ]
@@ -922,7 +922,7 @@ class IndicatorsProviderParserTests(TestCase):
                 )
 
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
-        from baibai_engine.market_context.indicators.providers.estat import _split_stats_data_id
+        from baibai_engine.collection.economic_providers.estat import _split_stats_data_id
 
         stats_id, narrowing = _split_stats_data_id("0003427113?cdCat01=0001&cdArea=00000&cdTab=1")
 
@@ -930,6 +930,6 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(narrowing, {"cdCat01": "0001", "cdArea": "00000", "cdTab": "1"})
 
     def test_split_stats_data_id_without_query_returns_empty_params(self) -> None:
-        from baibai_engine.market_context.indicators.providers.estat import _split_stats_data_id
+        from baibai_engine.collection.economic_providers.estat import _split_stats_data_id
 
         self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))

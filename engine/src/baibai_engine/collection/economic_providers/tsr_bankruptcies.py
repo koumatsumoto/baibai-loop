@@ -6,6 +6,7 @@ import json
 from datetime import UTC, date, datetime
 
 from baibai_engine.collection.economic_documents import SourceDocument
+from baibai_engine.collection.economic_provider_specs import ProviderSpec
 from baibai_engine.collection.economic_sources import SourceDefinition
 
 from .base import (
@@ -13,7 +14,6 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     fetch_bytes,
 )
 

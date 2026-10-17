@@ -5,17 +5,16 @@ import io
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from baibai_engine.collection.economic_provider_specs import FRB_H15_PACKAGE_SERIES, ProviderSpec
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.collection.economic_sources import SourceDefinition
 
-from ..observations import NativeRecords
-from ..read_contracts import FRB_H15_PACKAGE_SERIES
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     BrowserUnavailableError,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     SourceWithheldError,
     fetch_text,
     store_fetched_bytes,

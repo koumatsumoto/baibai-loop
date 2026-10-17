@@ -12,21 +12,21 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _StaticSession,
 )
 
-from baibai_engine.market_context.indicators.definitions import (
-    load_definitions,
-)
-from baibai_engine.market_context.indicators.providers import (
+from baibai_engine.collection.economic_providers import (
     IndicatorsProviderError,
 )
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic_providers.base import (
     HttpSession,
 )
-from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
+from baibai_engine.collection.economic_providers.spglobal_pmi import (
     MANIFEST_PATH,
     SpGlobalPmiSource,
     _parse_stream,
     fetch_pdf_bytes,
     load_manifest,
+)
+from baibai_engine.market_context.indicators.definitions import (
+    load_definitions,
 )
 from baibai_engine.market_context.reading.pmi import extract_pdf_text
 from baibai_engine.market_context.reading.pmi_extraction import (

@@ -34,9 +34,9 @@ def test_derived_source_is_rejected(tmp_path):
 def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
     from datetime import date
 
+    from baibai_engine.collection.economic_providers.mof_jgb import parse_mof_jgb_csv
     from baibai_engine.collection.economic_sources import require_source
     from baibai_engine.market_context.indicators.definitions import load_definitions
-    from baibai_engine.market_context.indicators.providers.mof_jgb import parse_mof_jgb_csv
     from baibai_engine.market_context.reading.native import _one_value
 
     day = date(2026, 5, 1)
@@ -55,9 +55,9 @@ def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
 def test_umich_acquisition_preserves_other_columns_before_l2_selection():
     from datetime import date
 
+    from baibai_engine.collection.economic_providers.umich_sca import parse_umich_table
     from baibai_engine.collection.economic_sources import load_sources
     from baibai_engine.market_context.indicators.definitions import load_definitions
-    from baibai_engine.market_context.indicators.providers.umich_sca import parse_umich_table
     from baibai_engine.market_context.reading.native import _one_value
 
     day = date(2026, 5, 1)

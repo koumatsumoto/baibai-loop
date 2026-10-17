@@ -11,16 +11,16 @@ from baibai_engine.collection.economic_documents import (
     read_documents,
     store_document,
 )
+from baibai_engine.collection.economic_providers import spglobal_pmi
+from baibai_engine.collection.economic_providers.base import (
+    FetchContext,
+    IndicatorsProviderError,
+)
+from baibai_engine.collection.economic_providers.tsr_bankruptcies import TsrBankruptciesSource
 from baibai_engine.collection.economic_sources import require_source
 from baibai_engine.market_context import indicator_service
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.providers import spglobal_pmi
-from baibai_engine.market_context.indicators.providers.base import (
-    FetchContext,
-    IndicatorsProviderError,
-)
-from baibai_engine.market_context.indicators.providers.tsr_bankruptcies import TsrBankruptciesSource
 from baibai_engine.market_context.reading import pmi
 from baibai_engine.market_context.reading.documents import read_document_series
 

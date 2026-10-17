@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import assert_never
 
+from baibai_engine.collection.economic_providers import IndicatorsProviderError
 from baibai_engine.foundation.env import load_project_env
 
 from .indicator_service import (
@@ -24,7 +25,6 @@ from .indicator_service import (
 )
 from .indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
 from .indicators.definitions import SeriesDefinition
-from .indicators.providers import IndicatorsProviderError, provider_spec
 
 
 def format_refresh_failure_rollup(failed_series_ids: Sequence[str], *, total: int) -> str:
@@ -210,7 +210,7 @@ def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
             "provider": item.provider,
             # "http" fetches externally; "local" is computed on read from
             # stored inputs and is excluded from acquisition batches.
-            "kind": provider_spec(item.provider).kind,
+            "kind": "local" if item.provider == "derived" else "http",
         }
         for item in series
     ]

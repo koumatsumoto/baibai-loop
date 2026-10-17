@@ -17,18 +17,18 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
+from baibai_engine.collection.economic_providers import jquants_options
+from baibai_engine.collection.economic_providers.base import (
+    FetchContext,
+    ProviderFetchStoppedError,
+)
+from baibai_engine.collection.economic_providers.read_retry import read_deadline
 from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,
 )
 from baibai_engine.market_context.indicators.db import initialize_database
-from baibai_engine.market_context.indicators.providers import jquants_options
-from baibai_engine.market_context.indicators.providers.base import (
-    FetchContext,
-    ProviderFetchStoppedError,
-)
-from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
 from baibai_engine.market_context.option_acquisition import OptionAcquisition
 from baibai_engine.market_context.reading.option_iv import (

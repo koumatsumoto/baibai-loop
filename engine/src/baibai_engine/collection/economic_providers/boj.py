@@ -8,15 +8,15 @@ from datetime import date, datetime, time
 
 import openpyxl
 
+from baibai_engine.collection.economic_provider_specs import ProviderSpec
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.collection.economic_sources import SourceDefinition
 
-from ..observations import NativeRecords
 from .base import (
     MAX_ZIP_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     fetch_bytes,
 )
 

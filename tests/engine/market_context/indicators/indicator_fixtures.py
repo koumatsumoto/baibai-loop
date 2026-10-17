@@ -17,6 +17,19 @@ from tests.helpers.indicator_store import (
 )
 
 import baibai_engine.market_context.indicators.db as indicators_db
+from baibai_engine.collection.economic_providers import (
+    parse_estat_json,
+)
+from baibai_engine.collection.economic_providers.base import (
+    FetchContext,
+)
+from baibai_engine.collection.economic_providers.estat_dashboard import (
+    parse_dashboard_json,
+)
+from baibai_engine.collection.economic_providers.spglobal_pmi import (
+    Release,
+    _parse_stream,
+)
 from baibai_engine.market_context.indicators.db import (
     get_series,
     initialize_database,
@@ -28,26 +41,13 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.providers import (
-    parse_estat_json,
-)
-from baibai_engine.market_context.indicators.providers.base import (
-    FetchContext,
-    record_observation,
-)
-from baibai_engine.market_context.indicators.providers.estat_dashboard import (
-    parse_dashboard_json,
-)
-from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
-    Release,
-    _parse_stream,
-)
 from baibai_engine.market_context.reading.estat import estat_values
+from baibai_engine.market_context.reading.observations import reading_observation
 
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
     # onto the import path of the whole suite, which the lazy launch avoids.
-    from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
+    from baibai_engine.collection.economic_providers.browser import BrowserFetcher
 
 
 def _prune_store_rows(database: Path) -> dict[str, tuple[tuple[object, ...], ...]]:
@@ -387,7 +387,7 @@ def _read_estat(
 ) -> list[ObservationRecord]:
     records = parse_estat_json(series, text, start=start, end=end)
     return [
-        record_observation(series, observed_at=day, value=value)
+        reading_observation(series, observed_at=day, value=value, vintage_at=None)
         for day, value in estat_values(records).items()
     ]
 
@@ -405,7 +405,7 @@ def _parse_dashboard(
         selectors=_DASHBOARD_SELECTORS,
     )
     return [
-        record_observation(_dashboard_series(), observed_at=day, value=value)
+        reading_observation(_dashboard_series(), observed_at=day, value=value, vintage_at=None)
         for day, value in estat_values(records, final_only=True).items()
     ]
 

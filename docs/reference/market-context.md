@@ -112,7 +112,7 @@ registryのband変更時は、Git管理外のstoreのscalar観測をread-only va
 
 ### データソース registry
 
-系列ID・source URL・unit・provider固有のselectorは[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)、取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/market_context/indicators/provider_specs.py)と各[provider](../../engine/src/baibai_engine/market_context/indicators/providers/)が所有する。下表はsourceを選ぶときの用途と制約を示す。
+系列ID・source URL・unit・provider固有のselectorは[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)、取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/collection/economic_provider_specs.py)と各[provider](../../engine/src/baibai_engine/collection/economic_providers/)が所有する。下表はsourceを選ぶときの用途と制約を示す。
 
 | Provider | 用途 | 選択・運用上の制約 |
 | --- | --- | --- |
@@ -136,7 +136,7 @@ registryのband変更時は、Git管理外のstoreのscalar観測をread-only va
 
 ### GETの再試行
 
-`jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/market_context/indicators/providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
+`jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/collection/economic_providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
 
 serviceが1回再試行するのは、停止を表す`ProviderFetchStoppedError`以外の`IndicatorsProviderError`に限る。再試行前に取得contextのbytes cacheを破棄し、再失敗は`provider_runs`へfailedとして記録する。GET transportの再試行終了・deadline・providerが確定した停止は`ProviderFetchStoppedError`で伝わり、このservice再試行へ戻さない。
 
@@ -176,9 +176,9 @@ registryの`plausible_min / plausible_max`を超えた観測は、その系列�
 
 ### PMI release manifestの更新
 
-PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
+PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/collection/economic_providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
 
-抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/market_context/indicators/providers/pmi_extraction.py)が所有する。
+抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/market_context/reading/pmi_extraction.py)が所有する。
 
 1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。これは同一URLの内容が将来も不変である保証ではない。訂正・差替えや抽出規則の変更を確認する場合は、同じURLでも再取得して照合する。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 

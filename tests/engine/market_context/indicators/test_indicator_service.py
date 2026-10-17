@@ -18,6 +18,9 @@ from tests.helpers.indicator_store import (
     store_mof_observations,
 )
 
+from baibai_engine.collection.economic_providers import (
+    IndicatorsProviderError,
+)
 from baibai_engine.market_context.indicator_cli import (
     build_parser,
     main,
@@ -35,9 +38,6 @@ from baibai_engine.market_context.indicators.db import (
 )
 from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
-)
-from baibai_engine.market_context.indicators.providers import (
-    IndicatorsProviderError,
 )
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
@@ -353,8 +353,8 @@ def test_refresh_continues_other_sources_and_shares_transport_context(tmp_path, 
 
 
 def test_native_revisions_are_idempotent_and_survive_a_later_source_failure(tmp_path, monkeypatch):
+    from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
     from baibai_engine.market_context import indicator_service as service_module
-    from baibai_engine.market_context.indicators.providers.base import ProviderFetchStoppedError
 
     database = tmp_path / "indicators.sqlite"
     day = date(2026, 7, 20)
@@ -414,8 +414,8 @@ def test_unknown_refresh_does_not_open_or_modify_the_store(tmp_path):
 
 
 def test_native_refresh_cli_reports_each_source_failure(tmp_path, monkeypatch, capsys):
+    from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
     from baibai_engine.market_context import indicator_service as service_module
-    from baibai_engine.market_context.indicators.providers.base import ProviderFetchStoppedError
 
     def fail(source, **kwargs):
         raise ProviderFetchStoppedError(f"{source.source_id} unavailable")

@@ -6,15 +6,15 @@ from collections.abc import Mapping
 from datetime import date
 from typing import cast
 
+from baibai_engine.collection.economic_provider_specs import ProviderSpec
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.collection.economic_sources import SourceDefinition
 
-from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     fetch_text,
 )
 

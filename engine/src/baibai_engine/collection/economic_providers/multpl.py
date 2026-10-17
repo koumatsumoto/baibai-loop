@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import date
 from html.parser import HTMLParser
 
+from baibai_engine.collection.economic_provider_specs import MULTPL_SPEC
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.collection.economic_sources import SourceDefinition
 
-from ..observations import NativeRecords
-from ..read_contracts import MULTPL_SPEC
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,

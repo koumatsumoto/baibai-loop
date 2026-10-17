@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from ..read_contracts import point_in_time_providers
 from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
 )
 from .boj import parse_boj_xlsx
 from .boj_timeseries import parse_boj_timeseries_json
@@ -25,7 +23,6 @@ __all__ = [
     "FetchContext",
     "HttpSession",
     "IndicatorsProviderError",
-    "ProviderSpec",
     "parse_boj_timeseries_json",
     "parse_boj_xlsx",
     "parse_ecb_reference_csv",
@@ -35,7 +32,6 @@ __all__ = [
     "parse_mof_jgb_csv",
     "parse_multpl_table",
     "parse_yahoo_chart",
-    "point_in_time_providers",
     "provider_spec",
     "registered_specs",
 ]

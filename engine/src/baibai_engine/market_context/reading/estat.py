@@ -5,8 +5,9 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
-from baibai_engine.market_context.indicators.observations import NativeRecords, ObservationRecord
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 

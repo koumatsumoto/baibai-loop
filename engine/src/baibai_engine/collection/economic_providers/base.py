@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from contextlib import closing, suppress
-from datetime import UTC, date, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Literal, Protocol
 
 import requests
-
-from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
-from ..provider_specs import ProviderSpec as ProviderSpec
 
 if TYPE_CHECKING:
     from .browser import BrowserFetcher
@@ -20,21 +15,13 @@ HTTP_TIMEOUT_SECONDS = 30
 MAX_CSV_RESPONSE_BYTES = 8_000_000
 MAX_ZIP_RESPONSE_BYTES = 16_000_000
 
-# Reads a stored series' observations (latest ok vintage per observed_at) for a
-# source provider that can reuse existing input (for example published PMI months).
-# Bound to the live connection; L2 formulas do not depend on fetch context.
-type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
-
-# What a fetch pass is for. ``read`` serves a query whose window the store cannot
-# answer yet, ``refresh`` keeps a series current, ``rebuild`` re-derives a series
-# from source. Providers whose cost or strictness depends on this read it from the
-# fetch context: a rebuild re-reads observations the store already holds, and a
-# source-currency guard fails a refresh or rebuild but never blocks a read.
-type FetchPurpose = Literal["read", "refresh", "rebuild"]
+# External acquisition purpose: refresh updates a selected range, while rebuild
+# reacquires the full history. Ordinary reads do not create a FetchContext.
+type FetchPurpose = Literal["refresh", "rebuild"]
 
 
 class IndicatorsProviderError(RuntimeError):
-    """Raised when an indicator provider cannot return requested observations."""
+    """Raised when a source provider cannot acquire requested source input."""
 
 
 class ProviderFetchStoppedError(IndicatorsProviderError):
@@ -76,16 +63,11 @@ class FetchContext:
     WAF-gated provider first asks for it and is reused for the rest of the pass,
     so a pass pays at most one browser launch.
 
-    ``purpose`` carries what the pass is for to the providers that need it (see
-    :data:`FetchPurpose`).
+    ``purpose`` distinguishes a selected-range refresh from full-history
+    reacquisition for providers that need it (see :data:`FetchPurpose`).
     """
 
-    def __init__(
-        self,
-        *,
-        store_reader: StoreReader | None = None,
-        purpose: FetchPurpose = "read",
-    ) -> None:
+    def __init__(self, *, purpose: FetchPurpose = "refresh") -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[BytesCacheKey, bytes] = {}
         self.read_deadlines: dict[str, ReadDeadline] = {}
@@ -93,7 +75,6 @@ class FetchContext:
         # kept, not just the fact: a later series that skips the navigation is
         # the only one reporting, so the evidence has to travel with the record.
         self.blocked_browser_urls: dict[str, str] = {}
-        self.store_reader = store_reader
         self.purpose = purpose
         self._browser: BrowserFetcher | None = None
 
@@ -149,23 +130,6 @@ class HttpSession(Protocol):
         timeout: int,
         stream: bool = False,
     ) -> requests.Response: ...
-
-
-class IndicatorDataProvider(Protocol):
-    """An indicator data source. Each provider isolates its own auth/parse/quirks."""
-
-    name: str
-    spec: ProviderSpec
-
-    def fetch(
-        self,
-        series: SeriesDefinition,
-        *,
-        start: date,
-        end: date,
-        session: HttpSession,
-        context: FetchContext | None = None,
-    ) -> list[ObservationRecord]: ...
 
 
 def fetch_text(
@@ -306,19 +270,3 @@ def parse_optional_float(value: str | None) -> float | None:
     if value is None or not value or value in {"ND", "."}:
         return None
     return parse_float(value)
-
-
-def record_observation(
-    series: SeriesDefinition, *, observed_at: date, value: float
-) -> ObservationRecord:
-    return ObservationRecord(
-        series_id=series.series_id,
-        observed_at=observed_at,
-        period_start=observed_at,
-        period_end=observed_at,
-        value=value,
-        unit=series.unit,
-        vintage_at=datetime.now(UTC),
-        fetch_status="ok",
-        source_url=series.source_url,
-    )

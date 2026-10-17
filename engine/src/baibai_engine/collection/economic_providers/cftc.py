@@ -5,10 +5,10 @@ from collections import defaultdict
 from datetime import date
 from typing import cast
 
+from baibai_engine.collection.economic_provider_specs import CFTC_SPEC
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.collection.economic_sources import SourceDefinition
 
-from ..observations import NativeRecords
-from ..read_contracts import CFTC_SPEC
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,

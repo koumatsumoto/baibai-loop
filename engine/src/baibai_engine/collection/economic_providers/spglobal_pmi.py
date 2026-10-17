@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import cast
 
 from baibai_engine.collection.economic_documents import SourceDocument
+from baibai_engine.collection.economic_provider_specs import ProviderSpec
 from baibai_engine.collection.economic_sources import SourceDefinition
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-from .base import FetchContext, HttpSession, IndicatorsProviderError, ProviderSpec, fetch_bytes
+from .base import FetchContext, HttpSession, IndicatorsProviderError, fetch_bytes
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 RELEASE_URL_RE = re.compile(

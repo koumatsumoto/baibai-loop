@@ -87,7 +87,7 @@ packages = [
 "engine/src/baibai_engine/market_context/indicators/registry/japan.yaml" = "baibai_engine/market_context/indicators/registry/japan.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/global.yaml" = "baibai_engine/market_context/indicators/registry/global.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/derived.yaml" = "baibai_engine/market_context/indicators/registry/derived.yaml"
-"engine/src/baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml"
+"engine/src/baibai_engine/collection/economic_providers/pmi_release_urls.yaml" = "baibai_engine/collection/economic_providers/pmi_release_urls.yaml"
 "web/backend/src/baibai_web/py.typed" = "baibai_web/py.typed"
 "batch/src/baibai_batch/py.typed" = "baibai_batch/py.typed"
 
@@ -419,7 +419,7 @@ source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.storage.application.write",
   "baibai_engine.cli",
-  "baibai_engine.market_context.indicators.providers",
+  "baibai_engine.collection.economic_providers",
   "baibai_engine.position.cli",
   "baibai_engine.research.proposal_service",
   "baibai_engine.research.assessment_evaluation_cli",
@@ -518,7 +518,7 @@ forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
   "baibai_engine.storage.application.write", "baibai_engine.market_context.reading.cli",
-  "baibai_engine.market_context.indicator_service", "baibai_engine.market_context.indicators.providers",
+  "baibai_engine.market_context.indicator_service", "baibai_engine.collection.economic_providers",
 ]
 
 [[tool.importlinter.contracts]]
@@ -640,7 +640,7 @@ source_modules = [
 ]
 forbidden_modules = [
   "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicator_service",
-  "baibai_engine.market_context.indicators.providers", "baibai_engine.market_context.indicator_cli",
+  "baibai_engine.collection.economic_providers", "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
   "baibai_engine.storage", "baibai_engine.research.market_context", "baibai_engine.read_api",
 ]

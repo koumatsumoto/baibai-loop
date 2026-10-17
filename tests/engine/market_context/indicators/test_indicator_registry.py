@@ -13,20 +13,20 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
 
+from baibai_engine.collection.economic_providers import (
+    parse_estat_json,
+    registered_specs,
+)
+from baibai_engine.collection.economic_providers.estat_dashboard import (
+    source_url_selectors as estat_dashboard_selectors,
+)
 from baibai_engine.market_context.indicator_cli import (
     main,
 )
 from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.market_context.indicators.providers import (
-    parse_estat_json,
-    point_in_time_providers,
-    registered_specs,
-)
-from baibai_engine.market_context.indicators.providers.estat_dashboard import (
-    source_url_selectors as estat_dashboard_selectors,
-)
+from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
 from baibai_engine.market_context.reading.formulas import FORMULAS
 
 
@@ -327,13 +327,21 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 ):
                     load_definitions(definitions)
 
-    def test_every_registered_series_provider_is_registered(self) -> None:
-        from baibai_engine.market_context.indicators.providers import provider_spec
+    def test_only_external_series_have_acquisition_providers(self) -> None:
+        from baibai_engine.collection.economic_providers import (
+            IndicatorsProviderError,
+            provider_spec,
+        )
 
         for series in load_definitions().series:
             with self.subTest(series_id=series.series_id):
-                # Both external and virtual series have declared metadata.
-                self.assertEqual(provider_spec(series.provider).name, series.provider)
+                if series.provider == "derived":
+                    with self.assertRaisesRegex(
+                        IndicatorsProviderError, "unsupported indicator provider: derived"
+                    ):
+                        provider_spec(series.provider)
+                else:
+                    self.assertEqual(provider_spec(series.provider).name, series.provider)
 
     def test_every_registered_series_declares_a_complete_plausible_range(self) -> None:
         for series in load_definitions().series:

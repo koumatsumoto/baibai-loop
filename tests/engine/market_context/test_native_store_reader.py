@@ -10,17 +10,17 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse, _StaticSession
 
+from baibai_engine.collection.economic_providers.base import FetchContext
+from baibai_engine.collection.economic_providers.cftc import CftcSource
+from baibai_engine.collection.economic_providers.ecb_fx import EcbFxSource
+from baibai_engine.collection.economic_providers.estat_dashboard import (
+    EStatDashboardSource,
+)
 from baibai_engine.market_context import indicator_service
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.providers.base import FetchContext
-from baibai_engine.market_context.indicators.providers.cftc import CftcSource
-from baibai_engine.market_context.indicators.providers.ecb_fx import EcbFxSource
-from baibai_engine.market_context.indicators.providers.estat_dashboard import (
-    EStatDashboardSource,
-)
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
 from baibai_engine.market_context.reading.reader import build_store_observation_reader

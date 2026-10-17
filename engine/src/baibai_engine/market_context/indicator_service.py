@@ -12,6 +12,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from baibai_engine.collection.economic_documents import read_documents, store_document
+from baibai_engine.collection.economic_providers import (
+    FetchContext,
+    IndicatorsProviderError,
+    provider_spec,
+)
+from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
+from baibai_engine.collection.economic_providers.documents import fetch_source_documents
+from baibai_engine.collection.economic_providers.native import fetch_native_records
 from baibai_engine.collection.economic_sources import DOCUMENT_PROVIDERS, require_source
 from baibai_engine.foundation.redaction import redact_credentials
 
@@ -19,14 +27,6 @@ from .indicators import db
 from .indicators.db import IndicatorsSchemaError
 from .indicators.definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 from .indicators.observations import ObservationRecord
-from .indicators.providers import (
-    FetchContext,
-    IndicatorsProviderError,
-    provider_spec,
-)
-from .indicators.providers.base import ProviderFetchStoppedError
-from .indicators.providers.documents import fetch_source_documents
-from .indicators.providers.native import fetch_native_records
 from .indicators.read_contracts import NATIVE_BULK_PROVIDERS, native_source_key
 from .indicators.source_snapshots import store_snapshot, stored_days
 from .option_acquisition import OptionAcquisition

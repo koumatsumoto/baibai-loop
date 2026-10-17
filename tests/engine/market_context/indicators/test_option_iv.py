@@ -8,17 +8,17 @@ from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
-from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.providers import jquants_options
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic_providers import jquants_options
+from baibai_engine.collection.economic_providers.base import (
     FetchContext,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
 )
-from baibai_engine.market_context.indicators.providers.jquants_options import OptionChainSource
+from baibai_engine.collection.economic_providers.jquants_options import OptionChainSource
+from baibai_engine.market_context.indicator_service import IndicatorsService
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.source_snapshots import (
     read_snapshots,
     store_snapshot,
@@ -863,7 +863,7 @@ class OptionAcquisitionTest(unittest.TestCase):
                 OptionChainSource, "fetch", return_value=_chain_records(second)
             ) as fetch,
         ):
-            OptionAcquisition(connection, self._context("read")).query(
+            OptionAcquisition(connection, self._context("refresh")).query(
                 _registered("jp.n225_iv_30d"), start=first, end=second, refresh=False
             )
         fetch.assert_called_once_with(second)
@@ -885,7 +885,7 @@ class OptionAcquisitionTest(unittest.TestCase):
                     _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF, refresh=True
                 )
             with self.assertRaisesRegex(ValueError, "duplicate settlement"):
-                OptionAcquisition(connection, self._context("read")).query(
+                OptionAcquisition(connection, self._context("refresh")).query(
                     _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF, refresh=False
                 )
         fetch.assert_called_once_with(ASOF)

@@ -6,11 +6,11 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import date
 
+from baibai_engine.collection.economic_provider_specs import JQUANTS_INDICES_SPEC
+from baibai_engine.collection.economic_records import NativeRecords
 from baibai_engine.collection.economic_sources import SourceDefinition
 from baibai_engine.foundation.env import load_project_env
 
-from ..observations import NativeRecords
-from ..read_contracts import JQUANTS_INDICES_SPEC
 from .base import FetchContext, HttpSession, ProviderFetchStoppedError
 from .jquants_native import read_native_pages
 from .read_retry import jquants_read_client, read_deadline

@@ -6,10 +6,10 @@ from datetime import date
 import pytest
 from tests.helpers.indicator_store import observation
 
+from baibai_engine.collection.economic_providers import nikkei_indexes
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.providers import nikkei_indexes
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
