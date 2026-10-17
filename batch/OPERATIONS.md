@@ -785,7 +785,7 @@ HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stage
 
 keyは既存rootの`external-assessment/raw/utc-date/<bundle作成UTC日>/bundles/<batch_id>/cohort-NNNN-<bundle UUID>.tar.gz`とする。manifestの各本文の実受領時刻はbundle作成日へ付け替えない。本文共有用のhash-indexや独自containerは持たず、3媒体と429 retryのsynthetic fixtureで全bytes復元と容量を検証する。200のparse失敗本文も保持するが、typed failureをnormalnullへ変えない。非200・未受領本文のreceiptは作らず、応答なしの試行はattempt IDだけを残す。限定`collect` CLIの正規化stage出力は維持する。
 
-raw rootは引き続き`external-assessment/raw/`であり、R2標準lifecycleの期限方針はこの変更では触らない。この単一prefixへ`Expiration: {Days: 3}`を設定する方針とし、deploymentでは実設定を確認する。適用時の実保持は通常概ね3〜4日で、厳密な72時間TTLではない（[R2公式仕様](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)）。v2 bundleはstageより先にdurable uploadされるhandoffだが、短期期限が適用される環境では長期L1正本ではない。market SQLite/Lakeへの原本投入は後続の別切替であり、今回のstage commitだけで公開済みL1とは扱わない。旧rootの移動・削除やlifecycle操作を日次取得へ加えない。
+raw rootは引き続き`external-assessment/raw/`であり、R2標準lifecycleの期限方針はこの変更では触らない。この単一prefixへ`Expiration: {Days: 3}`を設定する方針とし、deploymentでは実設定を確認する。適用時の実保持は通常概ね3〜4日で、厳密な72時間TTLではない（[R2公式仕様](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)）。v2 bundleはstageより先にdurable uploadされる短期handoffであり、stage commitだけで公開済みL1とは扱わない。publisherが原本をmarket SQLiteへ取り込み、固定Lake releaseを読戻して初めて長期L1として確認する。旧rootの移動・削除やlifecycle操作を日次取得へ加えない。
 
 次のinventoryは単一rootをread-only LISTし、UTC当日と前2日の3日付を調査対象、古い日を整理候補としてobject数/bytesを示す。旧形式の同root内本文・receiptと新bundleを日付別に集計し、形式を認識できないkeyは`unclassified`へ分ける。GET・PUT・DELETEやlifecycle設定は行わず、実削除済みを保証しない。
 
@@ -806,7 +806,9 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 **成功確認**: 固定cohort・pairのaccountingと未記録0を確認し、success・normalnull・parse/HTTP失敗を区別する。全pairの試行完了は全指標の値ありを意味しない。通常公開は全cohort・pairの確定が必要で、403/429を含むbatchは明示的な部分公開を使う。publisherだけ既存`cloud-publish` concurrencyとpublication leaseへ入り、最新cloudをfresh pull/hydrateしてから元受領時刻のstageを適用する。欠落cohort、期限切れ・置換lease、古いhydrate originは公開前に拒否し、pointer切替直前にもleaseを確認する。leaseとpointerの二つのkeyを原子的なfencingとはみなさない。workflowの公開job上限110分は既存lease TTL120分より短い。
 
-公開後は今回専用のprivate mirrorから固定releaseの変更されたExternal Assessmentの年/月partitionを読み、原観測の全列と変更月内の既存・追加履歴digestを照合して`readback: verified`を記録する。新upload objectはpublisherがremoteから全bytesを読戻してSHAを検証し、その取得fileを固定releaseのSHA照合・型付き履歴検証にも使う。未取得の変更月objectはremoteから取得し、別runやexport元fileを流用しない。無変更partitionはmanifest object identityで確認する。同stageの再投入は追加row 0である。JST日付は元UTCから導出し、日跨ぎを単一日の全銘柄coverageとしない。公開失敗後は次回も最新正本をhydrateし、readback失敗を完了扱いしない。
+公開前に参照されたraw bundleを1件ずつ検証し、同じreceipt IDの原本をmarket SQLiteへ独立transactionで取り込む。選択attemptは保存済み原本を読み直して再解析し、typed stageとの一致を全件確かめてからL2を更新する。後続bundleの不備では、それまでの有効なL1は残るが、L2と公開pointerは変更しない。再試行で同じ原本は追加row 0となり、異なる内容の同一IDは拒否する。HTTP 200のparse失敗は原本だけを残し、非200や応答なしの本文は作らない。
+
+公開後は今回専用のprivate mirrorから固定releaseの変更されたExternal Assessment L1/L2のUTC/JST年月partitionを読み、原本のmetadata・本文bytesとtyped観測の全列、変更月内の既存・追加履歴digestを照合して`readback: verified`を記録する。原本の月全履歴は行順に逐次hashし、全HTMLを一括保持しない。新upload objectはpublisherがremoteから全bytesを読戻してSHAを検証し、その取得fileを固定releaseのSHA照合・履歴検証にも使う。未取得の変更月objectはremoteから取得し、別runやexport元fileを流用しない。無変更partitionはmanifest object identityで確認する。同stageの再投入は追加row 0である。JST日付は元UTCから導出し、日跨ぎを単一日の全銘柄coverageとしない。公開失敗後は次回も最新正本をhydrateし、readback失敗を完了扱いしない。
 
 停止したbatchを確定済み観測だけで閉じるとoperatorが明示的に選ぶ場合は、同じ保存batch ID/master日付に`operation=publish_confirmed_partial`を指定する。この入口は取得jobを実行せず、保存planとtyped観測がなければ拒否する。最新正本のfresh hydrateと同じlease/readback契約で確定typedだけを公開し、欠落cohort・未記録pairを正常nullや確定失敗へ変えず、元stageを保持する。部分terminalは4状態件数・元JST受信日/source別typed件数を残し、全件完了と区別して同batchを閉じる。旧5状態terminalは現行readerでは受け付けない。過去の証拠は元revisionで確認し、現行checkpointへ読み替えない。
 
@@ -816,7 +818,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 正常な初回cohortではraw bundleとstageをこの順に各1 PUTする。private読取はplanの一度のstage走査、各acquireの自cohort読取、publishの確定stage走査に限定し、各acquireで全cohortを再走査しない。部分再開・競合・失敗では操作数が変わる。summaryの`provider_requests`は今回の実HTTP件数、`http_requests`/`response_content_bytes`は採用stageの累計で、wire bytesは未計測である。`elapsed_seconds`は今回の総時間、`collection_elapsed_seconds`はHTTP・host制限待機・解析、`storage_elapsed_seconds`はprivate読取・local spool・raw/stage保存を示す。429 backoffは総時間に含む。完了stageの取得時間とprovider件数は0で、過去runの時間を補わない。
 
-R2費用確認ではprivate stage/raw、lease、pull/hydrate、L1 export/upload/readbackを分けて実測する。既存TransferReportはpublish層の範囲であり、private handoffやSDK retry、wire bytesを含むrun総計ではない。抽出済みDBのL2履歴はraw expirationによって削除しないが、期限後に同じ原本から再構築できる保証もない。公開/readback後も固定planと小さなterminalを保持し、同batchを再取得へ戻さない。今回の最適化だけで全runの料金・所要時間を確定したとは扱わない。
+R2費用確認ではprivate stage/raw、lease、pull/hydrate、L1 export/upload/readbackを分けて実測する。既存TransferReportはpublish層の範囲であり、private handoffやSDK retry、wire bytesを含むrun総計ではない。公開済みのL1原本とL2履歴はraw expirationによって削除しない。未公開のbundleが期限切れになれば、その原本の投入・再構築は保証できない。公開/readback後も固定planと小さなterminalを保持し、同batchを再取得へ戻さない。今回の最適化だけで全runの料金・所要時間を確定したとは扱わない。
 
 <a id="store-identity-recovery"></a>
 

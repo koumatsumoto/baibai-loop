@@ -17,12 +17,12 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import TracebackType
-from typing import Any, cast
+from typing import Any
 
 from baibai_batch.storage.external_assessment_identity import RAW_BUNDLE_FORMAT, RAW_PREFIX
 from baibai_batch.storage.external_assessment_staging import prefix
 from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.batch_api import EquityWebSourceResponse
+from baibai_engine.batch_api import EquityWebSourceResponse, equity_web_validate_response
 
 RETENTION_DAYS = 3
 
@@ -46,49 +46,6 @@ _RECEIPT_FIELDS = {
     "body_bytes",
     "member",
 }
-_TICKER = re.compile(r"[0-9][0-9A-Z]{3}")
-
-
-def _uuid(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        identity = uuid.UUID(value)
-    except ValueError:
-        return False
-    return identity.int != 0 and str(identity) == value
-
-
-def _text(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and bool(value)
-        and value == value.strip()
-        and not any(ord(character) < 32 for character in value)
-    )
-
-
-def _validate_response(response: EquityWebSourceResponse) -> None:
-    if (
-        not isinstance(cast("object", response), EquityWebSourceResponse)
-        or not _uuid(response.receipt_id)
-        or not _uuid(response.attempt_id)
-        or response.source not in ("monex", "rakuten", "kabumap")
-        or not isinstance(cast("object", response.requested_ticker), str)
-        or _TICKER.fullmatch(response.requested_ticker) is None
-        or response.role not in ("page", "iframe")
-        or not _text(response.requested_url)
-        or not _text(response.selected_encoding)
-        or not isinstance(cast("object", response.body), bytes)
-        or not isinstance(cast("object", response.received_at_utc), datetime)
-        or response.received_at_utc.utcoffset() != timedelta(0)
-    ):
-        raise ValueError("invalid external assessment raw response")
-    if response.role == "page":
-        if response.parent_receipt_id is not None:
-            raise ValueError("page response cannot have a parent")
-    elif response.source != "rakuten" or not _uuid(response.parent_receipt_id):
-        raise ValueError("iframe response requires a retained Rakuten page")
 
 
 def _validate_lineage(responses: list[EquityWebSourceResponse]) -> None:
@@ -160,7 +117,7 @@ class RawBundle:
         self._temporary.cleanup()
 
     def append(self, received: EquityWebSourceResponse) -> None:
-        _validate_response(received)
+        equity_web_validate_response(received)
         for previous in self.receipts:
             if previous["receipt_id"] == received.receipt_id:
                 raise ValueError("duplicate external assessment raw receipt")
@@ -332,7 +289,7 @@ def read_raw_bundle(
                 selected_encoding=receipt["selected_encoding"],
                 body=body,
             )
-            _validate_response(response)
+            equity_web_validate_response(response)
             if (
                 receipt["received_at_utc"] != received_at.isoformat(timespec="microseconds")
                 or receipt["http_status"] != 200

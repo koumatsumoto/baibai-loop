@@ -8,23 +8,31 @@ import json
 import sqlite3
 import uuid
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 
+from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
 from baibai_engine.collection.equity_web.receipts import (
     EquityWebReceiptError,
     read_responses,
     retain_response,
 )
 from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.equity_web_verification import (
+    history_digests,
+    response_digest,
+    verify_release_history,
+)
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.lake.reader import resolve_release
 from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.observations.equity_web_import import import_responses
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 DAY = datetime(2026, 9, 30, 23, 59, tzinfo=UTC)
 DATASET = "equity_web.source_responses"
@@ -44,6 +52,73 @@ def _retain(conn, *, attempt_id=None, **overrides):
     }
     fields.update(overrides)
     return retain_response(conn, **fields)
+
+
+def _received(*, source="monex", attempt_id=None, role="page", parent=None, body=b"original"):
+    return EquityWebSourceResponse(
+        receipt_id=str(uuid.uuid4()),
+        attempt_id=attempt_id or str(uuid.uuid4()),
+        source=source,
+        requested_ticker="9682",
+        role=role,
+        parent_receipt_id=parent,
+        requested_url=f"https://synthetic.invalid/{source}/{role}",
+        received_at_utc=DAY,
+        selected_encoding="utf-8",
+        body=body,
+    )
+
+
+def test_import_existing_store_preserves_ids_bytes_and_page_first_lineage(tmp_path):
+    market = tmp_path / "market.sqlite"
+    open_connection(market).close()
+    page = _received(source="rakuten")
+    iframe = _received(
+        source="rakuten", attempt_id=page.attempt_id, role="iframe", parent=page.receipt_id
+    )
+    assert import_responses(market, (iframe, page)) == 2
+    assert import_responses(market, (page, iframe)) == 0
+    with closing(sqlite3.connect(market)) as conn:
+        assert read_responses(conn, (iframe.receipt_id, page.receipt_id)) == (iframe, page)
+        assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (2,)
+
+
+@pytest.mark.parametrize("conflict", ["changed_receipt", "changed_role_identity", "bad_parent"])
+def test_import_conflict_rolls_back_whole_supplied_set(tmp_path, conflict):
+    market = tmp_path / "market.sqlite"
+    open_connection(market).close()
+    existing = _received()
+    assert import_responses(market, (existing,)) == 1
+    fresh = _received()
+    if conflict == "changed_receipt":
+        invalid = replace(existing, body=b"changed")
+    elif conflict == "changed_role_identity":
+        invalid = replace(existing, receipt_id=str(uuid.uuid4()))
+    else:
+        invalid = _received(
+            source="rakuten",
+            attempt_id=existing.attempt_id,
+            role="iframe",
+            parent=existing.receipt_id,
+        )
+    with pytest.raises(EquityWebReceiptError):
+        import_responses(market, (fresh, invalid))
+    with closing(sqlite3.connect(market)) as conn:
+        assert read_responses(conn, (existing.receipt_id,)) == (existing,)
+        assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (1,)
+
+
+def test_import_refuses_missing_or_obsolete_store_without_creating_it(tmp_path):
+    missing = tmp_path / "missing.sqlite"
+    with pytest.raises(sqlite3.OperationalError):
+        import_responses(missing, (_received(),))
+    assert not missing.exists()
+    obsolete = tmp_path / "obsolete.sqlite"
+    sqlite3.connect(obsolete).close()
+    with pytest.raises(SQLiteSchemaError, match="obsolete market SQLite schema"):
+        import_responses(obsolete, (_received(),))
+    with closing(sqlite3.connect(obsolete)) as conn:
+        assert conn.execute("SELECT name FROM sqlite_schema WHERE type='table'").fetchall() == []
 
 
 def test_original_non_utf8_bytes_commit_independently_and_duplicate_rolls_back(tmp_path):
@@ -263,3 +338,29 @@ def test_complete_and_incomplete_attempts_roundtrip_through_fixed_l1_release(tmp
             "SELECT received_on, COUNT(*) FROM equity_web_source_responses "
             "GROUP BY received_on ORDER BY received_on"
         ).fetchall() == [("2026-09-30", 1), ("2026-10-01", 2)]
+    expected = history_digests(market, months={(2026, 9), (2026, 10)})
+    selected = {item.receipt_id: response_digest(item) for item in original}
+    with lake_session() as session:
+        verify_release_history(
+            session,
+            release=release,
+            cache=cache,
+            expected_history=expected,
+            selected_digests=selected,
+        )
+        with pytest.raises(ValueError, match="selected receipt readback mismatch"):
+            verify_release_history(
+                session,
+                release=release,
+                cache=cache,
+                expected_history=expected,
+                selected_digests={**selected, page: "0" * 64},
+            )
+        with pytest.raises(ValueError, match="changed received history"):
+            verify_release_history(
+                session,
+                release=release,
+                cache=cache,
+                expected_history={**expected, (2026, 9): "0" * 64},
+                selected_digests=selected,
+            )

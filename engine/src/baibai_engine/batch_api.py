@@ -21,6 +21,12 @@ from baibai_engine.collection.economic_store import (
 )
 from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
 from baibai_engine.collection.equity_web.models import Source as ExternalAssessmentSource
+from baibai_engine.collection.equity_web.receipts import (
+    read_responses as equity_web_read_responses,
+)
+from baibai_engine.collection.equity_web.receipts import (
+    validate_response as equity_web_validate_response,
+)
 from baibai_engine.external_assessment.acquisition.cli import (
     main as external_assessment_acquisition_main,
 )
@@ -65,6 +71,9 @@ from baibai_engine.external_assessment.acquisition.verification import (
 )
 from baibai_engine.external_assessment.acquisition.verification import (
     verify_release_history as external_assessment_verify_release_history,
+)
+from baibai_engine.external_assessment.normalization.decode import (
+    decode_attempt as external_assessment_decode_attempt,
 )
 from baibai_engine.external_assessment.observations.identity import (
     ANALYST_RATING_DATASET as EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET,
@@ -144,6 +153,15 @@ from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.equity_web_verification import (
+    history_digests as equity_web_history_digests,
+)
+from baibai_engine.storage.lake.equity_web_verification import (
+    response_digest as equity_web_response_digest,
+)
+from baibai_engine.storage.lake.equity_web_verification import (
+    verify_release_history as equity_web_verify_release_history,
+)
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.identity import verified_git_commit as lake_verified_git_commit
 from baibai_engine.storage.lake.keys import (
@@ -168,6 +186,9 @@ from baibai_engine.storage.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
     export_market_store,
+)
+from baibai_engine.storage.observations.equity_web_import import (
+    import_responses as equity_web_import_responses,
 )
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
@@ -237,11 +258,18 @@ __all__ = [
     "create_market_snapshot",
     "database_path",
     "decode_economic_source_records",
+    "equity_web_history_digests",
+    "equity_web_import_responses",
+    "equity_web_read_responses",
+    "equity_web_response_digest",
+    "equity_web_validate_response",
+    "equity_web_verify_release_history",
     "export_market_store",
     "external_assessment_acquisition_main",
     "external_assessment_calendar_master_asof",
     "external_assessment_collect_pair",
     "external_assessment_collector_binding",
+    "external_assessment_decode_attempt",
     "external_assessment_frozen_lake_universe",
     "external_assessment_frozen_universe",
     "external_assessment_history_digests",

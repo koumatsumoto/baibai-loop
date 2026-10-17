@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Sequence
+from contextlib import closing
 from pathlib import Path
 
 from baibai_batch.jobs.external_assessment_cohorts import RunPlan, summarize
@@ -11,7 +13,9 @@ from baibai_batch.storage.external_assessment_identity import (
     PARTIAL_TERMINAL_FORMAT,
     PUBLISHED_FORMAT,
 )
+from baibai_batch.storage.external_assessment_raw import read_raw_bundle
 from baibai_batch.storage.external_assessment_staging import (
+    CohortStage,
     prefix,
     put_private,
     read_private,
@@ -43,6 +47,12 @@ from baibai_engine.batch_api import (
     LakeFixedRelease,
     LakeObjectCache,
     LocalMirrorSource,
+    equity_web_history_digests,
+    equity_web_import_responses,
+    equity_web_read_responses,
+    equity_web_response_digest,
+    equity_web_verify_release_history,
+    external_assessment_decode_attempt,
     external_assessment_history_digests,
     external_assessment_save_observations,
     external_assessment_verify_release_history,
@@ -53,6 +63,7 @@ from baibai_engine.batch_api import (
 VALUATION_DATASET = MODEL_VALUATION_DATASET
 RATING_DATASET = ANALYST_RATING_DATASET
 QUANTS_DATASET = QUANTS_SCORE_DATASET
+SOURCE_RESPONSES_DATASET = "equity_web.source_responses"
 
 
 def receipt_date_coverage(
@@ -88,6 +99,68 @@ def unchanged_objects(
     }
 
 
+def _import_confirmed_originals(
+    store: ObjectStore,
+    plan: RunPlan,
+    stages: dict[int, tuple[CohortStage, str]],
+    sqlite_path: Path,
+) -> tuple[int, set[tuple[int, int]], dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
+    """Import one bounded bundle at a time; defer L2 until every bundle is valid."""
+    source_inserted = 0
+    source_months: set[tuple[int, int]] = set()
+    selected_digests: dict[str, str] = {}
+    typed: list[ExternalAssessmentObservation] = []
+    attempts: dict[str, tuple[str, str, list[str]]] = {}
+    for index, (stage, _) in sorted(stages.items()):
+        pairs = set(plan.cohorts[index].pairs)
+        for key in stage.raw_bundle_keys:
+            manifest, responses = read_raw_bundle(store, key)
+            if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
+                raise ValueError("external assessment raw bundle stage binding mismatch")
+            for response in responses:
+                if (response.source, response.requested_ticker) not in pairs or (
+                    response.receipt_id in selected_digests
+                ):
+                    raise ValueError("external assessment raw receipt does not belong to cohort")
+                previous = attempts.get(response.attempt_id)
+                if previous is None:
+                    attempts[response.attempt_id] = (
+                        response.source,
+                        response.requested_ticker,
+                        [response.receipt_id],
+                    )
+                elif previous[:2] != (response.source, response.requested_ticker):
+                    raise ValueError("external assessment raw attempt identity mismatch")
+                else:
+                    previous[2].append(response.receipt_id)
+                selected_digests[response.receipt_id] = equity_web_response_digest(response)
+                source_months.add((response.received_at_utc.year, response.received_at_utc.month))
+            source_inserted += equity_web_import_responses(sqlite_path, responses)
+            # Responses and their decompressed bodies die with this bundle iteration.
+            del responses
+        for entry in stage.result.entries:
+            attempt_info = attempts.get(entry.attempt_id) if entry.attempt_id else None
+            if entry.state in {"success", "normal_null"}:
+                if attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker):
+                    raise ValueError(
+                        "selected external assessment attempt has no matching original"
+                    )
+                uri = sqlite_path.resolve().as_uri() + "?mode=ro"
+                with closing(sqlite3.connect(uri, uri=True)) as conn:
+                    attempt = equity_web_read_responses(conn, attempt_info[2])
+                parsed = external_assessment_decode_attempt(attempt)
+                if parsed != entry.observation:
+                    raise ValueError("external assessment staged observation differs from original")
+                typed.append(parsed)
+            elif (
+                entry.state == "failure"
+                and entry.http_status == 200
+                and (attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker))
+            ):
+                raise ValueError("failed HTTP 200 attempt has no retained original")
+    return source_inserted, source_months, selected_digests, tuple(typed)
+
+
 def publish_and_verify(
     store: ObjectStore,
     plan: RunPlan,
@@ -114,12 +187,11 @@ def publish_and_verify(
     accounting = summarize(plan, results, require_all=not confirmed_partial)
     if not confirmed_partial and not accounting["attempted_completeness"]:
         raise ValueError("external assessment publication requires all fixed pairs attempted")
-    observations = tuple(item for result in results for item in result.observations)
-    if confirmed_partial and not observations:
+    staged_observations = tuple(item for result in results for item in result.observations)
+    if confirmed_partial and not staged_observations:
         raise ValueError(
             "external assessment partial publication requires confirmed typed observations"
         )
-    coverage = receipt_date_coverage(plan, observations)
     previous = _serving_pointer(store).pointer
     if previous is None:
         raise LakePublishError("external assessment publication requires an existing L1 release")
@@ -132,6 +204,10 @@ def publish_and_verify(
         raise LakePublishError("external assessment publication requires a fresh current hydrate")
     directory.mkdir(mode=0o700)
     verify_held(store, handle)
+    source_inserted, source_months, selected_digests, observations = _import_confirmed_originals(
+        store, plan, stages, sqlite_path
+    )
+    coverage = receipt_date_coverage(plan, observations)
     inserted = external_assessment_save_observations(sqlite_path, observations)
     changed = {
         (
@@ -145,12 +221,16 @@ def publish_and_verify(
         )
         for item in observations
     }
+    changed.update((SOURCE_RESPONSES_DATASET, year, month) for year, month in source_months)
     expected_history = external_assessment_history_digests(sqlite_path, partitions=changed)
+    expected_source_history = equity_web_history_digests(sqlite_path, months=source_months)
     # Keep the publisher's verified remote bytes in this attempt's private mirror.
     # The fixed-release reader rechecks their SHA before validating typed history.
     readback_mirror = directory / "mirror"
     readback_mirror.mkdir(mode=0o700)
     verify_held(store, handle)
+    # A failed prior attempt may have imported every original locally before
+    # publication; retry must still publish those already-retained receipts.
     publication = (
         publish_market_lake(
             sqlite_path=sqlite_path,
@@ -159,7 +239,7 @@ def publish_and_verify(
             before_pointer_switch=lambda: verify_held(store, handle),
             verified_readback_root=readback_mirror,
         )
-        if inserted
+        if source_inserted or inserted or selected_digests
         else None
     )
     current = _serving_pointer(store).pointer
@@ -174,7 +254,7 @@ def publish_and_verify(
         raise LakePublishError("external assessment publication changed dataset inventory")
     if unchanged_objects(before, changed) != unchanged_objects(after, changed):
         raise LakePublishError("external assessment publication changed unrelated partitions")
-    for name in (VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET):
+    for name in (SOURCE_RESPONSES_DATASET, VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET):
         manifest = after.dataset_manifests.get(name)
         if manifest is None:
             continue
@@ -184,10 +264,18 @@ def publish_and_verify(
             for obj in part.objects:
                 _fetch(store, readback_mirror, obj.key, expected_sha256=obj.sha256)
     with lake_session() as session:
+        cache = LakeObjectCache(root=readback_mirror, source=LocalMirrorSource(readback_mirror))
+        equity_web_verify_release_history(
+            session,
+            release=after,
+            cache=cache,
+            expected_history=expected_source_history,
+            selected_digests=selected_digests,
+        )
         external_assessment_verify_release_history(
             session,
             release=after,
-            cache=LakeObjectCache(root=readback_mirror, source=LocalMirrorSource(readback_mirror)),
+            cache=cache,
             expected_history=expected_history,
             observations=observations,
             partitions=changed,
@@ -225,7 +313,7 @@ def publish_and_verify(
     external_assessment_readback = {
         obj.key: obj.bytes
         for name, manifest in after.dataset_manifests.items()
-        if name in {VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET}
+        if name in {SOURCE_RESPONSES_DATASET, VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET}
         for part in manifest.partitions
         if (name, part.values["year"], part.values["month"]) in changed
         for obj in part.objects
@@ -236,6 +324,7 @@ def publish_and_verify(
         "status": "partially_published" if confirmed_partial else "published",
         "receipt_date_coverage": coverage,
         "rows_added": inserted,
+        "source_responses_added": source_inserted,
         "uploaded_bytes": publication.uploaded_bytes if publication else 0,
         "uploaded_objects": publication.uploaded_objects if publication else 0,
         "publication_transfers": publication.transfers.as_dict() if publication else None,

@@ -269,6 +269,8 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 ## External Assessmentの保存済み照会
 
+`equity_web.source_responses`はHTTP 200の公開HTML原本を受領UTC年月でpartitionするL1である。receipt ID・attempt ID・媒体/要求ticker・page/iframe親子・URL・encoding・受領時刻・本文bytesを保持し、parse失敗の原本も落とさない。private raw bundleは公開前の短期handoffであり、固定releaseに載ったL1とは区別する。publisherは変更月の原本全履歴を行順に照合し、選択receiptのmetadataと本文を確認する。再取得できなかった応答の本文は作らない。
+
 `external_assessment.model_valuation_observations`、`external_assessment.analyst_rating_observations`、`external_assessment.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。External Assessmentを含まないreleaseをcurrent-schema作業コピーへhydrateした場合、そのtableは空となる。旧retail dataset名を含む固定releaseは元commitとの組合せで読み、新runtimeへ透過的に読み替えない。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。旧SQLiteの形をruntime readerが読み替えることはしない。
 
 同じ銘柄を同日に複数回受信しても、`fetched_at_utc`が違えば別行にする。保存済みstageの再投入は元の受信時刻を維持し、同じキー・同じ内容なら無変更、異なる内容ならtransaction全体を拒否する。新しいHTTP受信の同値は改定とは数えない。将来別配信元を同じsemantic tableへ追加するときは、その配信元を含むキーへ明示的にcontractを変更する。

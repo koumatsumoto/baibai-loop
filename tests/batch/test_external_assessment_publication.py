@@ -3,7 +3,6 @@ from __future__ import annotations
 import shlex
 import sqlite3
 import subprocess
-import uuid
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -11,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master import insert_master_rows
@@ -41,6 +41,7 @@ from baibai_engine.batch_api import (
     LakeObjectCache,
     LocalMirrorSource,
     external_assessment_collector_binding,
+    external_assessment_decode_attempt,
     external_assessment_history_digests,
     external_assessment_save_observations,
     external_assessment_verify_observations,
@@ -77,6 +78,7 @@ def publication(tmp_path, monkeypatch):
         "jquants.master_snapshots",
         "jquants.daily_bars",
         "jquants.short_sale_reports",
+        external_assessment.SOURCE_RESPONSES_DATASET,
         external_assessment.VALUATION_DATASET,
         external_assessment.RATING_DATASET,
         external_assessment.QUANTS_DATASET,
@@ -139,38 +141,37 @@ def publication(tmp_path, monkeypatch):
         collector_binding=external_assessment_collector_binding(),
     )
     journal = new_result(plan, 0)
+    originals = []
     for source, ticker in plan.cohorts[0].pairs:
-        common = {
-            "ticker": ticker,
-            "fetched_at_utc": RECEIVED,
-            "source_url": "https://example.test/synthetic",
-            "parser_version": "synthetic-1",
-        }
-        if source == "monex":
-            observation = ExternalAssessmentModelValuationObservation(
-                **common,
-                distributor="monex",
-                consensus_target=123456.0 if ticker == "7203" else None,
-            )
-        elif ticker == "7203":
-            observation = ExternalAssessmentAnalystRatingObservation(
-                **common, distributor="rakuten", rating=3
-            )
-        else:
-            observation = None
+        responses = pair_responses(
+            source,
+            ticker,
+            received_at_utc=RECEIVED,
+            value=("123,456円" if source == "monex" and ticker == "7203" else "--")
+            if source == "monex"
+            else "3.25",
+            malformed=(source == "rakuten" and ticker == "6758"),
+        )
+        originals.extend(responses)
+        observation = (
+            None
+            if source == "rakuten" and ticker == "6758"
+            else external_assessment_decode_attempt(responses)
+        )
         outcome = ExternalAssessmentCollectionOutcome(
             source,
             ticker,
             "observed" if observation else "parse_failure",
             None if observation else "no_estimates_identity_unconfirmed",
             200,
-            str(uuid.uuid4()),
+            responses[0].attempt_id,
         )
         journal = record_outcome(plan, journal, outcome, observation)
+    bundle_key = upload_bundle(store, plan, 0, tuple(originals))
     put_private(
         store,
         stage_key(plan, 0),
-        stage_bytes(plan, CohortStage(journal)),
+        stage_bytes(plan, CohortStage(journal, raw_bundle_keys=(bundle_key,))),
         previous_etag=None,
     )
     return store, plan, handle, database, mirror, tmp_path
@@ -215,7 +216,8 @@ def test_stored_graph_readback_preserves_null_receipts_history_and_unrelated_dat
         > report["external_assessment_readback_expected_parquet_bytes"]
         > 0
     )
-    assert report["external_assessment_readback_parquet_objects"] == 2
+    assert report["external_assessment_readback_parquet_objects"] == 3
+    assert report["source_responses_added"] == 6
     assert report["release_id"] != before.release_id
     assert store.get_bytes(stage_key(plan, 0)) == original
     assert not (tmp_path / "readback/readback.sqlite").exists()
@@ -312,7 +314,7 @@ def test_readback_gets_only_external_assessment_parquet_and_keeps_new_object_byt
         directory=tmp_path / "retail-only-readback",
     )
     new_parquet = {key for key in store.values.keys() - before_keys if key.endswith(".parquet")}
-    assert len(new_parquet) == 2
+    assert len(new_parquet) == 3
     # Typed history uses the publisher's verified remote bytes, not the export files.
     assert all(store.get_keys.count(key) == 1 for key in new_parquet)
     assert not forbidden.intersection(store.get_keys)
@@ -632,16 +634,9 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
         universe_binding=previous.universe_binding,
         collector_binding=external_assessment_collector_binding(),
     )
-    item = ExternalAssessmentQuantsScoreObservation(
-        ticker="8306",
-        fetched_at_utc=RECEIVED,
-        source_url="https://synthetic.invalid/quants",
-        parser_version="synthetic-1",
-        score_as_of_date="2026-09-29",
-        undervaluation_score=6,
-        composite_score=62,
-        industry_average_score=53,
-    )
+    responses = pair_responses("kabumap", "8306", received_at_utc=RECEIVED)
+    item = external_assessment_decode_attempt(responses)
+    assert isinstance(item, ExternalAssessmentQuantsScoreObservation)
     journal = record_outcome(
         p,
         new_result(p, 0),
@@ -650,11 +645,17 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
             "8306",
             "observed",
             http_status=200,
-            attempt_id=str(uuid.uuid4()),
+            attempt_id=responses[0].attempt_id,
         ),
         item,
     )
-    put_private(store, stage_key(p, 0), stage_bytes(p, CohortStage(journal)), previous_etag=None)
+    bundle_key = upload_bundle(store, p, 0, responses)
+    put_private(
+        store,
+        stage_key(p, 0),
+        stage_bytes(p, CohortStage(journal, raw_bundle_keys=(bundle_key,))),
+        previous_etag=None,
+    )
     report = external_assessment.publish_and_verify(
         store,
         p,
@@ -665,7 +666,7 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
     )
     assert report["readback"] == "verified"
     assert report["rows_added"] == 1
-    assert report["external_assessment_readback_parquet_objects"] == 1
+    assert report["external_assessment_readback_parquet_objects"] == 2
     external_assessment_verify_observations(database, [item])
     after = external_assessment_history_digests(database)
     assert (

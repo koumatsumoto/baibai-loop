@@ -5,6 +5,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
 from tests.batch.test_external_assessment_publication import RECEIVED
 from tests.batch.test_external_assessment_publication import publication as publication
 
@@ -24,9 +25,8 @@ from baibai_batch.storage.external_assessment_staging import (
 from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_batch.storage.publication_lease import LeaseError, release
 from baibai_engine.batch_api import (
-    ExternalAssessmentAnalystRatingObservation,
     ExternalAssessmentCollectionOutcome,
-    ExternalAssessmentModelValuationObservation,
+    external_assessment_decode_attempt,
     external_assessment_history_digests,
     external_assessment_verify_observations,
 )
@@ -43,28 +43,16 @@ def partial_batch(publication):
         sources=("monex", "rakuten"),
         cohort_size=1,
     )
+    monex = pair_responses(
+        "monex", "130A", received_at_utc=RECEIVED - timedelta(microseconds=1), value="0円"
+    )
+    rakuten = pair_responses("rakuten", "130A", received_at_utc=RECEIVED, value="--")
     observations = (
-        ExternalAssessmentModelValuationObservation(
-            ticker="130A",
-            fetched_at_utc=RECEIVED - timedelta(microseconds=1),
-            source_url="https://example.test/synthetic-partial-model",
-            parser_version="synthetic-partial-1",
-            distributor="monex",
-            per_company_forecast=0,
-            per_company_forecast_origin="synthetic-model-origin",
-        ),
-        ExternalAssessmentAnalystRatingObservation(
-            ticker="130A",
-            fetched_at_utc=RECEIVED,
-            source_url="https://example.test/synthetic-partial-rating",
-            parser_version="synthetic-partial-1",
-            distributor="rakuten",
-            rating=None,
-            rating_updated_label="synthetic-normal-null",
-        ),
+        external_assessment_decode_attempt(monex),
+        external_assessment_decode_attempt(rakuten),
     )
     confirmed = new_result(plan, 0)
-    for observation in observations:
+    for observation, responses in zip(observations, (monex, rakuten), strict=True):
         confirmed = record_outcome(
             plan,
             confirmed,
@@ -74,11 +62,12 @@ def partial_batch(publication):
                 "observed",
                 None,
                 200,
-                str(uuid.uuid4()),
+                responses[0].attempt_id,
             ),
             observation,
         )
     halted = new_result(plan, 1)
+    malformed = pair_responses("monex", "6758", received_at_utc=RECEIVED, malformed=True)
     halted = record_outcome(
         plan,
         halted,
@@ -88,12 +77,20 @@ def partial_batch(publication):
             "parse_failure",
             "missing_theory_table",
             200,
-            str(uuid.uuid4()),
+            malformed[0].attempt_id,
         ),
     )
     for checkpoint in (
-        CohortStage(confirmed, http_requests=3),
-        CohortStage(halted, http_requests=1),
+        CohortStage(
+            confirmed,
+            http_requests=3,
+            raw_bundle_keys=(upload_bundle(store, plan, 0, (*monex, *rakuten)),),
+        ),
+        CohortStage(
+            halted,
+            http_requests=1,
+            raw_bundle_keys=(upload_bundle(store, plan, 1, malformed),),
+        ),
     ):
         store.store_object(
             stage_key(plan, checkpoint.result.cohort_index),

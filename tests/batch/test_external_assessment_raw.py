@@ -440,7 +440,7 @@ def test_readback_rejects_old_or_mismatched_raw_identity(connect, change):
     daily.acquire_cohort(store, p, 0)
     key = stage(store, p).raw_bundle_keys[0]
     _rewrite_manifest(store, key, change)
-    with pytest.raises(ValueError, match="external assessment"):
+    with pytest.raises(ValueError, match=r"external assessment|canonical"):
         external_assessment_raw.read_raw_bundle(store, key)
 
 
