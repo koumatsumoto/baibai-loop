@@ -5,16 +5,19 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.edinet_documents import store_edinet_documents
 
+from baibai_engine.collection.edinet.receipts import retain_list_response
 from baibai_engine.market import edinet_document_store
 from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 from baibai_engine.market.edinet_facts.store import document_inventory
+from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
+from baibai_engine.storage.observations.schema import open_connection
 
 ORIGIN_DAY = date(2026, 8, 1)
 EDIT_DAY = date(2026, 8, 2)
@@ -200,7 +203,6 @@ def test_native_record_must_match_the_stored_date_position_and_document(tmp_path
 def test_native_origin_keeps_identity_observed_before_inspection_expiry(tmp_path):
     path = tmp_path / "market.sqlite"
     origin = {**_origin(), "docTypeCode": "120", "parentDocID": None}
-    _save_native(path, ORIGIN_DAY, [origin])
     expired = {
         **origin,
         "secCode": None,
@@ -211,7 +213,17 @@ def test_native_origin_keeps_identity_observed_before_inspection_expiry(tmp_path
         "csvFlag": "0",
         "xbrlFlag": "0",
     }
-    _save_native(path, ORIGIN_DAY, [expired])
+    with closing(open_connection(path)) as connection:
+        for offset, record in enumerate((origin, expired)):
+            retain_list_response(
+                connection,
+                doc_date=ORIGIN_DAY,
+                received_at=datetime(2026, 8, 10, tzinfo=UTC) + timedelta(seconds=offset),
+                body=json.dumps(
+                    {"metadata": {"resultset": {"count": 1}}, "results": [record]}
+                ).encode(),
+            )
+    assert rebuild_edinet_document_day(path, ORIGIN_DAY).error is None
     rows = read_edinet_documents(path, ORIGIN_DAY)
     assert rows is not None
     assert rows[0]["secCode"] == origin["secCode"]

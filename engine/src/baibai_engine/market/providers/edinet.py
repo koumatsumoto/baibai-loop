@@ -8,18 +8,23 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from baibai_engine.collection.edinet.archives import read_source_archive, retain_source_archive
 from baibai_engine.collection.edinet.http import EDINETHTTP
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
+from baibai_engine.collection.edinet.receipts import read_list_responses, retain_list_response
 from baibai_engine.market.edinet_decode import safe_error_value, text_or_none
 from baibai_engine.market.edinet_document_events import parse_doc_id
+from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.storage.observations.read import connect_read_only
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 if TYPE_CHECKING:
     import requests
+
+_JST = ZoneInfo("Asia/Tokyo")
 
 
 class EDINETProvider:
@@ -56,65 +61,39 @@ class EDINETProvider:
         on_date: date,
         *,
         force_refresh: bool = False,
-        is_final: bool = False,
     ) -> list[dict[str, Any]]:
-        if self._sqlite_path is not None and not force_refresh:
-            from baibai_engine.market.edinet_metrics.store import read_edinet_documents
-
-            cached = read_edinet_documents(self._sqlite_path, on_date)
-            if cached is not None:
-                return cached
+        sqlite_path = self._sqlite_path
+        if sqlite_path is None:
+            raise EDINETProviderError("EDINET list acquisition requires sqlite_path")
+        if not force_refresh and sqlite_path.exists():
+            connection = connect_current(sqlite_path)
+            if connection is not None:
+                with closing(connection):
+                    receipts = read_list_responses(connection, doc_date=on_date)
+                if receipts:
+                    projection = rebuild_edinet_document_day(sqlite_path, on_date)
+                    if projection.error is None:
+                        return list(projection.documents)
         self._raise_if_cache_only("edinet_documents", on_date.isoformat())
-        data = self._request_json(on_date)
-        results = data.get("results", [])
-        if not isinstance(results, list):
-            raise EDINETProviderError("EDINET documents.json returned unexpected results payload")
-        metadata = data.get("metadata")
-        if not isinstance(metadata, Mapping):
-            raise EDINETProviderError("EDINET documents.json returned no metadata")
-        resultset = metadata.get("resultset")
-        if not isinstance(resultset, Mapping):
-            raise EDINETProviderError("EDINET documents.json returned no resultset metadata")
-        raw_result_count = resultset.get("count")
-        if raw_result_count is None:
-            raise EDINETProviderError("EDINET documents.json returned invalid resultset count")
-        try:
-            result_count = int(str(raw_result_count))
-        except (TypeError, ValueError) as exc:
-            raise EDINETProviderError(
-                "EDINET documents.json returned invalid resultset count"
-            ) from exc
-        if result_count != len(results):
-            raise EDINETProviderError(
-                "EDINET documents.json resultset count mismatch: "
-                f"metadata={result_count} results={len(results)}"
+        received = self._http_client("list_documents").fetch_list(on_date)
+        with closing(open_connection(sqlite_path)) as connection:
+            retain_list_response(
+                connection,
+                doc_date=on_date,
+                received_at=received.received_at,
+                body=received.body,
             )
-        process_datetime = text_or_none(metadata.get("processDateTime"))
-        documents = _coerce_document_items(results, source="EDINET documents.json")
-        for document in documents:
-            document["doc_date"] = on_date.isoformat()
-        if self._sqlite_path is not None:
-            from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
-
-            store_edinet_documents(
-                self._sqlite_path,
-                on_date,
-                documents,
-                process_datetime=process_datetime,
-                result_count=result_count,
-                is_final=is_final,
-                response_json=json.dumps(
-                    data, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-                ),
-            )
-        return documents
+        projection = rebuild_edinet_document_day(sqlite_path, on_date)
+        if projection.error is not None:
+            raise EDINETProviderError(projection.error)
+        return list(projection.documents)
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         fetched = self._refresh_document_state(end)
         cursor = start
         while cursor <= end:
             if cursor not in fetched:
-                fetched[cursor] = len(self.list_documents(cursor, is_final=cursor < end))
+                fetched[cursor] = len(self.list_documents(cursor))
             cursor += timedelta(days=1)
         return {"documents": sum(fetched.values())}
 
@@ -132,16 +111,26 @@ class EDINETProvider:
         """
         days = 0
         documents = 0
+        today = datetime.now(_JST).date()
+        today_documents = self.list_documents(today, force_refresh=True)
         cursor = start
         while cursor <= end:
-            documents += len(self.list_documents(cursor, force_refresh=True, is_final=cursor < end))
+            documents += len(
+                today_documents
+                if cursor == today
+                else self.list_documents(cursor, force_refresh=True)
+            )
             days += 1
             cursor += timedelta(days=1)
         return {"days": days, "documents": documents}
 
     def _refresh_document_state(self, end: date) -> dict[date, int]:
+        today = datetime.now(_JST).date()
+        today_documents = self.list_documents(today, force_refresh=True)
         fetched = {
-            end: len(self.list_documents(end, force_refresh=True, is_final=False)),
+            end: len(
+                today_documents if end == today else self.list_documents(end, force_refresh=True)
+            ),
         }
         if self._sqlite_path is not None:
             from baibai_engine.market.edinet_metrics.store import (
@@ -149,9 +138,7 @@ class EDINETProvider:
             )
 
             for unresolved in read_unfinalized_edinet_document_dates(self._sqlite_path, before=end):
-                fetched[unresolved] = len(
-                    self.list_documents(unresolved, force_refresh=True, is_final=True)
-                )
+                fetched[unresolved] = len(self.list_documents(unresolved, force_refresh=True))
         return fetched
 
     def download_csv_zip(self, doc_id: str) -> bytes:
@@ -216,40 +203,6 @@ class EDINETProvider:
             "`bootstrap-cache --asof` / `refresh-edinet-metrics` or repair SQLite "
             "before running screening."
         )
-
-    def _request_json(self, on_date: date) -> dict[str, Any]:
-        received = self._http_client("list_documents").fetch_list(on_date)
-        if self._sqlite_path is not None:
-            from baibai_engine.collection.edinet.receipts import retain_list_response
-            from baibai_engine.storage.observations.schema import open_connection
-
-            with closing(open_connection(self._sqlite_path)) as receipt_conn:
-                retain_list_response(
-                    receipt_conn,
-                    doc_date=on_date,
-                    received_at=received.received_at,
-                    body=received.body,
-                )
-        invalid_json = False
-        payload: Any = None
-        try:
-            payload = json.loads(received.body)
-        except (UnicodeError, json.JSONDecodeError):
-            invalid_json = True
-        if invalid_json:
-            raise EDINETProviderError("EDINET documents.json returned invalid JSON") from None
-        if not isinstance(payload, dict):
-            raise EDINETProviderError("EDINET response JSON must be an object")
-        return payload
-
-
-def _coerce_document_items(payload: list[Any], *, source: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, Mapping):
-            raise EDINETProviderError(f"{source} contained a non-mapping document item")
-        items.append(dict(item))
-    return items
 
 
 def _is_zip_bytes(content: bytes) -> bool:

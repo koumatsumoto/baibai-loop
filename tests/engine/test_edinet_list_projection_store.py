@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.edinet_documents import store_edinet_documents
 
 from baibai_engine.collection.edinet.receipts import read_list_responses, retain_list_response
 from baibai_engine.market.edinet_document_store import (
@@ -22,7 +23,6 @@ from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.storage.observations.ingest.edinet import (
     store_edinet_document_projection,
-    store_edinet_documents,
 )
 from baibai_engine.storage.observations.schema import open_connection
 

@@ -7,13 +7,13 @@ from datetime import date
 from unittest.mock import patch
 
 import pytest
+from tests.helpers.edinet_documents import store_edinet_documents
 
 from baibai_engine.collection.edinet.archives import retain_source_archive
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.storage.observations.ingest.edinet import (
-    store_edinet_documents,
     store_edinet_metrics,
 )
 from baibai_engine.storage.observations.schema import open_connection

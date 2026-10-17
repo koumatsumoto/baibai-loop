@@ -6,15 +6,16 @@ import unittest
 import zipfile
 from contextlib import closing
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
-from itertools import permutations
+from itertools import count, permutations
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
 import requests
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import (
     ExplodingSession,
     FakeResponse,
@@ -29,6 +30,7 @@ from tests.helpers.http_doubles import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
+from baibai_engine.collection.edinet import http as edinet_http
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError
@@ -51,11 +53,11 @@ from baibai_engine.market.jquants_decode import (
     parse_jquants_code,
 )
 from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.market.providers import edinet as edinet_provider_module
 from baibai_engine.market.providers.edinet import EDINETProvider, parse_doc_id
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
 from baibai_engine.market.providers.jpx import JPXProvider, _EarningsCalendarFile
 from baibai_engine.storage.observations.ingest.edinet import (
-    store_edinet_documents,
     store_edinet_metrics,
 )
 from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
@@ -122,7 +124,20 @@ class _DateJsonSession(FakeSession):
         self.calls.append(requested_date)
         if requested_date in self._failing_dates:
             return json_response({}, status_code=400)
+        if requested_date == "2026-07-11" and requested_date not in self._payloads:
+            return json_response({"metadata": {"resultset": {"count": 0}}, "results": []})
         return json_response(self._payloads[requested_date])
+
+
+_HISTORICAL_TICKS = count()
+
+
+class _HistoricalClock:
+    @staticmethod
+    def now(zone):
+        return (
+            datetime(2026, 7, 11, 12, tzinfo=UTC) + timedelta(microseconds=next(_HISTORICAL_TICKS))
+        ).astimezone(zone)
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
@@ -384,7 +399,9 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_list_documents_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = _TransientThenJsonSession()
-            provider = EDINETProvider("key", Path(tmp), session=session)
+            provider = EDINETProvider(
+                "key", Path(tmp), session=session, sqlite_path=Path(tmp) / "market.sqlite"
+            )
 
             with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
                 documents = provider.list_documents(date(2026, 7, 10))
@@ -393,6 +410,8 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(len(session.calls), 2)
             sleep.assert_called_once_with(3)
 
+    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_fetches_target_then_all_unresolved_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -430,7 +449,11 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(provider.refresh_document_state(target), {"documents": 0})
             self.assertEqual(
                 session.calls,
-                [target.isoformat(), *(value.isoformat() for value in unresolved_dates)],
+                [
+                    "2026-07-11",
+                    target.isoformat(),
+                    *(value.isoformat() for value in unresolved_dates),
+                ],
             )
             conn = sqlite3.connect(sqlite_path)
             try:
@@ -441,9 +464,11 @@ class ScreeningProviderTests(unittest.TestCase):
                 )
             finally:
                 conn.close()
-            self.assertEqual(finality[target.isoformat()], 0)
+            self.assertEqual(finality[target.isoformat()], 1)
             self.assertTrue(all(finality[value.isoformat()] == 1 for value in unresolved_dates))
 
+    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_target_failure_does_not_finalize_prior_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -465,7 +490,7 @@ class ScreeningProviderTests(unittest.TestCase):
 
             with self.assertRaisesRegex(EdinetAcquisitionError, "status 400"):
                 provider.refresh_document_state(target)
-            self.assertEqual(session.calls, [target.isoformat()])
+            self.assertEqual(session.calls, ["2026-07-11", target.isoformat()])
             conn = sqlite3.connect(sqlite_path)
             try:
                 finality = conn.execute(
@@ -476,7 +501,9 @@ class ScreeningProviderTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(finality, (0,))
 
-    def test_refresh_document_state_count_mismatch_preserves_target_snapshot(self) -> None:
+    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
+    def test_refresh_document_state_count_mismatch_blocks_target_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             target = date(2026, 7, 10)
@@ -504,7 +531,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 sqlite_path=sqlite_path,
             )
 
-            with self.assertRaisesRegex(EDINETProviderError, "count mismatch"):
+            with self.assertRaisesRegex(EDINETProviderError, "does not match"):
                 provider.refresh_document_state(target)
             conn = sqlite3.connect(sqlite_path)
             try:
@@ -514,8 +541,10 @@ class ScreeningProviderTests(unittest.TestCase):
                 ).fetchall()
             finally:
                 conn.close()
-            self.assertEqual(rows, [("S100KEPT",)])
+            self.assertEqual(rows, [])
 
+    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_retry_only_keeps_unfinished_prior_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -556,7 +585,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 provider.refresh_document_state(target)
             self.assertEqual(
                 first_session.calls,
-                [target.isoformat(), completed.isoformat(), unfinished.isoformat()],
+                ["2026-07-11", target.isoformat(), completed.isoformat(), unfinished.isoformat()],
             )
 
             retry_session = _DateJsonSession(
@@ -574,8 +603,65 @@ class ScreeningProviderTests(unittest.TestCase):
             retry_provider.refresh_document_state(target)
             self.assertEqual(
                 retry_session.calls,
-                [target.isoformat(), unfinished.isoformat()],
+                ["2026-07-11", target.isoformat(), unfinished.isoformat()],
             )
+
+    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
+    def test_bootstrap_and_backfill_fetch_today_proof_before_historical_days(self) -> None:
+        today = date(2026, 7, 11)
+        start = date(2026, 7, 8)
+        end = date(2026, 7, 10)
+        proof = {
+            "metadata": {"resultset": {"count": 1}},
+            "results": [{"seqNumber": 1, "docID": "S100PROOF"}],
+        }
+        empty = {"metadata": {"resultset": {"count": 0}}, "results": []}
+        payloads = {today.isoformat(): proof}
+        payloads.update(
+            {value.isoformat(): empty for value in (start, start + timedelta(days=1), end)}
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "market.sqlite"
+            bootstrap_session = _DateJsonSession(payloads)
+            bootstrap = EDINETProvider(
+                "key", Path(tmp), session=bootstrap_session, sqlite_path=path
+            )
+            self.assertEqual(bootstrap.bootstrap_cache(start, end), {"documents": 0})
+            self.assertEqual(
+                bootstrap_session.calls,
+                [today.isoformat(), end.isoformat(), start.isoformat(), "2026-07-09"],
+            )
+            backfill_session = _DateJsonSession(payloads)
+            backfill = EDINETProvider("key", Path(tmp), session=backfill_session, sqlite_path=path)
+            self.assertEqual(
+                backfill.backfill_document_identity(start, end), {"days": 3, "documents": 0}
+            )
+            self.assertEqual(
+                backfill_session.calls,
+                [today.isoformat(), start.isoformat(), "2026-07-09", end.isoformat()],
+            )
+
+    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
+    def test_current_day_refresh_does_not_claim_a_later_recheck(self) -> None:
+        today = date(2026, 7, 11)
+        payload = {today.isoformat(): {"metadata": {"resultset": {"count": 0}}, "results": []}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "market.sqlite"
+            session = _DateJsonSession(payload)
+            provider = EDINETProvider("key", Path(tmp), session=session, sqlite_path=path)
+            self.assertEqual(provider.refresh_document_state(today), {"documents": 0})
+            self.assertEqual(session.calls, [today.isoformat()])
+            with closing(sqlite3.connect(path)) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT is_final, rechecked_asof FROM edinet_document_lists "
+                        "WHERE doc_date = ?",
+                        (today.isoformat(),),
+                    ).fetchone(),
+                    (0, None),
+                )
 
     def test_download_csv_zip_final_connection_error_is_redacted_without_final_sleep(
         self,

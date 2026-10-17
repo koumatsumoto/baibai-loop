@@ -33,6 +33,7 @@ from tests.engine.test_screening_cli import (
     _edinet_csv_zip,
     _edinet_document,
 )
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.collection.edinet.archives import retain_source_archive
@@ -51,7 +52,6 @@ from baibai_engine.screening.metrics.snapshot import (
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
 from baibai_engine.storage.observations.ingest.edinet import (
-    store_edinet_documents,
     store_edinet_metrics,
 )
 from baibai_engine.storage.observations.schema import open_connection

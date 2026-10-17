@@ -12,6 +12,7 @@ from unittest.mock import Mock
 
 import pandas as pd
 import requests
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.collection.jquants_http import JQuantsHTTP
@@ -25,7 +26,6 @@ from baibai_engine.storage.observations.coverage import (
     daily_bars_covered_by_data,
 )
 from baibai_engine.storage.observations.ingest.edinet import (
-    store_edinet_documents,
     store_edinet_metrics,
 )
 from baibai_engine.storage.observations.ingest.jpx import (

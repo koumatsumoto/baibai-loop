@@ -756,9 +756,10 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
 
 @pytest.mark.parametrize("through_sqlite", [False, True])
 def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, through_sqlite):
+    from tests.helpers.edinet_documents import store_edinet_documents
+
     from baibai_engine.market.edinet_document_events import _canonicalize_document_events
     from baibai_engine.market.edinet_metrics.store import read_edinet_documents
-    from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 
     original = document()
     correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")

@@ -155,31 +155,34 @@ def test_documents_are_decoded_from_retained_bytes_without_response_json(tmp_pat
 
 
 @pytest.mark.parametrize("body", [b"{not valid JSON test-key", b"\xff\xfe\xff"])
-def test_invalid_json_or_encoding_has_fixed_error_without_exception_context(tmp_path, body):
+def test_invalid_json_or_encoding_is_retained_with_failed_coverage(tmp_path, body):
     path = tmp_path / "market.sqlite"
     provider = EDINETProvider(
         "test-key", tmp_path / "cache", session=FakeSession(response(body)), sqlite_path=path
     )
     with pytest.raises(EDINETProviderError) as caught:
         provider.list_documents(_DAY)
-    assert str(caught.value) == "EDINET documents.json returned invalid JSON"
+    assert str(caught.value).startswith("EDINET list projection failed:")
+    assert "test-key" not in str(caught.value)
     assert caught.value.__cause__ is None
     assert caught.value.__context__ is None
     with closing(sqlite3.connect(path)) as conn:
         saved = read_list_response(conn, _stored_ids(path)[0])
         assert saved is not None
         assert saved.body == body
+        assert conn.execute(
+            "SELECT status FROM source_coverage WHERE source = 'edinet_documents'"
+        ).fetchone() == ("failed",)
 
 
 @pytest.mark.parametrize(
     "failure",
     ["malformed_json", "count_mismatch", "invalid_row", "missing_doc_id", "invalid_seq"],
 )
-def test_invalid_l2_still_retains_received_body(tmp_path, failure):
+def test_invalid_projection_still_retains_received_body(tmp_path, failure):
     if failure == "malformed_json":
         body = b"{not valid JSON"
         reply = response(body)
-        error = EDINETProviderError
     else:
         results = {
             "count_mismatch": [],
@@ -193,24 +196,27 @@ def test_invalid_l2_still_retains_received_body(tmp_path, failure):
         }
         body = _wire(payload)
         reply = response(body, payload=payload)
-        error = ValueError if failure in {"missing_doc_id", "invalid_seq"} else EDINETProviderError
     path = tmp_path / "market.sqlite"
     provider = EDINETProvider(
         "test-key", tmp_path / "cache", session=FakeSession(reply), sqlite_path=path
     )
-    with pytest.raises(error) as caught:
+    with pytest.raises(EDINETProviderError) as caught:
         provider.list_documents(_DAY)
     if failure == "missing_doc_id":
-        assert str(caught.value) == "EDINET document row is missing docID"
+        assert "invalid EDINET docID" in str(caught.value)
     elif failure == "invalid_seq":
-        assert "invalid EDINET seqNumber" in str(caught.value)
+        assert "EDINET seqNumber must be a positive integer" in str(caught.value)
     ids = _stored_ids(path)
     assert len(ids) == 1
     with closing(sqlite3.connect(path)) as conn:
         saved = read_list_response(conn, ids[0])
         assert saved is not None
         assert saved.body == body
-        assert conn.execute("SELECT COUNT(*) FROM edinet_document_lists").fetchone() == (0,)
+        assert conn.execute("SELECT COUNT(*) FROM edinet_document_lists").fetchone() == (1,)
+        assert conn.execute("SELECT COUNT(*) FROM edinet_documents").fetchone() == (0,)
+        assert conn.execute(
+            "SELECT status FROM source_coverage WHERE source = 'edinet_documents'"
+        ).fetchone() == ("failed",)
 
 
 def test_receipts_export_through_fixed_release_and_fresh_hydrate(tmp_path, monkeypatch):

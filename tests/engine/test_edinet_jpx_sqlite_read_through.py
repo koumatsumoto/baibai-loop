@@ -3,11 +3,14 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from unittest.mock import patch
 
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import add_source_coverage
 
+from baibai_engine.collection.edinet.receipts import retain_list_response
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
@@ -15,7 +18,6 @@ from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.jpx import JPXProvider
-from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 from baibai_engine.storage.observations.reader import has_jpx_regulation_data, read_jpx_regulations
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -249,14 +251,24 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
             )
             _add_source_coverage(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()
+            retain_list_response(
+                conn,
+                doc_date=date(2026, 4, 24),
+                received_at=datetime(2026, 4, 24, 12, tzinfo=UTC),
+                body=b'{"metadata":{"resultset":{"count":1}},"results":[{"seqNumber":1,"docID":"S100B","secCode":"13010","docTypeCode":"120"}]}',
+            )
             conn.close()
 
             provider = EDINETProvider("api-key", cache_dir, sqlite_path=sqlite_path)
 
-            docs = provider.list_documents(date(2026, 4, 24))
+            with patch(
+                "baibai_engine.collection.edinet.http.requests.Session",
+                side_effect=AssertionError("offline replay attempted HTTP"),
+            ):
+                docs = provider.list_documents(date(2026, 4, 24))
 
             self.assertEqual(len(docs), 1)
-            self.assertEqual(docs[0]["docID"], "S100A")
+            self.assertEqual(docs[0]["docID"], "S100B")
 
     def test_load_metric_records_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from collections.abc import Iterable, Mapping
-from datetime import UTC, date, datetime
+from datetime import UTC, date
 from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,79 +24,7 @@ from baibai_engine.storage.observations.coverage import (
     delete_overlapping_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.storage.observations.schema import (
-    EDINET_DOCUMENT_RETAINED_COLUMNS,
-    open_connection,
-)
-
-
-def store_edinet_documents(
-    db_path: Path,
-    on_date: date,
-    records: Iterable[Mapping[str, Any]],
-    *,
-    process_datetime: str | None = None,
-    result_count: int | None = None,
-    is_final: bool = False,
-    response_json: str | None = None,
-) -> int:
-    conn = open_connection(db_path)
-    try:
-        records_list = list(records)
-        rows = _edinet_document_rows(
-            on_date.isoformat(),
-            records_list,
-            observed=_observed_retained_columns(conn, on_date.isoformat()),
-        )
-        expected_count = len(records_list) if result_count is None else result_count
-        if expected_count != len(records_list):
-            raise ValueError(
-                "EDINET document resultset count mismatch: "
-                f"metadata={expected_count} results={len(records_list)}"
-            )
-        conn.execute("DELETE FROM edinet_documents WHERE doc_date = ?", (on_date.isoformat(),))
-        delete_overlapping_source_coverage(conn, "edinet_documents", on_date, on_date)
-        if rows:
-            conn.executemany(
-                "INSERT INTO edinet_documents("
-                "doc_date, sequence_number, doc_id, sec_code, doc_type_code, csv_flag, "
-                "xbrl_flag, legal_status, disclosure_status, withdrawal_status, "
-                "doc_info_edit_status, parent_doc_id, operation_datetime, submit_datetime, "
-                "doc_description, period_start, period_end"
-                ", edinet_code, issuer_edinet_code, subject_edinet_code"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
-        persisted_count = date_range_row_count(
-            conn, "edinet_documents", "doc_date", on_date, on_date
-        )
-        record_source_coverage(
-            conn,
-            source="edinet_documents",
-            coverage_key=on_date.isoformat(),
-            coverage_start=on_date.isoformat(),
-            coverage_end=on_date.isoformat(),
-            record_count=persisted_count,
-            status="ok",
-            error=None,
-        )
-        conn.execute(
-            "INSERT OR REPLACE INTO edinet_document_lists("
-            "doc_date, process_datetime, result_count, fetched_at_utc, is_final, response_json"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                on_date.isoformat(),
-                process_datetime,
-                expected_count,
-                datetime.now(UTC).isoformat(),
-                int(is_final),
-                response_json,
-            ),
-        )
-        conn.commit()
-        return persisted_count
-    finally:
-        conn.close()
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def store_edinet_document_projection(
@@ -109,7 +36,7 @@ def store_edinet_document_projection(
         conn.execute("BEGIN IMMEDIATE")
         doc_date = projection.doc_date
         doc_date_iso = doc_date.isoformat()
-        rows = _edinet_document_rows(doc_date_iso, projection.documents, observed={})
+        rows = _edinet_document_rows(doc_date_iso, projection.documents)
         selected = projection.selected_receipt
         if selected is None:
             process_datetime = None
@@ -241,38 +168,9 @@ def store_edinet_metrics(
         conn.close()
 
 
-def _observed_retained_columns(
-    conn: sqlite3.Connection, doc_date: str
-) -> dict[int, tuple[str, Mapping[str, str | None]]]:
-    """What this store already saw a day's filings say, keyed by list position.
-
-    A document id is not unique within a day — EDINET returns the same one at two
-    positions with different descriptions, and 113 days in the store do — so the
-    retained values are held under the row identity the store itself enforces and carry
-    the document id they were read with. The caller applies them only when the new
-    response puts the same document at that position; anything else keeps the response
-    as it came, because inventing a description is worse than losing one.
-    """
-    rows = conn.execute(
-        "SELECT sequence_number, doc_id, sec_code, doc_type_code, parent_doc_id, "
-        "submit_datetime, doc_description, edinet_code, issuer_edinet_code, "
-        "subject_edinet_code FROM edinet_documents WHERE doc_date = ?",
-        (doc_date,),
-    ).fetchall()
-    return {
-        int(sequence_number): (
-            str(doc_id),
-            dict(zip(EDINET_DOCUMENT_RETAINED_COLUMNS, values, strict=True)),
-        )
-        for sequence_number, doc_id, *values in rows
-    }
-
-
 def _edinet_document_rows(
     doc_date: str,
     records: Iterable[Mapping[str, Any]],
-    *,
-    observed: Mapping[int, tuple[str, Mapping[str, str | None]]],
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     sequence_numbers: set[int] = set()
@@ -296,39 +194,19 @@ def _edinet_document_rows(
         if sequence_number in sequence_numbers:
             raise ValueError(f"duplicate EDINET seqNumber: {sequence_number}")
         sequence_numbers.add(sequence_number)
-        # A list read after the inspection period ended reports the descriptive and
-        # identity columns as null. The
-        # stored answer from a read while the filing was still served stays true, so the
-        # new response only ever adds to them — and only when the stored row at this
-        # position is the same document, so that a reordered day loses a description
-        # rather than gaining one it never had. The lifecycle columns below take the new
-        # answer unconditionally: an expiry or a withdrawal is the point of re-reading.
-        stored = observed.get(sequence_number)
-        retained = stored[1] if stored is not None and stored[0] == doc_id else {}
         retained_values = {
-            column: value if value is not None else retained.get(column)
-            for column, value in (
-                ("sec_code", to_str_or_none(first(record, "secCode", "sec_code"))),
-                ("doc_type_code", to_str_or_none(first(record, "docTypeCode", "doc_type_code"))),
-                ("parent_doc_id", to_str_or_none(first(record, "parentDocID", "parent_doc_id"))),
-                (
-                    "submit_datetime",
-                    to_str_or_none(first(record, "submitDateTime", "submit_datetime")),
-                ),
-                (
-                    "doc_description",
-                    to_str_or_none(first(record, "docDescription", "doc_description")),
-                ),
-                ("edinet_code", to_str_or_none(first(record, "edinetCode", "edinet_code"))),
-                (
-                    "issuer_edinet_code",
-                    to_str_or_none(first(record, "issuerEdinetCode", "issuer_edinet_code")),
-                ),
-                (
-                    "subject_edinet_code",
-                    to_str_or_none(first(record, "subjectEdinetCode", "subject_edinet_code")),
-                ),
-            )
+            "sec_code": to_str_or_none(first(record, "secCode", "sec_code")),
+            "doc_type_code": to_str_or_none(first(record, "docTypeCode", "doc_type_code")),
+            "parent_doc_id": to_str_or_none(first(record, "parentDocID", "parent_doc_id")),
+            "submit_datetime": to_str_or_none(first(record, "submitDateTime", "submit_datetime")),
+            "doc_description": to_str_or_none(first(record, "docDescription", "doc_description")),
+            "edinet_code": to_str_or_none(first(record, "edinetCode", "edinet_code")),
+            "issuer_edinet_code": to_str_or_none(
+                first(record, "issuerEdinetCode", "issuer_edinet_code")
+            ),
+            "subject_edinet_code": to_str_or_none(
+                first(record, "subjectEdinetCode", "subject_edinet_code")
+            ),
         }
         rows.append(
             (

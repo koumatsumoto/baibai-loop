@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pyarrow.parquet as pq
 import pytest
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import ExplodingSession, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
@@ -25,7 +26,6 @@ from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSourc
 from baibai_engine.storage.lake.reader import iter_partition_rows, resolve_release
 from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import open_connection
 

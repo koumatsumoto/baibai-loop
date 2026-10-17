@@ -7,11 +7,14 @@ that as an observation it can no longer make rather than as the filing saying no
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from datetime import date
+from contextlib import closing
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
+from baibai_engine.collection.edinet.receipts import retain_list_response
+from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
 from baibai_engine.storage.observations.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
     EDINET_DOCUMENT_IDENTITY_COLUMNS,
@@ -74,6 +77,25 @@ def _read(path: Path) -> dict[str, str | None]:
 def _empty_store(path: Path) -> Path:
     open_connection(path).close()
     return path
+
+
+def store_edinet_documents(path: Path, on_date: date, records: list[dict[str, object]]) -> None:
+    """Exercise historical carry from retained native responses, never prior L2."""
+    body = json.dumps(
+        {"metadata": {"resultset": {"count": len(records)}}, "results": records}
+    ).encode()
+    with closing(open_connection(path)) as conn:
+        count = conn.execute(
+            "SELECT count(*) FROM edinet_list_responses WHERE doc_date = ?",
+            (on_date.isoformat(),),
+        ).fetchone()[0]
+        retain_list_response(
+            conn,
+            doc_date=on_date,
+            received_at=datetime(2026, 6, 1, tzinfo=UTC) + timedelta(seconds=count),
+            body=body,
+        )
+    assert rebuild_edinet_document_day(path, on_date).error is None
 
 
 def test_a_relisted_day_keeps_the_description_the_expired_response_no_longer_carries(
