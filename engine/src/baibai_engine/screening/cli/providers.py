@@ -89,18 +89,23 @@ class EDINETMaintenance(Protocol):
     def backfill_document_identity(self, start: date, end: date) -> Mapping[str, int]: ...
 
 
-class JPXAdapter(Protocol):
+class JPXRead(Protocol):
     def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot: ...
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
 
+
+class JPXMaintenance(Protocol):
     def bootstrap_cache(self, asof_date: date) -> Mapping[str, int]: ...
+
+    def close(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
 class ProviderBundle:
     jquants: JQuantsRead
     edinet: EDINETRead | None
-    jpx: JPXAdapter
+    jpx: JPXRead
     jquants_refresh: JQuantsMaintenance | None = None
     edinet_refresh: EDINETMaintenance | None = None
+    jpx_refresh: JPXMaintenance | None = None

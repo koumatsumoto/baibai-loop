@@ -40,6 +40,7 @@ from baibai_engine.collection.edinet.archives import retain_source_archive
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.screening.cli import app
 from baibai_engine.screening.cli.cache import (
     FIN_SUMMARY_REVISION_OVERLAP_DAYS,
@@ -196,7 +197,25 @@ def test_main_bootstrap_cache_fetches_each_source_window_around_the_argv_asof() 
     ) in jquants.calls
     assert edinet.bootstrap_calls == [(asof - timedelta(days=FIN_INPUT_WINDOW_DAYS), asof)]
     assert jpx.bootstrap_calls == [asof]
+    assert jpx.close_count == 1
     assert "bootstrap-cache done" in result.stdout
+
+
+def test_main_bootstrap_routes_reader_and_closes_maintenance() -> None:
+    jpx = FakeJPXProvider()
+    with patch.object(app, "bootstrap_cache_command", return_value=0) as command:
+        result = _run_cli(
+            ["bootstrap-cache", "--asof", "2026-05-08"],
+            jquants=FakeJQuantsProvider(),
+            edinet=_SeamEDINETProvider(),
+            jpx=jpx,
+        )
+
+    assert result.exit_code == 0, result.stderr
+    providers = command.call_args.kwargs["providers"]
+    assert isinstance(providers.jpx, JPXReader)
+    assert providers.jpx_refresh is jpx
+    assert jpx.close_count == 1
 
 
 def test_main_bootstrap_cache_asks_for_the_revision_overlap_once() -> None:
@@ -301,7 +320,11 @@ def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
     assert edinet.close_count == 1
 
 
-def test_main_run_does_not_construct_an_edinet_acquisition_provider() -> None:
+@pytest.mark.parametrize("allow_stale", [False, True])
+def test_main_run_uses_only_offline_readers(allow_stale: bool) -> None:
+    argv = ["run", "--asof", "2026-05-08"]
+    if allow_stale:
+        argv.append("--allow-stale-jpx")
     with (
         patch.dict(
             os.environ,
@@ -310,16 +333,27 @@ def test_main_run_does_not_construct_an_edinet_acquisition_provider() -> None:
         patch.object(
             app, "EDINETRefresh", side_effect=AssertionError("acquisition constructed")
         ) as factory,
+        patch.object(
+            app, "JPXProvider", side_effect=AssertionError("JPX acquisition constructed")
+        ) as jpx_factory,
+        patch(
+            "requests.Session", side_effect=AssertionError("HTTP session constructed")
+        ) as session,
         patch.object(app, "verify_screening_sqlite_coverage", return_value=[]),
         patch.object(app, "load_screening_rules") as rules,
         patch.object(app, "run_command", return_value=0) as run,
     ):
         rules.return_value.universe.required_jpx_flags = ()
-        assert app.main(["run", "--asof", "2026-05-08"]) == 0
+        assert app.main(argv) == 0
     factory.assert_not_called()
+    jpx_factory.assert_not_called()
+    session.assert_not_called()
     providers = run.call_args.args[2]
     assert isinstance(providers.edinet, EDINETReader)
     assert providers.edinet_refresh is None
+    assert isinstance(providers.jpx, JPXReader)
+    assert providers.jpx._allow_stale_snapshot is allow_stale
+    assert providers.jpx_refresh is None
 
 
 def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> None:

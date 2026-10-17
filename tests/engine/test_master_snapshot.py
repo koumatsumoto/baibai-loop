@@ -17,6 +17,7 @@ from tests.helpers.screening_sqlite import insert_financial_record, make_master_
 
 from baibai_engine.collection.jquants_http import JQuantsHTTP
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
@@ -147,6 +148,9 @@ class _BootstrapJPX:
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
         del asof_date
         return {}
+
+    def close(self) -> None:
+        pass
 
 
 def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
@@ -533,7 +537,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             result = backfill_master_command(
                 asof_dates=[today],
                 providers=ProviderBundle(
-                    jquants=reader, edinet=None, jpx=None, jquants_refresh=maintenance
+                    jquants=reader, edinet=None, jpx=JPXReader(db), jquants_refresh=maintenance
                 ),
                 sqlite_path=db,
                 stdout=output,
@@ -589,7 +593,8 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             bundle = ProviderBundle(
                 jquants=bootstrap_jquants,
                 edinet=None,
-                jpx=_BootstrapJPX(),
+                jpx=JPXReader(db),
+                jpx_refresh=_BootstrapJPX(),
                 jquants_refresh=bootstrap_jquants,
             )
             for asof in (first, second):

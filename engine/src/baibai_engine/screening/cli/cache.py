@@ -666,7 +666,9 @@ def _bootstrap_jpx_cache(
     out: TextIO,
 ) -> None:
     print("bootstrap-cache jpx snapshots: start", file=out, flush=True)
-    jpx_result = providers.jpx.bootstrap_cache(asof_date)
+    if providers.jpx_refresh is None:
+        raise JPXProviderError("JPX maintenance provider is not configured")
+    jpx_result = providers.jpx_refresh.bootstrap_cache(asof_date)
     print(
         "bootstrap-cache jpx snapshots: "
         + ", ".join(f"{key}={value}" for key, value in sorted(jpx_result.items())),

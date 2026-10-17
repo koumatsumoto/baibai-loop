@@ -21,8 +21,8 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_financial
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.cli.run import run_command
 from baibai_engine.screening.config import ScreeningConfig
@@ -296,9 +296,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 providers = ProviderBundle(
                     jquants=JQuantsReader(sqlite_path),
                     edinet=EDINETReader(sqlite_path),
-                    jpx=JPXProvider(
-                        sqlite_path=sqlite_path,
-                    ),
+                    jpx=JPXReader(sqlite_path),
                 )
 
                 with patch(

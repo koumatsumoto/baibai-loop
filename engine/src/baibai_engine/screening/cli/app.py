@@ -19,6 +19,7 @@ from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_lists_comman
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
@@ -713,18 +714,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         if edinet_refresh is not None:
             resources.callback(edinet_refresh.close)
+        jpx_refresh = (
+            JPXProvider(regulation_urls=JPX_REGULATION_URLS, sqlite_path=sqlite_path)
+            if args.command == "bootstrap-cache"
+            else None
+        )
+        if jpx_refresh is not None:
+            resources.callback(jpx_refresh.close)
         edinet_reader = EDINETReader(sqlite_path)
         providers = ProviderBundle(
             jquants=JQuantsReader(sqlite_path),
             edinet=edinet_reader,
-            jpx=JPXProvider(
-                regulation_urls=JPX_REGULATION_URLS,
-                sqlite_path=sqlite_path,
-                cache_only=args.command == "run",
+            jpx=JPXReader(
+                sqlite_path,
                 allow_stale_snapshot=args.allow_stale_jpx if args.command == "run" else False,
             ),
             jquants_refresh=jquants_refresh,
             edinet_refresh=edinet_refresh,
+            jpx_refresh=jpx_refresh,
         )
 
         if args.command == "run":

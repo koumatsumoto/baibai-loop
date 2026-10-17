@@ -266,11 +266,22 @@ class JPXProvider:
         cache_only: bool = False,
         allow_stale_snapshot: bool = False,
     ) -> None:
-        self._session = session or requests.Session()
+        self._session = session
+        self._owns_session = session is None
         self._regulation_urls = dict(regulation_urls or {})
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
         self._allow_stale_snapshot = allow_stale_snapshot
+
+    def _http_session(self) -> requests.Session:
+        if self._session is None:
+            self._session = requests.Session()
+        return self._session
+
+    def close(self) -> None:
+        if self._owns_session and self._session is not None:
+            self._session.close()
+            self._session = None
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         if self._sqlite_path is not None:
@@ -432,7 +443,7 @@ class JPXProvider:
         index_url = JPX_EARNINGS_CALENDAR_INDEX_URL
         self._validate_allowed_url(index_url)
         try:
-            response = self._session.get(index_url, timeout=_HTTP_TIMEOUT_SECONDS)
+            response = self._http_session().get(index_url, timeout=_HTTP_TIMEOUT_SECONDS)
         except requests.RequestException as exc:
             raise JPXProviderError(
                 f"failed to download JPX earnings calendar index: {index_url}"
@@ -474,7 +485,7 @@ class JPXProvider:
         if not parsed_url.path.lower().startswith(_JPX_EARNINGS_PATH_PREFIX):
             raise JPXProviderError(f"JPX earnings calendar URL is outside allowed path: {url}")
         try:
-            response = self._session.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
+            response = self._http_session().get(url, timeout=_HTTP_TIMEOUT_SECONDS)
         except requests.RequestException as exc:
             raise JPXProviderError(f"failed to download JPX earnings calendar: {url}") from exc
         if response.status_code >= 400:
@@ -572,7 +583,7 @@ class JPXProvider:
 
     def _download_rows(self, source_name: str, url: str) -> list[dict[str, str]]:
         self._validate_allowed_url(url)
-        response = self._session.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
+        response = self._http_session().get(url, timeout=_HTTP_TIMEOUT_SECONDS)
         if response.status_code >= 400:
             raise JPXProviderError(
                 f"failed to download JPX regulation source: {url} (status={response.status_code})"

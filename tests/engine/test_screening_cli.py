@@ -389,6 +389,7 @@ class FakeJPXProvider:
     )
     bootstrap_calls: list[date] = field(default_factory=list)
     earnings_requests: list[date] = field(default_factory=list)
+    close_count: int = 0
 
     def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot:
         self.earnings_requests.append(asof_date)
@@ -413,6 +414,9 @@ class FakeJPXProvider:
         if self.fail_bootstrap:
             raise JPXProviderError("missing jpx source")
         return {"ok": 1}
+
+    def close(self) -> None:
+        self.close_count += 1
 
 
 class ScreeningCliTests(unittest.TestCase):
@@ -745,7 +749,8 @@ class ScreeningCliTests(unittest.TestCase):
                     jquants=jquants,
                     edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
-                    jpx=FakeJPXProvider(fail_bootstrap=True),
+                    jpx=FakeJPXProvider(),
+                    jpx_refresh=FakeJPXProvider(fail_bootstrap=True),
                     jquants_refresh=jquants,
                 ),
                 sqlite_path=Path("stores/market/market.sqlite"),
@@ -765,6 +770,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
+                    jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
                 sqlite_path=Path("stores/market/market.sqlite"),
@@ -787,6 +793,7 @@ class ScreeningCliTests(unittest.TestCase):
                 edinet=FakeEDINETReader(),
                 edinet_refresh=edinet,
                 jpx=jpx,
+                jpx_refresh=jpx,
                 jquants_refresh=jquants,
             ),
             sqlite_path=Path("stores/market/market.sqlite"),
@@ -862,6 +869,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
+                    jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
                 sqlite_path=sqlite_path,
@@ -915,6 +923,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
+                    jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
                 sqlite_path=sqlite_path,
@@ -2141,6 +2150,7 @@ def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_p
                 edinet=FakeEDINETReader(),
                 edinet_refresh=edinet,
                 jpx=jpx,
+                jpx_refresh=jpx,
                 jquants_refresh=jquants,
             ),
             sqlite_path=tmp_path / "market.sqlite",
@@ -2166,6 +2176,7 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
                 edinet=FakeEDINETReader(),
                 edinet_refresh=edinet,
                 jpx=jpx,
+                jpx_refresh=jpx,
                 jquants_refresh=jquants,
             ),
             sqlite_path=tmp_path / "market.sqlite",
