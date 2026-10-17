@@ -3,8 +3,8 @@
 from collections.abc import Iterator, Mapping
 from datetime import date
 
-from baibai_engine.collection.economic_documents import SourceDocument
-from baibai_engine.collection.economic_sources import SourceDefinition
+from baibai_engine.collection.economic.documents import SourceDocument
+from baibai_engine.collection.economic.sources import SourceDefinition
 
 from .base import FetchContext, IndicatorsProviderError
 from .spglobal_pmi import SpGlobalPmiSource

@@ -19,7 +19,7 @@ from pathlib import Path
 from baibai_engine.collection.edinet.contract import EDINET_LIST_RESPONSES_DDL
 from baibai_engine.collection.equity_web.contract import EQUITY_WEB_SOURCE_RESPONSES_DDL
 from baibai_engine.collection.jpx.contract import JPX_SOURCE_BUNDLES_DDL
-from baibai_engine.collection.jquants_contract import JQUANTS_SOURCE_PAGES_DDL
+from baibai_engine.collection.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.collection.tradingview.contract import TRADINGVIEW_SOURCE_RECEIPTS_DDL
 from baibai_engine.external_assessment.observations.contract import (
     ANALYST_RATING_DDL,

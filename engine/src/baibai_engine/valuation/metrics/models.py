@@ -7,8 +7,8 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.collection.prices import validate_finite
 from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
+from baibai_engine.market.price_models import validate_finite
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False, validate_assignment=False)
 UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"

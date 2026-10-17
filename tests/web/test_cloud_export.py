@@ -16,8 +16,8 @@ from tests.helpers.indicator_store import store_h15_observations, store_mof_obse
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
-from baibai_engine.collection.economic_records import store_snapshot
-from baibai_engine.collection.economic_store import open_connection, record_source_run
+from baibai_engine.collection.economic.records import store_snapshot
+from baibai_engine.collection.economic.store import open_connection, record_source_run
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading.rules import (

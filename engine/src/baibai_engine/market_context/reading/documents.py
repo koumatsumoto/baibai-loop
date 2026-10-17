@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import replace
 from datetime import date
 
-from baibai_engine.collection.economic_documents import read_documents
+from baibai_engine.collection.economic.documents import read_documents
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 

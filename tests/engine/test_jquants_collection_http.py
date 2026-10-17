@@ -14,8 +14,8 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_engine.collection import jquants_http
-from baibai_engine.collection.jquants_http import (
+from baibai_engine.collection.jquants import http as jquants_http
+from baibai_engine.collection.jquants.http import (
     JQuantsAcquisitionError,
     JQuantsHTTP,
     page_records,

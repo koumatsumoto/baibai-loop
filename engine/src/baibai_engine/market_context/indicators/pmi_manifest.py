@@ -27,14 +27,14 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from baibai_engine.collection.economic_providers.base import (
+from baibai_engine.collection.economic.providers.base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
     SourceWithheldError,
     fetch_text,
 )
-from baibai_engine.collection.economic_providers.spglobal_pmi import (
+from baibai_engine.collection.economic.providers.spglobal_pmi import (
     MANIFEST_PATH,
     RELEASE_URL_RE,
     fetch_pdf_bytes,

@@ -13,7 +13,7 @@ from tests.helpers.assessment_history import historical_context_payload, seed_hi
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
 from baibai_engine.market_context.master import read_master_snapshot
 from baibai_engine.market_context.prices import read_price_bars
@@ -205,7 +205,7 @@ def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tm
 import sys
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
-assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.collection.economic_providers")) for name in sys.modules)
+assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.collection.economic.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
 assert "baibai_engine.research.market_context.service" not in sys.modules
 """,

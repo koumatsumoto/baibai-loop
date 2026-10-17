@@ -4,7 +4,7 @@ from datetime import date
 
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.collection.prices import MODEL_CONFIG
+from baibai_engine.market.price_models import MODEL_CONFIG
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 
-from baibai_engine.collection.economic_documents import SourceDocument
-from baibai_engine.collection.economic_provider_specs import ProviderSpec
-from baibai_engine.collection.economic_sources import SourceDefinition
+from baibai_engine.collection.economic.documents import SourceDocument
+from baibai_engine.collection.economic.provider_specs import ProviderSpec
+from baibai_engine.collection.economic.sources import SourceDefinition
 
 from .base import (
     MAX_CSV_RESPONSE_BYTES,

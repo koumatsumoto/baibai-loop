@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
-from baibai_engine.collection.jquants_http import JQuantsAcquisitionError
+from baibai_engine.collection.jquants.http import JQuantsAcquisitionError
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError

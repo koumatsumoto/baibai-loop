@@ -7,11 +7,11 @@ from unittest.mock import patch
 import pytest
 
 import baibai_engine.market_context.indicators.pmi_manifest as tool
-from baibai_engine.collection.economic_providers.base import (
+from baibai_engine.collection.economic.providers.base import (
     FetchContext,
     IndicatorsProviderError,
 )
-from baibai_engine.collection.economic_providers.spglobal_pmi import (
+from baibai_engine.collection.economic.providers.spglobal_pmi import (
     MANIFEST_PATH,
     load_manifest,
 )

@@ -13,15 +13,15 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.foundation.redaction import redact_credentials
 
-from . import economic_store as store
-from .economic_documents import read_documents, store_document
-from .economic_providers import FetchContext, IndicatorsProviderError, provider_spec
-from .economic_providers.base import ProviderFetchStoppedError
-from .economic_providers.documents import fetch_source_documents
-from .economic_providers.jquants_options import OptionChainSource
-from .economic_providers.native import fetch_native_records
-from .economic_records import store_snapshot, stored_days
-from .economic_sources import DOCUMENT_PROVIDERS, SourceDefinition, load_sources
+from . import store
+from .documents import read_documents, store_document
+from .providers import FetchContext, IndicatorsProviderError, provider_spec
+from .providers.base import ProviderFetchStoppedError
+from .providers.documents import fetch_source_documents
+from .providers.jquants_options import OptionChainSource
+from .providers.native import fetch_native_records
+from .records import store_snapshot, stored_days
+from .sources import DOCUMENT_PROVIDERS, SourceDefinition, load_sources
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {"daily": 14, "weekly": 60, "monthly": 370}

@@ -8,9 +8,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.storage.observations.convert import optional_float
 from baibai_engine.storage.observations.coverage import daily_bars_covered_by_data, range_covered
 from baibai_engine.storage.observations.schema import connect_current

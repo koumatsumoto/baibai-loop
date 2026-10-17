@@ -13,14 +13,14 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
 
-from baibai_engine.collection.economic_providers import (
+from baibai_engine.collection.economic.providers import (
     parse_estat_json,
     registered_specs,
 )
-from baibai_engine.collection.economic_providers.estat_dashboard import (
+from baibai_engine.collection.economic.providers.estat_dashboard import (
     source_url_selectors as estat_dashboard_selectors,
 )
-from baibai_engine.collection.economic_sources import require_source
+from baibai_engine.collection.economic.sources import require_source
 from baibai_engine.market_context.indicator_cli import (
     main,
 )
@@ -320,7 +320,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     load_definitions(definitions)
 
     def test_only_external_series_have_acquisition_providers(self) -> None:
-        from baibai_engine.collection.economic_providers import (
+        from baibai_engine.collection.economic.providers import (
             IndicatorsProviderError,
             provider_spec,
         )

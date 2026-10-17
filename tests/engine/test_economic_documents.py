@@ -5,12 +5,12 @@ from types import MappingProxyType
 
 import pytest
 
-from baibai_engine.collection.economic_documents import (
+from baibai_engine.collection.economic.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.collection.economic.store import initialize_database
 
 
 def document(**changes):

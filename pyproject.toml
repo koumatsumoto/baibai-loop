@@ -80,14 +80,14 @@ packages = [
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
-"engine/src/baibai_engine/collection/economic_sources.yaml" = "baibai_engine/collection/economic_sources.yaml"
+"engine/src/baibai_engine/collection/economic/sources.yaml" = "baibai_engine/collection/economic/sources.yaml"
 "engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
-"engine/src/baibai_engine/collection/economic_store.sql" = "baibai_engine/collection/economic_store.sql"
+"engine/src/baibai_engine/collection/economic/store.sql" = "baibai_engine/collection/economic/store.sql"
 "engine/src/baibai_engine/market_context/indicators/registry/us.yaml" = "baibai_engine/market_context/indicators/registry/us.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/japan.yaml" = "baibai_engine/market_context/indicators/registry/japan.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/global.yaml" = "baibai_engine/market_context/indicators/registry/global.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/derived.yaml" = "baibai_engine/market_context/indicators/registry/derived.yaml"
-"engine/src/baibai_engine/collection/economic_providers/pmi_release_urls.yaml" = "baibai_engine/collection/economic_providers/pmi_release_urls.yaml"
+"engine/src/baibai_engine/collection/economic/providers/pmi_release_urls.yaml" = "baibai_engine/collection/economic/providers/pmi_release_urls.yaml"
 "web/backend/src/baibai_web/py.typed" = "baibai_web/py.typed"
 "batch/src/baibai_batch/py.typed" = "baibai_batch/py.typed"
 
@@ -419,7 +419,7 @@ source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.storage.application.write",
   "baibai_engine.cli",
-  "baibai_engine.collection.economic_providers",
+  "baibai_engine.collection.economic.providers",
   "baibai_engine.position.cli",
   "baibai_engine.research.proposal_service",
   "baibai_engine.research.assessment_evaluation_cli",
@@ -518,7 +518,7 @@ forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
   "baibai_engine.storage.application.write", "baibai_engine.market_context.reading.cli",
-  "baibai_engine.market_context.indicator_service", "baibai_engine.collection.economic_providers",
+  "baibai_engine.market_context.indicator_service", "baibai_engine.collection.economic.providers",
 ]
 
 [[tool.importlinter.contracts]]
@@ -637,8 +637,8 @@ source_modules = [
   "baibai_engine.market_context.reading.derived", "baibai_engine.market_context.reading.formulas",
 ]
 forbidden_modules = [
-  "baibai_engine.collection.economic_store", "baibai_engine.market_context.indicator_service",
-  "baibai_engine.collection.economic_providers", "baibai_engine.market_context.indicator_cli",
+  "baibai_engine.collection.economic.store", "baibai_engine.market_context.indicator_service",
+  "baibai_engine.collection.economic.providers", "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
   "baibai_engine.storage", "baibai_engine.research.market_context", "baibai_engine.read_api",
 ]
@@ -695,5 +695,6 @@ source_modules = ["baibai_engine.collection"]
 forbidden_modules = [
   "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.research",
   "baibai_engine.screening", "baibai_engine.external_assessment", "baibai_engine.position",
-  "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_engine.price_basis",
+  "baibai_engine.market", "baibai_engine.read_api", "baibai_engine.batch_api",
+  "baibai_engine.price_basis",
 ]

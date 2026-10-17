@@ -9,21 +9,21 @@ from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from baibai_engine.collection import economic_acquisition as acquisition
-from baibai_engine.collection.economic_providers import jquants_options
-from baibai_engine.collection.economic_providers.base import (
+from baibai_engine.collection.economic import acquisition as acquisition
+from baibai_engine.collection.economic.providers import jquants_options
+from baibai_engine.collection.economic.providers.base import (
     FetchContext,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
 )
-from baibai_engine.collection.economic_providers.jquants_options import OptionChainSource
-from baibai_engine.collection.economic_records import (
+from baibai_engine.collection.economic.providers.jquants_options import OptionChainSource
+from baibai_engine.collection.economic.records import (
     read_snapshots,
     store_snapshot,
     stored_days,
 )
-from baibai_engine.collection.economic_sources import require_source
-from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.collection.economic.sources import require_source
+from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.reading.option_iv import (

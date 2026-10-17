@@ -15,7 +15,7 @@ import requests
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.collection.jquants_http import JQuantsHTTP
+from baibai_engine.collection.jquants.http import JQuantsHTTP
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError, parse_jquants_code_parts
 from baibai_engine.market.jquants_reader import JQuantsReader

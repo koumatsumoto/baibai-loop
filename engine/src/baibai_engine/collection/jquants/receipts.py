@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
-from baibai_engine.collection.jquants_http import (
+from baibai_engine.collection.jquants.http import (
     JQuantsAcquisitionError,
     JQuantsHTTP,
     JQuantsPage,

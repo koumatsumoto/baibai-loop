@@ -15,7 +15,7 @@ import pytest
 import requests
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
-from baibai_engine.collection.jquants_http import JQuantsHTTP
+from baibai_engine.collection.jquants.http import JQuantsHTTP
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.market.jquants_decode import JQuantsProviderError

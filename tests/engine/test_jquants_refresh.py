@@ -10,8 +10,8 @@ import pytest
 import requests
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.collection.jquants_http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.collection.jquants_receipts import read_request_pages
+from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
+from baibai_engine.collection.jquants.receipts import read_request_pages
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh

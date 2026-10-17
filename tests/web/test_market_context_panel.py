@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )

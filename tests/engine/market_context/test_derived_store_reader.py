@@ -10,7 +10,7 @@ from tests.helpers.indicator_store import (
     store_mof_observations,
 )
 
-from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
@@ -54,7 +54,7 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
 ):
     from tests.engine.market_context.indicators.test_option_iv import ASOF, _chain_records
 
-    from baibai_engine.collection.economic_records import store_snapshot
+    from baibai_engine.collection.economic.records import store_snapshot
     from baibai_engine.market_context.reading import options
 
     path = tmp_path / "indicators.sqlite"

@@ -93,7 +93,7 @@ H.15は利回りごとではなく、同じ公開endpointの共通packageをnati
 
 投資部門別の取得範囲とsnapshotの日付は`PubDate`である。`StDate/EnDate`は集計期間として原本に残し、L2が要求した公表日cutoff以下の最新版を先に選ぶ。読み値の観測日は`EnDate`、vintageは`PubDate`のUTC日付表現であり、実際の配信時刻ではない。公表日と観測期間の終端は別なので、後日訂正を過去の集計期間へ反映できる。最新の`FrgnBal`が欠測なら買い−売りや旧公表値で埋めず、同一公表日に矛盾する値があれば任意の行を採らない。通常の範囲取得は終了日までの公表を対象とし、保存済みread-only照会は必要に応じて別の公表日cutoffを使う。取消の意味が不明な項目から、他の公表日の削除を推測しない。
 
-経済storeは`economic_source_records`（native record JSON）、`economic_source_documents`（元PDF/JSON等のbodyとmetadata）、`economic_source_runs`（source単位の取得結果）の三表である。L2系列・alias・scalar観測・registry世代は複製しない。各writerは直前と同内容の原本を重複保存せず、内容が変わった取得は保持する。同じsource・日付またはrequest key・UTC取得時刻の再保存は同内容ならno-op、異内容なら拒否し、既存原本を上書きしない。[records](../../engine/src/baibai_engine/collection/economic_records.py)・[documents](../../engine/src/baibai_engine/collection/economic_documents.py)が保存identityを所有する。
+経済storeは`economic_source_records`（native record JSON）、`economic_source_documents`（元PDF/JSON等のbodyとmetadata）、`economic_source_runs`（source単位の取得結果）の三表である。L2系列・alias・scalar観測・registry世代は複製しない。各writerは直前と同内容の原本を重複保存せず、内容が変わった取得は保持する。同じsource・日付またはrequest key・UTC取得時刻の再保存は同内容ならno-op、異内容なら拒否し、既存原本を上書きしない。[records](../../engine/src/baibai_engine/collection/economic/records.py)・[documents](../../engine/src/baibai_engine/collection/economic/documents.py)が保存identityを所有する。
 
 読取は各日の最新取得原本を採る。最新原本が空・欠測・計算不能でも旧原本や旧scalarへ戻らない。取得失敗は既存原本を消さず、完了したdocumentやoption dayは後続失敗でも残る。nativeの要求窓はまとめて保存する。取得結果の記録に失敗しても、すでにcommitした原本を取り消さない。source取得の成功と、特定L2系列を計算できることは別の事実である。
 
@@ -101,13 +101,13 @@ registryは現在のL2定義の正本であり、追加・退役・改名でsour
 
 有限値・単位・系列固有の妥当範囲はL2の計算結果へ適用する。明白な列・桁・単位ずれを検出する条件であって、境界外だけで原資料が誤りとは確定しない。元の欠測記号や未使用項目は原本に保持する。例えば`jp.foreign_flows`のL2値は原典の千円単位を使う。計算できなければ原本・列選択・規則を確認し、source取得失敗へ読み替えない。
 
-[store](../../engine/src/baibai_engine/collection/economic_store.py)と[schema](../../engine/src/baibai_engine/collection/economic_store.sql)は空の新規storeまたは現行schemaを受け付ける。通常openやtransferに旧schema移行を残さない。read-only validatorは全取得revisionのnative payload形状・件数とdocument metadataを検査し、L2の値域や計算結果は判定しない。式・band・source選択の変更時は、保存原本を使った該当L2読取とReadingを別途確認する。
+[store](../../engine/src/baibai_engine/collection/economic/store.py)と[schema](../../engine/src/baibai_engine/collection/economic/store.sql)は空の新規storeまたは現行schemaを受け付ける。通常openやtransferに旧schema移行を残さない。read-only validatorは全取得revisionのnative payload形状・件数とdocument metadataを検査し、L2の値域や計算結果は判定しない。式・band・source選択の変更時は、保存原本を使った該当L2読取とReadingを別途確認する。
 
 同じvalidatorはapplication storeの判断履歴も別の契約として検証する。旧schemaの本文はstored_onlyとして保持し、退役系列の引用はwarningとする。候補一覧発行はContextを読まないため、その失敗を候補一覧停止と読み替えない。実行条件は[CIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)、変更手順は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 ### データソース registry
 
-外部provider・source URL・要求selectorは[Collection source catalog](../../engine/src/baibai_engine/collection/economic_sources.yaml)、L2系列ID・出力単位・読み取る列・数式は[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)が所有する。取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/collection/economic_provider_specs.py)と各[provider](../../engine/src/baibai_engine/collection/economic_providers/)に従う。複数L2系列が一つのsourceを共有してよい。下表はsourceを選ぶときの用途と制約を示す。
+外部provider・source URL・要求selectorは[Collection source catalog](../../engine/src/baibai_engine/collection/economic/sources.yaml)、L2系列ID・出力単位・読み取る列・数式は[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)が所有する。取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/collection/economic/provider_specs.py)と各[provider](../../engine/src/baibai_engine/collection/economic/providers/)に従う。複数L2系列が一つのsourceを共有してよい。下表はsourceを選ぶときの用途と制約を示す。
 
 | Provider | 用途 | 選択・運用上の制約 |
 | --- | --- | --- |
@@ -131,7 +131,7 @@ registryは現在のL2定義の正本であり、追加・退役・改名でsour
 
 ### GETの再試行
 
-`jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/collection/economic_providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
+`jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/collection/economic/providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
 
 Collectionの取得処理が1回再試行するのは、停止を表す`ProviderFetchStoppedError`以外の`IndicatorsProviderError`に限る。再試行前に取得contextのbytes cacheを破棄し、再失敗は`economic_source_runs`へfailedとして記録する。GET transportの再試行終了・deadline・providerが確定した停止は`ProviderFetchStoppedError`で伝わり、このCollectionの取得処理再試行へ戻さない。
 
@@ -163,13 +163,13 @@ L2は各日の最新の取得原本から3系列を計算する。新しい原�
 
 ### Providerの追加
 
-新しい外部sourceはCollection catalogへ追加し、必要なら`collection/economic_providers/`に取得処理を実装する。取得能力は`economic_provider_specs.py`に置き、L2側は必要な系列・列選択・数式を別途定義する。既存sourceから新たなL2値を計算できるなら、取得処理を重複させない。公表日を使う読取契約も、正確な歴史的API利用可能性を保証するものではない。
+新しい外部sourceはCollection catalogへ追加し、必要なら`collection/economic/providers/`に取得処理を実装する。取得能力は`collection/economic/provider_specs.py`に置き、L2側は必要な系列・列選択・数式を別途定義する。既存sourceから新たなL2値を計算できるなら、取得処理を重複させない。公表日を使う読取契約も、正確な歴史的API利用可能性を保証するものではない。
 
 `collection economic refresh`は重複するsource IDを一度だけ処理し、sourceごとの成功・失敗と受領件数を返す。一つのsourceの失敗は他sourceを止めず、最後に失敗をstderrへ列挙して非0終了する。一回のpassではFetchContextを共有する。`economic_source_runs`の件数は原本record数またはdocument数であり、L2観測数ではない。取得の再試行と停止は[GETの再試行](#getの再試行)に従い、L2の値域違反を理由に取得を繰り返さない。
 
 ### PMI release manifestの更新
 
-PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/collection/economic_providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
+PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/collection/economic/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
 
 抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/market_context/reading/pmi_extraction.py)が所有する。
 

@@ -12,8 +12,8 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.collection.economic_records import decode_records
-from baibai_engine.collection.economic_sources import DOCUMENT_PROVIDERS
+from baibai_engine.collection.economic.records import decode_records
+from baibai_engine.collection.economic.sources import DOCUMENT_PROVIDERS
 from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.read_contracts import NATIVE_PROVIDERS

@@ -9,13 +9,13 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _source,
 )
 
-from baibai_engine.collection.economic_providers import (
+from baibai_engine.collection.economic.providers import (
     IndicatorsProviderError,
     parse_multpl_table,
     parse_yahoo_chart,
 )
-from baibai_engine.collection.economic_providers.cftc import parse_cftc_records
-from baibai_engine.collection.economic_providers.nikkei_indexes import parse_nikkei_valuation
+from baibai_engine.collection.economic.providers.cftc import parse_cftc_records
+from baibai_engine.collection.economic.providers.nikkei_indexes import parse_nikkei_valuation
 
 
 class IndicatorsProviderParserTests(TestCase):

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import date
 from math import isfinite
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
 def asof_basis_closes(

@@ -5,9 +5,9 @@ import pytest
 
 from baibai_batch.storage.merge_economic_store import merge_stores
 from baibai_batch.storage.store_merge import MergeError
-from baibai_engine.collection.economic_documents import SourceDocument, store_document
-from baibai_engine.collection.economic_records import store_snapshot
-from baibai_engine.collection.economic_store import initialize_database, row_count
+from baibai_engine.collection.economic.documents import SourceDocument, store_document
+from baibai_engine.collection.economic.records import store_snapshot
+from baibai_engine.collection.economic.store import initialize_database, row_count
 
 DAY = date(2026, 7, 20)
 WHEN = datetime(2026, 7, 21, tzinfo=UTC)

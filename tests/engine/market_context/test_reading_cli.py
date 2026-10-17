@@ -14,8 +14,8 @@ from tests.helpers.indicator_store import (
     store_reader,
 )
 
-from baibai_engine.collection import economic_store as db
-from baibai_engine.collection.economic_records import read_snapshots
+from baibai_engine.collection.economic import store as db
+from baibai_engine.collection.economic.records import read_snapshots
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading import cli

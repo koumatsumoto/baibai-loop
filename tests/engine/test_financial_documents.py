@@ -504,7 +504,7 @@ def test_new_raw_unknown_time_forecasts_compare_each_field(reverse: bool) -> Non
 def test_conflicting_pre_split_reference_cannot_choose_share_basis(
     reverse: bool, with_older_reference: bool
 ) -> None:
-    from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent
+    from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
     from baibai_engine.valuation.metrics.capital import _normalize_summaries_with_status
 
     # Keep the conflicting reference period distinct from the later FY correction.
@@ -697,7 +697,7 @@ def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
 def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order(
     reverse: bool,
 ) -> None:
-    from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent
+    from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
     from baibai_engine.valuation.metrics.dividends import (
         _asof_basis_fy_dps,
         _latest_fy_revisions,

@@ -9,8 +9,8 @@ from datetime import UTC, date, datetime
 import pytest
 import requests
 
-from baibai_engine.collection.jquants_http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.collection.jquants_receipts import (
+from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
+from baibai_engine.collection.jquants.receipts import (
     acquire_request,
     read_complete_request,
     read_request_pages,

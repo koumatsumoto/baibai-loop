@@ -8,10 +8,10 @@ from datetime import date
 from math import isfinite
 from statistics import fmean
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.financial_documents import statement_basis
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.valuation.metrics.capital import _normalize_summaries_to_asof_basis
 from baibai_engine.valuation.metrics.dividends import (
     _latest_consecutive_values,

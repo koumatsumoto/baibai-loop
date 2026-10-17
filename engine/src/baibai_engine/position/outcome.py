@@ -9,7 +9,7 @@ from decimal import Decimal
 from math import prod
 from zoneinfo import ZoneInfo
 
-from baibai_engine.collection.prices import JQuantsDailyBar
+from baibai_engine.market.price_models import JQuantsDailyBar
 from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,

@@ -5,8 +5,8 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from baibai_engine.collection import economic_store as store
-from baibai_engine.collection.economic_records import store_snapshot
+from baibai_engine.collection.economic import store as store
+from baibai_engine.collection.economic.records import store_snapshot
 from baibai_engine.market_context.reading.cli import main as reading_main
 
 
@@ -117,7 +117,7 @@ def test_native_withdrawal_removes_derived_reading_without_scalar_history(tmp_pa
 
 
 def test_native_receipt_identity_replay_and_conflict_leave_newer_revision_intact(tmp_path):
-    from baibai_engine.collection.economic_records import read_snapshots
+    from baibai_engine.collection.economic.records import read_snapshots
 
     day = date(2026, 10, 15)
     old_jst = datetime.fromisoformat("2026-10-16T09:00:00+09:00")

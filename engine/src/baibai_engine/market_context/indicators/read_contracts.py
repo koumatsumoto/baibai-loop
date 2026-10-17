@@ -8,7 +8,7 @@ consumers and fetch implementations share the same capability object.
 
 from __future__ import annotations
 
-from baibai_engine.collection.economic_provider_specs import JQUANTS_FLOWS_SPEC
+from baibai_engine.collection.economic.provider_specs import JQUANTS_FLOWS_SPEC
 
 NATIVE_BULK_PROVIDERS = frozenset(
     {

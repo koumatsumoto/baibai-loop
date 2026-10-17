@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market_context.history import avg_daily_volume
 from baibai_engine.market_context.margin import MarginBalance, margin_supply_demand
 

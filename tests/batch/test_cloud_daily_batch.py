@@ -25,11 +25,11 @@ from baibai_batch.jobs.daily import (
     run_daily_batch,
     run_daily_batch_structured,
 )
-from baibai_engine.collection.economic_acquisition import (
+from baibai_engine.collection.economic.acquisition import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
-from baibai_engine.collection.economic_sources import load_sources
+from baibai_engine.collection.economic.sources import load_sources
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 

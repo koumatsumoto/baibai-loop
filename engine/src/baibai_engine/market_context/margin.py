@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.price_basis import cumulative_share_unit_factor_after
 
 MARKET_CONTEXT_CALCULATION_REVISION = "native-master-and-margin-basis-v4"

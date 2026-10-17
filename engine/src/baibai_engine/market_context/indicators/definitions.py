@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.collection.economic_sources import SourceDefinition, load_sources
+from baibai_engine.collection.economic.sources import SourceDefinition, load_sources
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
 # Series definitions are split across one yaml per region so no single file grows

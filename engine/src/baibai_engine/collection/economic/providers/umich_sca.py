@@ -5,9 +5,9 @@ import io
 from collections import defaultdict
 from datetime import date
 
-from baibai_engine.collection.economic_provider_specs import ProviderSpec
-from baibai_engine.collection.economic_records import NativeRecords
-from baibai_engine.collection.economic_sources import SourceDefinition
+from baibai_engine.collection.economic.provider_specs import ProviderSpec
+from baibai_engine.collection.economic.records import NativeRecords
+from baibai_engine.collection.economic.sources import SourceDefinition
 
 from .base import (
     MAX_CSV_RESPONSE_BYTES,

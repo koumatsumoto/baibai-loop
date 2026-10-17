@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from baibai_engine.collection.economic_provider_specs import (
+from baibai_engine.collection.economic.provider_specs import (
     CFTC_SPEC,
     ECB_FX_SPEC,
     JQUANTS_FLOWS_SPEC,

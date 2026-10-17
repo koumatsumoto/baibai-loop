@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.collection.prices import JQuantsDailyBar
+from baibai_engine.market.price_models import JQuantsDailyBar
 from baibai_engine.screening.calibration.forward import (
     HORIZONS,
     _FYDividendObservation,

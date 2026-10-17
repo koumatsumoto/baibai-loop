@@ -7,7 +7,6 @@ from dataclasses import dataclass, replace
 from datetime import date
 from itertools import pairwise
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.financial_documents import (
     accounting_period_identity,
@@ -17,6 +16,7 @@ from baibai_engine.market.financial_documents import (
     statement_basis,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.price_basis import cumulative_share_unit_factor_after, share_unit_factor
 from baibai_engine.valuation.metrics.capital import (
     _normalize_summaries_to_asof_basis,

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jpx_models import JPXEarningsCalendarSnapshot, JPXRegulationSnapshot
@@ -19,6 +18,7 @@ from baibai_engine.market.jquants_models import (
     JQuantsWeeklyMargin,
 )
 from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
 class JQuantsRead(Protocol):

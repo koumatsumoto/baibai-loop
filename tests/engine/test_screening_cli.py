@@ -17,7 +17,6 @@ from unittest.mock import patch
 
 import pytest
 
-from baibai_engine.collection.prices import JQuantsDailyBar
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
@@ -43,6 +42,7 @@ from baibai_engine.market.jquants_models import (
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.price_models import JQuantsDailyBar
 from baibai_engine.screening.cli import app as screening_app
 from baibai_engine.screening.cli.cache import (
     backfill_history_command,

@@ -8,7 +8,7 @@ from math import isfinite
 from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
-from .identifiers import normalize_ticker
+from baibai_engine.collection.identifiers import normalize_ticker
 
 MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 

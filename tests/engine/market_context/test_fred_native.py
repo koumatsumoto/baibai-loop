@@ -3,10 +3,10 @@
 from contextlib import closing
 from datetime import date
 
-from baibai_engine.collection import economic_acquisition as acquisition
-from baibai_engine.collection import economic_store as db
-from baibai_engine.collection.economic_providers import fred
-from baibai_engine.collection.economic_records import read_snapshots
+from baibai_engine.collection.economic import acquisition as acquisition
+from baibai_engine.collection.economic import store as db
+from baibai_engine.collection.economic.providers import fred
+from baibai_engine.collection.economic.records import read_snapshots
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader

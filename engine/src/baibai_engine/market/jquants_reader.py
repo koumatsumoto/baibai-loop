@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_models import (
@@ -20,6 +19,7 @@ from baibai_engine.market.margin_publication import (
     require_legacy_weekly_balance_date,
 )
 from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.store import (
     read_adjustment_factor_bars,
     read_daily_bars,

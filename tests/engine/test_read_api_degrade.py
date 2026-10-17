@@ -13,7 +13,7 @@ import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
 import baibai_engine.read_api as read_api
-from baibai_engine.collection.economic_store import (
+from baibai_engine.collection.economic.store import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.read_api.sqlite import read_rows

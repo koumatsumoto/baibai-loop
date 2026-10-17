@@ -8,7 +8,7 @@ from datetime import date
 
 from pypdf import PdfReader
 
-from baibai_engine.collection.economic_documents import SourceDocument
+from baibai_engine.collection.economic.documents import SourceDocument
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 

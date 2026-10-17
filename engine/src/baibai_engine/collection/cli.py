@@ -6,7 +6,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 
-from . import economic_cli
+from .economic import cli as economic_cli
 
 
 def build_parser() -> argparse.ArgumentParser:

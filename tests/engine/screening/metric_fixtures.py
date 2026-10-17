@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from baibai_engine.collection.prices import JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.price_models import JQuantsDailyBar
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:

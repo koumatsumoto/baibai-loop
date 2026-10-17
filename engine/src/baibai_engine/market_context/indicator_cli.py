@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.collection.economic_store import DEFAULT_DB_PATH, EconomicSchemaError
+from baibai_engine.collection.economic.store import DEFAULT_DB_PATH, EconomicSchemaError
 
 from .indicator_service import IndicatorsService, QueryResult, list_series, search
 from .indicators.definitions import SeriesDefinition

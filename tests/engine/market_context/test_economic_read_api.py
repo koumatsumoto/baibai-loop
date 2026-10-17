@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.collection.economic_records import store_snapshot
-from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.collection.economic.records import store_snapshot
+from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading import reader as reading_reader
@@ -422,7 +422,7 @@ def test_document_revision_changes_chart_and_freshness(tmp_path: Path) -> None:
     import json
     from dataclasses import replace
 
-    from baibai_engine.collection.economic_documents import SourceDocument, store_document
+    from baibai_engine.collection.economic.documents import SourceDocument, store_document
     from baibai_engine.market_context.indicators.definitions import load_definitions
 
     database = tmp_path / "indicators.sqlite"

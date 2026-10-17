@@ -28,7 +28,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
 from baibai_engine.market.sessions import latest_eligible_close_date
 from baibai_engine.price_basis import share_unit_factor
 from baibai_engine.storage.observations.read import connect_read_only

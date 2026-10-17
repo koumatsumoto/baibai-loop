@@ -6,7 +6,7 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.collection.jquants_receipts import read_complete_request
+from baibai_engine.collection.jquants.receipts import read_complete_request
 from baibai_engine.market.margin_publication import LEGACY_WEEKLY_LAST_BALANCE_DATE
 from baibai_engine.storage.observations.ingest.jquants import (
     store_jquants_all_issues_daily_margin,

@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from math import isfinite
 from typing import cast
 
-from baibai_engine.collection.economic_records import read_snapshots
+from baibai_engine.collection.economic.records import read_snapshots
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 

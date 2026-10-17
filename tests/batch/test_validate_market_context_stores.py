@@ -14,9 +14,9 @@ from baibai_batch.validation.market_context_stores import (
     validate_published_contexts,
     validate_store,
 )
-from baibai_engine.collection.economic_documents import SourceDocument, store_document
-from baibai_engine.collection.economic_records import store_snapshot
-from baibai_engine.collection.economic_store import (
+from baibai_engine.collection.economic.documents import SourceDocument, store_document
+from baibai_engine.collection.economic.records import store_snapshot
+from baibai_engine.collection.economic.store import (
     SQLITE_SCHEMA_VERSION,
     EconomicSchemaError,
     initialize_database,

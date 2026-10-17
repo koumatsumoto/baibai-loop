@@ -3,12 +3,12 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from baibai_engine.collection import economic_acquisition as acquisition
-from baibai_engine.collection import economic_store as store
-from baibai_engine.collection.economic_documents import SourceDocument, read_documents
-from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
-from baibai_engine.collection.economic_records import read_snapshots
-from baibai_engine.collection.economic_sources import load_sources
+from baibai_engine.collection.economic import acquisition as acquisition
+from baibai_engine.collection.economic import store as store
+from baibai_engine.collection.economic.documents import SourceDocument, read_documents
+from baibai_engine.collection.economic.providers.base import ProviderFetchStoppedError
+from baibai_engine.collection.economic.records import read_snapshots
+from baibai_engine.collection.economic.sources import load_sources
 
 DAY = date(2026, 7, 20)
 
