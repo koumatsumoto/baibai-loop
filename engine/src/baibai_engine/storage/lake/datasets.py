@@ -443,8 +443,8 @@ EDINET_SOURCE_ARCHIVES = LakeDataset(
 
 EDINET_DOCUMENT_LISTS = LakeDataset(
     name="edinet.document_lists",
-    layer="l1_source",
-    contract_version=2,
+    layer="l2_processed",
+    contract_version=3,
     sqlite_table="edinet_document_lists",
     date_column="doc_date",
     partition_grain="year",
@@ -457,6 +457,9 @@ EDINET_DOCUMENT_LISTS = LakeDataset(
         LakeColumn("fetched_at_utc", "TEXT", _TEXT, False),
         LakeColumn("is_final", "INTEGER", _INTEGER, False),
         LakeColumn("response_json", "TEXT", _TEXT, True),
+        LakeColumn("selected_receipt_id", "TEXT", _TEXT, True),
+        LakeColumn("latest_received_at_utc", "TEXT", _TEXT, True),
+        LakeColumn("rechecked_asof", "TEXT", _TEXT, True),
     ),
 )
 

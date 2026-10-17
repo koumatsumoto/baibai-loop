@@ -25,7 +25,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 41
+SQLITE_SCHEMA_VERSION = 42
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -263,7 +263,10 @@ CREATE TABLE IF NOT EXISTS edinet_document_lists(
   result_count INTEGER NOT NULL,
   fetched_at_utc TEXT NOT NULL,
   is_final INTEGER NOT NULL,
-  response_json TEXT
+  response_json TEXT,
+  selected_receipt_id TEXT,
+  latest_received_at_utc TEXT,
+  rechecked_asof TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edinet_segment_facts(

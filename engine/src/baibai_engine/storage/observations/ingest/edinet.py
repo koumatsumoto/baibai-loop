@@ -8,7 +8,10 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime
 from math import isfinite
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from baibai_engine.market.edinet_list_projection import DocumentListProjection
 
 from baibai_engine.storage.observations.convert import (
     date_iso,
@@ -93,6 +96,91 @@ def store_edinet_documents(
         )
         conn.commit()
         return persisted_count
+    finally:
+        conn.close()
+
+
+def store_edinet_document_projection(
+    db_path: Path, projection: DocumentListProjection, *, rechecked_asof: date | None
+) -> int:
+    """Replace one day's derived rows and coverage from a raw-receipt projection."""
+    conn = open_connection(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        doc_date = projection.doc_date
+        doc_date_iso = doc_date.isoformat()
+        rows = _edinet_document_rows(doc_date_iso, projection.documents, observed={})
+        selected = projection.selected_receipt
+        if selected is None:
+            process_datetime = None
+            result_count = 0
+            response_json = None
+            fetched_at = projection.latest_received_at
+        else:
+            payload = projection.native_payload
+            if payload is None:
+                raise ValueError("selected EDINET receipt has no native payload")
+            metadata = payload["metadata"]
+            process_datetime = to_str_or_none(metadata.get("processDateTime"))
+            result_count = int(str(metadata["resultset"]["count"]))
+            response_json = json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+            )
+            fetched_at = selected.received_at
+        latest_at_iso = projection.latest_received_at.astimezone(UTC).isoformat(
+            timespec="microseconds"
+        )
+        fetched_at_iso = fetched_at.astimezone(UTC).isoformat(timespec="microseconds")
+        successful = projection.error is None and selected is not None
+        conn.execute("DELETE FROM edinet_documents WHERE doc_date = ?", (doc_date_iso,))
+        delete_overlapping_source_coverage(conn, "edinet_documents", doc_date, doc_date)
+        if rows:
+            conn.executemany(
+                "INSERT INTO edinet_documents("
+                "doc_date, sequence_number, doc_id, sec_code, doc_type_code, csv_flag, "
+                "xbrl_flag, legal_status, disclosure_status, withdrawal_status, "
+                "doc_info_edit_status, parent_doc_id, operation_datetime, submit_datetime, "
+                "doc_description, period_start, period_end, edinet_code, "
+                "issuer_edinet_code, subject_edinet_code"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+        persisted_count = date_range_row_count(
+            conn, "edinet_documents", "doc_date", doc_date, doc_date
+        )
+        record_source_coverage(
+            conn,
+            source="edinet_documents",
+            coverage_key=doc_date_iso,
+            coverage_start=doc_date_iso,
+            coverage_end=doc_date_iso,
+            record_count=persisted_count,
+            status="ok" if successful else "failed",
+            error=None if successful else projection.error or "no selected EDINET receipt",
+            fetched_at_utc=latest_at_iso,
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO edinet_document_lists("
+            "doc_date, process_datetime, result_count, fetched_at_utc, is_final, "
+            "response_json, selected_receipt_id, latest_received_at_utc, rechecked_asof"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                doc_date_iso,
+                process_datetime,
+                result_count,
+                fetched_at_iso,
+                int(successful and rechecked_asof is not None),
+                response_json,
+                selected.receipt_id if selected is not None else None,
+                latest_at_iso,
+                rechecked_asof.isoformat() if successful and rechecked_asof is not None else None,
+            ),
+        )
+        conn.commit()
+        return persisted_count
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

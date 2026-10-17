@@ -40,6 +40,18 @@ def read_stored_documents(
     if owns_transaction:
         connection.execute("BEGIN")
     try:
+        start_iso = start.isoformat() if start else None
+        failed = connection.execute(
+            "SELECT coverage_start FROM source_coverage "
+            "WHERE source = 'edinet_documents' AND status <> 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start <= ? AND (? IS NULL OR coverage_end >= ?) "
+            "ORDER BY coverage_start LIMIT 1",
+            (through.isoformat(), start_iso, start_iso),
+        ).fetchone()
+        if failed is not None:
+            failed_date = max(str(failed[0]), start_iso) if start_iso else str(failed[0])
+            raise EDINETProviderError(f"EDINET document coverage failed: {failed_date}")
         return _read_stored_documents(connection, through=through, start=start)
     finally:
         if owns_transaction:

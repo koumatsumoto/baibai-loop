@@ -7,7 +7,10 @@ from unittest.mock import patch
 import pytest
 
 from baibai_engine.collection.edinet.receipts import EdinetListReceipt
-from baibai_engine.market.edinet_list_projection import project_document_list
+from baibai_engine.market.edinet_list_projection import (
+    document_list_rechecked_asof,
+    project_document_list,
+)
 
 _DAY = date(2026, 10, 15)
 _START = datetime(2026, 10, 15, 0, 0, tzinfo=UTC)
@@ -281,3 +284,88 @@ def test_receipts_must_have_one_day_and_utc_times() -> None:
     local_time = _START.astimezone(timezone(timedelta(hours=9)))
     with pytest.raises(ValueError, match="must be UTC"):
         project_document_list([_receipt("local", 1, _payload([]), received_at=local_time)])
+
+
+@pytest.mark.parametrize("constant", [b"NaN", b"Infinity", b"-Infinity"])
+def test_nonfinite_json_constant_fails_without_changing_raw_body(constant: bytes) -> None:
+    body = b'{"metadata":{"resultset":{"count":0}},"results":[],"unused":' + constant + b"}"
+    receipt = _receipt("nonfinite", 1, body)
+    projection = project_document_list([receipt])
+    assert projection.selected_receipt is None
+    assert projection.error is not None
+    assert "nonfinite constant" in projection.error
+    assert receipt.body == body
+
+
+def test_recheck_requires_valid_daily_update_received_before_historical_list() -> None:
+    selected_at = datetime(2026, 10, 15, 15, 1, tzinfo=UTC)  # 10/16 00:01 JST
+    selected = _receipt("selected", 1, _payload([_origin()]), received_at=selected_at)
+    projection = project_document_list([selected])
+    proof = _receipt(
+        "proof",
+        1,
+        _payload([]),
+        doc_date=date(2026, 10, 16),
+        received_at=datetime(2026, 10, 15, 15, 0, tzinfo=UTC),
+    )
+    assert document_list_rechecked_asof(projection, [proof]) == date(2026, 10, 16)
+
+    before_midnight = _receipt(
+        "before-midnight",
+        1,
+        _payload([]),
+        doc_date=date(2026, 10, 16),
+        received_at=datetime(2026, 10, 15, 14, 59, tzinfo=UTC),
+    )
+    same_time = _receipt(
+        "same-time", 1, _payload([]), doc_date=date(2026, 10, 16), received_at=selected_at
+    )
+    later = _receipt(
+        "later",
+        1,
+        _payload([]),
+        doc_date=date(2026, 10, 16),
+        received_at=datetime(2026, 10, 15, 15, 2, tzinfo=UTC),
+    )
+    malformed = _receipt(
+        "malformed",
+        1,
+        b"{bad",
+        doc_date=date(2026, 10, 16),
+        received_at=proof.received_at,
+    )
+    wrong_day = _receipt("wrong-day", 1, _payload([]), doc_date=_DAY, received_at=proof.received_at)
+    for invalid in (before_midnight, same_time, later, malformed, wrong_day):
+        assert document_list_rechecked_asof(projection, [invalid]) is None
+    assert document_list_rechecked_asof(projection, []) is None
+    assert document_list_rechecked_asof(projection, [malformed, proof]) == date(2026, 10, 16)
+
+
+def test_recheck_does_not_qualify_current_day_target_or_failed_projection() -> None:
+    selected_at = datetime(2026, 10, 15, 15, 1, tzinfo=UTC)
+    current_day = _receipt(
+        "current", 1, _payload([]), doc_date=date(2026, 10, 16), received_at=selected_at
+    )
+    projection = project_document_list([current_day])
+    proof = _receipt(
+        "proof",
+        1,
+        _payload([]),
+        doc_date=date(2026, 10, 16),
+        received_at=datetime(2026, 10, 15, 15, 0, tzinfo=UTC),
+    )
+    assert document_list_rechecked_asof(projection, [proof]) is None
+    failed = project_document_list(
+        [
+            current_day,
+            _receipt(
+                "bad",
+                2,
+                b"{bad",
+                doc_date=current_day.doc_date,
+                received_at=selected_at + timedelta(minutes=1),
+            ),
+        ]
+    )
+    assert failed.error is not None
+    assert document_list_rechecked_asof(failed, [proof]) is None

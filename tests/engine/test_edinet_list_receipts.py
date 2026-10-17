@@ -13,7 +13,11 @@ from tests.helpers.http_doubles import FakeResponse, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.collection.edinet import http
-from baibai_engine.collection.edinet.receipts import read_list_response, retain_list_response
+from baibai_engine.collection.edinet.receipts import (
+    read_list_response,
+    read_list_responses,
+    retain_list_response,
+)
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.storage.lake.duck import lake_session
@@ -70,6 +74,24 @@ def test_receipt_round_trips_exact_bytes_and_commits_before_return(tmp_path):
             body,
         )
         assert read_list_response(reader, "missing") is None
+
+
+def test_read_list_responses_returns_only_requested_day_in_transport_order(tmp_path):
+    path = tmp_path / "market.sqlite"
+    stamp = datetime(2026, 10, 15, 3, tzinfo=UTC)
+    with closing(open_connection(path)) as conn:
+        first = retain_list_response(conn, doc_date=_DAY, received_at=stamp, body=b"first")
+        second = retain_list_response(conn, doc_date=_DAY, received_at=stamp, body=b"second")
+        last = retain_list_response(
+            conn, doc_date=_DAY, received_at=stamp + timedelta(seconds=1), body=b"last"
+        )
+        retain_list_response(
+            conn, doc_date=date(2026, 10, 16), received_at=stamp, body=b"other-day"
+        )
+        rows = read_list_responses(conn, doc_date=_DAY)
+        assert [row.receipt_id for row in rows] == [*sorted((first, second)), last]
+        assert {row.body for row in rows} == {b"first", b"second", b"last"}
+        assert read_list_responses(conn, doc_date=date(2026, 10, 14)) == ()
 
 
 def test_receipt_refuses_pending_transaction(tmp_path):

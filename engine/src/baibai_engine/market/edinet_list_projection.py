@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from itertools import groupby
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from baibai_engine.collection.edinet.receipts import EdinetListReceipt
 from baibai_engine.market.edinet_document_events import _validate_document_statuses, parse_doc_id
@@ -23,6 +24,7 @@ _RETAINED_NATIVE_FIELDS = (
     "issuerEdinetCode",
     "subjectEdinetCode",
 )
+_JST = ZoneInfo("Asia/Tokyo")
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +91,40 @@ def project_document_list(receipts: Sequence[EdinetListReceipt]) -> DocumentList
     )
 
 
+def document_list_rechecked_asof(
+    projection: DocumentListProjection, current_day_receipts: Sequence[EdinetListReceipt]
+) -> date | None:
+    """Prove a later day's official list was received before the selected historical list."""
+    selected = projection.selected_receipt
+    if projection.error is not None or selected is None:
+        return None
+    recheck_day = selected.received_at.astimezone(_JST).date()
+    if projection.doc_date >= recheck_day:
+        return None
+    for receipt in current_day_receipts:
+        if (
+            receipt.doc_date != recheck_day
+            or receipt.received_at.utcoffset() != timedelta(0)
+            or receipt.received_at.astimezone(_JST).date() != recheck_day
+            or receipt.received_at >= selected.received_at
+        ):
+            continue
+        try:
+            _decode_receipt(receipt)
+        except (ValueError, UnicodeError, EDINETProviderError):
+            continue
+        return recheck_day
+    return None
+
+
+def _reject_nonfinite_constant(value: str) -> None:
+    raise ValueError(f"EDINET response JSON contains nonfinite constant: {value}")
+
+
 def _decode_receipt(
     receipt: EdinetListReceipt,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[int, str]]]:
-    payload = json.loads(receipt.body)
+    payload = json.loads(receipt.body, parse_constant=_reject_nonfinite_constant)
     if not isinstance(payload, dict):
         raise ValueError("EDINET response JSON must be an object")
     results = payload.get("results")

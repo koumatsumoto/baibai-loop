@@ -40,7 +40,20 @@ def test_connect_current_accepts_uri_sensitive_path_characters(tmp_path):
 def test_edinet_list_receipts_require_fresh_schema_and_index(tmp_path):
     path = tmp_path / "market.sqlite"
     with closing(schema.open_connection(path)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (41,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (42,)
+        assert [
+            row[1] for row in connection.execute("PRAGMA table_info(edinet_document_lists)")
+        ] == [
+            "doc_date",
+            "process_datetime",
+            "result_count",
+            "fetched_at_utc",
+            "is_final",
+            "response_json",
+            "selected_receipt_id",
+            "latest_received_at_utc",
+            "rechecked_asof",
+        ]
         assert [
             row[1] for row in connection.execute("PRAGMA table_info(edinet_list_responses)")
         ] == [

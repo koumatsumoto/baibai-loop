@@ -138,6 +138,28 @@ def test_edinet_list_responses_manifest_round_trips_as_optional_l1() -> None:
     assert policy.carries_history
 
 
+def test_edinet_document_lists_manifest_round_trips_as_required_l2() -> None:
+    contract = LAKE_DATASETS["edinet.document_lists"]
+    payload = _dataset_payload(dataset=contract.name, population_count=None)
+    manifest = _load_dataset(payload)
+    assert manifest.layer == "l2_processed"
+    assert manifest.contract_version == 3
+    assert manifest.partition_by == ("year",)
+    assert _load_dataset(manifest.model_dump(mode="json")) == manifest
+    assert [column.name for column in contract.columns][-3:] == [
+        "selected_receipt_id",
+        "latest_received_at_utc",
+        "rechecked_asof",
+    ]
+    policy = next(
+        item
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        if item.dataset == contract.name
+    )
+    assert policy.required
+    assert policy.carries_history
+
+
 @pytest.mark.parametrize(
     ("dataset", "wrong_layer"),
     [
