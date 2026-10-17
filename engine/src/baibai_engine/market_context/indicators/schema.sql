@@ -124,4 +124,16 @@ CREATE TABLE IF NOT EXISTS indicator_source_snapshots(
   PRIMARY KEY(source_key, observed_at, fetched_at)
 );
 
-PRAGMA user_version = 9;
+-- Original documents are Collection input, not extracted scalar observations.
+CREATE TABLE IF NOT EXISTS economic_source_documents(
+  source_id TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  payload BLOB NOT NULL,
+  metadata TEXT NOT NULL,
+  PRIMARY KEY(source_id, request_key, fetched_at)
+);
+
+PRAGMA user_version = 10;

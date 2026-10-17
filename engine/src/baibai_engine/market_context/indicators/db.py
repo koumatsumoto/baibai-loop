@@ -14,7 +14,7 @@ from baibai_engine.foundation.repository_layout import INDICATORS_DB_PATH
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 from .observations import ObservationRecord
 
-SQLITE_SCHEMA_VERSION = 9
+SQLITE_SCHEMA_VERSION = 10
 # The acquisition outcome that says "this observation is withdrawn from the reads".
 RETRACTED_STATUS = "retracted"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -25,13 +25,15 @@ _ROW_COUNT_SQL = {
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
     "indicator_source_snapshots": "SELECT COUNT(*) FROM indicator_source_snapshots",
+    "economic_source_documents": "SELECT COUNT(*) FROM economic_source_documents",
 }
 _SCHEMA_VALIDATION_SQL = {
     "main": {
         "user_version": "PRAGMA main.user_version",
         "contract_tables": (
             "SELECT name, sql FROM main.sqlite_master "
-            "WHERE type = 'table' AND name IN ('registry_state', 'indicator_source_snapshots')"
+            "WHERE type = 'table' AND name IN "
+            "('registry_state', 'indicator_source_snapshots', 'economic_source_documents')"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
@@ -43,7 +45,8 @@ _SCHEMA_VALIDATION_SQL = {
         "user_version": "PRAGMA source.user_version",
         "contract_tables": (
             "SELECT name, sql FROM source.sqlite_master "
-            "WHERE type = 'table' AND name IN ('registry_state', 'indicator_source_snapshots')"
+            "WHERE type = 'table' AND name IN "
+            "('registry_state', 'indicator_source_snapshots', 'economic_source_documents')"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
@@ -212,7 +215,8 @@ def _canonical_contract_table_sql() -> dict[str, str]:
             str(row[0]): _normalize_schema_sql(str(row[1]))
             for row in connection.execute(
                 "SELECT name, sql FROM sqlite_master "
-                "WHERE type = 'table' AND name IN ('registry_state', 'indicator_source_snapshots')"
+                "WHERE type = 'table' AND name IN "
+                "('registry_state', 'indicator_source_snapshots', 'economic_source_documents')"
             )
         }
     finally:
