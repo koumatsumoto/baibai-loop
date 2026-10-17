@@ -232,6 +232,8 @@ forbidden_modules = [
   "baibai_engine.storage",
   "baibai_engine.read_api",
   "baibai_engine.research",
+  "baibai_engine.collection",
+  "baibai_engine.price_basis",
 ]
 
 [[tool.importlinter.contracts]]
@@ -340,12 +342,9 @@ ignore_imports = [
   "baibai_engine.research.selection_query -> baibai_engine.screening.run_store",
   "baibai_engine.research.selection_query -> baibai_engine.screening.run_store.read",
   "baibai_engine.research.selection_query -> baibai_engine.screening.discovery.projection",
-  "baibai_engine.research.selection -> baibai_engine.market.ticker",
-  "baibai_engine.research.assessment -> baibai_engine.market.ticker",
   # Pure cash-equity cutoff only; research still cannot import market acquisition.
   "baibai_engine.research.assessment -> baibai_engine.market.sessions",
   "baibai_engine.research.proposal_service -> baibai_engine.market.sessions",
-  "baibai_engine.research.proposal -> baibai_engine.market.ticker",
   "baibai_engine.research.proposal_conditions -> baibai_engine.market.universe",
 ]
 
@@ -688,4 +687,14 @@ forbidden_modules = [
   "baibai_engine.research.workspace",
   "baibai_engine.research.proposal_service",
   "baibai_engine.read_api",
+]
+
+[[tool.importlinter.contracts]]
+name = "collection does not depend on calculations or judgments"
+type = "forbidden"
+source_modules = ["baibai_engine.collection"]
+forbidden_modules = [
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.research",
+  "baibai_engine.screening", "baibai_engine.external_assessment", "baibai_engine.position",
+  "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_engine.price_basis",
 ]

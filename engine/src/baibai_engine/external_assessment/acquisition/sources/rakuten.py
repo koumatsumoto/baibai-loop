@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.acquisition.sources import (
     Element,
     ParseError,
@@ -14,7 +15,6 @@ from baibai_engine.external_assessment.acquisition.sources import (
     number,
 )
 from baibai_engine.external_assessment.observations.models import AnalystRatingObservation
-from baibai_engine.market.ticker import normalize_ticker
 
 PARSER_VERSION = "rakuten-rating-3"
 IFRAME_BASE = "https://rakuten-sec.ifis.co.jp/index.php"

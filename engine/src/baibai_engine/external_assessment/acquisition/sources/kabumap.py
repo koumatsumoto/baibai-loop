@@ -6,9 +6,9 @@ import re
 import unicodedata
 from datetime import date, datetime
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.acquisition.sources import ParseError, compact, document
 from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
-from baibai_engine.market.ticker import normalize_ticker
 
 PARSER_VERSION = "kabumap-quants-2"
 LABELS = {

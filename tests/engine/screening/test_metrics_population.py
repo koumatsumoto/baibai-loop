@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 
-from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.collection.prices import JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.screening.metrics.snapshot import MetricBuildResult, build_metrics

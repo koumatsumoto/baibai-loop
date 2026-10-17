@@ -14,6 +14,7 @@ import requests
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -21,7 +22,6 @@ from baibai_engine.market.jpx_models import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.market.jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
-from baibai_engine.market.ticker import normalize_ticker
 
 _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"

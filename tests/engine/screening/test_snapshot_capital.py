@@ -11,7 +11,7 @@ from tests.engine.screening.metric_fixtures import (
 )
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.collection.prices import JQuantsDailyBar
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.screening.metrics.snapshot import build_metrics
 from baibai_engine.screening.rule_config import load_screening_rules

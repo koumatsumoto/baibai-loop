@@ -16,9 +16,10 @@ from unittest.mock import patch
 
 import pytest
 
+from baibai_engine.collection.prices import JQuantsDailyBar
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
+from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command

@@ -19,10 +19,10 @@ from typing import Literal
 import openpyxl
 import requests
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
 from baibai_engine.market.edinet_document_store import read_current_filing_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"

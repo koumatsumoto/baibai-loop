@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes, insert_financial_record
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.screening.calibration.forward import (
     HORIZONS,

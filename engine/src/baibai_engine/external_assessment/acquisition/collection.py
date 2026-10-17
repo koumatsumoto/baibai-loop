@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 import requests
 from pydantic import ValidationError
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.acquisition.sources import (
     ParseError,
     kabumap,
@@ -39,7 +40,6 @@ from baibai_engine.external_assessment.observations.models import (
     Observation,
     QuantsScoreObservation,
 )
-from baibai_engine.market.ticker import normalize_ticker
 
 DEFAULT_TICKERS = ("7203", "9432", "6758")
 MAX_TICKERS = 3

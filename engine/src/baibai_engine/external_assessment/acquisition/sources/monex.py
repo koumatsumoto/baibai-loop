@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.acquisition.sources import (
     ParseError,
     compact,
@@ -11,7 +12,6 @@ from baibai_engine.external_assessment.acquisition.sources import (
     number,
 )
 from baibai_engine.external_assessment.observations.models import ModelValuationObservation
-from baibai_engine.market.ticker import normalize_ticker
 
 PARSER_VERSION = "monex-theory-3"
 

@@ -17,6 +17,7 @@ import requests
 from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.market.edinet_decode import (
     coalesce_field,
     document_period,
@@ -35,7 +36,6 @@ from baibai_engine.market.edinet_models import (
     EDINETProviderError,
     EDINETRateLimitError,
 )
-from baibai_engine.market.ticker import normalize_ticker
 
 EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
 
