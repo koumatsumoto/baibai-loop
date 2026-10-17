@@ -83,18 +83,23 @@ def declare_bundle_resources(
 ) -> None:
     _require_idle(conn)
     manifest = _validate_resources(resources)
-    bundle = read_bundle(conn, bundle_id)
-    if bundle.completed_at is not None or bundle.expected_resources is not None:
-        raise JPXBundleError("JPX bundle manifest cannot be changed")
-    declared = dict(manifest)
-    for receipt in bundle.responses:
-        if declared.get(receipt.resource_name) != receipt.response.requested_url:
-            raise JPXBundleError("JPX bundle manifest must include retained index exactly")
     try:
-        conn.execute(
-            "UPDATE jpx_source_bundles SET expected_resources_json = ? WHERE bundle_id = ?",
+        conn.execute("BEGIN IMMEDIATE")
+        bundle = read_bundle(conn, bundle_id)
+        if bundle.completed_at is not None or bundle.expected_resources is not None:
+            raise JPXBundleError("JPX bundle manifest cannot be changed")
+        declared = dict(manifest)
+        for receipt in bundle.responses:
+            if declared.get(receipt.resource_name) != receipt.response.requested_url:
+                raise JPXBundleError("JPX bundle manifest must include retained index exactly")
+        updated = conn.execute(
+            "UPDATE jpx_source_bundles SET expected_resources_json = ? "
+            "WHERE bundle_id = ? AND expected_resources_json IS NULL "
+            "AND completed_at_utc IS NULL",
             (_manifest_json(manifest), bundle_id),
         )
+        if updated.rowcount != 1:
+            raise JPXBundleError("JPX bundle manifest changed before declaration")
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -105,27 +110,28 @@ def retain_bundle_response(
     conn: sqlite3.Connection, bundle_id: str, resource_name: str, response: JPXResponse
 ) -> None:
     _require_idle(conn)
-    bundle = read_bundle(conn, bundle_id)
-    if bundle.completed_at is not None:
-        raise JPXBundleError("completed JPX bundle is immutable")
-    if not isinstance(cast(object, resource_name), str) or not resource_name:
-        raise JPXBundleError("JPX resource name must be nonempty")
-    _require_jpx_url(response.requested_url)
-    received_at = _require_utc(response.received_at, "response capture")
-    if received_at < bundle.started_at:
-        raise JPXBundleError("JPX response capture precedes bundle start")
-    if not isinstance(cast(object, response.content_type), str) or not isinstance(
-        cast(object, response.body), bytes
-    ):
-        raise JPXBundleError("JPX response metadata or body is invalid")
-    if bundle.expected_resources is None:
-        if resource_name != INDEX_RESOURCE_NAME:
-            raise JPXBundleError("only the index may be retained before manifest declaration")
-    elif dict(bundle.expected_resources).get(resource_name) != response.requested_url:
-        raise JPXBundleError("JPX response is not declared with this name and URL")
-    if any(item.resource_name == resource_name for item in bundle.responses):
-        raise JPXBundleError("JPX resource already retained in bundle")
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        bundle = read_bundle(conn, bundle_id)
+        if bundle.completed_at is not None:
+            raise JPXBundleError("completed JPX bundle is immutable")
+        if not isinstance(cast(object, resource_name), str) or not resource_name:
+            raise JPXBundleError("JPX resource name must be nonempty")
+        _require_jpx_url(response.requested_url)
+        received_at = _require_utc(response.received_at, "response capture")
+        if received_at < bundle.started_at:
+            raise JPXBundleError("JPX response capture precedes bundle start")
+        if not isinstance(cast(object, response.content_type), str) or not isinstance(
+            cast(object, response.body), bytes
+        ):
+            raise JPXBundleError("JPX response metadata or body is invalid")
+        if bundle.expected_resources is None:
+            if resource_name != INDEX_RESOURCE_NAME:
+                raise JPXBundleError("only the index may be retained before manifest declaration")
+        elif dict(bundle.expected_resources).get(resource_name) != response.requested_url:
+            raise JPXBundleError("JPX response is not declared with this name and URL")
+        if any(item.resource_name == resource_name for item in bundle.responses):
+            raise JPXBundleError("JPX resource already retained in bundle")
         conn.execute(
             "INSERT INTO jpx_source_responses("
             "bundle_id, resource_name, requested_url, received_at_utc, received_on, "
@@ -148,16 +154,20 @@ def retain_bundle_response(
 
 def complete_bundle(conn: sqlite3.Connection, bundle_id: str) -> None:
     _require_idle(conn)
-    bundle = read_bundle(conn, bundle_id)
-    if bundle.completed_at is not None:
-        raise JPXBundleError("completed JPX bundle is immutable")
-    _require_exact_membership(bundle)
-    completed_at = max(item.response.received_at for item in bundle.responses)
     try:
-        conn.execute(
-            "UPDATE jpx_source_bundles SET completed_at_utc = ? WHERE bundle_id = ?",
+        conn.execute("BEGIN IMMEDIATE")
+        bundle = read_bundle(conn, bundle_id)
+        if bundle.completed_at is not None:
+            raise JPXBundleError("completed JPX bundle is immutable")
+        _require_exact_membership(bundle)
+        completed_at = max(item.response.received_at for item in bundle.responses)
+        updated = conn.execute(
+            "UPDATE jpx_source_bundles SET completed_at_utc = ? "
+            "WHERE bundle_id = ? AND completed_at_utc IS NULL",
             (_timestamp(completed_at), bundle_id),
         )
+        if updated.rowcount != 1:
+            raise JPXBundleError("JPX bundle completed before this update")
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -165,6 +175,19 @@ def complete_bundle(conn: sqlite3.Connection, bundle_id: str) -> None:
 
 
 def read_bundle(conn: sqlite3.Connection, bundle_id: str) -> JPXSourceBundle:
+    if conn.in_transaction:
+        return _read_bundle(conn, bundle_id)
+    conn.execute("BEGIN")
+    try:
+        bundle = _read_bundle(conn, bundle_id)
+        conn.commit()
+        return bundle
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _read_bundle(conn: sqlite3.Connection, bundle_id: str) -> JPXSourceBundle:
     row = conn.execute(
         "SELECT bundle_id, collection_name, asof_date, started_at_utc, started_on, "
         "expected_resources_json, completed_at_utc "
