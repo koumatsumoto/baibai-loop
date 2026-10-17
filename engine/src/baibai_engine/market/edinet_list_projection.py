@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from itertools import groupby
+from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -121,10 +122,21 @@ def _reject_nonfinite_constant(value: str) -> None:
     raise ValueError(f"EDINET response JSON contains nonfinite constant: {value}")
 
 
+def _parse_finite_float(value: str) -> float:
+    parsed = float(value)
+    if not isfinite(parsed):
+        raise ValueError(f"EDINET response JSON contains nonfinite float: {value}")
+    return parsed
+
+
 def _decode_receipt(
     receipt: EdinetListReceipt,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[int, str]]]:
-    payload = json.loads(receipt.body, parse_constant=_reject_nonfinite_constant)
+    payload = json.loads(
+        receipt.body,
+        parse_constant=_reject_nonfinite_constant,
+        parse_float=_parse_finite_float,
+    )
     if not isinstance(payload, dict):
         raise ValueError("EDINET response JSON must be an object")
     results = payload.get("results")
@@ -169,9 +181,9 @@ def _decode_receipt(
 
 
 def _is_unavailable_origin(record: dict[str, Any]) -> bool:
-    edit = str(record.get("docInfoEditStatus") or "")
-    withdrawal = str(record.get("withdrawalStatus") or "")
-    disclosure = str(record.get("disclosureStatus") or "")
+    edit = str(record.get("docInfoEditStatus"))
+    withdrawal = str(record.get("withdrawalStatus"))
+    disclosure = str(record.get("disclosureStatus"))
     if edit == "1" or withdrawal == "1" or disclosure in {"1", "3"}:
         return False
-    return str(record.get("legalStatus") or "") == "0" or withdrawal == "2"
+    return str(record.get("legalStatus")) == "0" or withdrawal == "2"

@@ -166,6 +166,16 @@ def test_valid_empty_list_resets_observed_history() -> None:
     assert projection.documents == ({**_unavailable(), "doc_date": _DAY.isoformat()},)
 
 
+def test_numeric_zero_legal_status_can_carry_expired_origin_metadata() -> None:
+    expired = {"seqNumber": 1, "docID": "S100TEST", "legalStatus": 0}
+    projection = project_document_list(
+        [_receipt("first", 1, _payload([_origin()])), _receipt("last", 2, _payload([expired]))]
+    )
+    assert projection.error is None
+    assert projection.documents[0]["legalStatus"] == 0
+    assert projection.documents[0]["docDescription"] == _NATIVE["docDescription"]
+
+
 def test_malformed_latest_retains_selected_older_payload_with_error() -> None:
     first = _receipt("first", 1, _payload([_origin()]))
     bad = _receipt("bad", 2, b"{not JSON")
@@ -294,6 +304,17 @@ def test_nonfinite_json_constant_fails_without_changing_raw_body(constant: bytes
     assert projection.selected_receipt is None
     assert projection.error is not None
     assert "nonfinite constant" in projection.error
+    assert receipt.body == body
+
+
+@pytest.mark.parametrize("number", [b"1e999", b"-1e999"])
+def test_overflowing_json_float_fails_without_changing_raw_body(number: bytes) -> None:
+    body = b'{"metadata":{"resultset":{"count":0}},"results":[],"unused":' + number + b"}"
+    receipt = _receipt("overflow", 1, body)
+    projection = project_document_list([receipt])
+    assert projection.selected_receipt is None
+    assert projection.error is not None
+    assert "nonfinite float" in projection.error
     assert receipt.body == body
 
 

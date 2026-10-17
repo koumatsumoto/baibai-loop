@@ -161,9 +161,20 @@ def test_successful_empty_replay_clears_previous_documents(tmp_path: Path) -> No
     assert read_edinet_documents(path, _DAY) == []
 
 
-def test_only_malformed_receipt_writes_failed_coverage_and_attempt_time(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "body",
+    [
+        _B,
+        b'{"metadata":{"resultset":{"count":0}},"results":[],"unused":1e999}',
+        b'{"metadata":{"resultset":{"count":0}},"results":[],"unused":-1e999}',
+    ],
+    ids=["invalid-json", "positive-overflow", "negative-overflow"],
+)
+def test_only_malformed_receipt_writes_failed_coverage_and_attempt_time(
+    tmp_path: Path, body: bytes
+) -> None:
     path = tmp_path / "market.sqlite"
-    _add_receipt(path, _B, seconds=1)
+    _add_receipt(path, body, seconds=1)
     with closing(open_connection(path)) as conn:
         projection = project_document_list(read_list_responses(conn, doc_date=_DAY))
     assert (
