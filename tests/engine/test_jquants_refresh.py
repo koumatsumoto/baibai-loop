@@ -93,6 +93,35 @@ def test_covered_financial_input_needs_neither_request_nor_api_key(database):
         maintenance.ensure_fin_summaries(day("2026-10-14"), day("2026-10-14"))
 
 
+def test_covered_bar_and_financial_ensure_count_without_building_models(database, monkeypatch):
+    target = day("2026-10-16")
+    store_jquants_daily_bars(
+        database,
+        [bar(target.isoformat(), 100.0)],
+        requested_start=target,
+        requested_end=target,
+    )
+    store_jquants_fin_summaries(
+        database,
+        [financial(target.isoformat())],
+        requested_start=target,
+        requested_end=target,
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("count-only maintenance must not construct source models")
+
+    monkeypatch.setattr(JQuantsReader, "get_eq_bars_daily_range", forbidden)
+    monkeypatch.setattr(JQuantsReader, "get_fin_summary_range", forbidden)
+    monkeypatch.setattr("baibai_engine.market.store.JQuantsDailyBar", forbidden)
+    monkeypatch.setattr(
+        "baibai_engine.storage.observations.reader.normalize_financial_summary", forbidden
+    )
+    maintenance = JQuantsRefresh(database, None)
+    assert maintenance.ensure_daily_bars(target, target) == 1
+    assert maintenance.ensure_fin_summaries(target, target) == 1
+
+
 def test_cached_exact_master_uses_offline_reader_without_acquisition(database):
     target = day("2026-05-07")
     records = make_master_records(target)

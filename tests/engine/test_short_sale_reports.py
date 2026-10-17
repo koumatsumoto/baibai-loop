@@ -4,7 +4,6 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.storage.observations.coverage import EmptyRangeReplacementError
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
 from baibai_engine.storage.observations.reader import read_short_sale_reports
 from baibai_engine.storage.observations.schema import open_connection
@@ -74,7 +73,7 @@ def test_short_sale_range_read_distinguishes_empty_coverage_from_missing(tmp_pat
     assert read_short_sale_reports(sqlite_path, start, date(2019, 1, 3)) is None
 
 
-def test_empty_refetch_does_not_delete_short_sale_rows(tmp_path) -> None:
+def test_empty_refetch_replaces_short_sale_rows(tmp_path) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     start = date(2019, 1, 1)
     end = date(2019, 1, 31)
@@ -85,15 +84,18 @@ def test_empty_refetch_does_not_delete_short_sale_rows(tmp_path) -> None:
         requested_end=end,
     )
 
-    with pytest.raises(EmptyRangeReplacementError):
+    assert (
         store_jquants_short_sale_reports(sqlite_path, [], requested_start=start, requested_end=end)
+        == 0
+    )
 
     conn = open_connection(sqlite_path)
     try:
         count = conn.execute("SELECT COUNT(*) FROM jquants_short_sale_reports").fetchone()[0]
     finally:
         conn.close()
-    assert count == 1
+    assert count == 0
+    assert read_short_sale_reports(sqlite_path, start, end) == []
 
 
 def test_provider_nan_values_are_normalized_as_missing(tmp_path) -> None:

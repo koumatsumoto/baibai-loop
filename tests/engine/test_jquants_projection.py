@@ -76,6 +76,140 @@ def coverage(db_path, source):
         ).fetchall()
 
 
+def source_record(source, on_date):
+    if source == "financial_summaries":
+        return {"Code": "13010", "DiscDate": on_date, "DiscNo": on_date, "CurPerType": "FY"}
+    if source == "short_sale_reports":
+        return {
+            "Code": "13010",
+            "DiscDate": on_date,
+            "CalcDate": on_date,
+            "SSName": "Reporter A",
+            "ShrtPosToSO": 0.006,
+        }
+    if source == "margin_interest":
+        return {
+            "Code": "13010",
+            "Date": on_date,
+            "LongVol": 5000,
+            "ShrtVol": 1000,
+            "LongStdVol": 3000,
+            "LongNegVol": 2000,
+            "ShrtStdVol": 800,
+            "ShrtNegVol": 200,
+            "IssType": "2",
+        }
+    if source == "margin_alerts":
+        return {
+            "Code": "13010",
+            "PubDate": on_date,
+            "AppDate": on_date,
+            "PubReason": "designation",
+            "ShrtOut": 1000,
+            "ShrtOutChg": 0,
+            "ShrtOutRatio": 0.1,
+            "LongOut": 2000,
+            "LongOutChg": 0,
+            "LongOutRatio": 0.2,
+            "SLRatio": 0.5,
+            "ShrtNegOut": 100,
+            "ShrtNegOutChg": 0,
+            "ShrtStdOut": 900,
+            "ShrtStdOutChg": 0,
+            "LongNegOut": 200,
+            "LongNegOutChg": 0,
+            "LongStdOut": 1800,
+            "LongStdOutChg": 0,
+            "TSEMrgnRegCls": "none",
+        }
+    raise AssertionError(f"unexpected source: {source}")
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "outside", "table", "date_column", "coverage_source"),
+    [
+        (
+            "financial_summaries",
+            DAY,
+            "2026-10-09",
+            "jquants_fin_summaries",
+            "disclosed_at",
+            "jquants_fin_summaries",
+        ),
+        (
+            "short_sale_reports",
+            DAY,
+            "2026-10-09",
+            "jquants_short_sale_reports",
+            "disclosed_at",
+            "jquants_short_sale_reports",
+        ),
+        (
+            "margin_interest",
+            "2026-07-24",
+            "2026-07-17",
+            "jquants_weekly_margin",
+            "week_end",
+            "jquants_weekly_margin",
+        ),
+        (
+            "margin_interest",
+            "2026-10-02",
+            "2026-09-25",
+            "jquants_all_issues_daily_margin",
+            "balance_date",
+            "jquants_all_issues_daily_margin",
+        ),
+        (
+            "margin_alerts",
+            DAY,
+            "2026-10-09",
+            "jquants_margin_alerts",
+            "publication_date",
+            "jquants_margin_alerts",
+        ),
+    ],
+    ids=("financial", "short-sale", "weekly-margin", "daily-margin", "margin-alert"),
+)
+def test_complete_empty_receipt_projects_identically_with_or_without_old_rows(
+    tmp_path, source, target, outside, table, date_column, coverage_source
+):
+    empty_body = body([])
+    target_coverage = []
+    for had_rows in (False, True):
+        db = tmp_path / ("populated.sqlite" if had_rows else "fresh.sqlite")
+        if had_rows:
+            for day in (outside, target):
+                key = "disc_date" if source == "short_sale_reports" else "date"
+                request_id = receive(
+                    db, source, {key: day}, body([source_record(source, day)]), FIRST_AT
+                )
+                assert project_request(db, request_id) == 1
+        key = "disc_date" if source == "short_sale_reports" else "date"
+        request_id = receive(db, source, {key: target}, empty_body, CORRECTION_AT)
+        assert project_request(db, request_id) == 0
+
+        with sqlite3.connect(db) as conn:
+            assert conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE {date_column} = ?", (target,)
+            ).fetchone() == (0,)
+            if had_rows:
+                assert conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {date_column} = ?", (outside,)
+                ).fetchone() == (1,)
+            pages = read_request_pages(conn, request_id)
+            assert len(pages) == 1
+            assert pages[0].body == empty_body
+            assert pages[0].received_at == CORRECTION_AT
+        selected = [
+            row for row in coverage(db, coverage_source) if row[1] == target and row[2] == target
+        ]
+        assert len(selected) == 1
+        assert selected[0][3:] == (CORRECTION_AT.isoformat(timespec="microseconds"), 0, "ok", None)
+        target_coverage.append(selected[0])
+    assert target_coverage[0] == target_coverage[1]
+
+
 def test_daily_bar_correction_and_same_receipt_replay_are_stable(db_path):
     first_body = body([{"Code": "13010", "Date": DAY, "C": 100.0, "Unknown": "raw"}])
     correction_body = body([{"Code": "13010", "Date": DAY, "C": 111.0}])
@@ -193,6 +327,15 @@ def test_code_filtered_query_cannot_replace_whole_day(db_path):
 
 
 def test_incomplete_source_request_is_refused_before_projection(db_path):
+    original_id = receive(
+        db_path,
+        "daily_bars",
+        {"date": DAY},
+        body([{"Code": "13010", "Date": DAY, "C": 100.0}]),
+        FIRST_AT,
+    )
+    assert project_request(db_path, original_id) == 1
+    before_coverage = coverage(db_path, "jquants_daily_bars")
     session = Session(
         body([{"Code": "13010", "Date": DAY, "C": 100.0}], cursor="next"),
         requests.ConnectionError("synthetic-test-key"),
@@ -210,8 +353,37 @@ def test_incomplete_source_request_is_refused_before_projection(db_path):
     with pytest.raises(JQuantsAcquisitionError, match="incomplete"):
         project_request(db_path, request_id)
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
+        assert conn.execute("SELECT close FROM jquants_daily_bars").fetchall() == [(100.0,)]
         assert len(read_request_pages(conn, request_id)) == 1
+    assert coverage(db_path, "jquants_daily_bars") == before_coverage
+
+
+def test_invalid_financial_record_keeps_partial_coverage_after_raw_projection(db_path):
+    original_id = receive(
+        db_path,
+        "financial_summaries",
+        {"date": DAY},
+        body([source_record("financial_summaries", DAY)]),
+        FIRST_AT,
+    )
+    assert project_request(db_path, original_id) == 1
+    invalid_body = body([{"Code": "", "DiscDate": DAY, "DiscNo": "invalid-code"}])
+    invalid_id = receive(db_path, "financial_summaries", {"date": DAY}, invalid_body, CORRECTION_AT)
+    assert project_request(db_path, invalid_id) == 0
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone() == (0,)
+        assert read_request_pages(conn, invalid_id)[0].body == invalid_body
+    assert coverage(db_path, "jquants_fin_summaries") == [
+        (
+            f"get_fin_summary_range:{DAY}..{DAY}",
+            DAY,
+            DAY,
+            CORRECTION_AT.isoformat(timespec="microseconds"),
+            0,
+            "partial",
+            "1 rejected records during normalization",
+        )
+    ]
 
 
 def test_failed_projection_keeps_retained_raw_body(db_path):

@@ -28,7 +28,6 @@ from baibai_engine.screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
 from baibai_engine.storage.observations.coverage import (
-    EmptyRangeReplacementError,
     count_overlapping_source_coverage,
     count_source_coverage,
     delete_overlapping_source_coverage,
@@ -248,7 +247,6 @@ def backfill_history_command(
             JQuantsAcquisitionError,
             JQuantsProviderError,
             SQLiteSchemaError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             print(
@@ -272,7 +270,6 @@ def backfill_history_command(
             JQuantsAcquisitionError,
             JQuantsProviderError,
             SQLiteSchemaError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             print(
@@ -297,7 +294,6 @@ def backfill_history_command(
             JQuantsAcquisitionError,
             JQuantsProviderError,
             SQLiteSchemaError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             print(
@@ -440,7 +436,6 @@ def bootstrap_cache_command(
             JQuantsProviderError,
             EDINETProviderError,
             JPXProviderError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             failed = True

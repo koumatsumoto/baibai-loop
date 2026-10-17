@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
 from urllib3.connectionpool import HTTPSConnectionPool
+from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
 from baibai_engine.collection import jquants_http
@@ -278,6 +280,75 @@ def test_retry_after_override_and_invalid_header_fallback(wire, retry_after, wai
         client.close()
     assert len(wire.calls) == 2
     assert wire.waits == waits
+
+
+def test_http_date_retry_after_precedes_default_backoff(wire, monkeypatch):
+    base = datetime(2026, 10, 17, 12, tzinfo=UTC)
+    monkeypatch.setattr(jquants_http.time, "time", lambda: base.timestamp())
+    header = format_datetime(base + timedelta(seconds=60), usegmt=True)
+    wire.reply = lambda url: (
+        (429, {"Retry-After": header}, b"{}") if len(wire.calls) == 1 else (200, {}, payload([]))
+    )
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    try:
+        assert len(list(client.pages("master", {}))) == 1
+    finally:
+        client.close()
+    assert len(wire.calls) == 2
+    assert wire.waits == [60]
+
+
+def test_read_timeout_has_finite_get_retry_budget(wire):
+    def reply(url):
+        raise ReadTimeoutError(None, url, "synthetic timeout")
+
+    wire.reply = reply
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    try:
+        with pytest.raises(JQuantsAcquisitionError, match="ConnectionError"):
+            list(client.pages("master", {}))
+    finally:
+        client.close()
+    assert len(wire.calls) == 6
+    assert wire.waits == [30, 60, 120, 300, 600]
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_permanent_status_does_not_retry_rate_limit_wording(wire, status):
+    wire.reply = lambda url: (
+        status,
+        {"Retry-After": "17"},
+        b'{"message":"429 Too Many Requests synthetic-test-key"}',
+    )
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    try:
+        with pytest.raises(JQuantsAcquisitionError, match=f"HTTP status {status}") as caught:
+            list(client.pages("master", {}))
+    finally:
+        client.close()
+    assert len(wire.calls) == 1
+    assert wire.waits == []
+    assert "synthetic-test-key" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (b"429 Too Many Requests", "not JSON"),
+        (b'{"data":{}}', "lacks a data array"),
+        (b'{"data":[123]}', "non-record row"),
+    ],
+)
+def test_invalid_http_200_response_does_not_restart_get(wire, body, message):
+    wire.reply = lambda url: (200, {}, body)
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    try:
+        with pytest.raises(JQuantsAcquisitionError, match=message):
+            list(client.pages("master", {}))
+    finally:
+        client.close()
+    assert len(wire.calls) == 1
+    assert wire.waits == []
 
 
 def test_second_get_exhausts_own_retry_budget_without_replaying_first(wire):
