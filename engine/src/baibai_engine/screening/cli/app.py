@@ -19,11 +19,16 @@ from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_lists_comman
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_engine.market.jpx_models import (
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+    JPXRegulationSnapshot,
+)
 from baibai_engine.market.jpx_reader import JPXReader
-from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
+from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.market.jpx_refresh import JPXRefresh
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
-from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.read_api.market import market_calendar_business_day
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
@@ -47,6 +52,7 @@ from baibai_engine.screening.rule_config import (
 from baibai_engine.screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 from .cache import (
     _print_cache_coverage_issues,
@@ -153,6 +159,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
+
+    rebuild_jpx_parser = subparsers.add_parser(
+        "rebuild-jpx-snapshot",
+        help="rebuild one JPX snapshot from a selected complete source bundle without acquisition",
+    )
+    rebuild_jpx_parser.add_argument("--bundle-id", required=True)
+    rebuild_jpx_parser.add_argument("--sqlite-path", required=True)
 
     backfill_history_parser = subparsers.add_parser(
         "backfill-history",
@@ -503,9 +516,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_project_env()
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "rebuild-jpx-snapshot":
+        try:
+            snapshot = rebuild_jpx_snapshot(Path(args.sqlite_path), args.bundle_id)
+        except (JPXProviderError, SQLiteSchemaError, sqlite3.Error, ValueError) as exc:
+            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        if isinstance(snapshot, JPXRegulationSnapshot):
+            collection = "regulations"
+            rows = len(snapshot.flags_by_ticker)
+        else:
+            assert isinstance(snapshot, JPXEarningsCalendarSnapshot)
+            collection = "earnings_calendar"
+            rows = snapshot.valid_record_count
+        print(
+            f"rebuild-jpx-snapshot: collection={collection} bundle_id={args.bundle_id} rows={rows}"
+        )
+        return 0
+
+    load_project_env()
 
     if args.command == "rebuild-edinet-lists":
         return rebuild_edinet_lists_command(
@@ -715,9 +747,7 @@ def main(argv: list[str] | None = None) -> int:
         if edinet_refresh is not None:
             resources.callback(edinet_refresh.close)
         jpx_refresh = (
-            JPXProvider(regulation_urls=JPX_REGULATION_URLS, sqlite_path=sqlite_path)
-            if args.command == "bootstrap-cache"
-            else None
+            JPXRefresh(sqlite_path=sqlite_path) if args.command == "bootstrap-cache" else None
         )
         if jpx_refresh is not None:
             resources.callback(jpx_refresh.close)

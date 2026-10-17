@@ -124,7 +124,7 @@ def _run_cli(
         patch.object(app, "JQuantsReader", lambda *_args, **_kwargs: jquants),
         patch.object(app, "JQuantsRefresh", lambda *_args, **_kwargs: jquants),
         patch.object(app, "EDINETRefresh", lambda *_args, **_kwargs: edinet),
-        patch.object(app, "JPXProvider", lambda *_args, **_kwargs: jpx),
+        patch.object(app, "JPXRefresh", lambda *_args, **_kwargs: jpx),
         contextlib.redirect_stdout(stdout),
         contextlib.redirect_stderr(stderr),
     ):
@@ -151,7 +151,7 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
             app, "JQuantsRefresh", side_effect=AssertionError("J-Quants refresh constructed")
         ) as refresh,
         patch.object(
-            app, "JPXProvider", side_effect=AssertionError("JPX provider constructed")
+            app, "JPXRefresh", side_effect=AssertionError("JPX provider constructed")
         ) as jpx,
         patch.object(
             app, "ProviderBundle", side_effect=AssertionError("provider bundle constructed")
@@ -254,16 +254,11 @@ def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
         patch.object(app, "JQuantsReader", return_value=jquants),
         patch.object(app, "JQuantsRefresh", return_value=jquants),
         patch.object(app, "EDINETRefresh", return_value=_SeamEDINETProvider()),
-        patch.object(app, "JPXProvider", return_value=FakeJPXProvider()) as jpx_factory,
+        patch.object(app, "JPXRefresh", return_value=FakeJPXProvider()) as jpx_factory,
     ):
         assert app.main(["bootstrap-cache", "--asof", "2026-05-08"]) == 0
 
-    assert jpx_factory.call_args.kwargs["regulation_urls"] == {
-        "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html",
-        "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/",
-        "取引停止": "https://www.jpx.co.jp/markets/equities/suspended/",
-        "上場廃止警告": "https://www.jpx.co.jp/listing/stocks/delisted/",
-    }
+    assert jpx_factory.call_args.kwargs["sqlite_path"].name == "market.sqlite"
 
 
 def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_asof() -> None:
@@ -334,7 +329,7 @@ def test_main_run_uses_only_offline_readers(allow_stale: bool) -> None:
             app, "EDINETRefresh", side_effect=AssertionError("acquisition constructed")
         ) as factory,
         patch.object(
-            app, "JPXProvider", side_effect=AssertionError("JPX acquisition constructed")
+            app, "JPXRefresh", side_effect=AssertionError("JPX acquisition constructed")
         ) as jpx_factory,
         patch(
             "requests.Session", side_effect=AssertionError("HTTP session constructed")

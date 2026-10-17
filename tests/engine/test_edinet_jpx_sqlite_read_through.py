@@ -16,8 +16,6 @@ from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.market.edinet_selection import select_document_candidates
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.storage.observations.reader import has_jpx_regulation_data, read_jpx_regulations
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -317,51 +315,6 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
 
             with self.assertRaisesRegex(EDINETProviderError, "unavailable"):
                 EDINETReader(sqlite_path).list_documents(date(2026, 4, 24))
-
-
-class JPXProviderReadThroughTests(unittest.TestCase):
-    def test_get_regulation_snapshot_uses_sqlite_when_available(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "INSERT INTO jpx_regulation_flags("
-                "asof_date, source_name, ticker, flag, fetched_at_utc"
-                ") VALUES (?, ?, ?, ?, ?)",
-                ("2026-04-24", "取引停止", "1302", "取引停止", "2026-04-24T00:00:00+00:00"),
-            )
-            _add_source_coverage(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
-            conn.commit()
-            conn.close()
-
-            provider = JPXProvider(sqlite_path=sqlite_path)
-
-            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
-
-            self.assertEqual(snapshot.flags_by_ticker["1302"], ("取引停止",))
-
-    def test_get_regulation_snapshot_requires_source_when_sqlite_empty(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
-
-            provider = JPXProvider(sqlite_path=sqlite_path)
-
-            with self.assertRaises(JPXProviderError):
-                provider.get_regulation_snapshot(date(2026, 4, 24))
-
-    def test_cache_only_requires_sqlite_regulation_snapshot(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
-            provider = JPXProvider(sqlite_path=sqlite_path, cache_only=True)
-
-            with self.assertRaisesRegex(JPXProviderError, "SQLite cache incomplete"):
-                provider.get_regulation_snapshot(date(2026, 4, 24))
 
 
 if __name__ == "__main__":  # pragma: no cover

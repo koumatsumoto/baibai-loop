@@ -20,9 +20,6 @@ from tests.helpers.http_doubles import (
     ExplodingSession,
     FakeResponse,
     FakeSession,
-    always,
-    by_url,
-    html_response,
     json_response,
     response,
     sequence,
@@ -51,7 +48,6 @@ from baibai_engine.market.jpx_decode import (
     build_regulation_snapshot,
     parse_earnings_calendar_excel,
     parse_regulation_rows,
-    resolve_earnings_calendar_urls,
 )
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
@@ -67,17 +63,9 @@ from baibai_engine.market.jquants_decode import (
 )
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.storage.observations.ingest.edinet import (
     store_edinet_metrics,
 )
-from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
-
-
-def _FixedHtmlSession(content: bytes) -> FakeSession:
-    """Every request answers with the same HTML page."""
-
-    return always(html_response(content))
 
 
 def _SequenceBytesSession(contents: list[bytes]) -> FakeSession:
@@ -1844,45 +1832,24 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_earnings_snapshot_fails_when_every_date_is_past(self) -> None:
-        provider = JPXProvider()
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan.xlsx"
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(url,)),
-            patch.object(
-                provider,
-                "_download_earnings_calendar",
-                return_value=self._earnings_file(url, None, {"130A": date(2026, 7, 13)}),
-            ),
-            self.assertRaisesRegex(JPXProviderError, "only past dates"),
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+        with self.assertRaisesRegex(JPXProviderError, "only past dates"):
+            build_earnings_calendar_snapshot(
+                (self._earnings_file(url, None, {"130A": date(2026, 7, 13)}),),
+                asof_date=date(2026, 7, 14),
+                source_urls=(url,),
+            )
 
     def _merge_earnings_files(
         self, files: tuple[_EarningsCalendarFile, ...], asof_date: date
     ) -> JPXEarningsCalendarSnapshot:
-        """Merge the given cohort files under every index ordering.
-
-        The index order is JPX's to choose, so a snapshot that depends on it is
-        a defect. This asserts the invariant and returns the one snapshot.
-        """
         by_url = {source.url: source for source in files}
-        snapshots: list[JPXEarningsCalendarSnapshot] = []
-        for urls in permutations(by_url):
-            direct = build_earnings_calendar_snapshot(
+        snapshots = [
+            build_earnings_calendar_snapshot(
                 tuple(by_url[url] for url in urls), asof_date=asof_date, source_urls=urls
             )
-            provider = JPXProvider()
-            with (
-                patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
-                patch.object(
-                    provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
-                ),
-            ):
-                fetched = provider.get_earnings_calendar_snapshot(asof_date)
-                self.assertEqual(fetched, direct)
-                snapshots.append(fetched)
-        # Source URLs preserve the observed index order; only their membership,
-        # resolved entries and counters must be invariant under that ordering.
+            for urls in permutations(by_url)
+        ]
         canonical = replace(snapshots[0], source_urls=tuple(sorted(snapshots[0].source_urls)))
         for snapshot in snapshots[1:]:
             self.assertEqual(
@@ -1989,7 +1956,6 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
     def test_jpx_earnings_snapshot_warns_when_archive_publication_stamp_is_missing(self) -> None:
-        provider = JPXProvider()
         files = (
             self._earnings_file(
                 self._earnings_url("06_0731"), None, {"130A": date(2026, 7, 20)}, prefix="att"
@@ -1998,18 +1964,11 @@ class ScreeningProviderTests(unittest.TestCase):
                 self._earnings_url("06_0731"), None, {"7203": date(2026, 7, 21)}, prefix="att2"
             ),
         )
-        by_url = {source.url: source for source in files}
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=tuple(by_url)),
-            patch.object(
-                provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
-            ),
-            self.assertLogs("baibai_engine.market.jpx_decode", level="WARNING") as logs,
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
-
-        messages = "\n".join(logs.output)
-        self.assertIn("no readable publication stamp", messages)
+        with self.assertLogs("baibai_engine.market.jpx_decode", level="WARNING") as logs:
+            build_earnings_calendar_snapshot(
+                files, asof_date=date(2026, 7, 14), source_urls=tuple(f.url for f in files)
+            )
+        self.assertIn("no readable publication stamp", "\n".join(logs.output))
 
     def test_jpx_earnings_snapshot_without_daily_file_is_not_a_layout_warning(self) -> None:
         files = (
@@ -2022,7 +1981,6 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 10, 20))
 
     def test_jpx_earnings_snapshot_warns_when_several_rolling_files_are_listed(self) -> None:
-        provider = JPXProvider()
         files = (
             self._earnings_file(
                 self._earnings_url(), None, {"130A": date(2026, 7, 20)}, prefix="att"
@@ -2031,16 +1989,10 @@ class ScreeningProviderTests(unittest.TestCase):
                 self._earnings_url(), None, {"7203": date(2026, 7, 21)}, prefix="att2"
             ),
         )
-        by_url = {source.url: source for source in files}
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=tuple(by_url)),
-            patch.object(
-                provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
-            ),
-            self.assertLogs("baibai_engine.market.jpx_decode", level="WARNING") as logs,
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
-
+        with self.assertLogs("baibai_engine.market.jpx_decode", level="WARNING") as logs:
+            build_earnings_calendar_snapshot(
+                files, asof_date=date(2026, 7, 14), source_urls=tuple(f.url for f in files)
+            )
         self.assertIn("several rolling `kessan` files", "\n".join(logs.output))
 
     def test_jpx_earnings_parser_reads_publication_stamp_but_not_cohort_titles(self) -> None:
@@ -2120,59 +2072,19 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIn("1305: '8月上旬'", logs.output[0])
         self.assertIn("130A: 2026-08-06 and 2026-08-07 and 2026-08-08", logs.output[0])
 
-    def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
-        html = b"""
-        <a href="./files/kessan-1.xlsx">one</a>
-        <a href="/listing/event-schedules/financial-announcement/files/kessan-2.xls">two</a>
-        <a href="https://example.com/listing/event-schedules/financial-announcement/kessan-3.xlsx">external</a>
-        <a href="/listing/event-schedules/other/kessan-4.xlsx">other</a>
-        <a href="./files/notes.xlsx">notes</a>
-        """
-        provider = JPXProvider(session=_FixedHtmlSession(html))
-
-        expected = (
-            (
-                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
-                "files/kessan-1.xlsx"
-            ),
-            (
-                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
-                "files/kessan-2.xls"
-            ),
-        )
-        self.assertEqual(provider._resolve_earnings_calendar_urls(), expected)
-        self.assertEqual(
-            resolve_earnings_calendar_urls(
-                html,
-                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html",
-            ),
-            expected,
-        )
-
     def test_jpx_special_attention_current_sections(self) -> None:
         html = self._read_jpx_fixture("special_caution.html")
-        provider = JPXProvider(
-            regulation_urls={
-                "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html"
-            },
-            session=_FixedHtmlSession(html),
-        )
-        snapshot = provider.get_regulation_snapshot(date(2026, 9, 29))
-        self.assertEqual(
-            snapshot,
-            build_regulation_snapshot(
-                {
-                    "特別注意銘柄": parse_regulation_rows(
-                        "特別注意銘柄",
-                        html,
-                        "https://www.jpx.co.jp/listing/measures/alert/index.html",
-                    )
-                }
-            ),
+        snapshot = build_regulation_snapshot(
+            {
+                "特別注意銘柄": parse_regulation_rows(
+                    "特別注意銘柄",
+                    html,
+                    "https://www.jpx.co.jp/listing/measures/alert/index.html",
+                )
+            }
         )
         self.assertEqual(
-            snapshot.flags_by_ticker,
-            {"130A": ("特別注意銘柄",), "2901": ("特別注意銘柄",)},
+            snapshot.flags_by_ticker, {"130A": ("特別注意銘柄",), "2901": ("特別注意銘柄",)}
         )
         self.assertEqual(snapshot.source_names, ("特別注意銘柄",))
 
@@ -2214,25 +2126,13 @@ class ScreeningProviderTests(unittest.TestCase):
             with self.subTest(label=label), self.assertRaises(JPXProviderError):
                 _parse_special_attention_html_rows(changed, "fixture")
 
-    def test_jpx_download_rows_rejects_non_jpx_origin(self) -> None:
-        session = ExplodingSession("request should not be attempted")
-        provider = JPXProvider(session=session)
-
-        with self.assertRaisesRegex(JPXProviderError, "https://www\\.jpx\\.co\\.jp"):
-            provider._download_rows(
-                "整理銘柄", "https://example.com/listing/market-alerts/supervision/"
-            )
-
-        self.assertEqual(session.calls, [])
-
     def test_jpx_parse_reorganization_html_rows_from_content_type(self) -> None:
-        provider = JPXProvider(
-            session=always(html_response(self._read_jpx_fixture("reorganization.html"))),
+        rows = parse_regulation_rows(
+            "整理銘柄",
+            self._read_jpx_fixture("reorganization.html"),
+            "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+            "text/html; charset=UTF-8",
         )
-        rows = provider._download_rows(
-            "整理銘柄", "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-        )
-
         self.assertEqual(
             rows,
             [
@@ -2282,20 +2182,20 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_get_regulation_snapshot_fails_on_invalid_html_code(self) -> None:
-        url = "https://www.jpx.co.jp/markets/equities/suspended/"
         broken_html = (
             self._read_jpx_fixture("trading_halt.html")
             .decode("utf-8")
             .replace("9941", "99411", 1)
             .encode("utf-8")
         )
-
-        provider = JPXProvider(
-            regulation_urls={"取引停止": url},
-            session=by_url({url: html_response(broken_html)}),
-        )
         with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-            provider.get_regulation_snapshot(date(2026, 4, 24))
+            build_regulation_snapshot(
+                {
+                    "取引停止": parse_regulation_rows(
+                        "取引停止", broken_html, "https://www.jpx.co.jp/markets/equities/suspended/"
+                    )
+                }
+            )
 
     def test_jpx_trading_halt_empty_marker_returns_no_rows(self) -> None:
         rows = parse_regulation_rows(
@@ -2328,64 +2228,6 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertEqual(rows, [{"code": "4917", "flag": "整理銘柄"}])
 
-    def test_jpx_download_rows_rejects_unsupported_format(self) -> None:
-        provider = JPXProvider(
-            session=always(response(b"<plain>", content_type="text/plain; charset=UTF-8")),
-        )
-        with self.assertRaisesRegex(JPXProviderError, "unsupported JPX regulation source format"):
-            provider._download_rows(
-                "整理銘柄",
-                "https://www.jpx.co.jp/listing/market-alerts/supervision/notes",
-            )
-
-    def test_jpx_download_rows_raises_on_http_error_status(self) -> None:
-        provider = JPXProvider(session=always(response(status_code=503)))
-        with self.assertRaisesRegex(JPXProviderError, "status=503"):
-            provider._download_rows(
-                "整理銘柄",
-                "https://www.jpx.co.jp/listing/market-alerts/supervision/",
-            )
-
-    def test_jpx_get_regulation_snapshot_uses_cache_without_calling_session(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            store_jpx_regulations(
-                sqlite_path,
-                date(2026, 4, 24),
-                flags_by_ticker={"4917": ("整理銘柄",)},
-                source_names=("整理銘柄",),
-            )
-
-            provider = JPXProvider(
-                regulation_urls={"整理銘柄": url},
-                session=ExplodingSession("session.get must not be called when cache is present"),
-                sqlite_path=sqlite_path,
-            )
-            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
-
-        self.assertEqual(snapshot.source_names, ("整理銘柄",))
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
-
-    def test_jpx_get_regulation_snapshot_records_fetched_at_utc_on_fetch(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JPXProvider(
-                regulation_urls={"整理銘柄": url},
-                session=always(html_response(self._read_jpx_fixture("reorganization.html"))),
-                sqlite_path=sqlite_path,
-            )
-            provider.get_regulation_snapshot(date(2026, 4, 24))
-            with closing(sqlite3.connect(sqlite_path)) as connection:
-                rows = connection.execute(
-                    "SELECT fetched_at_utc FROM jpx_regulation_sources WHERE asof_date = ?",
-                    ("2026-04-24",),
-                ).fetchall()
-
-        self.assertEqual(len(rows), 1)
-        self.assertIsNotNone(rows[0][0])
-
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
         # が偶然成功して文字化けが残るリスクを避けるため、charset を最優先で試行する。
@@ -2409,39 +2251,34 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_refuses_an_invalid_code_in_every_regulation_page(self) -> None:
-        # Each page has its own table layout, so a code the parser cannot normalise has
-        # to stop each of them rather than reach the store as a ticker nobody trades.
-        cases: tuple[tuple[str, str, str, str, str], ...] = (
+        cases = (
             (
                 "整理銘柄",
                 "reorganization.html",
-                "4917",
-                "49171",
+                b"4917",
+                b"49171",
                 "https://www.jpx.co.jp/listing/market-alerts/supervision/",
             ),
             (
                 "上場廃止警告",
                 "delisting_warning.html",
-                "7709",
-                "77091",
+                b"7709",
+                b"77091",
                 "https://www.jpx.co.jp/listing/stocks/delisted/",
             ),
         )
-
-        for source_name, fixture, code, broken_code, url in cases:
-            with self.subTest(case=source_name):
-                broken_html = (
-                    self._read_jpx_fixture(fixture)
-                    .decode("utf-8")
-                    .replace(code, broken_code, 1)
-                    .encode("utf-8")
+        for name, fixture, code, broken, url in cases:
+            with (
+                self.subTest(case=name),
+                self.assertRaisesRegex(JPXProviderError, "invalid JPX code"),
+            ):
+                build_regulation_snapshot(
+                    {
+                        name: parse_regulation_rows(
+                            name, self._read_jpx_fixture(fixture).replace(code, broken, 1), url
+                        )
+                    }
                 )
-                provider = JPXProvider(
-                    regulation_urls={source_name: url},
-                    session=_FixedHtmlSession(broken_html),
-                )
-                with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-                    provider.get_regulation_snapshot(date(2026, 4, 24))
 
 
 def test_capex_original_edinet_rows():

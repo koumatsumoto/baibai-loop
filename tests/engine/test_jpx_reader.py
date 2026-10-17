@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +12,6 @@ from baibai_engine.market.jpx_models import (
     JPXProviderError,
 )
 from baibai_engine.market.jpx_reader import JPXReader
-from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.storage.observations.ingest.jpx import (
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
@@ -64,25 +63,3 @@ def test_reader_reports_missing_saved_snapshots(tmp_path: Path) -> None:
         reader.get_regulation_snapshot(date(2026, 5, 8))
     with pytest.raises(JPXProviderError, match="stored JPX earnings calendar is unavailable"):
         reader.get_earnings_calendar_snapshot(date(2026, 5, 8))
-
-
-def test_acquisition_provider_owns_only_its_lazy_session() -> None:
-    owned = Mock()
-    owned.get.return_value.status_code = 503
-    with patch(
-        "baibai_engine.market.providers.jpx.requests.Session", return_value=owned
-    ) as factory:
-        provider = JPXProvider()
-        factory.assert_not_called()
-        provider.close()
-        factory.assert_not_called()
-        with pytest.raises(JPXProviderError, match="status=503"):
-            provider._download_rows("取引停止", "https://www.jpx.co.jp/markets/equities/suspended/")
-        factory.assert_called_once_with()
-        owned.get.assert_called_once()
-        provider.close()
-        owned.close.assert_called_once_with()
-
-    injected = Mock()
-    JPXProvider(session=injected).close()
-    injected.close.assert_not_called()

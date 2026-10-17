@@ -112,6 +112,8 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 保存済みEDINET文書一覧のL2だけをraw receiptから再構築する場合は、`baibai-engine screening rebuild-edinet-lists --start YYYY-MM-DD --end YYYY-MM-DD --sqlite-path PATH`を使う。指定範囲の全暦日にreceiptがあることを書込前に検査し、欠ける日は空応答とみなさず停止する。取得やarchive再処理は行わず、失敗した日を報告する。
 
+JPXの規制情報と決算発表予定は、明示した1件の完了済みsource bundleから`baibai-engine screening rebuild-jpx-snapshot --bundle-id ID --sqlite-path PATH`で再構築する。取得は行わず、不完全なbundleや原本の解析失敗ではL2を更新しない。bundleの完了は宣言した取得対象がすべて届いたことだけを示し、JPX側で同時に公表されたsnapshotである保証ではない。
+
 EDINET archiveの再利用・取得後の保存は、明示したSQLite source storeだけを対象にする。以前の端末に残るローカルZIPは暗黙に取り込まない。
 
 <a id="edinet-metric-revision"></a>
