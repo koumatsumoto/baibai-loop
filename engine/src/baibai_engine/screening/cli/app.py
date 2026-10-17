@@ -60,6 +60,7 @@ from .delisting_cli import (
     build_tender_offer_exits_command,
     refresh_jpx_delistings_command,
 )
+from .edinet_cli import refresh_edinet_metrics_command
 from .providers import ProviderBundle
 from .prune import prune_command
 from .query import (
@@ -170,21 +171,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     extract_parser = subparsers.add_parser(
         "extract-edinet-metrics",
-        help=(
-            "extract EDINET type=5 CSV metrics; historical cache misses use current source state"
-        ),
+        help="recompute EDINET type=5 CSV metrics from stored documents and archives",
     )
-    extract_parser.add_argument(
-        "--asof",
-        required=True,
-        help="metrics as-of date (YYYY-MM-DD), not a point-in-time EDINET reconstruction",
+    refresh_metrics_parser = subparsers.add_parser(
+        "refresh-edinet-metrics",
+        help="acquire EDINET document lists and needed CSV archives, then extract metrics",
     )
-    extract_parser.add_argument(
-        "--lookback-days",
-        type=int,
-        default=540,
-        help="EDINET document-list lookback window in calendar days (default 540)",
-    )
+    for metrics_parser in (extract_parser, refresh_metrics_parser):
+        metrics_parser.add_argument(
+            "--asof",
+            required=True,
+            help="metrics as-of date (YYYY-MM-DD), not a point-in-time EDINET reconstruction",
+        )
+        metrics_parser.add_argument(
+            "--lookback-days",
+            type=int,
+            default=540,
+            help="EDINET document-list lookback window in calendar days (default 540)",
+        )
 
     facts_parser = subparsers.add_parser(
         "extract-edinet-facts", help="collect optional annual Research facts from original XBRL"
@@ -584,6 +588,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
+    if args.command == "extract-edinet-metrics":
+        if args.lookback_days < 0:
+            print("--lookback-days must be zero or greater", file=sys.stderr)
+            return 1
+        return extract_edinet_metrics_command(
+            asof_date=_parse_iso_date(args.asof),
+            lookback_days=args.lookback_days,
+            reader=EDINETReader(sqlite_path),
+            sqlite_path=sqlite_path,
+        )
     if args.command == "extract-edinet-facts":
         with ExitStack() as resources:
             facts_edinet = EDINETProvider(
@@ -637,16 +651,17 @@ def main(argv: list[str] | None = None) -> int:
                 "bootstrap-cache",
                 "refresh-edinet-documents",
                 "backfill-edinet-identity",
-                "extract-edinet-metrics",
+                "refresh-edinet-metrics",
                 "build-tender-offer-exits",
             }
             else None
         )
         if edinet_refresh is not None:
             resources.callback(edinet_refresh.close)
+        edinet_reader = EDINETReader(sqlite_path)
         providers = ProviderBundle(
             jquants=JQuantsReader(sqlite_path),
-            edinet=EDINETReader(sqlite_path),
+            edinet=edinet_reader,
             jpx=JPXProvider(
                 regulation_urls=JPX_REGULATION_URLS,
                 sqlite_path=sqlite_path,
@@ -784,17 +799,18 @@ def main(argv: list[str] | None = None) -> int:
                 asof_dates=unique_dates, providers=providers, sqlite_path=sqlite_path
             )
 
-        if args.command == "extract-edinet-metrics":
+        if args.command == "refresh-edinet-metrics":
             if args.lookback_days < 0:
                 print("--lookback-days must be zero or greater", file=sys.stderr)
                 return 1
             if providers.edinet_refresh is None:
-                print("EDINET_API_KEY is required for extract-edinet-metrics", file=sys.stderr)
+                print("EDINET_API_KEY is required for refresh-edinet-metrics", file=sys.stderr)
                 return 1
-            return extract_edinet_metrics_command(
+            return refresh_edinet_metrics_command(
                 asof_date=_parse_iso_date(args.asof),
                 lookback_days=args.lookback_days,
-                provider=providers.edinet_refresh,
+                reader=edinet_reader,
+                acquisition=providers.edinet_refresh,
                 sqlite_path=sqlite_path,
             )
 

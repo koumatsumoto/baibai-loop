@@ -339,8 +339,8 @@ def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:
             )
         break
     raise BatchStepError(
-        "extract-edinet-metrics succeeded without quarantine counters",
-        stage="extract-edinet-metrics",
+        "refresh-edinet-metrics succeeded without quarantine counters",
+        stage="refresh-edinet-metrics",
     )
 
 
@@ -657,7 +657,7 @@ def _execute_daily_batch(
         for name, command in (
             ("refresh-edinet-documents", "refresh-edinet-documents"),
             ("bootstrap-cache", "bootstrap-cache"),
-            ("extract-edinet-metrics", "extract-edinet-metrics"),
+            ("refresh-edinet-metrics", "refresh-edinet-metrics"),
             ("verify-cache-coverage", "verify-cache-coverage"),
         ):
             try:
@@ -669,7 +669,7 @@ def _execute_daily_batch(
                     quiet=quiet,
                     step_sink=step_sink,
                 )
-                if command == "extract-edinet-metrics":
+                if command == "refresh-edinet-metrics":
                     _parse_edinet_quarantine_metrics(command_result.stdout)
             except BatchStepError as exc:
                 _record_deferred(exc)

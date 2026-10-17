@@ -692,7 +692,7 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 1. 新しい意味revisionと変更の期待差分をレビューし、現行Lakeをhydrateした隔離DBコピーで原CSV ZIPから再抽出する。既存cacheを使い、原典不足時だけ対象を限定して取得する。exit 0、保存全列・quality/failure理由・coverage/count・integrityと期待差分を確認してから本番へ進む。
 2. daily・TradingView・materialize・外部評価publisherと他operatorが競合せず、次のslot前にreadbackまで完了できる時間帯で既存operator leaseを取得する。busyなら切替へ進まない。
 3. 同じlease内で確認済みcodeをmainへ反映し、freshな`pull-machine`と`hydrate-market`から最新as-ofを再確認して比較元をbackupする。準備コピーをそのまま本番へ戻さない。
-4. そのas-ofを指定して`baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD`を実行する。exit 0、新意味revision、全列・quality/failure・coverage/count・integrityを確認する。再抽出後にhydrateで成果を上書きしない。
+4. 保存済み文書と原CSV ZIPが全件あるなら、そのas-ofを指定してofflineの`baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD`を実行する。不足する原本の取得が必要なら`baibai-engine screening refresh-edinet-metrics --asof YYYY-MM-DD`を使う。refreshは文書一覧を明示取得し、隔離・再利用を除く必要な原本だけを取得してから同じ計画で抽出する。exit 0、新意味revision、全列・quality/failure・coverage/count・integrityを確認する。再抽出後にhydrateで成果を上書きしない。
 5. 同じlease内で`publish-lake`→`push-market`を実行し、発行したrelease ID/hashを固定してfreshな読戻しを行う。保存全列と意味revision、store-local coverage、integrityの一致を確認してleaseをreleaseする。
 
 **停止・復旧**: 取得失敗、期待外の差分、generation競合、lease失効では後続公開へ進まず、対象を限定して直す。日次batchに意味移行を代行させず、旧値へ新revisionを一括設定して再抽出済みと扱わない。code・保存値・readbackの整合が揃うまで切替完了としない。

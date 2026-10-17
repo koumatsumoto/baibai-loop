@@ -213,7 +213,7 @@ class EDINETProvider:
         raise EDINETProviderError(
             f"SQLite cache incomplete for {source} ({requirement}); "
             f"sqlite={sqlite_label}. `screening run` is cache-only: run "
-            "`bootstrap-cache --asof` / `extract-edinet-metrics` or repair SQLite "
+            "`bootstrap-cache --asof` / `refresh-edinet-metrics` or repair SQLite "
             "before running screening."
         )
 

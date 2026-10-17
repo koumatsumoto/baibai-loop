@@ -37,9 +37,9 @@ JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)
 
 OK = CommandResult(0, "", "")
-EXTRACT_OK = CommandResult(
+REFRESH_METRICS_OK = CommandResult(
     0,
-    "EDINET extraction summary: selected=1 reused=1 downloaded=0 "
+    "EDINET extraction summary: selected=1 reused=1 parsed=0 "
     "quarantined_events=0 quarantined_tickers=0 quarantine_sample=none "
     "baseline_asof=2026-07-18\n",
     "",
@@ -168,7 +168,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [OK],
         "screening bootstrap-cache": [OK],
-        "screening extract-edinet-metrics": [EXTRACT_OK],
+        "screening refresh-edinet-metrics": [REFRESH_METRICS_OK],
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
         "screening extract-edinet-facts": [OK],
@@ -225,7 +225,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     assert runner.call_keys() == [
         "screening refresh-edinet-documents",
         "screening bootstrap-cache",
-        "screening extract-edinet-metrics",
+        "screening refresh-edinet-metrics",
         "screening verify-cache-coverage",
         "screening run",
         "screening extract-edinet-facts",
@@ -285,7 +285,7 @@ def test_structured_and_human_daily_paths_have_normalized_equivalent_results(
     assert [step.name for step in result.steps] == [
         "refresh-edinet-documents",
         "bootstrap-cache",
-        "extract-edinet-metrics",
+        "refresh-edinet-metrics",
         "verify-cache-coverage",
         "screening-run",
         "edinet-research-facts",
@@ -355,15 +355,17 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_complete(tmp_path: Path) 
     assert runner.call_keys()[:5] == [
         "screening refresh-edinet-documents",
         "screening bootstrap-cache",
-        "screening extract-edinet-metrics",
+        "screening refresh-edinet-metrics",
         "screening verify-cache-coverage",
         "screening run",
     ]
 
 
-def test_daily_batch_defers_extraction_without_quarantine_counters(tmp_path: Path, capsys) -> None:
+def test_daily_batch_defers_metric_refresh_without_quarantine_counters(
+    tmp_path: Path, capsys
+) -> None:
     script = _success_script()
-    script["screening extract-edinet-metrics"] = [OK]
+    script["screening refresh-edinet-metrics"] = [OK]
     runner = _runner(script)
     assert (
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)

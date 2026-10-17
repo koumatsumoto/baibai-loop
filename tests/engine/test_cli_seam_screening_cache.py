@@ -35,6 +35,7 @@ from tests.engine.test_screening_cli import (
 )
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
+from baibai_engine.collection.edinet.archives import retain_source_archive
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_reader import EDINETReader
@@ -49,6 +50,10 @@ from baibai_engine.screening.cli.valuation_catalyst_cli import backfill_edinet_i
 from baibai_engine.screening.metrics.snapshot import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+)
+from baibai_engine.storage.observations.ingest.edinet import (
+    store_edinet_documents,
+    store_edinet_metrics,
 )
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -72,6 +77,21 @@ class _SeamEDINETProvider(FakeEDINETProvider):
 
     def backfill_document_identity(self, start: date, end: date) -> dict[str, int]:
         return {"days": (end - start).days + 1, "documents": 0}
+
+
+@dataclass
+class _StoredSeamEDINETProvider(_SeamEDINETProvider):
+    def list_documents(self, on_date: date) -> list[dict[str, object]]:
+        documents = super().list_documents(on_date)
+        store_edinet_documents(_STORE, on_date, documents)
+        return documents
+
+    def download_csv_zip(self, doc_id: str) -> bytes:
+        content = super().download_csv_zip(doc_id)
+        with contextlib.closing(open_connection(_STORE)) as connection:
+            return retain_source_archive(
+                connection, doc_id, 5, content, stored_on=date(2026, 4, 24)
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +129,39 @@ def _run_cli(
         contextlib.redirect_stderr(stderr),
     ):
         exit_code = app.main(argv)
+    return _CliResult(exit_code=exit_code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
+
+
+def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with (
+        patch.dict(os.environ, {"EDINET_API_KEY": "", "JQUANTS_API_KEY": ""}),
+        patch.object(app, "load_project_env", return_value=None),
+        patch(
+            "requests.Session", side_effect=AssertionError("HTTP session constructed")
+        ) as session,
+        patch.object(
+            app, "EDINETProvider", side_effect=AssertionError("EDINET provider constructed")
+        ) as edinet,
+        patch.object(
+            app, "JQuantsReader", side_effect=AssertionError("J-Quants reader constructed")
+        ) as jquants,
+        patch.object(
+            app, "JQuantsRefresh", side_effect=AssertionError("J-Quants refresh constructed")
+        ) as refresh,
+        patch.object(
+            app, "JPXProvider", side_effect=AssertionError("JPX provider constructed")
+        ) as jpx,
+        patch.object(
+            app, "ProviderBundle", side_effect=AssertionError("provider bundle constructed")
+        ) as bundle,
+        contextlib.redirect_stdout(stdout),
+        contextlib.redirect_stderr(stderr),
+    ):
+        exit_code = app.main(argv)
+    for constructor in (session, edinet, jquants, refresh, jpx, bundle):
+        constructor.assert_not_called()
     return _CliResult(exit_code=exit_code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
 
@@ -226,9 +279,9 @@ def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_aso
             "providers",
         ),
         (
-            ["extract-edinet-metrics", "--asof", "2026-05-08", "--lookback-days", "0"],
-            "extract_edinet_metrics_command",
-            "provider",
+            ["refresh-edinet-metrics", "--asof", "2026-05-08", "--lookback-days", "0"],
+            "refresh_edinet_metrics_command",
+            "acquisition",
         ),
         (
             ["build-tender-offer-exits", "--asof", "2026-05-08"],
@@ -245,7 +298,7 @@ def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
         result = _run_cli(argv, edinet=edinet)
     assert result.exit_code == 0, result.stderr
     routed = command.call_args.kwargs[provider_arg]
-    assert (routed if provider_arg == "provider" else routed.edinet_refresh) is edinet
+    assert (routed if provider_arg == "acquisition" else routed.edinet_refresh) is edinet
     assert edinet.close_count == 1
 
 
@@ -340,16 +393,14 @@ def test_main_backfill_history_covers_every_range_source_over_the_argv_window() 
 
 
 def test_main_extract_edinet_metrics_stores_parsed_metrics_for_the_argv_asof() -> None:
-    edinet = _SeamEDINETProvider(
-        documents=[_edinet_document(ticker="96820", doc_id="S100TEST")],
-        zip_by_doc_id={"S100TEST": _edinet_csv_zip()},
-    )
-
-    result = _run_cli(
-        ["extract-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
-        jquants=FakeJQuantsProvider(),
-        edinet=edinet,
-        jpx=FakeJPXProvider(),
+    document = {**_edinet_document(ticker="96820", doc_id="S100TEST"), "seqNumber": 1}
+    store_edinet_documents(_STORE, date(2026, 4, 24), [document])
+    with contextlib.closing(open_connection(_STORE)) as connection:
+        retain_source_archive(
+            connection, "S100TEST", 5, _edinet_csv_zip(), stored_on=date(2026, 4, 24)
+        )
+    result = _run_offline_metrics_cli(
+        ["extract-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"]
     )
 
     assert result.exit_code == 0, result.stderr
@@ -361,7 +412,61 @@ def test_main_extract_edinet_metrics_stores_parsed_metrics_for_the_argv_asof() -
     assert payload["9682"].net_cash == 600.0
 
 
-def test_main_extract_edinet_metrics_reports_source_acquisition_failure() -> None:
+def test_main_extract_edinet_metrics_missing_archive_preserves_old_metrics() -> None:
+    asof = date(2026, 4, 24)
+    document = {**_edinet_document(ticker="96820", doc_id="S100TEST"), "seqNumber": 1}
+    store_edinet_documents(_STORE, asof, [document])
+    store_edinet_metrics(
+        _STORE,
+        asof,
+        [{"ticker": "9682", "sales_ttm": 77.0, "extractor_revision": "previous"}],
+    )
+
+    result = _run_offline_metrics_cli(
+        ["extract-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"]
+    )
+
+    assert result.exit_code == 1
+    assert "hard_failures=1" in result.stdout
+    assert "output=not-written" in result.stdout
+    saved = read_edinet_metrics(_STORE, asof)
+    assert saved is not None
+    assert saved["9682"].sales_ttm == 77.0
+
+
+@pytest.mark.parametrize("command", ["extract-edinet-metrics", "refresh-edinet-metrics"])
+def test_main_rejects_negative_metric_lookback(command: str) -> None:
+    if command == "extract-edinet-metrics":
+        with patch.object(app, "EDINETReader", side_effect=AssertionError("reader constructed")):
+            result = _run_offline_metrics_cli(
+                [command, "--asof", "2026-04-24", "--lookback-days", "-1"]
+            )
+    else:
+        edinet = _SeamEDINETProvider()
+        result = _run_cli([command, "--asof", "2026-04-24", "--lookback-days", "-1"], edinet=edinet)
+        assert edinet.download_calls == []
+    assert result.exit_code == 1
+    assert "--lookback-days must be zero or greater" in result.stderr
+
+
+def test_main_refresh_edinet_metrics_acquires_only_needed_archive() -> None:
+    edinet = _StoredSeamEDINETProvider(
+        documents=[{**_edinet_document(ticker="96820", doc_id="S100TEST"), "seqNumber": 1}],
+        zip_by_doc_id={"S100TEST": _edinet_csv_zip()},
+    )
+    result = _run_cli(
+        ["refresh-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
+        edinet=edinet,
+    )
+    assert result.exit_code == 0, result.stderr
+    assert edinet.download_calls == ["S100TEST"]
+    assert edinet.close_count == 1
+    payload = read_edinet_metrics(_STORE, date(2026, 4, 24))
+    assert payload is not None
+    assert payload["9682"].net_cash == 600.0
+
+
+def test_main_refresh_edinet_metrics_reports_source_acquisition_failure() -> None:
     class FailingEDINET(_SeamEDINETProvider):
         def list_documents(self, on_date: date) -> list[dict[str, object]]:
             del on_date
@@ -369,7 +474,7 @@ def test_main_extract_edinet_metrics_reports_source_acquisition_failure() -> Non
 
     edinet = FailingEDINET()
     result = _run_cli(
-        ["extract-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
+        ["refresh-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
         jquants=FakeJQuantsProvider(),
         edinet=edinet,
         jpx=FakeJPXProvider(),

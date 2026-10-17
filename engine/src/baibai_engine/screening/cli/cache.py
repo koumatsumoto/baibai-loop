@@ -104,7 +104,7 @@ def _print_cache_coverage_issues(
         print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
     print(
         "screening run is cache-only and will not fall back to raw JSON or provider APIs; "
-        "run bootstrap-cache --asof and extract-edinet-metrics, then rerun coverage verification.",
+        "run bootstrap-cache --asof and refresh-edinet-metrics, then rerun coverage verification.",
         file=stream,
     )
 
