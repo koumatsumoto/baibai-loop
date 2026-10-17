@@ -60,7 +60,7 @@ from .delisting_cli import (
     build_tender_offer_exits_command,
     refresh_jpx_delistings_command,
 )
-from .edinet_cli import refresh_edinet_metrics_command
+from .edinet_cli import refresh_edinet_facts_command, refresh_edinet_metrics_command
 from .providers import ProviderBundle
 from .prune import prune_command
 from .query import (
@@ -191,22 +191,27 @@ def build_parser() -> argparse.ArgumentParser:
         )
 
     facts_parser = subparsers.add_parser(
-        "extract-edinet-facts", help="collect optional annual Research facts from original XBRL"
+        "extract-edinet-facts", help="extract annual Research facts from stored XBRL archives"
     )
-    facts_parser.add_argument("--asof", required=True)
-    facts_parser.add_argument(
-        "--initialize",
-        action="store_true",
-        help="explicit initial collection of the latest annual families",
+    refresh_facts_parser = subparsers.add_parser(
+        "refresh-edinet-facts", help="acquire XBRL archives and extract annual Research facts"
     )
-    facts_parser.add_argument(
-        "--ticker",
-        action="append",
-        default=[],
-        help="restrict local evaluation; does not initialize the global baseline",
-    )
-    facts_parser.add_argument("--sqlite-path", help="staged market store for local initialization")
-    facts_parser.add_argument("--cache-only", action="store_true")
+    for facts_command_parser in (facts_parser, refresh_facts_parser):
+        facts_command_parser.add_argument("--asof", required=True)
+        facts_command_parser.add_argument(
+            "--initialize",
+            action="store_true",
+            help="explicit initial processing of the latest annual families",
+        )
+        facts_command_parser.add_argument(
+            "--ticker",
+            action="append",
+            default=[],
+            help="restrict local evaluation; does not initialize the global baseline",
+        )
+        facts_command_parser.add_argument(
+            "--sqlite-path", help="staged market store for local initialization"
+        )
 
     capital_policy_parser = subparsers.add_parser(
         "refresh-tse-capital-policy",
@@ -599,18 +604,28 @@ def main(argv: list[str] | None = None) -> int:
             sqlite_path=sqlite_path,
         )
     if args.command == "extract-edinet-facts":
+        facts_path = Path(args.sqlite_path) if args.sqlite_path else sqlite_path
+        return extract_edinet_facts_command(
+            asof=_parse_iso_date(args.asof),
+            sqlite_path=facts_path,
+            reader=EDINETReader(facts_path),
+            initialize=args.initialize,
+            tickers=tuple(args.ticker),
+        )
+    if args.command == "refresh-edinet-facts":
+        facts_path = Path(args.sqlite_path) if args.sqlite_path else sqlite_path
         with ExitStack() as resources:
             facts_edinet = EDINETProvider(
                 config.edinet_api_key,
                 config.cache_dir,
-                sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
-                cache_only=args.cache_only,
+                sqlite_path=facts_path,
             )
             resources.callback(facts_edinet.close)
-            return extract_edinet_facts_command(
+            return refresh_edinet_facts_command(
                 asof=_parse_iso_date(args.asof),
-                sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
-                provider=facts_edinet,
+                sqlite_path=facts_path,
+                reader=EDINETReader(facts_path),
+                acquisition=facts_edinet,
                 initialize=args.initialize,
                 tickers=tuple(args.ticker),
             )

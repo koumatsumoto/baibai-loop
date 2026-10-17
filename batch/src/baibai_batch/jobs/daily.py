@@ -686,7 +686,7 @@ def _execute_daily_batch(
         _run_step(
             runner,
             name="edinet-research-facts",
-            argv=(_ENGINE, "screening", "extract-edinet-facts", "--asof", asof_arg),
+            argv=(_ENGINE, "screening", "refresh-edinet-facts", "--asof", asof_arg),
             cwd=root,
             quiet=quiet,
             step_sink=step_sink,

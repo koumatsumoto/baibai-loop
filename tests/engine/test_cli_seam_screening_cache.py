@@ -352,14 +352,14 @@ def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> 
     assert not (tmp_path / "market.sqlite").exists()
 
 
-def test_main_extract_edinet_facts_closes_provider_on_exception() -> None:
+def test_main_refresh_edinet_facts_closes_provider_on_exception() -> None:
     edinet = _SeamEDINETProvider()
     with (
-        patch.object(app, "extract_edinet_facts_command", side_effect=RuntimeError("synthetic")),
+        patch.object(app, "refresh_edinet_facts_command", side_effect=RuntimeError("synthetic")),
         pytest.raises(RuntimeError, match="synthetic"),
     ):
         _run_cli(
-            ["extract-edinet-facts", "--asof", "2026-05-08"],
+            ["refresh-edinet-facts", "--asof", "2026-05-08"],
             edinet=edinet,
         )
     assert edinet.close_count == 1

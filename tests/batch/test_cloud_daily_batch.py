@@ -171,7 +171,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening refresh-edinet-metrics": [REFRESH_METRICS_OK],
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
-        "screening extract-edinet-facts": [OK],
+        "screening refresh-edinet-facts": [OK],
         "collection economic list": [ECONOMIC_LIST_OK],
         "collection economic refresh": [OK, OK, OK],
         "export": [OK],
@@ -228,7 +228,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening refresh-edinet-metrics",
         "screening verify-cache-coverage",
         "screening run",
-        "screening extract-edinet-facts",
+        "screening refresh-edinet-facts",
         "collection economic list",
         "collection economic refresh",
         "collection economic refresh",
@@ -1051,7 +1051,7 @@ def test_daily_delta_distinguishes_method_change(tmp_path):
 
 def test_research_fact_failure_is_deferred_until_after_local_export(tmp_path):
     script = _success_script()
-    script["screening extract-edinet-facts"] = [CommandResult(1, "", "XBRL unavailable")]
+    script["screening refresh-edinet-facts"] = [CommandResult(1, "", "XBRL unavailable")]
     runner = _runner(script)
     assert (
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
@@ -1059,7 +1059,7 @@ def test_research_fact_failure_is_deferred_until_after_local_export(tmp_path):
     )
     assert "screening run" in runner.call_keys()
     assert "export" in runner.call_keys()
-    assert "--initialize" not in _call(runner, "screening extract-edinet-facts")
+    assert "--initialize" not in _call(runner, "screening refresh-edinet-facts")
 
 
 def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_publish(
