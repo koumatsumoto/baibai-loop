@@ -128,9 +128,6 @@ def test_cutoff_immutable_replay_and_conflict(tmp_path):
     path = tmp_path / "market.sqlite"
     first = observation()
     later = observation(text=html(cheap="9/10"), received=RECEIVED + timedelta(days=1))
-    stage = tmp_path / "quants.json"
-    collection.save_staging(stage, [first, later])
-    assert collection.load_staging(stage) == (first, later)
     assert save_observations(path, [first, later]) == 2
     assert save_observations(path, [first, later]) == 0
     assert read_observations(path, "130A", RECEIVED).quants_scores[0].latest == first

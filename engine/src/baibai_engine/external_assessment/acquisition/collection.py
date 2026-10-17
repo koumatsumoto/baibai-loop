@@ -1,4 +1,4 @@
-"""Serial bounded acquisition into private normalized staging, never publication."""
+"""Serial bounded acquisition of public pages, never publication."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import json
 import math
 import re
 import signal
-import tempfile
 import threading
 import time
 import uuid
@@ -16,7 +15,6 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path
 from types import FrameType
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -25,6 +23,7 @@ import requests
 from pydantic import ValidationError
 
 from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, Role, Source
+from baibai_engine.collection.equity_web.receipts import validate_response
 from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.normalization import (
     ParseError,
@@ -34,14 +33,8 @@ from baibai_engine.external_assessment.normalization import (
 )
 from baibai_engine.external_assessment.observations.identity import (
     PAIR_ACQUISITION_POLICY_VERSION,
-    STAGING_FORMAT,
 )
-from baibai_engine.external_assessment.observations.models import (
-    AnalystRatingObservation,
-    ModelValuationObservation,
-    Observation,
-    QuantsScoreObservation,
-)
+from baibai_engine.external_assessment.observations.models import Observation
 
 DEFAULT_TICKERS = ("7203", "9432", "6758")
 MAX_TICKERS = 3
@@ -289,6 +282,7 @@ def _receive(
     ticker: str,
     role: Role,
     parent_receipt_id: str | None = None,
+    on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
 ) -> tuple[str, datetime, str | None]:
     # Redirects would add unbudgeted requests and can redirect to login pages.
     with session.get(url, timeout=timeout, allow_redirects=False) as response:
@@ -316,27 +310,26 @@ def _receive(
         charset = re.search(r"charset\s*=\s*['\"]?([\w-]+)", content_type, re.I)
         meta = re.search(rb"charset\s*=\s*['\"]?([\w-]+)", body[:4096], re.I)
         encoding = charset[1] if charset else meta[1].decode("ascii") if meta else "utf-8"
-        callback = session.on_received_html if isinstance(session, _PairSession) else None
         receipt_id = None
-        if callback is not None:
+        if on_received_html is not None:
             prepared = cast("requests.PreparedRequest | None", response.request)
             if prepared is not None and "Authorization" in prepared.headers:
                 raise RuntimeError("raw_capture_requires_anonymous_response")
             receipt_id = str(uuid.uuid4())
-            callback(
-                EquityWebSourceResponse(
-                    receipt_id=receipt_id,
-                    attempt_id=attempt_id,
-                    source=source,
-                    requested_ticker=ticker,
-                    role=role,
-                    parent_receipt_id=parent_receipt_id,
-                    requested_url=url,
-                    received_at_utc=received,
-                    selected_encoding=encoding,
-                    body=body,
-                )
+            original = EquityWebSourceResponse(
+                receipt_id=receipt_id,
+                attempt_id=attempt_id,
+                source=source,
+                requested_ticker=ticker,
+                role=role,
+                parent_receipt_id=parent_receipt_id,
+                requested_url=url,
+                received_at_utc=received,
+                selected_encoding=encoding,
+                body=body,
             )
+            validate_response(original)
+            on_received_html(original)
         try:
             return body.decode(encoding), received, receipt_id
         except (LookupError, UnicodeDecodeError):
@@ -351,6 +344,7 @@ def collect(
     time_limit_seconds: float = 60,
     request_timeout_seconds: float = 10,
     session: requests.Session | None = None,
+    on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
 ) -> CollectionResult:
     """Acquire a predeclared small set; receipt times come only from live responses."""
     selected = tuple(normalize_ticker(ticker) for ticker in tickers)
@@ -415,6 +409,7 @@ def collect(
                 ticker=active[1],
                 role=role,
                 parent_receipt_id=parent_receipt_id,
+                on_received_html=on_received_html,
             )
         finally:
             last_request_finished = time.monotonic()
@@ -592,14 +587,12 @@ class _PairSession(requests.Session):
         deadline: float,
         on_response: Callable[[datetime, int, int], None] | None,
         rate_limiter: HostRateLimiter | None = None,
-        on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
     ) -> None:
         super().__init__()
         self.client = client
         self.deadline = deadline
         self.on_response = on_response
         self.rate_limiter = rate_limiter
-        self.on_received_html = on_received_html
         self.initial_wait_until = time.monotonic() + MIN_REQUEST_INTERVAL_SECONDS
         self.requests = 0
         self.finished_at_utc: datetime | None = None
@@ -679,7 +672,7 @@ def collect_pair(
             or adapter.max_retries.total != 0
         ):
             raise ValueError("pair collection requires ordinary proxy/TLS and no retries")
-        wrapped = _PairSession(client, deadline, on_response, rate_limiter, on_received_html)
+        wrapped = _PairSession(client, deadline, on_response, rate_limiter)
         remaining = min(time_limit_seconds, deadline - time.monotonic())
         if remaining <= 0:
             return CollectionResult(
@@ -696,6 +689,7 @@ def collect_pair(
             time_limit_seconds=remaining,
             request_timeout_seconds=request_timeout_seconds,
             session=wrapped,
+            on_received_html=on_received_html,
         )
         result = replace(
             result,
@@ -729,57 +723,3 @@ def collect_pair(
             wrapped.close()
         if session is None:
             client.close()
-
-
-def save_staging(path: Path, observations: Sequence[Observation]) -> None:
-    """Atomically create private normalized staging; never overwrite an earlier receipt."""
-    payload = {
-        "format": STAGING_FORMAT,
-        "observations": [
-            {
-                "kind": "model_valuation"
-                if isinstance(item, ModelValuationObservation)
-                else "quants_score"
-                if isinstance(item, QuantsScoreObservation)
-                else "analyst_rating",
-                "data": item.model_dump(mode="json"),
-            }
-            for item in observations
-        ],
-    }
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent, delete=False
-        ) as stream:
-            temporary = Path(stream.name)
-            json.dump(payload, stream, ensure_ascii=False, allow_nan=False)
-        path.hardlink_to(temporary)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
-def load_staging(path: Path) -> tuple[Observation, ...]:
-    """Validate saved normalized data without changing original receipt times."""
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"format", "observations"}
-        or payload["format"] != STAGING_FORMAT
-        or not isinstance(payload["observations"], list)
-    ):
-        raise ValueError("invalid external assessment staging format")
-    observations: list[Observation] = []
-    for item in payload["observations"]:
-        if not isinstance(item, dict) or set(item) != {"kind", "data"}:
-            raise ValueError("invalid staged observation")
-        if item["kind"] == "model_valuation":
-            observations.append(ModelValuationObservation.model_validate(item["data"]))
-        elif item["kind"] == "analyst_rating":
-            observations.append(AnalystRatingObservation.model_validate(item["data"]))
-        elif item["kind"] == "quants_score":
-            observations.append(QuantsScoreObservation.model_validate(item["data"]))
-        else:
-            raise ValueError("unknown staged observation kind")
-    return tuple(observations)

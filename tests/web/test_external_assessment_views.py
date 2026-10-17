@@ -23,11 +23,7 @@ from baibai_batch.jobs.external_assessment_cohorts import (
     record_outcome,
     result_value,
 )
-from baibai_engine.external_assessment.acquisition.collection import (
-    CollectionOutcome,
-    load_staging,
-    save_staging,
-)
+from baibai_engine.external_assessment.acquisition.collection import CollectionOutcome
 from baibai_engine.external_assessment.normalization import ParseError, rakuten
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.external_assessment.store import save_observations
@@ -157,11 +153,8 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
     assert restored.entries[0].state == checkpoint_state
     if observation is None:
         assert restored.entries[0].reason == "no_estimates_identity_unconfirmed"
-    stage = tmp_path / "stage.json"
-    save_staging(stage, restored.observations)
-    observations = load_staging(stage)
-    assert save_observations(market, observations) == int(observation is not None)
-    assert save_observations(market, observations) == 0
+    assert save_observations(market, restored.observations) == int(observation is not None)
+    assert save_observations(market, restored.observations) == 0
     before = market.read_bytes()
     expected = external_assessment(market, ticker="9999", cutoff=received, evaluated_at=received)
     source = expected.analyst_ratings[0]

@@ -283,7 +283,7 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <ISO_DATETIME_WITH_TIMEZONE> --db stores/market/market.sqlite
 ```
 
-`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・stage importは明示された`collect / import`だけが現行取得入口へ委譲する。`rebuild-raw`は既存market SQLite内の明示したL1試行だけをofflineで再解析し、選択されたL2キーを原子的に置換する。現行取得jobや通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#external-assessment-acquisition)、手動取得・stage importは[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)が所有する。
+`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・原応答captureのimportは明示された`collect / import`だけが現行取得入口へ委譲する。`rebuild-raw`は既存market SQLite内の明示したL1試行だけをofflineで再解析し、選択されたL2キーを原子的に置換する。現行取得jobや通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#external-assessment-acquisition)、手動取得・capture importは[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)が所有する。
 
 <a id="tradingview-query"></a>
 

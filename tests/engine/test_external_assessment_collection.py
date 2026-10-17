@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import signal
+import sqlite3
 import stat
 import time
+import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,9 +14,15 @@ import pytest
 import requests
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
-from baibai_engine.external_assessment import store as observation_store
+from baibai_engine.collection.equity_web.capture import (
+    EquityWebCapture,
+    load_capture,
+    save_capture,
+)
+from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
 from baibai_engine.external_assessment.acquisition import cli, collection
 from baibai_engine.external_assessment.normalization import ParseError, monex
+from baibai_engine.external_assessment.observations.models import ModelValuationObservation
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -44,6 +52,21 @@ class BytesSession(Session):
         response._content_consumed = True
         response.headers.update(headers)
         return response
+
+
+def _original(*, attempt_id=None, body=None):
+    return EquityWebSourceResponse(
+        receipt_id=str(uuid.uuid4()),
+        attempt_id=attempt_id or str(uuid.uuid4()),
+        source="monex",
+        requested_ticker="7203",
+        role="page",
+        parent_receipt_id=None,
+        requested_url=monex.public_url("7203"),
+        received_at_utc=datetime(2024, 1, 1, tzinfo=UTC),
+        selected_encoding="utf-8",
+        body=body if body is not None else monex_html().encode(),
+    )
 
 
 @pytest.mark.parametrize("status", [302, 500])
@@ -245,21 +268,19 @@ def test_invalid_expansion_never_calls_transport(kwargs):
     assert not client.calls
 
 
-def test_private_staging_roundtrip_preserves_original_receipt(tmp_path):
-    timestamp = datetime(2024, 4, 1, 18, tzinfo=UTC)
-    observed = monex.parse_html(
-        monex_html(), ticker="7203", source_url=monex.public_url("7203"), fetched_at_utc=timestamp
-    )
+def test_private_capture_roundtrip_preserves_original_receipt(tmp_path):
+    original = _original(body=monex_html(value="--").encode())
     path = tmp_path / "private.json"
-    collection.save_staging(path, [observed])
+    save_capture(path, EquityWebCapture((original,), (original.attempt_id,)))
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    replay = collection.load_staging(path)
-    assert replay == (observed,)
-    assert replay[0].fetched_at_utc == timestamp
-    assert "theory_summary_inner" not in path.read_text()
+    replay = load_capture(path)
+    assert replay.responses == (original,)
+    assert replay.selected_attempt_ids == (original.attempt_id,)
+    assert "consensus_target" not in path.read_text()
 
 
-def test_cli_collect_stages_only_and_import_requires_explicit_db(monkeypatch, tmp_path, capsys):
+def test_cli_collect_captures_only_and_import_requires_explicit_db(monkeypatch, tmp_path, capsys):
+    original = _original()
     observed = monex.parse_html(
         monex_html(),
         ticker="7203",
@@ -267,22 +288,31 @@ def test_cli_collect_stages_only_and_import_requires_explicit_db(monkeypatch, tm
         fetched_at_utc=datetime(2024, 1, 1, tzinfo=UTC),
     )
     result = collection.CollectionResult(
-        (observed,), (collection.CollectionOutcome("monex", "7203", "observed"),), 1
+        (observed,),
+        (
+            collection.CollectionOutcome(
+                "monex", "7203", "observed", http_status=200, attempt_id=original.attempt_id
+            ),
+        ),
+        1,
     )
-    monkeypatch.setattr(collection, "collect", lambda *args, **kwargs: result)
-    writes = []
-    monkeypatch.setattr(
-        observation_store, "save_observations", lambda *args: writes.append(args) or 1
-    )
+
+    def collect(*args, on_received_html, **kwargs):
+        on_received_html(original)
+        return result
+
+    monkeypatch.setattr(collection, "collect", collect)
     path = tmp_path / "private.json"
     assert cli.main(["collect", "--output", str(path)]) == 0
-    assert writes == []
+    assert load_capture(path).responses == (original,)
     with pytest.raises(SystemExit):
         cli.main(["import", "--input", str(path)])
     db = tmp_path / "copy.sqlite"
     open_connection(db).close()
     assert cli.main(["import", "--input", str(path), "--db", str(db)]) == 0
-    assert writes == [(db, (observed,))]
+    with closing(sqlite3.connect(db)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (1,)
+    assert cli.main(["import", "--input", str(path), "--db", str(db)]) == 0
     assert "2024" not in capsys.readouterr().out
 
 
@@ -290,7 +320,9 @@ def test_cli_import_reports_storage_failure_without_values_or_http(monkeypatch, 
     def fail(*args):
         raise ValueError("secret licensed numeric data")
 
-    monkeypatch.setattr(collection, "load_staging", fail)
+    from baibai_engine.collection.equity_web import capture
+
+    monkeypatch.setattr(capture, "load_capture", fail)
     monkeypatch.setattr(
         collection, "collect", lambda *args, **kwargs: pytest.fail("import accessed provider")
     )
@@ -312,16 +344,9 @@ def test_cli_import_reports_storage_failure_without_values_or_http(monkeypatch, 
 def test_cli_import_rejects_missing_or_unmigrated_db_without_bootstrap(
     monkeypatch, tmp_path, capsys
 ):
-    import sqlite3
-
-    observed = monex.parse_html(
-        monex_html(),
-        ticker="7203",
-        source_url=monex.public_url("7203"),
-        fetched_at_utc=datetime(2024, 1, 1, tzinfo=UTC),
-    )
+    original = _original()
     stage = tmp_path / "stage.json"
-    collection.save_staging(stage, [observed])
+    save_capture(stage, EquityWebCapture((original,), (original.attempt_id,)))
     missing = tmp_path / "missing.sqlite"
     assert cli.main(["import", "--input", str(stage), "--db", str(missing)]) == 1
     assert not missing.exists()
@@ -466,6 +491,7 @@ def test_cli_existing_output_is_rejected_before_any_http(
 
 
 def test_partial_stage_survives_all_failed_second_collection(monkeypatch, tmp_path, capsys):
+    original = _original()
     observed = monex.parse_html(
         monex_html(),
         ticker="7203",
@@ -475,7 +501,9 @@ def test_partial_stage_survives_all_failed_second_collection(monkeypatch, tmp_pa
     partial = collection.CollectionResult(
         (observed,),
         (
-            collection.CollectionOutcome("monex", "7203", "observed", http_status=200),
+            collection.CollectionOutcome(
+                "monex", "7203", "observed", http_status=200, attempt_id=original.attempt_id
+            ),
             collection.CollectionOutcome(
                 "rakuten", "7203", "parse_failure", "missing_rating_section", 200
             ),
@@ -484,9 +512,10 @@ def test_partial_stage_survives_all_failed_second_collection(monkeypatch, tmp_pa
     )
     calls = []
 
-    def collect_once(*args, **kwargs):
+    def collect_once(*args, on_received_html, **kwargs):
         calls.append(True)
         if len(calls) == 1:
+            on_received_html(original)
             return partial
         return collection.CollectionResult(
             (), (collection.CollectionOutcome("monex", "7203", "http_failure", http_status=500),), 1
@@ -495,25 +524,25 @@ def test_partial_stage_survives_all_failed_second_collection(monkeypatch, tmp_pa
     monkeypatch.setattr(collection, "collect", collect_once)
     output = tmp_path / "stage.json"
     assert cli.main(["collect", "--output", str(output)]) == 1
-    original = output.read_bytes()
+    captured_bytes = output.read_bytes()
     assert cli.main(["collect", "--output", str(output)]) == 1
     assert len(calls) == 1
-    assert output.read_bytes() == original
-    assert collection.load_staging(output) == (observed,)
+    assert output.read_bytes() == captured_bytes
+    assert load_capture(output) == EquityWebCapture((original,), (original.attempt_id,))
     assert json.loads(capsys.readouterr().err)["category"] == "staging_destination_exists"
 
 
-def test_save_staging_never_overwrites_existing_payload_and_removes_temporary(tmp_path):
+def test_save_capture_never_overwrites_existing_payload_and_removes_temporary(tmp_path):
     output = tmp_path / "stage.json"
     output.write_bytes(b"original private stage")
     original_paths = set(tmp_path.iterdir())
     with pytest.raises(FileExistsError):
-        collection.save_staging(output, [])
+        save_capture(output, EquityWebCapture((), ()))
     assert output.read_bytes() == b"original private stage"
     assert set(tmp_path.iterdir()) == original_paths
 
 
-def test_save_staging_atomic_nooverwrite_rejects_destination_created_during_save(
+def test_save_capture_atomic_nooverwrite_rejects_destination_created_during_save(
     monkeypatch, tmp_path
 ):
     output = tmp_path / "stage.json"
@@ -526,7 +555,7 @@ def test_save_staging_atomic_nooverwrite_rejects_destination_created_during_save
 
     monkeypatch.setattr(Path, "hardlink_to", raced_link)
     with pytest.raises(FileExistsError):
-        collection.save_staging(output, [])
+        save_capture(output, EquityWebCapture((), ()))
     assert output.read_bytes() == b"concurrent original private stage"
     assert set(tmp_path.iterdir()) == original_paths | {output}
 
@@ -554,7 +583,7 @@ def test_validation_failure_summary_has_generic_fixed_code(monkeypatch):
     client = Session([(200, monex_html())])
 
     def fail(*args, **kwargs):
-        collection.ModelValuationObservation.model_validate({"private": "secret response"})
+        ModelValuationObservation.model_validate({"private": "secret response"})
 
     monkeypatch.setattr(monex, "parse_html", fail)
     result = collection.collect(["7203"], sources=("monex",), session=client)

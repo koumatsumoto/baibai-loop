@@ -9,6 +9,8 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.collection.equity_web.capture import LegacyCaptureError
+from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 
@@ -21,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def add_acquisition_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     acquisition = commands.add_parser(
-        "collect", help="collect a bounded set into private local staging JSON"
+        "collect", help="collect a bounded set into a private local source capture"
     )
     acquisition.add_argument("--output", type=Path, required=True)
     acquisition.add_argument("--tickers", nargs="+")
@@ -31,7 +33,7 @@ def add_acquisition_commands(commands: argparse._SubParsersAction[argparse.Argum
     acquisition.add_argument("--request-timeout-seconds", type=float, default=10)
     replay = commands.add_parser(
         "import",
-        help="import saved normalized observations into an explicitly selected migrated local DB",
+        help="retain captured originals and derive observations in an existing local DB",
     )
     replay.add_argument("--input", type=Path, required=True)
     replay.add_argument("--db", type=Path, required=True)
@@ -41,10 +43,10 @@ def main(argv: list[str] | None = None, /) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "collect":
+            from baibai_engine.collection.equity_web.capture import EquityWebCapture, save_capture
             from baibai_engine.external_assessment.acquisition.collection import (
                 DEFAULT_TICKERS,
                 collect,
-                save_staging,
             )
 
             try:
@@ -53,35 +55,70 @@ def main(argv: list[str] | None = None, /) -> int:
                 pass
             else:
                 raise FileExistsError
+            received: list[EquityWebSourceResponse] = []
             result = collect(
                 args.tickers or DEFAULT_TICKERS,
                 sources=args.source or ("monex", "rakuten"),
                 request_budget=args.request_budget,
                 time_limit_seconds=args.time_limit_seconds,
                 request_timeout_seconds=args.request_timeout_seconds,
+                on_received_html=received.append,
             )
-            save_staging(args.output, result.observations)
-            print(json.dumps({"status": "staged", **result.summary()}, sort_keys=True))
+            selected = tuple(
+                outcome.attempt_id
+                for outcome in result.outcomes
+                if outcome.status == "observed" and outcome.attempt_id is not None
+            )
+            save_capture(args.output, EquityWebCapture(tuple(received), selected))
+            print(json.dumps({"status": "captured", **result.summary()}, sort_keys=True))
             return (
                 0
                 if result.stop_reason is None
                 and all(item.status == "observed" for item in result.outcomes)
                 else 1
             )
-        from baibai_engine.external_assessment.acquisition.collection import load_staging
+        from baibai_engine.collection.equity_web.capture import load_capture
+        from baibai_engine.collection.equity_web.receipts import read_responses
+        from baibai_engine.external_assessment.normalization.decode import decode_attempt
         from baibai_engine.external_assessment.store import save_observations
+        from baibai_engine.storage.observations.equity_web_import import import_responses
 
-        observations = load_staging(args.input)
+        capture = load_capture(args.input)
         # Import requires an existing, explicitly migrated local copy. Neither
         # an absent file nor an empty SQLite file is a bootstrap request.
         with closing(sqlite3.connect(args.db.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             validate_current_schema(conn)
+        originals_inserted = import_responses(args.db, capture.responses)
+        observations = []
+        with closing(sqlite3.connect(args.db.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+            for attempt_id in capture.selected_attempt_ids:
+                receipt_ids = tuple(
+                    response.receipt_id
+                    for response in capture.responses
+                    if response.attempt_id == attempt_id
+                )
+                observations.append(decode_attempt(read_responses(conn, receipt_ids)))
         inserted = save_observations(args.db, observations)
-        print(json.dumps({"status": "imported", "observations_inserted": inserted}, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "status": "imported",
+                    "source_responses_inserted": originals_inserted,
+                    "observations_inserted": inserted,
+                },
+                sort_keys=True,
+            )
+        )
         return 0
     except FileExistsError:
         print(
             json.dumps({"status": "failed", "category": "staging_destination_exists"}),
+            file=sys.stderr,
+        )
+        return 1
+    except LegacyCaptureError:
+        print(
+            json.dumps({"status": "failed", "category": "legacy_stage_unsupported"}),
             file=sys.stderr,
         )
         return 1

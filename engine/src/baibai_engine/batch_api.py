@@ -48,12 +48,6 @@ from baibai_engine.external_assessment.acquisition.collection import (
 from baibai_engine.external_assessment.acquisition.collection import (
     collector_binding as external_assessment_collector_binding,
 )
-from baibai_engine.external_assessment.acquisition.collection import (
-    load_staging as external_assessment_load_staging,
-)
-from baibai_engine.external_assessment.acquisition.collection import (
-    save_staging as external_assessment_save_staging,
-)
 from baibai_engine.external_assessment.acquisition.universe import (
     calendar_master_asof as external_assessment_calendar_master_asof,
 )
@@ -273,10 +267,8 @@ __all__ = [
     "external_assessment_frozen_lake_universe",
     "external_assessment_frozen_universe",
     "external_assessment_history_digests",
-    "external_assessment_load_staging",
     "external_assessment_parse_failure_reasons",
     "external_assessment_save_observations",
-    "external_assessment_save_staging",
     "external_assessment_verify_observations",
     "external_assessment_verify_release_history",
     "hydrate_market_store",
