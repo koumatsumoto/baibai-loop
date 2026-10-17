@@ -14,9 +14,9 @@ from baibai_engine.collection.edinet.receipts import retain_list_response
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.storage.observations.reader import has_jpx_regulation_data, read_jpx_regulations
 from baibai_engine.storage.observations.schema import open_connection
@@ -237,10 +237,9 @@ class JPXSQLiteReaderTests(unittest.TestCase):
             self.assertTrue(has_jpx_regulation_data(sqlite_path, date(2026, 4, 24)))
 
 
-class EDINETProviderReadThroughTests(unittest.TestCase):
+class EDINETRefreshReadThroughTests(unittest.TestCase):
     def test_list_documents_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.execute(
@@ -259,7 +258,7 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
             )
             conn.close()
 
-            provider = EDINETProvider("api-key", cache_dir, sqlite_path=sqlite_path)
+            provider = EDINETRefresh("api-key", sqlite_path=sqlite_path)
 
             with patch(
                 "baibai_engine.collection.edinet.http.requests.Session",
@@ -309,20 +308,15 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
             self.assertEqual(records["1301"].sales_ttm, 1_000_000.0)
             self.assertEqual(records["1301"].source_submit_datetime, "2026-04-01 12:00")
 
-    def test_cache_only_list_documents_raises_when_sqlite_missing_date(self) -> None:
+    def test_reader_list_documents_raises_when_sqlite_missing_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.commit()
             conn.close()
 
-            provider = EDINETProvider(
-                "api-key", cache_dir, sqlite_path=sqlite_path, cache_only=True
-            )
-
-            with self.assertRaisesRegex(EDINETProviderError, "SQLite cache incomplete"):
-                provider.list_documents(date(2026, 4, 24))
+            with self.assertRaisesRegex(EDINETProviderError, "unavailable"):
+                EDINETReader(sqlite_path).list_documents(date(2026, 4, 24))
 
 
 class JPXProviderReadThroughTests(unittest.TestCase):

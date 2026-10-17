@@ -32,9 +32,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.collection.edinet import http as edinet_http
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.market import edinet_refresh as edinet_refresh_module
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
+from baibai_engine.market.edinet_document_events import parse_doc_id
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.market.financial_documents import (
     normalize_financial_summary,
@@ -53,8 +56,6 @@ from baibai_engine.market.jquants_decode import (
     parse_jquants_code,
 )
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.providers import edinet as edinet_provider_module
-from baibai_engine.market.providers.edinet import EDINETProvider, parse_doc_id
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
 from baibai_engine.market.providers.jpx import JPXProvider, _EarningsCalendarFile
 from baibai_engine.storage.observations.ingest.edinet import (
@@ -337,36 +338,47 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertNotIn("\n", str(ctx.exception))
         self.assertIn("'S100?BAD'", str(ctx.exception))
 
-    def test_download_csv_zip_rejects_invalid_doc_id_before_cache_path(self) -> None:
+    def test_download_csv_zip_rejects_invalid_doc_id_before_acquisition(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            provider = EDINETProvider(
-                "key", Path(tmp), session=ExplodingSession("request should not be attempted")
+            provider = EDINETRefresh(
+                "key",
+                sqlite_path=Path(tmp) / "market.sqlite",
+                session=ExplodingSession("request should not be attempted"),
             )
 
             with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
                 provider.download_csv_zip("../../etc/passwd")
 
-    def test_download_csv_zip_discards_cached_non_zip_and_refetches(self) -> None:
+    def test_download_csv_zip_ignores_old_local_non_zip_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             cached = cache / "edinet/csv_zips/S100TEST.zip"
             cached.parent.mkdir(parents=True)
             cached.write_text('{"StatusCode":"429","message":"Too Many Requests"}')
             expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
-            provider = EDINETProvider("key", cache, session=_SequenceBytesSession([expected]))
+            provider = EDINETRefresh(
+                "key",
+                sqlite_path=Path(tmp) / "market.sqlite",
+                session=_SequenceBytesSession([expected]),
+            )
 
             content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
-            self.assertEqual(cached.read_bytes(), expected)
+            self.assertEqual(
+                cached.read_text(), '{"StatusCode":"429","message":"Too Many Requests"}'
+            )
+            self.assertEqual(
+                EDINETReader(Path(tmp) / "market.sqlite").read_csv_zip("S100TEST"), expected
+            )
 
-    def test_download_csv_zip_retries_json_rate_limit_without_caching_it(self) -> None:
+    def test_download_csv_zip_retries_json_rate_limit_without_local_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                cache,
+                sqlite_path=Path(tmp) / "market.sqlite",
                 session=_SequenceBytesSession(
                     [
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
@@ -379,14 +391,19 @@ class ScreeningProviderTests(unittest.TestCase):
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
-            self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+            self.assertEqual(
+                EDINETReader(cache / "market.sqlite").read_csv_zip("S100TEST"), expected
+            )
+            self.assertFalse((cache / "edinet/csv_zips/S100TEST.zip").exists())
 
     def test_download_csv_zip_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             session = _TransientThenBytesSession(content=expected)
-            provider = EDINETProvider("key", cache, session=session)
+            provider = EDINETRefresh(
+                "key", sqlite_path=Path(tmp) / "market.sqlite", session=session
+            )
 
             with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
                 content = provider.download_csv_zip("S100TEST")
@@ -394,13 +411,16 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(content, expected)
             self.assertEqual(len(session.calls), 2)
             sleep.assert_called_once_with(3)
-            self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+            self.assertEqual(
+                EDINETReader(cache / "market.sqlite").read_csv_zip("S100TEST"), expected
+            )
+            self.assertFalse((cache / "edinet/csv_zips/S100TEST.zip").exists())
 
     def test_list_documents_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = _TransientThenJsonSession()
-            provider = EDINETProvider(
-                "key", Path(tmp), session=session, sqlite_path=Path(tmp) / "market.sqlite"
+            provider = EDINETRefresh(
+                "key", session=session, sqlite_path=Path(tmp) / "market.sqlite"
             )
 
             with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
@@ -410,7 +430,7 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(len(session.calls), 2)
             sleep.assert_called_once_with(3)
 
-    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_fetches_target_then_all_unresolved_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -438,9 +458,8 @@ class ScreeningProviderTests(unittest.TestCase):
                 for value in (*unresolved_dates, target)
             }
             session = _DateJsonSession(payloads)
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=session,
                 sqlite_path=sqlite_path,
             )
@@ -468,7 +487,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 all(rechecks[value.isoformat()] == "2026-07-11" for value in unresolved_dates)
             )
 
-    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_target_failure_does_not_recheck_prior_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -481,9 +500,8 @@ class ScreeningProviderTests(unittest.TestCase):
                 [{"seqNumber": 1, "docID": "S100PRIOR"}],
             )
             session = _DateJsonSession({}, failing_dates={target.isoformat()})
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=session,
                 sqlite_path=sqlite_path,
             )
@@ -501,7 +519,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(recheck, (None,))
 
-    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_count_mismatch_blocks_target_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -523,9 +541,8 @@ class ScreeningProviderTests(unittest.TestCase):
                     }
                 }
             )
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=session,
                 sqlite_path=sqlite_path,
             )
@@ -542,7 +559,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(rows, [])
 
-    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_retry_only_keeps_unfinished_prior_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -573,9 +590,8 @@ class ScreeningProviderTests(unittest.TestCase):
                 },
                 failing_dates={unfinished.isoformat()},
             )
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=first_session,
                 sqlite_path=sqlite_path,
             )
@@ -592,9 +608,8 @@ class ScreeningProviderTests(unittest.TestCase):
                     unfinished.isoformat(): empty_payload(unfinished),
                 }
             )
-            retry_provider = EDINETProvider(
+            retry_provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=retry_session,
                 sqlite_path=sqlite_path,
             )
@@ -604,7 +619,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 ["2026-07-11", target.isoformat(), unfinished.isoformat()],
             )
 
-    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_bootstrap_and_backfill_fetch_today_proof_before_historical_days(self) -> None:
         today = date(2026, 7, 11)
@@ -622,16 +637,14 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "market.sqlite"
             bootstrap_session = _DateJsonSession(payloads)
-            bootstrap = EDINETProvider(
-                "key", Path(tmp), session=bootstrap_session, sqlite_path=path
-            )
+            bootstrap = EDINETRefresh("key", session=bootstrap_session, sqlite_path=path)
             self.assertEqual(bootstrap.bootstrap_cache(start, end), {"documents": 0})
             self.assertEqual(
                 bootstrap_session.calls,
                 [today.isoformat(), end.isoformat(), start.isoformat(), "2026-07-09"],
             )
             backfill_session = _DateJsonSession(payloads)
-            backfill = EDINETProvider("key", Path(tmp), session=backfill_session, sqlite_path=path)
+            backfill = EDINETRefresh("key", session=backfill_session, sqlite_path=path)
             self.assertEqual(
                 backfill.backfill_document_identity(start, end), {"days": 3, "documents": 0}
             )
@@ -640,7 +653,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 [today.isoformat(), start.isoformat(), "2026-07-09", end.isoformat()],
             )
 
-    @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_current_day_refresh_does_not_claim_a_later_recheck(self) -> None:
         today = date(2026, 7, 11)
@@ -648,7 +661,7 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "market.sqlite"
             session = _DateJsonSession(payload)
-            provider = EDINETProvider("key", Path(tmp), session=session, sqlite_path=path)
+            provider = EDINETRefresh("key", session=session, sqlite_path=path)
             self.assertEqual(provider.refresh_document_state(today), {"documents": 0})
             self.assertEqual(session.calls, [today.isoformat()])
             with closing(sqlite3.connect(path)) as connection:
@@ -665,7 +678,9 @@ class ScreeningProviderTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = FakeSession(default=requests.ConnectionError("temporary failure secret-key"))
-            provider = EDINETProvider("secret-key", Path(tmp), session=session)
+            provider = EDINETRefresh(
+                "secret-key", sqlite_path=Path(tmp) / "market.sqlite", session=session
+            )
 
             with (
                 patch("baibai_engine.collection.edinet.http.time.sleep") as sleep,
@@ -681,9 +696,9 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_raises_rate_limit_after_json_retries_without_caching_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                cache,
+                sqlite_path=Path(tmp) / "market.sqlite",
                 session=_SequenceBytesSession(
                     [
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
@@ -1360,9 +1375,9 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(records["7203"].cash, 100.0)
         self.assertEqual(records["7203"].debt, 10.0)
 
-    def test_edinet_provider_requires_api_key_for_download_without_cache(self) -> None:
+    def test_edinet_refresh_requires_api_key_for_unretained_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            provider = EDINETProvider(None, Path(tmpdir))
+            provider = EDINETRefresh(None, sqlite_path=Path(tmpdir) / "market.sqlite")
             with self.assertRaisesRegex(EdinetAcquisitionError, "EDINET_API_KEY"):
                 provider.download_csv_zip("S100TEST")
 

@@ -122,7 +122,7 @@ def _run_cli(
         ),
         patch.object(app, "JQuantsReader", lambda *_args, **_kwargs: jquants),
         patch.object(app, "JQuantsRefresh", lambda *_args, **_kwargs: jquants),
-        patch.object(app, "EDINETProvider", lambda *_args, **_kwargs: edinet),
+        patch.object(app, "EDINETRefresh", lambda *_args, **_kwargs: edinet),
         patch.object(app, "JPXProvider", lambda *_args, **_kwargs: jpx),
         contextlib.redirect_stdout(stdout),
         contextlib.redirect_stderr(stderr),
@@ -141,7 +141,7 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
             "requests.Session", side_effect=AssertionError("HTTP session constructed")
         ) as session,
         patch.object(
-            app, "EDINETProvider", side_effect=AssertionError("EDINET provider constructed")
+            app, "EDINETRefresh", side_effect=AssertionError("EDINET provider constructed")
         ) as edinet,
         patch.object(
             app, "JQuantsReader", side_effect=AssertionError("J-Quants reader constructed")
@@ -234,7 +234,7 @@ def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
         ),
         patch.object(app, "JQuantsReader", return_value=jquants),
         patch.object(app, "JQuantsRefresh", return_value=jquants),
-        patch.object(app, "EDINETProvider", return_value=_SeamEDINETProvider()),
+        patch.object(app, "EDINETRefresh", return_value=_SeamEDINETProvider()),
         patch.object(app, "JPXProvider", return_value=FakeJPXProvider()) as jpx_factory,
     ):
         assert app.main(["bootstrap-cache", "--asof", "2026-05-08"]) == 0
@@ -308,7 +308,7 @@ def test_main_run_does_not_construct_an_edinet_acquisition_provider() -> None:
             {"JQUANTS_API_KEY": "test-jquants-key", "EDINET_API_KEY": "test-edinet-key"},
         ),
         patch.object(
-            app, "EDINETProvider", side_effect=AssertionError("acquisition constructed")
+            app, "EDINETRefresh", side_effect=AssertionError("acquisition constructed")
         ) as factory,
         patch.object(app, "verify_screening_sqlite_coverage", return_value=[]),
         patch.object(app, "load_screening_rules") as rules,
@@ -376,7 +376,7 @@ def test_main_refresh_tender_offer_exits_uses_the_requested_store_for_both_input
     with (
         patch.dict(os.environ, {"EDINET_API_KEY": "test-edinet-key"}),
         patch.object(app, "load_project_env", return_value=None),
-        patch.object(app, "EDINETProvider", return_value=edinet) as factory,
+        patch.object(app, "EDINETRefresh", return_value=edinet) as factory,
         patch.object(app, "refresh_tender_offer_exits_command", return_value=0) as command,
     ):
         assert (

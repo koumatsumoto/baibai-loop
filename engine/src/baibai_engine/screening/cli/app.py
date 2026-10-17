@@ -18,10 +18,10 @@ from baibai_engine.market.edinet_facts.service import extract_edinet_facts_comma
 from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_lists_command
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
-from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.read_api.market import market_calendar_business_day
 from baibai_engine.screening.calibration.cli import (
@@ -625,9 +625,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "refresh-tender-offer-exits":
         exits_path = Path(args.sqlite_path)
         with ExitStack() as resources:
-            exits_edinet = EDINETProvider(
+            exits_edinet = EDINETRefresh(
                 config.edinet_api_key,
-                config.cache_dir,
                 sqlite_path=exits_path,
             )
             resources.callback(exits_edinet.close)
@@ -659,9 +658,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "refresh-edinet-facts":
         facts_path = Path(args.sqlite_path) if args.sqlite_path else sqlite_path
         with ExitStack() as resources:
-            facts_edinet = EDINETProvider(
+            facts_edinet = EDINETRefresh(
                 config.edinet_api_key,
-                config.cache_dir,
                 sqlite_path=facts_path,
             )
             resources.callback(facts_edinet.close)
@@ -699,9 +697,8 @@ def main(argv: list[str] | None = None) -> int:
         if jquants_refresh is not None:
             resources.callback(jquants_refresh.close)
         edinet_refresh = (
-            EDINETProvider(
+            EDINETRefresh(
                 config.edinet_api_key,
-                config.cache_dir,
                 sqlite_path=sqlite_path,
             )
             if config.edinet_api_key

@@ -42,7 +42,7 @@ def _offline_only(monkeypatch: pytest.MonkeyPatch) -> None:
         "ScreeningConfig",
         type("ForbiddenConfig", (), {"from_env": staticmethod(forbidden)}),
     )
-    monkeypatch.setattr(app, "EDINETProvider", forbidden)
+    monkeypatch.setattr(app, "EDINETRefresh", forbidden)
     monkeypatch.setattr(app, "JQuantsRefresh", forbidden)
     monkeypatch.setattr(app, "JQuantsReader", forbidden)
     monkeypatch.setattr(requests, "Session", forbidden)
@@ -199,6 +199,32 @@ def test_recheck_is_not_inferred_without_a_retained_proof_receipt(tmp_path: Path
         "SELECT rechecked_asof FROM edinet_document_lists WHERE doc_date = ?",
         (day.isoformat(),),
     ) == [(None,)]
+
+
+def test_operation_row_preserves_explicit_null_and_omitted_keys_in_native_cache(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "market.sqlite"
+    day = date(2026, 10, 15)
+    operation = {
+        "seqNumber": 1,
+        "docID": "S100EDIT",
+        "docInfoEditStatus": "1",
+        "docDescription": None,
+    }
+    _retain(path, day, datetime(2026, 10, 15, tzinfo=UTC), _wire([operation]))
+
+    assert _run(path, day.isoformat(), day.isoformat()) == 0
+    raw_json = _read(
+        path,
+        "SELECT response_json FROM edinet_document_lists WHERE doc_date = ?",
+        (day.isoformat(),),
+    )[0][0]
+    native = json.loads(raw_json)
+    saved_operation = native["results"][0]
+    assert saved_operation["docDescription"] is None
+    assert "secCode" not in saved_operation
+    assert "doc_date" not in saved_operation
 
 
 def test_corrupt_raw_bytes_return_failure_without_success_coverage(

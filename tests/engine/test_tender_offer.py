@@ -971,7 +971,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 patch.object(app, "load_project_env", return_value=None),
                 patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
                 patch.object(
-                    app, "EDINETProvider", side_effect=AssertionError("acquisition constructed")
+                    app, "EDINETRefresh", side_effect=AssertionError("acquisition constructed")
                 ),
                 patch.object(
                     app, "ProviderBundle", side_effect=AssertionError("bundle constructed")

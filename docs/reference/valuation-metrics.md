@@ -202,7 +202,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。必要なEDINET指標を欠くApproachではnominateしないが、他の指標・Approachまで一律に無効にしない。現行Asset Valueの`net_cash_to_market_cap`はanalysis contextであり、eligibility/orderには使わない。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。書類選択は[EDINET provider](../../engine/src/baibai_engine/market/providers/edinet.py)と[保存・選択処理](../../engine/src/baibai_engine/market/edinet_metrics/store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。取得・更新は[EDINETRefresh](../../engine/src/baibai_engine/market/edinet_refresh.py)、保存済み書類の読取は[EDINETReader](../../engine/src/baibai_engine/market/edinet_reader.py)、選択は[保存・選択処理](../../engine/src/baibai_engine/market/edinet_metrics/store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
 
 [EDINET API仕様](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140206.pdf)の書類情報訂正を畳む際は、保存したnative responseの同日・seqNumber・docIDに対応する操作行を使う。供給されたキーの明示nullは反映し、キーの省略は以前の値を変更しない。特定の4項目が揃うかから完全な置換を推定しない。native responseを持たない保存行ではSQL NULLから元のキー有無を復元できないため、NULLは明示的な消去の証拠にしない。通常の提出行は閲覧期限前に観測したidentityを保持し、同日の複数行は操作日時・seqNumberの順で選ぶ。
 

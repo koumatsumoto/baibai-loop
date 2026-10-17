@@ -11,8 +11,7 @@ from tests.helpers.http_doubles import FakeResponse, response
 
 from baibai_engine.collection.edinet import http
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import EDINETProvider
+from baibai_engine.market.edinet_refresh import EDINETRefresh
 
 KEY = "secret+/key"
 DAY = date(2026, 10, 14)
@@ -278,7 +277,7 @@ def test_provider_creates_http_only_when_acquiring_and_closes_owned_session(tmp_
         return session
 
     monkeypatch.setattr(http.requests, "Session", new_session)
-    provider = EDINETProvider(KEY, tmp_path, sqlite_path=tmp_path / "market.sqlite")
+    provider = EDINETRefresh(KEY, sqlite_path=tmp_path / "market.sqlite")
     assert created == []
     assert provider.list_documents(DAY) == []
     assert len(created) == 1
@@ -287,17 +286,12 @@ def test_provider_creates_http_only_when_acquiring_and_closes_owned_session(tmp_
     assert created[0].close_count == 1
 
 
-def test_provider_cache_only_and_saved_reads_never_create_http_session(tmp_path, monkeypatch):
+def test_refresh_rebuilds_saved_list_without_creating_http_session(tmp_path, monkeypatch):
     def unexpected_session() -> None:
         pytest.fail("read-only EDINET path constructed an HTTP session")
 
     monkeypatch.setattr(http.requests, "Session", unexpected_session)
     sqlite_path = tmp_path / "market.sqlite"
-    provider = EDINETProvider(KEY, tmp_path, sqlite_path=sqlite_path, cache_only=True)
-    with pytest.raises(EDINETProviderError, match="SQLite cache incomplete"):
-        provider.list_documents(DAY)
-    from datetime import UTC, datetime
-
     from baibai_engine.collection.edinet.receipts import retain_list_response
     from baibai_engine.storage.observations.schema import open_connection
 
@@ -311,6 +305,7 @@ def test_provider_cache_only_and_saved_reads_never_create_http_session(tmp_path,
         )
     finally:
         connection.close()
+    provider = EDINETRefresh(KEY, sqlite_path=sqlite_path)
     documents = provider.list_documents(DAY)
     assert len(documents) == 1
     assert {key: documents[0][key] for key in ("seqNumber", "docID", "doc_date")} == {
@@ -323,9 +318,7 @@ def test_provider_cache_only_and_saved_reads_never_create_http_session(tmp_path,
 
 def test_provider_does_not_close_injected_session_after_acquisition(tmp_path):
     session = Session(response(b'{"metadata":{"resultset":{"count":0}},"results":[]}'))
-    provider = EDINETProvider(
-        KEY, tmp_path, session=session, sqlite_path=tmp_path / "market.sqlite"
-    )
+    provider = EDINETRefresh(KEY, session=session, sqlite_path=tmp_path / "market.sqlite")
     assert provider.list_documents(DAY) == []
     provider.close()
     assert session.close_count == 0

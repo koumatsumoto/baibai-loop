@@ -12,7 +12,8 @@ from tests.helpers.http_doubles import FakeSession, json_response, response
 from baibai_engine.collection.edinet import http
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import EDINETProvider
+from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.edinet_refresh import EDINETRefresh
 
 
 @pytest.fixture
@@ -45,7 +46,7 @@ def success(kind):
 
 
 def request(kind, path, session):
-    provider = EDINETProvider("test-key", path, session=session, sqlite_path=path / "market.sqlite")
+    provider = EDINETRefresh("test-key", session=session, sqlite_path=path / "market.sqlite")
     if kind == "list":
         return provider.list_documents(date(2026, 10, 9))
     if kind == "xbrl":
@@ -87,7 +88,7 @@ def test_transient_failures_do_not_reset_the_rate_limit_budget(kind, tmp_path, c
 
 
 @pytest.mark.parametrize("kind", ["csv", "xbrl", "list"])
-def test_sixth_attempt_can_succeed_and_zip_cache_avoids_new_requests(kind, tmp_path, clock):
+def test_sixth_attempt_can_succeed_and_source_store_avoids_new_requests(kind, tmp_path, clock):
     expected = success(kind)
     session = FakeSession(*(rate_limit(body=bool(i % 2)) for i in range(5)), expected)
     result = request(kind, tmp_path, session)
@@ -97,7 +98,10 @@ def test_sixth_attempt_can_succeed_and_zip_cache_avoids_new_requests(kind, tmp_p
     if kind != "list":
         assert request(kind, tmp_path, session) == expected.content
         assert len(session.calls) == 6
-        assert [p.read_bytes() for p in tmp_path.rglob("*.zip")] == [expected.content]
+        reader = EDINETReader(tmp_path / "market.sqlite")
+        read = reader.read_csv_zip if kind == "csv" else reader.read_xbrl_zip
+        assert read("S100TEST") == expected.content
+        assert not list(tmp_path.rglob("*.zip"))
 
 
 @pytest.mark.parametrize("kind", ["csv", "xbrl", "list"])

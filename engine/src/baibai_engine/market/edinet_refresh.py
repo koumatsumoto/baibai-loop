@@ -27,24 +27,20 @@ if TYPE_CHECKING:
 _JST = ZoneInfo("Asia/Tokyo")
 
 
-class EDINETProvider:
-    """Read-through EDINET projection using explicit source acquisition."""
+class EDINETRefresh:
+    """Acquire EDINET sources and refresh projections in a selected SQLite store."""
 
     def __init__(
         self,
         api_key: str | None,
-        cache_dir: Path,
-        session: requests.Session | None = None,
         *,
-        sqlite_path: Path | None = None,
-        cache_only: bool = False,
+        sqlite_path: Path,
+        session: requests.Session | None = None,
     ) -> None:
         self._api_key = api_key
-        self._cache_dir = Path(cache_dir) / "edinet"
         self._session = session
         self._http: EDINETHTTP | None = None
-        self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
-        self._cache_only = cache_only
+        self._sqlite_path = Path(sqlite_path)
 
     def close(self) -> None:
         if self._http is not None:
@@ -63,8 +59,6 @@ class EDINETProvider:
         force_refresh: bool = False,
     ) -> list[dict[str, Any]]:
         sqlite_path = self._sqlite_path
-        if sqlite_path is None:
-            raise EDINETProviderError("EDINET list acquisition requires sqlite_path")
         if not force_refresh and sqlite_path.exists():
             connection = connect_current(sqlite_path)
             if connection is not None:
@@ -74,7 +68,6 @@ class EDINETProvider:
                     projection = rebuild_edinet_document_day(sqlite_path, on_date)
                     if projection.error is None:
                         return list(projection.documents)
-        self._raise_if_cache_only("edinet_documents", on_date.isoformat())
         received = self._http_client("list_documents").fetch_list(on_date)
         with closing(open_connection(sqlite_path)) as connection:
             retain_list_response(
@@ -132,13 +125,12 @@ class EDINETProvider:
                 today_documents if end == today else self.list_documents(end, force_refresh=True)
             ),
         }
-        if self._sqlite_path is not None:
-            from baibai_engine.market.edinet_metrics.store import (
-                read_unrechecked_edinet_document_dates,
-            )
+        from baibai_engine.market.edinet_metrics.store import (
+            read_unrechecked_edinet_document_dates,
+        )
 
-            for unresolved in read_unrechecked_edinet_document_dates(self._sqlite_path, before=end):
-                fetched[unresolved] = len(self.list_documents(unresolved, force_refresh=True))
+        for unresolved in read_unrechecked_edinet_document_dates(self._sqlite_path, before=end):
+            fetched[unresolved] = len(self.list_documents(unresolved, force_refresh=True))
         return fetched
 
     def download_csv_zip(self, doc_id: str) -> bytes:
@@ -150,59 +142,40 @@ class EDINETProvider:
     def _download_document_zip(self, doc_id: str, *, source_type: int) -> bytes:
         safe_id = parse_doc_id(doc_id)
         source_name = "csv" if source_type == 5 else "xbrl"
-        if self._sqlite_path is not None and self._sqlite_path.exists():
+        if self._sqlite_path.exists():
             with closing(connect_read_only(self._sqlite_path)) as connection:
                 retained = read_source_archive(connection, safe_id, source_type)
             if retained is not None:
                 if not _is_zip_bytes(retained):
                     raise EDINETProviderError(f"stored EDINET {source_name} archive is not a ZIP")
                 return retained
-        cache = self._cache_dir / f"{source_name}_zips" / f"{safe_id}.zip"
-        if cache.exists():
-            content = cache.read_bytes()
-            if _is_zip_bytes(content):
-                return self._retain_document_zip(safe_id, source_type, content)
-            cache.unlink()
-        self._raise_if_cache_only(f"edinet_{source_name}_zip", safe_id)
-        content = (
-            self._http_client("download_document_zip").fetch_archive(safe_id, source_type).body
-        )
+        received = self._http_client("download_document_zip").fetch_archive(safe_id, source_type)
+        content = received.body
         if not _is_zip_bytes(content):
             raise EDINETProviderError(
                 f"EDINET {source_name.upper()} ZIP response was not a zip: "
                 f"{_non_zip_response_message(content)}"
             )
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_bytes(content)
-        return self._retain_document_zip(safe_id, source_type, content)
+        return self._retain_document_zip(
+            safe_id, source_type, content, stored_on=received.received_at.astimezone(UTC).date()
+        )
 
-    def _retain_document_zip(self, doc_id: str, source_type: int, content: bytes) -> bytes:
-        if self._sqlite_path is None:
-            return content
+    def _retain_document_zip(
+        self, doc_id: str, source_type: int, content: bytes, *, stored_on: date
+    ) -> bytes:
         with closing(open_connection(self._sqlite_path)) as connection:
             return retain_source_archive(
                 connection,
                 doc_id,
                 source_type,
                 content,
-                stored_on=datetime.now(UTC).date(),
+                stored_on=stored_on,
             )
 
     def _require_api_key(self, operation: str) -> str:
         if not self._api_key:
             raise EdinetAcquisitionError(f"EDINET_API_KEY is required for {operation}")
         return self._api_key
-
-    def _raise_if_cache_only(self, source: str, requirement: str) -> None:
-        if not self._cache_only:
-            return
-        sqlite_label = self._sqlite_path.as_posix() if self._sqlite_path is not None else "<none>"
-        raise EDINETProviderError(
-            f"SQLite cache incomplete for {source} ({requirement}); "
-            f"sqlite={sqlite_label}. `screening run` is cache-only: run "
-            "`bootstrap-cache --asof` / `refresh-edinet-metrics` or repair SQLite "
-            "before running screening."
-        )
 
 
 def _is_zip_bytes(content: bytes) -> bool:

@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from baibai_engine.market.edinet_decode import parse_sec_code
+from baibai_engine.market.edinet_document_events import parse_doc_id
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import parse_doc_id
 
 
 @pytest.mark.parametrize(

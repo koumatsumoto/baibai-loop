@@ -30,7 +30,7 @@ from baibai_engine.market.edinet_facts.store import (
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.providers.edinet import EDINETProvider
+from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.screening.cli import app
 from baibai_engine.screening.cli.edinet_cli import refresh_edinet_facts_command
 from baibai_engine.storage.observations.schema import open_connection
@@ -278,7 +278,7 @@ def test_offline_facts_cli_uses_saved_archive_without_keys_or_http(tmp_path, mon
     with (
         patch.object(app, "load_project_env", return_value=None),
         patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
-        patch.object(app, "EDINETProvider", side_effect=AssertionError("provider constructed")),
+        patch.object(app, "EDINETRefresh", side_effect=AssertionError("provider constructed")),
     ):
         assert (
             app.main(
@@ -307,7 +307,7 @@ def test_offline_facts_cli_records_missing_archive_without_keys_or_http(tmp_path
     with (
         patch.object(app, "load_project_env", return_value=None),
         patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
-        patch.object(app, "EDINETProvider", side_effect=AssertionError("provider constructed")),
+        patch.object(app, "EDINETRefresh", side_effect=AssertionError("provider constructed")),
     ):
         assert (
             app.main(
@@ -337,7 +337,7 @@ def test_refresh_facts_cli_acquires_selected_ticker_and_closes(tmp_path, monkeyp
     with (
         patch.object(app, "load_project_env", return_value=None),
         patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
-        patch.object(app, "EDINETProvider", return_value=acquisition),
+        patch.object(app, "EDINETRefresh", return_value=acquisition),
     ):
         assert (
             app.main(
@@ -581,7 +581,7 @@ def test_retained_annual_family_receives_later_corrections():
 
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
-    provider = EDINETProvider("test-key", tmp_path, session=session)
+    provider = EDINETRefresh("test-key", sqlite_path=tmp_path / "market.sqlite", session=session)
     monkeypatch.setattr("baibai_engine.collection.edinet.http.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data

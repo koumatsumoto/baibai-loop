@@ -12,7 +12,7 @@ from tests.helpers.http_doubles import FakeSession, json_response
 from baibai_engine.collection.edinet.receipts import read_list_responses
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import EDINETProvider
+from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -38,9 +38,8 @@ def test_listing_keeps_native_fields_without_invented_request_date(tmp_path):
         "futureMetadata": [False, ""],
     }
     path = tmp_path / "market.sqlite"
-    provider = EDINETProvider(
+    provider = EDINETRefresh(
         "test-key",
-        tmp_path / "cache",
         session=FakeSession(json_response(payload)),
         sqlite_path=path,
     )
@@ -65,9 +64,8 @@ def test_refresh_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_
         },
         {"metadata": {"resultset": {"count": 0}}, "results": []},
     ]
-    provider = EDINETProvider(
+    provider = EDINETRefresh(
         "test-key",
-        tmp_path / "cache",
         session=FakeSession(*(json_response(value) for value in payloads)),
         sqlite_path=path,
     )
@@ -85,9 +83,8 @@ def test_invalid_refresh_retains_raw_and_blocks_stale_success(tmp_path):
     path = tmp_path / "market.sqlite"
     valid = {"metadata": {"resultset": {"count": 0}}, "results": []}
     invalid = {"metadata": {"resultset": {"count": 1}}, "results": []}
-    provider = EDINETProvider(
+    provider = EDINETRefresh(
         "test-key",
-        tmp_path / "cache",
         session=FakeSession(json_response(valid), json_response(invalid)),
         sqlite_path=path,
     )
