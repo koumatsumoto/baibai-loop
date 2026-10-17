@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import unittest
 import zipfile
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
+from baibai_engine.collection.edinet.archives import retain_source_archive
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.delistings import DelistingRecord, store_jpx_delistings
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.tender_offer import (
     TenderOfferExitValue,
     build_tender_offer_exit_values,
@@ -23,8 +26,7 @@ from baibai_engine.market.tender_offer import (
     read_tender_offer_outcome,
     store_tender_offer_exit_values,
 )
-from baibai_engine.screening.cli import delisting_cli
-from baibai_engine.screening.cli.providers import ProviderBundle
+from baibai_engine.screening.cli import app, delisting_cli
 from baibai_engine.storage.observations.schema import open_connection
 
 _PRICE = "jptoo-ton_cor:PriceOfPurchaseEtcTextBlock"
@@ -58,6 +60,13 @@ def _archive(blocks: dict[str, str]) -> bytes:
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/jptoo-001.csv", buffer.getvalue().encode("utf-16"))
+    return zip_buffer.getvalue()
+
+
+def _archive_with_unreadable_csv() -> bytes:
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as archive:
+        archive.writestr("XBRL_TO_CSV/jptoo-001.csv", b"\xff")
     return zip_buffer.getvalue()
 
 
@@ -131,14 +140,14 @@ class OfferOutcomeTest(unittest.TestCase):
         self.assertIsNone(read_tender_offer_outcome({}))
 
 
-class _Provider:
-    """Serves prepared archives and records what the build actually downloaded."""
+class _Reader:
+    """Serves prepared archives and records what the build actually read."""
 
     def __init__(self, archives: dict[str, bytes]) -> None:
         self._archives = archives
         self.requested: list[str] = []
 
-    def download_csv_zip(self, doc_id: str) -> bytes:
+    def read_csv_zip(self, doc_id: str) -> bytes:
         self.requested.append(doc_id)
         return self._archives[doc_id]
 
@@ -194,6 +203,24 @@ class ControlEventExitBuildTest(unittest.TestCase):
             ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
         ]
 
+    def _retain_archives(self, sqlite_path: Path, archives: dict[str, bytes]) -> None:
+        connection = open_connection(sqlite_path)
+        try:
+            for doc_id, content in archives.items():
+                retain_source_archive(connection, doc_id, 5, content, stored_on=self.ASOF)
+        finally:
+            connection.close()
+
+    def _old_exit(self) -> TenderOfferExitValue:
+        return TenderOfferExitValue(
+            ticker="2000",
+            delisted_on=self.DELISTED_ON,
+            offer_price_yen=999.0,
+            offer_doc_id="SOLDREG",
+            result_doc_id="SOLDRES",
+            filed_on=date(2026, 1, 1),
+        )
+
     def test_later_non_disclosure_operation_removes_the_old_result(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
@@ -212,7 +239,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual([doc.doc_id for doc in before], ["SREG", "SRES"])
             self.assertEqual([doc.doc_id for doc in after], ["SREG"])
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=_Provider({}), asof=self.ASOF
+                sqlite_path, reader=_Reader({}), asof=self.ASOF
             )
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
@@ -222,7 +249,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
@@ -232,7 +259,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(summary.candidate_delisting_count, 1)
@@ -241,7 +268,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(values[0].offer_price_yen, 1060.0)
             self.assertEqual(values[0].delisted_on, self.DELISTED_ON)
 
-    def test_download_count_survives_an_unreadable_archive(self) -> None:
+    def test_read_count_survives_an_unreadable_csv(self) -> None:
         for bad_document, expected_count in (("SRES", 1), ("SREG", 2)):
             with self.subTest(bad_document=bad_document), TemporaryDirectory() as tmp:
                 sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
@@ -249,28 +276,28 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     "SREG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
                     "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
-                archives[bad_document] = b"not a ZIP archive"
-                provider = _Provider(archives)
+                archives[bad_document] = _archive_with_unreadable_csv()
+                reader = _Reader(archives)
                 values, summary = build_tender_offer_exit_values(
-                    sqlite_path, provider=provider, asof=self.ASOF
+                    sqlite_path, reader=reader, asof=self.ASOF
                 )
                 self.assertEqual(values, ())
                 self.assertEqual(summary.rejection_reason_counts, {"document_unreadable": 1})
-                self.assertEqual(summary.downloaded_document_count, expected_count)
-                self.assertEqual(summary.downloaded_document_count, len(provider.requested))
+                self.assertEqual(summary.read_document_count, expected_count)
+                self.assertEqual(summary.read_document_count, len(reader.requested))
 
     def test_a_non_candidate_delisting_mechanism_is_skipped(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(tmp, self._registration_and_result(), reason="吸収合併")
-            provider = _Provider({})
+            reader = _Reader({})
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(summary.candidate_delisting_count, 0)
             self.assertEqual(values, ())
-            self.assertEqual(provider.requested, [])
+            self.assertEqual(reader.requested, [])
 
     def test_completed_and_withdrawn_old_rounds_do_not_contaminate_a_later_offer(self) -> None:
         for offeror in ("BIDDER", "OLD_BIDDER"):
@@ -328,7 +355,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                         ],
                         reason="公開買付け、株式併合",
                     )
-                    provider = _Provider(
+                    reader = _Reader(
                         {
                             "SREG": _archive(
                                 {_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}
@@ -337,13 +364,13 @@ class ControlEventExitBuildTest(unittest.TestCase):
                         }
                     )
                     values, summary = build_tender_offer_exit_values(
-                        sqlite_path, provider=provider, asof=self.ASOF
+                        sqlite_path, reader=reader, asof=self.ASOF
                     )
                     self.assertEqual(summary.resolved_count, 1)
                     self.assertEqual(values[0].offer_price_yen, 1060)
                     self.assertEqual(values[0].offer_doc_id, "SREG")
                     self.assertEqual(values[0].result_doc_id, "SRES")
-                    self.assertEqual(provider.requested, ["SRES", "SREG"])
+                    self.assertEqual(reader.requested, ["SRES", "SREG"])
 
     def test_a_new_incomplete_round_does_not_fall_back_to_an_old_completed_round(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -366,7 +393,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 reason="公開買付け",
             )
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=_Provider({}), asof=self.ASOF
+                sqlite_path, reader=_Reader({}), asof=self.ASOF
             )
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
@@ -392,7 +419,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 reason="公開買付け",
             )
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=_Provider({}), asof=self.ASOF
+                sqlite_path, reader=_Reader({}), asof=self.ASOF
             )
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
@@ -427,7 +454,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 reason="公開買付け",
             )
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=_Provider({}), asof=self.ASOF
+                sqlite_path, reader=_Reader({}), asof=self.ASOF
             )
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"multiple_offerors": 1})
@@ -453,7 +480,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 ],
                 reason="公開買付け",
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive({_PRICE: "株券１株につき金2,000円", _FUNDING: _CASH_ONLY}),
                     "SREG2": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
@@ -462,11 +489,11 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
             self.assertEqual(summary.resolved_count, 1)
             self.assertEqual(values[0].offer_price_yen, 1000)
-            self.assertNotIn("SREG", provider.requested)
+            self.assertNotIn("SREG", reader.requested)
 
     def test_an_unknown_or_different_offeror_parent_is_not_assigned_to_the_latest_offer(
         self,
@@ -492,7 +519,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     reason="公開買付け",
                 )
                 values, summary = build_tender_offer_exit_values(
-                    sqlite_path, provider=_Provider({}), asof=self.ASOF
+                    sqlite_path, reader=_Reader({}), asof=self.ASOF
                 )
                 self.assertEqual(values, ())
                 self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
@@ -501,7 +528,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
         for reason in ("株式の併合", "株式併合", "株式等売渡請求による取得"):
             with self.subTest(reason=reason), TemporaryDirectory() as tmp:
                 sqlite_path = self._store(tmp, self._registration_and_result(), reason=reason)
-                provider = _Provider(
+                reader = _Reader(
                     {
                         "SREG": _archive(
                             {_PRICE: "株券普通株式１株につき金1,060円", _FUNDING: _CASH_ONLY}
@@ -510,7 +537,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     }
                 )
                 values, summary = build_tender_offer_exit_values(
-                    sqlite_path, provider=provider, asof=self.ASOF
+                    sqlite_path, reader=reader, asof=self.ASOF
                 )
                 self.assertEqual(summary.candidate_delisting_count, 1)
                 self.assertEqual(summary.resolved_count, 1)
@@ -521,9 +548,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
         for reason in ("株式の併合", "株式等売渡請求による取得"):
             with self.subTest(reason=reason), TemporaryDirectory() as tmp:
                 sqlite_path = self._store(tmp, [], reason=reason)
-                provider = _Provider({})
+                reader = _Reader({})
                 values, summary = build_tender_offer_exit_values(
-                    sqlite_path, provider=provider, asof=self.ASOF
+                    sqlite_path, reader=reader, asof=self.ASOF
                 )
                 self.assertEqual(summary.candidate_delisting_count, 1)
                 self.assertEqual(summary.resolved_count, 0)
@@ -531,14 +558,14 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 self.assertEqual(
                     summary.rejection_reason_counts, {"no_filing_in_document_window": 1}
                 )
-                self.assertEqual(provider.requested, [])
+                self.assertEqual(reader.requested, [])
 
     def test_squeeze_out_non_cash_consideration_remains_unresolved(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="株式等売渡請求による取得"
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {
@@ -550,7 +577,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
             self.assertEqual(summary.candidate_delisting_count, 1)
             self.assertEqual(values, ())
@@ -566,10 +593,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",
             )
-            provider = _Provider({})
+            reader = _Reader({})
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(values, ())
@@ -580,7 +607,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
@@ -590,13 +617,13 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1})
             # The price is never read once the offer is known not to have bought.
-            self.assertEqual(provider.requested, ["SRES"])
+            self.assertEqual(reader.requested, ["SRES"])
 
     def test_two_offerors_over_one_target_produce_no_exit_value(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -609,10 +636,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 ],
                 reason="他社による買収（公開買付け、株式併合）",
             )
-            provider = _Provider({})
+            reader = _Reader({})
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(values, ())
@@ -629,7 +656,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 ],
                 reason="他社による買収（公開買付け、株式併合）",
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,650円算定の基礎…", _FUNDING: _CASH_ONLY}
@@ -642,7 +669,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(values, ())
@@ -660,7 +687,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 ],
                 reason="他社による買収（公開買付け、株式併合）",
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {
@@ -675,7 +702,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(values, ())
@@ -730,7 +757,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     ],
                     reason="公開買付け",
                 )
-                provider = _Provider(
+                reader = _Reader(
                     {
                         "SREG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
                         "SRES": _archive({_OUTCOME: _SUCCESS}),
@@ -738,7 +765,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     }
                 )
                 values, summary = build_tender_offer_exit_values(
-                    sqlite_path, provider=provider, asof=self.ASOF
+                    sqlite_path, reader=reader, asof=self.ASOF
                 )
                 self.assertEqual(values, ())
                 self.assertEqual(
@@ -766,7 +793,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
@@ -778,9 +805,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, _ = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
-            )
+            values, _ = build_tender_offer_exit_values(sqlite_path, reader=reader, asof=self.ASOF)
 
             self.assertEqual(values[0].offer_price_yen, 1300.0)
             self.assertEqual(values[0].offer_doc_id, "SCOR")
@@ -808,7 +833,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
@@ -818,9 +843,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, _ = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
-            )
+            values, _ = build_tender_offer_exit_values(sqlite_path, reader=reader, asof=self.ASOF)
 
             self.assertEqual(values[0].offer_price_yen, 1060.0)
             self.assertEqual(values[0].offer_doc_id, "SREG")
@@ -832,7 +855,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 self._registration_and_result(),
                 reason="他社による買収（公開買付け、株式併合）",
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {
@@ -847,7 +870,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(values, ())
@@ -858,16 +881,14 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
                     "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
 
-            values, _ = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
-            )
+            values, _ = build_tender_offer_exit_values(sqlite_path, reader=reader, asof=self.ASOF)
 
             self.assertEqual(values, ())
 
@@ -896,10 +917,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     )
                 ],
             )
-            provider = _Provider({})
+            reader = _Reader({})
 
             values, summary = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
+                sqlite_path, reader=reader, asof=self.ASOF
             )
 
             self.assertEqual(values, ())
@@ -920,7 +941,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
             )
-            provider = _Provider(
+            reader = _Reader(
                 {
                     "SREG": _archive(
                         {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
@@ -928,13 +949,138 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     "SRES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
-            values, _ = build_tender_offer_exit_values(
-                sqlite_path, provider=provider, asof=self.ASOF
-            )
+            values, _ = build_tender_offer_exit_values(sqlite_path, reader=reader, asof=self.ASOF)
             store_tender_offer_exit_values(sqlite_path, values)
 
             self.assertEqual(store_tender_offer_exit_values(sqlite_path, ()), 0)
             self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
+
+    def test_offline_cli_reads_retained_archives_without_credentials_or_http(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+            self._retain_archives(
+                sqlite_path,
+                {
+                    "SREG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
+                    "SRES": _archive({_OUTCOME: _SUCCESS}),
+                },
+            )
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"EDINET_API_KEY": "", "JQUANTS_API_KEY": ""}),
+                patch.object(app, "load_project_env", return_value=None),
+                patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
+                patch.object(
+                    app, "EDINETProvider", side_effect=AssertionError("acquisition constructed")
+                ),
+                patch.object(
+                    app, "ProviderBundle", side_effect=AssertionError("bundle constructed")
+                ),
+                redirect_stdout(output),
+            ):
+                result = app.main(
+                    [
+                        "build-tender-offer-exits",
+                        "--asof",
+                        self.ASOF.isoformat(),
+                        "--sqlite-path",
+                        str(sqlite_path),
+                    ]
+                )
+            self.assertEqual(result, 0)
+            self.assertIn("resolved=1, reads=2", output.getvalue())
+            self.assertEqual(read_tender_offer_exit_values(sqlite_path)[0].offer_price_yen, 1060.0)
+
+    def test_offline_missing_or_non_zip_archive_preserves_old_exit(self) -> None:
+        for kind in ("missing", "non_zip"):
+            with self.subTest(kind=kind), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+                old = self._old_exit()
+                store_tender_offer_exit_values(sqlite_path, (old,))
+                if kind == "non_zip":
+                    self._retain_archives(sqlite_path, {"SRES": b"not a ZIP archive"})
+                stderr = io.StringIO()
+                with (
+                    patch.object(delisting_cli, "store_tender_offer_exit_values") as save,
+                    redirect_stderr(stderr),
+                ):
+                    result = delisting_cli.build_tender_offer_exits_command(
+                        sqlite_path=sqlite_path,
+                        asof_date=self.ASOF,
+                        reader=EDINETReader(sqlite_path),
+                        stdout=io.StringIO(),
+                    )
+                self.assertEqual(result, 1)
+                self.assertIn("EDINETProviderError:", stderr.getvalue())
+                if kind == "non_zip":
+                    self.assertIn(
+                        "stored EDINET tender-offer archive is not a ZIP", stderr.getvalue()
+                    )
+                save.assert_not_called()
+                self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
+
+    def test_successful_empty_offline_build_retracts_old_exit(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(tmp, self._registration_and_result(), reason="吸収合併")
+            store_tender_offer_exit_values(sqlite_path, (self._old_exit(),))
+            output = io.StringIO()
+            result = delisting_cli.build_tender_offer_exits_command(
+                sqlite_path=sqlite_path,
+                asof_date=self.ASOF,
+                reader=EDINETReader(sqlite_path),
+                stdout=output,
+            )
+            self.assertEqual(result, 0)
+            self.assertIn("resolved=0, reads=0", output.getvalue())
+            self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
+
+    def test_refresh_acquires_only_documents_requested_by_newest_correction(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp,
+                [
+                    *self._registration_and_result(),
+                    (
+                        "2026-02-10",
+                        1,
+                        "SCOR",
+                        None,
+                        "250",
+                        "2026-02-10T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        "SREG",
+                    ),
+                ],
+                reason="公開買付け",
+            )
+            archives = {
+                "SRES": _archive({_OUTCOME: _SUCCESS}),
+                "SCOR": _archive({_PRICE: "株券１株につき金1,300円", _FUNDING: _CASH_ONLY}),
+            }
+            acquisition = Mock()
+
+            def acquire(doc_id: str) -> bytes:
+                content = archives[doc_id]
+                self._retain_archives(sqlite_path, {doc_id: content})
+                return content
+
+            acquisition.download_csv_zip.side_effect = acquire
+            output = io.StringIO()
+            result = delisting_cli.refresh_tender_offer_exits_command(
+                sqlite_path=sqlite_path,
+                asof_date=self.ASOF,
+                reader=EDINETReader(sqlite_path),
+                acquisition=acquisition,
+                stdout=output,
+            )
+            self.assertEqual(result, 0)
+            self.assertEqual(
+                [call.args[0] for call in acquisition.download_csv_zip.call_args_list],
+                ["SRES", "SCOR"],
+            )
+            self.assertIn("resolved=1, reads=2", output.getvalue())
+            self.assertEqual(read_tender_offer_exit_values(sqlite_path)[0].offer_price_yen, 1300.0)
 
     def test_cli_source_failure_does_not_replace_existing_exit_values(self) -> None:
         for error_type in (EdinetAcquisitionError, EdinetRateLimitError):
@@ -949,25 +1095,23 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     filed_on=date(2026, 3, 20),
                 )
                 store_tender_offer_exit_values(sqlite_path, (old,))
-                provider = Mock()
-                provider.download_csv_zip.side_effect = error_type("synthetic EDINET failure")
-                providers = ProviderBundle(
-                    jquants=Mock(), edinet=None, jpx=Mock(), edinet_refresh=provider
-                )
+                acquisition = Mock()
+                acquisition.download_csv_zip.side_effect = error_type("synthetic EDINET failure")
                 stderr = io.StringIO()
                 with (
                     patch.object(delisting_cli, "store_tender_offer_exit_values") as save,
                     redirect_stderr(stderr),
                 ):
-                    result = delisting_cli.build_tender_offer_exits_command(
+                    result = delisting_cli.refresh_tender_offer_exits_command(
                         sqlite_path=sqlite_path,
                         asof_date=self.ASOF,
-                        providers=providers,
+                        reader=EDINETReader(sqlite_path),
+                        acquisition=acquisition,
                         stdout=io.StringIO(),
                     )
                 self.assertEqual(result, 1)
                 self.assertTrue(stderr.getvalue().startswith(f"{error_type.__name__}: "))
-                provider.download_csv_zip.assert_called()
+                acquisition.download_csv_zip.assert_called_once_with("SRES")
                 save.assert_not_called()
                 self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
 

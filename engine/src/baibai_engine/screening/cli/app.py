@@ -59,6 +59,7 @@ from .common import _parse_iso_date
 from .delisting_cli import (
     build_tender_offer_exits_command,
     refresh_jpx_delistings_command,
+    refresh_tender_offer_exits_command,
 )
 from .edinet_cli import refresh_edinet_facts_command, refresh_edinet_metrics_command
 from .providers import ProviderBundle
@@ -240,20 +241,21 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
 
-    exits_parser = subparsers.add_parser(
-        "build-tender-offer-exits",
-        help="derive tender-offer-price exit proxies for delisted names",
-    )
-    exits_parser.add_argument(
-        "--asof",
-        required=True,
-        help="latest delisting date to resolve (YYYY-MM-DD)",
-    )
-    exits_parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
+    for name, help_text in (
+        ("build-tender-offer-exits", "derive tender-offer exits from stored EDINET archives"),
+        ("refresh-tender-offer-exits", "acquire EDINET archives and derive tender-offer exits"),
+    ):
+        exits_parser = subparsers.add_parser(name, help=help_text)
+        exits_parser.add_argument(
+            "--asof",
+            required=True,
+            help="latest delisting date to resolve (YYYY-MM-DD)",
+        )
+        exits_parser.add_argument(
+            "--sqlite-path",
+            default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+            help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+        )
 
     invalidate_parser = subparsers.add_parser(
         "invalidate-coverage",
@@ -593,6 +595,28 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
+    if args.command == "build-tender-offer-exits":
+        exits_path = Path(args.sqlite_path)
+        return build_tender_offer_exits_command(
+            sqlite_path=exits_path,
+            asof_date=_parse_iso_date(args.asof),
+            reader=EDINETReader(exits_path),
+        )
+    if args.command == "refresh-tender-offer-exits":
+        exits_path = Path(args.sqlite_path)
+        with ExitStack() as resources:
+            exits_edinet = EDINETProvider(
+                config.edinet_api_key,
+                config.cache_dir,
+                sqlite_path=exits_path,
+            )
+            resources.callback(exits_edinet.close)
+            return refresh_tender_offer_exits_command(
+                sqlite_path=exits_path,
+                asof_date=_parse_iso_date(args.asof),
+                reader=EDINETReader(exits_path),
+                acquisition=exits_edinet,
+            )
     if args.command == "extract-edinet-metrics":
         if args.lookback_days < 0:
             print("--lookback-days must be zero or greater", file=sys.stderr)
@@ -667,7 +691,6 @@ def main(argv: list[str] | None = None) -> int:
                 "refresh-edinet-documents",
                 "backfill-edinet-identity",
                 "refresh-edinet-metrics",
-                "build-tender-offer-exits",
             }
             else None
         )
@@ -720,13 +743,6 @@ def main(argv: list[str] | None = None) -> int:
             return backfill_edinet_identity_command(
                 start=_parse_iso_date(args.start),
                 end=_parse_iso_date(args.end),
-                providers=providers,
-            )
-
-        if args.command == "build-tender-offer-exits":
-            return build_tender_offer_exits_command(
-                sqlite_path=Path(args.sqlite_path),
-                asof_date=_parse_iso_date(args.asof),
                 providers=providers,
             )
 

@@ -44,7 +44,6 @@ from baibai_engine.screening.cli.cache import (
     FIN_SUMMARY_REVISION_OVERLAP_DAYS,
     refresh_edinet_documents_command,
 )
-from baibai_engine.screening.cli.delisting_cli import build_tender_offer_exits_command
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.cli.valuation_catalyst_cli import backfill_edinet_identity_command
 from baibai_engine.screening.metrics.snapshot import (
@@ -284,9 +283,9 @@ def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_aso
             "acquisition",
         ),
         (
-            ["build-tender-offer-exits", "--asof", "2026-05-08"],
-            "build_tender_offer_exits_command",
-            "providers",
+            ["refresh-tender-offer-exits", "--asof", "2026-05-08"],
+            "refresh_tender_offer_exits_command",
+            "acquisition",
         ),
     ],
 )
@@ -340,15 +339,7 @@ def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> 
             )
             == 1
         )
-        assert (
-            build_tender_offer_exits_command(
-                sqlite_path=tmp_path / "market.sqlite",
-                asof_date=date(2026, 5, 8),
-                providers=providers,
-            )
-            == 1
-        )
-    assert stderr.getvalue().count("EDINET provider is not configured") == 3
+    assert stderr.getvalue().count("EDINET provider is not configured") == 2
     assert not (tmp_path / "market.sqlite").exists()
 
 
@@ -362,6 +353,47 @@ def test_main_refresh_edinet_facts_closes_provider_on_exception() -> None:
             ["refresh-edinet-facts", "--asof", "2026-05-08"],
             edinet=edinet,
         )
+    assert edinet.close_count == 1
+
+
+def test_main_refresh_tender_offer_exits_closes_provider_on_exception() -> None:
+    edinet = _SeamEDINETProvider()
+    with (
+        patch.object(
+            app, "refresh_tender_offer_exits_command", side_effect=RuntimeError("synthetic")
+        ),
+        pytest.raises(RuntimeError, match="synthetic"),
+    ):
+        _run_cli(["refresh-tender-offer-exits", "--asof", "2026-05-08"], edinet=edinet)
+    assert edinet.close_count == 1
+
+
+def test_main_refresh_tender_offer_exits_uses_the_requested_store_for_both_inputs(
+    tmp_path: Path,
+) -> None:
+    sqlite_path = tmp_path / "other-market.sqlite"
+    edinet = _SeamEDINETProvider()
+    with (
+        patch.dict(os.environ, {"EDINET_API_KEY": "test-edinet-key"}),
+        patch.object(app, "load_project_env", return_value=None),
+        patch.object(app, "EDINETProvider", return_value=edinet) as factory,
+        patch.object(app, "refresh_tender_offer_exits_command", return_value=0) as command,
+    ):
+        assert (
+            app.main(
+                [
+                    "refresh-tender-offer-exits",
+                    "--asof",
+                    "2026-05-08",
+                    "--sqlite-path",
+                    str(sqlite_path),
+                ]
+            )
+            == 0
+        )
+    assert factory.call_args.kwargs["sqlite_path"] == sqlite_path
+    assert command.call_args.kwargs["sqlite_path"] == sqlite_path
+    assert command.call_args.kwargs["reader"]._sqlite_path == sqlite_path
     assert edinet.close_count == 1
 
 

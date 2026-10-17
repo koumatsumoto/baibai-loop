@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from collections.abc import Callable, Mapping
 from datetime import date
 from pathlib import Path
 from typing import TextIO
@@ -16,12 +17,17 @@ from baibai_engine.market.delistings import (
 )
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.tender_offer import (
+    TenderOfferDocumentReader,
     TenderOfferError,
+    TenderOfferExitSummary,
+    TenderOfferExitValue,
     build_tender_offer_exit_values,
+    derive_tender_offer_exit_values,
+    read_tender_offer_blocks,
     store_tender_offer_exit_values,
 )
 
-from .providers import ProviderBundle
+from .providers import EDINETMaintenance
 
 
 def refresh_jpx_delistings_command(*, sqlite_path: Path, stdout: TextIO | None = None) -> int:
@@ -40,32 +46,68 @@ def build_tender_offer_exits_command(
     *,
     sqlite_path: Path,
     asof_date: date,
-    providers: ProviderBundle,
+    reader: TenderOfferDocumentReader,
     stdout: TextIO | None = None,
 ) -> int:
-    """Derive tender-offer-price exit proxies for delisted names."""
+    """Derive tender-offer-price exit proxies from stored EDINET archives."""
+    return _store_and_report_exits(
+        sqlite_path=sqlite_path,
+        calculate=lambda: build_tender_offer_exit_values(
+            sqlite_path, reader=reader, asof=asof_date
+        ),
+        label="build-tender-offer-exits",
+        stdout=stdout,
+    )
+
+
+def refresh_tender_offer_exits_command(
+    *,
+    sqlite_path: Path,
+    asof_date: date,
+    reader: TenderOfferDocumentReader,
+    acquisition: EDINETMaintenance,
+    stdout: TextIO | None = None,
+) -> int:
+    """Acquire each requested archive before deriving tender-offer exit proxies."""
+
+    def acquire_and_read(doc_id: str) -> Mapping[str, str]:
+        acquisition.download_csv_zip(doc_id)
+        return read_tender_offer_blocks(reader, doc_id)
+
+    return _store_and_report_exits(
+        sqlite_path=sqlite_path,
+        calculate=lambda: derive_tender_offer_exit_values(
+            sqlite_path, read_blocks=acquire_and_read, asof=asof_date
+        ),
+        label="refresh-tender-offer-exits",
+        stdout=stdout,
+    )
+
+
+def _store_and_report_exits(
+    *,
+    sqlite_path: Path,
+    calculate: Callable[[], tuple[tuple[TenderOfferExitValue, ...], TenderOfferExitSummary]],
+    label: str,
+    stdout: TextIO | None,
+) -> int:
     out = stdout if stdout is not None else sys.stdout
-    if providers.edinet_refresh is None:
-        print("EDINET provider is not configured", file=sys.stderr)
-        return 1
     try:
-        values, summary = build_tender_offer_exit_values(
-            sqlite_path, provider=providers.edinet_refresh, asof=asof_date
-        )
+        values, summary = calculate()
         stored = store_tender_offer_exit_values(sqlite_path, values)
     except (TenderOfferError, EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as error:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 1
     print(
-        "build-tender-offer-exits: "
+        f"{label}: "
         f"delistings={summary.delisting_count}, "
         f"candidates={summary.candidate_delisting_count}, "
-        f"resolved={stored}, downloads={summary.downloaded_document_count}",
+        f"resolved={stored}, reads={summary.read_document_count}",
         file=out,
         flush=True,
     )
     print(
-        "build-tender-offer-exits rejections: "
+        f"{label} rejections: "
         + (
             ", ".join(
                 f"{reason}={count}" for reason, count in summary.rejection_reason_counts.items()
@@ -78,4 +120,8 @@ def build_tender_offer_exits_command(
     return 0
 
 
-__all__ = ("build_tender_offer_exits_command", "refresh_jpx_delistings_command")
+__all__ = (
+    "build_tender_offer_exits_command",
+    "refresh_jpx_delistings_command",
+    "refresh_tender_offer_exits_command",
+)
