@@ -19,6 +19,8 @@ from baibai_engine.collection.economic_store import EconomicSchemaError
 from baibai_engine.collection.economic_store import (
     validate_current_schema as validate_economic_schema,
 )
+from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
+from baibai_engine.collection.equity_web.models import Source as ExternalAssessmentSource
 from baibai_engine.external_assessment.acquisition.cli import (
     main as external_assessment_acquisition_main,
 )
@@ -33,12 +35,6 @@ from baibai_engine.external_assessment.acquisition.collection import (
 )
 from baibai_engine.external_assessment.acquisition.collection import (
     HostRateLimiter as ExternalAssessmentHostRateLimiter,
-)
-from baibai_engine.external_assessment.acquisition.collection import (
-    ReceivedHTML as ExternalAssessmentReceivedHTML,
-)
-from baibai_engine.external_assessment.acquisition.collection import (
-    Source as ExternalAssessmentSource,
 )
 from baibai_engine.external_assessment.acquisition.collection import (
     collect_pair as external_assessment_collect_pair,
@@ -207,6 +203,7 @@ __all__ = [
     "RUNS_DB_PATH",
     "RUN_STORE_SCHEMA_VERSION",
     "EconomicSchemaError",
+    "EquityWebSourceResponse",
     "ExternalAssessmentAnalystRatingObservation",
     "ExternalAssessmentCollectionOutcome",
     "ExternalAssessmentCollectionResult",
@@ -214,7 +211,6 @@ __all__ = [
     "ExternalAssessmentModelValuationObservation",
     "ExternalAssessmentObservation",
     "ExternalAssessmentQuantsScoreObservation",
-    "ExternalAssessmentReceivedHTML",
     "ExternalAssessmentSource",
     "IndicatorDefinitions",
     "LakeBuildError",

@@ -159,9 +159,9 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 ## 公開brokerページの観測
 
-`equity_web.source_responses`はマネックス・楽天・株マップの公開HTML応答を、受領UTC時刻・選択encoding・HTTP clientが渡したbody bytesとともに保持するL1原本の保存契約である。wire bytesや取得全体の成功証明ではない。楽天はouter pageと同じ試行のiframeを別receiptとして結ぶ。このschema 46の基盤は現行取得jobにはまだ接続していない。従来の診断用raw tarはtyped stageのcommit後にbest-effortで保存されるため、既存分をcanonical L1再構築の保証とは扱わない。
+`equity_web.source_responses`はマネックス・楽天・株マップの公開HTML応答を、受領UTC時刻・選択encoding・HTTP clientが渡したbody bytesとともに保持するL1原本の保存契約である。wire bytesや取得全体の成功証明ではない。楽天はouter pageと同じ試行のiframeを別receiptとして結ぶ。現行取得jobは同じreceipt identityをprivate raw bundle v2へ渡すが、schema 46のmarket SQLite/Lake投入にはまだ接続していない。旧診断用raw bundle v1はこの新しい原本経路で拒否し、過去分をcanonical L1再構築の保証とは扱わない。
 
-`external_assessment/acquisition`は既存の公開ページ取得adapter名であり、個人投資家の売買動向を表すdomain名ではない。`external_assessment/normalization`が同じparser version・同一性確認・正常null規則で受領HTMLを決定的にL2観測へ変換する。現行の保存済みtyped観測はL2であり、現行job未接続のHTML原本L1保存契約とは区別する。配信画面で受信できた値を保存する。マネックスの公開Scouter Lite理論株価表から、目標株価コンセンサスとPER会社予想・PERアナリスト予想・PBRのモデル価格を取得する。目標株価の原データとモデル価格の算出主体は別々に記録する。ロックされたsummaryや割安・割高の目盛りから判断を作らない。
+`external_assessment/acquisition`は既存の公開ページ取得adapter名であり、個人投資家の売買動向を表すdomain名ではない。`external_assessment/normalization`が同じparser version・同一性確認・正常null規則で受領HTMLを決定的にL2観測へ変換する。現行の保存済みtyped観測はL2であり、現行jobが接続したprivate raw bundleと、未接続のmarket SQLite/Lake原本投入を区別する。配信画面で受信できた値を保存する。マネックスの公開Scouter Lite理論株価表から、目標株価コンセンサスとPER会社予想・PERアナリスト予想・PBRのモデル価格を取得する。目標株価の原データとモデル価格の算出主体は別々に記録する。ロックされたsummaryや割安・割高の目盛りから判断を作らない。
 
 楽天の公開forecastページが指定するIFIS iframeから現在のレーティングを取得する。別の業績予想欄のアナリスト数をレーティング人数へ流用せず、確認できない尺度・方向・人数・公表日時はnullに保つ。画面の過去列は取得以前の受信履歴にはしない。両社が同じIFIS情報を配信しても独立した賛成票とは数えない。
 
@@ -173,9 +173,9 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#external-assessment-query)、比較の意味は[外部参考評価](#external-assessment)に従う。現adapterでは`share_basis`・評価対象期間・レーティング尺度が未確認のnullであり、数値deltaは基本的に`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
 
-現行の抽出済みtyped観測はDB上のL2履歴として読取に使う。新しいHTML原本L1の保存契約は現行jobに未接続であり、既存の診断用本文をその正本とは扱わない。日次の固定pair取得では公開HTTP 200の元本文とencodingを約3日のprivateな診断用データとして保存する。raw保存だけの失敗はwarningで知らせ、正常typedの保存・公開を妨げない。HTTP成功の原応答と、銘柄同一性・値が確認できたtyped観測は別であり、parse失敗や未確認の共通ページを正常観測へ変えない。過去に保存しなかった本文は取得当時の原応答として復元できない。日付別保持・候補確認・読戻しは[batch運用](../../batch/OPERATIONS.md#日次取得と固定コホートの再開)に従う。
+現行の抽出済みtyped観測はDB上のL2履歴として読取に使う。日次の固定pair取得では公開HTTP 200のbody bytesとencodingを文字decodeより前に捕捉し、bounded pairの終了後に標準tar.gzへまとめる。raw bundle v2のupload成功後だけ、選択したattempt IDとbundle keyを持つtyped cohort stageをcommitする。raw append・圧縮・upload失敗時はstageをcommitしない。hard killがcommit前に起きれば未確定GETは繰り返され得るので、各解析命令の前に永続保存されたとは主張しない。raw rootに短期lifecycleが適用される場合、長期L1保管・Lake公開は未完である。HTTP成功の原応答と、銘柄同一性・値が確認できたtyped観測は別であり、parse失敗や未確認の共通ページを正常観測へ変えない。過去に保存しなかった本文は取得当時の原応答として復元できない。日付別保持・候補確認・読戻しは[batch運用](../../batch/OPERATIONS.md#日次取得と固定コホートの再開)に従う。
 
-保持済みL1だけを指定して再解析する場合は、既存のmarket SQLiteで`external-assessment rebuild-raw --db <DB> --attempt-id <UUID>`を使う。`--attempt-id`は複数指定でき、選んだ試行すべてが完全かつ妥当な時だけ、対応する銘柄・受信時刻のL2行を同一transactionで置換する。楽天は同じ試行のouter pageと明示的に結ばれたiframeが必要である。取得失敗や応答のない試行、過去の診断用tarはこの再解析から復元しない。現行取得job・公開batchへの接続はまだない。
+保持済みL1だけを指定して再解析する場合は、既存のmarket SQLiteで`external-assessment rebuild-raw --db <DB> --attempt-id <UUID>`を使う。`--attempt-id`は複数指定でき、選んだ試行すべてが完全かつ妥当な時だけ、対応する銘柄・受信時刻のL2行を同一transactionで置換する。楽天は同じ試行のouter pageと明示的に結ばれたiframeが必要である。取得失敗や応答のない試行、過去の診断用tarはこの再解析から復元しない。現行取得jobはprivate raw bundleまで接続済みであり、market SQLite/Lakeへの原本投入と公開batch側の再解析接続はまだない。
 
 限定取得・保存済みstageの再投入は[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)、保存と照会は[market lake](./market-lake.md#external-assessment-query)を参照する。
 

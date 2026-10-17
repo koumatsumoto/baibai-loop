@@ -1,6 +1,7 @@
 """保存済み外部値だけで候補外の銘柄detailとserving exportへ到達できる。"""
 
 import json
+import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 
@@ -128,11 +129,22 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
             parse()
         observation = None
         outcome = CollectionOutcome(
-            "rakuten", "9999", "parse_failure", "no_estimates_identity_unconfirmed", 200
+            "rakuten",
+            "9999",
+            "parse_failure",
+            "no_estimates_identity_unconfirmed",
+            200,
+            str(uuid.uuid4()),
         )
     else:
         observation = parse()
-        outcome = CollectionOutcome("rakuten", "9999", "observed", http_status=200)
+        outcome = CollectionOutcome(
+            "rakuten",
+            "9999",
+            "observed",
+            http_status=200,
+            attempt_id=str(uuid.uuid4()),
+        )
     plan = make_plan(
         run_id="synthetic-missingness",
         tickers=("9999",),

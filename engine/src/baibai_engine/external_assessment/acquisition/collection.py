@@ -10,19 +10,21 @@ import signal
 import tempfile
 import threading
 import time
+import uuid
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from types import FrameType
-from typing import Any, Literal, cast
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import requests
 from pydantic import ValidationError
 
+from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, Role, Source
 from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.normalization import (
     ParseError,
@@ -58,16 +60,6 @@ RATE_LIMITED_HOSTS = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class ReceivedHTML:
-    """Public HTTP 200 body and its decoding basis, without response headers."""
-
-    url: str
-    fetched_at_utc: datetime
-    encoding: str
-    body: bytes = field(repr=False)
-
-
 PARSE_FAILURE_REASONS = frozenset(
     {
         "source_identity",
@@ -93,7 +85,6 @@ PARSE_FAILURE_REASONS = frozenset(
         "changed_quants_score",
     }
 )
-type Source = Literal["monex", "rakuten", "kabumap"]
 
 
 @dataclass(frozen=True)
@@ -103,6 +94,7 @@ class CollectionOutcome:
     status: str
     reason: str | None = None
     http_status: int | None = None
+    attempt_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -287,7 +279,17 @@ class _HttpFailure(Exception):
         self.retry_after_unrepresentable = retry_after_unrepresentable
 
 
-def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, datetime]:
+def _receive(
+    session: requests.Session,
+    url: str,
+    timeout: float,
+    *,
+    attempt_id: str,
+    source: Source,
+    ticker: str,
+    role: Role,
+    parent_receipt_id: str | None = None,
+) -> tuple[str, datetime, str | None]:
     # Redirects would add unbudgeted requests and can redirect to login pages.
     with session.get(url, timeout=timeout, allow_redirects=False) as response:
         if response.status_code != 200:
@@ -315,13 +317,28 @@ def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, 
         meta = re.search(rb"charset\s*=\s*['\"]?([\w-]+)", body[:4096], re.I)
         encoding = charset[1] if charset else meta[1].decode("ascii") if meta else "utf-8"
         callback = session.on_received_html if isinstance(session, _PairSession) else None
+        receipt_id = None
         if callback is not None:
             prepared = cast("requests.PreparedRequest | None", response.request)
             if prepared is not None and "Authorization" in prepared.headers:
                 raise RuntimeError("raw_capture_requires_anonymous_response")
-            callback(ReceivedHTML(url, received, encoding, body))
+            receipt_id = str(uuid.uuid4())
+            callback(
+                EquityWebSourceResponse(
+                    receipt_id=receipt_id,
+                    attempt_id=attempt_id,
+                    source=source,
+                    requested_ticker=ticker,
+                    role=role,
+                    parent_receipt_id=parent_receipt_id,
+                    requested_url=url,
+                    received_at_utc=received,
+                    selected_encoding=encoding,
+                    body=body,
+                )
+            )
         try:
-            return body.decode(encoding), received
+            return body.decode(encoding), received, receipt_id
         except (LookupError, UnicodeDecodeError):
             raise ParseError("response_encoding") from None
 
@@ -359,11 +376,14 @@ def collect(
     retry_after_not_before_utc = None
     retry_after_unrepresentable = False
     active: tuple[Source, str] | None = None
+    active_attempt_id: str | None = None
     started_requests = 0
     deadline = time.monotonic() + time_limit_seconds
     last_request_finished: float | None = None
 
-    def receive(url: str) -> tuple[str, datetime]:
+    def receive(
+        url: str, *, role: Role, parent_receipt_id: str | None = None
+    ) -> tuple[str, datetime, str | None]:
         nonlocal used, last_request_finished
         if used >= request_budget:
             raise _RequestLimit
@@ -384,7 +404,18 @@ def collect(
             raise _TimeLimit
         used += 1
         try:
-            return _receive(client, url, min(request_timeout_seconds, remaining))
+            assert active is not None
+            assert active_attempt_id is not None
+            return _receive(
+                client,
+                url,
+                min(request_timeout_seconds, remaining),
+                attempt_id=active_attempt_id,
+                source=active[0],
+                ticker=active[1],
+                role=role,
+                parent_receipt_id=parent_receipt_id,
+            )
         finally:
             last_request_finished = time.monotonic()
 
@@ -393,31 +424,40 @@ def collect(
             for source in sources:
                 for index, ticker in enumerate(selected):
                     active = (source, ticker)
+                    active_attempt_id = str(uuid.uuid4())
                     started_requests = used
                     try:
                         if source == "monex":
                             url = monex.public_url(ticker)
-                            html, received = receive(url)
+                            html, received, _ = receive(url, role="page")
                             observation: Observation = monex.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         elif source == "kabumap":
                             url = kabumap.public_url(ticker)
-                            html, received = receive(url)
+                            html, received, _ = receive(url, role="page")
                             observation = kabumap.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         else:
                             url = rakuten.public_url(ticker)
-                            html, _ = receive(url)
+                            html, _, page_receipt_id = receive(url, role="page")
                             url = rakuten.iframe_url(html, ticker=ticker, source_url=url)
-                            html, received = receive(url)
+                            html, received, _ = receive(
+                                url, role="iframe", parent_receipt_id=page_receipt_id
+                            )
                             observation = rakuten.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         observations.append(observation)
                         outcomes.append(
-                            CollectionOutcome(source, ticker, "observed", http_status=200)
+                            CollectionOutcome(
+                                source,
+                                ticker,
+                                "observed",
+                                http_status=200,
+                                attempt_id=active_attempt_id,
+                            )
                         )
                     except _HttpFailure as exc:
                         if exc.status == 429:
@@ -431,7 +471,13 @@ def collect(
                             else "http_failure"
                         )
                         outcomes.append(
-                            CollectionOutcome(source, ticker, category, http_status=exc.status)
+                            CollectionOutcome(
+                                source,
+                                ticker,
+                                category,
+                                http_status=exc.status,
+                                attempt_id=active_attempt_id,
+                            )
                         )
                         if exc.status in {403, 429}:
                             outcomes.extend(
@@ -440,9 +486,17 @@ def collect(
                             )
                             break
                     except requests.Timeout:
-                        outcomes.append(CollectionOutcome(source, ticker, "request_timeout"))
+                        outcomes.append(
+                            CollectionOutcome(
+                                source, ticker, "request_timeout", attempt_id=active_attempt_id
+                            )
+                        )
                     except requests.RequestException:
-                        outcomes.append(CollectionOutcome(source, ticker, "transport_failure"))
+                        outcomes.append(
+                            CollectionOutcome(
+                                source, ticker, "transport_failure", attempt_id=active_attempt_id
+                            )
+                        )
                     except ParseError as exc:
                         code = exc.args[0] if len(exc.args) == 1 else None
                         reason = (
@@ -451,12 +505,19 @@ def collect(
                             else "unclassified_parse_failure"
                         )
                         outcomes.append(
-                            CollectionOutcome(source, ticker, "parse_failure", reason, 200)
+                            CollectionOutcome(
+                                source, ticker, "parse_failure", reason, 200, active_attempt_id
+                            )
                         )
                     except ValidationError:
                         outcomes.append(
                             CollectionOutcome(
-                                source, ticker, "parse_failure", "observation_contract", 200
+                                source,
+                                ticker,
+                                "parse_failure",
+                                "observation_contract",
+                                200,
+                                active_attempt_id,
                             )
                         )
     except _RequestLimit:
@@ -481,6 +542,7 @@ def collect(
                             pending_ticker,
                             "incomplete" if attempted else "not_attempted",
                             stop_reason,
+                            attempt_id=active_attempt_id if attempted else None,
                         )
                     )
     return CollectionResult(
@@ -530,7 +592,7 @@ class _PairSession(requests.Session):
         deadline: float,
         on_response: Callable[[datetime, int, int], None] | None,
         rate_limiter: HostRateLimiter | None = None,
-        on_received_html: Callable[[ReceivedHTML], None] | None = None,
+        on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
     ) -> None:
         super().__init__()
         self.client = client
@@ -586,7 +648,7 @@ def collect_pair(
     *,
     source: Source,
     on_response: Callable[[datetime, int, int], None] | None = None,
-    on_received_html: Callable[[ReceivedHTML], None] | None = None,
+    on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
     time_limit_seconds: float = DEFAULT_PAIR_TIME_LIMIT_SECONDS,
     request_timeout_seconds: float = DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
     session: requests.Session | None = None,
@@ -649,7 +711,14 @@ def collect_pair(
         if any(outcome.status == "incomplete" for outcome in result.outcomes):
             return replace(
                 result,
-                outcomes=(CollectionOutcome(source, ticker, "request_timeout"),),
+                outcomes=(
+                    CollectionOutcome(
+                        source,
+                        ticker,
+                        "request_timeout",
+                        attempt_id=result.outcomes[0].attempt_id,
+                    ),
+                ),
                 stop_reason="wall_clock_limit",
             )
         if result.outcomes[0].http_status in {403, 429}:

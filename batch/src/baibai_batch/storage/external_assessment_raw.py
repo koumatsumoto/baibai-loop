@@ -1,4 +1,4 @@
-"""Private diagnostic cohort bundles; typed stage outcomes remain authoritative."""
+"""Private durable originals for selected public-page acquisition attempts."""
 
 from __future__ import annotations
 
@@ -17,18 +17,118 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, cast
 
 from baibai_batch.storage.external_assessment_identity import RAW_BUNDLE_FORMAT, RAW_PREFIX
 from baibai_batch.storage.external_assessment_staging import prefix
 from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.batch_api import ExternalAssessmentReceivedHTML, ExternalAssessmentSource
+from baibai_engine.batch_api import EquityWebSourceResponse
 
 RETENTION_DAYS = 3
 
 
 def _date_prefix(day: date) -> str:
     return f"{RAW_PREFIX}utc-date/{day.isoformat()}"
+
+
+_RECEIPT_FIELDS = {
+    "receipt_id",
+    "attempt_id",
+    "source",
+    "requested_ticker",
+    "role",
+    "parent_receipt_id",
+    "requested_url",
+    "received_at_utc",
+    "selected_encoding",
+    "http_status",
+    "body_sha256",
+    "body_bytes",
+    "member",
+}
+_TICKER = re.compile(r"[0-9][0-9A-Z]{3}")
+
+
+def _uuid(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        identity = uuid.UUID(value)
+    except ValueError:
+        return False
+    return identity.int != 0 and str(identity) == value
+
+
+def _text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value == value.strip()
+        and not any(ord(character) < 32 for character in value)
+    )
+
+
+def _validate_response(response: EquityWebSourceResponse) -> None:
+    if (
+        not isinstance(cast("object", response), EquityWebSourceResponse)
+        or not _uuid(response.receipt_id)
+        or not _uuid(response.attempt_id)
+        or response.source not in ("monex", "rakuten", "kabumap")
+        or not isinstance(cast("object", response.requested_ticker), str)
+        or _TICKER.fullmatch(response.requested_ticker) is None
+        or response.role not in ("page", "iframe")
+        or not _text(response.requested_url)
+        or not _text(response.selected_encoding)
+        or not isinstance(cast("object", response.body), bytes)
+        or not isinstance(cast("object", response.received_at_utc), datetime)
+        or response.received_at_utc.utcoffset() != timedelta(0)
+    ):
+        raise ValueError("invalid external assessment raw response")
+    if response.role == "page":
+        if response.parent_receipt_id is not None:
+            raise ValueError("page response cannot have a parent")
+    elif response.source != "rakuten" or not _uuid(response.parent_receipt_id):
+        raise ValueError("iframe response requires a retained Rakuten page")
+
+
+def _validate_lineage(responses: list[EquityWebSourceResponse]) -> None:
+    by_id: dict[str, EquityWebSourceResponse] = {}
+    by_attempt: dict[str, tuple[str, str, set[str]]] = {}
+    for response in responses:
+        if response.receipt_id in by_id:
+            raise ValueError("duplicate external assessment raw receipt")
+        by_id[response.receipt_id] = response
+        prior = by_attempt.get(response.attempt_id)
+        if prior is None:
+            by_attempt[response.attempt_id] = (
+                response.source,
+                response.requested_ticker,
+                {response.role},
+            )
+        elif (response.source, response.requested_ticker) != prior[:2] or response.role in prior[2]:
+            raise ValueError("invalid external assessment raw attempt identity")
+        else:
+            prior[2].add(response.role)
+    for response in responses:
+        if response.role == "iframe":
+            assert response.parent_receipt_id is not None
+            parent = by_id.get(response.parent_receipt_id)
+            if (
+                parent is None
+                or parent.role != "page"
+                or (parent.attempt_id, parent.source, parent.requested_ticker)
+                != (response.attempt_id, response.source, response.requested_ticker)
+            ):
+                raise ValueError("external assessment iframe parent is not retained")
+
+
+def _unique_json(items: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in items:
+        if key in result:
+            raise ValueError("duplicate external assessment raw field")
+        result[key] = value
+    return result
 
 
 class RawBundle:
@@ -59,12 +159,27 @@ class RawBundle:
     ) -> None:
         self._temporary.cleanup()
 
-    def append(
-        self,
-        source: ExternalAssessmentSource,
-        ticker: str,
-        received: ExternalAssessmentReceivedHTML,
-    ) -> None:
+    def append(self, received: EquityWebSourceResponse) -> None:
+        _validate_response(received)
+        for previous in self.receipts:
+            if previous["receipt_id"] == received.receipt_id:
+                raise ValueError("duplicate external assessment raw receipt")
+            if previous["attempt_id"] == received.attempt_id and (
+                (previous["source"], previous["requested_ticker"])
+                != (
+                    received.source,
+                    received.requested_ticker,
+                )
+                or previous["role"] == received.role
+            ):
+                raise ValueError("invalid external assessment raw attempt identity")
+        if received.role == "iframe" and not any(
+            previous["receipt_id"] == received.parent_receipt_id
+            and previous["attempt_id"] == received.attempt_id
+            and previous["role"] == "page"
+            for previous in self.receipts
+        ):
+            raise ValueError("external assessment iframe parent is not retained")
         member = f"bodies/{len(self.receipts):04d}.html"
         path = self.directory / member
         path.parent.mkdir(mode=0o700, exist_ok=True)
@@ -73,11 +188,15 @@ class RawBundle:
         # Only these fields enter the archive; no cookies, headers or credentials.
         self.receipts.append(
             {
-                "distributor": source,
-                "requested_ticker": ticker,
-                "url": received.url,
-                "fetched_at_utc": received.fetched_at_utc.isoformat(timespec="microseconds"),
-                "encoding": received.encoding,
+                "receipt_id": received.receipt_id,
+                "attempt_id": received.attempt_id,
+                "source": received.source,
+                "requested_ticker": received.requested_ticker,
+                "role": received.role,
+                "parent_receipt_id": received.parent_receipt_id,
+                "requested_url": received.requested_url,
+                "received_at_utc": received.received_at_utc.isoformat(timespec="microseconds"),
+                "selected_encoding": received.selected_encoding,
                 "http_status": 200,
                 "body_sha256": hashlib.sha256(received.body).hexdigest(),
                 "body_bytes": len(received.body),
@@ -133,25 +252,50 @@ class RawBundle:
             raise LakePublishError("external assessment raw bundle write receipt mismatch")
 
 
-def read_raw_bundle(store: ObjectStore, key: str) -> tuple[dict[str, Any], tuple[bytes, ...]]:
-    """Restore exact bytes from a private tar.gz without extracting paths to disk."""
+def read_raw_bundle(
+    store: ObjectStore, key: str
+) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]]:
+    """Validate canonical v2 receipts and bytes without extracting paths to disk."""
     payload = store.get_bytes(key)
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
         manifest_stream = archive.extractfile("manifest.json")
         if manifest_stream is None:
             raise ValueError("missing external assessment raw manifest")
         with manifest_stream:
-            manifest = json.load(manifest_stream)
-        if not isinstance(manifest, dict) or manifest.get("format") != RAW_BUNDLE_FORMAT:
+            manifest = json.load(manifest_stream, object_pairs_hook=_unique_json)
+        if (
+            not isinstance(manifest, dict)
+            or set(manifest) != {"format", "batch_id", "cohort_index", "created_at_utc", "receipts"}
+            or manifest["format"] != RAW_BUNDLE_FORMAT
+            or not isinstance(manifest["batch_id"], str)
+            or type(manifest["cohort_index"]) is not int
+            or manifest["cohort_index"] < 0
+            or not isinstance(manifest["created_at_utc"], str)
+        ):
             raise ValueError("invalid external assessment raw bundle")
+        prefix(manifest["batch_id"])
+        try:
+            created = datetime.fromisoformat(manifest["created_at_utc"])
+        except ValueError:
+            raise ValueError("invalid external assessment raw bundle time") from None
+        if created.utcoffset() != timedelta(0) or not re.fullmatch(
+            rf"{re.escape(_date_prefix(created.date()))}/bundles/"
+            rf"{re.escape(manifest['batch_id'])}/cohort-{manifest['cohort_index']:04d}-[0-9a-f]{{32}}\.tar\.gz",
+            key,
+        ):
+            raise ValueError("external assessment raw bundle binding mismatch")
         receipts = manifest.get("receipts")
-        if not isinstance(receipts, list):
+        if not isinstance(receipts, list) or not receipts:
             raise ValueError("invalid external assessment raw receipts")
         expected_members = ["manifest.json"]
-        bodies = []
+        responses: list[EquityWebSourceResponse] = []
         for index, receipt in enumerate(receipts):
             member = f"bodies/{index:04d}.html"
-            if not isinstance(receipt, dict) or receipt.get("member") != member:
+            if (
+                not isinstance(receipt, dict)
+                or set(receipt) != _RECEIPT_FIELDS
+                or receipt.get("member") != member
+            ):
                 raise ValueError("invalid external assessment raw member")
             info = archive.getmember(member)
             if not info.isfile():
@@ -161,15 +305,44 @@ def read_raw_bundle(store: ObjectStore, key: str) -> tuple[dict[str, Any], tuple
             with stream:
                 body = stream.read()
             if (
+                type(receipt["body_bytes"]) is not int
+                or receipt["body_bytes"] < 0
+                or not isinstance(receipt["body_sha256"], str)
+            ):
+                raise ValueError("invalid external assessment raw body metadata")
+            if (
                 len(body) != receipt["body_bytes"]
                 or hashlib.sha256(body).hexdigest() != receipt["body_sha256"]
             ):
                 raise LakePublishError("external assessment raw body readback mismatch")
             expected_members.append(member)
-            bodies.append(body)
+            try:
+                received_at = datetime.fromisoformat(receipt["received_at_utc"])
+            except (TypeError, ValueError):
+                raise ValueError("invalid external assessment raw receipt time") from None
+            response = EquityWebSourceResponse(
+                receipt_id=receipt["receipt_id"],
+                attempt_id=receipt["attempt_id"],
+                source=receipt["source"],
+                requested_ticker=receipt["requested_ticker"],
+                role=receipt["role"],
+                parent_receipt_id=receipt["parent_receipt_id"],
+                requested_url=receipt["requested_url"],
+                received_at_utc=received_at,
+                selected_encoding=receipt["selected_encoding"],
+                body=body,
+            )
+            _validate_response(response)
+            if (
+                receipt["received_at_utc"] != received_at.isoformat(timespec="microseconds")
+                or receipt["http_status"] != 200
+            ):
+                raise ValueError("invalid external assessment raw receipt metadata")
+            responses.append(response)
         if archive.getnames() != expected_members:
             raise ValueError("unexpected external assessment raw archive members")
-    return manifest, tuple(bodies)
+    _validate_lineage(responses)
+    return manifest, tuple(responses)
 
 
 def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> dict[str, Any]:

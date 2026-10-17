@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 import sqlite3
 import subprocess
+import uuid
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -163,6 +164,7 @@ def publication(tmp_path, monkeypatch):
             "observed" if observation else "parse_failure",
             None if observation else "no_estimates_identity_unconfirmed",
             200,
+            str(uuid.uuid4()),
         )
         journal = record_outcome(plan, journal, outcome, observation)
     put_private(
@@ -643,7 +645,13 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
     journal = record_outcome(
         p,
         new_result(p, 0),
-        ExternalAssessmentCollectionOutcome("kabumap", "8306", "observed", http_status=200),
+        ExternalAssessmentCollectionOutcome(
+            "kabumap",
+            "8306",
+            "observed",
+            http_status=200,
+            attempt_id=str(uuid.uuid4()),
+        ),
         item,
     )
     put_private(store, stage_key(p, 0), stage_bytes(p, CohortStage(journal)), previous_etag=None)

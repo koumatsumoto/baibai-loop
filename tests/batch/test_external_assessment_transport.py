@@ -5,22 +5,23 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import uuid
 from collections import Counter
 
 import pytest
 import requests
 from botocore.exceptions import ClientError, ReadTimeoutError
+from tests.batch.external_assessment_response_fixtures import response
 from tests.batch.test_external_assessment_daily import FakeObjectStore, observation, plan
 from tests.engine.test_external_assessment_sources import monex_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.storage import external_assessment_raw as external_assessment_raw
 from baibai_batch.storage import external_assessment_staging as external_assessment_staging
-from baibai_batch.storage.lake_publish import Boto3R2Store
+from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError
 from baibai_engine.batch_api import (
     ExternalAssessmentCollectionOutcome,
     ExternalAssessmentCollectionResult,
-    ExternalAssessmentReceivedHTML,
 )
 
 
@@ -97,14 +98,17 @@ def collector(monkeypatch, clock, calls):
         clock[0] += 0.05  # Fixed simulated provider receive/parse latency.
         received = observation(ticker).fetched_at_utc
         body = ("public " + ticker).encode()
+        attempt_id = str(uuid.uuid4())
         on_received_html(
-            ExternalAssessmentReceivedHTML(
-                "https://synthetic.invalid/" + ticker, received, "utf-8", body
-            )
+            response(source, ticker, body, attempt_id=attempt_id, received_at_utc=received)
         )
         return ExternalAssessmentCollectionResult(
             (observation(ticker),),
-            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
+            (
+                ExternalAssessmentCollectionOutcome(
+                    source, ticker, "observed", http_status=200, attempt_id=attempt_id
+                ),
+            ),
             1,
         )
 
@@ -131,7 +135,9 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
         metadata, bodies = external_assessment_raw.read_raw_bundle(
             store, durable.raw_bundle_keys[0]
         )
-        assert bodies == tuple(("public " + ticker).encode() for ticker in p.tickers)
+        assert tuple(item.body for item in bodies) == tuple(
+            ("public " + ticker).encode() for ticker in p.tickers
+        )
         assert [item["requested_ticker"] for item in metadata["receipts"]] == list(p.tickers)
         before = client.calls["PUT"]
         resumed = daily.acquire_cohort(store, p, 0)
@@ -142,7 +148,7 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
     slow, fast = runs
     assert slow[1] == {"HEAD": 4, "PUT": 2}
     assert fast[1] == {"HEAD": 2, "PUT": 2}
-    assert fast[2].result == slow[2].result
+    assert fast[2].result.observations == slow[2].result.observations
     assert slow[0] == pytest.approx(3.1)
     assert fast[0] == pytest.approx(2.9)
     assert fast[3]["storage_elapsed_seconds"] == pytest.approx(0.4)
@@ -155,7 +161,7 @@ def test_ambiguous_stage_acknowledgement_reads_actual_result(monkeypatch, fault)
     monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
     collector(monkeypatch, clock, calls)
     store, client = store_and_client(monkeypatch, clock, verify_put_with_head=False)
-    client.put_fault = 1, fault
+    client.put_fault = 2, fault
     if fault == "conflict":
         with pytest.raises(RuntimeError, match="conditional"):
             daily.acquire_cohort(store, plan(tickers=("7203", "9432")), 0)
@@ -169,19 +175,17 @@ def test_ambiguous_stage_acknowledgement_reads_actual_result(monkeypatch, fault)
 
 
 @pytest.mark.parametrize("fault", ["conflict", "lost_response", "missing_generation"])
-def test_failed_bundle_acknowledgement_keeps_primary_result(monkeypatch, capsys, fault):
+def test_failed_bundle_acknowledgement_prevents_stage_commit(monkeypatch, capsys, fault):
     clock, calls = [0.0], []
     monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
     collector(monkeypatch, clock, calls)
     store, client = store_and_client(monkeypatch, clock, verify_put_with_head=False)
-    client.put_fault = 2, fault
+    client.put_fault = 1, fault
     p = plan()
-    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
-    assert external_assessment_staging.read_stage(store, p, 0)[0].result.observations == (
-        observation(),
-    )
+    with pytest.raises(LakePublishError):
+        daily.acquire_cohort(store, p, 0)
+    assert external_assessment_staging.read_stage(store, p, 0) is None
     output = capsys.readouterr()
-    assert "typed stage unchanged" in output.err
     assert "synthetic.invalid" not in output.err
 
 

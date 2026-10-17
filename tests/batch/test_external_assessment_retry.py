@@ -152,6 +152,11 @@ def test_rakuten_retry_restarts_outer_page_and_archives_every_received_200(monke
 
     manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
     assert len(manifest["receipts"]) == len(bodies) == 3
+    assert bodies[0].role == bodies[1].role == "page"
+    assert bodies[0].attempt_id != bodies[1].attempt_id
+    assert bodies[2].role == "iframe"
+    assert bodies[2].attempt_id == bodies[1].attempt_id == saved.result.entries[0].attempt_id
+    assert bodies[2].parent_receipt_id == bodies[1].receipt_id
 
 
 @pytest.mark.parametrize(
@@ -201,6 +206,8 @@ def test_timeout_has_one_attempt_and_controlled_wall_clock_stop_saves_partial(mo
     saved = staging.read_stage(store, p, 0)[0]
     assert [entry.state for entry in saved.result.entries] == ["failure", "unattempted"]
     assert saved.result.entries[0].reason == "request_timeout"
+    assert saved.result.entries[0].attempt_id is not None
+    assert saved.raw_bundle_keys == ()
 
 
 def test_403_stops_current_cohort_after_one_request(monkeypatch, clock):

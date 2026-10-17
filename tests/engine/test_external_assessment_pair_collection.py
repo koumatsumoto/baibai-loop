@@ -164,11 +164,10 @@ def test_identity_unknown_is_fixed_failure_without_null_observation(clock, ticke
         clock=clock,
     )
     result = pair(client, source="rakuten", ticker=ticker)
-    assert result.outcomes == (
-        collection.CollectionOutcome(
-            "rakuten", ticker, "parse_failure", "no_estimates_identity_unconfirmed", 200
-        ),
-    )
+    assert result.outcomes[0].status == "parse_failure"
+    assert result.outcomes[0].reason == "no_estimates_identity_unconfirmed"
+    assert result.outcomes[0].http_status == 200
+    assert result.outcomes[0].attempt_id is not None
     assert not result.observations
     assert result.stop_reason is None
     assert result.requests == 2
@@ -256,9 +255,14 @@ def test_two_http_receipt_times_and_content_accounting_without_durable_callbacks
     result = pair(client, source="rakuten", on_received_html=received.append)
     assert result.requests == 2
     assert result.response_content_bytes == sum(len(html.encode()) for html in pages)
-    assert result.observations[0].fetched_at_utc == received[-1].fetched_at_utc
-    assert result.last_response_finished_at_utc == received[-1].fetched_at_utc
+    assert result.observations[0].fetched_at_utc == received[-1].received_at_utc
+    assert result.last_response_finished_at_utc == received[-1].received_at_utc
     assert [item.body for item in received] == [html.encode() for html in pages]
+    assert received[0].role == "page"
+    assert received[0].parent_receipt_id is None
+    assert received[1].role == "iframe"
+    assert received[1].parent_receipt_id == received[0].receipt_id
+    assert received[0].attempt_id == received[1].attempt_id == result.outcomes[0].attempt_id
     assert all(
         call[1]["allow_redirects"] is False and call[1]["timeout"] <= 30 for call in client.calls
     )

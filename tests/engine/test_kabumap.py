@@ -153,8 +153,13 @@ def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect):
     assert read_stages(store, p)[0][0] == saved
     manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
     meta, body = manifest["receipts"][0], bodies[0]
+    assert body.source == "kabumap"
+    assert body.role == "page"
+    assert body.attempt_id == saved.result.entries[0].attempt_id
+    assert body.body == html().encode("shift_jis")
     reparsed = observation(
-        text=body.decode(meta["encoding"]), received=datetime.fromisoformat(meta["fetched_at_utc"])
+        text=body.body.decode(meta["selected_encoding"]),
+        received=datetime.fromisoformat(meta["received_at_utc"]),
     )
     assert reparsed == saved.result.observations[0]
     external_assessment_daily.acquire_cohort(store, p, 0)

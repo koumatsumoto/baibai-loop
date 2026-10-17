@@ -3,11 +3,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import uuid
 from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
+from tests.batch.external_assessment_response_fixtures import response
 from tests.engine.test_external_assessment_daily_verification import ASOF, build_master_lake
+from tests.engine.test_external_assessment_sources import monex_html
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.jobs import external_assessment_daily as daily
@@ -16,15 +19,16 @@ from baibai_batch.jobs.external_assessment_cohorts import (
     new_result,
     record_outcome,
 )
+from baibai_batch.storage import external_assessment_raw
 from baibai_batch.storage import external_assessment_staging as staging
 from baibai_batch.storage.lake_publish import LakeCASConflict, LakePublishError, RemoteObject
 from baibai_engine.batch_api import (
     ExternalAssessmentCollectionOutcome,
     ExternalAssessmentCollectionResult,
     ExternalAssessmentModelValuationObservation,
-    ExternalAssessmentReceivedHTML,
     external_assessment_collector_binding,
 )
+from baibai_engine.external_assessment.normalization import monex
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.objects import LakeObjectError
 
@@ -138,18 +142,21 @@ def seed_stage(store, p, result, *, http_requests=0):
 
 def completed_pair(p, journal, ticker, status):
     active = journal
+    attempt_id = str(uuid.uuid4())
     if status == "parse_failure":
         return record_outcome(
             p,
             active,
             ExternalAssessmentCollectionOutcome(
-                "monex", ticker, status, "missing_theory_table", 200
+                "monex", ticker, status, "missing_theory_table", 200, attempt_id
             ),
         )
     return record_outcome(
         p,
         active,
-        ExternalAssessmentCollectionOutcome("monex", ticker, "observed", http_status=200),
+        ExternalAssessmentCollectionOutcome(
+            "monex", ticker, "observed", http_status=200, attempt_id=attempt_id
+        ),
         observation(ticker, missing=status == "normal_null"),
     )
 
@@ -322,23 +329,26 @@ def test_old_binding_plan_with_pending_acquisition_is_rejected(monkeypatch):
     assert not any(operation == "PUT" for operation, _ in store.events)
 
 
-def wire_success(monkeypatch, store, p, *, after=None, raw=False):
+def wire_success(monkeypatch, store, p, *, after=None, raw=True):
     calls = []
 
     def collect(ticker, *, source, on_received_html, **kwargs):
         # Nothing is committed between HTTP calls in an ordinary cohort.
         calls.append(ticker)
+        attempt_id = str(uuid.uuid4())
         if raw:
             on_received_html(
-                ExternalAssessmentReceivedHTML(
-                    "https://synthetic.invalid/source", RECEIVED, "utf-8", b"public"
-                )
+                response(source, ticker, b"public", attempt_id=attempt_id, received_at_utc=RECEIVED)
             )
         if after:
             after(ticker)
         return ExternalAssessmentCollectionResult(
             (observation(ticker),),
-            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
+            (
+                ExternalAssessmentCollectionOutcome(
+                    source, ticker, "observed", http_status=200, attempt_id=attempt_id
+                ),
+            ),
             1,
             response_content_bytes=6 if raw else 0,
         )
@@ -347,7 +357,7 @@ def wire_success(monkeypatch, store, p, *, after=None, raw=False):
     return calls
 
 
-def test_normal_fifty_pair_cohort_has_one_stage_put_then_one_raw_bundle(monkeypatch):
+def test_normal_fifty_pair_cohort_uploads_one_raw_bundle_then_stage(monkeypatch):
     p = plan(tickers=tuple(str(1000 + i) for i in range(50)))
     store = FakeObjectStore()
     calls = wire_success(monkeypatch, store, p, raw=True)
@@ -355,11 +365,11 @@ def test_normal_fifty_pair_cohort_has_one_stage_put_then_one_raw_bundle(monkeypa
     assert len(calls) == report["provider_requests"] == 50
     assert report["cohort_complete"] is True
     assert len(store.puts) == 2
-    assert store.puts[0][0] == staging.stage_key(p, 0)
+    assert store.puts[1][0] == staging.stage_key(p, 0)
     assert all(event[0] != "GET" for event in store.events)
     saved = stage(store, p)
     assert saved.http_requests == 50
-    assert saved.raw_bundle_keys == (store.puts[1][0],)
+    assert saved.raw_bundle_keys == (store.puts[0][0],)
     before = list(store.puts)
     report = daily.acquire_cohort(store, p, 0)
     assert report["provider_requests"] == 0
@@ -392,20 +402,39 @@ def test_controlled_partial_commit_preserves_receipt_and_failure_then_resumes_mi
 
     def collect(ticker, *, source, **kwargs):
         seen.append(ticker)
+        attempt_id = str(uuid.uuid4())
+        kwargs["on_received_html"](
+            response(
+                source,
+                ticker,
+                b"invalid" if ticker == "7203" else b"public",
+                attempt_id=attempt_id,
+                received_at_utc=RECEIVED,
+            )
+        )
         if ticker == "7203":
             timer[0] = 101
             return ExternalAssessmentCollectionResult(
                 (),
                 (
                     ExternalAssessmentCollectionOutcome(
-                        source, ticker, "parse_failure", "missing_theory_table", 200
+                        source,
+                        ticker,
+                        "parse_failure",
+                        "missing_theory_table",
+                        200,
+                        attempt_id,
                     ),
                 ),
                 1,
             )
         return ExternalAssessmentCollectionResult(
             (observation(ticker),),
-            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
+            (
+                ExternalAssessmentCollectionOutcome(
+                    source, ticker, "observed", http_status=200, attempt_id=attempt_id
+                ),
+            ),
             1,
         )
 
@@ -419,14 +448,17 @@ def test_controlled_partial_commit_preserves_receipt_and_failure_then_resumes_mi
         "failure",
         "unattempted",
     ]
-    assert len(store.puts) == 1
+    assert len(partial.raw_bundle_keys) == 1
+    assert len(store.puts) == 2
     timer[0] = 0
     daily.acquire_cohort(store, p, 0)
     complete = stage(store, p)
     assert seen == ["6758", "7203", "9432"]
     assert complete.result.entries[:2] == partial.result.entries[:2]
+    assert complete.raw_bundle_keys[:1] == partial.raw_bundle_keys
+    assert len(complete.raw_bundle_keys) == 2
     assert complete.result.observations[0].fetched_at_utc == RECEIVED
-    assert len(store.puts) == 2
+    assert len(store.puts) == 4
 
 
 def test_empty_soft_stop_does_not_write_a_stage(monkeypatch):
@@ -450,9 +482,17 @@ def test_hard_kill_before_commit_allows_reget_without_durable_reservation(monkey
         assert store.puts == []
         if ticker == "7203":
             raise KeyboardInterrupt
+        attempt_id = str(uuid.uuid4())
+        kwargs["on_received_html"](
+            response(source, ticker, b"public", attempt_id=attempt_id, received_at_utc=RECEIVED)
+        )
         return ExternalAssessmentCollectionResult(
             (observation(ticker),),
-            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
+            (
+                ExternalAssessmentCollectionOutcome(
+                    source, ticker, "observed", http_status=200, attempt_id=attempt_id
+                ),
+            ),
             1,
         )
 
@@ -470,59 +510,97 @@ def test_hard_kill_before_commit_allows_reget_without_durable_reservation(monkey
 def test_ambiguous_stage_put_adopts_actual_saved_result(monkeypatch, fault):
     p, store = plan(), FakeObjectStore()
     wire_success(monkeypatch, store, p)
-    store.put_fault = (1, fault)
+    store.put_fault = (2, fault)
     report = daily.acquire_cohort(store, p, 0)
     assert report["cohort_complete"] is True
-    assert len(store.puts) == 1
+    assert len(store.puts) == 2
     assert stage(store, p).result.observations == (observation(),)
 
 
 @pytest.mark.parametrize("fault", ["before", "cas"])
-def test_unsaved_stage_failure_is_visible_and_does_not_upload_raw(monkeypatch, fault):
+def test_unsaved_stage_failure_is_visible_after_durable_raw_upload(monkeypatch, fault):
     p, store = plan(), FakeObjectStore()
     wire_success(monkeypatch, store, p, raw=True)
-    store.put_fault = (1, fault)
+    store.put_fault = (2, fault)
     with pytest.raises(LakePublishError):
         daily.acquire_cohort(store, p, 0)
-    assert len(store.puts) == 1
+    assert len(store.puts) == 2
+    assert store.puts[0][0].startswith("external-assessment/raw/")
     assert staging.read_stage(store, p, 0) is None
 
 
 def test_competing_saved_timestamp_wins_without_overwrite_or_wrong_raw(monkeypatch):
     p, store = plan(), FakeObjectStore()
     original_put = store.put_file
-    winner_obs = observation().model_copy(update={"fetched_at_utc": RECEIVED.replace(second=2)})
+    winner_response = response(
+        "monex",
+        "7203",
+        monex_html().encode(),
+        url=monex.public_url("7203"),
+        received_at_utc=RECEIVED.replace(second=2),
+    )
+    winner_obs = monex.parse_html(
+        winner_response.body.decode(),
+        ticker="7203",
+        source_url=winner_response.requested_url,
+        fetched_at_utc=winner_response.received_at_utc,
+    )
+    with external_assessment_raw.RawBundle(p.run_id, 0) as bundle:
+        bundle.append(winner_response)
+        winner_key = bundle.finish()
+        bundle.upload(store)
+    assert winner_key is not None
     winner = staging.CohortStage(
         record_outcome(
             p,
             new_result(p, 0),
-            ExternalAssessmentCollectionOutcome("monex", "7203", "observed", http_status=200),
+            ExternalAssessmentCollectionOutcome(
+                "monex",
+                "7203",
+                "observed",
+                http_status=200,
+                attempt_id=winner_response.attempt_id,
+            ),
             winner_obs,
-        )
+        ),
+        raw_bundle_keys=(winner_key,),
     )
 
     def conflict(key, path, **kwargs):
-        store.seed(key, staging.stage_bytes(p, winner))
+        if key == staging.stage_key(p, 0):
+            store.seed(key, staging.stage_bytes(p, winner))
         return original_put(key, path, **kwargs)
 
     monkeypatch.setattr(store, "put_file", conflict)
     wire_success(monkeypatch, store, p, raw=True)
     assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
-    assert stage(store, p) == winner
-    assert len(store.puts) == 1
+    saved = stage(store, p)
+    losing_key = store.puts[1][0]
+    assert losing_key != winner_key
+    assert saved == winner
+    assert saved.result.entries[0].attempt_id == winner_response.attempt_id
+    assert saved.result.observations == (winner_obs,)
+    assert saved.raw_bundle_keys == (winner_key,)
+    assert losing_key not in saved.raw_bundle_keys
+    _, retained = external_assessment_raw.read_raw_bundle(store, winner_key)
+    _, losing = external_assessment_raw.read_raw_bundle(store, losing_key)
+    assert retained == (winner_response,)
+    assert losing[0].attempt_id != winner_response.attempt_id
+    assert store.puts[2][0] == staging.stage_key(p, 0)
+    assert len(store.puts) == 3
 
 
 def test_partial_stage_conflict_keeps_saved_failure_and_reports_missing(monkeypatch):
     p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
     previous = completed_pair(p, new_result(p, 0), "6758", "parse_failure")
     seed_stage(store, p, previous)
-    store.put_fault = (1, "cas")
+    store.put_fault = (2, "cas")
     calls = wire_success(monkeypatch, store, p)
     report = daily.acquire_cohort(store, p, 0)
     assert calls == ["7203"]
     assert report["cohort_complete"] is False
     assert stage(store, p).result == previous
-    assert len(store.puts) == 1
+    assert len(store.puts) == 2
 
 
 def test_stage_commit_cannot_change_saved_outcomes_or_timestamps():
@@ -543,7 +621,7 @@ def test_stage_rejects_old_checkpoint_and_corrupt_payload(fault):
     p = plan()
     value = json.loads(staging.stage_bytes(p, staging.CohortStage(new_result(p, 0))))
     if fault == "old_format":
-        value["format"] = "retail-private-checkpoint-v2"
+        value["format"] = "external-assessment-cohort-stage-v1"
     elif fault == "wrong_binding":
         value["result"]["plan_sha256"] = "different"
     elif fault == "negative_counter":

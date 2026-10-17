@@ -61,9 +61,9 @@ def test_http_redirect_and_server_error_are_failures_before_null_parsing(status,
     assert result.requests == 1
     assert len(client.calls) == 1
     assert client.calls[0][1]["allow_redirects"] is False
-    assert result.outcomes == (
-        collection.CollectionOutcome("monex", "7203", "http_failure", http_status=status),
-    )
+    assert result.outcomes[0].status == "http_failure"
+    assert result.outcomes[0].http_status == status
+    assert result.outcomes[0].attempt_id is not None
     assert result.summary()["outcome_counts"] == {"http_failure": 1}
     assert "secret" not in json.dumps(result.summary())
 
@@ -115,9 +115,10 @@ def test_invalid_bytes_and_unknown_charset_are_fixed_failures_not_null(content_t
     result = collection.collect(["7203"], sources=("monex",), session=client)
     assert not result.observations
     assert result.requests == 1
-    assert result.outcomes == (
-        collection.CollectionOutcome("monex", "7203", "parse_failure", "response_encoding", 200),
-    )
+    assert result.outcomes[0].status == "parse_failure"
+    assert result.outcomes[0].reason == "response_encoding"
+    assert result.outcomes[0].http_status == 200
+    assert result.outcomes[0].attempt_id is not None
     assert result.summary()["outcome_counts"] == {"parse_failure": 1}
     assert "private-secret" not in json.dumps(result.summary())
 

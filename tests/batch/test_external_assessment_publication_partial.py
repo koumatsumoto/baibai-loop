@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -68,7 +69,12 @@ def partial_batch(publication):
             plan,
             confirmed,
             ExternalAssessmentCollectionOutcome(
-                observation.distributor, "130A", "observed", None, 200
+                observation.distributor,
+                "130A",
+                "observed",
+                None,
+                200,
+                str(uuid.uuid4()),
             ),
             observation,
         )
@@ -77,7 +83,12 @@ def partial_batch(publication):
         plan,
         halted,
         ExternalAssessmentCollectionOutcome(
-            "monex", "6758", "parse_failure", "missing_theory_table", 200
+            "monex",
+            "6758",
+            "parse_failure",
+            "missing_theory_table",
+            200,
+            str(uuid.uuid4()),
         ),
     )
     for checkpoint in (
@@ -169,7 +180,11 @@ def test_explicit_partial_keeps_global_access_halt_and_never_attempted_pairs(
     store, plan, _, _, _, _, _ = partial_batch
     journal = new_result(plan, 1)
     journal = record_outcome(
-        plan, journal, ExternalAssessmentCollectionOutcome("monex", "6758", reason, None, status)
+        plan,
+        journal,
+        ExternalAssessmentCollectionOutcome(
+            "monex", "6758", reason, None, status, str(uuid.uuid4())
+        ),
     )
     store.store_object(
         stage_key(plan, 1),
