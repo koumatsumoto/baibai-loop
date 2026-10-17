@@ -6,7 +6,7 @@ import unittest
 import zipfile
 from contextlib import closing
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date
 from io import BytesIO
 from itertools import permutations
 from pathlib import Path
@@ -31,13 +31,22 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
-from baibai_engine.market.financial_documents import project_financial_documents
+from baibai_engine.market.financial_documents import (
+    normalize_financial_summary,
+    project_financial_documents,
+)
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_decode import (
+    JQuantsProviderError,
+    normalize_adjustment_factor_event,
+    normalize_daily_bar,
+    normalize_market_calendar,
+    parse_jquants_code,
+)
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.providers.edinet import (
     EDINETProvider,
@@ -46,14 +55,6 @@ from baibai_engine.market.providers.edinet import (
 )
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
 from baibai_engine.market.providers.jpx import JPXProvider, _EarningsCalendarFile
-from baibai_engine.market.providers.jquants import (
-    JQuantsProvider,
-    normalize_adjustment_factor_event,
-    normalize_daily_bar,
-    normalize_financial_summary,
-    normalize_market_calendar,
-    parse_jquants_code,
-)
 from baibai_engine.storage.observations.ingest.edinet import (
     store_edinet_documents,
     store_edinet_metrics,
@@ -1691,81 +1692,6 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         self.assertIsNone(summary)
-
-    def test_get_eq_bars_daily_range_chunks_and_reuses_cache(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str]] = []
-
-            def get_eq_bars_daily_range(
-                self, start_dt: str, end_dt: str
-            ) -> list[dict[str, object]]:
-                self.calls.append((start_dt, end_dt))
-                # Dense bars per day so a fetched chunk satisfies the
-                # data-derived coverage check on read-back.
-                current = date.fromisoformat(start_dt)
-                stop = date.fromisoformat(end_dt)
-                rows: list[dict[str, object]] = []
-                while current <= stop:
-                    rows.append(
-                        {
-                            "Code": "13010",
-                            "Date": f"{current.isoformat()}T00:00:00",
-                            "C": 100.0,
-                            "Va": 1000.0,
-                        }
-                    )
-                    current += timedelta(days=1)
-                return rows
-
-        client = FakeClient()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
-            with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_first:
-                first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-            self.assertEqual(
-                client.calls, [("2026-01-01", "2026-01-31"), ("2026-02-01", "2026-02-15")]
-            )
-            self.assertEqual(len(first), 46)
-            self.assertEqual(sleep_first.call_count, 1)
-
-            with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_second:
-                second = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-            self.assertEqual(len(client.calls), 2)
-            self.assertEqual(sleep_second.call_count, 0)
-            self.assertEqual(second, first)
-
-    def test_short_sale_refresh_rechecks_covered_disclosure_dates(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls = 0
-
-            def get_mkt_short_sale_report(self, disclosed_date: str) -> list[dict[str, object]]:
-                self.calls += 1
-                return [
-                    {
-                        "DiscDate": disclosed_date,
-                        "CalcDate": disclosed_date,
-                        "Code": "72030",
-                        "SSName": "Reporter A",
-                        "DICName": "",
-                        "FundName": "",
-                        "ShrtPosToSO": 0.006 if self.calls == 1 else 0.007,
-                    }
-                ]
-
-        client = FakeClient()
-        target = date(2026, 4, 24)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
-            first = provider.get_mkt_short_sale_report_range(target, target)
-            refreshed = provider.refresh_mkt_short_sale_report_range(target, target)
-
-        self.assertEqual(client.calls, 2)
-        self.assertEqual(first[0].short_ratio, 0.006)
-        self.assertEqual(refreshed[0].short_ratio, 0.007)
 
     def test_jpx_earnings_parser_detects_header_and_normalizes_rows(self) -> None:
         provider = JPXProvider()

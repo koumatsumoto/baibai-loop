@@ -5,7 +5,7 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_engine.market.providers.jquants import normalize_short_sale_report
+from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
 from baibai_engine.storage.observations.reader import read_short_sale_reports
@@ -30,15 +30,15 @@ def test_native_short_fields_survive_provider_sqlite_and_lake(tmp_path, missing)
         "PrevRptRatio": None if missing else 0.007,
         "Notes": "corrected report",
     }
-    projected = normalize_short_sale_report(record)
-    assert projected is not None
-    assert projected.short_ratio == record["ShrtPosToSO"]
-    assert projected.short_seller_address == record["SSAddr"]
-    assert projected.discretionary_investment_contractor_address == record["DICAddr"]
     database = tmp_path / "market.sqlite"
     store_jquants_short_sale_reports(database, [record], requested_start=day, requested_end=day)
     stored = read_short_sale_reports(database, day, day)
-    assert stored == [projected]
+    assert stored == JQuantsReader(database).get_mkt_short_sale_report_range(day, day)
+    assert stored is not None
+    assert len(stored) == 1
+    assert stored[0].short_ratio == record["ShrtPosToSO"]
+    assert stored[0].short_seller_address == record["SSAddr"]
+    assert stored[0].discretionary_investment_contractor_address == record["DICAddr"]
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:
         report = export_dataset_snapshot(

@@ -444,6 +444,12 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     profile="production",
     datasets=(
         ReleaseDatasetPolicy(
+            dataset="jquants.source_pages",
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset=QUANTS_SCORE_DATASET,
             required=False,
             carries_history=True,

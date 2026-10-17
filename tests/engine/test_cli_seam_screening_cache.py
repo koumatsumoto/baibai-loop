@@ -37,7 +37,10 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bar
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.screening.cli import app
 from baibai_engine.screening.cli.cache import FIN_SUMMARY_REVISION_OVERLAP_DAYS
-from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS, FIN_INPUT_WINDOW_DAYS
+from baibai_engine.screening.metrics.snapshot import (
+    FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+)
 from baibai_engine.storage.observations.schema import open_connection
 
 # The store path every command below derives from the working directory.
@@ -82,7 +85,8 @@ def _run_cli(
             os.environ,
             {"JQUANTS_API_KEY": "test-jquants-key", "EDINET_API_KEY": "test-edinet-key"},
         ),
-        patch.object(app, "JQuantsProvider", lambda *_args, **_kwargs: jquants),
+        patch.object(app, "JQuantsReader", lambda *_args, **_kwargs: jquants),
+        patch.object(app, "JQuantsRefresh", lambda *_args, **_kwargs: jquants),
         patch.object(app, "EDINETProvider", lambda *_args, **_kwargs: edinet),
         patch.object(app, "JPXProvider", lambda *_args, **_kwargs: jpx),
         contextlib.redirect_stdout(stdout),
@@ -114,12 +118,12 @@ def test_main_bootstrap_cache_fetches_each_source_window_around_the_argv_asof() 
     # The bar window alone is millions of them and the command prints one number.
     assert (
         "ensure_eq_bars_daily_range",
-        asof - timedelta(days=BARS_INPUT_WINDOW_DAYS),
+        asof - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS),
         asof,
     ) in jquants.calls
     assert (
         "refresh_fin_summary_range",
-        asof - timedelta(days=FIN_INPUT_WINDOW_DAYS),
+        asof - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS),
         asof,
     ) in jquants.calls
     assert edinet.bootstrap_calls == [(asof - timedelta(days=FIN_INPUT_WINDOW_DAYS), asof)]
@@ -147,6 +151,7 @@ def test_main_bootstrap_cache_asks_for_the_revision_overlap_once() -> None:
 
 
 def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
+    jquants = FakeJQuantsProvider()
     with (
         patch.dict(
             os.environ,
@@ -159,7 +164,8 @@ def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
                 "JPX_DELISTING_WARNING_URL": "https://example.com/delisted",
             },
         ),
-        patch.object(app, "JQuantsProvider", return_value=FakeJQuantsProvider()),
+        patch.object(app, "JQuantsReader", return_value=jquants),
+        patch.object(app, "JQuantsRefresh", return_value=jquants),
         patch.object(app, "EDINETProvider", return_value=_SeamEDINETProvider()),
         patch.object(app, "JPXProvider", return_value=FakeJPXProvider()) as jpx_factory,
     ):

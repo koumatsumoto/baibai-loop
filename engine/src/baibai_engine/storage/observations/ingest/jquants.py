@@ -52,6 +52,7 @@ def store_jquants_fin_summaries(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     if requested_start > requested_end:
         raise ValueError("financial request start must not follow end")
@@ -90,6 +91,7 @@ def store_jquants_fin_summaries(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count
@@ -102,6 +104,7 @@ def store_jquants_weekly_margin(
     records: Iterable[Mapping[str, Any]],
     *,
     week_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist one weekly balance date, including the fact that it was empty.
 
@@ -156,6 +159,7 @@ def store_jquants_weekly_margin(
             record_count=persisted_count,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count
@@ -172,6 +176,7 @@ def store_jquants_margin_alerts(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist the daily designated-issue dataset by publication date."""
     normalized = _margin_alert_rows_with_quality(records, requested_start, requested_end)
@@ -212,6 +217,7 @@ def store_jquants_margin_alerts(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted
@@ -227,6 +233,7 @@ def store_jquants_all_issues_daily_margin(
     records: Iterable[Mapping[str, Any]],
     *,
     balance_date: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist one post-transition all-issues daily balance date."""
     require_all_issues_daily_balance_date(balance_date)
@@ -276,6 +283,7 @@ def store_jquants_all_issues_daily_margin(
             record_count=persisted,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted
@@ -292,6 +300,7 @@ def store_jquants_short_sale_reports(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist a complete disclosure-date range without inventing missing reports.
 
@@ -345,6 +354,7 @@ def store_jquants_short_sale_reports(
                 record_count=len(day_rows),
                 status=normalized.status,
                 error=normalized.error,
+                fetched_at_utc=fetched_at_utc,
             )
             cursor += timedelta(days=1)
         persisted_count = int(
@@ -613,6 +623,7 @@ def store_jquants_master(
     records: Iterable[Mapping[str, Any]],
     *,
     requested_asof: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     validated = validate_master_snapshot(list(records), requested_asof)
     conn = open_connection(db_path)
@@ -640,6 +651,7 @@ def store_jquants_master(
             record_count=persisted_count,
             status="ok",
             error=None,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count

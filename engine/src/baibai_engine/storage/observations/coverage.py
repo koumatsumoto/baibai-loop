@@ -128,6 +128,7 @@ def record_range_source_coverage(
     requested_end: date,
     status: str,
     error: str | None,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Record coverage for a freshly fetched ``[requested_start, requested_end]`` range.
 
@@ -217,6 +218,7 @@ def record_range_source_coverage(
         record_count=persisted_count,
         status=status,
         error=error,
+        fetched_at_utc=fetched_at_utc,
     )
     return persisted_count
 

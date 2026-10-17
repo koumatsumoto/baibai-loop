@@ -312,7 +312,7 @@ J-Quantsの価格factorには分割・併合だけでなくライツイシュー
 
 ### 10.1 Core
 
-- **J-Quants / ClientV2**: 取得の実装は[provider](../../engine/src/baibai_engine/market/providers/jquants.py)、保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)に従う。取得可能範囲は契約と実際のcoverageで確認する。
+- **J-Quants API v2**: 取得の実装は[HTTP collector](../../engine/src/baibai_engine/collection/jquants_http.py)、保存済み入力の読取は[offline reader](../../engine/src/baibai_engine/market/jquants_reader.py)に従う。保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)、取得可能範囲は契約と実際のcoverageで確認する。
 - **EDINET API v2**: documents listで書類を選び、`type=5` CSV ZIPから本書のEV/EBITDA・Net cash・Asset-backed・FCF項目を抽出する。このvaluation経路にはraw XBRLをfallbackしない。`type=1` raw XBRLを使う[Research facts](../../batch/OPERATIONS.md#edinet-research-facts)は別の抽出経路である。
 - **JPX**:
   - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は、より current な view を持つ file を採る）

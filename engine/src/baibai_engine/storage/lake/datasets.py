@@ -145,6 +145,24 @@ _TEXT = pa.string()
 _REAL = pa.float64()
 _INTEGER = pa.int64()
 
+JQUANTS_SOURCE_PAGES = LakeDataset(
+    name="jquants.source_pages",
+    layer="l1_source",
+    sqlite_table="jquants_source_pages",
+    date_column="received_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("request_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("page_index", "INTEGER", _INTEGER, False, 2),
+        LakeColumn("source", "TEXT", _TEXT, False),
+        LakeColumn("query_json", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("received_on", "TEXT", _TEXT, False),
+        LakeColumn("body_gzip", "BLOB", pa.binary(), False),
+    ),
+)
+
 JQUANTS_DAILY_BARS = LakeDataset(
     name="jquants.daily_bars",
     layer="l2_processed",
@@ -617,6 +635,7 @@ EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
 )
 
 LAKE_DATASETS = {
+    JQUANTS_SOURCE_PAGES.name: JQUANTS_SOURCE_PAGES,
     EDINET_SOURCE_ARCHIVES.name: EDINET_SOURCE_ARCHIVES,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS.name: (
         EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS

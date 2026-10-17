@@ -9,16 +9,18 @@ import unittest
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
+import requests
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
+from baibai_engine.collection.jquants_http import JQuantsHTTP
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
-from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.screening.cli.cache import backfill_master_command, bootstrap_cache_command
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
@@ -27,28 +29,45 @@ from baibai_engine.storage.observations.reader import read_eq_master_asof, read_
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
-class _MasterClient:
+class _MasterClient(requests.Session):
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[str] = []
 
-    def get_eq_master(self, *, date: str) -> list[dict[str, Any]]:
-        self.calls.append(date)
-        return make_master_records(__import__("datetime").date.fromisoformat(date))
+    def get(self, url, **kwargs):
+        assert url.endswith("/equities/master")
+        requested = kwargs["params"]["date"]
+        self.calls.append(requested)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {"data": make_master_records(date.fromisoformat(requested))}
+        ).encode()
+        response._content_consumed = True
+        return response
+
+
+def _refresh(db: Path, session: _MasterClient) -> JQuantsRefresh:
+    return JQuantsRefresh(db, None, client=JQuantsHTTP("token", session=session))
 
 
 class _BootstrapJQuants:
-    def __init__(self, provider: JQuantsProvider, sqlite_path: Path) -> None:
-        self.provider = provider
+    def __init__(self, reader: JQuantsReader, refresh: JQuantsRefresh, sqlite_path: Path) -> None:
+        self.reader = reader
+        self.refresh = refresh
         self.sqlite_path = sqlite_path
 
     def get_eq_master(self, requested_asof: date):
-        return self.provider.get_eq_master(requested_asof)
+        return self.reader.get_eq_master(requested_asof)
+
+    def ensure_master(self, day: date) -> int:
+        return self.refresh.ensure_master(day)
 
     def get_eq_bars_daily_range(self, start: date, end: date):
         del start, end
         return []
 
-    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
+    def ensure_daily_bars(self, start: date, end: date) -> int:
         del start, end
         return 0
 
@@ -60,7 +79,7 @@ class _BootstrapJQuants:
         del start, end
         return []
 
-    def refresh_fin_summary_range(
+    def refresh_fin_summaries(
         self,
         start: date,
         end: date,
@@ -104,17 +123,24 @@ class _BootstrapJQuants:
         del start, end
         return []
 
-    def refresh_mkt_short_sale_report_range(self, start: date, end: date):
+    def refresh_short_sale_reports(self, start: date, end: date) -> int:
         del start, end
-        return []
+        return 0
 
-    def refresh_mkt_margin_alert_range(self, start: date, end: date):
+    def refresh_margin_alerts(self, start: date, end: date) -> int:
         del start, end
-        return []
+        return 0
 
-    def get_mkt_all_issues_daily_margin(self, balance_date: date):
+    def ensure_all_issues_daily_margin(self, balance_date: date) -> int:
         del balance_date
-        return []
+        return 0
+
+    def ensure_market_calendar(self, start: date, end: date) -> int:
+        del start, end
+        return 0
+
+    def close(self) -> None:
+        self.refresh.close()
 
 
 class _BootstrapJPX:
@@ -410,9 +436,9 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             with closing(open_connection(db)) as conn, conn:
                 conn.execute("PRAGMA user_version = 1")
             client = _MasterClient()
-            provider = JQuantsProvider("token", client=client, sqlite_path=db)
+            reader = JQuantsReader(db)
             with self.assertRaises(SQLiteSchemaError):
-                provider.get_eq_master(date(2026, 5, 29))
+                reader.get_eq_master(date(2026, 5, 29))
             self.assertEqual(client.calls, [])
 
     def test_exact_prior_and_future_snapshot_selection(self) -> None:
@@ -484,24 +510,14 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(first), requested_asof=first)
 
-            no_fetch_client = _MasterClient()
-            cache_only = JQuantsProvider(
-                "token",
-                client=no_fetch_client,
-                sqlite_path=db,
-                cache_only=True,
-            )
-            with self.assertRaisesRegex(JQuantsProviderError, second.isoformat()):
-                cache_only.get_eq_master(second)
-            self.assertEqual(no_fetch_client.calls, [])
+            reader = JQuantsReader(db)
+            with self.assertRaisesRegex(JQuantsProviderError, "incomplete: master"):
+                reader.get_eq_master(second)
 
             fetch_client = _MasterClient()
-            provider = JQuantsProvider(
-                "token",
-                client=fetch_client,
-                sqlite_path=db,
-            )
-            self.assertEqual(len(provider.get_eq_master(second)), 2500)
+            maintenance = _refresh(db, fetch_client)
+            self.assertEqual(maintenance.ensure_master(second), 2500)
+            self.assertEqual(len(reader.get_eq_master(second)), 2500)
             self.assertEqual(fetch_client.calls, [second.isoformat()])
             self.assertEqual(_snapshot_dates(db), [first.isoformat(), second.isoformat()])
 
@@ -511,11 +527,14 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(today), requested_asof=today)
             client = _MasterClient()
-            provider = JQuantsProvider("token", client=client, sqlite_path=db)
+            reader = JQuantsReader(db)
+            maintenance = _refresh(db, client)
             output = io.StringIO()
             result = backfill_master_command(
                 asof_dates=[today],
-                providers=ProviderBundle(jquants=provider, edinet=None, jpx=None),
+                providers=ProviderBundle(
+                    jquants=reader, edinet=None, jpx=None, jquants_refresh=maintenance
+                ),
                 sqlite_path=db,
                 stdout=output,
             )
@@ -530,9 +549,12 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(future), requested_asof=future)
             client = _MasterClient()
-            provider = JQuantsProvider("token", client=client, sqlite_path=db)
+            reader = JQuantsReader(db)
+            maintenance = _refresh(db, client)
 
-            self.assertEqual(len(provider.get_eq_master(requested)), 2500)
+            with self.assertRaisesRegex(JQuantsProviderError, "incomplete: master"):
+                reader.get_eq_master(requested)
+            self.assertEqual(maintenance.ensure_master(requested), 2500)
             self.assertEqual(client.calls, [requested.isoformat()])
             self.assertEqual(_snapshot_dates(db), [requested.isoformat(), future.isoformat()])
 
@@ -549,9 +571,9 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 )
                 conn.commit()
             client = _MasterClient()
-            provider = JQuantsProvider("token", client=client, sqlite_path=db)
+            maintenance = _refresh(db, client)
 
-            self.assertEqual(len(provider.get_eq_master(asof)), 2500)
+            self.assertEqual(maintenance.ensure_master(asof), 2500)
             self.assertEqual(client.calls, [asof.isoformat()])
             self.assertIsNotNone(read_eq_master_exact(db, asof))
 
@@ -561,11 +583,14 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             client = _MasterClient()
-            provider = JQuantsProvider("token", client=client, sqlite_path=db)
+            reader = JQuantsReader(db)
+            maintenance = _refresh(db, client)
+            bootstrap_jquants = _BootstrapJQuants(reader, maintenance, db)
             bundle = ProviderBundle(
-                jquants=_BootstrapJQuants(provider, db),
+                jquants=bootstrap_jquants,
                 edinet=None,
                 jpx=_BootstrapJPX(),
+                jquants_refresh=bootstrap_jquants,
             )
             for asof in (first, second):
                 self.assertEqual(

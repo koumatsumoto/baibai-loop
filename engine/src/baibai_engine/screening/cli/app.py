@@ -6,6 +6,7 @@ import argparse
 import os
 import sqlite3
 import sys
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -16,9 +17,10 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
+from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.jpx import JPXProvider
-from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.read_api.market import market_calendar_business_day
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
@@ -611,169 +613,174 @@ def main(argv: list[str] | None = None) -> int:
                 coverage_issues, asof_date=run_asof_date, stream=sys.stderr
             )
             return 1
-    providers = ProviderBundle(
-        jquants=JQuantsProvider(
-            config.jquants_api_key,
-            sqlite_path=sqlite_path,
-            cache_only=args.command == "run",
-        ),
-        edinet=(
-            EDINETProvider(
-                config.edinet_api_key,
-                config.cache_dir,
+    with ExitStack() as resources:
+        jquants_refresh = (
+            JQuantsRefresh(sqlite_path, config.jquants_api_key)
+            if args.command in {"bootstrap-cache", "backfill-history", "backfill-master"}
+            else None
+        )
+        if jquants_refresh is not None:
+            resources.callback(jquants_refresh.close)
+        providers = ProviderBundle(
+            jquants=JQuantsReader(sqlite_path),
+            edinet=(
+                EDINETProvider(
+                    config.edinet_api_key,
+                    config.cache_dir,
+                    sqlite_path=sqlite_path,
+                    cache_only=args.command == "run",
+                )
+                if config.edinet_api_key or args.command == "run"
+                else None
+            ),
+            jpx=JPXProvider(
+                regulation_urls=JPX_REGULATION_URLS,
                 sqlite_path=sqlite_path,
                 cache_only=args.command == "run",
+                allow_stale_snapshot=args.allow_stale_jpx if args.command == "run" else False,
+            ),
+            jquants_refresh=jquants_refresh,
+        )
+
+        if args.command == "run":
+            if run_asof_date is None:
+                print("--asof is required for run", file=sys.stderr)
+                return 1
+            return run_command(
+                run_asof_date,
+                config,
+                providers,
+                rules=run_rules,
+                now=args.run_at,
+                output_path=Path(args.output_path) if args.output_path else None,
+                force=args.force,
+                run_store_path=Path(args.runs_db) if args.runs_db else None,
+                run_revision_id=args.run_revision_id,
             )
-            if config.edinet_api_key or args.command == "run"
-            else None
-        ),
-        jpx=JPXProvider(
-            regulation_urls=JPX_REGULATION_URLS,
-            sqlite_path=sqlite_path,
-            cache_only=args.command == "run",
-            allow_stale_snapshot=args.allow_stale_jpx if args.command == "run" else False,
-        ),
-    )
 
-    if args.command == "run":
-        if run_asof_date is None:
-            print("--asof is required for run", file=sys.stderr)
-            return 1
-        return run_command(
-            run_asof_date,
-            config,
-            providers,
-            rules=run_rules,
-            now=args.run_at,
-            output_path=Path(args.output_path) if args.output_path else None,
-            force=args.force,
-            run_store_path=Path(args.runs_db) if args.runs_db else None,
-            run_revision_id=args.run_revision_id,
-        )
-
-    if args.command == "bootstrap-cache":
-        return bootstrap_cache_command(
-            asof_date=_parse_iso_date(args.asof),
-            providers=providers,
-            sqlite_path=sqlite_path,
-        )
-
-    if args.command == "refresh-edinet-documents":
-        return refresh_edinet_documents_command(
-            asof_date=_parse_iso_date(args.asof),
-            providers=providers,
-        )
-
-    if args.command == "backfill-edinet-identity":
-        return backfill_edinet_identity_command(
-            start=_parse_iso_date(args.start),
-            end=_parse_iso_date(args.end),
-            providers=providers,
-        )
-
-    if args.command == "build-tender-offer-exits":
-        return build_tender_offer_exits_command(
-            sqlite_path=Path(args.sqlite_path),
-            asof_date=_parse_iso_date(args.asof),
-            providers=providers,
-        )
-
-    if args.command == "backfill-history":
-        window_start = _parse_iso_date(args.start)
-        window_end = _parse_iso_date(args.end)
-        if window_start > window_end:
-            print(
-                f"--start {window_start.isoformat()} is after --end {window_end.isoformat()}",
-                file=sys.stderr,
+        if args.command == "bootstrap-cache":
+            return bootstrap_cache_command(
+                asof_date=_parse_iso_date(args.asof),
+                providers=providers,
+                sqlite_path=sqlite_path,
             )
-            return 1
-        return backfill_history_command(
-            start=window_start,
-            end=window_end,
-            providers=providers,
-            sqlite_path=sqlite_path,
-        )
 
-    if args.command == "backfill-master":
-        asof_dates = [_parse_iso_date(value) for value in (args.asofs or [])]
-        if bool(args.month_end_from) != bool(args.month_end_to):
-            print(
-                "--month-end-from and --month-end-to must be given together",
-                file=sys.stderr,
+        if args.command == "refresh-edinet-documents":
+            return refresh_edinet_documents_command(
+                asof_date=_parse_iso_date(args.asof),
+                providers=providers,
             )
-            return 1
-        if args.month_end_from:
-            grid_start = _parse_iso_date(args.month_end_from)
-            grid_end = _parse_iso_date(args.month_end_to)
-            if grid_start > grid_end:
+
+        if args.command == "backfill-edinet-identity":
+            return backfill_edinet_identity_command(
+                start=_parse_iso_date(args.start),
+                end=_parse_iso_date(args.end),
+                providers=providers,
+            )
+
+        if args.command == "build-tender-offer-exits":
+            return build_tender_offer_exits_command(
+                sqlite_path=Path(args.sqlite_path),
+                asof_date=_parse_iso_date(args.asof),
+                providers=providers,
+            )
+
+        if args.command == "backfill-history":
+            window_start = _parse_iso_date(args.start)
+            window_end = _parse_iso_date(args.end)
+            if window_start > window_end:
                 print(
-                    "--month-end-from "
-                    f"{grid_start.isoformat()} is after --month-end-to {grid_end.isoformat()}",
+                    f"--start {window_start.isoformat()} is after --end {window_end.isoformat()}",
                     file=sys.stderr,
                 )
                 return 1
-            if not sqlite_path.exists():
-                print(f"SQLite cache not found: {sqlite_path}", file=sys.stderr)
-                return 1
-            # The grid is derived from the bar store so that the backfilled dates
-            # are the cohort dates themselves. A snapshot on any other day leaves
-            # the cohort on a non-exact-date master and buys nothing.
-            asof_dates.extend(month_end_asof_grid(sqlite_path, start=grid_start, end=grid_end))
-        unique_dates = sorted(set(asof_dates))
-        if not unique_dates:
-            print("backfill-master resolved no dates to fetch", file=sys.stderr)
-            return 1
-        # A snapshot is only meaningful for a day the market produced one. Without
-        # this check a mistyped date can persist the current population as another
-        # day's point-in-time section, and every later read treats it as exact.
-        today = datetime.now(JST).date()
-        future = [day for day in unique_dates if day > today]
-        if future:
-            print(
-                f"backfill-master rejects future dates: {', '.join(map(str, future))}",
-                file=sys.stderr,
+            return backfill_history_command(
+                start=window_start,
+                end=window_end,
+                providers=providers,
+                sqlite_path=sqlite_path,
             )
-            return 1
-        historical = [day for day in unique_dates if day < today]
-        traded = days_with_bars(sqlite_path, historical)
-        non_business = [day for day in historical if day not in traded]
-        if non_business:
-            print(
-                "backfill-master rejects dates the bar store does not show as trading "
-                f"days: {', '.join(map(str, non_business))}",
-                file=sys.stderr,
+
+        if args.command == "backfill-master":
+            asof_dates = [_parse_iso_date(value) for value in (args.asofs or [])]
+            if bool(args.month_end_from) != bool(args.month_end_to):
+                print(
+                    "--month-end-from and --month-end-to must be given together",
+                    file=sys.stderr,
+                )
+                return 1
+            if args.month_end_from:
+                grid_start = _parse_iso_date(args.month_end_from)
+                grid_end = _parse_iso_date(args.month_end_to)
+                if grid_start > grid_end:
+                    print(
+                        "--month-end-from "
+                        f"{grid_start.isoformat()} is after --month-end-to {grid_end.isoformat()}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                if not sqlite_path.exists():
+                    print(f"SQLite cache not found: {sqlite_path}", file=sys.stderr)
+                    return 1
+                # The grid is derived from the bar store so that the backfilled dates
+                # are the cohort dates themselves. A snapshot on any other day leaves
+                # the cohort on a non-exact-date master and buys nothing.
+                asof_dates.extend(month_end_asof_grid(sqlite_path, start=grid_start, end=grid_end))
+            unique_dates = sorted(set(asof_dates))
+            if not unique_dates:
+                print("backfill-master resolved no dates to fetch", file=sys.stderr)
+                return 1
+            # A snapshot is only meaningful for a day the market produced one. Without
+            # this check a mistyped date can persist the current population as another
+            # day's point-in-time section, and every later read treats it as exact.
+            today = datetime.now(JST).date()
+            future = [day for day in unique_dates if day > today]
+            if future:
+                print(
+                    f"backfill-master rejects future dates: {', '.join(map(str, future))}",
+                    file=sys.stderr,
+                )
+                return 1
+            historical = [day for day in unique_dates if day < today]
+            traded = days_with_bars(sqlite_path, historical)
+            non_business = [day for day in historical if day not in traded]
+            if non_business:
+                print(
+                    "backfill-master rejects dates the bar store does not show as trading "
+                    f"days: {', '.join(map(str, non_business))}",
+                    file=sys.stderr,
+                )
+                return 1
+            if today in unique_dates:
+                try:
+                    business = market_calendar_business_day(sqlite_path, today)
+                except sqlite3.Error:
+                    print("backfill-master: market calendar unavailable", file=sys.stderr)
+                    return 1
+                if business is None:
+                    print("backfill-master: market calendar coverage unavailable", file=sys.stderr)
+                    return 1
+                if not business:
+                    print(f"backfill-master {today}: non-business skip")
+                    unique_dates.remove(today)
+            if not unique_dates:
+                return 0
+            return backfill_master_command(
+                asof_dates=unique_dates, providers=providers, sqlite_path=sqlite_path
             )
-            return 1
-        if today in unique_dates:
-            try:
-                business = market_calendar_business_day(sqlite_path, today)
-            except sqlite3.Error:
-                print("backfill-master: market calendar unavailable", file=sys.stderr)
-                return 1
-            if business is None:
-                print("backfill-master: market calendar coverage unavailable", file=sys.stderr)
-                return 1
-            if not business:
-                print(f"backfill-master {today}: non-business skip")
-                unique_dates.remove(today)
-        if not unique_dates:
-            return 0
-        return backfill_master_command(
-            asof_dates=unique_dates, providers=providers, sqlite_path=sqlite_path
-        )
 
-    if args.command == "extract-edinet-metrics":
-        if args.lookback_days < 0:
-            print("--lookback-days must be zero or greater", file=sys.stderr)
-            return 1
-        if providers.edinet is None:
-            print("EDINET_API_KEY is required for extract-edinet-metrics", file=sys.stderr)
-            return 1
-        return extract_edinet_metrics_command(
-            asof_date=_parse_iso_date(args.asof),
-            lookback_days=args.lookback_days,
-            provider=providers.edinet,
-            sqlite_path=sqlite_path,
-        )
+        if args.command == "extract-edinet-metrics":
+            if args.lookback_days < 0:
+                print("--lookback-days must be zero or greater", file=sys.stderr)
+                return 1
+            if providers.edinet is None:
+                print("EDINET_API_KEY is required for extract-edinet-metrics", file=sys.stderr)
+                return 1
+            return extract_edinet_metrics_command(
+                asof_date=_parse_iso_date(args.asof),
+                lookback_days=args.lookback_days,
+                provider=providers.edinet,
+                sqlite_path=sqlite_path,
+            )
 
-    raise AssertionError(f"unreachable command: {args.command!r}")
+        raise AssertionError(f"unreachable command: {args.command!r}")

@@ -11,11 +11,14 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pandas as pd
+import requests
 from tests.helpers.screening_sqlite import make_master_records
 
+from baibai_engine.collection.jquants_http import JQuantsHTTP
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError, parse_jquants_code_parts
-from baibai_engine.market.providers.jquants import JQuantsProvider
+from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.storage.observations.convert import code_quality, to_float, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     EmptyRangeReplacementError,
@@ -1703,24 +1706,39 @@ class RepeatedObservationTest(unittest.TestCase):
 
     def test_calendar_fetch_and_cached_projection_agree(self):
         with tempfile.TemporaryDirectory() as tmp:
-            client = Mock()
-            client.get_mkt_calendar.return_value = [
-                {"Date": "2026-09-27", "HolDiv": "2"},
-                {"Date": "2026-09-25", "HolDiv": "1"},
-                {"Date": "2026-09-25", "HolDiv": "1"},
-                {"Date": "2026-09-26", "HolDiv": "0"},
-            ]
-            provider = JQuantsProvider(
-                "token", client=client, sqlite_path=Path(tmp) / "market.sqlite"
+            session = Mock(spec=requests.Session)
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps(
+                {
+                    "data": [
+                        {"Date": "2026-09-27", "HolDiv": "2"},
+                        {"Date": "2026-09-25", "HolDiv": "1"},
+                        {"Date": "2026-09-25", "HolDiv": "1"},
+                        {"Date": "2026-09-26", "HolDiv": "0"},
+                    ]
+                }
+            ).encode()
+            response._content_consumed = True
+            session.get.return_value = response
+            database = Path(tmp) / "market.sqlite"
+            maintenance = JQuantsRefresh(
+                database, None, client=JQuantsHTTP("token", session=session)
             )
-            first = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
-            second = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
+            assert maintenance.ensure_market_calendar(date(2026, 9, 25), date(2026, 9, 27)) == 3
+            first = JQuantsReader(database).get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
+            assert maintenance.ensure_market_calendar(date(2026, 9, 25), date(2026, 9, 27)) == 3
+            second = JQuantsReader(database).get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
             self.assertEqual(first, second)
             self.assertEqual(
                 [(row.day.day, row.is_business_day) for row in first],
                 [(25, True), (26, False), (27, True)],
             )
-            self.assertEqual(client.get_mkt_calendar.call_count, 1)
+            self.assertEqual(session.get.call_count, 1)
+            self.assertEqual(
+                session.get.call_args.kwargs["params"],
+                {"from": "20260925", "to": "20260927"},
+            )
 
     def test_identical_records_conflicts_and_later_corrections(self):
         for kind in ("bars", "calendar", "weekly", "daily", "alerts"):

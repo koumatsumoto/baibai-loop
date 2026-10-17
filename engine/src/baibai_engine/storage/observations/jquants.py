@@ -29,6 +29,7 @@ def store_jquants_daily_bars(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     normalized = _bars_rows_with_quality(records)
     rows = normalized.rows
@@ -64,6 +65,7 @@ def store_jquants_daily_bars(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count
@@ -77,6 +79,7 @@ def store_jquants_market_calendar(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     normalized = _market_calendar_rows_with_quality(records)
     rows = normalized.rows
@@ -107,6 +110,7 @@ def store_jquants_market_calendar(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count

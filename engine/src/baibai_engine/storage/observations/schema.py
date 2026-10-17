@@ -16,6 +16,7 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
+from baibai_engine.collection.jquants_contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.external_assessment.observations.contract import (
     ANALYST_RATING_DDL,
     MODEL_VALUATION_DDL,
@@ -23,7 +24,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 39
+SQLITE_SCHEMA_VERSION = 40
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -430,7 +431,9 @@ CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
 """
 
 
-_SCHEMA_SQL += TV_DDL + MODEL_VALUATION_DDL + ANALYST_RATING_DDL + QUANTS_SCORE_DDL
+_SCHEMA_SQL += (
+    TV_DDL + MODEL_VALUATION_DDL + ANALYST_RATING_DDL + QUANTS_SCORE_DDL + JQUANTS_SOURCE_PAGES_DDL
+)
 
 
 class SQLiteSchemaError(RuntimeError):

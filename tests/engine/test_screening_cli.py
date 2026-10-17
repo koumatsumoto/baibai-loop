@@ -40,9 +40,9 @@ from baibai_engine.market.jquants_models import (
     JQuantsFinancialSummary,
     JQuantsWeeklyMargin,
 )
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.screening.cli import app as screening_app
 from baibai_engine.screening.cli.cache import (
     backfill_history_command,
@@ -218,6 +218,54 @@ class FakeJQuantsProvider:
             for year, eps in ((2023, 10.0), (2024, 20.0), (2025, 30.0))
         ]
 
+    def ensure_master(self, day: date) -> int:
+        return len(self.get_eq_master(day))
+
+    def ensure_market_calendar(self, start: date, end: date) -> int:
+        return len(self.get_mkt_calendar(start, end))
+
+    def ensure_daily_bars(self, start: date, end: date) -> int:
+        return self.ensure_eq_bars_daily_range(start, end)
+
+    def ensure_fin_summaries(self, start: date, end: date) -> int:
+        return len(self.get_fin_summary_range(start, end))
+
+    def refresh_fin_summaries(
+        self,
+        start: date,
+        end: date,
+        *,
+        revision_overlap_days: int,
+        progress: Callable[[int, int, date, date], None] | None = None,
+    ) -> int:
+        return self.refresh_fin_summary_range(
+            start, end, revision_overlap_days=revision_overlap_days, progress=progress
+        )
+
+    def ensure_weekly_margin(self, day: date) -> int:
+        return len(self.get_mkt_margin_interest_week(day))
+
+    def refresh_weekly_margin(self, day: date) -> int:
+        return len(self.refresh_mkt_margin_interest_week(day))
+
+    def ensure_all_issues_daily_margin(self, day: date) -> int:
+        return len(self.get_mkt_all_issues_daily_margin(day))
+
+    def ensure_margin_alerts(self, start: date, end: date) -> int:
+        return len(self.get_mkt_margin_alert_range(start, end))
+
+    def refresh_margin_alerts(self, start: date, end: date) -> int:
+        return len(self.refresh_mkt_margin_alert_range(start, end))
+
+    def ensure_short_sale_reports(self, start: date, end: date) -> int:
+        return len(self.get_mkt_short_sale_report_range(start, end))
+
+    def refresh_short_sale_reports(self, start: date, end: date) -> int:
+        return len(self.refresh_mkt_short_sale_report_range(start, end))
+
+    def close(self) -> None:
+        pass
+
 
 @dataclass
 class _FailingOnDateJQuantsProvider(FakeJQuantsProvider):
@@ -342,8 +390,8 @@ class ScreeningCliTests(unittest.TestCase):
                 with (
                     patch.dict(os.environ, {"JQUANTS_API_KEY": "token"}),
                     patch.object(
-                        JQuantsProvider,
-                        "_get_client",
+                        JQuantsRefresh,
+                        "_fetch",
                         side_effect=AssertionError("provider fetch must not be used"),
                     ),
                     contextlib.redirect_stderr(stderr),
@@ -654,13 +702,15 @@ class ScreeningCliTests(unittest.TestCase):
 
     def test_bootstrap_cache_command_fails_jpx_bootstrap_failure(self) -> None:
         stderr = io.StringIO()
+        jquants = FakeJQuantsProvider()
         with contextlib.redirect_stderr(stderr):
             exit_code = bootstrap_cache_command(
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
+                    jquants=jquants,
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(fail_bootstrap=True),
+                    jquants_refresh=jquants,
                 ),
                 sqlite_path=Path("stores/market/market.sqlite"),
             )
@@ -670,13 +720,15 @@ class ScreeningCliTests(unittest.TestCase):
 
     def test_bootstrap_cache_command_fails_cleanly_on_sqlite_corruption(self) -> None:
         stderr = io.StringIO()
+        jquants = _CorruptSQLiteJQuantsProvider()
         with contextlib.redirect_stderr(stderr):
             exit_code = bootstrap_cache_command(
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
-                    jquants=_CorruptSQLiteJQuantsProvider(),
+                    jquants=jquants,
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
+                    jquants_refresh=jquants,
                 ),
                 sqlite_path=Path("stores/market/market.sqlite"),
             )
@@ -693,7 +745,9 @@ class ScreeningCliTests(unittest.TestCase):
 
         exit_code = bootstrap_cache_command(
             asof_date=asof,
-            providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            providers=ProviderBundle(
+                jquants=jquants, edinet=edinet, jpx=jpx, jquants_refresh=jquants
+            ),
             sqlite_path=Path("stores/market/market.sqlite"),
             stdout=buffer,
         )
@@ -703,8 +757,16 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertIn("bootstrap-cache edinet documents", buffer.getvalue())
         self.assertIn("bootstrap-cache done", buffer.getvalue())
         self.assertIn(("get_eq_master", asof, asof), jquants.calls)
-        self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
-        self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
+        self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=2200), asof), jquants.calls)
+        self.assertIn(("get_fin_summary_range", asof - timedelta(days=2200), asof), jquants.calls)
+        self.assertEqual(
+            jquants.calls.count(("get_eq_bars_daily_range", asof - timedelta(days=2200), asof)),
+            1,
+        )
+        self.assertEqual(
+            jquants.calls.count(("refresh_fin_summary_range", asof - timedelta(days=2200), asof)),
+            1,
+        )
         self.assertIn(
             (
                 "get_adjustment_factor_bars_range",
@@ -758,6 +820,7 @@ class ScreeningCliTests(unittest.TestCase):
                     jquants=jquants,
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
+                    jquants_refresh=jquants,
                 ),
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
@@ -809,6 +872,7 @@ class ScreeningCliTests(unittest.TestCase):
                     jquants=jquants,
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
+                    jquants_refresh=jquants,
                 ),
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
@@ -829,7 +893,9 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=dates,
-                providers=ProviderBundle(jquants=jquants, edinet=FakeEDINETProvider(), jpx=None),
+                providers=ProviderBundle(
+                    jquants=jquants, edinet=FakeEDINETProvider(), jpx=None, jquants_refresh=jquants
+                ),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -850,7 +916,9 @@ class ScreeningCliTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr), tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
-                providers=ProviderBundle(jquants=jquants, edinet=FakeEDINETProvider(), jpx=None),
+                providers=ProviderBundle(
+                    jquants=jquants, edinet=FakeEDINETProvider(), jpx=None, jquants_refresh=jquants
+                ),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -874,8 +942,8 @@ class ScreeningCliTests(unittest.TestCase):
                 with (
                     patch.dict(os.environ, {"JQUANTS_API_KEY": "token"}),
                     patch.object(
-                        JQuantsProvider,
-                        "_get_client",
+                        JQuantsRefresh,
+                        "_fetch",
                         side_effect=AssertionError("provider fetch must not be used"),
                     ),
                     contextlib.redirect_stderr(stderr),
@@ -1888,7 +1956,9 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2026, 9, 24),
                 end=date(2026, 9, 28),
-                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                providers=ProviderBundle(
+                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
+                ),
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
             )
@@ -1914,7 +1984,9 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2018, 3, 1),
-                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                providers=ProviderBundle(
+                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
+                ),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1950,7 +2022,9 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2026, 7, 20),
                 end=date(2026, 7, 24),
-                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                providers=ProviderBundle(
+                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
+                ),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1971,7 +2045,12 @@ class BackfillHistoryTests(unittest.TestCase):
                 code = backfill_history_command(
                     start=date(2026, 7, 25),
                     end=date(2026, 7, 26),
-                    providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                    providers=ProviderBundle(
+                        jquants=provider,
+                        edinet=None,
+                        jpx=FakeJPXProvider(),
+                        jquants_refresh=provider,
+                    ),
                     sqlite_path=sqlite_path,
                     stdout=io.StringIO(),
                 )
@@ -1993,7 +2072,9 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2016, 8, 31),
-                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                providers=ProviderBundle(
+                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
+                ),
                 sqlite_path=Path("stores/market/market.sqlite"),
                 stdout=io.StringIO(),
             )
@@ -2015,7 +2096,9 @@ def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_p
     assert (
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
-            providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            providers=ProviderBundle(
+                jquants=jquants, edinet=edinet, jpx=jpx, jquants_refresh=jquants
+            ),
             sqlite_path=tmp_path / "market.sqlite",
             stdout=io.StringIO(),
         )
@@ -2034,7 +2117,9 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
     assert (
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
-            providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            providers=ProviderBundle(
+                jquants=jquants, edinet=edinet, jpx=jpx, jquants_refresh=jquants
+            ),
             sqlite_path=tmp_path / "market.sqlite",
             stdout=io.StringIO(),
         )
