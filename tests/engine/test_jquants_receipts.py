@@ -234,7 +234,7 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
     source_path = market_store(tmp_path / "market.sqlite")
     connection = open_connection(source_path)
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 44
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 45
     first, second = two_pages()
     params = {"date": "2026-10-16"}
     completed_id = acquire_request(connection, client(Session(first, second)), "daily_bars", params)

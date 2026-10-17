@@ -652,6 +652,26 @@ EDINET_DEBT_SCHEDULE = LakeDataset(
     ),
 )
 
+TRADINGVIEW_SOURCE_RECEIPTS = LakeDataset(
+    name="tradingview.source_receipts",
+    layer="l1_source",
+    sqlite_table="tradingview_source_receipts",
+    date_column="snapshot_date",
+    partition_grain="year",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("receipt_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("snapshot_date", "TEXT", _TEXT, False),
+        LakeColumn("master_asof", "TEXT", _TEXT, False),
+        LakeColumn("tool_name", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("requested_symbols_json", "TEXT", _TEXT, False),
+        LakeColumn("requested_columns_json", "TEXT", _TEXT, False),
+        LakeColumn("result_json", "TEXT", _TEXT, False),
+    ),
+)
+
 TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
     name="tradingview.forecast_snapshots",
     layer="l2_processed",
@@ -713,6 +733,7 @@ LAKE_DATASETS = {
     EDINET_LIST_RESPONSES.name: EDINET_LIST_RESPONSES,
     JPX_SOURCE_BUNDLES.name: JPX_SOURCE_BUNDLES,
     JPX_SOURCE_RESPONSES.name: JPX_SOURCE_RESPONSES,
+    TRADINGVIEW_SOURCE_RECEIPTS.name: TRADINGVIEW_SOURCE_RECEIPTS,
     EDINET_SOURCE_ARCHIVES.name: EDINET_SOURCE_ARCHIVES,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS.name: (
         EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS
