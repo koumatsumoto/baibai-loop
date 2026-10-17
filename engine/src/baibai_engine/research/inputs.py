@@ -10,11 +10,11 @@ from typing import cast
 from pydantic import JsonValue
 
 from baibai_engine.external_assessment.query import external_assessment
-from baibai_engine.market_context.assessment.projection import assessment_projection
-from baibai_engine.market_context.assessment.query import latest_assessment
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.research.market_context.projection import assessment_projection
+from baibai_engine.research.market_context.query import latest_assessment
 from baibai_engine.research.selection import (
     AnalysisInputSnapshot,
     InputGap,

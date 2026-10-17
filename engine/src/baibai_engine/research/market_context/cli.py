@@ -21,7 +21,7 @@ from .service import AssessmentService
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine market-context assessment")
+    parser = argparse.ArgumentParser(prog="baibai-engine research market-context")
     parser.add_argument("--db", type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
     publish = commands.add_parser("publish", help="check or publish one explicit assessment")

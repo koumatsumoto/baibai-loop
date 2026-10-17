@@ -108,16 +108,6 @@ from baibai_engine.foundation.repository_layout import (
     reject_noncanonical_store_paths,
     repository_root_error,
 )
-from baibai_engine.market_context.assessment.models import (
-    ASSESSMENT_SCHEMA_VERSION,
-    ASSESSMENT_STALE_DAYS,
-    StoredAssessment,
-    require_aware,
-)
-from baibai_engine.market_context.assessment.projection import (
-    assessment_projection,
-    assessment_series_ids,
-)
 from baibai_engine.market_context.indicator_cli import parse_refresh_failure_count
 from baibai_engine.market_context.indicator_service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
@@ -141,6 +131,16 @@ from baibai_engine.market_context.indicators.definitions import (
 )
 from baibai_engine.market_context.indicators.source_snapshots import (
     decode_records as decode_indicator_source_records,
+)
+from baibai_engine.research.market_context.models import (
+    ASSESSMENT_SCHEMA_VERSION,
+    ASSESSMENT_STALE_DAYS,
+    StoredAssessment,
+    require_aware,
+)
+from baibai_engine.research.market_context.projection import (
+    assessment_projection,
+    assessment_series_ids,
 )
 from baibai_engine.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,

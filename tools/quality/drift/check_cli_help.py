@@ -24,7 +24,7 @@ from typing import cast
 DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine market-context indicators": "baibai_engine.market_context.indicator_cli",
     "baibai-engine market-context reading": "baibai_engine.market_context.reading.cli",
-    "baibai-engine market-context assessment": "baibai_engine.market_context.assessment.cli",
+    "baibai-engine research market-context": "baibai_engine.research.market_context.cli",
     "baibai-engine research assessment-evaluate": (
         "baibai_engine.research.assessment_evaluation_cli"
     ),

@@ -1,4 +1,4 @@
-"""Market Contextの指標取得・Reading・明示判断を、それぞれのownerへ渡す入口。"""
+"""Market Contextの機械的な指標読取・Readingの入口。"""
 
 from __future__ import annotations
 
@@ -16,10 +16,6 @@ _COMMANDS = {
     "reading": (
         "baibai_engine.market_context.reading.cli",
         "mechanical reading of saved observations",
-    ),
-    "assessment": (
-        "baibai_engine.market_context.assessment.cli",
-        "explicit judgment and saved history",
     ),
 }
 

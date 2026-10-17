@@ -9,12 +9,6 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.redaction import redact_credentials
-from baibai_engine.market_context.assessment.models import ASSESSMENT_STALE_DAYS
-from baibai_engine.market_context.assessment.query import (
-    assessment_payload,
-    latest_assessment_payload,
-    list_assessment_payloads,
-)
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.master import MasterSnapshot
 from baibai_engine.market_context.reading.query import (
@@ -27,6 +21,12 @@ from baibai_engine.market_context.snapshot import (
     PreparedMarketContext,
     build_market_snapshot,
     prepare_market_context_inputs,
+)
+from baibai_engine.research.market_context.models import ASSESSMENT_STALE_DAYS
+from baibai_engine.research.market_context.query import (
+    assessment_payload,
+    latest_assessment_payload,
+    list_assessment_payloads,
 )
 
 from .sqlite import (

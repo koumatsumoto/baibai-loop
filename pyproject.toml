@@ -504,7 +504,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "market context reads observations and judgments without composition or writes"
+name = "market context computes readings without judgments or writes"
 type = "forbidden"
 source_modules = [
   "baibai_engine.market_context.reading.query", "baibai_engine.market_context.snapshot",
@@ -513,13 +513,11 @@ source_modules = [
   "baibai_engine.market_context.master", "baibai_engine.market_context.history",
   "baibai_engine.market_context.margin", "baibai_engine.market_context.reading.reader",
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.models",
-  "baibai_engine.market_context.assessment.query", "baibai_engine.market_context.assessment.projection", "baibai_engine.market_context.assessment.models",
 ]
 forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
-  "baibai_engine.storage.application.write", "baibai_engine.market_context.assessment.service",
-  "baibai_engine.market_context.assessment.cli", "baibai_engine.market_context.reading.cli",
+  "baibai_engine.storage.application.write", "baibai_engine.market_context.reading.cli",
   "baibai_engine.market_context.indicator_service", "baibai_engine.market_context.indicators.providers",
 ]
 
@@ -533,7 +531,6 @@ forbidden_modules = [
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",
   "baibai_engine.market_context.reading.query", "baibai_engine.market_context.benchmark",
   "baibai_engine.market_context.snapshot", "baibai_engine.market_context.security",
-  "baibai_engine.market_context.assessment",
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.external_assessment", "baibai_engine.position", "baibai_engine.tasks",
   "baibai_engine.read_api", "baibai_engine.storage.application.write",
@@ -645,7 +642,7 @@ forbidden_modules = [
   "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicator_service",
   "baibai_engine.market_context.indicators.providers", "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
-  "baibai_engine.storage", "baibai_engine.market_context.assessment", "baibai_engine.read_api",
+  "baibai_engine.storage", "baibai_engine.research.market_context", "baibai_engine.read_api",
 ]
 
 [[tool.importlinter.contracts]]
@@ -675,3 +672,20 @@ type = "forbidden"
 source_modules = ["baibai_engine.research.selection_query", "baibai_engine.research.workspace.admission"]
 forbidden_modules = ["baibai_engine.read_api"]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "market judgment reads do not publish or compose investment proposals"
+type = "forbidden"
+source_modules = [
+  "baibai_engine.research.market_context.models",
+  "baibai_engine.research.market_context.query",
+  "baibai_engine.research.market_context.projection",
+]
+forbidden_modules = [
+  "baibai_engine.storage.application.write",
+  "baibai_engine.research.market_context.service",
+  "baibai_engine.research.market_context.cli",
+  "baibai_engine.research.workspace",
+  "baibai_engine.research.proposal_service",
+  "baibai_engine.read_api",
+]

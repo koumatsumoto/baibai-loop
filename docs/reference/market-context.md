@@ -9,13 +9,13 @@ status: active
 
 本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Stock Assessment](./stock-assessment.md)が所有する。
 
-Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、純粋算術からDB adapterを参照しない。L1取得とL2照会を組み合わせるアプリケーション処理は`indicator_service.py`と`indicator_cli.py`に置き、L1からReadingへ逆依存させない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
+Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、純粋算術からDB adapterを参照しない。L1取得とL2照会を組み合わせるアプリケーション処理は`indicator_service.py`と`indicator_cli.py`に置き、L1からReadingへ逆依存させない。L3は`research/market_context`が所有し、旧reportは履歴として読む。
 
 日次工程はL1観測とL2 Readingを更新し、人間の明示開始でMarketContextAssessmentを作成する。新判断は下記assessmentの最小契約とreview手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
 
 ## 現行配置と保全するidentity
 
-`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
+`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`research/market_context`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
 runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema9）、判断はapplication DBの`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
@@ -248,9 +248,9 @@ Baibai Loop の Market Context タブは、上から **市場・業種の価格�
 
 ## ③ 明示作成する市場環境判断
 
-`market_context/assessment`は固定したL1/L2入力と基準時点、重要変化と根拠、反証/不確実性、調査・業種・リスクへの含意を扱う。新writerは小さな判断一本で、固定章数・シナリオ数・確率格子・指標条件・前回採点を必須にしない。変化が小さい判断や資料不足も表現でき、経済・金利を株価トレンドだけへ縮小しない。文章の品質は独立reviewで確認する。
+`research/market_context`は固定したL1/L2入力と基準時点、重要変化と根拠、反証/不確実性、調査・業種・リスクへの含意を扱う。新writerは小さな判断一本で、固定章数・シナリオ数・確率格子・指標条件・前回採点を必須にしない。変化が小さい判断や資料不足も表現でき、経済・金利を株価トレンドだけへ縮小しない。文章の品質は独立reviewで確認する。
 
-作成・review・発行・読戻しは[assessment skill](../../.agents/skills/market-context-assessment/SKILL.md)、厳密な形は[model](../../engine/src/baibai_engine/market_context/assessment/models.py)が所有する。L1/L2の値は出典として参照し、AIによる別の数値正本を作らない。日次の機械更新から執筆を自動起動せず、売買の最終確認は人間が担う。
+作成・review・発行・読戻しは[assessment skill](../../.agents/skills/market-context-assessment/SKILL.md)、厳密な形は[model](../../engine/src/baibai_engine/research/market_context/models.py)が所有する。L1/L2の値は出典として参照し、AIによる別の数値正本を作らない。日次の機械更新から執筆を自動起動せず、売買の最終確認は人間が担う。
 
 ### 対象日と利用可能時刻
 
@@ -267,9 +267,9 @@ Researchへ渡す共通projectionは要約・根拠・含意に加えて反証/�
 旧v4の共通projectionには支配的な力の主張・伝達経路・確信度・反証・出典と、force IDで対応する相互作用を小さな`synthesis`として引用する。これは保存済み判断の抽出であり、新判断の必須章や新しい評価ではない。Research workspaceのassessment選択は今回の固定`known_at`を使い、External Assessmentの受信cutoffとは分ける。
 
 ```bash
-uv run baibai-engine market-context assessment history
-uv run baibai-engine market-context assessment show --context-id macro-context-2026-07-17-example
-uv run baibai-engine market-context assessment latest --asof 2026-07-17 --known-at 2026-07-18T13:00:00+09:00
+uv run baibai-engine research market-context history
+uv run baibai-engine research market-context show --context-id macro-context-2026-07-17-example
+uv run baibai-engine research market-context latest --asof 2026-07-17 --known-at 2026-07-18T13:00:00+09:00
 ```
 
 

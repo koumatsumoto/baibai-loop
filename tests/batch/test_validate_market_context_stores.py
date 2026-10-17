@@ -14,10 +14,6 @@ from baibai_batch.validation.market_context_stores import (
     validate_published_contexts,
     validate_store,
 )
-from baibai_engine.market_context.assessment.models import (
-    ASSESSMENT_SCHEMA_VERSION,
-    StoredAssessment,
-)
 from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
@@ -31,6 +27,10 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.research.market_context.models import (
+    ASSESSMENT_SCHEMA_VERSION,
+    StoredAssessment,
+)
 from baibai_engine.storage.application.write import (
     initialize_database as initialize_application_database,
 )

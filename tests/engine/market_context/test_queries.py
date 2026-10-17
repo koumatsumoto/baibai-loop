@@ -13,9 +13,6 @@ from tests.helpers.assessment_history import historical_context_payload, seed_hi
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.market_context.assessment.models import StoredAssessment
-from baibai_engine.market_context.assessment.query import assessment_payload as read_context
-from baibai_engine.market_context.assessment.query import latest_assessment_payload
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
 from baibai_engine.market_context.indicators.db import initialize_database, seed_definitions
 from baibai_engine.market_context.indicators.definitions import load_definitions
@@ -25,6 +22,9 @@ from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.sector import _rank_to_percentiles, sector_relative_strength
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.research.market_context.models import StoredAssessment
+from baibai_engine.research.market_context.query import assessment_payload as read_context
+from baibai_engine.research.market_context.query import latest_assessment_payload
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 5, 29)
@@ -208,7 +208,7 @@ from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.market_context.indicators.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
-assert "baibai_engine.market_context.assessment.service" not in sys.modules
+assert "baibai_engine.research.market_context.service" not in sys.modules
 """,
         ],
         check=True,
