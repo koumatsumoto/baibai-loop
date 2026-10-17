@@ -6,15 +6,17 @@ Remove this tool after the attended PR #1541 cutover. It does not publish anythi
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.position.ledger_read import load_ledger_document
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
 
 
 def prepare(source: Path, output: Path) -> None:
-    """Copy a v24 snapshot and remove only its obsolete market-price cache."""
+    """Copy v24, remove the price cache, and advance its ledger document header."""
     if APPLICATION_SCHEMA_VERSION != 25:
         raise RuntimeError("this one-shot tool only targets application schema 25")
     # Exclusive creation refuses existing candidates and the source itself.
@@ -42,6 +44,27 @@ def prepare(source: Path, output: Path) -> None:
                 raise ValueError("source does not have the expected application 24 shape")
             if candidate.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("source has broken application references")
+            meta = candidate.execute(
+                "SELECT schema_version, payload FROM ledger_meta WHERE singleton = 1"
+            ).fetchone()
+            if meta is not None:
+                payload = json.loads(meta[1])
+                if (
+                    meta[0] != 2
+                    or not isinstance(payload, dict)
+                    or payload.get("schema_version") != 2
+                ):
+                    raise ValueError("expected a ledger schema 2 header in application 24")
+                # Version 3 removes persisted market quotes from the document.
+                # Events and all other header values retain their exact meaning.
+                payload["schema_version"] = 3
+                candidate.execute(
+                    "UPDATE ledger_meta SET schema_version = 3, payload = ? WHERE singleton = 1",
+                    (json.dumps(payload, ensure_ascii=False, sort_keys=True),),
+                )
+            # Exercise the real reader before publishing any candidate. This also
+            # rejects orphaned events instead of treating them as an empty ledger.
+            load_ledger_document(candidate)
             candidate.execute("PRAGMA user_version = 25")
             candidate.commit()
     except BaseException:
