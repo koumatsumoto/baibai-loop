@@ -192,8 +192,9 @@ jobs:
           timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh \
             --asof "$TARGET_DATE" --interval "$interval" \
             "${observation_options[@]}" \
-            --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
+            --progress-output "$progress" > "$result" 2> "$stderr"
           status=$?
+          cat "$stderr" >&2
           counts_after="$(uv run python -m baibai_batch.jobs.tradingview_receipts --asof "$TARGET_DATE")"
           count_status=$?
           if [[ "$count_status" != 0 ]]; then

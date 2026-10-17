@@ -2,8 +2,10 @@ import asyncio
 import datetime as datetime_module
 import json
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -231,7 +233,9 @@ def test_gates_secret_scopes_and_durability():
     ):
         assert forbidden not in source.lower()
     assert "timeout --kill-after=30s 30m" in steps["tradingview"]["run"]
-    assert '2> >(tee "$stderr" >&2)' in steps["tradingview"]["run"]
+    assert '> "$result" 2> "$stderr"' in steps["tradingview"]["run"]
+    assert 'status=$?\ncat "$stderr" >&2' in steps["tradingview"]["run"]
+    assert '2> >(tee "$stderr" >&2)' not in steps["tradingview"]["run"]
     assert '--asof "$TARGET_DATE"' in steps["tradingview"]["run"]
     assert '--asof "$TARGET_DATE"' in steps["master"]["run"]
     assert "DISCORD_WEBHOOK_URL" in str(steps["notify"].get("env"))
@@ -485,6 +489,91 @@ def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_p
     assert "publish_failed_receipts == 'true'" in gate
     assert "always()" in steps["cooldown-save"]["if"]
     assert "always()" in steps["lease-release"]["if"]
+
+
+def test_delayed_stderr_consumer_does_not_hide_raw_only_provider_failure(tmp_path):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "1 0"; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        "echo 'TradingView acquisition failed; category=provider_response' >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    python = tmp_path / "python"
+    python.write_text(
+        f'#!/bin/sh\n{shlex.quote(sys.executable)} "$@"\n'
+        'status=$?\ntouch "$RUNNER_TEMP/parser-finished"\nexit "$status"\n'
+    )
+    python.chmod(0o755)
+    system_tee = shutil.which("tee")
+    assert system_tee is not None
+    tee = tmp_path / "tee"
+    tee.write_text(
+        "#!/bin/sh\n"
+        "attempt=0\n"
+        'while [ ! -f "$RUNNER_TEMP/parser-finished" ] && [ "$attempt" -lt 500 ]; do\n'
+        "  sleep 0.01\n  attempt=$((attempt + 1))\ndone\n"
+        'if [ ! -f "$RUNNER_TEMP/parser-finished" ]; then exit 99; fi\n'
+        f'exec {shlex.quote(system_tee)} "$@"\n'
+    )
+    tee.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert (tmp_path / "parser-finished").exists()
+    assert result.returncode == 1
+    assert "failure_category=provider_response" in output.read_text()
+    assert "publish_failed_receipts=true" in output.read_text()
+    assert (
+        "TradingView acquisition failed; category=provider_response"
+        in (tmp_path / "tradingview-stderr.log").read_text()
+    )
+
+
+@pytest.mark.parametrize(
+    "stderr_text",
+    ["", "unexpected failure\n", "TradingView acquisition failed; category=unknown\n"],
+)
+def test_raw_receipt_delta_with_empty_or_unknown_stderr_stays_internal(tmp_path, stderr_text):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "1 0"; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        f"printf %s {shlex.quote(stderr_text)} >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "failure_category=internal" in output.read_text()
+    assert "publish_failed_receipts=false" in output.read_text()
+    assert (tmp_path / "tradingview-stderr.log").read_text() == stderr_text
 
 
 @pytest.mark.parametrize(
