@@ -31,7 +31,6 @@ from baibai_engine.market_context.indicators.providers import (
     parse_boj_timeseries_json,
     parse_boj_xlsx,
     parse_mof_jgb_csv,
-    parse_tsr_bankruptcies_json,
 )
 from baibai_engine.market_context.indicators.providers.base import record_observation
 from baibai_engine.market_context.indicators.providers.estat import parse_estat_json
@@ -40,6 +39,7 @@ from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     parse_dashboard_json,
 )
 from baibai_engine.market_context.reading.native import _one_value
+from baibai_engine.market_context.reading.tsr_bankruptcies import parse_tsr_bankruptcies_json
 
 
 def _read_boj(series, content, *, start, end):
@@ -740,7 +740,7 @@ class IndicatorsProviderParserTests(TestCase):
         ):
             with (
                 self.subTest(reason=reason),
-                self.assertRaisesRegex(IndicatorsProviderError, reason),
+                self.assertRaisesRegex(ValueError, reason),
             ):
                 parse_tsr_bankruptcies_json(
                     series, json.dumps(rows), start=date(2003, 1, 1), end=date(2026, 12, 31)

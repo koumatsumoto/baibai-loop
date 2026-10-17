@@ -15,8 +15,8 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
 
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
-    fetch_observations,
     parse_ecb_reference_csv,
+    provider_spec,
 )
 from baibai_engine.market_context.indicators.providers.base import (
     BrowserUnavailableError,
@@ -316,10 +316,10 @@ class IndicatorsProviderParserTests(TestCase):
                 ),
             )
 
-    def test_fetch_observations_rejects_unknown_provider(self) -> None:
+    def test_provider_spec_rejects_unknown_provider(self) -> None:
         series = _series("nonexistent_provider", "X")
 
         with self.assertRaisesRegex(
             IndicatorsProviderError, "unsupported indicator provider: nonexistent_provider"
         ):
-            fetch_observations(series, start=date(2026, 5, 1), end=date(2026, 5, 1))
+            provider_spec(series.provider)

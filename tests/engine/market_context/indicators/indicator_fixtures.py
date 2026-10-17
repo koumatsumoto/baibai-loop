@@ -9,7 +9,6 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from unittest.mock import patch
 
 import openpyxl
 import requests
@@ -31,11 +30,9 @@ from baibai_engine.market_context.indicators.definitions import (
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.providers import (
     parse_estat_json,
-    spglobal_pmi,
 )
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
-    HttpSession,
     record_observation,
 )
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
@@ -43,7 +40,6 @@ from baibai_engine.market_context.indicators.providers.estat_dashboard import (
 )
 from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
     Release,
-    SpGlobalPmiProvider,
     _parse_stream,
 )
 from baibai_engine.market_context.reading.estat import estat_values
@@ -232,58 +228,6 @@ def _pmi_stream(months: list[str]) -> tuple[Release, ...]:
             for index, month in enumerate(months, start=1)
         ],
     )
-
-
-def _pmi_stored(
-    series_id: str, releases: Sequence[Release], values: Sequence[float]
-) -> tuple[ObservationRecord, ...]:
-    """Stored observations carrying the release URL their month names in the manifest."""
-    return tuple(
-        ObservationRecord(
-            series_id=series_id,
-            observed_at=release.observed_at,
-            value=value,
-            unit="index",
-            source_url=release.url,
-            vintage_at=datetime.now(UTC),
-        )
-        for release, value in zip(releases, values, strict=True)
-    )
-
-
-def _fetch_pmi_stream(
-    series: SeriesDefinition,
-    stream: tuple[Release, ...],
-    *,
-    start: date,
-    end: date,
-    context: FetchContext | None,
-) -> tuple[list[ObservationRecord], list[str]]:
-    """Run the PMI provider against a fixture manifest, recording what it fetched.
-
-    Release text is stubbed per URL so the test stays on the fetch-selection and
-    manifest-freshness behaviour instead of PDF parsing.
-    """
-
-    month_by_url = {release.url: release.observed_at for release in stream}
-    fetched: list[str] = []
-
-    def release_text(url: str, *, session: object, context: object) -> str:
-        fetched.append(url)
-        return f"the headline PMI posted 50.4 in {month_by_url[url].strftime('%B')}."
-
-    with (
-        patch.object(spglobal_pmi, "load_manifest", return_value={"jp_manufacturing": stream}),
-        patch.object(spglobal_pmi, "release_text", side_effect=release_text),
-    ):
-        observations = SpGlobalPmiProvider().fetch(
-            series,
-            start=start,
-            end=end,
-            session=cast(HttpSession, _RaisingSession()),
-            context=context,
-        )
-    return observations, fetched
 
 
 def _boj_workbook_bytes(

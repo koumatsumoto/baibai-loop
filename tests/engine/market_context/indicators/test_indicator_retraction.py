@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import io
 import sqlite3
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -15,9 +13,6 @@ from tests.helpers.indicator_store import (
     store_mof_observations,
 )
 
-from baibai_engine.market_context.indicator_cli import (
-    main,
-)
 from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
 )
@@ -417,43 +412,6 @@ class RetractionVintageTests(unittest.TestCase):
 
             self.assertEqual(again, ())
             self.assertEqual(stored, 2)
-
-    def test_retract_cli_names_every_observation_it_withdrew(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            conn = initialize_database(database)
-            try:
-                series = get_series(conn, "jp.bankruptcies")
-                insert_observations(
-                    conn,
-                    [
-                        observation(
-                            series, date(2026, 5, 1), 439.0, datetime(2026, 5, 2, tzinfo=UTC)
-                        )
-                    ],
-                )
-                conn.commit()
-            finally:
-                conn.close()
-            stdout = io.StringIO()
-
-            with redirect_stdout(stdout):
-                exit_code = main(
-                    [
-                        "retract",
-                        "jp.bankruptcies",
-                        "--observed-at",
-                        "2026-05-01",
-                        "--expected-vintage",
-                        "2026-05-02T00:00:00+00:00",
-                        "--db",
-                        str(database),
-                    ]
-                )
-
-            self.assertEqual(exit_code, 0)
-            self.assertIn("jp.bankruptcies\t2026-05-01\twithdrawn\t439\t-", stdout.getvalue())
-            self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
 
 
 def test_retraction_must_be_newer_before_it_can_report_a_withdrawal(tmp_path):

@@ -1022,7 +1022,7 @@ class OptionAcquisitionTest(unittest.TestCase):
             tuple(rows),
         )
 
-    def test_latest_rechecks_an_empty_response_before_publication(self) -> None:
+    def test_latest_keeps_reads_offline_and_refreshes_only_when_requested(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         database = Path(temporary.name) / "indicators.sqlite"
@@ -1050,7 +1050,11 @@ class OptionAcquisitionTest(unittest.TestCase):
                 side_effect=lambda day: _chain_records(day) if day == ASOF else [],
             ) as fetch,
         ):
-            result = IndicatorsService(database).get_latest("jp.n225_iv_30d")
+            reader = IndicatorsService(database)
+            cached = reader.get_latest("jp.n225_iv_30d")
+            self.assertEqual(cached.observations, ())
+            fetch.assert_not_called()
+            result = reader.get_latest("jp.n225_iv_30d", refresh=True)
         self.assertEqual([row.observed_at for row in result.observations], [ASOF])
         self.assertIn(mock.call(ASOF), fetch.call_args_list)
 

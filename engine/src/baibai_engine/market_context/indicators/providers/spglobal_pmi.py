@@ -1,158 +1,105 @@
 from __future__ import annotations
 
-import io
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import cache
 from pathlib import Path
 from typing import cast
 
-from pypdf import PdfReader
-
+from baibai_engine.collection.economic_documents import SourceDocument
+from baibai_engine.collection.economic_sources import SourceDefinition
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
-from .base import (
-    MAX_CSV_RESPONSE_BYTES,
-    FetchContext,
-    HttpSession,
-    IndicatorsProviderError,
-    ProviderSpec,
-    SourceWithheldError,
-    fetch_bytes,
-)
-from .pmi_extraction import PmiExtractionError, extract_pmi_value
+from .base import FetchContext, HttpSession, IndicatorsProviderError, ProviderSpec, fetch_bytes
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 RELEASE_URL_RE = re.compile(
     r"https://www\.pmi\.spglobal\.com/Public/Home/PressRelease/[0-9a-f]{32}\Z"
 )
 MAX_PMI_PDF_BYTES = 5 * 1024 * 1024
-# S&P Global publishes a month's final release in the first business days of the
-# next month, so a refresh through a given month expects the manifest to reach the
-# previous month once that release window has passed. Before the grace day the
-# expectation stays one month further back, so the guard never fails for a release
-# that does not exist yet.
 MANIFEST_GRACE_DAY = 10
 
 
-class SpGlobalPmiProvider:
-    """S&P Global PMI headline index from the official monthly release PDFs.
+class SpGlobalPmiSource:
+    """Acquire original monthly PDFs; interpreting their headline belongs to L2.
 
-    ``provider_series_id`` selects a PMI stream (e.g. ``jp_manufacturing``) in the
-    release-URL manifest. Each observed month names its release PDF; the provider
-    fetches the PDF (plain HTTP first, headless-browser fallback for WAF-gated
-    months), extracts the headline value from a bounded context, and range-checks
-    it before it can enter the store.
-
-    Fetch cost scales with the number of months in the window (one PDF each), so an
-    incremental refresh reuses stored months with the same source URL. It does not
-    detect a corrected PDF at that URL; ``refresh --all-history`` re-reads every
-    month to rebuild the stream from source. A changed manifest URL is re-fetched
-    even during an incremental refresh.
+    Ordinary refresh reuses a received body at the same manifest URL. A forced
+    all-history acquisition fetches every requested PDF, including corrections
+    published at an unchanged URL. Already received documents survive a later
+    download or manifest-coverage failure because the caller stores each yield.
     """
 
-    # The manifest is the whole obtainable history, so the all-history floor has to
-    # reach the oldest month it names; otherwise `--all-history` silently leaves the
-    # months before the floor unfetchable. A test binds this date to the manifest.
     spec = ProviderSpec(name="spglobal_pmi", all_history_start=date(2022, 12, 1))
     name = spec.name
 
-    def fetch(
+    def fetch_documents(
         self,
-        series: SeriesDefinition,
+        source: SourceDefinition,
         *,
         start: date,
         end: date,
         session: HttpSession,
-        context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
-        releases = load_manifest(MANIFEST_PATH).get(series.provider_series_id)
+        context: FetchContext | None,
+        existing: Mapping[str, SourceDocument],
+        force: bool,
+    ) -> Iterator[SourceDocument]:
+        manifest = load_manifest(MANIFEST_PATH)
+        releases = manifest.get(source.provider_series_id)
         if releases is None:
-            supported = ", ".join(sorted(load_manifest(MANIFEST_PATH)))
             raise IndicatorsProviderError(
-                f"spglobal_pmi has no release manifest for {series.provider_series_id!r}; "
-                f"supported: {supported}"
+                f"spglobal_pmi has no release manifest for {source.provider_series_id!r}"
             )
-        if context is None or context.purpose != "read":
-            _require_current_manifest(series, releases, end=end)
-        stored_by_month = {
-            observation.observed_at: observation
-            for observation in _stored_observations(series, start=start, end=end, context=context)
-        }
-        fetched: list[ObservationRecord] = []
-        refetched_months: set[date] = set()
         for entry in releases:
             if not start <= entry.observed_at <= end:
                 continue
-            stored = stored_by_month.get(entry.observed_at)
-            if stored is not None and stored.source_url == entry.url:
+            key = entry.observed_at.isoformat()
+            metadata = {
+                "observed_at": key,
+                "release_observed_at": entry.release_observed_at.isoformat(),
+            }
+            stored = existing.get(key)
+            if (
+                not force
+                and stored is not None
+                and stored.source_id == source.source_id
+                and stored.source_url == entry.url
+                and stored.content_type == "application/pdf"
+                and stored.metadata == metadata
+            ):
                 continue
-            refetched_months.add(entry.observed_at)
-            pdf_text = release_text(entry.url, session=session, context=context)
-            try:
-                value = extract_pmi_value(
-                    pdf_text,
-                    expected_observed_at=entry.observed_at,
-                    release_observed_at=entry.release_observed_at,
-                )
-            except PmiExtractionError as exc:
-                raise IndicatorsProviderError(
-                    f"spglobal_pmi {series.series_id} {entry.observed_at}: {exc}"
-                ) from exc
-            if value is None:
-                raise IndicatorsProviderError(
-                    f"spglobal_pmi {series.series_id} {entry.observed_at}: "
-                    f"no headline value found in {entry.url}"
-                )
-            fetched.append(
-                ObservationRecord(
-                    series_id=series.series_id,
-                    observed_at=entry.observed_at,
-                    period_start=entry.observed_at,
-                    period_end=entry.observed_at,
-                    value=value,
-                    unit=series.unit,
-                    source_url=entry.url,
-                )
+            body = fetch_pdf_bytes(entry.url, session=session, context=context)
+            yield SourceDocument(
+                source_id=source.source_id,
+                request_key=key,
+                source_url=entry.url,
+                content_type="application/pdf",
+                fetched_at=datetime.now(UTC),
+                payload=body,
+                metadata=metadata,
             )
-        # Months that were not re-read are carried through from the store so the
-        # returned window stays the complete window even though nothing was fetched
-        # for them. Re-inserting them is a no-op for the store.
-        carried = [
-            observation
-            for month, observation in stored_by_month.items()
-            if month not in refetched_months
-        ]
-        return sorted(fetched + carried, key=lambda observation: observation.observed_at)
+        # Report an unavailable recent range without throwing away known originals.
+        _require_current_manifest(source, releases, end=end)
 
 
-def _stored_observations(
-    series: SeriesDefinition,
-    *,
-    start: date,
-    end: date,
-    context: FetchContext | None,
-) -> tuple[ObservationRecord, ...]:
-    """Observations already held for this series, whose months are not downloaded.
-
-    A month is only skipped when the stored observation came from the release URL
-    the manifest currently names, so correcting a URL re-reads that month. A
-    rebuild re-reads every month regardless. Without a store reader every month in
-    the window is fetched, so a caller that cannot supply one still gets correct
-    data — only the download count changes.
-    """
-
-    if context is None or context.store_reader is None or context.purpose == "rebuild":
-        return ()
-    return context.store_reader(series.series_id, start, end)
+def fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | None) -> bytes:
+    """Fetch a public PDF directly; refusal is not permission to bypass the source."""
+    content = fetch_bytes(
+        session,
+        url,
+        params=None,
+        max_bytes=MAX_PMI_PDF_BYTES,
+        headers={"Accept": "application/pdf"},
+        context=context,
+    )
+    if not content.startswith(b"%PDF"):
+        raise IndicatorsProviderError(f"spglobal_pmi response from {url} is not a PDF")
+    return content
 
 
 def _require_current_manifest(
-    series: SeriesDefinition, releases: tuple[Release, ...], *, end: date
+    series: SourceDefinition, releases: tuple[Release, ...], *, end: date
 ) -> None:
     """Fail when the manifest has fallen behind the release calendar.
 
@@ -189,61 +136,6 @@ class Release:
     observed_at: date
     release_observed_at: date
     url: str
-
-
-def release_text(url: str, *, session: HttpSession, context: FetchContext | None) -> str:
-    content = _fetch_pdf_bytes(url, session=session, context=context)
-    return extract_pdf_text(content)
-
-
-def _fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | None) -> bytes:
-    # Plain HTTP works for most months; a WAF-gated month returns non-PDF HTML,
-    # so fall back to a real browser navigation before giving up. Only a source
-    # that withheld the file is worth asking again a costlier way: a size cap, a
-    # 404 or a 5xx would answer the same, and routing a capped response through
-    # the browser would have it written to disk with no cap ahead of it.
-    try:
-        content = fetch_bytes(
-            session,
-            url,
-            params=None,
-            max_bytes=MAX_CSV_RESPONSE_BYTES,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                ),
-                "Accept": "application/pdf,text/html;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-            context=context,
-        )
-    except SourceWithheldError:
-        content = b""
-    if content.startswith(b"%PDF"):
-        if len(content) > MAX_PMI_PDF_BYTES:
-            raise IndicatorsProviderError(f"spglobal_pmi PDF exceeds {MAX_PMI_PDF_BYTES} bytes")
-        return content
-    if context is None:
-        raise IndicatorsProviderError(
-            f"spglobal_pmi could not fetch a PDF from {url} and no browser is available"
-        )
-    # A WAF-gated month always arrives this way, so the browser route is normal
-    # operation rather than an exceptional one and carries the same ceiling.
-    return context.browser_fetcher().fetch_pdf(url, max_bytes=MAX_PMI_PDF_BYTES)
-
-
-def extract_pdf_text(content: bytes) -> str:
-    if not content.startswith(b"%PDF"):
-        raise IndicatorsProviderError("spglobal_pmi response is not a PDF")
-    try:
-        reader = PdfReader(io.BytesIO(content))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    except Exception as exc:
-        # pypdf raises opaque third-party errors on a malformed PDF; convert so
-        # the CLI/batch never leaks a traceback.
-        raise IndicatorsProviderError(f"spglobal_pmi PDF could not be read: {exc}") from exc
-    return " ".join(text.split())
 
 
 @cache

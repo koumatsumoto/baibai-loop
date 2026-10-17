@@ -4,14 +4,12 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime
 
-import pytest
 from tests.helpers.indicator_store import (
     observation,
     store_h15_observations,
     store_mof_observations,
 )
 
-from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
@@ -60,8 +58,6 @@ def test_read_only_derived_values_follow_source_corrections_not_old_cache(tmp_pa
         corrected = read("rate_diff.us_jp_10y", day, day)
         assert corrected[0].value == 2.5
         assert corrected[0].vintage_at == corrected_at
-    with pytest.raises(ValueError, match="no stored observation to retract"):
-        IndicatorsService(path).retract("rate_diff.us_jp_10y", [(day, vintage)])
 
 
 def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintage(
@@ -114,5 +110,3 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
         assert read("jp.n225_iv_30d", ASOF, ASOF) == ()
         assert calls == [ASOF, ASOF]
     assert indicator_latest_observed_at(path) is None
-    with pytest.raises(ValueError, match="no stored observation to retract"):
-        IndicatorsService(path).retract("jp.n225_iv_30d", [(ASOF, first)])

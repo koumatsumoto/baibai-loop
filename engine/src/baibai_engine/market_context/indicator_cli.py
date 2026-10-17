@@ -8,7 +8,7 @@ import re
 import sqlite3
 import sys
 from collections.abc import Iterable, Sequence
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import assert_never
 
@@ -87,36 +87,13 @@ def build_parser() -> argparse.ArgumentParser:
     refresh_range.add_argument("--all-history", action="store_true")
     refresh_parser.add_argument("--end", required=True, type=date.fromisoformat)
 
-    retract_parser = subparsers.add_parser(
-        "retract",
-        help="withdraw stored observation dates from every read",
-    )
-    retract_parser.add_argument("series_id")
-    retract_parser.add_argument(
-        "--observed-at",
-        required=True,
-        action="append",
-        dest="observed_at",
-        type=date.fromisoformat,
-        help="observation date to withdraw (repeatable)",
-    )
-    retract_parser.add_argument(
-        "--expected-vintage",
-        required=True,
-        action="append",
-        dest="expected_vintage",
-        type=datetime.fromisoformat,
-        help="the vintage each --observed-at is expected to withdraw (repeatable, paired)",
-    )
-    retract_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
-
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
     args = build_parser().parse_args(arguments)
-    if args.command in {"get", "refresh", "retract"}:
+    if args.command in {"get", "refresh"}:
         load_project_env()
         service = IndicatorsService(args.db)
     try:
@@ -137,8 +114,6 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             case "refresh":
                 return _run_refresh(service, args)
-            case "retract":
-                return _run_retract(service, args)
     except KeyError as exc:
         message = exc.args[0] if exc.args else str(exc)
         print(f"error: {message}", file=sys.stderr)
@@ -201,33 +176,6 @@ def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     return 1
-
-
-def _run_retract(service: IndicatorsService, args: argparse.Namespace) -> int:
-    """Print what each date lost and what it fell back to, so the change reads at a glance."""
-
-    if len(args.observed_at) != len(args.expected_vintage):
-        raise ValueError("--observed-at and --expected-vintage must be given in pairs")
-    requested = sorted(set(zip(args.observed_at, args.expected_vintage, strict=True)))
-    outcomes = service.retract(args.series_id, requested)
-    handled = {item.observed_at for item in outcomes}
-    restored = sum(1 for item in outcomes if item.restored is not None)
-    print("series_id\tobserved_at\toutcome\twithdrawn_value\trestored_value")
-    for item in outcomes:
-        outcome = "withdrawn" if item.restored is None else "restored-previous"
-        restored_value = "-" if item.restored is None else f"{item.restored.value:g}"
-        print(
-            f"{item.series_id}\t{item.observed_at.isoformat()}\t{outcome}\t"
-            f"{item.withdrawn.value:g}\t{restored_value}"
-        )
-    for observed_at, _ in requested:
-        if observed_at not in handled:
-            print(f"{args.series_id}\t{observed_at.isoformat()}\talready-retracted\t-\t-")
-    print(
-        f"retracted {len(outcomes)} of {len(requested)} requested observation dates; "
-        f"{restored} fell back to an earlier vintage, {len(outcomes) - restored} left the reads"
-    )
-    return 0
 
 
 def _run_get(service: IndicatorsService, args: argparse.Namespace) -> QueryResult:

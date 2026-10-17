@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import sqlite3
 import time
 from collections.abc import Callable, Sequence
@@ -12,7 +11,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.collection.economic_sources import require_source
+from baibai_engine.collection.economic_documents import read_documents, store_document
+from baibai_engine.collection.economic_sources import DOCUMENT_PROVIDERS, require_source
 from baibai_engine.foundation.redaction import redact_credentials
 
 from .indicators import db
@@ -22,18 +22,17 @@ from .indicators.observations import ObservationRecord
 from .indicators.providers import (
     FetchContext,
     IndicatorsProviderError,
-    fetch_observations,
     provider_spec,
 )
-from .indicators.providers.base import ProviderFetchStoppedError, StoreReader
+from .indicators.providers.base import ProviderFetchStoppedError
+from .indicators.providers.documents import fetch_source_documents
 from .indicators.providers.native import fetch_native_records
-from .indicators.read_contracts import NATIVE_BULK_PROVIDERS, NATIVE_PROVIDERS, native_source_key
+from .indicators.read_contracts import NATIVE_BULK_PROVIDERS, native_source_key
 from .indicators.source_snapshots import store_snapshot, stored_days
 from .option_acquisition import OptionAcquisition
+from .reading.documents import read_document_series
 from .reading.native import read_native_series
-from .reading.options import OptionSeriesReader
 from .reading.reader import build_store_observation_reader
-from .reading.rules import load_reading_rules
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {
@@ -107,59 +106,32 @@ class IndicatorsService:
         if end < start:
             raise ValueError("--end must be on or after --start")
         definitions = load_definitions()
-        if series_id not in definitions.by_id():
+        registered = definitions.by_id()
+        if series_id not in registered:
             raise KeyError(f"unknown indicator series: {series_id}")
-        conn = db.open_connection(self.db_path, definitions=definitions)
-        try:
-            with (
-                FetchContext(
-                    store_reader=_store_reader(conn),
-                    purpose="refresh" if refresh else "read",
-                ) as context,
-                closing(OptionAcquisition(conn, context)) as options,
-            ):
-                return self._get_range(
-                    conn,
-                    series_id,
-                    start=start,
-                    end=end,
-                    refresh=refresh,
-                    context=context,
-                    options=options,
-                )
-        finally:
-            conn.close()
-
-    def retract(
-        self,
-        series_id: str,
-        targets: Sequence[tuple[date, datetime]],
-    ) -> tuple[db.RetractionOutcome, ...]:
-        """Withdraw the latest vintage of observation dates without removing any history."""
-
-        definitions = load_definitions()
-        if series_id not in definitions.by_id():
-            raise KeyError(f"unknown indicator series: {series_id}")
-        if definitions.by_id()[series_id].provider in ({"derived"} | NATIVE_PROVIDERS):
-            raise ValueError(
-                "computed series has no stored observation to retract; correct its input"
-            )
-        conn = db.open_connection(self.db_path, definitions=definitions)
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            retractions = db.retract_observations(
+        if not refresh:
+            with closing(db.open_read_only_connection(self.db_path)) as conn:
+                conn.execute("BEGIN")
+                try:
+                    reader = build_store_observation_reader(conn, series=definitions.series)
+                    observations = tuple(reader(series_id, start, end))
+                finally:
+                    conn.rollback()
+            return QueryResult(registered[series_id], observations, cache_hit=True)
+        with (
+            closing(db.open_connection(self.db_path, definitions=definitions)) as conn,
+            FetchContext(purpose="refresh") as context,
+            closing(OptionAcquisition(conn, context)) as options,
+        ):
+            return self._get_range(
                 conn,
                 series_id,
-                targets,
-                vintage_at=datetime.now(UTC),
+                start=start,
+                end=end,
+                refresh=True,
+                context=context,
+                options=options,
             )
-            conn.commit()
-            return retractions
-        except BaseException:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
 
     def refresh_all_history(self, series_id: str, *, end: date) -> QueryResult:
         definitions = load_definitions()
@@ -169,7 +141,7 @@ class IndicatorsService:
         try:
             _prune_registry_for_refresh(conn, definitions)
             with (
-                FetchContext(store_reader=_store_reader(conn), purpose="rebuild") as context,
+                FetchContext(purpose="rebuild") as context,
                 closing(OptionAcquisition(conn, context)) as options,
             ):
                 return self._refresh_all_history(
@@ -215,7 +187,6 @@ class IndicatorsService:
             _prune_registry_for_refresh(conn, definitions)
             with (
                 FetchContext(
-                    store_reader=_store_reader(conn),
                     purpose="rebuild" if start is None else "refresh",
                 ) as context,
                 closing(OptionAcquisition(conn, context)) as options,
@@ -272,18 +243,11 @@ class IndicatorsService:
         if series.provider == "jquants_options":
             observations, cache_hit = options.query(series, start=start, end=end, refresh=refresh)
             return QueryResult(series, observations, cache_hit=cache_hit)
-        spec = provider_spec(series.provider)
-        point_in_time = spec.point_in_time_vintage
-        cache_hit = (not refresh) and db.has_ok_coverage(conn, series_id, start, end)
-        if not cache_hit:
-            self._fetch_and_store(conn, series, start=start, end=end, context=context)
-        # Fetch and cache paths expose the same selected store view. A provider may
-        # return several publication vintages for one date; those are source facts,
-        # not several current values or an excuse to return the first old revision.
-        observations = db.observations_in_range(
-            conn, series_id, start, end, point_in_time=point_in_time
-        )
-        return QueryResult(series, observations, cache_hit=cache_hit)
+        if series.provider in DOCUMENT_PROVIDERS:
+            return self._document_range(
+                conn, series, start=start, end=end, context=context, force=False
+            )
+        raise ValueError(f"unsupported economic source provider: {series.provider}")
 
     def _refresh_all_history(
         self,
@@ -326,81 +290,28 @@ class IndicatorsService:
                 series, start=start, end=end, refresh=True, require_observations=True
             )
             return QueryResult(series, observations, cache_hit=cache_hit)
-        self._fetch_and_store(
-            conn,
-            series,
-            start=start,
-            end=end,
-            context=context,
-            remove_other_sources=True,
-            require_observations=True,
-        )
-        observations = db.observations_in_range(
-            conn, series_id, start, end, point_in_time=spec.point_in_time_vintage
-        )
-        return QueryResult(series, observations, cache_hit=False)
+        if series.provider in DOCUMENT_PROVIDERS:
+            return self._document_range(
+                conn, series, start=start, end=end, context=context, force=True
+            )
+        raise ValueError(f"unsupported economic source provider: {series.provider}")
 
     def get_latest(self, series_id: str, *, refresh: bool = False) -> QueryResult:
         end = _today_jst()
-        definitions = load_definitions()
-        registered = definitions.by_id()
+        registered = load_definitions().by_id()
         if series_id not in registered:
             raise KeyError(f"unknown indicator series: {series_id}")
-        conn = db.open_connection(self.db_path, definitions=definitions)
-        try:
-            series = db.get_series(conn, series_id)
-            if series.provider == "derived":
-                result = _derived_range(conn, series, start=date(1970, 1, 1), end=end)
-                return QueryResult(series, result.observations[-1:], cache_hit=True)
-            spec = provider_spec(series.provider)
-            if refresh:
-                # A retained native input may fail L2 projection. Forced acquisition
-                # must be able to replace it before attempting to read it again.
-                cached_latest = None
-            elif series.provider in NATIVE_BULK_PROVIDERS:
-                lookback = LATEST_FETCH_LOOKBACK_DAYS.get(
-                    series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS
-                )
-                recent = read_native_series(
-                    conn, series, start=end - timedelta(days=lookback), end=end
-                )
-                cached_latest = recent[-1] if recent else None
-            elif series.provider == "jquants_options":
-                recent = OptionSeriesReader(conn).read(
-                    series, start=end - timedelta(days=14), end=end
-                )
-                cached_latest = recent[-1] if recent else None
-            else:
-                cached_latest = db.latest_observation(
-                    conn, series_id, on_or_before=end, point_in_time=spec.point_in_time_vintage
-                )
-            if (
-                not refresh
-                and cached_latest is not None
-                and _latest_cache_is_fresh(series, cached_latest, asof=end)
-            ):
-                return QueryResult(series, (cached_latest,), cache_hit=True)
-        finally:
-            conn.close()
-        lookback_days = LATEST_FETCH_LOOKBACK_DAYS.get(
-            series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS
+        series = registered[series_id]
+        start = (
+            date(1970, 1, 1)
+            if series.provider == "derived"
+            else end
+            - timedelta(
+                days=LATEST_FETCH_LOOKBACK_DAYS.get(series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS)
+            )
         )
-        start = end - timedelta(days=lookback_days)
-        result = self.get_range(
-            series_id,
-            start=start,
-            end=end,
-            # An empty native day may precede publication; latest must ask again
-            # when no fresh reading exists, not freeze that early empty response.
-            refresh=refresh or cached_latest is not None or series.provider in NATIVE_PROVIDERS,
-        )
-        if not result.observations:
-            return result
-        return QueryResult(
-            result.series,
-            (max(result.observations, key=lambda item: item.observed_at),),
-            cache_hit=result.cache_hit,
-        )
+        result = self.get_range(series_id, start=start, end=end, refresh=refresh)
+        return QueryResult(result.series, result.observations[-1:], result.cache_hit)
 
     def _native_range(
         self,
@@ -473,7 +384,7 @@ class IndicatorsService:
             raise ValueError(f"retained inputs produced no observations for {series.series_id}")
         return QueryResult(series, observations, cache_hit=cache_hit)
 
-    def _fetch_and_store(
+    def _document_range(
         self,
         conn: sqlite3.Connection,
         series: SeriesDefinition,
@@ -481,78 +392,52 @@ class IndicatorsService:
         start: date,
         end: date,
         context: FetchContext,
-        remove_other_sources: bool = False,
-        require_observations: bool = False,
-    ) -> None:
+        force: bool,
+    ) -> QueryResult:
+        source = require_source(series.source_id)
+        existing = {item.request_key: item for item in read_documents(conn, source.source_id)}
         started_at = datetime.now(UTC)
+        received = 0
         try:
-            observations = _fetch_observations_with_retry(
-                series, start=start, end=end, context=context
-            )
-            if require_observations and not observations:
-                raise IndicatorsProviderError(
-                    f"all-history refresh returned no observations for {series.series_id}"
+            for document in fetch_source_documents(
+                source, start=start, end=end, context=context, existing=existing, force=force
+            ):
+                if document.source_id != source.source_id:
+                    raise ValueError(f"provider returned a document for {document.source_id}")
+                # A later source failure must not destroy an already received PDF.
+                with conn:
+                    store_document(conn, document)
+                received += 1
+        except sqlite3.Error:
+            raise
+        except Exception as error:
+            with conn:
+                db.record_provider_run(
+                    conn,
+                    provider=source.provider,
+                    series_id=series.series_id,
+                    start=start,
+                    end=end,
+                    started_at=started_at,
+                    status="failed",
+                    record_count=received,
+                    error_message=redact_credentials(str(error)),
                 )
-            _reject_observation_identity(series, observations)
-            _reject_non_finite(series, observations)
-            _reject_outside_plausible_range(series, observations)
-            # Own the outer transaction: insert_observations uses a savepoint,
-            # whose RELEASE would otherwise commit before the run record is written.
-            conn.execute("BEGIN IMMEDIATE")
-            # Every store-rewrite policy below spares what the store learned after the
-            # provider's newest statement. A rewrite replaces what the provider is
-            # restating; a retraction and the belief it put back are decisions about
-            # rows the provider is not going to re-deliver, so dropping them would let
-            # the merge restore the withdrawn row and undo the decision on the next
-            # push. For a provider that stamps acquisition time this spares nothing
-            # extra — its newest statement is now. A source that does re-deliver the
-            # date buries the decision under a newer vintage, which is correct.
-            kept_after = _newest_provider_statement(observations)
-            if remove_other_sources and observations:
-                conn.execute(
-                    "DELETE FROM observations WHERE series_id = ? AND source_url != ? "
-                    "AND observed_at BETWEEN ? AND ? AND substr(vintage_at, 1, 10) <= ? "
-                    "AND (? IS NULL OR vintage_at <= ?)",
-                    (
-                        series.series_id,
-                        series.source_url,
-                        start.isoformat(),
-                        end.isoformat(),
-                        end.isoformat(),
-                        kept_after,
-                        kept_after,
-                    ),
-                )
-            db.insert_observations(conn, observations)
-            db.delete_unchanged_vintages(conn, series.series_id)
+            raise
+        with conn:
             db.record_provider_run(
                 conn,
-                provider=series.provider,
-                series_id=series.series_id,
-                start=start,
-                end=_provider_run_coverage_end(
-                    series, requested_end=end, observations=observations
-                ),
-                started_at=started_at,
-                status="ok",
-                record_count=len(observations),
-            )
-            conn.commit()
-        except Exception as exc:
-            conn.rollback()
-            db.record_provider_run(
-                conn,
-                provider=series.provider,
+                provider=source.provider,
                 series_id=series.series_id,
                 start=start,
                 end=end,
                 started_at=started_at,
-                status="failed",
-                record_count=0,
-                error_message=redact_credentials(str(exc)),
+                status="ok",
+                record_count=received,
             )
-            conn.commit()
-            raise
+        # L2 errors cannot relabel successful receipt as a source download failure.
+        observations = read_document_series(conn, series, start=start, end=end)
+        return QueryResult(series, observations, cache_hit=False)
 
 
 def _derived_range(
@@ -566,26 +451,6 @@ def _derived_range(
         return QueryResult(series, values, cache_hit=True)
     finally:
         conn.rollback()
-
-
-def _store_reader(conn: sqlite3.Connection) -> StoreReader:
-    """Read a stored series through the live connection.
-
-    Source providers such as spglobal_pmi use this to skip months already held.
-    L2 formulas use the read-only registry-aware reader, not a fetch callback.
-    """
-
-    def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
-        return db.observations_in_range(conn, series_id, start, end)
-
-    return read
-
-
-def _newest_provider_statement(observations: list[ObservationRecord]) -> str | None:
-    """The newest vintage the provider just stated, or None when it stamps none itself."""
-
-    vintages = [item.vintage_at for item in observations if item.vintage_at is not None]
-    return max(vintages).isoformat() if vintages else None
 
 
 def _prune_registry_for_refresh(
@@ -629,77 +494,6 @@ def _prune_registry_for_refresh(
             print(message, flush=True)
 
 
-def _latest_cache_is_fresh(
-    series: SeriesDefinition,
-    observation: ObservationRecord,
-    *,
-    asof: date,
-) -> bool:
-    """Use the same publication-lag-aware observation age as the L2 reading."""
-
-    rule = load_reading_rules().resolve(
-        series_id=series.series_id,
-        frequency=series.frequency,
-    )
-    return not rule.is_stale(observation.observed_at, asof=asof)
-
-
-def _reject_non_finite(series: SeriesDefinition, observations: list[ObservationRecord]) -> None:
-    """Keep NaN / ±inf out of the store.
-
-    ``float("nan")`` and ``float("1e999")`` parse from source text as ordinary
-    numbers, and once stored they silently poison every derived computation,
-    percentile and JSON export that reads the series. This is the gate for scalar
-    observations; native-record values are checked by the reading layer.
-    """
-
-    for observation in observations:
-        if not math.isfinite(observation.value):
-            raise IndicatorsProviderError(
-                f"{series.series_id} {observation.observed_at.isoformat()}: "
-                f"non-finite value {observation.value}"
-            )
-
-
-def _reject_observation_identity(
-    series: SeriesDefinition,
-    observations: list[ObservationRecord],
-) -> None:
-    """Bind every provider row to the requested series and its declared unit."""
-
-    for observation in observations:
-        if observation.series_id != series.series_id:
-            raise IndicatorsProviderError(
-                f"{series.series_id}: provider returned observation for {observation.series_id}"
-            )
-        if observation.unit != series.unit:
-            raise IndicatorsProviderError(
-                f"{series.series_id} {observation.observed_at.isoformat()}: "
-                f"provider returned unit {observation.unit!r}; expected {series.unit!r}"
-            )
-
-
-def _reject_outside_plausible_range(
-    series: SeriesDefinition,
-    observations: list[ObservationRecord],
-) -> None:
-    """Reject finite values that indicate a likely column, scale, or unit mismatch."""
-
-    low = series.plausible_min
-    high = series.plausible_max
-    for observation in observations:
-        if (low is not None and observation.value < low) or (
-            high is not None and observation.value > high
-        ):
-            rendered_low = "-inf" if low is None else f"{low:g}"
-            rendered_high = "inf" if high is None else f"{high:g}"
-            raise IndicatorsProviderError(
-                f"{series.series_id} {observation.observed_at.isoformat()}: "
-                f"value {observation.value:g} outside plausible range "
-                f"[{rendered_low}, {rendered_high}]"
-            )
-
-
 def _failure_message(exc: Exception) -> str:
     # KeyError stringifies with quotes around the message; unwrap it so an unknown
     # series reads the same as any other failure.
@@ -717,30 +511,6 @@ def _years_before(value: date, years: int) -> date:
 
 def _today_jst() -> date:
     return datetime.now(ZoneInfo("Asia/Tokyo")).date()
-
-
-def _provider_run_coverage_end(
-    series: SeriesDefinition,
-    *,
-    requested_end: date,
-    observations: list[ObservationRecord],
-) -> date:
-    if series.frequency == "daily" and observations:
-        return min(requested_end, max(item.observed_at for item in observations))
-    return requested_end
-
-
-def _fetch_observations_with_retry(
-    series: SeriesDefinition,
-    *,
-    start: date,
-    end: date,
-    context: FetchContext | None,
-) -> list[ObservationRecord]:
-    return _fetch_with_retry(
-        lambda: fetch_observations(series, start=start, end=end, context=context),
-        context=context,
-    )
 
 
 def _fetch_with_retry[T](operation: Callable[[], T], *, context: FetchContext | None) -> T:

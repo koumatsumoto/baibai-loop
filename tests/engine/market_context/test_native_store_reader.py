@@ -158,7 +158,7 @@ def test_native_positioning_preserves_zero_and_missingness(tmp_path, long, short
         assert (result[0].value if result else None) == expected
 
 
-def test_latest_rechecks_complete_but_empty_native_window(tmp_path, monkeypatch):
+def test_latest_reads_empty_native_window_without_acquisition(tmp_path, monkeypatch):
     monkeypatch.setattr(indicator_service, "_today_jst", lambda: DAY)
     row = {"noncomm_positions_long_all": "7", "noncomm_positions_short_all": "2"}
     replies = [{}, {DAY: [row]}]
@@ -171,7 +171,9 @@ def test_latest_rechecks_complete_but_empty_native_window(tmp_path, monkeypatch)
         ).observations
         == ()
     )
-    latest = service.get_latest(series_id)
+    assert service.get_latest(series_id).observations == ()
+    assert len(replies) == 1
+    latest = service.get_latest(series_id, refresh=True)
     assert latest.observations[0].value == 5.0
     assert replies == []
 

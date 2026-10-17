@@ -7,18 +7,22 @@ remote object store that does not preserve filesystem metadata.
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from baibai_engine.collection.economic_sources import DOCUMENT_PROVIDERS
+from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.read_contracts import (
     NATIVE_PROVIDERS,
     native_source_key,
 )
 from baibai_engine.market_context.indicators.source_snapshots import decode_records
+from baibai_engine.market_context.reading.documents import read_document_series
 
-from .sqlite import read_application_rows, read_rows
+from .sqlite import connect_read_only, read_application_rows, read_rows
 
 # Judgment-layer stores are all JST-domain records. Date-only columns
 # and any timezone-naive value are read at JST
@@ -41,28 +45,25 @@ def indicator_latest_observed_at(path: Path) -> date | None:
     if not path.is_file():
         return None
     definitions = load_definitions().series
-    registered = {
-        series.series_id
-        for series in definitions
-        if series.provider not in ({"derived"} | NATIVE_PROVIDERS)
-    }
-    rows = read_rows(
-        path,
-        (
-            # A later retraction hides this observation. An even later successful
-            # vintage remains eligible, matching the series reader's semantics.
-            "SELECT o.series_id, max(o.observed_at) FROM observations o "
-            "WHERE o.fetch_status = 'ok' AND NOT EXISTS ("
-            "SELECT 1 FROM observations r "
-            "WHERE r.series_id = o.series_id AND r.observed_at = o.observed_at "
-            "AND r.fetch_status = 'retracted' AND r.vintage_at > o.vintage_at"
-            ") GROUP BY o.series_id"
-        ),
-    )
-    latest = max(
-        (str(row[1]) for row in rows if str(row[0]) in registered and row[1] is not None),
-        default=None,
-    )
+
+    def document_latest() -> str | None:
+        with closing(connect_read_only(path)) as connection:
+            connection.execute("BEGIN")
+            return max(
+                (
+                    value.observed_at.isoformat()
+                    for series in definitions
+                    if series.provider in DOCUMENT_PROVIDERS
+                    for value in read_document_series(
+                        connection, series, start=date.min, end=date.max
+                    )
+                ),
+                default=None,
+            )
+
+    # Request dates and acquisition times are not observation dates. Use the
+    # same document interpretation as the chart, without an old scalar fallback.
+    latest = read_store_if_written(path, document_latest)
     native_keys = {
         native_source_key(series) for series in definitions if series.provider in NATIVE_PROVIDERS
     }

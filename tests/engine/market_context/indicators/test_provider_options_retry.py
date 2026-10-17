@@ -13,7 +13,6 @@ from urllib.parse import parse_qs, urlsplit
 import jquantsapi
 import pytest
 from tests.engine.market_context.indicators.test_option_iv import ASOF, _chain_records, _registered
-from tests.helpers.indicator_store import observation
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
@@ -24,7 +23,7 @@ from baibai_engine.market_context.indicator_service import (
     RefreshSuccess,
 )
 from baibai_engine.market_context.indicators.db import initialize_database
-from baibai_engine.market_context.indicators.providers import jquants_options, registry
+from baibai_engine.market_context.indicators.providers import jquants_options
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     ProviderFetchStoppedError,
@@ -498,15 +497,31 @@ def test_normal_tls_proxy_pool_timeout_and_other_sdk_clients_are_unchanged(wire)
 def test_failed_options_keep_native_chain_readable_and_another_series_can_commit(
     wire, monkeypatch, tmp_path
 ):
-    provider_name = _registered("jp.bankruptcies").provider
+    from baibai_engine.collection.economic_documents import SourceDocument
+    from baibai_engine.market_context import indicator_service as service_module
 
-    class OtherProvider:
-        spec = registry._PROVIDERS[provider_name].spec
-
-        def fetch(self, series, *, start, end, session, context):
-            return [observation(series, ASOF, 420.0)]
-
-    monkeypatch.setitem(registry._PROVIDERS, provider_name, OtherProvider())
+    definition = _registered("jp.bankruptcies")
+    body = json.dumps(
+        [
+            {
+                "period_division": "月次",
+                "title": f"{ASOF.year}年{ASOF.month}月 全国企業倒産 420件",
+            }
+        ],
+        ensure_ascii=False,
+    ).encode()
+    document = SourceDocument(
+        source_id=definition.source_id,
+        request_key="history",
+        source_url=definition.source_url,
+        content_type="application/json",
+        fetched_at=datetime.combine(ASOF, datetime.min.time(), UTC),
+        payload=body,
+        metadata={"params": {"data": "data"}},
+    )
+    monkeypatch.setattr(
+        service_module, "fetch_source_documents", lambda *args, **kwargs: iter([document])
+    )
     database = tmp_path / "indicators.sqlite"
     conn = initialize_database(database)
     store_snapshot(
@@ -540,12 +555,12 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
             series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
             for series_id in READINGS
         } == before_values
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM observations WHERE series_id = 'jp.bankruptcies'"
-            ).fetchone()[0]
-            == 1
-        )
+        documents = conn.execute(
+            "SELECT payload FROM economic_source_documents WHERE source_id = ?",
+            (definition.source_id,),
+        ).fetchall()
+        assert len(documents) == 1
+        assert documents[0][0] == body
         assert conn.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 4
     finally:
         conn.close()

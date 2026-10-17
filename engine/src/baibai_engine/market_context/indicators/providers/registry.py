@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
-
-from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
 from ..read_contracts import (
     CFTC_SPEC,
     DERIVED_SPEC,
@@ -13,13 +9,7 @@ from ..read_contracts import (
     JQUANTS_OPTIONS_SPEC,
     MULTPL_SPEC,
 )
-from .base import (
-    FetchContext,
-    HttpSession,
-    IndicatorDataProvider,
-    IndicatorsProviderError,
-    ProviderSpec,
-)
+from .base import IndicatorsProviderError, ProviderSpec
 from .boj import BojSource
 from .boj_timeseries import BojTimeSeriesSource
 from .estat import EStatSource
@@ -28,50 +18,10 @@ from .frb_h15 import FrbH15Source
 from .fred import FredSource
 from .mof_jgb import MofJgbSource
 from .nikkei_indexes import NikkeiIndexesSource
-from .spglobal_pmi import SpGlobalPmiProvider
-from .tsr_bankruptcies import TsrBankruptciesProvider
+from .spglobal_pmi import SpGlobalPmiSource
+from .tsr_bankruptcies import TsrBankruptciesSource
 from .umich_sca import UmichScaSource
 from .yahoo import YahooChartSource
-
-# Scalar external acquisitions. Native records have their own source boundary;
-# application orchestration persists them before L2 computes the registered readings.
-_PROVIDERS: dict[str, IndicatorDataProvider] = {
-    provider.name: provider
-    for provider in (
-        SpGlobalPmiProvider(),
-        TsrBankruptciesProvider(),
-    )
-}
-
-
-def fetch_observations(
-    series: SeriesDefinition,
-    *,
-    start: date,
-    end: date,
-    session: HttpSession | None = None,
-    context: FetchContext | None = None,
-) -> list[ObservationRecord]:
-    provider = resolve_provider(series.provider)
-    if context is not None:
-        return provider.fetch(
-            series, start=start, end=end, session=context.session, context=context
-        )
-    if session is not None:
-        return provider.fetch(series, start=start, end=end, session=session)
-    # No caller-supplied session/context: run inside a fresh FetchContext so a
-    # browser-backed provider can lazily launch (and always close) its browser.
-    with FetchContext() as own_context:
-        return provider.fetch(
-            series, start=start, end=end, session=own_context.session, context=own_context
-        )
-
-
-def resolve_provider(name: str) -> IndicatorDataProvider:
-    provider = _PROVIDERS.get(name)
-    if provider is None:
-        raise IndicatorsProviderError(f"unsupported indicator provider: {name}")
-    return provider
 
 
 def provider_spec(name: str) -> ProviderSpec:
@@ -109,12 +59,17 @@ def provider_spec(name: str) -> ProviderSpec:
         return CFTC_SPEC
     if name == "ecb_fx":
         return ECB_FX_SPEC
-    return resolve_provider(name).spec
+    if name == "spglobal_pmi":
+        return SpGlobalPmiSource.spec
+    if name == "tsr_bankruptcies":
+        return TsrBankruptciesSource.spec
+    raise IndicatorsProviderError(f"unsupported indicator provider: {name}")
 
 
 def registered_specs() -> tuple[ProviderSpec, ...]:
     return (
-        *tuple(provider.spec for provider in _PROVIDERS.values()),
+        SpGlobalPmiSource.spec,
+        TsrBankruptciesSource.spec,
         DERIVED_SPEC,
         EStatDashboardSource.spec,
         EStatSource.spec,

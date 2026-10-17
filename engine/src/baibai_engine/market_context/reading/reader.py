@@ -13,15 +13,15 @@ import sqlite3
 from collections.abc import Sequence
 from datetime import date
 
-from baibai_engine.market_context.indicators import db as indicators_db
+from baibai_engine.collection.economic_sources import DOCUMENT_PROVIDERS
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.read_contracts import (
     NATIVE_BULK_PROVIDERS,
-    point_in_time_providers,
 )
 
 from .derived import derive_series
+from .documents import read_document_series
 from .formulas import FORMULAS
 from .models import ObservationReader
 from .native import read_native_series
@@ -43,7 +43,6 @@ def build_store_observation_reader(
     """
 
     definitions = {item.series_id: item for item in series}
-    point_in_time = point_in_time_providers()
     options = OptionSeriesReader(connection)
 
     def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
@@ -61,14 +60,9 @@ def build_store_observation_reader(
             )
         if definition.provider == "jquants_options":
             return options.read(definition, start=start, end=end)
-        return indicators_db.observations_in_range(
-            connection,
-            series_id,
-            start,
-            end,
-            point_in_time=definition.provider in point_in_time,
-            vintage_on_or_before=vintage_cutoff,
-        )
+        if definition.provider in DOCUMENT_PROVIDERS:
+            return read_document_series(connection, definition, start=start, end=end)
+        raise ValueError(f"unsupported stored source provider: {definition.provider}")
 
     return read
 
