@@ -12,6 +12,7 @@ from baibai_engine.collection.economic_records import store_snapshot
 from baibai_engine.collection.economic_store import initialize_database
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.reading import reader as reading_reader
 from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 from baibai_engine.read_api.market_context import (
@@ -118,6 +119,71 @@ def test_indicator_series_filters_range_before_aggregation_and_keeps_latest_vint
     )
 
     assert points == [{"observed_at": "2026-01-02", "value": 2.5}]
+
+
+def test_indicator_series_derived_inputs_share_one_wal_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = tmp_path / "indicators.sqlite"
+    day = date(2026, 7, 1)
+    registry = load_definitions().by_id()
+    first_receipt = datetime(2026, 7, 2, tzinfo=UTC)
+    second_receipt = datetime(2026, 7, 3, tzinfo=UTC)
+
+    def save_sources(
+        connection: sqlite3.Connection, earnings: str, yield_10y: str, receipt: datetime
+    ) -> None:
+        store_snapshot(
+            connection,
+            source_id=registry["us.sp500_earnings_yield"].source_id,
+            observed_at=day,
+            fetched_at=receipt,
+            records=[{"date_text": "Jul 1, 2026", "value_text": earnings, "table_row": 1}],
+        )
+        store_snapshot(
+            connection,
+            source_id=registry["us.10y"].source_id,
+            observed_at=day,
+            fetched_at=receipt,
+            records=[
+                {
+                    "row": {"Time Period": day.isoformat(), "RIFLGFCY10_N.B": yield_10y},
+                    "preamble": [],
+                }
+            ],
+        )
+
+    with closing(initialize_database(database)) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        save_sources(writer, "5", "4", first_receipt)
+        writer.commit()
+
+    native_read = reading_reader.read_native_series
+    updated = False
+
+    def read_then_update(connection, series, *, start, end, vintage_cutoff=None):
+        nonlocal updated
+        observations = native_read(
+            connection, series, start=start, end=end, vintage_cutoff=vintage_cutoff
+        )
+        if series.series_id == "us.sp500_earnings_yield" and not updated:
+            assert [item.value for item in observations] == [5.0]
+            with closing(sqlite3.connect(database)) as writer:
+                save_sources(writer, "7", "5", second_receipt)
+                writer.commit()
+            updated = True
+        return observations
+
+    monkeypatch.setattr(reading_reader, "read_native_series", read_then_update)
+
+    first = indicator_series(database, series_id="us.erp", start=day, end=day)
+    assert updated
+    assert first is not None
+    assert first["points"] == [{"observed_at": day.isoformat(), "value": 1.0}]
+
+    second = indicator_series(database, series_id="us.erp", start=day, end=day)
+    assert second is not None
+    assert second["points"] == [{"observed_at": day.isoformat(), "value": 2.0}]
 
 
 def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> None:

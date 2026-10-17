@@ -121,6 +121,7 @@ def indicator_series(
         return None
     connection = connect_read_only(path)
     try:
+        connection.execute("BEGIN")
         reader = build_store_observation_reader(
             connection,
             series=tuple(registry.values()),
