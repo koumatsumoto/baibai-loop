@@ -7,9 +7,9 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.ticker import normalize_ticker
 
 
 def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:

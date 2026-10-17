@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 JPX_SPECIAL_CAUTION_SOURCE_NAME = "特別注意銘柄"
+JPX_EARNINGS_CALENDAR_INDEX_URL = (
+    "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
+)
 
 # JPX の公開規制情報は実行環境によらず同じ source を使う。
 JPX_REGULATION_URLS = {

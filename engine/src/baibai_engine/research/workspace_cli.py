@@ -50,6 +50,9 @@ def _emit(payload: object, out: TextIO) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine research")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser(
+        "market-context", help="explicit market judgment and saved history", add_help=False
+    )
     context_parser = subparsers.add_parser(
         "selection-context", help="read saved inputs for AI target selection"
     )
@@ -147,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "market-context":
+        from .market_context.cli import main as market_context_main
+
+        return market_context_main(arguments[1:], now=now)
     if arguments and arguments[0] == "calculate":
         from .calculation_cli import main as calculate_main
 

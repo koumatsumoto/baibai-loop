@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import (
@@ -13,20 +13,21 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
 
+from baibai_engine.collection.economic_providers import (
+    parse_estat_json,
+    registered_specs,
+)
+from baibai_engine.collection.economic_providers.estat_dashboard import (
+    source_url_selectors as estat_dashboard_selectors,
+)
+from baibai_engine.collection.economic_sources import require_source
 from baibai_engine.market_context.indicator_cli import (
     main,
 )
 from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.market_context.indicators.providers import (
-    parse_estat_json,
-    point_in_time_providers,
-    registered_specs,
-)
-from baibai_engine.market_context.indicators.providers.estat_dashboard import (
-    source_url_selectors as estat_dashboard_selectors,
-)
+from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
 from baibai_engine.market_context.reading.formulas import FORMULAS
 
 
@@ -36,17 +37,6 @@ class IndicatorsRegistryTests(unittest.TestCase):
             point_in_time_providers(),
             frozenset(spec.name for spec in registered_specs() if spec.point_in_time_vintage),
         )
-
-    def test_canonical_registry_membership_has_a_known_generation(self) -> None:
-        self.assertEqual(load_definitions().generation, 5)
-        with (
-            patch(
-                "baibai_engine.market_context.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
-                {},
-            ),
-            self.assertRaisesRegex(ValueError, "without a new generation digest"),
-        ):
-            load_definitions()
 
     def test_new_tier1_series_registered_with_expected_provider_and_category(self) -> None:
         by_id = load_definitions().by_id()
@@ -80,39 +70,38 @@ class IndicatorsRegistryTests(unittest.TestCase):
             self.assertEqual(by_id[series_id].category, category)
 
         self.assertEqual(
-            by_id["jp.nominal_wage_index"].provider_series_id,
+            by_id["jp.nominal_wage_index"].reading_key,
             "0302030202010090010",
         )
         self.assertEqual(
-            by_id["jp.unemployment"].provider_series_id,
+            by_id["jp.unemployment"].reading_key,
             "0301010000020020010",
         )
 
         self.assertEqual(
-            by_id["jp.real_effective_exchange_rate"].provider_series_id,
+            by_id["jp.real_effective_exchange_rate"].reading_key,
             "RBJPBIS",
         )
         self.assertEqual(
-            by_id["jp.cpi.services"].provider_series_id,
+            by_id["jp.cpi.services"].reading_key,
             "0004052037?cdCat01=0220&cdArea=00000&cdTab=1",
         )
-        # The narrowing codes are the series identity for an e-Stat table that
-        # carries dozens of series, so an edit to them changes what is stored
-        # without changing anything else the tests look at.
+        # The narrowing codes select L2 values from one saved e-Stat table;
+        # changing them changes the reading, not the acquired source.
         self.assertEqual(
-            by_id["jp.machinery_orders"].provider_series_id,
+            by_id["jp.machinery_orders"].reading_key,
             "0003355222?cdCat01=160&cdCat02=100&cdTab=100",
         )
         self.assertEqual(
-            by_id["jp.watcher_current_di"].provider_series_id,
+            by_id["jp.watcher_current_di"].reading_key,
             "0003348423?cdCat01=100&cdCat02=100&cdTab=140",
         )
         self.assertEqual(
-            by_id["jp.consumer_confidence"].provider_series_id,
+            by_id["jp.consumer_confidence"].reading_key,
             "0003446462?cdCat01=1060&cdTab=200",
         )
         self.assertEqual(
-            by_id["jp.bank_lending_yoy"].provider_series_id,
+            by_id["jp.bank_lending_yoy"].reading_key,
             "MD13:FAAPOBAL1@",
         )
 
@@ -128,7 +117,9 @@ class IndicatorsRegistryTests(unittest.TestCase):
             if series.provider != "estat":
                 continue
             with self.subTest(series=series.series_id):
-                parse_estat_json(series, empty, start=date(1970, 1, 1), end=date(2100, 1, 1))
+                source = require_source(series.source_id)
+                self.assertEqual(series.reading_key, source.provider_series_id)
+                parse_estat_json(source, empty, start=date(1970, 1, 1), end=date(2100, 1, 1))
 
     def test_estat_dashboard_series_pin_one_upstream_series_in_their_source_url(self) -> None:
         """The registry, not a fetch, is where a mis-pinned selector must be caught.
@@ -146,9 +137,10 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
         for definition in dashboard:
             with self.subTest(series_id=definition.series_id):
-                selectors = estat_dashboard_selectors(definition)
+                source = require_source(definition.source_id)
+                selectors = estat_dashboard_selectors(source)
                 self.assertEqual(definition.frequency, "monthly")
-                self.assertEqual(selectors["IndicatorCode"], definition.provider_series_id)
+                self.assertEqual(selectors["IndicatorCode"], definition.reading_key)
                 self.assertEqual(selectors["Cycle"], "1")
                 self.assertIn(selectors["IsSeasonalAdjustment"], {"1", "2"})
 
@@ -210,10 +202,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 "    geography: us\n"
                 "    frequency: daily\n"
                 "    unit: percent\n"
-                "    provider: fred_csv\n"
-                "    provider_series_id: DGS10\n"
-                "    source_id: x\n"
-                "    source_url: https://example.com/x.csv\n"
+                "    reading_key: DGS10\n"
+                "    source_id: fed-h15\n"
             )
             (registry / "a.yaml").write_text(block, encoding="utf-8")
             (registry / "b.yaml").write_text(block, encoding="utf-8")
@@ -232,10 +222,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 "    geography: test\n"
                 "    frequency: daily\n"
                 "    unit: percent\n"
-                "    provider: fred_csv\n"
-                "    provider_series_id: TEST\n"
-                "    source_id: test-source\n"
-                "    source_url: https://example.com/test.csv\n"
+                "    reading_key: TEST\n"
+                "    source_id: fed-h15\n"
                 "    aliases: [first]\n"
                 "    aliases: [second]\n",
                 encoding="utf-8",
@@ -311,10 +299,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     "    geography: test\n"
                     "    frequency: daily\n"
                     "    unit: percent\n"
-                    "    provider: fred_csv\n"
-                    "    provider_series_id: FIRST\n"
-                    "    source_id: first-source\n"
-                    "    source_url: https://example.com/first.csv\n"
+                    "    reading_key: FIRST\n"
+                    "    source_id: fed-h15\n"
                     f"    aliases: [{conflicting_alias}]\n"
                     "  - series_id: second.series\n"
                     "    name: Second series\n"
@@ -322,10 +308,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     "    geography: test\n"
                     "    frequency: daily\n"
                     "    unit: percent\n"
-                    "    provider: fred_csv\n"
-                    "    provider_series_id: SECOND\n"
-                    "    source_id: second-source\n"
-                    "    source_url: https://example.com/second.csv\n",
+                    "    reading_key: SECOND\n"
+                    "    source_id: fed-h15\n",
                     encoding="utf-8",
                 )
 
@@ -335,13 +319,21 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 ):
                     load_definitions(definitions)
 
-    def test_every_registered_series_provider_is_registered(self) -> None:
-        from baibai_engine.market_context.indicators.providers import provider_spec
+    def test_only_external_series_have_acquisition_providers(self) -> None:
+        from baibai_engine.collection.economic_providers import (
+            IndicatorsProviderError,
+            provider_spec,
+        )
 
         for series in load_definitions().series:
             with self.subTest(series_id=series.series_id):
-                # Both external and virtual series have declared metadata.
-                self.assertEqual(provider_spec(series.provider).name, series.provider)
+                if series.provider == "derived":
+                    with self.assertRaisesRegex(
+                        IndicatorsProviderError, "unsupported indicator provider: derived"
+                    ):
+                        provider_spec(series.provider)
+                else:
+                    self.assertEqual(provider_spec(series.provider).name, series.provider)
 
     def test_every_registered_series_declares_a_complete_plausible_range(self) -> None:
         for series in load_definitions().series:
@@ -356,7 +348,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         for series in boj_series:
             with self.subTest(series_id=series.series_id):
                 column, expected_header, metadata_column, expected_metadata = (
-                    series.provider_series_id.split("|")
+                    series.reading_key.split("|")
                 )
                 self.assertGreaterEqual(int(column), 2)
                 self.assertTrue(expected_header.strip())
@@ -380,8 +372,7 @@ def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
     def unexpected(*args, **kwargs):
         raise AssertionError("catalog opened a store")
 
-    monkeypatch.setattr("baibai_engine.market_context.indicators.db.open_connection", unexpected)
-    monkeypatch.setattr("baibai_engine.market_context.indicator_cli.load_project_env", unexpected)
+    monkeypatch.setattr(sqlite3, "connect", unexpected)
     before = set(tmp_path.rglob("*"))
     monkeypatch.chdir(tmp_path)
     for command in (["list", "--format", "json"], ["search", "CPI"]):
@@ -424,5 +415,17 @@ def test_registry_priority_is_not_a_boolean(tmp_path, priority):
 )
 def test_registry_preserves_series_identity(series_id, provider_id, excluded_alias):
     definition = load_definitions().by_id()[series_id]
-    assert definition.provider_series_id == provider_id
+    assert definition.reading_key == provider_id
     assert excluded_alias not in definition.aliases
+
+
+def test_registry_rejects_old_l2_provider_series_id(tmp_path):
+    path = tmp_path / "registry.yaml"
+    path.write_text(
+        _registry_yaml(plausible_min="-2", plausible_max="20").replace(
+            "reading_key: TEST", "provider_series_id: TEST"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="reading_key, not provider_series_id"):
+        load_definitions(path)

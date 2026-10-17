@@ -9,10 +9,9 @@ from datetime import date
 from math import isfinite
 from urllib.parse import urljoin
 
+from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
 from .boj import boj_value
 from .estat import read_estat_series
@@ -35,7 +34,7 @@ def read_native_series(
             connection, series, start=start, end=end, publication_cutoff=vintage_cutoff or end
         )
     observations = []
-    for snapshot in read_snapshots(connection, start, end, source_key=native_source_key(series)):
+    for snapshot in read_snapshots(connection, start, end, source_id=series.source_id):
         value = _one_value(series, snapshot.records)
         if value is not None:
             observations.append(
@@ -69,7 +68,7 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
     if series.provider == "nikkei_indexes":
-        if series.provider_series_id not in {"per", "pbr"} or series.unit != "ratio":
+        if series.reading_key not in {"per", "pbr"} or series.unit != "ratio":
             raise ValueError(f"unsupported Nikkei valuation reading: {series.series_id}")
         raw = row["weighted_text"]
         if not isinstance(raw, str):
@@ -82,7 +81,7 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
             raise ValueError("Yahoo source metadata must be a mapping")
         meta = metadata.get("meta", {})
         if not isinstance(meta, Mapping) or (
-            "symbol" in meta and meta["symbol"] != series.provider_series_id
+            "symbol" in meta and meta["symbol"] != series.reading_key
         ):
             raise ValueError(f"Yahoo source symbol does not match {series.series_id}")
         indicators = row["indicators"]
@@ -101,9 +100,9 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
         return boj_value(series, row)
     if series.provider == "mof_jgb":
         source_row = row["row"]
-        if not isinstance(source_row, Mapping) or series.provider_series_id not in source_row:
-            raise ValueError(f"MOF source missing column {series.provider_series_id}")
-        raw = source_row[series.provider_series_id]
+        if not isinstance(source_row, Mapping) or series.reading_key not in source_row:
+            raise ValueError(f"MOF source missing column {series.reading_key}")
+        raw = source_row[series.reading_key]
         if raw is None:
             return None
         if not isinstance(raw, str):
@@ -112,7 +111,7 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
         return None if text in {"", "-", "ND", "."} else float(text.replace(",", ""))
     if series.provider == "boj_timeseries":
         metadata = row["series_metadata"]
-        expected = series.provider_series_id.split(":", 1)[1]
+        expected = series.reading_key.split(":", 1)[1]
         if not isinstance(metadata, Mapping) or metadata.get("SERIES_CODE") != expected:
             raise ValueError(f"BOJ source series does not match {series.series_id}")
         raw = row["value"]
@@ -122,18 +121,18 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
             raise ValueError(f"BOJ source value must be numeric: {raw!r}")
         return float(raw)
     if series.provider == "umich_sca":
-        if series.provider_series_id not in row:
-            raise ValueError(f"UMich table missing column {series.provider_series_id}")
-        raw = row[series.provider_series_id]
+        if series.reading_key not in row:
+            raise ValueError(f"UMich table missing column {series.reading_key}")
+        raw = row[series.reading_key]
         if raw is None:
             return None
         if not isinstance(raw, str):
             raise ValueError("UMich source cell must be text")
         return float(raw) if raw.strip() else None
     if series.provider == "fred_csv":
-        if series.provider_series_id not in row:
-            raise ValueError(f"FRED CSV missing column {series.provider_series_id}")
-        raw = row[series.provider_series_id]
+        if series.reading_key not in row:
+            raise ValueError(f"FRED CSV missing column {series.reading_key}")
+        raw = row[series.reading_key]
         if raw is None:
             return None
         if not isinstance(raw, str):
@@ -146,7 +145,7 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
         source_row = row["row"]
         if not isinstance(source_row, Mapping):
             raise ValueError("FRB H.15 source row must be a mapping")
-        column = series.provider_series_id
+        column = series.reading_key
         if column not in source_row:
             raise ValueError(f"FRB H.15 CSV missing column {column}")
         raw = source_row[column]
@@ -163,7 +162,7 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
             raise ValueError(f"multpl series {series.series_id} has inconsistent unit")
         return _multpl_cell_value(series, row.get("value_text"))
     if series.provider == "jquants_indices":
-        if series.provider_series_id != "topix" or series.unit != "index":
+        if series.reading_key != "topix" or series.unit != "index":
             raise ValueError(f"unsupported native index reading: {series.series_id}")
         return _positive_number(row.get("C"))
     if series.provider == "cftc":
@@ -178,7 +177,7 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
         "EURJPY": (None, "jpy-per-eur"),
         "USDJPY": ("USD", "jpy-per-usd"),
         "AUDJPY": ("AUD", "jpy-per-aud"),
-    }[series.provider_series_id]
+    }[series.reading_key]
     if series.unit != unit:
         raise ValueError(f"ECB series {series.series_id} has inconsistent unit")
     numerator = _positive_number(row.get("JPY"))

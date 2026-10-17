@@ -339,8 +339,8 @@ def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:
             )
         break
     raise BatchStepError(
-        "extract-edinet-metrics succeeded without quarantine counters",
-        stage="extract-edinet-metrics",
+        "refresh-edinet-metrics succeeded without quarantine counters",
+        stage="refresh-edinet-metrics",
     )
 
 
@@ -385,55 +385,47 @@ def _read_run_view(run_yaml: Path) -> _RunView:
 
 
 @dataclass(frozen=True, slots=True)
-class _IndicatorSeries:
-    series_id: str
+class _EconomicSource:
+    source_id: str
     frequency: str
-    provider: str
-    kind: str
 
 
-def _parse_indicator_series(stdout: str) -> list[_IndicatorSeries]:
+def _parse_economic_sources(stdout: str) -> list[_EconomicSource]:
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise BatchStepError(
-            f"market-context indicators list --format json output is not parseable JSON: {exc}"
+            f"collection economic list --format json output is not parseable JSON: {exc}"
         ) from exc
     if not isinstance(payload, list):
-        raise BatchStepError("market-context indicators list --format json output is not a list")
-    series: list[_IndicatorSeries] = []
+        raise BatchStepError("collection economic list --format json output is not a list")
+    sources: list[_EconomicSource] = []
     for entry in payload:
         if not isinstance(entry, dict):
-            raise BatchStepError(
-                "market-context indicators list --format json row is not an object"
-            )
+            raise BatchStepError("collection economic list --format json row is not an object")
         try:
-            series.append(
-                _IndicatorSeries(
-                    series_id=str(entry["series_id"]),
+            sources.append(
+                _EconomicSource(
+                    source_id=str(entry["source_id"]),
                     frequency=str(entry["frequency"]),
-                    provider=str(entry["provider"]),
-                    kind=str(entry["kind"]),
                 )
             )
         except KeyError as exc:
             raise BatchStepError(
-                f"market-context indicators list --format json row missing field {exc}"
+                f"collection economic list --format json row missing field {exc}"
             ) from exc
-    return series
+    return sources
 
 
-def _indicator_refresh_groups(series: Sequence[_IndicatorSeries]) -> list[tuple[int, list[str]]]:
-    """Refresh source observations; virtual L2 values are computed by the read export."""
+def _economic_refresh_groups(sources: Sequence[_EconomicSource]) -> list[tuple[int, list[str]]]:
+    """Group external source acquisitions by the required lookback window."""
     groups: dict[int, list[str]] = {}
-    for item in series:
-        if item.kind == "local":
-            continue
+    for item in sources:
         window = LATEST_FETCH_LOOKBACK_DAYS.get(
             item.frequency,
             DEFAULT_LATEST_LOOKBACK_DAYS,
         )
-        groups.setdefault(window, []).append(item.series_id)
+        groups.setdefault(window, []).append(item.source_id)
     return sorted(groups.items())
 
 
@@ -665,7 +657,7 @@ def _execute_daily_batch(
         for name, command in (
             ("refresh-edinet-documents", "refresh-edinet-documents"),
             ("bootstrap-cache", "bootstrap-cache"),
-            ("extract-edinet-metrics", "extract-edinet-metrics"),
+            ("refresh-edinet-metrics", "refresh-edinet-metrics"),
             ("verify-cache-coverage", "verify-cache-coverage"),
         ):
             try:
@@ -677,7 +669,7 @@ def _execute_daily_batch(
                     quiet=quiet,
                     step_sink=step_sink,
                 )
-                if command == "extract-edinet-metrics":
+                if command == "refresh-edinet-metrics":
                     _parse_edinet_quarantine_metrics(command_result.stdout)
             except BatchStepError as exc:
                 _record_deferred(exc)
@@ -694,7 +686,7 @@ def _execute_daily_batch(
         _run_step(
             runner,
             name="edinet-research-facts",
-            argv=(_ENGINE, "screening", "extract-edinet-facts", "--asof", asof_arg),
+            argv=(_ENGINE, "screening", "refresh-edinet-facts", "--asof", asof_arg),
             cwd=root,
             quiet=quiet,
             step_sink=step_sink,
@@ -704,30 +696,30 @@ def _execute_daily_batch(
 
     refresh_groups: list[tuple[int, list[str]]] = []
     try:
-        indicator_list = _run_step(
+        source_list = _run_step(
             runner,
-            name="indicator-list",
-            argv=(_ENGINE, "market-context", "indicators", "list", "--format", "json"),
+            name="economic-source-list",
+            argv=(_ENGINE, "collection", "economic", "list", "--format", "json"),
             cwd=root,
             echo_stdout=False,
             quiet=quiet,
             step_sink=step_sink,
         )
-        refresh_groups = _indicator_refresh_groups(_parse_indicator_series(indicator_list.stdout))
+        refresh_groups = _economic_refresh_groups(_parse_economic_sources(source_list.stdout))
     except BatchStepError as exc:
         _record_deferred(exc)
-    for window_days, series_ids in refresh_groups:
+    for window_days, source_ids in refresh_groups:
         start = target - timedelta(days=window_days)
         try:
             _run_step(
                 runner,
-                name=f"indicator-refresh-{window_days}d",
+                name=f"economic-source-refresh-{window_days}d",
                 argv=(
                     _ENGINE,
-                    "market-context",
-                    "indicators",
+                    "collection",
+                    "economic",
                     "refresh",
-                    *series_ids,
+                    *source_ids,
                     "--start",
                     start.isoformat(),
                     "--end",
@@ -735,7 +727,6 @@ def _execute_daily_batch(
                 ),
                 cwd=root,
                 echo_stdout=False,
-                echo_stdout_prefixes=("registry-prune\t",),
                 quiet=quiet,
                 step_sink=step_sink,
             )

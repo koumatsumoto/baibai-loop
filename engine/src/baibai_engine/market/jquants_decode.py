@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import date, datetime
 from math import isfinite
 from typing import Any
 
-from baibai_engine.market.bars import (
-    JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
-    JQuantsMarketCalendarDay,
-)
-from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
+from baibai_engine.collection.identifiers import SecurityCodeError, parse_security_code_parts
+from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 
 
 class JQuantsProviderError(RuntimeError):
@@ -92,24 +89,6 @@ def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalenda
     )
 
 
-def _payload_to_records(payload: Any) -> list[dict[str, Any]]:
-    """Read ClientV2 record rows without guessing obsolete envelope shapes."""
-    to_dict = getattr(payload, "to_dict", None)
-    records = to_dict(orient="records") if callable(to_dict) else payload
-    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
-        raise JQuantsProviderError("J-Quants payload must contain record rows")
-    if any(not isinstance(row, Mapping) for row in records):
-        raise JQuantsProviderError("J-Quants payload contains a non-record row")
-    return [dict(row) for row in records]
-
-
-def _stringify_dates(params: Mapping[str, Any]) -> dict[str, Any]:
-    output: dict[str, Any] = {}
-    for key, value in params.items():
-        output[key] = value.isoformat() if hasattr(value, "isoformat") else value
-    return output
-
-
 def parse_date(value: Any) -> date:
     if is_missing_scalar(value):
         raise JQuantsProviderError("missing date field in payload")
@@ -118,15 +97,6 @@ def parse_date(value: Any) -> date:
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value)[:10])
-
-
-def _parse_yyyymmdd_param(value: Any) -> date | None:
-    if not isinstance(value, str) or len(value) != 8:
-        return None
-    try:
-        return date(int(value[:4]), int(value[4:6]), int(value[6:]))
-    except ValueError:
-        return None
 
 
 def parse_optional_date(value: Any) -> date | None:

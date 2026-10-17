@@ -73,10 +73,10 @@ Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依
 | 所有 | 主モデル・成果物 | 入力と出力 | 保存・公開入口 |
 | --- | --- | --- | --- |
 | Valuation | FinancialSnapshot、倍率/機械ER/FV、ER較正文脈、Projection、条件付き収益 | `valuation/metrics`が純粋L1から財務/TTM/倍率・自己レンジを計算し、`valuation/scenario`が仮定から価値/収益を測る。`valuation/calibration`は保存済み較正文脈の契約・解釈・読取を所有 | L2機械値はStock Analysis、企業固有前提はStock Assessmentの一部。領域読取と外向け`read_api/valuation`・`read_api/er_calibration_context`。[Valuation](./reference/valuation-metrics.md#machine-valuation)・[Stock Assessment](./reference/stock-assessment.md#scenario-arithmetic) |
-| Market Context | Market Snapshot、Security Market Context、公式benchmark観測、Reading、MarketContextAssessment、保存判断の履歴 | `market_context/{history,prices,margin,sector,snapshot,security}`が価格・信用需給・相対状態、`indicators`が経済観測、`reading`が指標の統計・鮮度を所有。公式total-return観測契約は`observations/benchmark`、ファイル読取は`market/jpx_total_return` | 共有市場観測はmarket/lake、経済指標は指標DB、判断はapplication。`reading/query`がL2読取、`assessment`が明示判断と履歴読取、外向け入口は`read_api/market_context`。[Market Context](./reference/market-context.md#market-context-reads) |
-| External Assessment | 提示値の受領履歴、出所別比較・欠測 | `external_assessment/{acquisition,observations,store,tradingview}`が取得・純粋観測型・保存adapter、`analysis`が出所/尺度/期間付きの比較を所有 | typed L1はmarket/lake、比較は保存入力から再計算。`external_assessment/query`、外向け`read_api/external_assessment`とCLI。[入力](./reference/data-sources.md#external-assessment)・[読取](./reference/market-lake.md#external-assessment-query) |
+| Market Context | Market Snapshot、Security Market Context、公式benchmark観測、Reading | `market_context/{history,prices,margin,sector,snapshot,security}`が価格・信用需給・相対状態、`indicators`が経済観測、`reading`が指標の統計・鮮度を所有。公式total-return観測契約は`observations/benchmark`、ファイル読取は`market/jpx_total_return` | 共有市場観測はmarket/lake、経済指標は指標DB。`reading/query`がL2読取、外向け入口は`read_api/market_context`。[Market Context](./reference/market-context.md#market-context-reads) |
+| External Assessment | 提示値の受領履歴、出所別比較・欠測 | `external_assessment/acquisition`が現行取得、`normalization`が決定的なL2解析、`observations`・`store`が解析済み観測の型・保存、`collection/equity_web`が公開HTML原本L1契約、`analysis`が出所/尺度/期間付きの比較を所有 | 受領HTMLは現行jobからprivate bundleへ保存後にtyped stageをcommitする。publisherは確認した原本をmarket SQLite/LakeのL1へ取り込み、保存原本から選択attemptを再解析したtyped観測だけをL2へ公開する。`external_assessment/query`、外向け`read_api/external_assessment`とCLI。[入力](./reference/data-sources.md#external-assessment)・[読取](./reference/market-lake.md#external-assessment-query) |
 | Screening | Stock Analysis、CandidateReason、候補文脈と候補一覧 | `screening/metrics/snapshot`が領域計算へ母集団を渡して結果を組み立て、`discovery`が同runの候補文脈を確定、`calibration`が較正実行・証拠生成・選抜評価を所有 | runs storeとcalibration snapshot。`screening`の公開入口と`batch_api`。[Screening](./reference/screening-runtime.md) |
-| Research | Research selection、Stock Assessment/Review、Investment Proposal | 領域結果・出典・保有を調べ、一銘柄ずつの判断/提案を作る | applicationの判断履歴。`research/selection`・`research/workspace`・既存service。[Research](../.agents/skills/research/SKILL.md) |
+| Research | Research selection、MarketContextAssessment、Stock Assessment/Review、Investment Proposal | 領域結果・出典・保有を調べ、一銘柄ずつの判断/提案を作る | applicationの判断履歴。`research/selection`・`research/workspace`・既存service。[Research](../.agents/skills/research/SKILL.md) |
 | Portfolio/Position | Ledger、Reservation、Holding、Outcome | 人間確認済みbroker factを記録し、保有と資本を再構築 | application。Positionの事実記録・読取service。[Portfolio](./portfolio-management.md) |
 | Operation/task | Operation Session、調査進行、運用task | 明示開始・対象・成果・完了/未完了を記録 | application。`research/operation`と`tasks`のservice。AI完了を採用・約定に変換しない |
 
@@ -111,7 +111,7 @@ EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配�
 
 ## 5. 現行writerと保存履歴
 
-現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Webも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
+現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading`で機械読取へ渡し、市場判断のCLIは`research market-context`でResearchへ渡す。Webは両者の読取結果を表示用に組み合わせる。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する数値・fieldの意味・dated pathを保持し、名前切替のための移設・複製・revision変更を行わない。計算を変えない説明訂正は可能とし、変更前のbytesはgit履歴で確認する。
 

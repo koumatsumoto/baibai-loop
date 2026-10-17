@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import sqlite3
 import time
@@ -12,10 +11,14 @@ from dataclasses import asdict, replace
 from datetime import UTC, date, datetime
 from datetime import time as daytime
 from pathlib import Path
-from typing import Any
 from zoneinfo import ZoneInfo
 
+from mcp.types import CallToolResult
+
+from baibai_engine.collection.tradingview.receipts import read_tool_results, retain_tool_result
+from baibai_engine.collection.tradingview.tool import BATCH_TOOL
 from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABLE
+from baibai_engine.external_assessment.tradingview.decode import decode_tool_result
 from baibai_engine.external_assessment.tradingview.diagnostics import (
     CollectionFailure as CollectionFailure,
 )
@@ -29,6 +32,9 @@ from baibai_engine.external_assessment.tradingview.diagnostics import (
     TimeGuardError as TimeGuardError,
 )
 from baibai_engine.external_assessment.tradingview.diagnostics import failure_category, failure_line
+from baibai_engine.external_assessment.tradingview.observations import (
+    COLUMNS as REQUEST_COLUMNS,
+)
 from baibai_engine.external_assessment.tradingview.observations import (
     FIELDS,
     FetchError,
@@ -45,7 +51,7 @@ from baibai_engine.storage.observations.schema import (
 
 JST = ZoneInfo("Asia/Tokyo")
 SOFT_BUDGET_SECONDS = 25 * 60
-BatchFetch = Callable[[list[str]], Awaitable[dict[str, Any]]]
+BatchFetch = Callable[[list[str], list[str]], Awaitable[CallToolResult]]
 
 
 ProgressHook = Callable[[CollectionProgress], None]
@@ -100,13 +106,8 @@ def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
     }
 
 
-def _snapshot_state(
-    conn: sqlite3.Connection,
-    day: date,
-    *,
-    master_asof: date | None = None,
-    now: datetime | None = None,
-) -> tuple[list[str] | None, dict[str, object]]:
+def calendar_context(conn: sqlite3.Connection, day: date) -> tuple[date, bool]:
+    """Resolve the required master date without consulting TradingView L2 rows."""
     calendar = conn.execute(
         "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day=?",
         (day.isoformat(),),
@@ -131,6 +132,17 @@ def _snapshot_state(
         ).fetchone()[0]
         if calendar_days != (day - basis).days + 1:
             raise SourceDataError("Continuous trading calendar coverage is unavailable")
+    return basis, business
+
+
+def _snapshot_state(
+    conn: sqlite3.Connection,
+    day: date,
+    *,
+    master_asof: date | None = None,
+    now: datetime | None = None,
+) -> tuple[list[str] | None, dict[str, object]]:
+    basis, business = calendar_context(conn, day)
     if master_asof is not None and master_asof != basis:
         raise SourceDataError("Observation master differs from calendar-required exact date")
     context: dict[str, object] = {
@@ -285,6 +297,8 @@ async def collect(
         )
         emit()
         names = [column[0] for column in COLUMNS]
+        request_columns = list(REQUEST_COLUMNS)
+        basis = date.fromisoformat(str(prior["master_asof"]))
         sql = f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
         for offset in range(0, len(symbols), batch_size):
             if offset:
@@ -297,7 +311,8 @@ async def collect(
                 break
             try:
                 validate_time(day, clock(), is_business_day=business)
-            except TimeGuardError:
+            except TimeGuardError as exc:
+                last_error = exc
                 stop_reason = "time_guard"
                 break
             chunk = symbols[offset : offset + batch_size]
@@ -312,7 +327,7 @@ async def collect(
             emit()
             chunk_started = timer()
             try:
-                payload = await fetch(chunk)
+                result = await fetch(chunk, request_columns)
             except Exception as exc:
                 category = failure_category(exc)
                 if category in {"internal", "storage"}:
@@ -333,19 +348,31 @@ async def collect(
                 max_chunk_elapsed = max(max_chunk_elapsed, duration)
             fetched = clock()
             fetched_iso = fetched.astimezone(UTC).isoformat()
+            receipt_id = retain_tool_result(
+                conn,
+                snapshot_date=day,
+                master_asof=basis,
+                tool_name=BATCH_TOOL,
+                received_at_utc=fetched.astimezone(UTC),
+                requested_symbols=chunk,
+                requested_columns=request_columns,
+                result=result,
+            )
+            result_json = read_tool_results(conn, (receipt_id,))[0].result_json
             current = replace(
                 current,
                 phase="normalize",
-                response_bytes=current.response_bytes
-                + len(json.dumps(payload, ensure_ascii=False).encode()),
+                response_bytes=current.response_bytes + len(result_json.encode()),
             )
             emit()
             try:
                 validate_time(day, fetched, is_business_day=business)
-            except TimeGuardError:
+            except TimeGuardError as exc:
+                last_error = exc
                 stop_reason = "time_guard"
                 break
             try:
+                payload = decode_tool_result(result_json)
                 rows = normalize_batch(payload, chunk, fetched)
             except ProviderPayloadError as exc:
                 consecutive_bad += 1
@@ -354,6 +381,10 @@ async def collect(
                 if consecutive_bad >= 3:
                     break
                 continue
+            except FetchError as exc:
+                last_error = exc
+                stop_reason = failure_category(exc)
+                break
             current = replace(current, phase="store")
             emit()
             conn.execute("BEGIN IMMEDIATE")

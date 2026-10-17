@@ -21,7 +21,7 @@ from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import (
     export_dataset_snapshot,
     sealed_sqlite_snapshot,
@@ -51,7 +51,7 @@ def _publish(path: Path, mirror: Path, datasets: tuple[str, ...], release_id: st
         ]
     for item in exported:
         validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=item.manifest)
-    manifest_path, _ = create_l1_release(
+    manifest_path, _ = create_release(
         dataset_manifest_paths=[item.manifest_path for item in exported],
         mirror_root=mirror,
         release_id=release_id,

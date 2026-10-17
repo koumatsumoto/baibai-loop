@@ -272,9 +272,9 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
                 patch.object(ScreeningConfig, "from_env", staticmethod(lambda: config)),
                 patch.object(app_module, "load_screening_rules", lambda _path: rules),
                 patch.object(app_module, "run_command", fake_run),
-                patch.object(app_module, "JQuantsProvider"),
-                patch.object(app_module, "EDINETProvider"),
-                patch.object(app_module, "JPXProvider"),
+                patch.object(app_module, "JQuantsReader"),
+                patch.object(app_module, "EDINETRefresh"),
+                patch.object(app_module, "JPXRefresh"),
                 patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100),
             ):
                 code = app_module.main(["run", "--asof", _COMMON_COVERAGE_ASOF.isoformat()])

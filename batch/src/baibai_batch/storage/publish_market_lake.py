@@ -26,18 +26,18 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.batch_api import (
-    L1ReleasePointer,
     LakeBuildError,
     LakeBuildReport,
     LakeFixedRelease,
     LakeReadError,
     LakeReleaseManifest,
+    LakeReleasePointer,
     LakeStoreOrigin,
     LakeStoreOriginError,
     LocalMirrorSource,
     advance_lake_store_origin,
     canonical_lake_model_bytes,
-    create_lake_l1_release,
+    create_lake_release,
     export_market_store,
     lake_dataset_manifest_key,
     lake_mirror_path,
@@ -52,7 +52,7 @@ from .lake_publish import (
     ObjectStore,
     PointerSnapshot,
     TransferReport,
-    publish_l1_release,
+    publish_release,
     read_pointer_snapshot,
 )
 from .publication_lease import LeaseError, _load_handle, verify_held
@@ -122,7 +122,7 @@ def publish_market_lake(
     )
     export_finished = time.perf_counter()
     with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
-        release_path, release = create_lake_l1_release(
+        release_path, release = create_lake_release(
             published_coverage_start=published_coverage_start,
             dataset_manifest_paths=manifest_paths,
             mirror_root=mirror_root,
@@ -131,7 +131,7 @@ def publish_market_lake(
         release_payload = canonical_lake_model_bytes(release)
         release_sha256 = hashlib.sha256(release_payload).hexdigest()
         release_finished = time.perf_counter()
-        published = publish_l1_release(
+        published = publish_release(
             mirror_root=mirror_root,
             release_manifest_path=release_path,
             expected_release_sha256=release_sha256,
@@ -180,7 +180,7 @@ def _serving_pointer(store: ObjectStore) -> PointerSnapshot:
     return read_pointer_snapshot(store)
 
 
-def _pointer_origin(pointer: L1ReleasePointer | None) -> LakeStoreOrigin | None:
+def _pointer_origin(pointer: LakeReleasePointer | None) -> LakeStoreOrigin | None:
     if pointer is None:
         return None
     return LakeStoreOrigin(
@@ -210,7 +210,7 @@ def _export_manifest_snapshot(
 
 
 def _resolve_serving_release(
-    store: ObjectStore, mirror_root: Path, serving: L1ReleasePointer
+    store: ObjectStore, mirror_root: Path, serving: LakeReleasePointer
 ) -> LakeFixedRelease:
     release_path = _fetch(
         store,

@@ -212,9 +212,9 @@ def export_dataset_snapshot(
             rows=sum(obj.rows for item in ordered for obj in item.objects),
         )
         manifest = DatasetManifest(
-            manifest_version=1,
+            manifest_version=2,
             dataset=dataset.name,
-            layer="l1_canonical",
+            layer=dataset.layer,
             contract_version=dataset.contract_version,
             build_id=actual_build_id,
             sources=(),
@@ -392,7 +392,7 @@ def _build_period(
         raise LakeBuildError("cannot build an empty calendar partition")
     content_sha256 = sha256_file(provisional)
     object_key = canonical_object_key(
-        layer="l1_canonical",
+        layer=dataset.layer,
         dataset=dataset.name,
         contract_version=dataset.contract_version,
         partition_values=period_values(dataset, period),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_engine.market.ticker import (
+from baibai_engine.collection.identifiers import (
     SecurityCodeError,
     normalize_ticker,
     parse_security_code_parts,

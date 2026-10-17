@@ -1,95 +1,35 @@
 from __future__ import annotations
 
-import io
 import sqlite3
 import tempfile
 import unittest
-from contextlib import closing, redirect_stderr
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from tests.engine.market_context.indicators.indicator_fixtures import (
-    _retired_counts,
-    _series,
-    _write_observation,
-    _write_observation_with_coverage,
-    _write_retired_series,
-)
+import pytest
 from tests.helpers.indicator_store import (
     observation,
     store_h15_observations,
     store_mof_observations,
 )
 
+from baibai_engine.collection import economic_acquisition as acquisition
+from baibai_engine.collection.economic_cli import main as economic_main
+from baibai_engine.collection.economic_providers import IndicatorsProviderError
+from baibai_engine.collection.economic_records import read_snapshots, store_snapshot
+from baibai_engine.collection.economic_store import initialize_database, open_connection
 from baibai_engine.market_context.indicator_cli import (
-    build_parser,
     main,
-    parse_refresh_failure_count,
 )
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
-    RefreshFailure,
-    RefreshSuccess,
-)
-from baibai_engine.market_context.indicators.db import (
-    initialize_database,
-    insert_observations,
-    open_connection,
-)
+from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.definitions import (
-    IndicatorDefinitions,
-    SeriesDefinition,
     load_definitions,
 )
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.providers import (
-    IndicatorsProviderError,
-)
-from baibai_engine.market_context.indicators.providers.base import (
-    FetchContext,
-    ProviderSpec,
-)
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 
 class IndicatorsServiceTests(unittest.TestCase):
-    def setUp(self) -> None:
-        # Exercise generic scalar cache/retry contracts with an explicitly fake
-        # source, not whichever production provider has not yet become native.
-        registry = load_definitions()
-        extra = tuple(
-            _series(
-                "test_scalar",
-                name,
-                series_id=f"test.scalar.{name}",
-                plausible_min=-2.0,
-                plausible_max=20.0,
-            )
-            for name in ("one", "two", "three")
-        )
-        definitions = IndicatorDefinitions(registry.series + extra, generation=registry.generation)
-        for target in (
-            f"{__name__}.load_definitions",
-            "baibai_engine.market_context.indicator_service.load_definitions",
-            "baibai_engine.market_context.indicators.db.load_definitions",
-            "tests.helpers.indicator_store.load_definitions",
-        ):
-            self.enterContext(patch(target, return_value=definitions))
-        provider = SimpleNamespace(
-            name="test_scalar",
-            spec=ProviderSpec(name="test_scalar", all_history_start=date(1974, 1, 1)),
-            fetch=Mock(side_effect=AssertionError("test must stub scalar acquisition")),
-        )
-        self.enterContext(
-            patch.dict(
-                "baibai_engine.market_context.indicators.providers.registry._PROVIDERS",
-                {"test_scalar": provider},
-            )
-        )
-
     def test_derived_values_use_the_registry_bounds_at_the_calculation_boundary(self) -> None:
         for series_id, inputs in (
             ("jp.policy_path_gap", {"jp.2y": 12.0, "jp.policy_rate": 0.0}),
@@ -98,15 +38,6 @@ class IndicatorsServiceTests(unittest.TestCase):
             with self.subTest(series_id=series_id), tempfile.TemporaryDirectory() as tmp:
                 database = Path(tmp) / "indicators.sqlite"
                 with closing(initialize_database(database)) as conn:
-                    insert_observations(
-                        conn,
-                        [
-                            observation(input_id, date(2026, 7, 1), value)
-                            for input_id, value in inputs.items()
-                            if input_id
-                            not in {"us.10y", "us.sp500_earnings_yield", "jp.policy_rate", "jp.2y"}
-                        ],
-                    )
                     if "jp.2y" in inputs:
                         store_mof_observations(
                             conn, [observation("jp.2y", date(2026, 7, 1), inputs["jp.2y"])]
@@ -115,7 +46,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                         policy = load_definitions().by_id()["jp.policy_rate"]
                         store_snapshot(
                             conn,
-                            source_key=native_source_key(policy),
+                            source_id=policy.source_id,
                             observed_at=date(2026, 7, 1),
                             fetched_at=datetime.now(UTC),
                             records=[
@@ -135,438 +66,17 @@ class IndicatorsServiceTests(unittest.TestCase):
                     _store_multpl_earnings_yield(
                         database, date(2026, 7, 1), str(inputs["us.sp500_earnings_yield"])
                     )
+                before = database.read_bytes()
 
                 with self.assertRaisesRegex(ValueError, "outside plausible range"):
                     IndicatorsService(database).get_range(
                         series_id,
                         start=date(2026, 7, 1),
                         end=date(2026, 7, 31),
-                        refresh=True,
                     )
+                self.assertEqual(database.read_bytes(), before)
 
-                with closing(sqlite3.connect(database)) as conn:
-                    stored = conn.execute(
-                        "SELECT COUNT(*) FROM observations WHERE series_id = ?", (series_id,)
-                    ).fetchone()[0]
-                self.assertEqual(stored, 0)
-
-    def test_refresh_rejects_observation_for_another_registered_series(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            requested = _series(
-                "test_scalar",
-                "TEST",
-                plausible_min=-2.0,
-                plausible_max=20.0,
-            )
-            other = _series(
-                "test_scalar",
-                "OTHER",
-                series_id="other.series",
-                plausible_min=-2.0,
-                plausible_max=20.0,
-            )
-            definitions = IndicatorDefinitions(series=(requested, other))
-            initialize_database(database, definitions=definitions).close()
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.load_definitions",
-                    return_value=definitions,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation("other.series", date(2026, 7, 20), 4.2)],
-                ),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.series"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            with closing(sqlite3.connect(database)) as conn:
-                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-                run = conn.execute(
-                    "SELECT series_id, status, record_count, error_message FROM provider_runs"
-                ).fetchone()
-
-            self.assertIsInstance(outcomes[0], RefreshFailure)
-            self.assertEqual(stored, 0)
-            self.assertEqual(run[0:3], ("test.series", "failed", 0))
-            self.assertIn("provider returned observation for other.series", run[3])
-
-    def test_refresh_rejects_observation_with_wrong_unit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            definition = _series(
-                "test_scalar",
-                "TEST",
-                plausible_min=-2.0,
-                plausible_max=20.0,
-            )
-            definitions = IndicatorDefinitions(series=(definition,))
-            initialize_database(database, definitions=definitions).close()
-            observation = ObservationRecord(
-                series_id="test.series",
-                observed_at=date(2026, 7, 20),
-                value=4.2,
-                unit="basis-points",
-                source_url="https://example.com/data.csv",
-                vintage_at=datetime.now(UTC),
-            )
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.load_definitions",
-                    return_value=definitions,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation],
-                ),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.series"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            with closing(sqlite3.connect(database)) as conn:
-                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-                run = conn.execute(
-                    "SELECT status, record_count, error_message FROM provider_runs"
-                ).fetchone()
-
-            self.assertIsInstance(outcomes[0], RefreshFailure)
-            self.assertEqual(stored, 0)
-            self.assertEqual(run[0:2], ("failed", 0))
-            self.assertIn("provider returned unit 'basis-points'; expected 'percent'", run[2])
-
-    def test_refresh_rejects_one_out_of_range_value_without_partial_insert(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            definition = _series(
-                "test_scalar",
-                "TEST",
-                plausible_min=-2.0,
-                plausible_max=20.0,
-            )
-            definitions = IndicatorDefinitions(series=(definition,))
-            initialize_database(database, definitions=definitions).close()
-            observations = [
-                observation("test.series", date(2026, 7, 19), 4.2),
-                observation("test.series", date(2026, 7, 20), 2000.0),
-            ]
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.load_definitions",
-                    return_value=definitions,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=observations,
-                ),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.series"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            conn = sqlite3.connect(database)
-            try:
-                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-                run = conn.execute(
-                    "SELECT status, record_count, error_message FROM provider_runs"
-                ).fetchone()
-            finally:
-                conn.close()
-
-            self.assertEqual(len(outcomes), 1)
-            failure = outcomes[0]
-            self.assertIsInstance(failure, RefreshFailure)
-            assert isinstance(failure, RefreshFailure)
-            self.assertIn("outside plausible range [-2, 20]", failure.message)
-            self.assertEqual(stored, 0)
-            self.assertEqual(run[0:2], ("failed", 0))
-            self.assertIn("value 2000", run[2])
-
-    def test_refresh_without_plausible_range_accepts_finite_values(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            definition = _series("test_scalar", "TEST")
-            definitions = IndicatorDefinitions(series=(definition,))
-            initialize_database(database, definitions=definitions).close()
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.load_definitions",
-                    return_value=definitions,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation("test.series", date(2026, 7, 20), 1e100)],
-                ),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.series"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            self.assertIsInstance(outcomes[0], RefreshSuccess)
-            conn = sqlite3.connect(database)
-            try:
-                stored = conn.execute("SELECT value FROM observations").fetchone()[0]
-            finally:
-                conn.close()
-            self.assertEqual(stored, 1e100)
-
-    def test_refresh_accepts_values_on_both_plausible_boundaries(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            definition = _series(
-                "test_scalar",
-                "TEST",
-                plausible_min=-2.0,
-                plausible_max=20.0,
-            )
-            definitions = IndicatorDefinitions(series=(definition,))
-            initialize_database(database, definitions=definitions).close()
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.load_definitions",
-                    return_value=definitions,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[
-                        observation("test.series", date(2026, 7, 19), -2.0),
-                        observation("test.series", date(2026, 7, 20), 20.0),
-                    ],
-                ),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.series"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            self.assertIsInstance(outcomes[0], RefreshSuccess)
-            conn = sqlite3.connect(database)
-            try:
-                stored = conn.execute(
-                    "SELECT value FROM observations ORDER BY observed_at"
-                ).fetchall()
-            finally:
-                conn.close()
-            self.assertEqual(stored, [(-2.0,), (20.0,)])
-
-    def test_refresh_all_history_uses_provider_floor_and_forces_fetch(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            _write_observation(
-                database,
-                "test.scalar.one",
-                observed_at=date(1970, 1, 1),
-                value=1.0,
-            )
-            observation = ObservationRecord(
-                series_id="test.scalar.one",
-                observed_at=date(1980, 7, 1),
-                value=1.13,
-                unit="percent",
-                source_url="https://example.com/data.csv",
-                vintage_at=datetime.now(UTC),
-            )
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                return_value=[observation],
-            ) as fetch:
-                result = IndicatorsService(database).refresh_all_history(
-                    "test.scalar.one",
-                    end=date(2026, 7, 20),
-                )
-
-            self.assertEqual(result.observations, (observation,))
-            self.assertEqual(fetch.call_args.kwargs["start"], date(1974, 1, 1))
-            self.assertEqual(fetch.call_args.kwargs["end"], date(2026, 7, 20))
-            conn = open_connection(database)
-            try:
-                first = conn.execute(
-                    "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
-                    ("test.scalar.one",),
-                ).fetchone()[0]
-            finally:
-                conn.close()
-            self.assertEqual(first, "1970-01-01")
-
-    def test_failed_full_history_refresh_preserves_existing_observations(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            _write_observation(
-                database,
-                "test.scalar.one",
-                observed_at=date(1950, 1, 1),
-                value=1.0,
-            )
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    side_effect=IndicatorsProviderError("unavailable"),
-                ),
-                patch("baibai_engine.market_context.indicator_service.time.sleep"),
-                self.assertRaisesRegex(IndicatorsProviderError, "unavailable"),
-            ):
-                IndicatorsService(database).refresh_all_history(
-                    "test.scalar.one",
-                    end=date(2026, 7, 20),
-                )
-
-            conn = open_connection(database)
-            try:
-                first = conn.execute(
-                    "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
-                    ("test.scalar.one",),
-                ).fetchone()[0]
-            finally:
-                conn.close()
-            self.assertEqual(first, "1950-01-01")
-
-    def test_http_full_history_source_correction_still_removes_previous_source(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            definition = load_definitions().by_id()["test.scalar.one"]
-            old = observation(
-                definition,
-                date(2026, 7, 20),
-                4.0,
-                datetime(2026, 7, 20, tzinfo=UTC),
-                source_url="https://example.com/previous-source.csv",
-            )
-            conn = initialize_database(database)
-            insert_observations(conn, [old])
-            conn.close()
-            corrected = observation(
-                definition,
-                date(2026, 7, 20),
-                4.25,
-                datetime(2026, 7, 21, tzinfo=UTC),
-            )
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                return_value=[corrected],
-            ):
-                IndicatorsService(database).refresh_all_history(
-                    definition.series_id,
-                    end=date(2026, 7, 21),
-                )
-            with closing(sqlite3.connect(database)) as connection:
-                rows = connection.execute(
-                    "SELECT value, vintage_at, source_url FROM observations WHERE series_id = ?",
-                    (definition.series_id,),
-                ).fetchall()
-            self.assertEqual(rows, [(4.25, "2026-07-21T00:00:00+00:00", definition.source_url)])
-
-    def test_repeated_range_refresh_is_idempotent_for_unchanged_data(self) -> None:
-        # Mirrors the daily batch re-running the same rolling window: a provider
-        # stamps a fresh now() vintage on every fetch, yet the store must
-        # converge to one vintage per observed_at when the values are unchanged.
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            service = IndicatorsService(database)
-
-            def _refetch(*_args: object, **_kwargs: object) -> list[ObservationRecord]:
-                return [
-                    ObservationRecord(
-                        series_id="test.scalar.one",
-                        observed_at=date(2026, 5, day),
-                        value=value,
-                        unit="percent",
-                        source_url="https://example.com/synthetic-jgb.csv",
-                        vintage_at=datetime.now(UTC),
-                    )
-                    for day, value in ((1, 4.39), (2, 4.41))
-                ]
-
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                side_effect=_refetch,
-            ):
-                for _ in range(3):
-                    service.get_range(
-                        "test.scalar.one",
-                        start=date(2026, 5, 1),
-                        end=date(2026, 5, 2),
-                        refresh=True,
-                    )
-
-            conn = open_connection(database)
-            try:
-                rows = conn.execute(
-                    "SELECT observed_at, value FROM observations WHERE series_id = ? "
-                    "ORDER BY observed_at, vintage_at",
-                    ("test.scalar.one",),
-                ).fetchall()
-            finally:
-                conn.close()
-            # Three identical refreshes leave exactly one row per observed_at.
-            self.assertEqual(
-                [(row["observed_at"], row["value"]) for row in rows],
-                [("2026-05-01", 4.39), ("2026-05-02", 4.41)],
-            )
-
-    def test_range_refresh_adds_a_vintage_only_when_the_source_revises_a_value(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            service = IndicatorsService(database)
-            common = {
-                "series_id": "test.scalar.one",
-                "observed_at": date(2026, 5, 1),
-                "unit": "percent",
-                "source_url": "https://example.com/synthetic-jgb.csv",
-            }
-            first = [
-                ObservationRecord(**common, value=4.39, vintage_at=datetime(2026, 5, 2, tzinfo=UTC))
-            ]
-            revised = [
-                ObservationRecord(**common, value=4.55, vintage_at=datetime(2026, 5, 9, tzinfo=UTC))
-            ]
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                side_effect=[first, revised],
-            ):
-                service.get_range(
-                    "test.scalar.one", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
-                )
-                result = service.get_range(
-                    "test.scalar.one", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
-                )
-
-            conn = open_connection(database)
-            try:
-                rows = conn.execute(
-                    "SELECT value, vintage_at FROM observations WHERE series_id = ? "
-                    "AND observed_at = ? ORDER BY vintage_at",
-                    ("test.scalar.one", "2026-05-01"),
-                ).fetchall()
-            finally:
-                conn.close()
-            # Both acquisition vintages remain stored; this source reads the latest history.
-            self.assertEqual(
-                [(row["value"], row["vintage_at"]) for row in rows],
-                [
-                    (4.39, "2026-05-02T00:00:00+00:00"),
-                    (4.55, "2026-05-09T00:00:00+00:00"),
-                ],
-            )
-            self.assertEqual(result.observations[-1].value, 4.55)
-
-    def test_refresh_all_history_uses_the_jquants_rolling_window(self) -> None:
+    def test_collection_all_history_uses_the_jquants_rolling_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             rows = {
@@ -580,26 +90,38 @@ class IndicatorsServiceTests(unittest.TestCase):
                     }
                 ]
             }
+
+            class FixedDatetime(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return cls(2026, 7, 20, tzinfo=tz)
+
+            source_id = load_definitions().by_id()["jp.foreign_flows"].source_id
             with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst",
-                    return_value=date(2026, 7, 20),
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_native_records",
-                    return_value=rows,
-                ) as fetch,
+                patch.object(acquisition, "datetime", FixedDatetime),
+                patch.object(acquisition, "fetch_native_records", return_value=rows) as fetch,
             ):
-                result = IndicatorsService(database).refresh_all_history(
-                    "jp.foreign_flows", end=date(2026, 1, 1)
-                )
+                outcome = acquisition.refresh_sources(
+                    [source_id], db_path=database, start=None, end=date(2026, 1, 1)
+                )[0]
+            self.assertIsInstance(outcome, acquisition.SourceRefreshSuccess)
+            result = IndicatorsService(database).get_range(
+                "jp.foreign_flows", start=date(2025, 12, 26), end=date(2026, 1, 1)
+            )
             self.assertEqual(fetch.call_args.kwargs["start"], date(2016, 7, 20))
             self.assertEqual(
                 [(item.observed_at, item.value) for item in result.observations],
                 [(date(2025, 12, 26), 1)],
             )
+            with closing(sqlite3.connect(database)) as connection:
+                received = next(
+                    read_snapshots(
+                        connection, date(2026, 1, 1), date(2026, 1, 1), source_id=source_id
+                    )
+                )
+                self.assertEqual(received.records[0]["PubDate"], "2026-01-01")
 
-    def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
+    def test_collection_all_history_uses_boj_timeseries_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             records = {
@@ -611,396 +133,27 @@ class IndicatorsServiceTests(unittest.TestCase):
                     }
                 ]
             }
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_native_records",
-                return_value=records,
-            ) as fetch:
-                result = IndicatorsService(database).refresh_all_history(
-                    "jp.policy_rate",
-                    end=date(2026, 7, 20),
-                )
+            source_id = load_definitions().by_id()["jp.policy_rate"].source_id
+            with patch.object(acquisition, "fetch_native_records", return_value=records) as fetch:
+                outcome = acquisition.refresh_sources(
+                    [source_id], db_path=database, start=None, end=date(2026, 7, 20)
+                )[0]
+            self.assertIsInstance(outcome, acquisition.SourceRefreshSuccess)
+            result = IndicatorsService(database).get_range(
+                "jp.policy_rate", start=date(1998, 1, 1), end=date(2026, 7, 20)
+            )
             self.assertEqual(fetch.call_args.kwargs["start"], date(1998, 1, 1))
             self.assertEqual(
                 [(row.observed_at, row.value) for row in result.observations],
                 [(date(1998, 1, 5), 0.49)],
             )
 
-    def test_refresh_all_history_uses_tsr_bankruptcies_floor(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            observation = ObservationRecord(
-                series_id="jp.bankruptcies",
-                observed_at=date(2003, 1, 1),
-                value=1462,
-                unit="count",
-                source_url=("https://www.tsr-net.co.jp/news/status/json/search.json"),
-                vintage_at=datetime.now(UTC),
-            )
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                return_value=[observation],
-            ) as fetch:
-                IndicatorsService(database).refresh_all_history(
-                    "jp.bankruptcies",
-                    end=date(2026, 7, 20),
-                )
-
-            self.assertEqual(fetch.call_args.kwargs["start"], date(2003, 1, 1))
-
-    def test_empty_full_history_refresh_fails_and_preserves_existing_observations(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            _write_observation(
-                database,
-                "test.scalar.one",
-                observed_at=date(1950, 1, 1),
-                value=1.0,
-            )
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[],
-                ),
-                self.assertRaisesRegex(IndicatorsProviderError, "returned no observations"),
-            ):
-                IndicatorsService(database).refresh_all_history(
-                    "test.scalar.one",
-                    end=date(2026, 7, 20),
-                )
-
-            conn = open_connection(database)
-            try:
-                first = conn.execute(
-                    "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
-                    ("test.scalar.one",),
-                ).fetchone()[0]
-                latest_status = conn.execute(
-                    "SELECT status FROM provider_runs WHERE series_id = ? "
-                    "ORDER BY finished_at DESC LIMIT 1",
-                    ("test.scalar.one",),
-                ).fetchone()[0]
-            finally:
-                conn.close()
-            self.assertEqual(first, "1950-01-01")
-            self.assertEqual(latest_status, "failed")
-
-    def test_refresh_series_isolates_a_failing_series_from_the_rest(self) -> None:
-        # One broken source must not leave every other series in the group stale,
-        # and every failure must be reported (not just the first).
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-
-            def _fetch(
-                series: SeriesDefinition,
-                *,
-                start: date,
-                end: date,
-                context: FetchContext | None,
-            ) -> list[ObservationRecord]:
-                if series.series_id == "test.scalar.two":
-                    raise IndicatorsProviderError("source unavailable")
-                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    side_effect=_fetch,
-                ),
-                patch("baibai_engine.market_context.indicator_service.time.sleep"),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.scalar.one", "test.scalar.two", "test.scalar.three"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            failures = [outcome for outcome in outcomes if isinstance(outcome, RefreshFailure)]
-            successes = [outcome for outcome in outcomes if isinstance(outcome, RefreshSuccess)]
-            self.assertEqual([failure.series_id for failure in failures], ["test.scalar.two"])
-            self.assertIn("source unavailable", failures[0].message)
-            self.assertEqual(
-                [success.series_id for success in successes],
-                ["test.scalar.one", "test.scalar.three"],
-            )
-            conn = open_connection(database)
-            try:
-                stored = {
-                    str(row["series_id"])
-                    for row in conn.execute("SELECT DISTINCT series_id FROM observations")
-                }
-                failed_runs = {
-                    str(row["series_id"])
-                    for row in conn.execute(
-                        "SELECT series_id FROM provider_runs WHERE status = 'failed'"
-                    )
-                }
-            finally:
-                conn.close()
-            self.assertEqual(stored, {"test.scalar.one", "test.scalar.three"})
-            self.assertEqual(failed_runs, {"test.scalar.two"})
-
-    def test_refresh_series_reports_an_unknown_series_without_stopping_the_pass(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                side_effect=lambda series, **_: [
-                    observation(series.series_id, date(2026, 7, 20), 4.2)
-                ],
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["jp.cpi.stale", "test.scalar.one"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            self.assertIsInstance(outcomes[0], RefreshFailure)
-            self.assertIsInstance(outcomes[1], RefreshSuccess)
-            failure = outcomes[0]
-            assert isinstance(failure, RefreshFailure)
-            self.assertEqual(failure.message, "unknown indicator series: jp.cpi.stale")
-
-    def test_unknown_only_refresh_does_not_prune_retired_series(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            _write_retired_series(database)
-
-            outcomes = IndicatorsService(database).refresh_series(
-                ["jp.cpi.stale"],
-                start=date(2026, 7, 1),
-                end=date(2026, 7, 20),
-            )
-
-            self.assertEqual(
-                outcomes,
-                [
-                    RefreshFailure(
-                        "jp.cpi.stale",
-                        "unknown indicator series: jp.cpi.stale",
-                    )
-                ],
-            )
-            self.assertEqual(_retired_counts(database), (1, 1, 1))
-
-    def test_refresh_series_shares_one_fetch_context_across_the_pass(self) -> None:
-        # A shared context is what makes a bulk source file download once for every
-        # series that maps to it and a browser-backed provider launch once.
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            cache_sizes: list[int] = []
-
-            def _fetch(
-                series: SeriesDefinition,
-                *,
-                start: date,
-                end: date,
-                context: FetchContext | None,
-            ) -> list[ObservationRecord]:
-                assert context is not None
-                cache_sizes.append(len(context.bytes_cache))
-                context.bytes_cache[(series.series_id, ())] = b"payload"
-                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
-
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                side_effect=_fetch,
-            ):
-                IndicatorsService(database).refresh_series(
-                    ["test.scalar.one", "test.scalar.two", "test.scalar.three"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            self.assertEqual(cache_sizes, [0, 1, 2])
-
-    def test_refresh_series_isolates_a_provider_error_it_does_not_recognize(self) -> None:
-        # A provider can raise an unwrapped third-party error (a dead headless
-        # browser does). It must stay one series' failure, not abort the pass.
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-
-            def _fetch(
-                series: SeriesDefinition,
-                *,
-                start: date,
-                end: date,
-                context: FetchContext | None,
-            ) -> list[ObservationRecord]:
-                if series.series_id == "test.scalar.two":
-                    raise RuntimeError("browser process died")
-                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
-
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                side_effect=_fetch,
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.scalar.one", "test.scalar.two", "test.scalar.three"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            self.assertEqual(
-                [outcome.series_id for outcome in outcomes if isinstance(outcome, RefreshSuccess)],
-                ["test.scalar.one", "test.scalar.three"],
-            )
-            failure = outcomes[1]
-            assert isinstance(failure, RefreshFailure)
-            self.assertIn("browser process died", failure.message)
-
-    def test_refresh_discards_cached_response_bytes_after_a_failure(self) -> None:
-        # A source can answer HTTP 200 with a block page, which caches like data. If
-        # it survived, the retry would re-read it and every later series sharing the
-        # URL would inherit the failure.
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            cache_key = ("https://example.com/bulk.csv", ())
-            cache_sizes: list[int] = []
-
-            def _fetch(
-                series: SeriesDefinition,
-                *,
-                start: date,
-                end: date,
-                context: FetchContext | None,
-            ) -> list[ObservationRecord]:
-                assert context is not None
-                cache_sizes.append(len(context.bytes_cache))
-                context.bytes_cache[cache_key] = b"<html>blocked</html>"
-                if series.series_id == "test.scalar.one":
-                    raise IndicatorsProviderError("malformed cached response")
-                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    side_effect=_fetch,
-                ),
-                patch("baibai_engine.market_context.indicator_service.time.sleep"),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["test.scalar.one", "test.scalar.two"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            # attempt 1 and its retry both start from an empty cache, and the series
-            # that follows the failure does too.
-            self.assertEqual(cache_sizes, [0, 0, 0])
-            self.assertIsInstance(outcomes[0], RefreshFailure)
-            self.assertIsInstance(outcomes[1], RefreshSuccess)
-
-    def test_refresh_rejects_a_non_finite_value_before_the_store(self) -> None:
-        for value in (float("nan"), float("inf"), float("-inf")):
-            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
-                database = Path(tmp) / "indicators.sqlite"
-                initialize_database(database).close()
-
-                with (
-                    patch(
-                        "baibai_engine.market_context.indicator_service.fetch_observations",
-                        return_value=[observation("test.scalar.one", date(2026, 7, 20), value)],
-                    ),
-                    self.assertRaisesRegex(IndicatorsProviderError, "non-finite value"),
-                ):
-                    IndicatorsService(database).get_range(
-                        "test.scalar.one",
-                        start=date(2026, 7, 1),
-                        end=date(2026, 7, 20),
-                        refresh=True,
-                    )
-
-                conn = open_connection(database)
-                try:
-                    stored = conn.execute(
-                        "SELECT COUNT(*) FROM observations WHERE series_id = 'test.scalar.one'"
-                    ).fetchone()[0]
-                    status = conn.execute(
-                        "SELECT status FROM provider_runs WHERE series_id = 'test.scalar.one' "
-                        "ORDER BY finished_at DESC LIMIT 1"
-                    ).fetchone()[0]
-                finally:
-                    conn.close()
-                self.assertEqual(stored, 0)
-                self.assertEqual(status, "failed")
-
-    def test_refresh_cli_reports_every_failed_series_and_exits_non_zero(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            errors = io.StringIO()
-
-            def _fetch(
-                series: SeriesDefinition,
-                *,
-                start: date,
-                end: date,
-                context: FetchContext | None,
-            ) -> list[ObservationRecord]:
-                if series.series_id in {"test.scalar.two", "test.scalar.three"}:
-                    raise IndicatorsProviderError(f"{series.series_id} source unavailable")
-                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    side_effect=_fetch,
-                ),
-                patch("baibai_engine.market_context.indicator_service.time.sleep"),
-                redirect_stderr(errors),
-            ):
-                exit_code = main(
-                    [
-                        "refresh",
-                        "test.scalar.one",
-                        "test.scalar.two",
-                        "test.scalar.three",
-                        "--start",
-                        "2026-07-01",
-                        "--end",
-                        "2026-07-20",
-                        "--db",
-                        str(database),
-                    ]
-                )
-
-            self.assertEqual(exit_code, 1)
-            reported = errors.getvalue()
-            self.assertIn("2 of 3 series failed to refresh", reported)
-            self.assertIn("- test.scalar.two: test.scalar.two source unavailable", reported)
-            self.assertIn("- test.scalar.three: test.scalar.three source unavailable", reported)
-            # A log reader that keeps only the tail must still get the failed IDs.
-            self.assertEqual(
-                reported.strip().splitlines()[-1],
-                "error: refresh failed for 2 of 3 series: test.scalar.two, test.scalar.three",
-            )
-            # A caller counting failures reads that same line, so the reader is
-            # bound to what the CLI actually emits rather than to a copy of it.
-            self.assertEqual(parse_refresh_failure_count(reported), 2)
-
-    def test_parse_refresh_failure_count_is_none_when_no_roll_up_was_reported(self) -> None:
-        self.assertIsNone(parse_refresh_failure_count(""))
-        self.assertIsNone(parse_refresh_failure_count("Traceback (most recent call last):\n"))
-
     def test_refresh_cli_requires_one_range_mode(self) -> None:
-        parser = build_parser()
-
-        args = parser.parse_args(
-            ["refresh", "test.scalar.one", "--all-history", "--end", "2026-07-20"]
-        )
-        self.assertTrue(args.all_history)
         with self.assertRaises(SystemExit):
-            parser.parse_args(
+            economic_main(
                 [
                     "refresh",
-                    "test.scalar.one",
+                    "fed-h15",
                     "--start",
                     "2026-01-01",
                     "--all-history",
@@ -1008,390 +161,11 @@ class IndicatorsServiceTests(unittest.TestCase):
                     "2026-07-20",
                 ]
             )
-
-    def test_get_range_normalizes_provider_order_to_ascending(self) -> None:
-        # A scalar provider can return observations newest-first;
-        # get_range must normalize to ascending observed_at on the provider-fetch path.
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            initialize_database(db).close()
-            descending = [
-                ObservationRecord(
-                    series_id="test.scalar.one",
-                    observed_at=date(2026, 5, day),
-                    value=value,
-                    unit="percent",
-                    source_url="https://example.com/data.csv",
-                    vintage_at=datetime.now(UTC),
-                )
-                for day, value in ((3, 4.45), (2, 4.41), (1, 4.39))
-            ]
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                return_value=descending,
-            ):
-                result = IndicatorsService(db).get_range(
-                    "test.scalar.one",
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 3),
-                    refresh=True,
-                )
-
-            observed_dates = [obs.observed_at for obs in result.observations]
-            self.assertEqual(
-                observed_dates,
-                [date(2026, 5, 1), date(2026, 5, 2), date(2026, 5, 3)],
-            )
-
-    def test_get_range_retries_transient_provider_error_once(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            initialize_database(db).close()
-            observation = ObservationRecord(
-                series_id="test.scalar.one",
-                observed_at=date(2026, 5, 1),
-                value=4.39,
-                unit="percent",
-                source_url="https://example.com/data.csv",
-                vintage_at=datetime.now(UTC),
-            )
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    side_effect=[
-                        IndicatorsProviderError("temporary upstream error"),
-                        [observation],
-                    ],
-                ) as fetch,
-                patch("baibai_engine.market_context.indicator_service.time.sleep") as sleep,
-            ):
-                result = IndicatorsService(db).get_range(
-                    "test.scalar.one",
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
-                    refresh=True,
-                )
-
-            self.assertFalse(result.cache_hit)
-            self.assertEqual(fetch.call_count, 2)
-            sleep.assert_called_once()
-            self.assertEqual(result.observations[0].value, 4.39)
-            conn = sqlite3.connect(db)
-            try:
-                runs = conn.execute(
-                    "SELECT status, record_count FROM provider_runs WHERE series_id = ?",
-                    ("test.scalar.one",),
-                ).fetchall()
-            finally:
-                conn.close()
-            self.assertEqual(runs, [("ok", 1)])
-
-    def test_get_range_daily_partial_provider_run_does_not_cover_unobserved_tail(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            initialize_database(db).close()
-            first_observation = ObservationRecord(
-                series_id="test.scalar.three",
-                observed_at=date(2026, 7, 8),
-                value=2.856,
-                unit="percent",
-                source_url="https://example.com/data.csv",
-                vintage_at=datetime.now(UTC),
-            )
-            second_observation = ObservationRecord(
-                series_id="test.scalar.three",
-                observed_at=date(2026, 7, 9),
-                value=2.858,
-                unit="percent",
-                source_url="https://example.com/data.csv",
-                vintage_at=datetime.now(UTC),
-            )
-            with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                side_effect=[[first_observation], [second_observation]],
-            ) as fetch:
-                first = IndicatorsService(db).get_range(
-                    "test.scalar.three",
-                    start=date(2026, 7, 8),
-                    end=date(2026, 7, 9),
-                    refresh=True,
-                )
-                second = IndicatorsService(db).get_range(
-                    "test.scalar.three",
-                    start=date(2026, 7, 9),
-                    end=date(2026, 7, 9),
-                )
-
-            self.assertFalse(first.cache_hit)
-            self.assertFalse(second.cache_hit)
-            self.assertEqual(fetch.call_count, 2)
-            self.assertEqual(fetch.call_args.kwargs["start"], date(2026, 7, 9))
-            self.assertEqual(second.observations[0].observed_at, date(2026, 7, 9))
-            conn = sqlite3.connect(db)
-            try:
-                runs = conn.execute(
-                    "SELECT range_start, range_end, record_count "
-                    "FROM provider_runs WHERE series_id = ? ORDER BY range_start",
-                    ("test.scalar.three",),
-                ).fetchall()
-            finally:
-                conn.close()
-            self.assertEqual(
-                runs,
-                [
-                    ("2026-07-08", "2026-07-08", 1),
-                    ("2026-07-09", "2026-07-09", 1),
-                ],
-            )
-
-    def test_get_range_uses_cache_when_coverage_exists(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            _write_observation_with_coverage(
-                db,
-                "test.scalar.one",
-                observed_at=date(2026, 5, 4),
-                value=4.45,
-                coverage_start=date(2026, 5, 1),
-                coverage_end=date(2026, 5, 15),
-            )
-
-            result = IndicatorsService(db).get_range(
-                "test.scalar.one",
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 15),
-            )
-
-            self.assertTrue(result.cache_hit)
-            self.assertEqual(len(result.observations), 1)
-            self.assertEqual(result.observations[0].value, 4.45)
-
-    def test_get_latest_uses_fresh_cached_observation_before_provider(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            today = date(2026, 7, 27)
-            observed_at = today
-            _write_observation(
-                db,
-                "test.scalar.one",
-                observed_at=observed_at,
-                value=4.45,
-            )
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst",
-                    return_value=today,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    side_effect=AssertionError("provider should not be called"),
-                ),
-            ):
-                result = IndicatorsService(db).get_latest("test.scalar.one")
-
-            self.assertTrue(result.cache_hit)
-            self.assertEqual(result.observations[0].observed_at, observed_at)
-
-    def test_get_latest_uses_short_daily_provider_lookback(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            initialize_database(db).close()
-            today = date(2026, 7, 27)
-            observation = ObservationRecord(
-                series_id="test.scalar.three",
-                observed_at=today,
-                value=2.8,
-                unit="percent",
-                source_url="https://example.com/data.csv",
-                vintage_at=datetime.now(UTC),
-            )
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation],
-                ) as fetch,
-                patch(
-                    "baibai_engine.market_context.indicator_service.load_reading_rules",
-                    side_effect=AssertionError("explicit refresh does not need cache rules"),
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst",
-                    return_value=today,
-                ),
-            ):
-                result = IndicatorsService(db).get_latest("test.scalar.three", refresh=True)
-
-            self.assertFalse(result.cache_hit)
-            self.assertEqual(fetch.call_args.kwargs["start"], today - timedelta(days=14))
-
-    def test_get_latest_refreshes_stale_latest_even_when_range_has_coverage(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            today = date(2026, 7, 27)
-            _write_observation_with_coverage(
-                db,
-                "test.scalar.three",
-                observed_at=today - timedelta(days=8),
-                value=2.7,
-                coverage_start=today - timedelta(days=14),
-                coverage_end=today,
-            )
-            observation = ObservationRecord(
-                series_id="test.scalar.three",
-                observed_at=today - timedelta(days=1),
-                value=2.8,
-                unit="percent",
-                source_url="https://example.com/data.csv",
-                vintage_at=datetime.now(UTC),
-            )
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst",
-                    return_value=today,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation],
-                ) as fetch,
-            ):
-                result = IndicatorsService(db).get_latest("test.scalar.three")
-
-            self.assertFalse(result.cache_hit)
-            self.assertEqual(fetch.call_count, 1)
-            self.assertEqual(result.observations[0].observed_at, today - timedelta(days=1))
-            self.assertEqual(result.observations[0].value, 2.8)
-
-    def test_get_latest_uses_series_staleness_override_for_consumer_sentiment(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            today = date(2026, 7, 6)
-            # May 1 is 66 days old; June 1 is a genuine monthly coordinate.
-            replies = [
-                {date(2026, 5, 1): [{"Month": "May", "YYYY": "2026", "ICS_ALL": "50"}]},
-                {date(2026, 6, 1): [{"Month": "June", "YYYY": "2026", "ICS_ALL": "51"}]},
-            ]
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_native_records",
-                    side_effect=lambda *a, **k: replies.pop(0),
-                ) as fetch,
-            ):
-                service = IndicatorsService(database)
-                service.get_latest("us.consumer_sentiment")
-                result = service.get_latest("us.consumer_sentiment")
-            self.assertFalse(result.cache_hit)
-            self.assertEqual(fetch.call_count, 2)
-            self.assertEqual(result.observations[0].value, 51.0)
-
-    def test_get_latest_accepts_cache_at_series_staleness_boundary(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            # May 1 is exactly 65 days old, not an invented within-month date.
-            today = date(2026, 7, 5)
-            records = {date(2026, 5, 1): [{"Month": "May", "YYYY": "2026", "ICS_ALL": "50"}]}
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_native_records",
-                    return_value=records,
-                ) as fetch,
-            ):
-                service = IndicatorsService(database)
-                service.get_latest("us.consumer_sentiment")
-                result = service.get_latest("us.consumer_sentiment")
-            self.assertTrue(result.cache_hit)
-            self.assertEqual(fetch.call_count, 1)
-
-    def test_multpl_latest_uses_native_staleness_rule(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            today = date(2026, 7, 27)
-            stale_day = today - timedelta(days=8)
-            stale = {
-                stale_day: [{"date_text": "Jul 19, 2026", "value_text": "39.0", "table_row": 0}]
-            }
-            fresh = {today: [{"date_text": "Jul 27, 2026", "value_text": "39.5", "table_row": 0}]}
-            replies = [stale, fresh]
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_native_records",
-                    side_effect=lambda *a, **k: replies.pop(0),
-                ) as fetch,
-            ):
-                first = IndicatorsService(database).get_latest("us.sp500_cape")
-                second = IndicatorsService(database).get_latest("us.sp500_cape")
-            self.assertEqual(first.observations[0].observed_at, stale_day)
-            self.assertEqual(second.observations[0].observed_at, today)
-            self.assertEqual(fetch.call_count, 2)
-
-    def test_multpl_latest_uses_native_reading_not_old_scalar(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            today = date(2026, 7, 27)
-            _write_observation(database, "us.sp500_cape", observed_at=today, value=20.0)
-            with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_native_records",
-                    return_value={
-                        today - timedelta(days=1): [
-                            {"date_text": "Jul 26, 2026", "value_text": "39.5", "table_row": 0}
-                        ]
-                    },
-                ) as fetch,
-            ):
-                result = IndicatorsService(database).get_latest("us.sp500_cape")
-            self.assertFalse(result.cache_hit)
-            self.assertEqual(fetch.call_count, 1)
-            self.assertEqual(result.observations[0].observed_at, today - timedelta(days=1))
-            self.assertEqual(result.observations[0].value, 39.5)
-            self.assertEqual(
-                result.observations[0].source_url,
-                "https://www.multpl.com/shiller-pe/table/by-month",
-            )
-
-    def test_cli_search_and_cached_get(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-            _write_observation_with_coverage(
-                db,
-                "test.scalar.one",
-                observed_at=date(2026, 5, 4),
-                value=4.45,
-                coverage_start=date(2026, 5, 1),
-                coverage_end=date(2026, 5, 15),
-            )
-
-            self.assertEqual(main(["search", "CPI"]), 0)
-            self.assertEqual(
-                main(
-                    [
-                        "get",
-                        "test.scalar.one",
-                        "--start",
-                        "2026-05-01",
-                        "--end",
-                        "2026-05-15",
-                        "--db",
-                        str(db),
-                    ]
-                ),
-                0,
-            )
+        with self.assertRaises(SystemExit):
+            economic_main(["refresh", "fed-h15", "--end", "2026-07-20"])
 
     def test_cli_handles_bad_db_path_without_traceback(self) -> None:
-        self.assertEqual(main(["get", "test.scalar.one", "--latest", "--db", "/tmp"]), 1)
+        self.assertEqual(main(["get", "us.10y", "--latest", "--db", "/tmp"]), 1)
 
     def test_cli_unknown_series_returns_controlled_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1400,9 +174,8 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)
 
 
-def test_derived_read_ignores_old_materialization_and_does_not_fetch(tmp_path):
+def test_derived_read_uses_native_inputs_without_fetch_or_store_mutation(tmp_path):
     database = tmp_path / "indicators.sqlite"
-    _write_observation(database, "us.erp", observed_at=date(2026, 1, 2), value=-0.5)
     _store_multpl_earnings_yield(database, date(2026, 1, 1), "5.0")
     with closing(open_connection(database)) as connection:
         store_h15_observations(
@@ -1410,19 +183,16 @@ def test_derived_read_ignores_old_materialization_and_does_not_fetch(tmp_path):
             [observation("us.10y", date(2026, 1, 30), 4.0, datetime(2026, 2, 1, tzinfo=UTC))],
         )
         connection.commit()
+    before = database.read_bytes()
     with (
         patch(
-            "baibai_engine.market_context.indicator_service.fetch_observations",
-            side_effect=AssertionError("derived read must not acquire source data"),
-        ),
-        patch(
-            "baibai_engine.market_context.indicator_service.fetch_native_records",
+            "baibai_engine.collection.economic_acquisition.fetch_native_records",
             side_effect=AssertionError("derived read must not acquire native data"),
         ),
     ):
         service = IndicatorsService(database)
         ordinary = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
-        refreshed = service.refresh_all_history("us.erp", end=date(2026, 1, 31))
+        repeated = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
         with patch(
             "baibai_engine.market_context.indicator_service._today_jst",
             return_value=date(2026, 1, 31),
@@ -1431,25 +201,19 @@ def test_derived_read_ignores_old_materialization_and_does_not_fetch(tmp_path):
     assert [(row.observed_at, row.value) for row in ordinary.observations] == [
         (date(2026, 1, 30), 1.0)
     ]
-    assert refreshed.observations == ordinary.observations
+    assert repeated.observations == ordinary.observations
     assert latest.observations == ordinary.observations[-1:]
+    assert database.read_bytes() == before
     with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute(
-            "SELECT observed_at, value FROM observations WHERE series_id = 'us.erp'"
-        ).fetchall() == [("2026-01-02", -0.5)]
-        assert (
-            connection.execute(
-                "SELECT COUNT(*) FROM provider_runs WHERE series_id = 'us.erp'"
-            ).fetchone()[0]
-            == 0
-        )
+        assert connection.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0] == 0
 
 
-def test_old_derived_values_do_not_fill_missing_current_inputs(tmp_path):
+def test_empty_source_store_does_not_fill_missing_derived_inputs(tmp_path):
     database = tmp_path / "indicators.sqlite"
-    _write_observation(database, "us.erp", observed_at=date(2020, 1, 2), value=-0.5)
-    _write_observation(database, "us.erp", observed_at=date(2025, 1, 2), value=-0.6)
-    result = IndicatorsService(database).refresh_all_history("us.erp", end=date(2026, 6, 30))
+    initialize_database(database).close()
+    result = IndicatorsService(database).get_range(
+        "us.erp", start=date(2020, 1, 1), end=date(2026, 6, 30)
+    )
     assert result.observations == ()
 
 
@@ -1464,11 +228,7 @@ def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
         connection.commit()
     with (
         patch(
-            "baibai_engine.market_context.indicator_service.fetch_observations",
-            side_effect=AssertionError("derived CLI must not acquire source data"),
-        ),
-        patch(
-            "baibai_engine.market_context.indicator_service.fetch_native_records",
+            "baibai_engine.collection.economic_acquisition.fetch_native_records",
             side_effect=AssertionError("derived CLI must not acquire native data"),
         ),
     ):
@@ -1485,7 +245,10 @@ def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
             ]
         )
     assert code == 0
-    assert "\tderived\tcomputed" in capsys.readouterr().out
+    assert capsys.readouterr().out.splitlines() == [
+        "series_id\tobserved_at\tvalue\tunit\tprovider",
+        "us.erp\t2026-01-30\t1\tpercent\tderived",
+    ]
 
 
 def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: str) -> None:
@@ -1494,7 +257,7 @@ def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: 
     with closing(open_connection(database)) as conn:
         store_snapshot(
             conn,
-            source_key=native_source_key(series),
+            source_id=series.source_id,
             observed_at=observed_at,
             fetched_at=datetime(observed_at.year, observed_at.month, observed_at.day, tzinfo=UTC),
             records=[
@@ -1506,3 +269,232 @@ def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: 
             ],
         )
         conn.commit()
+
+
+def _mof_rows(day, value):
+    definition = load_definitions().by_id()["jp.10y"]
+    return {day: [{"row": {"10年": str(value)}, "source_url": definition.source_url}]}
+
+
+def test_native_refresh_retries_transport_without_discarding_the_success(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    day = date(2026, 7, 20)
+    contexts = []
+
+    def fetch(source, **kwargs):
+        context = kwargs["context"]
+        contexts.append(context)
+        if len(contexts) == 1:
+            context.bytes_cache[("fixture", ())] = b"unusable"
+            raise IndicatorsProviderError("temporary upstream error")
+        assert context.bytes_cache == {}
+        return _mof_rows(day, 1.5)
+
+    monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
+    sleep = Mock()
+    monkeypatch.setattr(acquisition.time, "sleep", sleep)
+    source_id = load_definitions().by_id()["jp.10y"].source_id
+    outcome = acquisition.refresh_sources([source_id], db_path=database, start=day, end=day)[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    result = IndicatorsService(database).get_range("jp.10y", start=day, end=day)
+    assert [item.value for item in result.observations] == [1.5]
+    assert len(contexts) == 2
+    sleep.assert_called_once()
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("SELECT status, record_count FROM economic_source_runs").fetchall() == [
+            ("ok", 1)
+        ]
+
+
+def test_refresh_continues_other_sources_and_shares_transport_context(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    day = date(2026, 7, 20)
+    contexts = []
+
+    def fetch(source, **kwargs):
+        contexts.append(kwargs["context"])
+        if source.provider == "mof_jgb":
+            raise RuntimeError("source parser changed")
+        return {day: [{"row": {"Time Period": day.isoformat(), "RIFLGFCY10_N.B": "4.2"}}]}
+
+    monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
+    definitions = load_definitions().by_id()
+    outcomes = acquisition.refresh_sources(
+        [definitions[series_id].source_id for series_id in ("jp.10y", "us.10y")],
+        db_path=database,
+        start=day,
+        end=day,
+    )
+    assert isinstance(outcomes[0], acquisition.SourceRefreshFailure)
+    assert outcomes[0].message == "source parser changed"
+    assert isinstance(outcomes[1], acquisition.SourceRefreshSuccess)
+    assert (
+        IndicatorsService(database).get_range("us.10y", start=day, end=day).observations[0].value
+        == 4.2
+    )
+    assert len(contexts) == 2
+    assert contexts[0] is contexts[1]
+
+
+def test_native_revisions_are_idempotent_and_survive_a_later_source_failure(tmp_path, monkeypatch):
+    from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
+
+    database = tmp_path / "indicators.sqlite"
+    day = date(2026, 7, 20)
+    received = iter([_mof_rows(day, 1.5), _mof_rows(day, 1.5), _mof_rows(day, 1.6)])
+    monkeypatch.setattr(acquisition, "fetch_native_records", lambda *a, **k: next(received))
+    service = IndicatorsService(database)
+    source_id = load_definitions().by_id()["jp.10y"].source_id
+    for expected in (1.5, 1.5, 1.6):
+        outcome = acquisition.refresh_sources([source_id], db_path=database, start=day, end=day)[0]
+        assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+        assert service.get_range("jp.10y", start=day, end=day).observations[0].value == expected
+    revised = service.get_range("jp.10y", start=day, end=day)
+    assert revised.observations[0].value == 1.6
+
+    def fail(*args, **kwargs):
+        raise ProviderFetchStoppedError("source unavailable")
+
+    monkeypatch.setattr(acquisition, "fetch_native_records", fail)
+    failure = acquisition.refresh_sources([source_id], db_path=database, start=day, end=day)[0]
+    assert isinstance(failure, acquisition.SourceRefreshFailure)
+    assert "source unavailable" in failure.message
+    assert service.get_range("jp.10y", start=day, end=day).observations == revised.observations
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 2
+
+
+def test_latest_read_does_not_reacquire_stale_inputs(tmp_path, monkeypatch):
+    today = date(2026, 7, 27)
+    stale = today - timedelta(days=8)
+    replies = iter([_mof_rows(stale, 1.5), _mof_rows(today, 1.6)])
+    calls = []
+
+    def fetch(*args, **kwargs):
+        calls.append(kwargs)
+        return next(replies)
+
+    from baibai_engine.market_context import indicator_service as service_module
+
+    monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
+    monkeypatch.setattr(service_module, "_today_jst", lambda: today)
+    database = tmp_path / "indicators.sqlite"
+    service = IndicatorsService(database)
+    source_id = load_definitions().by_id()["jp.10y"].source_id
+    outcome = acquisition.refresh_sources(
+        [source_id], db_path=database, start=today - timedelta(days=14), end=today
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    first = service.get_latest("jp.10y")
+    cached = service.get_latest("jp.10y")
+    assert first.observations == cached.observations
+    assert cached.observations[0].observed_at == stale
+    assert len(calls) == 1
+    outcome = acquisition.refresh_sources(
+        [source_id], db_path=database, start=today - timedelta(days=14), end=today
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    fresh = service.get_latest("jp.10y")
+    assert fresh.observations[0].observed_at == today
+    assert len(calls) == 2
+
+
+def test_unknown_refresh_does_not_open_or_modify_the_store(tmp_path):
+    database = tmp_path / "not-a-database"
+    database.write_bytes(b"untouched")
+    outcomes = acquisition.refresh_sources(
+        ["not-registered"], start=date(2026, 1, 1), end=date(2026, 1, 2), db_path=database
+    )
+    assert isinstance(outcomes[0], acquisition.SourceRefreshFailure)
+    assert database.read_bytes() == b"untouched"
+
+
+def test_native_refresh_cli_reports_each_source_failure(tmp_path, monkeypatch, capsys):
+    from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
+
+    def fail(source, **kwargs):
+        raise ProviderFetchStoppedError(f"{source.source_id} unavailable")
+
+    monkeypatch.setattr(acquisition, "fetch_native_records", fail)
+    status = economic_main(
+        [
+            "refresh",
+            "mof-jgbcm-all",
+            "fed-h15",
+            "--start",
+            "2026-07-20",
+            "--end",
+            "2026-07-20",
+            "--db",
+            str(tmp_path / "indicators.sqlite"),
+        ]
+    )
+    assert status == 1
+    report = capsys.readouterr().err
+    assert "- mof-jgbcm-all: mof-jgbcm-all unavailable" in report
+    assert "- fed-h15: fed-h15 unavailable" in report
+    assert report.strip().splitlines()[-1] == (
+        "error: refresh failed for 2 of 2 sources: mof-jgbcm-all, fed-h15"
+    )
+
+
+def test_tsr_all_history_collects_original_json_from_provider_floor(tmp_path, monkeypatch):
+    from baibai_engine.collection.economic_documents import SourceDocument, read_documents
+
+    series = load_definitions().by_id()["jp.bankruptcies"]
+    payload = '[{"period_division":"月次","title":"2003年1月 全国企業倒産 1,462件"}]'.encode()
+    original = SourceDocument(
+        series.source_id,
+        "history",
+        series.source_url,
+        "application/json",
+        datetime(2026, 7, 20, tzinfo=UTC),
+        payload,
+        {},
+    )
+    fetch = Mock(return_value=iter([original]))
+    monkeypatch.setattr(acquisition, "fetch_source_documents", fetch)
+    database = tmp_path / "indicators.sqlite"
+    outcome = acquisition.refresh_sources(
+        [series.source_id], db_path=database, start=None, end=date(2026, 7, 20)
+    )[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    assert fetch.call_args.kwargs["start"] == date(2003, 1, 1)
+    assert fetch.call_args.kwargs["force"] is True
+    result = IndicatorsService(database).get_range(
+        series.series_id, start=date(2003, 1, 1), end=date(2026, 7, 20)
+    )
+    assert result.observations[0].value == 1462
+    with closing(sqlite3.connect(database)) as connection:
+        assert next(read_documents(connection, series.source_id)).payload == payload
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), 1e99])
+def test_invalid_l2_value_does_not_destroy_received_native_input(tmp_path, monkeypatch, value):
+    day = date(2026, 7, 20)
+    database = tmp_path / "indicators.sqlite"
+    monkeypatch.setattr(acquisition, "fetch_native_records", lambda *a, **k: _mof_rows(day, value))
+    source_id = load_definitions().by_id()["jp.10y"].source_id
+    outcome = acquisition.refresh_sources([source_id], db_path=database, start=day, end=day)[0]
+    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    with pytest.raises(ValueError, match=r"non-finite|plausible range"):
+        IndicatorsService(database).get_range("jp.10y", start=day, end=day)
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 1
+        assert conn.execute("SELECT status, record_count FROM economic_source_runs").fetchall() == [
+            ("ok", 1)
+        ]
+
+
+@pytest.mark.parametrize("value", [-2.0, 20.0])
+def test_l2_accepts_the_declared_plausible_boundaries(value):
+    from dataclasses import replace
+
+    from baibai_engine.market_context.reading.observations import reading_observation
+
+    series = replace(load_definitions().by_id()["us.10y"], plausible_min=-2.0, plausible_max=20.0)
+    result = reading_observation(
+        series, observed_at=date(2026, 7, 20), value=value, vintage_at=None
+    )
+    assert result.value == value
+    assert result.unit == series.unit

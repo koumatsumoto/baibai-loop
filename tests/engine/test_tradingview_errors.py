@@ -292,7 +292,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
 
     from mcp.shared.auth import OAuthToken
     from tests.engine.test_tradingview_auth import state
-    from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
+    from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
     path = store(tmp_path / "market.sqlite")
     progress_path = tmp_path / "progress.json"
@@ -309,7 +309,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
         await storage_ref[0].set_tokens(
             OAuthToken(access_token="private-token", token_type="Bearer")
         )
-        return payload(args[1])
+        return _sdk(payload(args[1]))
 
     def write(path, value):
         writes.append(value)

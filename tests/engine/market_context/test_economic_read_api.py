@@ -8,19 +8,16 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.market_context.indicators.db import (
-    get_series,
-    initialize_database,
-    insert_observations,
-    retract_observations,
-)
+from baibai_engine.collection.economic_records import store_snapshot
+from baibai_engine.collection.economic_store import initialize_database
+from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
+from baibai_engine.market_context.reading import reader as reading_reader
 from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 from baibai_engine.read_api.market_context import (
     IndicatorGranularity,
+    indicator_fetch_health,
     indicator_series,
     reading_snapshot,
 )
@@ -124,6 +121,71 @@ def test_indicator_series_filters_range_before_aggregation_and_keeps_latest_vint
     assert points == [{"observed_at": "2026-01-02", "value": 2.5}]
 
 
+def test_indicator_series_derived_inputs_share_one_wal_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = tmp_path / "indicators.sqlite"
+    day = date(2026, 7, 1)
+    registry = load_definitions().by_id()
+    first_receipt = datetime(2026, 7, 2, tzinfo=UTC)
+    second_receipt = datetime(2026, 7, 3, tzinfo=UTC)
+
+    def save_sources(
+        connection: sqlite3.Connection, earnings: str, yield_10y: str, receipt: datetime
+    ) -> None:
+        store_snapshot(
+            connection,
+            source_id=registry["us.sp500_earnings_yield"].source_id,
+            observed_at=day,
+            fetched_at=receipt,
+            records=[{"date_text": "Jul 1, 2026", "value_text": earnings, "table_row": 1}],
+        )
+        store_snapshot(
+            connection,
+            source_id=registry["us.10y"].source_id,
+            observed_at=day,
+            fetched_at=receipt,
+            records=[
+                {
+                    "row": {"Time Period": day.isoformat(), "RIFLGFCY10_N.B": yield_10y},
+                    "preamble": [],
+                }
+            ],
+        )
+
+    with closing(initialize_database(database)) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        save_sources(writer, "5", "4", first_receipt)
+        writer.commit()
+
+    native_read = reading_reader.read_native_series
+    updated = False
+
+    def read_then_update(connection, series, *, start, end, vintage_cutoff=None):
+        nonlocal updated
+        observations = native_read(
+            connection, series, start=start, end=end, vintage_cutoff=vintage_cutoff
+        )
+        if series.series_id == "us.sp500_earnings_yield" and not updated:
+            assert [item.value for item in observations] == [5.0]
+            with closing(sqlite3.connect(database)) as writer:
+                save_sources(writer, "7", "5", second_receipt)
+                writer.commit()
+            updated = True
+        return observations
+
+    monkeypatch.setattr(reading_reader, "read_native_series", read_then_update)
+
+    first = indicator_series(database, series_id="us.erp", start=day, end=day)
+    assert updated
+    assert first is not None
+    assert first["points"] == [{"observed_at": day.isoformat(), "value": 1.0}]
+
+    second = indicator_series(database, series_id="us.erp", start=day, end=day)
+    assert second is not None
+    assert second["points"] == [{"observed_at": day.isoformat(), "value": 2.0}]
+
+
 def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> None:
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
@@ -134,7 +196,7 @@ def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> 
         ]:
             store_snapshot(
                 connection,
-                source_key="jquants_flows:TSEPrime",
+                source_id="jquants-trades-spec",
                 observed_at=published,
                 fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
                 records=[
@@ -181,7 +243,7 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
         for published, value in [(date(2024, 8, 29), 100.0), (date(2024, 9, 10), 120.0)]:
             store_snapshot(
                 connection,
-                source_key="jquants_flows:TSEPrime",
+                source_id="jquants-trades-spec",
                 observed_at=published,
                 fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
                 records=[
@@ -194,19 +256,17 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
                     }
                 ],
             )
-        definition = get_series(connection, "jp.nikkei225")
+        definition = load_definitions().by_id()["jp.nikkei225"]
         for value, vintage_at in (
             (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
             (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
         ):
             store_snapshot(
                 connection,
-                source_key=native_source_key(definition),
+                source_id=definition.source_id,
                 observed_at=date(2024, 8, 23),
                 fetched_at=vintage_at,
-                records=[
-                    {"observation_date": "2024-08-23", definition.provider_series_id: str(value)}
-                ],
+                records=[{"observation_date": "2024-08-23", definition.reading_key: str(value)}],
             )
         connection.commit()
     finally:
@@ -298,83 +358,99 @@ def test_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> Non
         indicator_series(database, series_id="us.10y", limit=0)
 
 
-def test_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -> None:
+def test_indicator_series_does_not_treat_an_unreferenced_source_as_a_series(
+    tmp_path: Path,
+) -> None:
     database = tmp_path / "indicators.sqlite"
-    connection = initialize_database(database)
-    try:
-        connection.execute(
-            "INSERT INTO series("
-            "series_id, name, category, geography, frequency, unit, provider, "
-            "provider_series_id, source_id, source_url"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "retired.series",
-                "Retired",
-                "test",
-                "world",
-                "monthly",
-                "index",
-                "fred_csv",
-                "RETIRED",
-                "retired",
-                "https://example.com/retired.csv",
-            ),
+    with closing(initialize_database(database)) as connection, connection:
+        store_snapshot(
+            connection,
+            source_id="unreferenced-source",
+            observed_at=date(2026, 5, 1),
+            fetched_at=datetime(2026, 5, 2, tzinfo=UTC),
+            records=[{"raw": 1}],
         )
-        connection.commit()
-    finally:
-        connection.close()
 
     assert indicator_series(database, series_id="retired.series") is None
     with closing(sqlite3.connect(database)) as check:
         assert (
             check.execute(
-                "SELECT COUNT(*) FROM series WHERE series_id = 'retired.series'"
+                "SELECT COUNT(*) FROM economic_source_records "
+                "WHERE source_id = 'unreferenced-source'"
             ).fetchone()[0]
             == 1
         )
 
 
-def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path: Path) -> None:
-    """A withdrawn observation is not a point on the chart, nor the date the store is fresh to."""
+def test_source_health_is_projected_to_its_external_series_only(tmp_path: Path) -> None:
+    database = tmp_path / "sources.sqlite"
+    with closing(initialize_database(database)) as connection, connection:
+        for run_id, source_id, finished_at, status in [
+            ("a", "fed-h15", "2026-07-20T00:00:00.000000+00:00", "failed"),
+            ("b", "fed-h15", "2026-07-20T00:00:01.000000+00:00", "ok"),
+            ("c", "unreferenced-source", "2026-07-20T00:00:02.000000+00:00", "failed"),
+        ]:
+            connection.execute(
+                "INSERT INTO economic_source_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    source_id,
+                    "2026-07-20",
+                    "2026-07-20",
+                    finished_at,
+                    finished_at,
+                    status,
+                    42,
+                    None if status == "ok" else "unavailable",
+                ),
+            )
+    before = database.read_bytes()
+    result = indicator_fetch_health(database)
+    expected = {
+        item.series_id
+        for item in load_definitions().series
+        if item.source_id == "fed-h15" and item.provider != "derived"
+    }
+    assert expected
+    assert {item["series_id"] for item in result} == expected
+    assert all(item["status"] == "ok" and item["record_count"] == 42 for item in result)
+    assert all(item["error_message"] is None for item in result)
+    assert database.read_bytes() == before
+
+
+def test_document_revision_changes_chart_and_freshness(tmp_path: Path) -> None:
+    import json
+    from dataclasses import replace
+
+    from baibai_engine.collection.economic_documents import SourceDocument, store_document
+    from baibai_engine.market_context.indicators.definitions import load_definitions
 
     database = tmp_path / "indicators.sqlite"
-    connection = initialize_database(database)
-    try:
-        series = get_series(connection, "jp.bankruptcies")
-        insert_observations(
+    series = load_definitions().by_id()["jp.bankruptcies"]
+    may = {"period_division": "月次", "title": "2026年5月 全国企業倒産 439件"}
+    june = {"period_division": "月次", "title": "2026年6月 全国企業倒産 441件"}
+    document = SourceDocument(
+        source_id=series.source_id,
+        request_key="history",
+        source_url=series.source_url,
+        content_type="application/json",
+        fetched_at=datetime(2026, 7, 10, tzinfo=UTC),
+        payload=json.dumps([may, june], ensure_ascii=False).encode(),
+        metadata={"params": {"data": "data"}},
+    )
+    with closing(initialize_database(database)) as connection, connection:
+        store_document(connection, document)
+    assert indicator_latest_observed_at(database) == date(2026, 6, 1)
+    with closing(initialize_database(database)) as connection, connection:
+        store_document(
             connection,
-            [
-                ObservationRecord(
-                    series_id="jp.bankruptcies",
-                    observed_at=observed_at,
-                    value=value,
-                    unit=series.unit,
-                    source_url=series.source_url,
-                    vintage_at=datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
-                )
-                for observed_at, value in (
-                    (date(2026, 5, 1), 439.0),
-                    (date(2026, 6, 1), 441.0),
-                )
-            ],
+            replace(
+                document,
+                fetched_at=datetime(2026, 7, 11, tzinfo=UTC),
+                payload=json.dumps([may], ensure_ascii=False).encode(),
+            ),
         )
-        retract_observations(
-            connection,
-            "jp.bankruptcies",
-            [
-                (
-                    date(2026, 6, 1),
-                    datetime.combine(date(2026, 6, 1), datetime.min.time(), tzinfo=UTC),
-                )
-            ],
-            vintage_at=datetime(2026, 6, 10, tzinfo=UTC),
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
     chart = indicator_series(database, series_id="jp.bankruptcies", granularity="daily")
-
     assert chart is not None
     assert chart["points"] == [{"observed_at": "2026-05-01", "value": 439.0}]
     assert indicator_latest_observed_at(database) == date(2026, 5, 1)

@@ -10,27 +10,29 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _FakeBrowserFetcher,
     _FakeResponse,
     _ForbiddenResponse,
-    _series,
+    _source,
     _StaticSession,
 )
 
-from baibai_engine.market_context.indicators.providers import (
+from baibai_engine.collection.economic_providers import (
     IndicatorsProviderError,
     parse_fred_csv,
     parse_h15_csv,
 )
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic_providers.base import (
     MAX_CSV_RESPONSE_BYTES,
     BrowserUnavailableError,
     HttpSession,
 )
-from baibai_engine.market_context.indicators.providers.frb_h15 import FrbH15Source
-from baibai_engine.market_context.indicators.providers.umich_sca import parse_umich_table
+from baibai_engine.collection.economic_providers.frb_h15 import FrbH15Source
+from baibai_engine.collection.economic_providers.umich_sca import parse_umich_table
+from baibai_engine.collection.economic_sources import require_source
+from baibai_engine.market_context.indicators.definitions import load_definitions
 
 
 class IndicatorsProviderParserTests(TestCase):
     def test_h15_missing_date_is_not_a_successful_empty_response(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         with self.assertRaisesRegex(IndicatorsProviderError, "no Time Period"):
             parse_h15_csv(
                 series,
@@ -40,7 +42,7 @@ class IndicatorsProviderParserTests(TestCase):
             )
 
     def test_parse_fred_csv_filters_range_without_discarding_missing_cells(self) -> None:
-        series = _series("fred_csv", "DGS10")
+        series = _source("fred_csv", "DGS10")
         text = "observation_date,DGS10\n2026-05-01,4.39\n2026-05-02,.\n2026-05-04,4.45\n"
 
         observations = parse_fred_csv(
@@ -59,7 +61,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_fred_csv_rejects_missing_date_header_instead_of_empty_history(self) -> None:
-        series = _series("fred_csv", "DGS10")
+        series = _source("fred_csv", "DGS10")
         with self.assertRaisesRegex(IndicatorsProviderError, "missing column observation_date"):
             parse_fred_csv(
                 series,
@@ -69,7 +71,7 @@ class IndicatorsProviderParserTests(TestCase):
             )
 
     def test_parse_umich_table_reads_the_column_for_each_published_month(self) -> None:
-        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        series = require_source("umich-sca-ics")
         # The early history is quarterly, so consecutive rows can skip months.
         text = "Month,YYYY,ICS_ALL\nNovember,1952,86.2\nFebruary,1953,90.7\nJune,2026,49.5\n"
 
@@ -85,7 +87,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_umich_table_filters_to_the_requested_window(self) -> None:
-        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        series = require_source("umich-sca-ics")
         text = "Month,YYYY,ICS_ALL\nApril,2026,49.8\nMay,2026,44.8\nJune,2026,49.5\n"
 
         observations = parse_umich_table(
@@ -95,7 +97,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(list(observations), [date(2026, 5, 1)])
 
     def test_parse_umich_table_retains_a_month_published_without_a_value(self) -> None:
-        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        series = require_source("umich-sca-ics")
         text = "Month,YYYY,ICS_ALL\nMay,2026,44.8\nJune,2026,\n"
 
         observations = parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
@@ -106,21 +108,14 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_umich_table_rejects_a_row_that_is_not_a_month_of_a_year(self) -> None:
-        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        series = require_source("umich-sca-ics")
         text = "Month,YYYY,ICS_ALL\nQ2,2026,49.5\n"
 
         with self.assertRaisesRegex(IndicatorsProviderError, "not a month of a year"):
             parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
 
-    def test_parse_umich_table_rejects_a_missing_value_column(self) -> None:
-        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
-        text = "Month,YYYY,ICE_ALL\nJune,2026,49.5\n"
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing column ICS_ALL"):
-            parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
-
     def test_parse_h15_csv_retains_rows_without_the_requested_yield_column(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         # Synthetic CSV: acquisition retains a source row even if L2 cannot read
         # this particular registered yield from it after the native save.
         text = '"Time Period",OTHER\n2026-05-01,4.39\n'
@@ -137,7 +132,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_h15_csv_retains_all_columns_missing_markers_and_literal_preamble(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         # Deliberately synthetic metadata and cells, not a captured live response.
         preamble = ['"Release","Synthetic H.15 fixture"', "", "  Units: percent  "]
         text = "\n".join(
@@ -183,7 +178,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_h15_csv_retains_duplicate_rows_in_source_order(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         text = (
             '"Time Period","RIFLGFCY10_N.B",OTHER\n'
             "2026-05-01,4.39,first\n"
@@ -226,7 +221,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_h15_csv_filters_dates_without_discarding_native_missing_values(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         text = (
             '"Time Period","RIFLGFCY10_N.B"\n'
             "2026-04-30,4.38\n"
@@ -256,7 +251,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_h15_csv_rejects_duplicate_columns_and_ragged_rows(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         for text in (
             '"Time Period","RIFLGFCY10_N.B","RIFLGFCY10_N.B"\n2026-05-01,4.39,4.40\n',
             '"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39,extra\n',
@@ -266,13 +261,13 @@ class IndicatorsProviderParserTests(TestCase):
                 parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
     def test_parse_h15_csv_preserves_newlines_inside_quoted_native_cells(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         text = '"Time Period","RIFLGFCY10_N.B",OTHER\n2026-05-01,4.39,"first\nsecond"\n'
         records = parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
         self.assertEqual(records[date(2026, 5, 1)][0]["row"]["OTHER"], "first\nsecond")
 
     def test_parse_h15_csv_reports_non_csv_response_with_snippet(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         text = "<!DOCTYPE html>\n<html><head><title>Access Denied</title></head></html>"
 
         with self.assertRaisesRegex(
@@ -282,7 +277,7 @@ class IndicatorsProviderParserTests(TestCase):
             parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
     def test_h15_fetch_sends_browser_user_agent(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         captured: dict[str, object] = {}
 
         class _Response:
@@ -330,7 +325,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertIn("Accept-Language", headers)
 
     def test_h15_falls_back_to_a_browser_when_the_plain_response_is_empty(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
 
         with _context_with_browser(browser) as context:
@@ -359,7 +354,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertIn("from=05%2F01%2F2026", browser.urls[0])
 
     def test_h15_falls_back_to_a_browser_when_the_plain_response_is_forbidden(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
 
         with _context_with_browser(browser) as context:
@@ -387,7 +382,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(len(browser.urls), 1)
 
     def test_h15_falls_back_to_a_browser_when_the_plain_response_is_a_block_page(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
         block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
 
@@ -415,6 +410,13 @@ class IndicatorsProviderParserTests(TestCase):
 
     def test_h15_browser_fallback_downloads_once_for_every_series_in_a_pass(self) -> None:
         # Synthetic package includes all three registered Treasury yield columns.
+        source = require_source("fed-h15")
+        readings = load_definitions().by_id()
+        assert source.provider_series_id == ""
+        assert {readings[key].source_id for key in ("us.10y", "us.2y", "us.30y")} == {
+            source.source_id
+        }
+        assert len({readings[key].reading_key for key in ("us.10y", "us.2y", "us.30y")}) == 3
         browser = _FakeBrowserFetcher(
             b'"Time Period","RIFLGFCY10_N.B","RIFLGFCY02_N.B","RIFLGFCY30_N.B"\n'
             b"2026-05-01,4.39,3.88,4.90\n"
@@ -438,7 +440,7 @@ class IndicatorsProviderParserTests(TestCase):
             for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B", "RIFLGFCY30_N.B"):
                 with self.subTest(provider_series_id=provider_series_id):
                     records = FrbH15Source().fetch_records(
-                        _series("frb_h15", provider_series_id),
+                        require_source("fed-h15"),
                         start=date(2026, 5, 1),
                         end=date(2026, 5, 1),
                         session=session,
@@ -481,7 +483,7 @@ class IndicatorsProviderParserTests(TestCase):
             for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B", "RIFLGFCY30_N.B"):
                 with self.subTest(provider_series_id=provider_series_id):
                     records = FrbH15Source().fetch_records(
-                        _series("frb_h15", provider_series_id),
+                        require_source("fed-h15"),
                         start=date(2026, 5, 1),
                         end=date(2026, 5, 1),
                         session=cast(HttpSession, _Session()),
@@ -493,7 +495,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(browser.urls, [])
 
     def test_h15_reports_the_plain_failure_when_the_browser_is_also_blocked(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(IndicatorsProviderError("browser could not download"))
 
         with (
@@ -516,7 +518,7 @@ class IndicatorsProviderParserTests(TestCase):
             )
 
     def test_h15_reports_the_block_page_when_the_browser_is_also_blocked(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(IndicatorsProviderError("browser could not download"))
         block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
 
@@ -539,7 +541,7 @@ class IndicatorsProviderParserTests(TestCase):
             )
 
     def test_h15_rejects_a_browser_response_without_the_csv_header(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b"<!DOCTYPE html><html><title>Just a moment</title></html>")
 
         with _context_with_browser(browser) as context:
@@ -559,7 +561,7 @@ class IndicatorsProviderParserTests(TestCase):
             self.assertEqual(context.bytes_cache, {})
 
     def test_h15_rejects_a_browser_response_that_is_not_utf8(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b"\xff\xfe\x00garbage")
 
         with _context_with_browser(browser) as context:
@@ -583,9 +585,12 @@ class IndicatorsProviderParserTests(TestCase):
 
         with _context_with_browser(browser) as context:
             for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
-                with self.assertRaises(IndicatorsProviderError) as caught:
+                with (
+                    self.subTest(reading_key=provider_series_id),
+                    self.assertRaises(IndicatorsProviderError) as caught,
+                ):
                     FrbH15Source().fetch_records(
-                        _series("frb_h15", provider_series_id),
+                        require_source("fed-h15"),
                         start=date(2026, 5, 1),
                         end=date(2026, 5, 1),
                         session=session,
@@ -608,9 +613,12 @@ class IndicatorsProviderParserTests(TestCase):
 
         with _context_with_browser(browser) as context:
             for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
-                with self.assertRaises(IndicatorsProviderError):
+                with (
+                    self.subTest(reading_key=provider_series_id),
+                    self.assertRaises(IndicatorsProviderError),
+                ):
                     FrbH15Source().fetch_records(
-                        _series("frb_h15", provider_series_id),
+                        require_source("fed-h15"),
                         start=date(2026, 5, 1),
                         end=date(2026, 5, 1),
                         session=session,
@@ -625,7 +633,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(reached_browser, 2)
 
     def test_h15_does_not_fall_back_to_a_browser_for_a_failure_that_is_not_a_block(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
         oversized = _FakeResponse(b"x" * 32, headers={"Content-Length": "9000000"})
 
@@ -644,7 +652,7 @@ class IndicatorsProviderParserTests(TestCase):
             self.assertEqual(browser.urls, [])
 
     def test_h15_browser_navigation_preserves_a_query_already_in_the_source_url(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         series = replace(series, source_url="https://example.test/Output.aspx?rel=H15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
 
@@ -664,7 +672,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertIn("layout=seriescolumn", browser.urls[0])
 
     def test_h15_browser_download_is_capped_by_the_provider_limit(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
 
         with _context_with_browser(browser) as context:
@@ -680,7 +688,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(browser.max_bytes, [MAX_CSV_RESPONSE_BYTES])
 
     def test_h15_without_a_context_reports_the_response_instead_of_falling_back(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = require_source("fed-h15")
         block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
 
         with self.assertRaisesRegex(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import FrozenInstanceError, replace
 
 import pytest
@@ -59,12 +60,22 @@ def observation(source="monex", ticker="130A", *, missing=False, **kwargs):
     )
 
 
+def attempt_for(source, ticker):
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"synthetic/{source}/{ticker}"))
+
+
 def finish(p, journal, source, ticker, *, missing=False):
     active = journal
     return record_outcome(
         p,
         active,
-        ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),
+        ExternalAssessmentCollectionOutcome(
+            source,
+            ticker,
+            "observed",
+            http_status=200,
+            attempt_id=attempt_for(source, ticker),
+        ),
         observation(source, ticker, missing=missing),
     )
 
@@ -150,7 +161,12 @@ def test_normal_null_is_an_observation_and_is_separate_from_failure():
         p,
         journal,
         ExternalAssessmentCollectionOutcome(
-            "rakuten", "130A", "parse_failure", "no_estimates_identity_unconfirmed", 200
+            "rakuten",
+            "130A",
+            "parse_failure",
+            "no_estimates_identity_unconfirmed",
+            200,
+            attempt_for("rakuten", "130A"),
         ),
     )
     report = summarize(p, [journal], require_all=True)
@@ -260,13 +276,26 @@ def test_saved_plan_rejects_changed_cohort_and_duplicate_json_fields(mutation):
     with pytest.raises(ValueError, match="cohorts differ"):
         load_plan(json.dumps(data).encode())
     with pytest.raises(ValueError, match="duplicate JSON"):
-        load_plan(b'{"format":"external-assessment-daily-plan-v1","format":"other"}')
+        load_plan(b'{"format":"external-assessment-daily-plan-v2","format":"other"}')
+
+
+def test_old_typed_only_plan_format_cannot_resume_as_raw_bound_plan():
+    data = json.loads(plan_bytes(plan()))
+    data["format"] = "external-assessment-daily-plan-v1"
+    with pytest.raises(ValueError, match="invalid daily plan format"):
+        load_plan(json.dumps(data).encode())
 
 
 def test_terminal_replay_is_idempotent_but_changed_value_or_receipt_conflicts():
     p = plan()
     journal = finish(p, new_result(p, 0), "monex", "130A")
-    outcome = ExternalAssessmentCollectionOutcome("monex", "130A", "observed", http_status=200)
+    outcome = ExternalAssessmentCollectionOutcome(
+        "monex",
+        "130A",
+        "observed",
+        http_status=200,
+        attempt_id=attempt_for("monex", "130A"),
+    )
     assert record_outcome(p, journal, outcome, observation()) is journal
     for changed in (observation(pbr=1), observation(fetched_at_utc="2026-10-11T00:00:02+00:00")):
         with pytest.raises(ValueError, match="payload cannot change"):
@@ -306,7 +335,13 @@ def test_journal_and_pair_are_immutable_and_unattempted_cannot_claim_a_response(
 def test_outcome_requires_marker_matching_typed_observation_and_safe_reason():
     p = plan()
     initial = new_result(p, 0)
-    outcome = ExternalAssessmentCollectionOutcome("monex", "130A", "observed", http_status=200)
+    outcome = ExternalAssessmentCollectionOutcome(
+        "monex",
+        "130A",
+        "observed",
+        http_status=200,
+        attempt_id=attempt_for("monex", "130A"),
+    )
     assert record_outcome(p, initial, outcome, observation()).entries[0].state == "success"
     active = initial
     with pytest.raises(ValueError, match="does not match its pair"):
@@ -316,13 +351,24 @@ def test_outcome_requires_marker_matching_typed_observation_and_safe_reason():
             p,
             active,
             ExternalAssessmentCollectionOutcome(
-                "monex", "130A", "parse_failure", "private raw exception", 200
+                "monex",
+                "130A",
+                "parse_failure",
+                "private raw exception",
+                200,
+                attempt_for("monex", "130A"),
             ),
         )
     with pytest.raises(ValueError, match="outside the fixed cohort"):
         record_outcome(
             p,
             active,
-            ExternalAssessmentCollectionOutcome("monex", "9432", "observed", http_status=200),
+            ExternalAssessmentCollectionOutcome(
+                "monex",
+                "9432",
+                "observed",
+                http_status=200,
+                attempt_id=attempt_for("monex", "9432"),
+            ),
             observation(ticker="9432"),
         )

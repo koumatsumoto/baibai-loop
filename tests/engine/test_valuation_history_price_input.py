@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.collection.prices import JQuantsDailyBar
 from baibai_engine.valuation.metrics.history import build_valuation_history, self_range_position
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 

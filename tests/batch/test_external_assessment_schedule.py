@@ -27,7 +27,7 @@ from baibai_batch.jobs.schedule import (
 )
 from baibai_batch.storage import external_assessment_staging as staging
 from baibai_engine.external_assessment.acquisition import collection
-from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.keys import current_release_pointer_key
 
 CREATED = datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
 FRIDAY = date(2026, 10, 9)
@@ -99,14 +99,14 @@ def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_rel
         any(name in key for name in ("jquants.master_snapshots/", "jquants.market_calendar/"))
         for key in parquet_reads
     )
-    store.store_object(current_l1_pointer_key(), b"unreadable newer pointer")
+    store.store_object(current_release_pointer_key(), b"unreadable newer pointer")
     store.get_keys.clear()
     store.head_keys.clear()
     assert (
         daily.initialize(store, run_id=run_id, master_asof=None, observation_date=day, mirror=None)
         == p
     )
-    assert current_l1_pointer_key() not in store.head_keys
+    assert current_release_pointer_key() not in store.head_keys
     assert set(store.get_keys) == {staging.prefix(run_id) + "/plan.json"}
 
 

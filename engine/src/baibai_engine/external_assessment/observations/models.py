@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.collection.identifiers import normalize_ticker
 
 CONTRACT_VERSION: Literal["1"] = "1"
 VALUATION_METRICS = ("consensus_target", "per_company_forecast", "per_consensus", "pbr")

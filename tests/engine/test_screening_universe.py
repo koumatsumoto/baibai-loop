@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from tests.helpers.master import TSE_33_SECTORS
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.screening.discovery.candidates import build_candidate_contexts

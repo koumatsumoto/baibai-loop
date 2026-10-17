@@ -166,8 +166,8 @@ merge_store() {
   )
 }
 
-merge_indicator_store() {
-  merge_store baibai_batch.storage.merge_indicator_store "$1" "$2"
+merge_economic_store() {
+  merge_store baibai_batch.storage.merge_economic_store "$1" "$2"
 }
 
 merge_market_store() {
@@ -319,16 +319,21 @@ write_machine_manifest() {
 }
 
 manifest_recorded_version() {
-  # This script is the receipt's only writer, so its shape is fixed. Anything that does
-  # not read back as one ETag is reported as no record at all, which refuses the pull
-  # instead of comparing against a value nobody can account for.
-  local file="$1" key="$2" value
-  value="$(sed -n "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
-    "${file}" | head -n 1)"
-  if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
-    value=""
-  fi
-  printf '%s\n' "${value}"
+  # Read the JSON contract, not the writer's whitespace or line layout.
+  python3 - "$1" "$2" <<'PYTHON'
+import json
+import re
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        receipt = json.load(source)
+except (OSError, ValueError):
+    receipt = None
+keys = receipt.get("keys") if isinstance(receipt, dict) else None
+value = keys.get(sys.argv[2]) if isinstance(keys, dict) else None
+print(value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]+", value) else "")
+PYTHON
 }
 
 require_machine_manifest() {
@@ -544,7 +549,7 @@ _push_keys() {
     # empty bucket being seeded) the store is still the only copy of those rows, and
     # after it the emptying is mandatory rather than best-effort.
     if [[ "${key}" == "market.sqlite" ]] \
-      && remote_object_exists "lake/pointers/l1/current.json"; then
+      && remote_object_exists "lake/pointers/market/current.json"; then
       dehydrate_market_snapshot "${transfer_staging}/${key}"
     fi
     snapshot_seconds+=("$((SECONDS - started))")
@@ -765,7 +770,7 @@ case "${1:-}" in
     write_machine_manifest
     ;;
   push-indicators)
-    # Deep history is fetched locally with `market-context indicators refresh --all-history`, which the
+    # Deep history is fetched locally with `collection economic refresh --all-history`, which the
     # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
     # recent observations the local store has never seen. So the local store is only
     # publishable once it contains the cloud copy: pull it, merge it in, and let the
@@ -774,7 +779,7 @@ case "${1:-}" in
     indicator_version="$(remote_version indicators.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
     check_sqlite "${transfer_staging}/indicators.sqlite"
-    merge_indicator_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
+    merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
     cleanup_staging
     transfer_staging=""
     push_key_if_version indicators.sqlite "${indicator_version}"

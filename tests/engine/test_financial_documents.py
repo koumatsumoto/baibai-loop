@@ -300,7 +300,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
     from baibai_engine.storage.lake.hydrate import hydrate_market_store
     from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
     from baibai_engine.storage.lake.reader import resolve_release
-    from baibai_engine.storage.lake.release import create_l1_release
+    from baibai_engine.storage.lake.release import create_release
     from baibai_engine.storage.lake.writer import (
         export_dataset_snapshot,
         sealed_sqlite_snapshot,
@@ -321,20 +321,27 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             producer_git_commit="a" * 40,
             created_at=datetime(2026, 10, 14, tzinfo=UTC),
         )
-    assert exported.manifest.contract_version == 4
+    assert exported.manifest.contract_version == 5
+    assert exported.manifest.layer == "l2_processed"
+    assert all(
+        item.key.startswith("lake/l2/processed/")
+        for partition in exported.manifest.partitions
+        for item in partition.objects
+    )
     validate_snapshot_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
-    release_path, manifest = create_l1_release(
+    release_path, manifest = create_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="financial-documents",
         created_at=datetime(2026, 10, 14, tzinfo=UTC),
     )
+    assert manifest.datasets["jquants.fin_summaries"].layer == "l2_processed"
     source = LocalMirrorSource(mirror)
     release = resolve_release(
         source, manifest.release_id, manifest_sha256=sha256(release_path.read_bytes()).hexdigest()
     )
     destination = tmp_path / "arrived.sqlite"
-    # Hydration preserves source records; coverage belongs to the store skeleton.
+    # Hydration preserves adopted financial records; coverage belongs to the store skeleton.
     source_conn = sqlite3.connect(db)
     destination_conn = sqlite3.connect(destination)
     try:
@@ -497,7 +504,7 @@ def test_new_raw_unknown_time_forecasts_compare_each_field(reverse: bool) -> Non
 def test_conflicting_pre_split_reference_cannot_choose_share_basis(
     reverse: bool, with_older_reference: bool
 ) -> None:
-    from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+    from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent
     from baibai_engine.valuation.metrics.capital import _normalize_summaries_with_status
 
     # Keep the conflicting reference period distinct from the later FY correction.
@@ -690,7 +697,7 @@ def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
 def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order(
     reverse: bool,
 ) -> None:
-    from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+    from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent
     from baibai_engine.valuation.metrics.dividends import (
         _asof_basis_fy_dps,
         _latest_fy_revisions,

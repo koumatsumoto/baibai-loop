@@ -1,4 +1,4 @@
-"""Concrete L1 contracts for the lake datasets."""
+"""Physical lake dataset contracts with explicit source or processed ownership."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from baibai_engine.external_assessment.observations.identity import (
 )
 from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
 from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
+from baibai_engine.storage.lake.keys import LakeLayer
 
 PartitionGrain = Literal["year", "month"]
 """How much of one dataset's history a single partition covers.
@@ -73,6 +74,7 @@ class LakeDataset:
     sqlite_table: str
     date_column: str
     columns: tuple[LakeColumn, ...]
+    layer: LakeLayer
     contract_version: int = 1
     partition_grain: PartitionGrain = "month"
     coverage_authority: CoverageAuthority = "source_coverage"
@@ -113,6 +115,7 @@ class LakeDataset:
         metadata = {
             b"baibai.contract_version": str(self.contract_version).encode(),
             b"baibai.dataset": self.name.encode(),
+            b"baibai.layer": self.layer.encode(),
             b"baibai.primary_key": ",".join(self.primary_key).encode(),
             # Existing wire tag for SQLite snapshot ingestion, not a schema version.
             b"baibai.source_kind": b"legacy_sqlite_import",
@@ -142,8 +145,27 @@ _TEXT = pa.string()
 _REAL = pa.float64()
 _INTEGER = pa.int64()
 
+JQUANTS_SOURCE_PAGES = LakeDataset(
+    name="jquants.source_pages",
+    layer="l1_source",
+    sqlite_table="jquants_source_pages",
+    date_column="received_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("request_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("page_index", "INTEGER", _INTEGER, False, 2),
+        LakeColumn("source", "TEXT", _TEXT, False),
+        LakeColumn("query_json", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("received_on", "TEXT", _TEXT, False),
+        LakeColumn("body_gzip", "BLOB", pa.binary(), False),
+    ),
+)
+
 JQUANTS_DAILY_BARS = LakeDataset(
     name="jquants.daily_bars",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_daily_bars",
     date_column="traded_at",
@@ -168,6 +190,7 @@ JQUANTS_DAILY_BARS = LakeDataset(
 
 JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
     name="jquants.short_sale_reports",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_short_sale_reports",
     date_column="disclosed_at",
@@ -192,6 +215,7 @@ JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
 
 JQUANTS_WEEKLY_MARGIN = LakeDataset(
     name="jquants.weekly_margin",
+    layer="l2_processed",
     sqlite_table="jquants_weekly_margin",
     date_column="week_end",
     coverage_authority="unproven",
@@ -210,6 +234,7 @@ JQUANTS_WEEKLY_MARGIN = LakeDataset(
 
 JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
     name="jquants.all_issues_daily_margin",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_all_issues_daily_margin",
     date_column="balance_date",
@@ -236,10 +261,11 @@ JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
 
 JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
     name="jquants.master_snapshots",
+    layer="l2_processed",
     sqlite_table="jquants_master_snapshots",
     date_column="snapshot_date",
     partition_grain="year",
-    contract_version=2,
+    contract_version=3,
     coverage_authority="unproven",
     population_column="security_code",
     columns=(
@@ -251,10 +277,11 @@ JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
 
 JQUANTS_FIN_SUMMARIES = LakeDataset(
     name="jquants.fin_summaries",
+    layer="l2_processed",
     sqlite_table="jquants_fin_summaries",
     date_column="disclosed_at",
     partition_grain="year",
-    contract_version=4,
+    contract_version=5,
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("disclosed_at", "TEXT", _TEXT, False, 2),
@@ -265,6 +292,7 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
 
 JQUANTS_MARKET_CALENDAR = LakeDataset(
     name="jquants.market_calendar",
+    layer="l2_processed",
     contract_version=2,
     sqlite_table="jquants_market_calendar",
     date_column="day",
@@ -278,6 +306,7 @@ JQUANTS_MARKET_CALENDAR = LakeDataset(
 
 JPX_EARNINGS_CALENDAR = LakeDataset(
     name="jpx.earnings_calendar",
+    layer="l2_processed",
     sqlite_table="jpx_earnings_calendar",
     date_column="announcement_date",
     partition_grain="year",
@@ -290,6 +319,7 @@ JPX_EARNINGS_CALENDAR = LakeDataset(
 
 JQUANTS_MARGIN_ALERTS = LakeDataset(
     name="jquants.margin_alerts",
+    layer="l2_processed",
     sqlite_table="jquants_margin_alerts",
     date_column="publication_date",
     partition_grain="year",
@@ -319,6 +349,7 @@ JQUANTS_MARGIN_ALERTS = LakeDataset(
 
 EDINET_DOCUMENTS = LakeDataset(
     name="edinet.documents",
+    layer="l2_processed",
     sqlite_table="edinet_documents",
     date_column="doc_date",
     population_column=None,
@@ -348,6 +379,7 @@ EDINET_DOCUMENTS = LakeDataset(
 
 EDINET_METRICS = LakeDataset(
     name="edinet.metrics",
+    layer="l2_processed",
     sqlite_table="edinet_metrics",
     date_column="asof_date",
     coverage_authority="unproven",
@@ -396,6 +428,7 @@ EDINET_METRICS = LakeDataset(
 
 EDINET_SOURCE_ARCHIVES = LakeDataset(
     name="edinet.source_archives",
+    layer="l1_source",
     sqlite_table="edinet_source_archives",
     date_column="stored_on",
     coverage_authority="unproven",
@@ -410,7 +443,8 @@ EDINET_SOURCE_ARCHIVES = LakeDataset(
 
 EDINET_DOCUMENT_LISTS = LakeDataset(
     name="edinet.document_lists",
-    contract_version=2,
+    layer="l2_processed",
+    contract_version=4,
     sqlite_table="edinet_document_lists",
     date_column="doc_date",
     partition_grain="year",
@@ -420,14 +454,69 @@ EDINET_DOCUMENT_LISTS = LakeDataset(
         LakeColumn("doc_date", "TEXT", _TEXT, True, 1),
         LakeColumn("process_datetime", "TEXT", _TEXT, True),
         LakeColumn("result_count", "INTEGER", _INTEGER, False),
-        LakeColumn("fetched_at_utc", "TEXT", _TEXT, False),
-        LakeColumn("is_final", "INTEGER", _INTEGER, False),
+        LakeColumn("selected_received_at_utc", "TEXT", _TEXT, True),
         LakeColumn("response_json", "TEXT", _TEXT, True),
+        LakeColumn("selected_receipt_id", "TEXT", _TEXT, True),
+        LakeColumn("latest_received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("rechecked_asof", "TEXT", _TEXT, True),
+    ),
+)
+
+EDINET_LIST_RESPONSES = LakeDataset(
+    name="edinet.list_responses",
+    layer="l1_source",
+    sqlite_table="edinet_list_responses",
+    date_column="doc_date",
+    partition_grain="year",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("receipt_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("doc_date", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("body_gzip", "BLOB", pa.binary(), False),
+    ),
+)
+
+JPX_SOURCE_BUNDLES = LakeDataset(
+    name="jpx.source_bundles",
+    layer="l1_source",
+    sqlite_table="jpx_source_bundles",
+    date_column="started_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("bundle_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("collection_name", "TEXT", _TEXT, False),
+        LakeColumn("asof_date", "TEXT", _TEXT, False),
+        LakeColumn("started_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("started_on", "TEXT", _TEXT, False),
+        LakeColumn("expected_resources_json", "TEXT", _TEXT, True),
+        LakeColumn("completed_at_utc", "TEXT", _TEXT, True),
+    ),
+)
+
+JPX_SOURCE_RESPONSES = LakeDataset(
+    name="jpx.source_responses",
+    layer="l1_source",
+    sqlite_table="jpx_source_responses",
+    date_column="received_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("bundle_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("resource_name", "TEXT", _TEXT, False, 2),
+        LakeColumn("requested_url", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("received_on", "TEXT", _TEXT, False),
+        LakeColumn("content_type", "TEXT", _TEXT, False),
+        LakeColumn("body_gzip", "BLOB", pa.binary(), False),
     ),
 )
 
 JPX_REGULATION_FLAGS = LakeDataset(
     name="jpx.regulation_flags",
+    layer="l2_processed",
     sqlite_table="jpx_regulation_flags",
     date_column="asof_date",
     partition_grain="year",
@@ -443,6 +532,7 @@ JPX_REGULATION_FLAGS = LakeDataset(
 
 JPX_REGULATION_SOURCES = LakeDataset(
     name="jpx.regulation_sources",
+    layer="l2_processed",
     sqlite_table="jpx_regulation_sources",
     date_column="asof_date",
     partition_grain="year",
@@ -457,6 +547,8 @@ JPX_REGULATION_SOURCES = LakeDataset(
 
 JPX_DELISTINGS = LakeDataset(
     name="jpx.delistings",
+    layer="l2_processed",
+    contract_version=2,
     sqlite_table="jpx_delistings",
     date_column="delisted_on",
     partition_grain="year",
@@ -470,8 +562,28 @@ JPX_DELISTINGS = LakeDataset(
     ),
 )
 
+TSE_CAPITAL_POLICY_SNAPSHOTS = LakeDataset(
+    name="tse.capital_policy_snapshots",
+    layer="l2_processed",
+    sqlite_table="tse_capital_policy_snapshots",
+    date_column="snapshot_month_end",
+    partition_grain="year",
+    coverage_authority="unproven",
+    columns=(
+        LakeColumn("snapshot_month_end", "TEXT", _TEXT, False, 1),
+        LakeColumn("ticker", "TEXT", _TEXT, False, 2),
+        LakeColumn("status", "TEXT", _TEXT, False),
+        LakeColumn("status_change", "TEXT", _TEXT, True),
+        LakeColumn("updated_on", "TEXT", _TEXT, True),
+        LakeColumn("contact_requested", "INTEGER", _INTEGER, False),
+        LakeColumn("first_disclosed_month_end", "TEXT", _TEXT, True),
+        LakeColumn("first_disclosure_left_censored", "INTEGER", _INTEGER, False),
+    ),
+)
+
 TENDER_OFFER_EXIT_VALUES = LakeDataset(
     name="edinet.tender_offer_exit_values",
+    layer="l2_processed",
     sqlite_table="tender_offer_exit_values",
     date_column="delisted_on",
     partition_grain="year",
@@ -488,6 +600,7 @@ TENDER_OFFER_EXIT_VALUES = LakeDataset(
 
 EDINET_SEGMENT_FACTS = LakeDataset(
     name="edinet.segment_facts",
+    layer="l2_processed",
     sqlite_table="edinet_segment_facts",
     date_column="disclosed_on",
     coverage_authority="unproven",
@@ -516,6 +629,7 @@ EDINET_SEGMENT_FACTS = LakeDataset(
 
 EDINET_DEBT_SCHEDULE = LakeDataset(
     name="edinet.debt_schedule",
+    layer="l2_processed",
     sqlite_table="edinet_debt_schedule",
     date_column="disclosed_on",
     coverage_authority="unproven",
@@ -538,8 +652,51 @@ EDINET_DEBT_SCHEDULE = LakeDataset(
     ),
 )
 
+TRADINGVIEW_SOURCE_RECEIPTS = LakeDataset(
+    name="tradingview.source_receipts",
+    layer="l1_source",
+    sqlite_table="tradingview_source_receipts",
+    date_column="snapshot_date",
+    partition_grain="year",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("receipt_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("snapshot_date", "TEXT", _TEXT, False),
+        LakeColumn("master_asof", "TEXT", _TEXT, False),
+        LakeColumn("tool_name", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("requested_symbols_json", "TEXT", _TEXT, False),
+        LakeColumn("requested_columns_json", "TEXT", _TEXT, False),
+        LakeColumn("result_json", "TEXT", _TEXT, False),
+    ),
+)
+
+EQUITY_WEB_SOURCE_RESPONSES = LakeDataset(
+    name="equity_web.source_responses",
+    layer="l1_source",
+    sqlite_table="equity_web_source_responses",
+    date_column="received_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("receipt_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("attempt_id", "TEXT", _TEXT, False),
+        LakeColumn("source", "TEXT", _TEXT, False),
+        LakeColumn("requested_ticker", "TEXT", _TEXT, False),
+        LakeColumn("role", "TEXT", _TEXT, False),
+        LakeColumn("parent_receipt_id", "TEXT", _TEXT, True),
+        LakeColumn("requested_url", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("received_on", "TEXT", _TEXT, False),
+        LakeColumn("selected_encoding", "TEXT", _TEXT, False),
+        LakeColumn("body_gzip", "BLOB", pa.binary(), False),
+    ),
+)
+
 TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
     name="tradingview.forecast_snapshots",
+    layer="l2_processed",
     sqlite_table=TV_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",
@@ -553,6 +710,7 @@ TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
 
 EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS = LakeDataset(
     name=MODEL_VALUATION_DATASET,
+    layer="l2_processed",
     sqlite_table=MODEL_VALUATION_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",
@@ -566,6 +724,7 @@ EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS = LakeDataset(
 
 EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS = LakeDataset(
     name=ANALYST_RATING_DATASET,
+    layer="l2_processed",
     sqlite_table=ANALYST_RATING_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",
@@ -579,6 +738,7 @@ EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS = LakeDataset(
 
 EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
     name=QUANTS_SCORE_DATASET,
+    layer="l2_processed",
     sqlite_table=QUANTS_SCORE_TABLE,
     date_column="snapshot_date",
     coverage_authority="unproven",
@@ -591,6 +751,12 @@ EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
 )
 
 LAKE_DATASETS = {
+    JQUANTS_SOURCE_PAGES.name: JQUANTS_SOURCE_PAGES,
+    EDINET_LIST_RESPONSES.name: EDINET_LIST_RESPONSES,
+    JPX_SOURCE_BUNDLES.name: JPX_SOURCE_BUNDLES,
+    JPX_SOURCE_RESPONSES.name: JPX_SOURCE_RESPONSES,
+    TRADINGVIEW_SOURCE_RECEIPTS.name: TRADINGVIEW_SOURCE_RECEIPTS,
+    EQUITY_WEB_SOURCE_RESPONSES.name: EQUITY_WEB_SOURCE_RESPONSES,
     EDINET_SOURCE_ARCHIVES.name: EDINET_SOURCE_ARCHIVES,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS.name: (
         EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS
@@ -619,6 +785,7 @@ LAKE_DATASETS = {
     JPX_REGULATION_FLAGS.name: JPX_REGULATION_FLAGS,
     JPX_REGULATION_SOURCES.name: JPX_REGULATION_SOURCES,
     JPX_DELISTINGS.name: JPX_DELISTINGS,
+    TSE_CAPITAL_POLICY_SNAPSHOTS.name: TSE_CAPITAL_POLICY_SNAPSHOTS,
     TENDER_OFFER_EXIT_VALUES.name: TENDER_OFFER_EXIT_VALUES,
 }
 

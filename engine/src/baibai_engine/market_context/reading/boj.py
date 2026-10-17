@@ -7,7 +7,7 @@ from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 
 def boj_value(series: SeriesDefinition, record: Mapping[str, object]) -> float | None:
     value_col, expected_header, metadata_col, expected_metadata = _value_column_spec(
-        series.provider_series_id
+        series.reading_key
     )
     preamble = record["preamble"]
     cells = record["row"]
@@ -41,20 +41,20 @@ def _column_text(rows: Sequence[object], column: int) -> set[str]:
     return values
 
 
-def _value_column_spec(provider_series_id: str) -> tuple[int, str, int, str]:
-    parts = provider_series_id.split("|")
+def _value_column_spec(reading_key: str) -> tuple[int, str, int, str]:
+    parts = reading_key.split("|")
     if len(parts) != 4 or not parts[1].strip() or not parts[3].strip():
         raise ValueError(
-            "BOJ provider_series_id must be "
+            "BOJ reading_key must be "
             "'<value column>|<expected header>|<metadata column>|<expected metadata>': "
-            f"{provider_series_id!r}"
+            f"{reading_key!r}"
         )
     raw_index, expected_header, raw_metadata_index, expected_metadata = parts
     try:
         index = int(raw_index)
     except ValueError:
         raise ValueError(
-            f"BOJ provider_series_id must start with a 1-based column index: {provider_series_id!r}"
+            f"BOJ reading_key must start with a 1-based column index: {reading_key!r}"
         ) from None
     if index < 2:
         raise ValueError(f"BOJ value column index must be a 1-based value column (>= 2): {index}")
@@ -62,8 +62,7 @@ def _value_column_spec(provider_series_id: str) -> tuple[int, str, int, str]:
         metadata_index = int(raw_metadata_index)
     except ValueError:
         raise ValueError(
-            "BOJ provider_series_id metadata column must be a 1-based column index: "
-            f"{provider_series_id!r}"
+            f"BOJ reading_key metadata column must be a 1-based column index: {reading_key!r}"
         ) from None
     if metadata_index < 1:
         raise ValueError(f"BOJ metadata column index must be 1-based (>= 1): {metadata_index}")

@@ -1,4 +1,4 @@
-"""Serial bounded acquisition into private normalized staging, never publication."""
+"""Serial bounded acquisition of public pages, never publication."""
 
 from __future__ import annotations
 
@@ -7,23 +7,25 @@ import json
 import math
 import re
 import signal
-import tempfile
 import threading
 import time
+import uuid
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path
 from types import FrameType
-from typing import Any, Literal, cast
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import requests
 from pydantic import ValidationError
 
-from baibai_engine.external_assessment.acquisition.sources import (
+from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, Role, Source
+from baibai_engine.collection.equity_web.receipts import validate_response
+from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.external_assessment.normalization import (
     ParseError,
     kabumap,
     monex,
@@ -31,15 +33,8 @@ from baibai_engine.external_assessment.acquisition.sources import (
 )
 from baibai_engine.external_assessment.observations.identity import (
     PAIR_ACQUISITION_POLICY_VERSION,
-    STAGING_FORMAT,
 )
-from baibai_engine.external_assessment.observations.models import (
-    AnalystRatingObservation,
-    ModelValuationObservation,
-    Observation,
-    QuantsScoreObservation,
-)
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.external_assessment.observations.models import Observation
 
 DEFAULT_TICKERS = ("7203", "9432", "6758")
 MAX_TICKERS = 3
@@ -56,16 +51,6 @@ RATE_LIMITED_HOSTS = (
     "rakuten-sec.ifis.co.jp",
     "jp.kabumap.com",
 )
-
-
-@dataclass(frozen=True, slots=True)
-class ReceivedHTML:
-    """Public HTTP 200 body and its decoding basis, without response headers."""
-
-    url: str
-    fetched_at_utc: datetime
-    encoding: str
-    body: bytes = field(repr=False)
 
 
 PARSE_FAILURE_REASONS = frozenset(
@@ -93,7 +78,6 @@ PARSE_FAILURE_REASONS = frozenset(
         "changed_quants_score",
     }
 )
-type Source = Literal["monex", "rakuten", "kabumap"]
 
 
 @dataclass(frozen=True)
@@ -103,6 +87,7 @@ class CollectionOutcome:
     status: str
     reason: str | None = None
     http_status: int | None = None
+    attempt_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -287,7 +272,18 @@ class _HttpFailure(Exception):
         self.retry_after_unrepresentable = retry_after_unrepresentable
 
 
-def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, datetime]:
+def _receive(
+    session: requests.Session,
+    url: str,
+    timeout: float,
+    *,
+    attempt_id: str,
+    source: Source,
+    ticker: str,
+    role: Role,
+    parent_receipt_id: str | None = None,
+    on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
+) -> tuple[str, datetime, str | None]:
     # Redirects would add unbudgeted requests and can redirect to login pages.
     with session.get(url, timeout=timeout, allow_redirects=False) as response:
         if response.status_code != 200:
@@ -314,14 +310,28 @@ def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, 
         charset = re.search(r"charset\s*=\s*['\"]?([\w-]+)", content_type, re.I)
         meta = re.search(rb"charset\s*=\s*['\"]?([\w-]+)", body[:4096], re.I)
         encoding = charset[1] if charset else meta[1].decode("ascii") if meta else "utf-8"
-        callback = session.on_received_html if isinstance(session, _PairSession) else None
-        if callback is not None:
+        receipt_id = None
+        if on_received_html is not None:
             prepared = cast("requests.PreparedRequest | None", response.request)
             if prepared is not None and "Authorization" in prepared.headers:
                 raise RuntimeError("raw_capture_requires_anonymous_response")
-            callback(ReceivedHTML(url, received, encoding, body))
+            receipt_id = str(uuid.uuid4())
+            original = EquityWebSourceResponse(
+                receipt_id=receipt_id,
+                attempt_id=attempt_id,
+                source=source,
+                requested_ticker=ticker,
+                role=role,
+                parent_receipt_id=parent_receipt_id,
+                requested_url=url,
+                received_at_utc=received,
+                selected_encoding=encoding,
+                body=body,
+            )
+            validate_response(original)
+            on_received_html(original)
         try:
-            return body.decode(encoding), received
+            return body.decode(encoding), received, receipt_id
         except (LookupError, UnicodeDecodeError):
             raise ParseError("response_encoding") from None
 
@@ -334,6 +344,7 @@ def collect(
     time_limit_seconds: float = 60,
     request_timeout_seconds: float = 10,
     session: requests.Session | None = None,
+    on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
 ) -> CollectionResult:
     """Acquire a predeclared small set; receipt times come only from live responses."""
     selected = tuple(normalize_ticker(ticker) for ticker in tickers)
@@ -359,11 +370,14 @@ def collect(
     retry_after_not_before_utc = None
     retry_after_unrepresentable = False
     active: tuple[Source, str] | None = None
+    active_attempt_id: str | None = None
     started_requests = 0
     deadline = time.monotonic() + time_limit_seconds
     last_request_finished: float | None = None
 
-    def receive(url: str) -> tuple[str, datetime]:
+    def receive(
+        url: str, *, role: Role, parent_receipt_id: str | None = None
+    ) -> tuple[str, datetime, str | None]:
         nonlocal used, last_request_finished
         if used >= request_budget:
             raise _RequestLimit
@@ -384,7 +398,19 @@ def collect(
             raise _TimeLimit
         used += 1
         try:
-            return _receive(client, url, min(request_timeout_seconds, remaining))
+            assert active is not None
+            assert active_attempt_id is not None
+            return _receive(
+                client,
+                url,
+                min(request_timeout_seconds, remaining),
+                attempt_id=active_attempt_id,
+                source=active[0],
+                ticker=active[1],
+                role=role,
+                parent_receipt_id=parent_receipt_id,
+                on_received_html=on_received_html,
+            )
         finally:
             last_request_finished = time.monotonic()
 
@@ -393,31 +419,40 @@ def collect(
             for source in sources:
                 for index, ticker in enumerate(selected):
                     active = (source, ticker)
+                    active_attempt_id = str(uuid.uuid4())
                     started_requests = used
                     try:
                         if source == "monex":
                             url = monex.public_url(ticker)
-                            html, received = receive(url)
+                            html, received, _ = receive(url, role="page")
                             observation: Observation = monex.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         elif source == "kabumap":
                             url = kabumap.public_url(ticker)
-                            html, received = receive(url)
+                            html, received, _ = receive(url, role="page")
                             observation = kabumap.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         else:
                             url = rakuten.public_url(ticker)
-                            html, _ = receive(url)
+                            html, _, page_receipt_id = receive(url, role="page")
                             url = rakuten.iframe_url(html, ticker=ticker, source_url=url)
-                            html, received = receive(url)
+                            html, received, _ = receive(
+                                url, role="iframe", parent_receipt_id=page_receipt_id
+                            )
                             observation = rakuten.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         observations.append(observation)
                         outcomes.append(
-                            CollectionOutcome(source, ticker, "observed", http_status=200)
+                            CollectionOutcome(
+                                source,
+                                ticker,
+                                "observed",
+                                http_status=200,
+                                attempt_id=active_attempt_id,
+                            )
                         )
                     except _HttpFailure as exc:
                         if exc.status == 429:
@@ -431,7 +466,13 @@ def collect(
                             else "http_failure"
                         )
                         outcomes.append(
-                            CollectionOutcome(source, ticker, category, http_status=exc.status)
+                            CollectionOutcome(
+                                source,
+                                ticker,
+                                category,
+                                http_status=exc.status,
+                                attempt_id=active_attempt_id,
+                            )
                         )
                         if exc.status in {403, 429}:
                             outcomes.extend(
@@ -440,9 +481,17 @@ def collect(
                             )
                             break
                     except requests.Timeout:
-                        outcomes.append(CollectionOutcome(source, ticker, "request_timeout"))
+                        outcomes.append(
+                            CollectionOutcome(
+                                source, ticker, "request_timeout", attempt_id=active_attempt_id
+                            )
+                        )
                     except requests.RequestException:
-                        outcomes.append(CollectionOutcome(source, ticker, "transport_failure"))
+                        outcomes.append(
+                            CollectionOutcome(
+                                source, ticker, "transport_failure", attempt_id=active_attempt_id
+                            )
+                        )
                     except ParseError as exc:
                         code = exc.args[0] if len(exc.args) == 1 else None
                         reason = (
@@ -451,12 +500,19 @@ def collect(
                             else "unclassified_parse_failure"
                         )
                         outcomes.append(
-                            CollectionOutcome(source, ticker, "parse_failure", reason, 200)
+                            CollectionOutcome(
+                                source, ticker, "parse_failure", reason, 200, active_attempt_id
+                            )
                         )
                     except ValidationError:
                         outcomes.append(
                             CollectionOutcome(
-                                source, ticker, "parse_failure", "observation_contract", 200
+                                source,
+                                ticker,
+                                "parse_failure",
+                                "observation_contract",
+                                200,
+                                active_attempt_id,
                             )
                         )
     except _RequestLimit:
@@ -481,6 +537,7 @@ def collect(
                             pending_ticker,
                             "incomplete" if attempted else "not_attempted",
                             stop_reason,
+                            attempt_id=active_attempt_id if attempted else None,
                         )
                     )
     return CollectionResult(
@@ -530,14 +587,12 @@ class _PairSession(requests.Session):
         deadline: float,
         on_response: Callable[[datetime, int, int], None] | None,
         rate_limiter: HostRateLimiter | None = None,
-        on_received_html: Callable[[ReceivedHTML], None] | None = None,
     ) -> None:
         super().__init__()
         self.client = client
         self.deadline = deadline
         self.on_response = on_response
         self.rate_limiter = rate_limiter
-        self.on_received_html = on_received_html
         self.initial_wait_until = time.monotonic() + MIN_REQUEST_INTERVAL_SECONDS
         self.requests = 0
         self.finished_at_utc: datetime | None = None
@@ -586,7 +641,7 @@ def collect_pair(
     *,
     source: Source,
     on_response: Callable[[datetime, int, int], None] | None = None,
-    on_received_html: Callable[[ReceivedHTML], None] | None = None,
+    on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
     time_limit_seconds: float = DEFAULT_PAIR_TIME_LIMIT_SECONDS,
     request_timeout_seconds: float = DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
     session: requests.Session | None = None,
@@ -617,7 +672,7 @@ def collect_pair(
             or adapter.max_retries.total != 0
         ):
             raise ValueError("pair collection requires ordinary proxy/TLS and no retries")
-        wrapped = _PairSession(client, deadline, on_response, rate_limiter, on_received_html)
+        wrapped = _PairSession(client, deadline, on_response, rate_limiter)
         remaining = min(time_limit_seconds, deadline - time.monotonic())
         if remaining <= 0:
             return CollectionResult(
@@ -634,6 +689,7 @@ def collect_pair(
             time_limit_seconds=remaining,
             request_timeout_seconds=request_timeout_seconds,
             session=wrapped,
+            on_received_html=on_received_html,
         )
         result = replace(
             result,
@@ -649,7 +705,14 @@ def collect_pair(
         if any(outcome.status == "incomplete" for outcome in result.outcomes):
             return replace(
                 result,
-                outcomes=(CollectionOutcome(source, ticker, "request_timeout"),),
+                outcomes=(
+                    CollectionOutcome(
+                        source,
+                        ticker,
+                        "request_timeout",
+                        attempt_id=result.outcomes[0].attempt_id,
+                    ),
+                ),
                 stop_reason="wall_clock_limit",
             )
         if result.outcomes[0].http_status in {403, 429}:
@@ -660,57 +723,3 @@ def collect_pair(
             wrapped.close()
         if session is None:
             client.close()
-
-
-def save_staging(path: Path, observations: Sequence[Observation]) -> None:
-    """Atomically create private normalized staging; never overwrite an earlier receipt."""
-    payload = {
-        "format": STAGING_FORMAT,
-        "observations": [
-            {
-                "kind": "model_valuation"
-                if isinstance(item, ModelValuationObservation)
-                else "quants_score"
-                if isinstance(item, QuantsScoreObservation)
-                else "analyst_rating",
-                "data": item.model_dump(mode="json"),
-            }
-            for item in observations
-        ],
-    }
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent, delete=False
-        ) as stream:
-            temporary = Path(stream.name)
-            json.dump(payload, stream, ensure_ascii=False, allow_nan=False)
-        path.hardlink_to(temporary)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
-def load_staging(path: Path) -> tuple[Observation, ...]:
-    """Validate saved normalized data without changing original receipt times."""
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"format", "observations"}
-        or payload["format"] != STAGING_FORMAT
-        or not isinstance(payload["observations"], list)
-    ):
-        raise ValueError("invalid external assessment staging format")
-    observations: list[Observation] = []
-    for item in payload["observations"]:
-        if not isinstance(item, dict) or set(item) != {"kind", "data"}:
-            raise ValueError("invalid staged observation")
-        if item["kind"] == "model_valuation":
-            observations.append(ModelValuationObservation.model_validate(item["data"]))
-        elif item["kind"] == "analyst_rating":
-            observations.append(AnalystRatingObservation.model_validate(item["data"]))
-        elif item["kind"] == "quants_score":
-            observations.append(QuantsScoreObservation.model_validate(item["data"]))
-        else:
-            raise ValueError("unknown staged observation kind")
-    return tuple(observations)

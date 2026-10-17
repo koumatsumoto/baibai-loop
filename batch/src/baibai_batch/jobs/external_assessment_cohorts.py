@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -160,6 +161,7 @@ class PairEntry:
     reason: str | None
     http_status: int | None = None
     observation: ExternalAssessmentObservation | None = None
+    attempt_id: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -179,6 +181,16 @@ class PairEntry:
             type(self.http_status) is not int or not 100 <= self.http_status <= 599
         ):
             raise ValueError("invalid HTTP status")
+        if self.state == "unattempted":
+            if self.attempt_id is not None:
+                raise ValueError("unattempted pair cannot reference an attempt")
+        else:
+            try:
+                identity = uuid.UUID(self.attempt_id)
+            except (TypeError, ValueError, AttributeError):
+                raise ValueError("attempted pair requires a canonical attempt UUID") from None
+            if str(identity) != self.attempt_id or identity.int == 0:
+                raise ValueError("attempted pair requires a canonical attempt UUID")
         if self.state in {"success", "normal_null"}:
             observation = self.observation
             expected = (
@@ -302,7 +314,13 @@ def record_outcome(
             outcome.reason if outcome.status == "parse_failure" else outcome.status,
         )
     entry = PairEntry(
-        outcome.source, outcome.ticker, state, reason, outcome.http_status, observation
+        outcome.source,
+        outcome.ticker,
+        state,
+        reason,
+        outcome.http_status,
+        observation,
+        outcome.attempt_id,
     )
     current = next(
         (
@@ -441,6 +459,7 @@ def result_value(plan: RunPlan, result: CohortResult) -> dict[str, object]:
                 "state": item.state,
                 "reason": item.reason,
                 "http_status": item.http_status,
+                "attempt_id": item.attempt_id,
                 "observation": item.observation.model_dump(mode="json")
                 if item.observation is not None
                 else None,
@@ -460,7 +479,8 @@ def load_result(plan: RunPlan, value: object) -> CohortResult:
     entries = []
     for value in data["entries"]:
         entry = _object(
-            value, {"source", "ticker", "state", "reason", "http_status", "observation"}
+            value,
+            {"source", "ticker", "state", "reason", "http_status", "observation", "attempt_id"},
         )
         observation = None
         if entry["observation"] is not None:
@@ -480,6 +500,7 @@ def load_result(plan: RunPlan, value: object) -> CohortResult:
                 cast("str | None", entry["reason"]),
                 cast("int | None", entry["http_status"]),
                 observation,
+                cast("str | None", entry["attempt_id"]),
             )
         )
     result = CohortResult(

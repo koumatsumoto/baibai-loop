@@ -26,10 +26,10 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sessions import latest_eligible_close_date
-from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.research.decimal_number import decimal_to_number
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.models import Valuation

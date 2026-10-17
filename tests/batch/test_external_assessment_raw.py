@@ -1,19 +1,24 @@
-"""Temporary diagnostic raw must not become a dependency of typed checkpoints."""
+"""Canonical raw bundles are durable prerequisites of typed cohort checkpoints."""
 
+import io
 import json
-from datetime import UTC, date, datetime
+import tarfile
+import uuid
+from datetime import date, datetime
 
 import pytest
 import requests
+from tests.batch.external_assessment_response_fixtures import response
 from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, stage
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.storage import external_assessment_raw as external_assessment_raw
+from baibai_batch.storage import external_assessment_staging as staging
 from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError
-from baibai_engine.batch_api import ExternalAssessmentReceivedHTML
 from baibai_engine.external_assessment.acquisition import collection
-from baibai_engine.external_assessment.acquisition.sources import monex, rakuten
+from baibai_engine.external_assessment.normalization import ParseError, monex, rakuten
+from baibai_engine.external_assessment.normalization.decode import decode_attempt
 from baibai_engine.external_assessment.store import save_observations
 
 
@@ -70,6 +75,10 @@ def bundles(store):
     ]
 
 
+def stage_or_none(store, plan):
+    return staging.read_stage(store, plan, 0)
+
+
 def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     body = (monex_html() + "<!-- 日本語の元本文 -->").encode("cp932")
     session = Session([(200, body, "cp932")])
@@ -78,15 +87,16 @@ def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     daily.acquire_cohort(store, p, 0)
     saved = stage(store, p)
     metadata, recovered = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
-    assert recovered == (body,)
+    assert tuple(item.body for item in recovered) == (body,)
     receipt = metadata["receipts"][0]
-    assert receipt["encoding"] == "cp932"
-    assert receipt["url"] == monex.public_url("7203")
+    assert receipt["selected_encoding"] == "cp932"
+    assert receipt["requested_url"] == monex.public_url("7203")
+    assert saved.result.entries[0].attempt_id == recovered[0].attempt_id
     observation = monex.parse_html(
-        recovered[0].decode(receipt["encoding"]),
+        recovered[0].body.decode(receipt["selected_encoding"]),
         ticker="7203",
-        source_url=receipt["url"],
-        fetched_at_utc=datetime.fromisoformat(receipt["fetched_at_utc"]),
+        source_url=receipt["requested_url"],
+        fetched_at_utc=datetime.fromisoformat(receipt["received_at_utc"]),
     )
     assert saved.result.observations == (observation,)
     path = tmp_path / "observations.sqlite3"
@@ -96,8 +106,8 @@ def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     assert b"private-cookie-header" not in manifest_bytes
     assert b"private-authorization-header" not in manifest_bytes
     assert len(store.puts) == 2
-    assert store.puts[0][0].endswith("cohort-0000.json")
-    assert store.puts[1][0] == saved.raw_bundle_keys[0]
+    assert store.puts[0][0] == saved.raw_bundle_keys[0]
+    assert store.puts[1][0].endswith("cohort-0000.json")
 
 
 def test_rakuten_outer_and_iframe_bytes_are_in_one_archive(connect):
@@ -108,13 +118,15 @@ def test_rakuten_outer_and_iframe_bytes_are_in_one_archive(connect):
     daily.acquire_cohort(store, p, 0)
     saved = stage(store, p)
     manifest, bodies = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
-    assert bodies == (outer, iframe)
+    assert tuple(item.body for item in bodies) == (outer, iframe)
     receipt = manifest["receipts"][1]
+    assert bodies[0].attempt_id == bodies[1].attempt_id == saved.result.entries[0].attempt_id
+    assert bodies[1].parent_receipt_id == bodies[0].receipt_id
     parsed = rakuten.parse_html(
-        bodies[1].decode(),
+        bodies[1].body.decode(),
         ticker="7203",
-        source_url=receipt["url"],
-        fetched_at_utc=datetime.fromisoformat(receipt["fetched_at_utc"]),
+        source_url=receipt["requested_url"],
+        fetched_at_utc=datetime.fromisoformat(receipt["received_at_utc"]),
     )
     assert saved.result.observations == (parsed,)
     assert len(store.puts) == 2
@@ -126,6 +138,7 @@ def test_non200_has_no_raw_bundle(connect, status):
     p, store = plan(), FakeObjectStore()
     daily.acquire_cohort(store, p, 0)
     assert stage(store, p).result.entries[0].state == "failure"
+    assert stage(store, p).result.entries[0].attempt_id is not None
     assert stage(store, p).raw_bundle_keys == ()
     assert bundles(store) == []
 
@@ -133,58 +146,70 @@ def test_non200_has_no_raw_bundle(connect, status):
 @pytest.mark.parametrize(
     ("html", "state"), [("invalid public HTML", "failure"), (monex_html(value="--"), "normal_null")]
 )
-def test_parse_failure_and_normal_null_preserve_diagnostic_bytes(connect, html, state):
+def test_parse_failure_and_normal_null_preserve_original_bytes(connect, html, state):
     connect(Session([(200, html.encode(), "utf-8")]))
     p, store = plan(), FakeObjectStore()
     daily.acquire_cohort(store, p, 0)
     saved = stage(store, p)
     assert saved.result.entries[0].state == state
-    assert external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])[1] == (
-        html.encode(),
-    )
+    assert tuple(
+        item.body
+        for item in external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])[1]
+    ) == (html.encode(),)
+
+
+def test_decode_error_keeps_exact_received_bytes_before_failed_parse(connect):
+    connect(Session([(200, b"\xff source bytes", "utf-8")]))
+    p, store = plan(), FakeObjectStore()
+    daily.acquire_cohort(store, p, 0)
+    saved = stage(store, p)
+    entry = saved.result.entries[0]
+    assert (entry.state, entry.reason) == ("failure", "response_encoding")
+    _, responses = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
+    assert len(responses) == 1
+    assert responses[0].body == b"\xff source bytes"
+    assert responses[0].attempt_id == entry.attempt_id
 
 
 @pytest.mark.parametrize("fault", ["before", "after", "bad_receipt"])
-def test_raw_upload_failure_warns_and_primary_stage_remains_complete(connect, capsys, fault):
+def test_raw_upload_failure_prevents_stage_commit(connect, capsys, fault):
     connect(Session([(200, monex_html().encode(), "utf-8")]))
     p, store = plan(), FakeObjectStore()
-    store.put_fault = (2, fault)
-    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
-    saved = stage(store, p)
-    assert saved.result.entries[0].state == "success"
-    assert "diagnostic raw save failed" in capsys.readouterr().err
-    before = list(store.puts)
-    assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
-    assert store.puts == before
+    store.put_fault = (1, fault)
+    with pytest.raises(LakePublishError):
+        daily.acquire_cohort(store, p, 0)
+    assert stage_or_none(store, p) is None
+    assert len(store.puts) == 1
+    assert "private secret" not in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("method", ["append", "finish"])
-def test_local_raw_failure_cannot_discard_typed_success(connect, monkeypatch, capsys, method):
+def test_local_raw_failure_prevents_stage_commit(connect, monkeypatch, capsys, method):
     connect(Session([(200, monex_html().encode(), "utf-8")]))
 
     def fail(*a, **k):
-        if method == "finish":
-            assert stage(store, p).result.entries[0].state == "success"
         raise OSError("private secret must not be logged")
 
     monkeypatch.setattr(external_assessment_raw.RawBundle, method, fail)
     p, store = plan(), FakeObjectStore()
-    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
-    assert stage(store, p).result.entries[0].state == "success"
-    assert len(store.puts) == 1
+    with pytest.raises(OSError, match="private secret must not be logged"):
+        daily.acquire_cohort(store, p, 0)
+    assert stage_or_none(store, p) is None
+    assert store.puts == []
     error = capsys.readouterr().err
-    assert "diagnostic raw save failed" in error
     assert "private secret" not in error
 
 
-def test_raw_upload_follows_typed_checkpoint_and_never_downloads_per_body(connect, monkeypatch):
+def test_raw_upload_precedes_typed_checkpoint_and_never_downloads_per_body(connect, monkeypatch):
     connect(Session([(200, monex_html().encode(), "utf-8")]))
     p, store = plan(), FakeObjectStore()
     original = store.put_file
 
     def put(key, path, **kwargs):
         if key.startswith(external_assessment_raw.RAW_PREFIX):
-            assert stage(store, p).result.entries[0].state == "success"
+            assert stage_or_none(store, p) is None
+        else:
+            assert bundles(store)
         return original(key, path, **kwargs)
 
     monkeypatch.setattr(store, "put_file", put)
@@ -210,22 +235,25 @@ def test_three_media_normal_and_rakuten_retry_fixture_bundle_sizing_and_restorat
     with external_assessment_raw.RawBundle("synthetic-sizing", 0) as bundle:
         for i in range(50):
             ticker = str(1000 + i)
-            for source, body in zip(
-                ("monex", "rakuten", "rakuten", "kabumap", *("rakuten",) * 5),
-                pages + [pages[1]] * 5,
-                strict=True,
-            ):
-                expected.append(body)
-                bundle.append(
-                    source,
-                    ticker,
-                    ExternalAssessmentReceivedHTML(
-                        "https://synthetic.invalid/public",
-                        datetime(2026, 10, 11, tzinfo=UTC),
-                        "utf-8",
-                        body,
-                    ),
-                )
+            monex_page = response("monex", ticker, pages[0])
+            rakuten_attempt = str(uuid.uuid4())
+            rakuten_page = response("rakuten", ticker, pages[1], attempt_id=rakuten_attempt)
+            rakuten_iframe = response(
+                "rakuten",
+                ticker,
+                pages[2],
+                attempt_id=rakuten_attempt,
+                role="iframe",
+                parent_receipt_id=rakuten_page.receipt_id,
+            )
+            kabumap_page = response("kabumap", ticker, pages[3])
+            for item in (monex_page, rakuten_page, rakuten_iframe, kabumap_page):
+                expected.append(item.body)
+                bundle.append(item)
+            for _ in range(5):
+                retry_page = response("rakuten", ticker, pages[1])
+                expected.append(retry_page.body)
+                bundle.append(retry_page)
         key = bundle.finish()
         bundle.upload(store)
         archive_bytes = bundle.path.stat().st_size
@@ -234,7 +262,7 @@ def test_three_media_normal_and_rakuten_retry_fixture_bundle_sizing_and_restorat
         assert len(store.puts) == 1
         manifest, restored = external_assessment_raw.read_raw_bundle(store, key)
         assert len(manifest["receipts"]) == 450
-        assert restored == tuple(expected)
+        assert tuple(item.body for item in restored) == tuple(expected)
 
 
 def test_inventory_three_utc_dates_unclassified_and_exact_date_prefixes():
@@ -377,3 +405,53 @@ def test_bundle_readback_rejects_changed_body_hash_without_extracting_paths(conn
     store.seed(key, output.getvalue(), "application/gzip")
     with pytest.raises(LakePublishError, match="body readback mismatch"):
         external_assessment_raw.read_raw_bundle(store, key)
+
+
+def _rewrite_manifest(store, key, change):
+    with tarfile.open(fileobj=io.BytesIO(store.objects[key][0]), mode="r:gz") as original:
+        members = [(item.name, original.extractfile(item).read()) for item in original.getmembers()]
+    manifest = json.loads(members[0][1])
+    change(manifest)
+    members[0] = ("manifest.json", json.dumps(manifest).encode())
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz") as archive:
+        for name, body in members:
+            member = tarfile.TarInfo(name)
+            member.size = len(body)
+            archive.addfile(member, io.BytesIO(body))
+    store.seed(key, output.getvalue(), "application/gzip")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda manifest: manifest.update(format="external-assessment-cohort-raw-v1"),
+        lambda manifest: manifest["receipts"][1].update(parent_receipt_id=str(uuid.uuid4())),
+        lambda manifest: manifest["receipts"][1].update(attempt_id=str(uuid.uuid4())),
+        lambda manifest: manifest["receipts"][0].update(extra="unexpected"),
+        lambda manifest: manifest["receipts"][0].update(requested_ticker="７２０３"),
+    ],
+)
+def test_readback_rejects_old_or_mismatched_raw_identity(connect, change):
+    connect(
+        Session([(200, official_html().encode(), "utf-8"), (200, rakuten_html().encode(), "utf-8")])
+    )
+    p, store = plan(sources=("rakuten",)), FakeObjectStore()
+    daily.acquire_cohort(store, p, 0)
+    key = stage(store, p).raw_bundle_keys[0]
+    _rewrite_manifest(store, key, change)
+    with pytest.raises(ValueError, match=r"external assessment|canonical"):
+        external_assessment_raw.read_raw_bundle(store, key)
+
+
+def test_outer_page_only_is_valid_original_but_incomplete_for_l2():
+    store = FakeObjectStore()
+    outer = response("rakuten", "7203", official_html().encode())
+    with external_assessment_raw.RawBundle("outer-only", 0) as bundle:
+        bundle.append(outer)
+        key = bundle.finish()
+        bundle.upload(store)
+    _, restored = external_assessment_raw.read_raw_bundle(store, key)
+    assert restored == (outer,)
+    with pytest.raises(ParseError, match="incomplete_attempt"):
+        decode_attempt(restored)

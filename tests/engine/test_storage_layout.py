@@ -51,7 +51,7 @@ from baibai_engine.market import edinet_decode
 from baibai_engine.market.edinet_metrics import store
 from baibai_engine.market.providers import edinet_csv
 for prefix in (
-    'baibai_engine.market.providers.edinet',
+    'baibai_engine.market.edinet_refresh',
     'requests',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix

@@ -8,5 +8,4 @@ MODEL_VALUATION_DATASET = "external_assessment.model_valuation_observations"
 ANALYST_RATING_DATASET = "external_assessment.analyst_rating_observations"
 QUANTS_SCORE_DATASET = "external_assessment.quants_score_observations"
 
-STAGING_FORMAT = "external-assessment-staging-v1"
-PAIR_ACQUISITION_POLICY_VERSION = "external-assessment-pair-acquisition-v6"
+PAIR_ACQUISITION_POLICY_VERSION = "external-assessment-pair-acquisition-v7"

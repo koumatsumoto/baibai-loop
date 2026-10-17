@@ -1,6 +1,6 @@
 """What the lake keeps and what it may delete.
 
-Retention is decided by reachability, never by age alone. The root is the current L1
+Retention is decided by reachability, never by age alone. The root is the current market
 release. Everything the closure of that root does
 not reach is a deletion candidate; everything it reaches is kept regardless of how old
 it is.
@@ -32,14 +32,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.storage.lake.keys import (
-    current_l1_pointer_key,
+    current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
     validate_lake_object_key,
 )
 from baibai_engine.storage.lake.models import DatasetManifest, ReleaseManifest, load_lake_model_json
 from baibai_engine.storage.lake.objects import mirror_path, sha256_bytes
-from baibai_engine.storage.lake.release import L1ReleasePointer
+from baibai_engine.storage.lake.release import LakeReleasePointer
 from baibai_engine.storage.lake.sources import sha256_file
 
 _GRACE_DAYS = 30
@@ -130,7 +130,7 @@ def plan_gc(
     *,
     now: datetime | None = None,
 ) -> GcPlan:
-    """Walk the current L1 release; unresolved content prevents GC apply.
+    """Walk the current market release; unresolved content prevents GC apply.
 
     Partition sources identify temporary SQLite inputs, not retained objects.
     Only the current pointer, its manifests and their Parquet objects are roots.
@@ -140,14 +140,14 @@ def plan_gc(
     reachable: set[str] = set()
     unresolved: list[str] = []
 
-    pointer_path = mirror_path(mirror_root, current_l1_pointer_key())
+    pointer_path = mirror_path(mirror_root, current_release_pointer_key())
     if pointer_path.is_file():
-        roots.append(current_l1_pointer_key())
-        reachable.add(current_l1_pointer_key())
+        roots.append(current_release_pointer_key())
+        reachable.add(current_release_pointer_key())
         try:
-            pointer = load_lake_model_json(pointer_path.read_bytes(), L1ReleasePointer)
+            pointer = load_lake_model_json(pointer_path.read_bytes(), LakeReleasePointer)
         except ValueError as exc:
-            raise LakeRetentionError(f"L1 pointer is invalid: {exc}") from exc
+            raise LakeRetentionError(f"market pointer is invalid: {exc}") from exc
         _reach_release(
             mirror_root,
             pointer.release_id,
@@ -155,10 +155,13 @@ def plan_gc(
             unresolved,
             expected_manifest_sha256=pointer.manifest_sha256,
         )
-    elif _has_objects_under(mirror_root, "lake/l1/canonical/"):
-        # Canonical L1 objects exist but nothing points at them. Every one of them
+    elif any(
+        _has_objects_under(mirror_root, prefix)
+        for prefix in ("lake/l1/source/", "lake/l2/processed/")
+    ):
+        # Canonical objects exist but nothing points at them. Every one of them
         # would be unreferenced by construction, so the plan is not safe to apply.
-        unresolved.append(current_l1_pointer_key())
+        unresolved.append(current_release_pointer_key())
 
     candidates = _unreachable(mirror_root, reachable=reachable, now=moment)
     plan_hash = hashlib.sha256(
@@ -262,7 +265,7 @@ def _reach_dataset(
 def _unreachable(
     mirror_root: Path, *, reachable: Mapping[str, object] | set[str], now: datetime
 ) -> tuple[GcCandidate, ...]:
-    """Everything under the canonical prefixes that no root reaches."""
+    """Everything under the published prefixes that no root reaches."""
 
     root = mirror_root.resolve()
     candidates: list[GcCandidate] = []
@@ -308,8 +311,8 @@ def _has_objects_under(mirror_root: Path, prefix: str) -> bool:
 def _candidate_reason(key: str) -> str | None:
     if key.startswith("lake/staging/"):
         return "abandoned_staging"
-    if key.startswith("lake/l1/canonical/"):
-        return "unreferenced_l1_object"
+    if key.startswith(("lake/l1/source/", "lake/l2/processed/")):
+        return "unreferenced_lake_object"
     if key.startswith("lake/manifests/datasets/"):
         return "unreferenced_dataset_manifest"
     if key.startswith("lake/manifests/releases/"):

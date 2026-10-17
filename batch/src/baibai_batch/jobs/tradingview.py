@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 
 # fixed operational commands, never credential arguments
@@ -20,6 +21,11 @@ from types import FrameType
 from dotenv import load_dotenv
 
 from baibai_batch.jobs.schedule import resolve_tradingview_target
+from baibai_batch.jobs.tradingview_receipts import (
+    KNOWN_FAILURES,
+    can_publish_failure_receipts,
+    count_layer_rows,
+)
 from baibai_batch.storage import publication_lease as lease
 from baibai_engine.batch_api import (
     MARKET_DB_PATH,
@@ -31,10 +37,15 @@ from baibai_engine.batch_api import (
 ROOT = Path(__file__).resolve().parents[4]
 FETCH_TIMEOUT = 30 * 60
 RUN_TIMEOUT = 60 * 60
+RECOVERY_PUBLISH_TIMEOUT = 10 * 60
 
 
 class StageFailure(Exception):
     """A child already reported its safe failure details."""
+
+    def __init__(self, message: str, *, category: str | None = None) -> None:
+        super().__init__(message)
+        self.category = category if category in KNOWN_FAILURES else None
 
 
 class RunTimeout(BaseException):
@@ -80,19 +91,47 @@ def _stop_child(process: subprocess.Popen[str]) -> None:
 
 
 def command(
-    argv: list[str], *, timeout: float | None = None, env: dict[str, str] | None = None
+    argv: list[str],
+    *,
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
+    stderr_path: Path | None = None,
 ) -> str:
     # fixed commands with parsed date/path arguments
-    process = subprocess.Popen(  # nosec B603
-        argv, cwd=ROOT, stdout=subprocess.PIPE, text=True, start_new_session=True, env=env
-    )
+    stderr_file = stderr_path.open("w", encoding="utf-8") if stderr_path else None
+    try:
+        process = subprocess.Popen(  # nosec B603
+            argv,
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=stderr_file,
+            text=True,
+            start_new_session=True,
+            env=env,
+        )
+    except BaseException:
+        if stderr_file:
+            stderr_file.close()
+        raise
     try:
         output, _ = process.communicate(timeout=timeout)
-        if process.returncode:
-            raise StageFailure("TradingView stage failed")
-        return output
     finally:
-        _stop_child(process)
+        try:
+            _stop_child(process)
+        finally:
+            if stderr_file:
+                stderr_file.close()
+    if process.returncode:
+        category = None
+        if stderr_path:
+            with suppress(OSError, UnicodeError):
+                matches = re.findall(
+                    r"TradingView acquisition failed; category=([a-z_]+)",
+                    stderr_path.read_text(encoding="utf-8"),
+                )
+                category = matches[-1] if matches and matches[-1] in KNOWN_FAILURES else None
+        raise StageFailure("TradingView stage failed", category=category)
+    return output
 
 
 def _report(output: str, allowed: set[str]) -> dict[str, object]:
@@ -182,24 +221,54 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                         ]
                     )
                 progress = handle_dir / "progress.json"
-                output = command(
-                    [
-                        sys.executable,
-                        "-m",
-                        "baibai_engine.cli",
-                        "tradingview",
-                        "refresh",
-                        "--asof",
-                        day.isoformat(),
-                        "--state-file",
-                        str(state_file),
-                        "--interval",
-                        str(interval),
-                        "--progress-output",
-                        str(progress),
-                    ],
-                    timeout=FETCH_TIMEOUT,
-                )
+                stderr_path = handle_dir / "refresh-stderr.log"
+                before_receipts, before_rows = count_layer_rows(ROOT / MARKET_DB_PATH, day)
+                try:
+                    output = command(
+                        [
+                            sys.executable,
+                            "-m",
+                            "baibai_engine.cli",
+                            "tradingview",
+                            "refresh",
+                            "--asof",
+                            day.isoformat(),
+                            "--state-file",
+                            str(state_file),
+                            "--interval",
+                            str(interval),
+                            "--progress-output",
+                            str(progress),
+                        ],
+                        timeout=FETCH_TIMEOUT,
+                        stderr_path=stderr_path,
+                    )
+                except (StageFailure, subprocess.TimeoutExpired, RunTimeout) as exc:
+                    category = exc.category if isinstance(exc, StageFailure) else "timeout"
+                    try:
+                        after_receipts, after_rows = count_layer_rows(ROOT / MARKET_DB_PATH, day)
+                    except Exception:
+                        after_receipts, after_rows = -1, -1
+                    if can_publish_failure_receipts(
+                        category, before_receipts, after_receipts, before_rows, after_rows
+                    ):
+                        try:
+                            print(
+                                command(
+                                    [str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"],
+                                    env={**os.environ, "PUBLICATION_LEASE_HANDLE": str(handle)},
+                                    timeout=RECOVERY_PUBLISH_TIMEOUT,
+                                ),
+                                end="",
+                            )
+                        except Exception:
+                            print(
+                                "TradingView L1 publication failed; category=storage",
+                                file=sys.stderr,
+                            )
+                    raise
+                finally:
+                    stderr_path.unlink(missing_ok=True)
                 result = _report(
                     output,
                     {
@@ -269,7 +338,10 @@ def main(argv: list[str] | None = None) -> int:
         print("TradingView execution failed; category=cancelled", file=sys.stderr)
         return 1
     except StageFailure as exc:
-        print(str(exc), file=sys.stderr)
+        if exc.category:
+            print(f"TradingView acquisition failed; category={exc.category}", file=sys.stderr)
+        else:
+            print(str(exc), file=sys.stderr)
         return 1
     except Exception as exc:
         print(tradingview_failure_line(exc), file=sys.stderr)

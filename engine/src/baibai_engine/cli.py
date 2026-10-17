@@ -62,7 +62,11 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "market-context": Domain(
         module="baibai_engine.market_context.cli",
-        summary="economic observations, mechanical readings, and explicit market assessments",
+        summary="economic observations and mechanical market readings",
+    ),
+    "collection": Domain(
+        module="baibai_engine.collection.cli",
+        summary="external source collection",
     ),
     "operation": Domain(
         module="baibai_engine.research.operation.cli",
@@ -74,7 +78,9 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "research": Domain(
         module="baibai_engine.research.workspace_cli",
-        summary=("research workspaces: Stock Assessment, Assessment Review, Investment Proposal"),
+        summary=(
+            "explicit market judgments and research: Stock Assessment, Review, Investment Proposal"
+        ),
     ),
     "task": Domain(
         module="baibai_engine.tasks.cli",

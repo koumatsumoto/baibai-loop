@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.financial_documents import (
     forecast_source_trace,

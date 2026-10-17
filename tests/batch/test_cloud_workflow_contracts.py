@@ -404,7 +404,7 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
                     setup_steps.append(step)
 
     assert required == "==0.12.17"
-    assert len(setup_steps) == 10
+    assert len(setup_steps) == 9
     assert all("version" not in step.get("with", {}) for step in setup_steps)
 
 

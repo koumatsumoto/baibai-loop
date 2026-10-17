@@ -7,7 +7,7 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.market.bars import validate_finite
+from baibai_engine.collection.prices import validate_finite
 from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False, validate_assignment=False)

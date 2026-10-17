@@ -11,19 +11,21 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pandas as pd
+import requests
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import make_master_records
 
+from baibai_engine.collection.jquants_http import JQuantsHTTP
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError, parse_jquants_code_parts
-from baibai_engine.market.providers.jquants import JQuantsProvider
+from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.storage.observations.convert import code_quality, to_float, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
-    EmptyRangeReplacementError,
     covered_intervals,
     daily_bars_covered_by_data,
 )
 from baibai_engine.storage.observations.ingest.edinet import (
-    store_edinet_documents,
     store_edinet_metrics,
 )
 from baibai_engine.storage.observations.ingest.jpx import (
@@ -1016,13 +1018,13 @@ class DailyBarsCoverageTest(unittest.TestCase):
 
 
 class EmptyPayloadReplacementTest(unittest.TestCase):
-    """A range fetch that returns nothing must not erase what the store holds."""
+    """A complete empty fetch replaces only its requested range."""
 
     @staticmethod
     def _bar(ticker: str, day: date) -> dict[str, object]:
         return {"Code": ticker, "Date": day.isoformat(), "C": 1000.0, "AdjC": 1000.0}
 
-    def test_an_empty_bar_payload_refuses_to_replace_stored_rows(self) -> None:
+    def test_an_empty_bar_payload_replaces_stored_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             window = (date(2020, 12, 1), date(2020, 12, 31))
@@ -1033,21 +1035,24 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
                 requested_end=window[1],
             )
 
-            with self.assertRaises(EmptyRangeReplacementError):
-                store_jquants_daily_bars(db, [], requested_start=window[0], requested_end=window[1])
+            self.assertEqual(
+                store_jquants_daily_bars(
+                    db, [], requested_start=window[0], requested_end=window[1]
+                ),
+                0,
+            )
 
             conn = open_connection(db)
             try:
                 remaining = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
-                # The refused replacement must preserve the previous coverage count.
                 coverage = conn.execute(
                     "SELECT record_count FROM source_coverage WHERE source = ?",
                     ("jquants_daily_bars",),
                 ).fetchall()
             finally:
                 conn.close()
-            self.assertEqual(remaining, 1)
-            self.assertEqual([row[0] for row in coverage], [1])
+            self.assertEqual(remaining, 0)
+            self.assertEqual([row[0] for row in coverage], [0])
 
     def test_an_empty_payload_over_a_range_holding_nothing_is_accepted(self) -> None:
         # A genuinely empty stretch has to stay storable, or a window the market
@@ -1059,7 +1064,7 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             )
             self.assertEqual(persisted, 0)
 
-    def test_an_empty_calendar_payload_refuses_to_replace_stored_rows(self) -> None:
+    def test_an_empty_calendar_payload_replaces_stored_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             window = (date(2020, 12, 1), date(2020, 12, 31))
@@ -1070,10 +1075,12 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
                 requested_end=window[1],
             )
 
-            with self.assertRaises(EmptyRangeReplacementError):
+            self.assertEqual(
                 store_jquants_market_calendar(
                     db, [], requested_start=window[0], requested_end=window[1]
-                )
+                ),
+                0,
+            )
 
             conn = open_connection(db)
             try:
@@ -1082,11 +1089,11 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
                 ]
             finally:
                 conn.close()
-            self.assertEqual(remaining, 1)
+            self.assertEqual(remaining, 0)
 
     def test_a_non_empty_payload_still_replaces_what_the_range_held(self) -> None:
-        # The guard must not cost the replace semantics that make a refetch
-        # corrective: a name the provider no longer reports has to disappear.
+        # A complete refetch replaces the scoped cross-section: a name the
+        # provider no longer reports has to disappear.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             window = (date(2020, 12, 1), date(2020, 12, 31))
@@ -1113,7 +1120,7 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
                 conn.close()
             self.assertEqual(tickers, ["7203"])
 
-    def test_an_empty_fin_payload_refuses_to_replace_stored_rows(self) -> None:
+    def test_an_empty_fin_payload_replaces_stored_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             window = (date(2020, 12, 1), date(2020, 12, 31))
@@ -1131,17 +1138,19 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
                 requested_end=window[1],
             )
 
-            with self.assertRaises(EmptyRangeReplacementError):
+            self.assertEqual(
                 store_jquants_fin_summaries(
                     db, [], requested_start=window[0], requested_end=window[1]
-                )
+                ),
+                0,
+            )
 
             conn = open_connection(db)
             try:
                 remaining = conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0]
             finally:
                 conn.close()
-            self.assertEqual(remaining, 1)
+            self.assertEqual(remaining, 0)
 
 
 class WeeklyMarginStoreTest(unittest.TestCase):
@@ -1302,16 +1311,15 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             self.assertEqual(rows[0].short_vol, 0.0)
             self.assertEqual(rows[0].issue_type, "1")
 
-    def test_an_empty_payload_refuses_to_replace_a_stored_week(self) -> None:
+    def test_an_empty_payload_replaces_a_stored_week(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_weekly_margin(db, [self._record("72030")], week_end=date(2026, 7, 24))
 
-            with self.assertRaises(EmptyRangeReplacementError):
-                store_jquants_weekly_margin(db, [], week_end=date(2026, 7, 24))
+            self.assertEqual(store_jquants_weekly_margin(db, [], week_end=date(2026, 7, 24)), 0)
 
             rows = read_weekly_margin(db, date(2026, 7, 24))
-            self.assertEqual(len(rows or []), 1)
+            self.assertEqual(rows, [])
 
     def test_weekly_store_rejects_post_transition_daily_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1335,21 +1343,31 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             )
             self.assertFalse(final_legacy_week_requires_refresh(db))
 
-    def test_wrong_balance_date_cannot_replace_a_stored_week(self) -> None:
+    def test_wrong_balance_date_marks_week_partial_instead_of_reusing_old_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             day = date(2026, 7, 24)
             store_jquants_weekly_margin(db, [self._record("72030")], week_end=day)
 
-            with self.assertRaises(EmptyRangeReplacementError):
+            self.assertEqual(
                 store_jquants_weekly_margin(
                     db, [self._record("72030", Date="2026-07-17")], week_end=day
-                )
+                ),
+                0,
+            )
 
-            rows = read_weekly_margin(db, day)
-            assert rows is not None
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0].long_vol, 5000.0)
+            self.assertIsNone(read_weekly_margin(db, day))
+            conn = open_connection(db)
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT record_count, status FROM source_coverage "
+                        "WHERE source = 'jquants_weekly_margin'"
+                    ).fetchall(),
+                    [(0, "partial")],
+                )
+            finally:
+                conn.close()
 
 
 class MarginPublicationTransitionStoreTest(unittest.TestCase):
@@ -1423,7 +1441,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
                 [date(2026, 9, 28)],
             )
 
-    def test_payload_date_mismatch_cannot_replace_a_daily_snapshot(self) -> None:
+    def test_payload_date_mismatch_marks_daily_snapshot_partial(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             balance_date = date(2026, 9, 25)
@@ -1433,15 +1451,27 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
                 balance_date=balance_date,
             )
 
-            with self.assertRaises(EmptyRangeReplacementError):
+            self.assertEqual(
                 store_jquants_all_issues_daily_margin(
                     db,
                     [self._all_issues_record("72030", date(2026, 9, 28))],
                     balance_date=balance_date,
-                )
+                ),
+                0,
+            )
 
-            rows = read_all_issues_daily_margin(db, balance_date)
-            self.assertEqual(len(rows or []), 1)
+            self.assertIsNone(read_all_issues_daily_margin(db, balance_date))
+            conn = open_connection(db)
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT record_count, status FROM source_coverage "
+                        "WHERE source = 'jquants_all_issues_daily_margin'"
+                    ).fetchall(),
+                    [(0, "partial")],
+                )
+            finally:
+                conn.close()
 
     def test_empty_first_publication_is_retried_instead_of_becoming_a_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1703,24 +1733,39 @@ class RepeatedObservationTest(unittest.TestCase):
 
     def test_calendar_fetch_and_cached_projection_agree(self):
         with tempfile.TemporaryDirectory() as tmp:
-            client = Mock()
-            client.get_mkt_calendar.return_value = [
-                {"Date": "2026-09-27", "HolDiv": "2"},
-                {"Date": "2026-09-25", "HolDiv": "1"},
-                {"Date": "2026-09-25", "HolDiv": "1"},
-                {"Date": "2026-09-26", "HolDiv": "0"},
-            ]
-            provider = JQuantsProvider(
-                "token", client=client, sqlite_path=Path(tmp) / "market.sqlite"
+            session = Mock(spec=requests.Session)
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps(
+                {
+                    "data": [
+                        {"Date": "2026-09-27", "HolDiv": "2"},
+                        {"Date": "2026-09-25", "HolDiv": "1"},
+                        {"Date": "2026-09-25", "HolDiv": "1"},
+                        {"Date": "2026-09-26", "HolDiv": "0"},
+                    ]
+                }
+            ).encode()
+            response._content_consumed = True
+            session.get.return_value = response
+            database = Path(tmp) / "market.sqlite"
+            maintenance = JQuantsRefresh(
+                database, None, client=JQuantsHTTP("token", session=session)
             )
-            first = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
-            second = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
+            assert maintenance.ensure_market_calendar(date(2026, 9, 25), date(2026, 9, 27)) == 3
+            first = JQuantsReader(database).get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
+            assert maintenance.ensure_market_calendar(date(2026, 9, 25), date(2026, 9, 27)) == 3
+            second = JQuantsReader(database).get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
             self.assertEqual(first, second)
             self.assertEqual(
                 [(row.day.day, row.is_business_day) for row in first],
                 [(25, True), (26, False), (27, True)],
             )
-            self.assertEqual(client.get_mkt_calendar.call_count, 1)
+            self.assertEqual(session.get.call_count, 1)
+            self.assertEqual(
+                session.get.call_args.kwargs["params"],
+                {"from": "20260925", "to": "20260927"},
+            )
 
     def test_identical_records_conflicts_and_later_corrections(self):
         for kind in ("bars", "calendar", "weekly", "daily", "alerts"):

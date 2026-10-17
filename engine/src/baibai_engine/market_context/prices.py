@@ -7,13 +7,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.foundation.sqlite_read import read_rows
-from baibai_engine.market.bars import (
-    JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
-    asof_basis_closes,
-    asof_basis_prices,
-)
+from baibai_engine.price_basis import asof_basis_closes, asof_basis_prices
 from baibai_engine.storage.observations.read import connect_read_only
 
 

@@ -37,13 +37,13 @@ from baibai_engine.storage.lake.hydrate import (
 )
 from baibai_engine.storage.lake.keys import (
     canonical_object_key,
-    current_l1_pointer_key,
+    current_release_pointer_key,
     release_manifest_key,
 )
 from baibai_engine.storage.lake.models import (
     DatasetManifest,
-    L1ReleaseSourceRef,
     LakeObject,
+    LakeReleaseSourceRef,
     canonical_lake_model_bytes,
 )
 from baibai_engine.storage.lake.objects import (
@@ -68,7 +68,7 @@ from baibai_engine.storage.lake.reader import (
     selected_partitions,
     verify_object,
 )
-from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
 from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
@@ -121,8 +121,8 @@ class Lake:
 
 
 def _publish_pointer(mirror: Path, release_id: str, manifest_path: Path) -> None:
-    target = mirror / current_l1_pointer_key()
-    pointer = L1ReleasePointer(
+    target = mirror / current_release_pointer_key()
+    pointer = LakeReleasePointer(
         release_id=release_id,
         manifest_key=manifest_path.relative_to(mirror).as_posix(),
         manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
@@ -153,7 +153,7 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
             ).manifest_path
             for name in ("jquants.daily_bars", "jquants.short_sale_reports")
         ]
-    manifest_path, _release = create_l1_release(
+    manifest_path, _release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id=release_id,
@@ -245,7 +245,7 @@ class TestFixedRelease:
         self, lake: Lake, monkeypatch: pytest.MonkeyPatch, error: OSError
     ) -> None:
         def fail_read(_source: LocalMirrorSource, key: str) -> bytes:
-            assert key == current_l1_pointer_key()
+            assert key == current_release_pointer_key()
             raise error
 
         monkeypatch.setattr(LocalMirrorSource, "read_bytes", fail_read)
@@ -263,8 +263,8 @@ class TestFixedRelease:
         release = resolve_current_release(cache.source)
         # A publisher switches the pointer while the run is still going.
         newer = _build_lake(tmp_path / "second", release_id="release-two")
-        (lake.mirror / current_l1_pointer_key()).write_bytes(
-            (newer.mirror / current_l1_pointer_key()).read_bytes()
+        (lake.mirror / current_release_pointer_key()).write_bytes(
+            (newer.mirror / current_release_pointer_key()).read_bytes()
         )
 
         report = hydrate_market_store(
@@ -276,7 +276,7 @@ class TestFixedRelease:
         )
 
         assert report.release_id == "release-one"
-        assert recording.reads.count(current_l1_pointer_key()) == 1
+        assert recording.reads.count(current_release_pointer_key()) == 1
 
     def test_a_run_reads_only_lake_keys_and_never_the_legacy_sqlite(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -305,7 +305,7 @@ class TestFixedRelease:
         )
 
         assert release.release_id == lake.release_id
-        assert current_l1_pointer_key() not in recording.reads
+        assert current_release_pointer_key() not in recording.reads
 
     def test_named_release_requires_the_pinned_manifest_digest(self, lake: Lake) -> None:
         with pytest.raises(LakeReadError, match="expected identity"):
@@ -348,12 +348,12 @@ class TestFixedRelease:
 
     def test_typed_release_ref_resolves_the_digest_bound_release(self, lake: Lake) -> None:
         digest = _release_digest(lake.mirror, lake.release_id)
-        reference = L1ReleaseSourceRef(
-            kind="l1_release",
+        reference = LakeReleaseSourceRef(
+            kind="lake_release",
             source_id=lake.release_id,
             key=release_manifest_key(release_id=lake.release_id),
             sha256=digest,
-            manifest_version=1,
+            manifest_version=2,
         )
 
         release = resolve_release_ref(LocalMirrorSource(lake.mirror), reference)
@@ -383,7 +383,7 @@ class TestFixedRelease:
         assert pinned.release_id == lake.release_id
 
     def test_release_manifest_digest_mismatch_fails_closed(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         payload = json.loads(pointer_path.read_text(encoding="utf-8"))
         payload["manifest_sha256"] = "0" * 64
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -392,7 +392,7 @@ class TestFixedRelease:
             resolve_current_release(LocalMirrorSource(lake.mirror))
 
     def test_pointer_duplicate_field_is_rejected_by_the_reader(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         payload = pointer_path.read_bytes().replace(
             b'"release_id":"release-one"',
             b'"release_id":"release-one","release_id":"release-other"',
@@ -403,7 +403,7 @@ class TestFixedRelease:
             resolve_current_release(LocalMirrorSource(lake.mirror))
 
     def test_pointer_validation_error_does_not_render_input_values(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         pointer_path.write_bytes(
             pointer_path.read_bytes().replace(b"{", b'{"secret":"SENTINEL-DO-NOT-LOG",', 1)
         )
@@ -422,7 +422,7 @@ class TestFixedRelease:
             b'"release_id":"release-one","release_id":"release-other"',
         )
         manifest_path.write_bytes(payload)
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
         pointer["manifest_sha256"] = hashlib.sha256(payload).hexdigest()
         pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
@@ -447,7 +447,7 @@ class TestFixedRelease:
         ).hexdigest()
         updated_release = json.dumps(release_payload).encode()
         release_path.write_bytes(updated_release)
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
         pointer["manifest_sha256"] = hashlib.sha256(updated_release).hexdigest()
         pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
@@ -470,9 +470,9 @@ class TestFixedRelease:
             copied.dataset_manifest_sha256["mutated"] = "0" * 64  # type: ignore[index]
 
     def test_pointer_naming_another_release_manifest_key_fails_closed(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         payload = json.loads(pointer_path.read_text(encoding="utf-8"))
-        payload["manifest_key"] = "lake/manifests/releases/l1/release-other.json"
+        payload["manifest_key"] = "lake/manifests/releases/market/release-other.json"
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
 
         with pytest.raises(LakeReadError, match="current pointer is invalid"):
@@ -673,7 +673,7 @@ class TestObjectIntegrity:
         foreign = tmp_path / "foreign.parquet"
         pq.write_table(pa.table({"ticker": ["1301"], "traded_at": ["2026-01-05"]}), foreign)
         lake_object = LakeObject(
-            key="lake/l1/canonical/jquants.daily_bars/contract=v1/year=2026/month=1/"
+            key="lake/l2/processed/jquants.daily_bars/contract=v1/year=2026/month=1/"
             f"part-{sha256_file(foreign)}.parquet",
             sha256=sha256_file(foreign),
             bytes=foreign.stat().st_size,
@@ -698,7 +698,7 @@ class TestObjectIntegrity:
 
     def test_path_traversal_in_an_object_key_is_rejected(self, lake: Lake) -> None:
         with pytest.raises(ValueError, match="unsafe path segment"):
-            mirror_path(lake.mirror, "lake/l1/canonical/../../etc/passwd")
+            mirror_path(lake.mirror, "lake/l2/processed/../../etc/passwd")
 
     def test_a_mirror_root_that_would_be_read_as_a_pattern_is_rejected(
         self, tmp_path: Path
@@ -923,7 +923,7 @@ class TestCredentialBoundary:
             lake_session() as session,
             pytest.raises(LakeObjectError, match="authorised session"),
         ):
-            R2ObjectSource(session).uri("lake/pointers/l1/current.json")
+            R2ObjectSource(session).uri("lake/pointers/market/current.json")
 
     def test_a_session_without_credentials_cannot_reach_a_remote_path(self) -> None:
         """Extension autoload is off, so a remote path fails instead of pulling httpfs in."""
@@ -937,7 +937,7 @@ class TestCredentialBoundary:
             ).fetchone() == (False, False)
             with pytest.raises(duckdb.Error, match="httpfs"):
                 session.connection.execute(
-                    "SELECT * FROM read_blob('s3://bucket/lake/pointers/l1/current.json')"
+                    "SELECT * FROM read_blob('s3://bucket/lake/pointers/market/current.json')"
                 ).fetchall()
 
 
@@ -961,7 +961,7 @@ def _build_lake_second_release(lake: Lake) -> str:
             ).manifest_path
             for name in ("jquants.daily_bars", "jquants.short_sale_reports")
         ]
-    manifest_path, _release = create_l1_release(
+    manifest_path, _release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=lake.mirror,
         release_id=release_id,
@@ -1724,7 +1724,7 @@ class TestOperatorDerivedRetraction:
                 build_id=f"build-exits-{release_id}",
                 created_at=_BUILT_AT,
             ).manifest_path
-        release_manifest, _release = create_l1_release(
+        release_manifest, _release = create_release(
             dataset_manifest_paths=[manifest_path],
             mirror_root=mirror,
             release_id=release_id,

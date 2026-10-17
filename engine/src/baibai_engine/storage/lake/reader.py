@@ -29,22 +29,22 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from baibai_engine.storage.lake.datasets import LakeDataset, period_label, require_lake_dataset
 from baibai_engine.storage.lake.duck import LakeSession
 from baibai_engine.storage.lake.keys import (
-    current_l1_pointer_key,
+    current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
     validate_identifier,
 )
 from baibai_engine.storage.lake.models import (
     DatasetManifest,
-    L1ReleaseSourceRef,
     LakeObject,
+    LakeReleaseSourceRef,
     PartitionManifest,
     ReleaseManifest,
     load_lake_model_json,
     validate_release_policy,
 )
 from baibai_engine.storage.lake.objects import LakeObjectCache, LakeObjectSource, sha256_bytes
-from baibai_engine.storage.lake.release import L1ReleasePointer
+from baibai_engine.storage.lake.release import LakeReleasePointer
 
 
 class LakeReadError(RuntimeError):
@@ -111,25 +111,25 @@ def resolve_current_release(source: LakeObjectSource) -> FixedRelease:
             release.dataset_manifests,
         )
     except ValueError as exc:
-        raise LakeReadError(f"L1 current release fails operational policy: {exc}") from None
+        raise LakeReadError(f"market current release fails operational policy: {exc}") from None
     return release
 
 
-def _read_current_pointer(source: LakeObjectSource) -> L1ReleasePointer:
+def _read_current_pointer(source: LakeObjectSource) -> LakeReleasePointer:
     try:
-        payload = source.read_bytes(current_l1_pointer_key())
+        payload = source.read_bytes(current_release_pointer_key())
     except Exception as exc:
         # A missing pointer is only one cause: access and transport failures also
         # arrive here. Do not tell an operator to publish over an existing pointer.
         raise LakeReadError(
-            "L1 current pointer could not be read; check availability and access. "
+            "market current pointer could not be read; check availability and access. "
             "If no release has been published, publish one or name a fixed release "
             "with --release and --manifest-sha256"
         ) from exc
     try:
-        pointer = load_lake_model_json(payload, L1ReleasePointer)
+        pointer = load_lake_model_json(payload, LakeReleasePointer)
     except ValueError:
-        raise LakeReadError("L1 current pointer is invalid") from None
+        raise LakeReadError("market current pointer is invalid") from None
     return pointer
 
 
@@ -155,7 +155,7 @@ def resolve_release(
     )
 
 
-def resolve_release_ref(source: LakeObjectSource, reference: L1ReleaseSourceRef) -> FixedRelease:
+def resolve_release_ref(source: LakeObjectSource, reference: LakeReleaseSourceRef) -> FixedRelease:
     """Resolve a persisted reference whose typed identity includes the manifest digest."""
 
     return resolve_release(
@@ -175,13 +175,13 @@ def _load_release(
     payload = source.read_bytes(manifest_key)
     digest = sha256_bytes(payload)
     if digest != expected_manifest_sha256:
-        raise LakeReadError("L1 release manifest digest does not match its expected identity")
+        raise LakeReadError("market release manifest digest does not match its expected identity")
     try:
         release = load_lake_model_json(payload, ReleaseManifest)
     except ValueError:
-        raise LakeReadError("L1 release manifest is invalid") from None
+        raise LakeReadError("market release manifest is invalid") from None
     if release.release_id != release_id:
-        raise LakeReadError("L1 release manifest identifies a different release")
+        raise LakeReadError("market release manifest identifies a different release")
 
     manifests: dict[str, DatasetManifest] = {}
     digests: dict[str, str] = {}
@@ -202,6 +202,7 @@ def _load_release(
         # disagrees with the manifest it names describes data that is not there.
         if (
             manifest.dataset != name
+            or manifest.layer != entry.layer
             or manifest.build_id != entry.build_id
             or manifest.contract_version != entry.contract_version
             or manifest.data_as_of != entry.data_as_of

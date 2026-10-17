@@ -9,12 +9,3 @@ from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 DEFAULT_CACHE_DIR = Path(".cache/screening")
 # 取得・hydrateしたmarket作業コピー。ソースごとに原本JSON・ZIPと読取用の行を保持する。
 DEFAULT_SQLITE_CACHE_DIR = MARKET_DB_PATH.parent
-JQUANTS_CLIENT_V2_METHODS = (
-    "get_eq_master",
-    "get_eq_bars_daily_range",
-    "get_fin_summary_range",
-    "get_mkt_calendar",
-    "get_mkt_margin_interest",
-    "get_mkt_margin_alert_range",
-    "get_mkt_short_sale_report",
-)

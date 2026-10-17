@@ -35,18 +35,10 @@ class ScreeningConfigTests(unittest.TestCase):
         self.assertIsNone(config.edinet_api_key)
 
     def test_jquants_network_boundary_requires_its_own_key(self) -> None:
-        from baibai_engine.market.jquants_decode import JQuantsProviderError
-        from baibai_engine.market.providers.jquants import JQuantsProvider
+        from baibai_engine.collection.jquants_http import JQuantsAcquisitionError, JQuantsHTTP
 
-        provider = JQuantsProvider(None)
-        with self.assertRaisesRegex(JQuantsProviderError, "JQUANTS_API_KEY"):
-            provider._get_client()
-
-    def test_injected_client_does_not_require_credentials(self) -> None:
-        from baibai_engine.market.providers.jquants import JQuantsProvider
-
-        client = object()
-        self.assertIs(JQuantsProvider(None, client=client)._get_client(), client)
+        with self.assertRaisesRegex(JQuantsAcquisitionError, "JQUANTS_API_KEY"):
+            JQuantsHTTP("")
 
 
 def test_cache_only_run_reaches_local_preflight_without_api_keys(tmp_path, monkeypatch, capsys):

@@ -14,147 +14,75 @@ from baibai_batch.validation.market_context_stores import (
     validate_published_contexts,
     validate_store,
 )
-from baibai_engine.market_context.assessment.models import (
-    ASSESSMENT_SCHEMA_VERSION,
-    StoredAssessment,
-)
-from baibai_engine.market_context.indicators.db import (
+from baibai_engine.collection.economic_documents import SourceDocument, store_document
+from baibai_engine.collection.economic_records import store_snapshot
+from baibai_engine.collection.economic_store import (
     SQLITE_SCHEMA_VERSION,
-    IndicatorsSchemaError,
+    EconomicSchemaError,
     initialize_database,
-    insert_observations,
-    open_connection,
+    record_source_run,
 )
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
-    SeriesDefinition,
-    load_definitions,
 )
-from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.research.market_context.models import (
+    ASSESSMENT_SCHEMA_VERSION,
+    StoredAssessment,
+)
 from baibai_engine.storage.application.write import (
     initialize_database as initialize_application_database,
 )
 
 
-def _definition(*, maximum: float | None = 20.0) -> SeriesDefinition:
-    return SeriesDefinition(
-        series_id="test.series",
-        name="Test Series",
-        category="test",
-        geography="world",
-        frequency="daily",
-        unit="percent",
-        provider="fred_csv",
-        provider_series_id="TEST",
-        source_id="test-source",
-        source_url="https://example.com/data.csv",
-        plausible_min=-2.0,
-        plausible_max=maximum,
-    )
-
-
-def _build_store(path: Path, definition: SeriesDefinition) -> None:
-    connection = initialize_database(
-        path,
-        definitions=IndicatorDefinitions(series=(definition,)),
-    )
+def _build_store(path: Path) -> None:
+    connection = initialize_database(path)
     try:
-        insert_observations(
+        store_snapshot(
             connection,
-            [
-                ObservationRecord(
-                    series_id=definition.series_id,
-                    observed_at=date(2026, 7, 1),
-                    value=4.2,
-                    unit=definition.unit,
-                    source_url=definition.source_url,
-                    vintage_at=datetime(2026, 7, 2, tzinfo=UTC),
-                )
-            ],
+            source_id="unregistered-raw-source",
+            observed_at=date(2026, 7, 1),
+            fetched_at=datetime(2026, 7, 2, tzinfo=UTC),
+            records=[{"unused": None, "native": "--", "unbounded": 99999999}],
+        )
+        store_document(
+            connection,
+            SourceDocument(
+                source_id="unregistered-document-source",
+                request_key="2026-07",
+                source_url="https://example.com/source",
+                content_type="application/octet-stream",
+                fetched_at=datetime(2026, 7, 2, tzinfo=UTC),
+                payload=b"opaque original body",
+                metadata={"period": "2026-07"},
+            ),
+        )
+        record_source_run(
+            connection,
+            source_id="unregistered-raw-source",
+            start=date(2026, 7, 1),
+            end=date(2026, 7, 1),
+            started_at=datetime(2026, 7, 2, tzinfo=UTC),
+            status="ok",
+            record_count=1,
         )
         connection.commit()
     finally:
         connection.close()
 
 
-def test_validate_store_accepts_every_stored_vintage_within_registry_contract(
+def test_validate_store_accepts_three_collection_tables_without_l2_registry(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "indicators.sqlite"
-    definition = _definition()
-    _build_store(database, definition)
+    _build_store(database)
 
-    report = validate_store(
-        database,
-        definitions=IndicatorDefinitions(series=(definition,)),
-    )
+    report = validate_store(database)
 
     assert report.valid
     assert report.schema_version == SQLITE_SCHEMA_VERSION
-    assert report.registry_series == 1
-    assert report.observations == 1
-
-
-@pytest.mark.parametrize(
-    ("mutation", "message"),
-    [
-        (
-            "DELETE FROM registry_state",
-            "registry state.*must contain exactly singleton=1",
-        ),
-    ],
-)
-def test_validate_store_rejects_invalid_registry_generation_state(
-    tmp_path: Path,
-    mutation: str,
-    message: str,
-) -> None:
-    database = tmp_path / "indicators.sqlite"
-    definition = _definition()
-    _build_store(database, definition)
-    with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute(mutation)
-
-    with pytest.raises(IndicatorsSchemaError, match=message):
-        validate_store(
-            database,
-            definitions=IndicatorDefinitions(series=(definition,)),
-        )
-    with pytest.raises(IndicatorsSchemaError, match=message):
-        open_connection(
-            database,
-            definitions=IndicatorDefinitions(series=(definition,)),
-        )
-
-
-def test_validate_store_reports_band_drift_with_observation_identity(tmp_path: Path) -> None:
-    database = tmp_path / "indicators.sqlite"
-    definition = _definition()
-    _build_store(database, definition)
-
-    report = validate_store(
-        database,
-        definitions=IndicatorDefinitions(series=(_definition(maximum=4.0),)),
-    )
-
-    assert not report.valid
-    assert report.violation_count == 1
-    assert "test.series 2026-07-01 vintage 2026-07-02T00:00:00+00:00" in report.violations[0]
-    assert "value 4.2 outside plausible range [-2, 4]" in report.violations[0]
-
-
-def test_validate_store_reports_a_series_absent_from_current_registry(tmp_path: Path) -> None:
-    database = tmp_path / "indicators.sqlite"
-    _build_store(database, _definition())
-
-    report = validate_store(
-        database,
-        definitions=IndicatorDefinitions(series=()),
-    )
-
-    assert not report.valid
-    assert report.violation_count == 1
-    assert "series is absent from the current registry" in report.violations[0]
+    assert report.source_records == 1
+    assert report.source_documents == 1
+    assert report.source_runs == 1
 
 
 def test_validate_store_reads_without_modifying_or_creating_sidecars(
@@ -163,20 +91,16 @@ def test_validate_store_reads_without_modifying_or_creating_sidecars(
     """The live store is git-ignored and irreplaceable in part; a scan must not touch it."""
 
     database = tmp_path / "indicators.sqlite"
-    definition = _definition()
-    _build_store(database, definition)
+    _build_store(database)
     before = database.stat()
     before_bytes = database.read_bytes()
 
-    report = validate_store(
-        database,
-        definitions=IndicatorDefinitions(series=(definition,)),
-    )
+    report = validate_store(database)
 
     after = database.stat()
     assert report.valid
     assert report.schema_version == SQLITE_SCHEMA_VERSION
-    assert report.observations == 1
+    assert (report.source_records, report.source_documents, report.source_runs) == (1, 1, 1)
     assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
     assert database.read_bytes() == before_bytes
     assert not Path(f"{database}-wal").exists()
@@ -186,13 +110,12 @@ def test_validate_store_reads_without_modifying_or_creating_sidecars(
 
 def test_validate_store_refuses_a_store_on_another_schema(tmp_path: Path) -> None:
     database = tmp_path / "indicators.sqlite"
-    definition = _definition()
-    _build_store(database, definition)
+    _build_store(database)
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
-    with pytest.raises(IndicatorsSchemaError, match="unsupported indicator SQLite schema"):
-        validate_store(database, definitions=IndicatorDefinitions(series=(definition,)))
+    with pytest.raises(EconomicSchemaError, match="unsupported economic source schema"):
+        validate_store(database)
 
 
 def _publish_report(path: Path) -> StoredAssessment:
@@ -264,7 +187,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     database = tmp_path / "indicators.sqlite"
-    _build_store(database, load_definitions().by_id()["us.10y"])
+    _build_store(database)
     application_db = tmp_path / "app.sqlite"
     initialize_application_database(application_db)
     payload = historical_context_payload()
@@ -297,7 +220,7 @@ def test_main_skips_the_report_check_without_an_application_store(
     """A fresh checkout has published nothing; absence is a valid state."""
 
     database = tmp_path / "indicators.sqlite"
-    _build_store(database, load_definitions().by_id()["us.10y"])
+    _build_store(database)
 
     exit_code = main(["--db", str(database), "--app-db", str(tmp_path / "absent.sqlite")])
 
@@ -306,47 +229,23 @@ def test_main_skips_the_report_check_without_an_application_store(
     assert "skip: no application store" in captured.out
 
 
-@pytest.mark.parametrize("maximum", [20.0, 4.0])
-def test_retracted_values_still_follow_the_storage_and_merge_contract(tmp_path, maximum):
-    database = tmp_path / "indicators.sqlite"
-    _build_store(database, _definition())
-    with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute("UPDATE observations SET fetch_status='retracted'")
-    before = database.read_bytes()
-
-    report = validate_store(
-        database,
-        definitions=IndicatorDefinitions(series=(_definition(maximum=maximum),)),
-    )
-
-    assert report.observations == 1
-    assert report.valid is (maximum >= 4.2)
-    if not report.valid:
-        assert report.violation_count == 1
-        assert "value 4.2 outside plausible range" in report.violations[0]
-    assert database.read_bytes() == before
-
-
 @pytest.mark.parametrize("damage", [None, "gzip", "shape", "count", "old_vintage"])
 def test_validation_checks_native_payloads_without_imposing_scalar_semantics(tmp_path, damage):
     import gzip
 
-    from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
-
     database = tmp_path / "indicators.sqlite"
-    definition = _definition()
-    _build_store(database, definition)
+    _build_store(database)
     with closing(sqlite3.connect(database)) as connection, connection:
         store_snapshot(
             connection,
-            source_key="unregistered:raw-source",
+            source_id="unregistered-raw-source",
             observed_at=date(2026, 7, 1),
             fetched_at=datetime(2026, 7, 2, tzinfo=UTC),
             records=[{"unused": None, "native": "--", "unbounded": 99999999}],
         )
         store_snapshot(
             connection,
-            source_key="unregistered:raw-source",
+            source_id="unregistered-raw-source",
             observed_at=date(2026, 7, 1),
             fetched_at=datetime(2026, 7, 3, tzinfo=UTC),
             records=[],
@@ -354,16 +253,57 @@ def test_validation_checks_native_payloads_without_imposing_scalar_semantics(tmp
         if damage in {"gzip", "shape", "old_vintage"}:
             payload = gzip.compress(b"{}") if damage == "shape" else b"broken gzip"
             connection.execute(
-                "UPDATE indicator_source_snapshots SET payload=? WHERE fetched_at LIKE ?",
+                "UPDATE economic_source_records SET payload=? WHERE fetched_at LIKE ?",
                 (payload, "2026-07-02%" if damage == "old_vintage" else "2026-07-03%"),
             )
         elif damage == "count":
-            connection.execute("UPDATE indicator_source_snapshots SET record_count=7")
+            connection.execute("UPDATE economic_source_records SET record_count=7")
     before = database.read_bytes()
-    report = validate_store(database, definitions=IndicatorDefinitions(series=(definition,)))
+    report = validate_store(database)
     assert report.valid is (damage is None)
-    assert report.source_snapshots == 2
-    assert report.observations == 1
+    assert report.source_records == 2
+    assert report.source_documents == 1
+    assert report.source_runs == 1
     if damage is not None:
         assert all("native" in item for item in report.violations)
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("damage", "older"),
+    [
+        ("{invalid", False),
+        ("[]", False),
+        ("{invalid", True),
+        ("[]", True),
+    ],
+)
+def test_validation_checks_every_document_metadata_revision_without_parsing_opaque_body(
+    tmp_path: Path, damage: str, older: bool
+) -> None:
+    database = tmp_path / "indicators.sqlite"
+    _build_store(database)
+    with closing(sqlite3.connect(database)) as connection, connection:
+        store_document(
+            connection,
+            SourceDocument(
+                source_id="unregistered-document-source",
+                request_key="2026-07",
+                source_url="https://example.com/source",
+                content_type="application/octet-stream",
+                fetched_at=datetime(2026, 7, 3, tzinfo=UTC),
+                payload=b"\x00\xff still opaque",
+                metadata={"period": "2026-07", "revision": 2},
+            ),
+        )
+        connection.execute(
+            "UPDATE economic_source_documents SET metadata=? WHERE fetched_at LIKE ?",
+            (damage, "2026-07-02%" if older else "2026-07-03%"),
+        )
+    before = database.read_bytes()
+    report = validate_store(database)
+    assert not report.valid
+    assert report.source_documents == 2
+    assert report.violation_count == 1
+    assert "document metadata is not a JSON object" in report.violations[0]
     assert database.read_bytes() == before

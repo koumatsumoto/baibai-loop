@@ -14,11 +14,10 @@ from tests.helpers.indicator_store import (
     store_reader,
 )
 
-from baibai_engine.market_context.indicators import db
+from baibai_engine.collection import economic_store as db
+from baibai_engine.collection.economic_records import read_snapshots
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 from baibai_engine.market_context.reading import cli
 from baibai_engine.market_context.reading.compute import compute_reading
 from baibai_engine.market_context.reading.models import ReadingSnapshot
@@ -79,12 +78,12 @@ def test_cli_reads_one_snapshot_during_concurrent_refresh(
     ) -> ReadingSnapshot:
         # The first SELECT pins the reader's snapshot before a separate writer commits.
         assert connection.in_transaction
-        before = connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0]
+        before = connection.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0]
         with closing(db.open_connection(path)) as writer:
             store_h15_observations(writer, [_yield_observation(2.0, 2)])
             writer.commit()
         assert (
-            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0]
+            connection.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0]
             == before
         )
         return read_snapshot(connection, asof=asof, rules_path=rules_path)
@@ -101,7 +100,7 @@ def test_cli_reads_one_snapshot_during_concurrent_refresh(
                 connection,
                 date(2026, 7, 15),
                 date(2026, 7, 15),
-                source_key=native_source_key(definition),
+                source_id=definition.source_id,
             )
         )
         assert latest.records[0]["row"]["RIFLGFCY10_N.B"] == "2.0"

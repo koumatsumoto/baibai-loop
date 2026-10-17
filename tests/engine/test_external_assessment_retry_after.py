@@ -207,7 +207,7 @@ def test_transport_timeout_is_not_a_confirmed_429(clock):
 
 
 def test_retry_policy_version_changes_old_plan_binding(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v6"
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v7"
     new = collection.collector_binding()
     monkeypatch.setattr(
         collection, "PAIR_ACQUISITION_POLICY_VERSION", "external-assessment-pair-acquisition-v1"

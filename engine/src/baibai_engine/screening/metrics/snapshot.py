@@ -6,11 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 from datetime import date, timedelta
 
-from baibai_engine.market.bars import (
-    JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
-    asof_basis_closes,
-)
+from baibai_engine.collection.prices import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
@@ -29,6 +25,7 @@ from baibai_engine.market_context.margin import (
     margin_supply_demand,
 )
 from baibai_engine.market_context.sector import sector_relative_strength
+from baibai_engine.price_basis import asof_basis_closes
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.schema import DerivedMetrics
 from baibai_engine.valuation.metrics.financial_snapshot import build_financial_snapshot

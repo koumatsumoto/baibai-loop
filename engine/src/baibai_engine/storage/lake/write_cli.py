@@ -1,4 +1,4 @@
-"""Write-side CLI for the L1 canonical lake."""
+"""Write-side CLI for the market lake."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from baibai_engine.storage.lake.hydrate import (
     hydrate_market_store,
 )
 from baibai_engine.storage.lake.identity import verified_git_commit
-from baibai_engine.storage.lake.models import L1ReleaseSourceRef, load_lake_model_json
+from baibai_engine.storage.lake.models import LakeReleaseSourceRef, load_lake_model_json
 from baibai_engine.storage.lake.objects import LakeObjectError, LakeObjectSource, open_lake
 from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
 from baibai_engine.storage.lake.reader import (
@@ -25,7 +25,7 @@ from baibai_engine.storage.lake.reader import (
     resolve_release,
     resolve_release_ref,
 )
-from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, apply_gc, plan_gc
 from baibai_engine.storage.lake.writer import export_market_store
 from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_all.add_argument("--sqlite", type=Path, required=True)
     export_all.add_argument("--mirror", type=Path, required=True)
 
-    release = commands.add_parser("release", help="create an immutable L1 release")
+    release = commands.add_parser("release", help="create an immutable lake release")
     release_commands = release.add_subparsers(dest="release_command", required=True)
     create = release_commands.add_parser("create")
     create.add_argument("--dataset-manifest", type=Path, action="append", required=True)
@@ -113,7 +113,7 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "gc":
         return _gc(args)
-    path, release_manifest = create_l1_release(
+    path, release_manifest = create_release(
         dataset_manifest_paths=args.dataset_manifest,
         mirror_root=args.mirror,
         release_id=args.release_id,
@@ -167,7 +167,7 @@ def _resolve_release_target(
     if args.manifest_sha256 is not None:
         raise LakeReadError("--manifest-sha256 is valid only with --release")
     if args.release_ref is not None:
-        reference = load_lake_model_json(args.release_ref.read_bytes(), L1ReleaseSourceRef)
+        reference = load_lake_model_json(args.release_ref.read_bytes(), LakeReleaseSourceRef)
         return resolve_release_ref(source, reference), None
 
     def still_current() -> tuple[str, str]:
@@ -267,7 +267,7 @@ commands:
   validate           validate one manifest contract without changing objects
   resolve            resolve one fixed release and print its immutable identity
   export-all         export every lake dataset from one sealed SQLite snapshot
-  release create     create an immutable L1 release manifest
+  release create     create an immutable lake release manifest
   hydrate            fill a market SQLite store's lake tables from one fixed release
   dehydrate          empty a market SQLite copy of every row one release holds
   gc                 plan (default) or apply deletion of unreachable objects

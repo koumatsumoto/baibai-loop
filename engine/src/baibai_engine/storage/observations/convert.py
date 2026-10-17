@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from baibai_engine.collection.identifiers import SecurityCodeError, parse_security_code_parts
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_decode import is_missing_scalar as _is_missing_scalar
 from baibai_engine.market.jquants_decode import to_float as to_float
-from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
 
 
 @dataclass(frozen=True, slots=True)

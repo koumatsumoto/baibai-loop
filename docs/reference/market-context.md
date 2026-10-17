@@ -9,15 +9,17 @@ status: active
 
 本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Stock Assessment](./stock-assessment.md)が所有する。
 
-Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、純粋算術からDB adapterを参照しない。L1取得とL2照会を組み合わせるアプリケーション処理は`indicator_service.py`と`indicator_cli.py`に置き、L1からReadingへ逆依存させない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
+Collectionの`economic_sources`・`economic_providers`・`economic_acquisition`がL1のsource定義と外部取得を所有する。Market Contextの`indicators`はL2系列の定義、`reading`は保存原本の選択・計算を所有し、`indicator_service.py`と`indicator_cli.py`は読取専用である。L3の統合判断と履歴は`research/market_context`が所有する。L1はL2の列選択・単位・数式・妥当範囲に依存しない。
+
+L1の`SourceDefinition.provider_series_id`は提供元への取得コード、L2の`SeriesDefinition.reading_key`は保存済み入力の列・系列照合・数式を選ぶキーである。`reading_key`は外部取得パラメータではない。
 
 日次工程はL1観測とL2 Readingを更新し、人間の明示開始でMarketContextAssessmentを作成する。新判断は下記assessmentの最小契約とreview手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
 
 ## 現行配置と保全するidentity
 
-`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
+経済データの原本storeはCollection、現在のL2定義は`indicators/registry/`、決定的な読取は`reading/query.py`、明示判断は`research/market_context`が所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合する。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
-runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema9）、判断はapplication DBの`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
+runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema12、経済sourceの原本・取得結果のみ）、判断はapplication DBの`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
 Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は数値・fieldの意味・dated pathを保全し、別のcurrent copyを作らない。計算を変えない説明訂正は可能とし、旧bytesはgit履歴で確認する。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 
@@ -58,9 +60,7 @@ uv run baibai-engine market-context reading --asof YYYY-MM-DD --format json
 
 ## ① データ：indicator series を引く
 
-`list` / `search`はregistryだけを読み、観測storeの作成・更新・schema検査を行わない。取得・更新の手順は[`指標履歴`](../../batch/OPERATIONS.md#指標履歴)、撤回と退役の操作は[`指標観測とregistryの修正`](../../batch/OPERATIONS.md#指標観測とregistryの修正)を参照する。
-
-指標データは `baibai-engine market-context indicators`（`engine/src/baibai_engine/market_context/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
+`list` / `search`はL2 registryだけを読み、storeの作成・更新・schema検査を行わない。`get`も保存原本からの読取専用である。取得・更新はCollectionの明示操作とし、手順は[`指標履歴`](../../batch/OPERATIONS.md#指標履歴)、系列定義の変更は[`指標観測とregistryの修正`](../../batch/OPERATIONS.md#指標観測とregistryの修正)を参照する。
 
 ```bash
 uv run baibai-engine market-context indicators list --category rates       # 登録 series を見る
@@ -69,17 +69,17 @@ uv run baibai-engine market-context indicators get jp.nikkei225 --start 2026-05-
 uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 
-`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicator_service.py)が日次batchと共有する。
+`get`は不足を外部取得せず、保存入力から計算できる値だけを返す。`get --latest`はJSTの運用日を終端とし、外部系列は日次14日・週次60日・その他370日の読取窓、派生系列は保存入力の全期間から最新値を選ぶ。これは[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグ・鮮度閾値とは別である。計算の決定性は保存入力・採用revision・規則・as-ofが固定された場合の性質であり、取得時刻を歴史的な公開可能時刻とは扱わない。
 
-`refresh --all-history` は外部providerごとの取得可能な先頭日から履歴を取得する。通常のscalar/native providerは強制再取得するが、オプションは保存済みの古い日を再利用するため、[専用手順](#jquants-options-provider)に従う。全L1の新規取得と同じ意味ではない。FREDは現在の `fredgraph.csv` の応答行と欠測セルをnative保存し、正常に調べた要求窓の空日は空原本として保持する。取得可能な履歴の外側を旧scalar値で補わない。外部source訂正では再取得期間・vintageの条件に該当する旧sourceの観測をcacheから除く。契約期間や公表archiveが履歴を制限する場合は、実際の取得範囲を運用記録へ残す。
+`collection economic refresh <source_id> --all-history --end <date>`はsourceごとの取得可能な先頭日から明示取得する。通常のnative/document sourceは再取得し、オプションは保存済みの古い日を再利用するため[専用手順](#jquants-options-provider)に従う。全L1の新規取得と同じ意味ではない。正常に調べた要求窓の空日は空原本として保持し、失敗応答を空日にはしない。契約期間や公表archiveによる制限と実際の取得範囲を記録し、取得できない期間を旧scalarで補わない。
 
-`derived`系列は[Readingの純粋な数式](../../engine/src/baibai_engine/market_context/reading/formulas.py)で保存済み入力から読む都度計算する。米10Y−2YスプレッドもH.15で取得した2つの利回りからL2で計算し、取得処理では差分を保存しない。独立した観測・取得履歴として書き込まず、日次取得の対象にも含めない。これらの`get`・`refresh`は入力を再取得せず、base系列の同期後に現在の値を読む。欠測や未定義の計算を古い派生値で補完せず、以前保存した派生cacheは読みや鮮度表示に使わない。保存済みの判断本文は変更しない。
+`derived`系列は[Readingの純粋な数式](../../engine/src/baibai_engine/market_context/reading/formulas.py)で保存入力から読む都度計算する。米10Y−2YスプレッドもH.15の利回りからL2で計算し、取得処理では差分を保存しない。派生系列は独立したsource取得の対象ではなく、`get`も入力を再取得しない。欠測や未定義の計算を古い派生値で補わず、式変更のために原本を再取得したり保存済み判断本文を書き換えたりしない。
 
 ネット流動性の入力単位は[WALCL](https://fred.stlouisfed.org/series/WALCL)・[WTREGEN](https://fred.stlouisfed.org/series/WTREGEN)が百万USD、[RRPONTSYD](https://fred.stlouisfed.org/series/RRPONTSYD)が10億USDなので、`(assets - tga) / 1000 - rrp`とする。RRPを再度1,000で割らない。WALCLは水曜時点、WTREGENは水曜を期末とする週平均、RRPは日次であり、この組合せは近似指標であって同時点の厳密な残高や投資可能資金の測定ではない。
 
 月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションの3系列も保存済み原本をL2で計算する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。日次chainの全項目・欠測・識別子をgzip JSONとして保持し、現在の3指標が使わない項目も残す。HTTPの元bytesを保存する契約ではない。
 
-`fred_csv`・`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`・`frb_h15`・`multpl`もnative recordを`indicator_source_snapshots`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
+`fred_csv`・`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`・`frb_h15`・`multpl`もnative recordを`economic_source_records`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
 
 e-Stat dashboardのsource identityはIndicatorCodeだけではなく、頻度・季節調整・地域を固定するsource URLである。要求窓のVALUE行は速報・null記号・未使用属性もそのまま残し、L2が`@isProvisional=0`の確報だけを選ぶ。確報の欠測から旧値や速報へ戻らない。単位コードの混在は読み取りに使う期間の確報間で検証し、要求窓外の単位差だけで読み取りを止めない。取得時刻は公表時刻ではない。VALUEの単位コードだけで基準年を復元できるとは限らず、系列の意味はregistryと[公表元の系列メタデータ](https://dashboard.e-stat.go.jp/api/1.0/Json/getIndicatorInfo?Lang=JP&IndicatorCode=0302030202010090010)に従う。名目賃金の単位コード000は単位名が空欄であり、2020年平均=100という意味は系列注記から確認する。旧scalar値だけから失われた速報・属性は復元せず、マージ後に必要な原本を取得する。
 
@@ -93,26 +93,21 @@ H.15は利回りごとではなく、同じ公開endpointの共通packageをnati
 
 投資部門別の取得範囲とsnapshotの日付は`PubDate`である。`StDate/EnDate`は集計期間として原本に残し、L2が要求した公表日cutoff以下の最新版を先に選ぶ。読み値の観測日は`EnDate`、vintageは`PubDate`のUTC日付表現であり、実際の配信時刻ではない。公表日と観測期間の終端は別なので、後日訂正を過去の集計期間へ反映できる。最新の`FrgnBal`が欠測なら買い−売りや旧公表値で埋めず、同一公表日に矛盾する値があれば任意の行を採らない。通常の範囲取得は終了日までの公表を対象とし、保存済みread-only照会は必要に応じて別の公表日cutoffを使う。取消の意味が不明な項目から、他の公表日の削除を推測しない。
 
-同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[指標履歴の復旧](../../batch/OPERATIONS.md#指標履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
+経済storeは`economic_source_records`（native record JSON）、`economic_source_documents`（元PDF/JSON等のbodyとmetadata）、`economic_source_runs`（source単位の取得結果）の三表である。L2系列・alias・scalar観測・registry世代は複製しない。各writerは直前と同内容の原本を重複保存せず、内容が変わった取得は保持する。同じsource・日付またはrequest key・UTC取得時刻の再保存は同内容ならno-op、異内容なら拒否し、既存原本を上書きしない。[records](../../engine/src/baibai_engine/collection/economic_records.py)・[documents](../../engine/src/baibai_engine/collection/economic_documents.py)が保存identityを所有する。
 
-scalarとして保存した誤った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。派生系列は入力の撤回・訂正を次回読取で反映するため、派生値を先に撤回する操作は不要である。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+読取は各日の最新取得原本を採る。最新原本が空・欠測・計算不能でも旧原本や旧scalarへ戻らない。取得失敗は既存原本を消さず、完了したdocumentやoption dayは後続失敗でも残る。nativeの要求窓はまとめて保存する。取得結果の記録に失敗しても、すでにcommitした原本を取り消さない。source取得の成功と、特定L2系列を計算できることは別の事実である。
 
-- 下に正しい観測があれば **その観測が再び読まれる**（誤った writer が正しい値の上に別の値を刻んだ場合。撤回のたびに 1 つずつ vintage を遡る）
-- 下に何も無い、または下も撤回済みなら `fetch_status='retracted'` を書き、その日は reading / chart / freshness のすべてから外れる
+registryは現在のL2定義の正本であり、追加・退役・改名でsource factsを削除しない。系列集合の世代台帳やscalar撤回操作は持たない。cloudとのmergeは三表の事実を統合し、同じidentityで異内容なら拒否する。誤った保存をlocalだけで削除してもmerge先には残るため、原本の訂正取得または明示的なstore再構築を行う。過去の発行済みContext本文は変更しない。
 
-読みは「観測日ごとに `ok` と `retracted` の中から最大 vintage を採り、それが `ok` のときだけ返す」。`failed` / `unreleased` は取得の結果であって値についての主張ではないので、読めていた観測を隠さない。書かれた行は普通の fact なので merge が両方向へ運び、他方の store に残る誤った行より必ず新しいため上書きされない。`--all-history` を含む全ての store 書き換えは、**provider の最新の主張より新しい vintage の行を消さない**——書き換えが置換してよいのは provider が言い直すものだけで、その後に store が下した決定（撤回とそれが戻した観測）ではないからである。取得時刻を vintage に刻む provider では最新の主張が「今」なので、この規則は何も余分に残さない。provider が同じ観測日を再配信した場合だけ、新しい `ok` vintage が上に乗って復活する（「源泉が再び主張する事実は読む」で正しい）。
+有限値・単位・系列固有の妥当範囲はL2の計算結果へ適用する。明白な列・桁・単位ずれを検出する条件であって、境界外だけで原資料が誤りとは確定しない。元の欠測記号や未使用項目は原本に保持する。例えば`jp.foreign_flows`のL2値は原典の千円単位を使う。計算できなければ原本・列選択・規則を確認し、source取得失敗へ読み替えない。
 
-registryは系列定義の正本である。通常のopenでは登録外のfactsを削除せず、現行系列を指定した明示的なrefreshが退役系列をpruneする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。退役・改名は[registry修正手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従い、過去の発行済みContextを書き換えない。
+[store](../../engine/src/baibai_engine/collection/economic_store.py)と[schema](../../engine/src/baibai_engine/collection/economic_store.sql)は空の新規storeまたは現行schemaを受け付ける。通常openやtransferに旧schema移行を残さない。read-only validatorは全取得revisionのnative payload形状・件数とdocument metadataを検査し、L2の値域や計算結果は判定しない。式・band・source選択の変更時は、保存原本を使った該当L2読取とReadingを別途確認する。
 
-scalarとして保存する観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。native原本の数値はここで削らず、L2の読み値へ同じ単位・有限値・bandの条件を適用する。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`のL2読み値は原典の千円単位を保持する。scalar観測の検証違反は取得失敗とし、部分取り込みしない。native原本は計算失敗でも保持する。scalarのDB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicator_service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空または現行schemaだけを受け付ける。schema変更は明示的な一回切替で行い、通常のopenやtransferに旧schemaの移行処理を残さない。
-
-registryのband変更時は、Git管理外のstoreのscalar観測をread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、scalar観測とcanonical trigger契約の違反を報告する。native原本からのL2計算はこの検査の対象外であり、変更したproviderの保存済み読取とReadingを別途確認する。
-
-同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。候補一覧発行はContextを読まないため、この検査失敗を候補一覧停止と読み替えない。判断を使うResearchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[CIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+同じvalidatorはapplication storeの判断履歴も別の契約として検証する。旧schemaの本文はstored_onlyとして保持し、退役系列の引用はwarningとする。候補一覧発行はContextを読まないため、その失敗を候補一覧停止と読み替えない。実行条件は[CIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)、変更手順は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 ### データソース registry
 
-系列ID・source URL・unit・provider固有のselectorは[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)、取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/market_context/indicators/provider_specs.py)と各[provider](../../engine/src/baibai_engine/market_context/indicators/providers/)が所有する。下表はsourceを選ぶときの用途と制約を示す。
+外部provider・source URL・要求selectorは[Collection source catalog](../../engine/src/baibai_engine/collection/economic_sources.yaml)、L2系列ID・出力単位・読み取る列・数式は[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)が所有する。取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/collection/economic_provider_specs.py)と各[provider](../../engine/src/baibai_engine/collection/economic_providers/)に従う。複数L2系列が一つのsourceを共有してよい。下表はsourceを選ぶときの用途と制約を示す。
 
 | Provider | 用途 | 選択・運用上の制約 |
 | --- | --- | --- |
@@ -136,9 +131,9 @@ registryのband変更時は、Git管理外のstoreのscalar観測をread-only va
 
 ### GETの再試行
 
-`jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/market_context/indicators/providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
+`jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/collection/economic_providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
 
-serviceが1回再試行するのは、停止を表す`ProviderFetchStoppedError`以外の`IndicatorsProviderError`に限る。再試行前に取得contextのbytes cacheを破棄し、再失敗は`provider_runs`へfailedとして記録する。GET transportの再試行終了・deadline・providerが確定した停止は`ProviderFetchStoppedError`で伝わり、このservice再試行へ戻さない。
+Collectionの取得処理が1回再試行するのは、停止を表す`ProviderFetchStoppedError`以外の`IndicatorsProviderError`に限る。再試行前に取得contextのbytes cacheを破棄し、再失敗は`economic_source_runs`へfailedとして記録する。GET transportの再試行終了・deadline・providerが確定した停止は`ProviderFetchStoppedError`で伝わり、このCollectionの取得処理再試行へ戻さない。
 
 各providerの最初のGETから20分のdeadlineを同じ`FetchContext`の取得passで共有する。通信時間・本文受信・SDK内待機を数え、新しいGETや収まらない待機を開始しない。待機を短縮して再送せず、次passは新しい予算で始める。SDK/HTTPの通信timeoutは30秒のままで、進行中の通信を強制取消するものではない。日次job全体は90分上限だが、job残時間はcallerから渡されておらず、複数providerと他工程の総時間をこの局所予算だけで保証しない。job残時間の伝達は別の残件とし、永続cooldownや次passへの期限引継ぎは持たない。
 
@@ -148,9 +143,9 @@ serviceが1回再試行するのは、停止を表す`ProviderFetchStoppedError`
 
 #### 取得とrate limit
 
-`jquants_options`は営業日ごとのnative chainを取得し、`indicator_source_snapshots`へ取得時刻付きで保存する。空の正常応答も取得済み日であり、解析不能・途中ページ失敗は正常な空日にしない。原本は系列registryから独立したsource factで、同じ日・取得時刻のpayloadが異なるmergeは拒否する。応答内容が直前と同一なら重複payloadを増やさない。
+`jquants_options`は営業日ごとのnative chainを取得し、`economic_source_records`へ取得時刻付きで保存する。空の正常応答も取得済み日であり、解析不能・途中ページ失敗は正常な空日にしない。原本は系列registryから独立したsource factで、同じ日・取得時刻のpayloadが異なるmergeは拒否する。応答内容が直前と同一なら重複payloadを増やさない。
 
-GETの回数・待機は上の共通契約に従う。同じpassの全営業日・3系列で予算と日ごとの取得成否を共有する。完了した日はその都度commitし、後日の取得停止やL2計算失敗で取り消さない。`--all-history`は保存済みの古い日を再利用し、直近14日と不足日を取得する。古い日の訂正を取り直す場合は開始・終了を指定する。現行購読窓より古い原本も削除しない。通常のrange読取は完了した空日を含め再利用し、最新値の取得は新しい読みに不足する場合に再照会する。
+GETの回数・待機は上の共通契約に従う。一回のsource取得passで対象日の予算を共有し、完了した日はその都度commitする。後日の取得停止や別途行うL2計算の失敗で原本を取り消さない。`--all-history`は保存済みの古い日を再利用し、直近14日と不足日を取得する。古い日の訂正は開始・終了を指定して明示取得する。現行購読窓より古い原本も削除しない。通常のrange/latest読取は外部取得せず、空日・不足は保存状態のまま返す。
 
 #### 集計式の変更
 
@@ -168,21 +163,19 @@ L2は各日の最新の取得原本から3系列を計算する。新しい原�
 
 ### Providerの追加
 
-新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、scalar providerには共通取得契約を使う。native option chainは別の保存境界を持ち、applicationが取得とL2読取をつなぐ。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。取得の再試行と停止は[GETの再試行](#getの再試行)の境界に従う。
+新しい外部sourceはCollection catalogへ追加し、必要なら`collection/economic_providers/`に取得処理を実装する。取得能力は`economic_provider_specs.py`に置き、L2側は必要な系列・列選択・数式を別途定義する。既存sourceから新たなL2値を計算できるなら、取得処理を重複させない。公表日を使う読取契約も、正確な歴史的API利用可能性を保証するものではない。
 
-`market-context indicators refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
-
-registryの`plausible_min / plausible_max`を超えた観測は、その系列の書込を拒否する。系列全体の更新失敗として記録し、他系列の更新は続ける。境界外が直ちに原資料の誤りと確定するわけではなく、範囲設定とsourceを確認する運用上の停止である。
+`collection economic refresh`は重複するsource IDを一度だけ処理し、sourceごとの成功・失敗と受領件数を返す。一つのsourceの失敗は他sourceを止めず、最後に失敗をstderrへ列挙して非0終了する。一回のpassではFetchContextを共有する。`economic_source_runs`の件数は原本record数またはdocument数であり、L2観測数ではない。取得の再試行と停止は[GETの再試行](#getの再試行)に従い、L2の値域違反を理由に取得を繰り返さない。
 
 ### PMI release manifestの更新
 
-PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
+PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/collection/economic_providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
 
-抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/market_context/indicators/providers/pmi_extraction.py)が所有する。
+抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/market_context/reading/pmi_extraction.py)が所有する。
 
 1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。これは同一URLの内容が将来も不変である保証ではない。訂正・差替えや抽出規則の変更を確認する場合は、同じURLでも再取得して照合する。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 
-**新しい月の追記は `baibai_engine.market_context.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `market-context indicators refresh` で該当月を取得して公表値と照合してから commit する。
+**新しい月の追記は `baibai_engine.market_context.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `collection economic refresh` で該当月を取得して公表値と照合してから commit する。
 
 ```bash
 uv run python -m baibai_engine.market_context.indicators.pmi_manifest --dry-run   # 何が追記されるかだけ見る
@@ -192,13 +185,13 @@ uv run python -m baibai_engine.market_context.indicators.pmi_manifest           
 **過去月の穴埋めは同じページの archive snapshot から辿る**：この index は最新 1 か月分しか列挙しないため、それより古い release id はサイトからは辿れない。Wayback の同 URL の snapshot が捕捉時点の一覧（公表日・タイトル・release id）を持つので、そこから月ごとの id を復元する。**復元した対応付けは、manifest に既にある月の id と一致するかで検算する**（release は前月分を報告するので、publish 月 − 1 が observed_at になる）。id が復元できない月でも、翌月の release が前月値を restate していればそこから読める：`observed_at` をその月、`release_observed_at` を翌月にして翌月の URL を書く（restate は「前月を名指した値」か「月を伴わない `down from X`」で書かれるため、後者は前月分としてだけ読む）。manifest が公表カレンダーに追いつかない（release 済みの月が manifest に無い）状態は取得の無音の停止になるため、provider が明示エラーで失敗させる: 要求 end の月に対して manifest 最新月が前月に達していないとき（当月 10 日以降）にエラーになり、日次バッチの繰延べ失敗として表面化する。このガードは取得（refresh / all-history）だけを止め、読み取りは store にある月をそのまま返す（manifest の追記漏れが既存データを隠さないため）。
 
 ```bash
-uv run baibai-engine market-context indicators refresh jp.pmi_manufacturing --start 2026-05-01 --end 2026-06-30
-uv run baibai-engine market-context indicators refresh jp.bankruptcies --all-history --end 2026-07-24
+uv run baibai-engine collection economic refresh spglobal-jp-pmi-mfg --start 2026-05-01 --end 2026-06-30
+uv run baibai-engine collection economic refresh tsr-bankruptcies --all-history --end 2026-07-24
 uv run baibai-engine market-context indicators get jp.bankruptcies --start 2003-01-01 --end 2026-07-24
 uv run baibai-engine market-context indicators get jp.pmi_manufacturing --start 2023-01-01 --end 2026-07-24
 ```
 
-`indicators.sqlite` は schema / series registry と各 provider（PDF / API / CSV）から再構築する L1 store であり、定期 backup は持たない。ただし PMI 履歴のように publisher が古い URL を落とすと再取得できない部分があるため、R2 への push は上書き対象の 1 世代を `<key>.bak` として残す（[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)）。
+`indicators.sqlite`は外部sourceの原本・取得記録を持つCollection storeであり、L2 registryや計算値の正本ではない。publisherが古いURLを落とす等で再取得不能な部分があり、取得できる範囲を過去の全情報と同一視しない。R2 pushは上書き対象の1世代を`<key>.bak`として残す（[運用手順](../../batch/OPERATIONS.md)）。
 
 ### Baibai Loop で現在局面と系列履歴を読む
 
@@ -248,9 +241,9 @@ Baibai Loop の Market Context タブは、上から **市場・業種の価格�
 
 ## ③ 明示作成する市場環境判断
 
-`market_context/assessment`は固定したL1/L2入力と基準時点、重要変化と根拠、反証/不確実性、調査・業種・リスクへの含意を扱う。新writerは小さな判断一本で、固定章数・シナリオ数・確率格子・指標条件・前回採点を必須にしない。変化が小さい判断や資料不足も表現でき、経済・金利を株価トレンドだけへ縮小しない。文章の品質は独立reviewで確認する。
+`research/market_context`は固定したL1/L2入力と基準時点、重要変化と根拠、反証/不確実性、調査・業種・リスクへの含意を扱う。新writerは小さな判断一本で、固定章数・シナリオ数・確率格子・指標条件・前回採点を必須にしない。変化が小さい判断や資料不足も表現でき、経済・金利を株価トレンドだけへ縮小しない。文章の品質は独立reviewで確認する。
 
-作成・review・発行・読戻しは[assessment skill](../../.agents/skills/market-context-assessment/SKILL.md)、厳密な形は[model](../../engine/src/baibai_engine/market_context/assessment/models.py)が所有する。L1/L2の値は出典として参照し、AIによる別の数値正本を作らない。日次の機械更新から執筆を自動起動せず、売買の最終確認は人間が担う。
+作成・review・発行・読戻しは[assessment skill](../../.agents/skills/market-context-assessment/SKILL.md)、厳密な形は[model](../../engine/src/baibai_engine/research/market_context/models.py)が所有する。L1/L2の値は出典として参照し、AIによる別の数値正本を作らない。日次の機械更新から執筆を自動起動せず、売買の最終確認は人間が担う。
 
 ### 対象日と利用可能時刻
 
@@ -267,9 +260,9 @@ Researchへ渡す共通projectionは要約・根拠・含意に加えて反証/�
 旧v4の共通projectionには支配的な力の主張・伝達経路・確信度・反証・出典と、force IDで対応する相互作用を小さな`synthesis`として引用する。これは保存済み判断の抽出であり、新判断の必須章や新しい評価ではない。Research workspaceのassessment選択は今回の固定`known_at`を使い、External Assessmentの受信cutoffとは分ける。
 
 ```bash
-uv run baibai-engine market-context assessment history
-uv run baibai-engine market-context assessment show --context-id macro-context-2026-07-17-example
-uv run baibai-engine market-context assessment latest --asof 2026-07-17 --known-at 2026-07-18T13:00:00+09:00
+uv run baibai-engine research market-context history
+uv run baibai-engine research market-context show --context-id macro-context-2026-07-17-example
+uv run baibai-engine research market-context latest --asof 2026-07-17 --known-at 2026-07-18T13:00:00+09:00
 ```
 
 

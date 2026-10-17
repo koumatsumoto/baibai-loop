@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.market_context.assessment.projection import assessment_projection
-from baibai_engine.market_context.assessment.query import latest_assessment
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.ledger_read import load_ledger_document
+from baibai_engine.research.market_context.projection import assessment_projection
+from baibai_engine.research.market_context.query import latest_assessment
 from baibai_engine.research.selection import AnalysisInputSnapshot, InputGap, ResearchRequest
 from baibai_engine.research.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.screening.discovery.projection import candidate_rows

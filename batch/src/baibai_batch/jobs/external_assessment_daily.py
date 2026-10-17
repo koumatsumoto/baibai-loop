@@ -40,9 +40,9 @@ from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_batch.storage.publish_market_lake import _resolve_serving_release, _serving_pointer
 from baibai_engine.batch_api import (
     MARKET_DB_PATH,
+    EquityWebSourceResponse,
     ExternalAssessmentCollectionResult,
     ExternalAssessmentHostRateLimiter,
-    ExternalAssessmentReceivedHTML,
     LakeObjectCache,
     external_assessment_calendar_master_asof,
     external_assessment_collect_pair,
@@ -139,14 +139,6 @@ def _wait_for_retry(deadline: datetime, *, started: float, budget: float) -> boo
         time.sleep(min(waiting, 30.0))
 
 
-def _raw_warning() -> None:
-    # Provider exceptions may contain credentials, signed URLs or response bodies.
-    print(
-        "::warning::External assessment diagnostic raw save failed; typed stage unchanged",
-        file=sys.stderr,
-    )
-
-
 def _cohort_report(
     plan: RunPlan,
     stage: CohortStage,
@@ -177,7 +169,7 @@ def acquire_cohort(
     *,
     soft_budget_seconds: float = SOFT_BUDGET_SECONDS,
 ) -> dict[str, object]:
-    """Collect missing pairs locally, commit confirmed outcomes once, then upload raw.
+    """Collect missing pairs, upload captured originals, then commit confirmed outcomes.
 
     The workflow serializes acquisition. A hard kill before commit may repeat GETs;
     a saved success or failure is immutable and is never fetched again in this plan.
@@ -200,11 +192,7 @@ def acquire_cohort(
     stop_reason = None
     rate_limiter = ExternalAssessmentHostRateLimiter()
     with ExitStack() as resources:
-        bundle = None
-        try:
-            bundle = resources.enter_context(RawBundle(plan.run_id, index))
-        except Exception:
-            _raw_warning()
+        bundle = resources.enter_context(RawBundle(plan.run_id, index))
         session = resources.enter_context(requests.Session())
         # Rotate hosts while keeping the saved source-major entry order unchanged.
         # Stable sorting retains the plan's source order within each ticker.
@@ -216,7 +204,7 @@ def acquire_cohort(
                 break
             final_result: ExternalAssessmentCollectionResult | None = None
             for retry in range(MAX_PAIR_RETRIES + 1):
-                received_html: list[ExternalAssessmentReceivedHTML] = []
+                received_html: list[EquityWebSourceResponse] = []
                 session.cookies.clear()
                 collection_started = time.monotonic()
                 result = external_assessment_collect_pair(
@@ -239,12 +227,8 @@ def acquire_cohort(
                 # At most two bodies per attempt stay in memory. Disk/compression/R2
                 # work is outside the finite pair deadline and cannot alter its result.
                 storage_started = time.monotonic()
-                if bundle is not None:
-                    for received in received_html:
-                        try:
-                            bundle.append(entry.source, entry.ticker, received)
-                        except Exception:
-                            _raw_warning()
+                for received in received_html:
+                    bundle.append(received)
                 timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
                 if result.outcomes[0].status == "not_attempted":
                     stop_reason = result.stop_reason or "soft_budget"
@@ -285,17 +269,30 @@ def acquire_cohort(
                 break
         storage_started = time.monotonic()
         if stage.result != original.result:
-            bundle_key = bundle.key if bundle is not None and bundle.receipts else None
+            for entry in stage.result.entries:
+                if entry.state in {"success", "normal_null"} and entry != next(
+                    prior
+                    for prior in original.result.entries
+                    if (prior.source, prior.ticker) == (entry.source, entry.ticker)
+                ):
+                    receipts = [
+                        receipt
+                        for receipt in bundle.receipts
+                        if receipt["attempt_id"] == entry.attempt_id
+                    ]
+                    expected_roles = {"page", "iframe"} if entry.source == "rakuten" else {"page"}
+                    if {receipt["role"] for receipt in receipts} != expected_roles or any(
+                        (receipt["source"], receipt["requested_ticker"])
+                        != (entry.source, entry.ticker)
+                        for receipt in receipts
+                    ):
+                        raise ValueError("typed pair has no complete captured original attempt")
+            bundle_key = bundle.key if bundle.receipts else None
             if bundle_key is not None:
+                bundle.finish()
+                bundle.upload(store)
                 stage = replace(stage, raw_bundle_keys=(*stage.raw_bundle_keys, bundle_key))
             stage = commit_stage(store, plan, stage, previous=previous)
-            if bundle_key is not None and bundle_key in stage.raw_bundle_keys:
-                assert bundle is not None
-                try:
-                    bundle.finish()
-                    bundle.upload(store)
-                except Exception:
-                    _raw_warning()
         timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
     return _cohort_report(plan, stage, stop_reason, started, timings, provider_requests)
 

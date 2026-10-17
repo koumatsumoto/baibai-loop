@@ -7,7 +7,8 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_engine.market.providers.jquants import JQuantsProviderError, normalize_weekly_margin
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.ingest.jquants import (
     store_jquants_all_issues_daily_margin,
@@ -80,11 +81,10 @@ def test_daily_margin_publication_and_values_survive_sqlite_and_lake(tmp_path, m
 def test_weekly_margin_does_not_invent_requested_balance_date(tmp_path, source_date):
     requested = date(2026, 7, 24)
     record = {"Date": source_date, "Code": "13010", "LongVol": 30, "ShrtVol": 0}
-    with pytest.raises(JQuantsProviderError):
-        normalize_weekly_margin(record, requested)
-
     database = tmp_path / "market.sqlite"
     assert store_jquants_weekly_margin(database, [record], week_end=requested) == 0
+    with pytest.raises(JQuantsProviderError, match="incomplete"):
+        JQuantsReader(database).get_mkt_margin_interest_week(requested)
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_weekly_margin").fetchone() == (0,)
         assert connection.execute(
@@ -92,10 +92,11 @@ def test_weekly_margin_does_not_invent_requested_balance_date(tmp_path, source_d
         ).fetchone() == ("partial",)
 
 
-def test_weekly_native_zero_balance_is_not_missing():
+def test_weekly_native_zero_balance_is_not_missing(tmp_path):
     day = date(2026, 7, 24)
     record = {"Date": day.isoformat(), "Code": "13010", "LongVol": 30, "ShrtVol": 0}
-    result = normalize_weekly_margin(record, day)
-    assert result is not None
+    database = tmp_path / "market.sqlite"
+    assert store_jquants_weekly_margin(database, [record], week_end=day) == 1
+    result = JQuantsReader(database).get_mkt_margin_interest_week(day)[0]
     assert result.week_end == day
     assert result.short_vol == 0.0

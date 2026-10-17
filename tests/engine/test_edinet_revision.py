@@ -93,7 +93,7 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
 )
 def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected_exit, downloads):
     from tests.engine.test_screening_cli import (
-        FakeEDINETProvider,
+        FakeEDINETMetricReader,
         _edinet_document,
     )
     from tests.engine.test_screening_cli import (
@@ -104,12 +104,14 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
 
     db = tmp_path / "market.sqlite"
     document = _edinet_document(ticker="72030", doc_id="S100BASELINE")
-    initial = FakeEDINETProvider(documents=[document], zip_by_doc_id={"S100BASELINE": csv_zip()})
+    initial = FakeEDINETMetricReader(
+        documents=[document], zip_by_doc_id={"S100BASELINE": csv_zip()}
+    )
     assert (
         extract_edinet_metrics_command(
             asof_date=date(2026, 4, 24),
             lookback_days=0,
-            provider=initial,
+            reader=initial,
             sqlite_path=db,
             stdout=StringIO(),
         )
@@ -146,20 +148,20 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
             connection.execute("UPDATE edinet_metrics SET ticker='invalid'")
         retained = connection.execute("SELECT * FROM edinet_metrics ORDER BY ticker").fetchall()
     # A missing ZIP for the current revision makes accidental re-extraction fail.
-    retry = FakeEDINETProvider(
+    retry = FakeEDINETMetricReader(
         documents=[document], zip_by_doc_id={"S100BASELINE": csv_zip()} if downloads else {}
     )
     assert (
         extract_edinet_metrics_command(
             asof_date=date(2026, 4, 25),
             lookback_days=0,
-            provider=retry,
+            reader=retry,
             sqlite_path=db,
             stdout=StringIO(),
         )
         == expected_exit
     )
-    assert len(retry.download_calls) == downloads
+    assert len(retry.read_calls) == downloads
     with closing(sqlite3.connect(db)) as connection, connection:
         latest = connection.execute(
             "SELECT * FROM edinet_metrics WHERE asof_date='2026-04-25'"

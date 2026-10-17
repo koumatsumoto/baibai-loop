@@ -528,7 +528,7 @@ def test_edinet_readers_preserve_named_values_and_provenance(tmp_path):
     assert baseline.rows["7203"].source_document_revision == "document-test"
 
 
-def test_unfinalized_edinet_query_failure_is_not_an_empty_worklist(tmp_path, monkeypatch):
+def test_unrechecked_edinet_query_failure_is_not_an_empty_worklist(tmp_path, monkeypatch):
     from baibai_engine.market.edinet_metrics import store
 
     db = tmp_path / "market.sqlite"
@@ -544,7 +544,7 @@ def test_unfinalized_edinet_query_failure_is_not_an_empty_worklist(tmp_path, mon
 
     monkeypatch.setattr(store, "connect_current", lambda path: BrokenConnection())
     with pytest.raises(sqlite3.OperationalError, match="read failed"):
-        store.read_unfinalized_edinet_document_dates(db, before=date(2026, 5, 8))
+        store.read_unrechecked_edinet_document_dates(db, before=date(2026, 5, 8))
     assert closed == [True]
 
 

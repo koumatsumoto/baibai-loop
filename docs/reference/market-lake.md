@@ -1,6 +1,6 @@
 ---
 title: "Market lake operations"
-summary: "R2のimmutable L1 releaseをpublishし、固定releaseからmarket storeを復元する運用契約。"
+summary: "R2のimmutable market releaseをpublishし、固定releaseからmarket storeを復元する運用契約。"
 doc_type: reference
 status: active
 ---
@@ -15,8 +15,9 @@ status: active
 ## 発行契約
 
 market factはR2のcontent-addressed Parquet objectとして保持する。dataset manifestはpartition objectと
-row数・schema・digestを列挙し、L1 release manifestは同時に使うdataset buildの集合を固定する。
-`lake/pointers/l1/current.json`だけが可変で、それ以外のobjectとmanifestはimmutableである。
+row数・schema・digest・layerを列挙し、market release manifestは同時に使うdataset buildの集合を固定する。
+lakeは物理的な公開bundleであり、各dataset契約の`l1_source`と`l2_processed`を一つのreleaseで扱う。
+`lake/pointers/market/current.json`だけが可変で、それ以外のobjectとmanifestはimmutableである。
 
 - partition grainはdataset契約が宣言し、row数から動的に変えない
 - object key、SHA-256、byte数、row数、Arrow schemaを読取時に照合する
@@ -26,7 +27,7 @@ row数・schema・digestを列挙し、L1 release manifestは同時に使うdata
 - 一つのdatasetへ同時に二つのcanonical writerを持たない
 - readerは開始時にcurrentを一度だけ解決し、以後は固定releaseだけを読む
 
-L1 releaseに含まれないstore-local tableはSQLite側が所有する。hydrateはrelease対象tableを空にしてから
+market releaseに含まれないstore-local tableはSQLite側が所有する。hydrateはrelease対象tableを空にしてから
 積み、manifest row数と一致した場合だけatomic replaceする。したがって、撤回済みrowや旧世代の残り物を
 暗黙に引き継がない。
 
@@ -50,7 +51,7 @@ dataset追加時は次を同じ変更で揃える。
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
 
-`jquants.fin_summaries`はcontract version 4で、主キーは`ticker / disclosed_at / disclosure_number`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
+`jquants.source_pages`は取得したJ-Quants応答のL1原本である。そこからidentityと日付を整えて採用した`jquants.master_snapshots`（contract version 3）と`jquants.fin_summaries`（contract version 5）はL2であり、原本の代替ではない。後者の主キーは`ticker / disclosed_at / disclosure_number`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
 
 財務の取得範囲内に開示が0件でも、正常に取得した期間は取得済みとして再利用する。未取得・不正recordを含むpartialとは区別し、計算に必要な履歴・銘柄数の充足とは別に判定する。訂正確認のための明示的な再取得と直近期間の更新は継続する。
 
@@ -139,13 +140,13 @@ Webの共有認証から、次の順序で既存manifestとParquetをraw GETし�
 [Web](../../web/README.md#共有read)、credential設定と受入手順は
 [運用手順](../../batch/OPERATIONS.md#shared-read-setup)を参照してください。
 
-1. `GET /api/lake/current`でexact `lake/pointers/l1/current.json`を一度だけ取得する。
+1. `GET /api/lake/current`でexact `lake/pointers/market/current.json`を一度だけ取得する。
 2. pointerが指すrelease manifest keyを`GET /api/lake/object?key=<key>`へ渡す。
 3. そのreleaseが列挙したdataset manifestを同じobject routeで取得する。
 4. そのdataset manifestが列挙したpartitionだけを取得する。
 
-object routeは`lake/manifests/releases/l1/`と`lake/manifests/datasets/`の`.json`、
-`lake/l1/canonical/`の`.parquet`だけを許可します。pointerはcurrent routeだけで公開し、store snapshot、
+object routeは`lake/manifests/releases/market/`と`lake/manifests/datasets/`の`.json`、
+`lake/l1/source/`と`lake/l2/processed/`の`.parquet`だけを許可します。pointerはcurrent routeだけで公開し、store snapshot、
 application DB、staging、GCには到達できません。keyはquery parserで一度decodeした文字列として判定し、
 callerがbucketやupstream hostを指定することはできません。
 
@@ -268,6 +269,8 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 ## External Assessmentの保存済み照会
 
+`equity_web.source_responses`はHTTP 200の公開HTML原本を受領UTC年月でpartitionするL1である。receipt ID・attempt ID・媒体/要求ticker・page/iframe親子・URL・encoding・受領時刻・本文bytesを保持し、parse失敗の原本も落とさない。private raw bundleは公開前の短期handoffであり、固定releaseに載ったL1とは区別する。publisherは変更月の原本全履歴を行順に照合し、選択receiptのmetadataと本文を確認する。再取得できなかった応答の本文は作らない。
+
 `external_assessment.model_valuation_observations`、`external_assessment.analyst_rating_observations`、`external_assessment.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。External Assessmentを含まないreleaseをcurrent-schema作業コピーへhydrateした場合、そのtableは空となる。旧retail dataset名を含む固定releaseは元commitとの組合せで読み、新runtimeへ透過的に読み替えない。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。旧SQLiteの形をruntime readerが読み替えることはしない。
 
 同じ銘柄を同日に複数回受信しても、`fetched_at_utc`が違えば別行にする。保存済みstageの再投入は元の受信時刻を維持し、同じキー・同じ内容なら無変更、異なる内容ならtransaction全体を拒否する。新しいHTTP受信の同値は改定とは数えない。将来別配信元を同じsemantic tableへ追加するときは、その配信元を含むキーへ明示的にcontractを変更する。
@@ -280,7 +283,7 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <ISO_DATETIME_WITH_TIMEZONE> --db stores/market/market.sqlite
 ```
 
-`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・stage importは明示された`collect / import`だけが既存L1入口へ委譲し、通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#external-assessment-acquisition)、手動取得・stage importは[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)が所有する。
+`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・原応答captureのimportは明示された`collect / import`だけが現行取得入口へ委譲する。`rebuild-raw`は既存market SQLite内の明示したL1試行だけをofflineで再解析し、選択されたL2キーを原子的に置換する。現行取得jobや通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#external-assessment-acquisition)、手動取得・capture importは[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)が所有する。
 
 <a id="tradingview-query"></a>
 

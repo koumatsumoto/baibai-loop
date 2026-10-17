@@ -12,26 +12,26 @@ from urllib.parse import parse_qs, urlsplit
 
 import jquantsapi
 import pytest
-from tests.helpers.indicator_store import observation
 from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
 from baibai_batch.validation.market_context_stores import main as validate_stores
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
-    RefreshFailure,
-    RefreshSuccess,
+from baibai_engine.collection.economic_acquisition import (
+    SourceRefreshFailure,
+    SourceRefreshSuccess,
     _fetch_with_retry,
+    refresh_sources,
 )
-from baibai_engine.market_context.indicators import db
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic_providers.base import (
     FetchContext,
     ProviderFetchStoppedError,
 )
-from baibai_engine.market_context.indicators.providers.fred import parse_fred_csv
-from baibai_engine.market_context.indicators.providers.native import fetch_native_records
+from baibai_engine.collection.economic_providers.fred import parse_fred_csv
+from baibai_engine.collection.economic_providers.native import fetch_native_records
+from baibai_engine.collection.economic_sources import require_source
+from baibai_engine.collection.economic_store import open_read_only_connection
+from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.storage.application.write import initialize_database as initialize_application
 
@@ -100,7 +100,7 @@ def wire(monkeypatch):
             selected_context = self.context if context is None else context
             native = _fetch_with_retry(
                 lambda: fetch_native_records(
-                    load_definitions().by_id()[series_id],
+                    require_source(load_definitions().by_id()[series_id].source_id),
                     start=START,
                     end=END,
                     context=selected_context,
@@ -115,9 +115,7 @@ def wire(monkeypatch):
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
     for name in ["jquants_flows", "jquants_indices"]:
-        module = __import__(
-            f"baibai_engine.market_context.indicators.providers.{name}", fromlist=["*"]
-        )
+        module = __import__(f"baibai_engine.collection.economic_providers.{name}", fromlist=["*"])
         monkeypatch.setattr(module, "_read_api_key", lambda: "synthetic-key")
     monkeypatch.setattr(
         HTTPConnectionPool,
@@ -152,7 +150,9 @@ def test_one_get_owns_the_initial_plus_five_attempts(wire, series_id, failures):
         if series_id != "vix":
             assert records == data["data"]
         else:
-            expected = parse_fred_csv(series, data.decode(), start=START, end=END)
+            expected = parse_fred_csv(
+                require_source(series.source_id), data.decode(), start=START, end=END
+            )
             assert records == [row for rows in expected.values() for row in rows]
     assert len(wire.calls) == min(failures + 1, 6)
     assert len(set(wire.calls)) == 1
@@ -346,10 +346,7 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
     database = tmp_path / "indicators.sqlite"
     application = tmp_path / "application.sqlite"
     initialize_application(application)
-    conn = db.initialize_database(database)
-    db.insert_observations(conn, [observation(by_id["vix"], DAY - timedelta(days=7), 19)])
-    conn.commit()
-    conn.close()
+    source_ids = [by_id[series_id].source_id for series_id in IDS]
 
     def full_response(sid, url):
         current = payload(sid)
@@ -366,15 +363,12 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
         return 200, {}, current
 
     wire.reply = full_response
-    results = IndicatorsService(database).refresh_series(IDS, start=START, end=END)
-    assert all(isinstance(r, RefreshSuccess) for r in results)
-    conn = db.open_read_only_connection(database)
+    results = refresh_sources(source_ids, db_path=database, start=START, end=END)
+    assert all(isinstance(r, SourceRefreshSuccess) for r in results)
+    conn = open_read_only_connection(database)
     try:
-        before = conn.execute(
-            "SELECT * FROM observations ORDER BY series_id,observed_at"
-        ).fetchall()
         native_before = conn.execute(
-            "SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at"
+            "SELECT * FROM economic_source_records ORDER BY source_id,observed_at,fetched_at"
         ).fetchall()
         reader = build_store_observation_reader(conn, series=definitions.series)
         for sid, value in zip(IDS, (500, 3000, 20), strict=True):
@@ -392,21 +386,17 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
     finally:
         conn.close()
     wire.reply = lambda sid, url: (403, {}, {})
-    failures = IndicatorsService(database).refresh_series(IDS, start=START, end=END)
-    assert all(isinstance(r, RefreshFailure) for r in failures)
-    conn = db.open_read_only_connection(database)
+    failures = refresh_sources(source_ids, db_path=database, start=START, end=END)
+    assert all(isinstance(r, SourceRefreshFailure) for r in failures)
+    conn = open_read_only_connection(database)
     try:
         assert (
-            conn.execute("SELECT * FROM observations ORDER BY series_id,observed_at").fetchall()
-            == before
-        )
-        assert (
             conn.execute(
-                "SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at"
+                "SELECT * FROM economic_source_records ORDER BY source_id,observed_at,fetched_at"
             ).fetchall()
             == native_before
         )
-        assert conn.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 6
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0] == 6
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:

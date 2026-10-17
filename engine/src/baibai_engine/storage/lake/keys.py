@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from typing import Literal
 
-LakeLayer = str
+LakeLayer = Literal["l1_source", "l2_processed"]
 PartitionValue = str | int
 
 _DATASET = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -107,9 +108,10 @@ def canonical_object_key(
     validate_dataset_name(dataset)
     version = _positive_version(contract_version)
     digest = validate_sha256(content_sha256)
-    if layer != "l1_canonical":
-        raise ValueError("layer must be l1_canonical")
-    base = f"lake/l1/canonical/{dataset}"
+    if layer not in {"l1_source", "l2_processed"}:
+        raise ValueError("layer must be l1_source or l2_processed")
+    prefix = "lake/l1/source" if layer == "l1_source" else "lake/l2/processed"
+    base = f"{prefix}/{dataset}"
     partitions = "/".join(partition_segments(partition_values, partition_by=partition_by))
     return validate_lake_object_key(
         f"{base}/contract=v{version}/{partitions}/part-{digest}.parquet"
@@ -122,14 +124,14 @@ def dataset_manifest_key(*, dataset: str, build_id: str) -> str:
     return validate_lake_object_key(f"lake/manifests/datasets/{dataset}/{build_id}.json")
 
 
-L1_RELEASE_PREFIX = "lake/manifests/releases/l1/"
-"""Where L1 release manifests live, which is also which mirror answers for them."""
+RELEASE_PREFIX = "lake/manifests/releases/market/"
+"""Where market release manifests live, which is also which mirror answers for them."""
 
 
 def release_manifest_key(*, release_id: str) -> str:
     validate_identifier(release_id, label="release_id")
-    return validate_lake_object_key(f"{L1_RELEASE_PREFIX}{release_id}.json")
+    return validate_lake_object_key(f"{RELEASE_PREFIX}{release_id}.json")
 
 
-def current_l1_pointer_key() -> str:
-    return "lake/pointers/l1/current.json"
+def current_release_pointer_key() -> str:
+    return "lake/pointers/market/current.json"

@@ -1,4 +1,4 @@
-/** Research工程でfixed releaseのmarket L1を変換せずread-only S3経由で見せる。 */
+/** Research工程でfixed releaseのmarket lakeを変換せずread-only S3経由で見せる。 */
 import { AwsClient } from 'aws4fetch'
 
 function allowedObject(key: string): boolean {
@@ -6,9 +6,9 @@ function allowedObject(key: string): boolean {
   // Reject dot segments before URL construction can normalize them out of the namespace.
   if (key.split('/').some((part) => !part || part === '.' || part === '..')) return false
   return (
-    (key.startsWith('lake/manifests/releases/l1/') && key.endsWith('.json')) ||
+    (key.startsWith('lake/manifests/releases/market/') && key.endsWith('.json')) ||
     (key.startsWith('lake/manifests/datasets/') && key.endsWith('.json')) ||
-    (key.startsWith('lake/l1/canonical/') && key.endsWith('.parquet'))
+    ((key.startsWith('lake/l1/source/') || key.startsWith('lake/l2/processed/')) && key.endsWith('.parquet'))
   )
 }
 
@@ -19,7 +19,7 @@ export async function lakeResponse(
 ): Promise<Response> {
   const error = (status: number, detail: string) =>
     new Response(JSON.stringify({ detail }), { status, headers })
-  let key = 'lake/pointers/l1/current.json'
+  let key = 'lake/pointers/market/current.json'
   if (url.pathname === '/api/lake/object') {
     const keys = url.searchParams.getAll('key')
     if (keys.length !== 1 || !allowedObject(keys[0])) return error(400, 'invalid lake key')
