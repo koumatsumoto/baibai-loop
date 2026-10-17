@@ -862,7 +862,7 @@ summaryは営業日判定・master基準日・保存済み/追加/残件・unres
 
 ### 保存済みmasterを使う当日の手動観測
 
-mainへmanual dispatchし、`observation_master_asof`だけに保存済みmasterの日付を指定する。`observations_json` / `observations_sha256`は空にする。営業日は当日、休場日はcalendar上の直近営業日のmasterを指定し、上記の取得時間を守る。J-Quants masterの追加取得は行わず、指定日がcalendarの必須基準日と異なる場合やmasterがない場合はOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
+mainへmanual dispatchし、`observation_master_asof`に保存済みmasterの日付を指定する。営業日は当日、休場日はcalendar上の直近営業日のmasterを指定し、上記の取得時間を守る。J-Quants masterの追加取得は行わず、指定日がcalendarの必須基準日と異なる場合やmasterがない場合はOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
 
 ```bash
 read -r -p '保存済みmasterの基準日 YYYY-MM-DD: ' master_asof &&
@@ -871,25 +871,6 @@ gh workflow run cloud-tradingview-snapshot.yml --ref main \
 ```
 
 同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。取得中に当日`tradingview_source_receipts`が増えたが新規の正規化済みrowが0件のときも、provider/auth/secret/time_guard/timeout系の取得失敗に限り既存L1 release publisherで原受領記録を公開する。取得runは失敗のままとし、cooldownとlease解放を続ける。storage/internal障害や中断、受領記録0件ではこの公開を行わない。公開後は固定releaseからhydrateして原受領記録を読戻し、正規化済みrowとは区別する。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は取得成功とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
-
-### 保存済み実観測の明示的な受入
-
-providerから受領済みの応答を履歴へ残す場合は、通常collectorとは別に`accept-observations`を使う。新しいprovider接続は行わず、休場日でも実受領日のJST日付を`snapshot_date`、UTC受領完了時刻を`fetched_at_utc`にする。quote/provider更新時刻が不明ならNULLのままとし、過去の営業日へ付け替えない。受領時刻はタイムゾーン付きなら受け付け、保存時に同じ瞬間のUTCへ正規化する。入力サイズ上限内の1件以上の応答・各最大50銘柄を既存`tradingview.forecast_snapshots`へ追加し、coverageは`partial`のままにする。同一PK・全列一致はno-op、異なる値なら受入全体をrollbackし、既存行を上書きしない。
-
-元応答はLibraryに保持し、versionとSHA256を確認してから対象応答だけを選ぶ。入力JSONは`schema_version: 1`、`source_ref`（`library_file_id`, `file_id`, `version`, 元ファイルの`sha256`）、`observation_date_jst`、取得時の順序の`columns`、`observations`を持つ。各observationは`trial`、UTCの`timing.start/end`、構造化された元の`result`を保持する。`json.dumps(..., ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)`で改行なしに保存し、選択入力そのもののSHA256も求める。元ファイルのhashはprovenanceであり、選択入力のhashとは区別する。
-
-作業用SQLiteだけで受入を確認する場合:
-
-```bash
-uv run baibai-engine tradingview accept-observations \
-  --sqlite /tmp/market-acceptance.sqlite \
-  --input /tmp/selected-observations.json \
-  --input-sha256 <選択入力のSHA256>
-```
-
-本番反映は既存`cloud-tradingview-snapshot.yml`のmainへのmanual dispatchを使う。`observations_json`と`observations_sha256`の両方を設定し、`ref: main`と`inputs`を含むdispatch JSONをprivate fileから`gh api --method POST .../actions/workflows/cloud-tradingview-snapshot.yml/dispatches --input <file>`へ渡す。Actions inputs合計は65,535文字以内とする。raw応答をGit、shell引数、環境変数、logへ出さない。jobは`GITHUB_EVENT_PATH`から入力を検証し、既存publication lease取得→fresh pull/hydrate→受入→新規行がある場合だけ既存L1 publishの順に実行する。両入力が空のscheduled/manual実行は通常collectorへ進む。
-
-公開後は空のcacheからR2の固定releaseを全dataset読み直してhydrateし、受入行の全列、受領時刻、受入前のTV履歴の件数/hash、他datasetと他月のobject hashを照合する。成功summaryの`readback: verified`を確認する。`published_readback_pending`だけなら公開は済んでいても読戻し未確認であり、完了として扱わない。同じ入力の再実行は一致する行を検証し、L1を再公開しない。OAuth state・通常cron・通常collectorの営業日/引け後guardはこの操作で変更しない。
 
 ### 初期設定と認証の復旧
 
@@ -959,6 +940,8 @@ engineの`refresh --state-file`は取得だけの低レベル入口であり、p
 当日の各銘柄で最初に保存した正常応答を維持する。受領したSDK応答は検証前に`tradingview.source_receipts`へ独立commitし、L2は正常batchごとに別transactionで保存する。取得不良batchはL2へ保存せず次の未保存batchを試す。応答不良が3 batch連続した場合と明示的429では新規requestを止める。同一batchの即時retryは行わず、skip後も通常intervalを置く。新規rowが0件なら失敗とし、過去に公開した部分snapshotだけで今回を成功にしない。次slotは公開済みの未保存銘柄から再開する。過去日の穴を現在値で埋めない。
 
 正常応答が要求銘柄を明示的に`missing`と返した場合は、batch内の全件か一部かによらず`unresolved`として保存する。`saved`は全銘柄の応答を記録した意味であり、予測値の充足やproviderの健全性を保証しない。全件`unresolved`でも同日の自動再取得・障害通知は行わない。明示的なHTTP・認証・通信エラーと不正応答は、引き続き未保存として失敗・再開を扱う。
+
+新しい観測は通常のreceipt保持付き取得で保存・公開する。旧`accept-observations`用の正規化済み受入ファイルやLibrary参照はL1再構築の入力にしない。既存ファイルは変更しない。
 
 保存済みL1から1日のL2を再構築する場合は、作業用の既存`market.sqlite`と対象receipt IDを明示してofflineで実行する。認証・provider接続は使わず、他の日付のL2には触れない。実行前に対象receiptが同じ観測日・master・tool・要求列・Universeに属することを確認する。返値の`rows`・`unresolved`・`expected_universe`・`remaining`・`rejected_receipts`を読み、正常receipt 0件や同日銘柄重複ではL2が置換されず、全銘柄が明示的な`missing`の正常receiptは`unresolved`行へ復元されることを確認する。
 

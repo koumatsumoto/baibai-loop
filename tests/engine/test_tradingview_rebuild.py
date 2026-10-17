@@ -326,3 +326,13 @@ def test_rebuild_cli_is_offline_and_does_not_create_missing_store(
         )
     result = json.loads(capsys.readouterr().out)
     assert (result["rows"], result["remaining"]) == (1, 0)
+
+
+def test_removed_normalized_acceptance_command_rejects_before_auth_or_provider() -> None:
+    with (
+        patch.object(cli, "credential_storage", side_effect=AssertionError("auth")),
+        patch.object(cli, "connect", side_effect=AssertionError("provider")),
+        pytest.raises(SystemExit) as caught,
+    ):
+        cli.main(["accept-observations", "--input", "old-normalized.json"])
+    assert caught.value.code == 2

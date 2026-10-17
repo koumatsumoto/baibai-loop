@@ -93,15 +93,6 @@ from baibai_engine.external_assessment.observations.models import (
 from baibai_engine.external_assessment.store import (
     save_observations as external_assessment_save_observations,
 )
-from baibai_engine.external_assessment.tradingview.accepted import (
-    accept_observations as tradingview_accept_observations,
-)
-from baibai_engine.external_assessment.tradingview.accepted import (
-    load_observations as tradingview_load_observations,
-)
-from baibai_engine.external_assessment.tradingview.accepted import (
-    verify_release_observations as tradingview_verify_release_observations,
-)
 from baibai_engine.external_assessment.tradingview.collector import (
     preflight_snapshot as tradingview_preflight,
 )
@@ -286,13 +277,10 @@ __all__ = [
     "repository_root_error",
     "require_aware",
     "resolve_release",
-    "tradingview_accept_observations",
     "tradingview_failure_line",
-    "tradingview_load_observations",
     "tradingview_preflight",
     "tradingview_safe_progress",
     "tradingview_validate_time",
-    "tradingview_verify_release_observations",
     "validate_candidate_run",
     "validate_economic_schema",
     "validate_lake_release_policy",

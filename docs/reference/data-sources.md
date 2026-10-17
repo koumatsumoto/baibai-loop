@@ -185,7 +185,7 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 `tradingview.forecast_snapshots`はOfficial MCPの`get_symbol_data_batch`から実際に取得した市場期待を、日付・銘柄ごとに保持する任意のL2観測である。対象は既存J-Quants masterの東証普通株で、Screeningの最小株価履歴を要求しない。`get_forecasts`の日本株通貨補正や、ScreenerによるUniverse生成は行わない。
 
-PITが保証するのは`fetched_at_utc`時点の取得値であり、providerの最初の公表時刻ではない。`snapshot_date`は実観測日のJST日付、master基準日は対象Universeを選ぶ日付であり、観測値の時点ではない。collectorは手動・定期ともJPX calendarで判定し、営業日は当日masterで15:30以降、休場日は直近営業日の保存済みmasterで09:00以降に取得する。[明示的な手動観測](../../batch/OPERATIONS.md#保存済みmasterを使う当日の手動観測)はcalendarが要求するmaster基準日との一致を確認し、当日の実受領時刻を保持する。営業日の引け前を許可しない。受領済み応答の[明示的な受入](../../batch/OPERATIONS.md#保存済み実観測の明示的な受入)も同じ観測日の意味で記録する。利用可能になる最速時点は観測後の次の取引機会とし、masterの日付や日付だけで過去の売買時点へ遡及させず、翌日値や無条件のlatest-nonnullによる欠測の埋め直しもしない。休日の同値履歴を独立した情報sampleとして扱わず、各行の`fetched_at_utc`を評価のas-of cutoff以下に限定する。
+PITが保証するのは`fetched_at_utc`時点の取得値であり、providerの最初の公表時刻ではない。`snapshot_date`は実観測日のJST日付、master基準日は対象Universeを選ぶ日付であり、観測値の時点ではない。collectorは手動・定期ともJPX calendarで判定し、営業日は当日masterで15:30以降、休場日は直近営業日の保存済みmasterで09:00以降に取得する。[明示的な手動観測](../../batch/OPERATIONS.md#保存済みmasterを使う当日の手動観測)はcalendarが要求するmaster基準日との一致を確認し、当日の実受領時刻を保持する。営業日の引け前を許可しない。保存済み原応答からの[再構築](../../batch/OPERATIONS.md#保存と再試行)でも元の実受領時刻を維持する。利用可能になる最速時点は観測後の次の取引機会とし、masterの日付や日付だけで過去の売買時点へ遡及させず、翌日値や無条件のlatest-nonnullによる欠測の埋め直しもしない。休日の同値履歴を独立した情報sampleとして扱わず、各行の`fetched_at_utc`を評価のas-of cutoff以下に限定する。
 
 正常rowのnull、正常応答で明示された`unresolved`、rowがない未取得銘柄を区別する。正常なbatchごとに保存し、同日の後続取得はrowがない銘柄だけを対象にする。各銘柄の最初の正常観測と`fetched_at_utc`は同日中に上書きしない。429や応答不良を未取得銘柄の`unresolved`へ変換せず、部分集合を全市場の代表標本とみなさない。過去のsnapshotが最新releaseに残っていても、今日の取得成功とは扱わない。
 

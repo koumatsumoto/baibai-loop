@@ -545,7 +545,7 @@ forbidden_modules = [
   "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.read_api",
   "baibai_engine.external_assessment.acquisition.collection", "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.normalization", "baibai_engine.external_assessment.acquisition.cli",
-  "baibai_engine.external_assessment.tradingview.collector", "baibai_engine.external_assessment.tradingview.accepted",
+  "baibai_engine.external_assessment.tradingview.collector",
 ]
 
 
@@ -576,7 +576,6 @@ forbidden_modules = [
   "baibai_engine.external_assessment.query", "baibai_engine.external_assessment.cli",
   "baibai_engine.external_assessment.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.accepted",
   "baibai_engine.external_assessment.tradingview.auth",
   "baibai_engine.external_assessment.tradingview.cli",
   "baibai_web", "baibai_batch", "tools",
@@ -591,7 +590,6 @@ forbidden_modules = [
   "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.accepted",
   "baibai_engine.external_assessment.tradingview.auth",
   "baibai_engine.external_assessment.tradingview.cli",
   "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools",

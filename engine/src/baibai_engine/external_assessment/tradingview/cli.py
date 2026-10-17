@@ -18,10 +18,6 @@ from pathlib import Path
 from mcp.types import CallToolResult
 from pydantic import ValidationError
 
-from baibai_engine.external_assessment.tradingview.accepted import (
-    accept_observations,
-    load_observations,
-)
 from baibai_engine.external_assessment.tradingview.auth import (
     AuthenticationError,
     CredentialStorage,
@@ -209,12 +205,6 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument(
         "--interval", type=float, default=15.0, help="request interval, 15..3600 seconds"
     )
-    accepted = sub.add_parser(
-        "accept-observations", help="accept hash-pinned saved responses without provider access"
-    )
-    accepted.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
-    accepted.add_argument("--input", type=Path, required=True)
-    accepted.add_argument("--input-sha256", required=True)
     rebuild = sub.add_parser("rebuild", help="rebuild one date from explicit saved MCP receipts")
     rebuild.add_argument("--sqlite", type=Path, required=True)
     rebuild.add_argument("--asof", type=date.fromisoformat, required=True)
@@ -227,12 +217,6 @@ def main(argv: list[str] | None = None, /) -> int:
     # SDK validation errors can contain token response values; report only safe status.
     logging.getLogger("mcp.client.auth").setLevel(logging.CRITICAL)
     try:
-        if args.command == "accept-observations":
-            result = accept_observations(
-                args.sqlite, load_observations(args.input, sha256=args.input_sha256)
-            )
-            print(json.dumps(result, sort_keys=True))
-            return 0
         if args.command == "rebuild":
             result = rebuild_from_receipts(args.sqlite, args.asof, args.receipt_id)
             print(json.dumps(result, sort_keys=True))

@@ -25,9 +25,8 @@ def test_metadata_order_and_exclusive_writer():
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "interval",
         "observation_master_asof",
-        "observations_json",
-        "observations_sha256",
     }
+    assert set(data["jobs"]) == {"snapshot"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
         "group": "cloud-publish",
@@ -80,6 +79,40 @@ def test_metadata_order_and_exclusive_writer():
         "actual_start_jst",
     ):
         assert f'"{field}"' in target["run"]
+
+
+@pytest.mark.parametrize(
+    ("basis", "ref", "runs"),
+    [
+        ("", "refs/heads/main", True),
+        ("", "refs/heads/other", True),
+        ("2026-10-09", "refs/heads/main", True),
+        ("2026-10-09", "refs/heads/other", False),
+    ],
+)
+def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref, runs):
+    data = workflow()
+    assert set(data["jobs"]) == {"snapshot"}
+    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
+        "interval",
+        "observation_master_asof",
+    }
+    condition = data["jobs"]["snapshot"]["if"]
+    assert (
+        condition
+        == "${{ inputs.observation_master_asof == '' || github.ref == 'refs/heads/main' }}"
+    )
+    expression = (
+        condition.removeprefix("${{")
+        .removesuffix("}}")
+        .replace("inputs.observation_master_asof", repr(basis))
+        .replace("github.ref", repr(ref))
+        .replace("||", " or ")
+    )
+    assert eval(expression, {"__builtins__": {}}, {}) is runs
+    source = PATH.read_text(encoding="utf-8")
+    for obsolete in ("accept-observations", "observations_json", "observations_sha256"):
+        assert obsolete not in source
 
 
 def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pull(tmp_path):
