@@ -17,6 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from baibai_engine.collection.edinet.contract import EDINET_LIST_RESPONSES_DDL
+from baibai_engine.collection.jpx.contract import JPX_SOURCE_BUNDLES_DDL
 from baibai_engine.collection.jquants_contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.external_assessment.observations.contract import (
     ANALYST_RATING_DDL,
@@ -25,7 +26,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 43
+SQLITE_SCHEMA_VERSION = 44
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET list projection reconstructs the current rows from retained source receipts.
@@ -400,6 +401,7 @@ _SCHEMA_SQL += (
     + QUANTS_SCORE_DDL
     + JQUANTS_SOURCE_PAGES_DDL
     + EDINET_LIST_RESPONSES_DDL
+    + JPX_SOURCE_BUNDLES_DDL
 )
 
 
