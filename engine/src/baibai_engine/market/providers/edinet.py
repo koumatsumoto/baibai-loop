@@ -98,7 +98,7 @@ class EDINETProvider:
         return {"documents": sum(fetched.values())}
 
     def refresh_document_state(self, asof_date: date) -> dict[str, int]:
-        """Refresh the mutable target day, then finalize every older unresolved day."""
+        """Refresh the target day, then recheck older days lacking source proof."""
         fetched = self._refresh_document_state(asof_date)
         return {"documents": sum(fetched.values())}
 
@@ -134,10 +134,10 @@ class EDINETProvider:
         }
         if self._sqlite_path is not None:
             from baibai_engine.market.edinet_metrics.store import (
-                read_unfinalized_edinet_document_dates,
+                read_unrechecked_edinet_document_dates,
             )
 
-            for unresolved in read_unfinalized_edinet_document_dates(self._sqlite_path, before=end):
+            for unresolved in read_unrechecked_edinet_document_dates(self._sqlite_path, before=end):
                 fetched[unresolved] = len(self.list_documents(unresolved, force_refresh=True))
         return fetched
 

@@ -78,19 +78,28 @@ def _project_and_store(path: Path) -> int:
 
 def _snapshot(path: Path) -> tuple[object, ...]:
     with closing(open_connection(path)) as conn:
-        documents = conn.execute(
-            "SELECT * FROM edinet_documents WHERE doc_date = ? ORDER BY sequence_number",
+        conn.row_factory = sqlite3.Row
+        documents = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT * FROM edinet_documents WHERE doc_date = ? ORDER BY sequence_number",
+                (_DAY.isoformat(),),
+            ).fetchall()
+        ]
+        metadata_row = conn.execute(
+            "SELECT process_datetime, result_count, selected_received_at_utc, "
+            "response_json, selected_receipt_id, latest_received_at_utc, rechecked_asof "
+            "FROM edinet_document_lists WHERE doc_date = ?",
             (_DAY.isoformat(),),
-        ).fetchall()
-        metadata = conn.execute(
-            "SELECT * FROM edinet_document_lists WHERE doc_date = ?", (_DAY.isoformat(),)
         ).fetchone()
-        coverage = conn.execute(
+        metadata = dict(metadata_row) if metadata_row is not None else None
+        coverage_row = conn.execute(
             "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc, "
             "record_count, status, error FROM source_coverage "
             "WHERE source = 'edinet_documents' AND coverage_key = ?",
             (_DAY.isoformat(),),
         ).fetchone()
+        coverage = tuple(coverage_row) if coverage_row is not None else None
     return documents, metadata, coverage
 
 
@@ -111,13 +120,17 @@ def test_clean_and_incremental_replay_have_identical_failed_state_and_recover(
     assert _project_and_store(clean) == _project_and_store(incremental) == 1
     assert _snapshot(clean) == _snapshot(incremental)
     documents, metadata, coverage = _snapshot(clean)
-    assert documents[0][2] == "S100TEST"
-    assert metadata[6] == a  # selected_receipt_id
-    assert metadata[1] == "2026-10-15 12:00"
-    assert metadata[2] == 1
-    assert metadata[3] == (_STAMP + timedelta(seconds=1)).isoformat(timespec="microseconds")
-    assert metadata[7] == (_STAMP + timedelta(seconds=2)).isoformat(timespec="microseconds")
-    assert metadata[8] is None  # failed projection cannot claim a recheck
+    assert documents[0]["doc_id"] == "S100TEST"
+    assert metadata["selected_receipt_id"] == a
+    assert metadata["process_datetime"] == "2026-10-15 12:00"
+    assert metadata["result_count"] == 1
+    assert metadata["selected_received_at_utc"] == (_STAMP + timedelta(seconds=1)).isoformat(
+        timespec="microseconds"
+    )
+    assert metadata["latest_received_at_utc"] == (_STAMP + timedelta(seconds=2)).isoformat(
+        timespec="microseconds"
+    )
+    assert metadata["rechecked_asof"] is None
     assert coverage[5] == "failed"
     assert "JSONDecodeError" in coverage[6]
     assert read_edinet_documents(clean, _DAY) is None
@@ -155,8 +168,8 @@ def test_successful_empty_replay_clears_previous_documents(tmp_path: Path) -> No
     assert _project_and_store(path) == 0
     documents, metadata, coverage = _snapshot(path)
     assert documents == []
-    assert metadata[2] == 0
-    assert metadata[6] == empty_id
+    assert metadata["result_count"] == 0
+    assert metadata["selected_receipt_id"] == empty_id
     assert coverage[5] == "ok"
     assert read_edinet_documents(path, _DAY) == []
 
@@ -182,13 +195,14 @@ def test_only_malformed_receipt_writes_failed_coverage_and_attempt_time(
     )
     documents, metadata, coverage = _snapshot(path)
     assert documents == []
-    assert metadata[2] == 0
-    assert metadata[3] == (_STAMP + timedelta(seconds=1)).isoformat(timespec="microseconds")
-    assert metadata[5] is None
-    assert metadata[6] is None
-    assert metadata[7] == metadata[3]
-    assert metadata[4] == 0
-    assert metadata[8] is None
+    assert metadata["result_count"] == 0
+    assert metadata["selected_received_at_utc"] is None
+    assert metadata["response_json"] is None
+    assert metadata["selected_receipt_id"] is None
+    assert metadata["latest_received_at_utc"] == (_STAMP + timedelta(seconds=1)).isoformat(
+        timespec="microseconds"
+    )
+    assert metadata["rechecked_asof"] is None
     assert coverage[5] == "failed"
     assert read_edinet_documents(path, _DAY) is None
 
@@ -200,8 +214,8 @@ def test_ambiguous_latest_receipts_block_current_reader(tmp_path: Path) -> None:
     _add_receipt(path, _EMPTY, seconds=2)
     assert _project_and_store(path) == 1
     _documents, metadata, coverage = _snapshot(path)
-    assert metadata[6] == selected_id
-    assert metadata[8] is None
+    assert metadata["selected_receipt_id"] == selected_id
+    assert metadata["rechecked_asof"] is None
     assert coverage[5] == "failed"
     assert "ambiguous" in coverage[6]
     assert read_edinet_documents(path, _DAY) is None
@@ -221,8 +235,7 @@ def test_writer_sets_recheck_fields_from_proof_result(tmp_path: Path) -> None:
     assert proof == date(2026, 10, 16)
     store_edinet_document_projection(path, projection, rechecked_asof=proof)
     metadata = _snapshot(path)[1]
-    assert metadata[4] == 1
-    assert metadata[8] == "2026-10-16"
+    assert metadata["rechecked_asof"] == "2026-10-16"
 
 
 def test_historical_carry_uses_only_receipts_not_seeded_l2_rows(tmp_path: Path) -> None:

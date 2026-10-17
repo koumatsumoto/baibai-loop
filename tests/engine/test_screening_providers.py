@@ -425,7 +425,6 @@ class ScreeningProviderTests(unittest.TestCase):
                     sqlite_path,
                     unresolved,
                     [{"seqNumber": index, "docID": f"S100OLD{index}"}],
-                    is_final=False,
                 )
             target = date(2026, 7, 10)
             payloads = {
@@ -457,19 +456,21 @@ class ScreeningProviderTests(unittest.TestCase):
             )
             conn = sqlite3.connect(sqlite_path)
             try:
-                finality = dict(
+                rechecks = dict(
                     conn.execute(
-                        "SELECT doc_date, is_final FROM edinet_document_lists ORDER BY doc_date"
+                        "SELECT doc_date, rechecked_asof FROM edinet_document_lists ORDER BY doc_date"
                     ).fetchall()
                 )
             finally:
                 conn.close()
-            self.assertEqual(finality[target.isoformat()], 1)
-            self.assertTrue(all(finality[value.isoformat()] == 1 for value in unresolved_dates))
+            self.assertEqual(rechecks[target.isoformat()], "2026-07-11")
+            self.assertTrue(
+                all(rechecks[value.isoformat()] == "2026-07-11" for value in unresolved_dates)
+            )
 
     @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
-    def test_refresh_document_state_target_failure_does_not_finalize_prior_dates(self) -> None:
+    def test_refresh_document_state_target_failure_does_not_recheck_prior_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             prior = date(2026, 7, 8)
@@ -478,7 +479,6 @@ class ScreeningProviderTests(unittest.TestCase):
                 sqlite_path,
                 prior,
                 [{"seqNumber": 1, "docID": "S100PRIOR"}],
-                is_final=False,
             )
             session = _DateJsonSession({}, failing_dates={target.isoformat()})
             provider = EDINETProvider(
@@ -493,13 +493,13 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(session.calls, ["2026-07-11", target.isoformat()])
             conn = sqlite3.connect(sqlite_path)
             try:
-                finality = conn.execute(
-                    "SELECT is_final FROM edinet_document_lists WHERE doc_date = ?",
+                recheck = conn.execute(
+                    "SELECT rechecked_asof FROM edinet_document_lists WHERE doc_date = ?",
                     (prior.isoformat(),),
                 ).fetchone()
             finally:
                 conn.close()
-            self.assertEqual(finality, (0,))
+            self.assertEqual(recheck, (None,))
 
     @patch.object(edinet_provider_module, "datetime", _HistoricalClock)
     @patch.object(edinet_http, "datetime", _HistoricalClock)
@@ -511,7 +511,6 @@ class ScreeningProviderTests(unittest.TestCase):
                 sqlite_path,
                 target,
                 [{"seqNumber": 1, "docID": "S100KEPT"}],
-                is_final=False,
             )
             session = _DateJsonSession(
                 {
@@ -556,7 +555,6 @@ class ScreeningProviderTests(unittest.TestCase):
                     sqlite_path,
                     unresolved,
                     [{"seqNumber": index, "docID": f"S100PENDING{index}"}],
-                    is_final=False,
                 )
 
             def empty_payload(value: date) -> dict[str, object]:
@@ -656,11 +654,10 @@ class ScreeningProviderTests(unittest.TestCase):
             with closing(sqlite3.connect(path)) as connection:
                 self.assertEqual(
                     connection.execute(
-                        "SELECT is_final, rechecked_asof FROM edinet_document_lists "
-                        "WHERE doc_date = ?",
+                        "SELECT rechecked_asof FROM edinet_document_lists WHERE doc_date = ?",
                         (today.isoformat(),),
                     ).fetchone(),
-                    (0, None),
+                    (None,),
                 )
 
     def test_download_csv_zip_final_connection_error_is_redacted_without_final_sleep(

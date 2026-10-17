@@ -143,7 +143,7 @@ def test_edinet_document_lists_manifest_round_trips_as_required_l2() -> None:
     payload = _dataset_payload(dataset=contract.name, population_count=None)
     manifest = _load_dataset(payload)
     assert manifest.layer == "l2_processed"
-    assert manifest.contract_version == 3
+    assert manifest.contract_version == 4
     assert manifest.partition_by == ("year",)
     assert _load_dataset(manifest.model_dump(mode="json")) == manifest
     assert [column.name for column in contract.columns][-3:] == [

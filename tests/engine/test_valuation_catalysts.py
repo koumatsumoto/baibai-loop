@@ -305,8 +305,10 @@ def _store_documents(sqlite_path: Path, rows: list[tuple[object, ...]]) -> None:
     )
     connection.executemany(
         "INSERT OR REPLACE INTO edinet_document_lists("
-        "doc_date, process_datetime, result_count, fetched_at_utc, is_final"
-        ") VALUES (?, NULL, 1, '2026-08-11T00:00:00+00:00', 1)",
+        "doc_date, process_datetime, result_count, selected_received_at_utc, "
+        "latest_received_at_utc, rechecked_asof"
+        ") VALUES (?, NULL, 1, '2026-08-11T00:00:00+00:00', "
+        "'2026-08-11T00:00:00+00:00', '2026-08-11')",
         sorted({(str(row[0]),) for row in rows}),
     )
     connection.commit()
@@ -326,8 +328,10 @@ class ControlFilingIndexTest(unittest.TestCase):
             cursor = date.fromordinal(cursor.toordinal() + 1)
         connection.executemany(
             "INSERT OR REPLACE INTO edinet_document_lists("
-            "doc_date, process_datetime, result_count, fetched_at_utc, is_final"
-            ") VALUES (?, NULL, 0, '2026-08-11T00:00:00+00:00', 1)",
+            "doc_date, process_datetime, result_count, selected_received_at_utc, "
+            "latest_received_at_utc, rechecked_asof"
+            ") VALUES (?, NULL, 0, '2026-08-11T00:00:00+00:00', "
+            "'2026-08-11T00:00:00+00:00', '2026-08-11')",
             days,
         )
         connection.commit()

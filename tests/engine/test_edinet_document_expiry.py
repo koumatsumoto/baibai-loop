@@ -15,13 +15,7 @@ from pathlib import Path
 
 from baibai_engine.collection.edinet.receipts import retain_list_response
 from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
-from baibai_engine.storage.observations.schema import (
-    EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
-    EDINET_DOCUMENT_IDENTITY_COLUMNS,
-    EDINET_DOCUMENT_LIFECYCLE_COLUMNS,
-    EDINET_DOCUMENT_RETAINED_COLUMNS,
-    open_connection,
-)
+from baibai_engine.storage.observations.schema import open_connection
 
 _DAY = date(2026, 5, 1)
 
@@ -269,19 +263,3 @@ def test_a_column_outside_the_two_classifications_takes_the_new_answer(
     store_edinet_documents(store, _DAY, [_EXPIRED])
 
     assert _read(store)["operation_datetime"] is None
-
-
-def test_the_retained_columns_are_the_ones_the_schema_classifies(tmp_path: Path) -> None:
-    """The ingest reads a fixed column list; this pins it to the classification."""
-
-    store = _empty_store(tmp_path / "market.sqlite")
-    store_edinet_documents(store, _DAY, [_SERVED])
-    store_edinet_documents(store, _DAY, [_EXPIRED])
-
-    row = _read(store)
-    retained = {column for column in EDINET_DOCUMENT_RETAINED_COLUMNS if row[column] is not None}
-    assert retained == set(EDINET_DOCUMENT_RETAINED_COLUMNS)
-    assert set(EDINET_DOCUMENT_RETAINED_COLUMNS) == (
-        set(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS) | set(EDINET_DOCUMENT_IDENTITY_COLUMNS)
-    )
-    assert set(EDINET_DOCUMENT_RETAINED_COLUMNS) & set(EDINET_DOCUMENT_LIFECYCLE_COLUMNS) == set()

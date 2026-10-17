@@ -23,7 +23,7 @@ def store_edinet_documents(
     *,
     process_datetime: str | None = None,
     result_count: int | None = None,
-    is_final: bool = False,
+    rechecked_asof: date | None = None,
     response_json: str | None = None,
 ) -> int:
     """Seed normalized fixtures without using them as projection evidence."""
@@ -64,17 +64,21 @@ def store_edinet_documents(
             status="ok",
             error=None,
         )
+        received_at = datetime.now(UTC).isoformat(timespec="microseconds")
         conn.execute(
             "INSERT OR REPLACE INTO edinet_document_lists("
-            "doc_date, process_datetime, result_count, fetched_at_utc, is_final, response_json"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
+            "doc_date, process_datetime, result_count, selected_received_at_utc, "
+            "response_json, selected_receipt_id, latest_received_at_utc, rechecked_asof"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 on_date.isoformat(),
                 process_datetime,
                 expected_count,
-                datetime.now(UTC).isoformat(),
-                int(is_final),
+                received_at if response_json is not None else None,
                 response_json,
+                None,
+                received_at,
+                rechecked_asof.isoformat() if rechecked_asof is not None else None,
             ),
         )
         conn.commit()

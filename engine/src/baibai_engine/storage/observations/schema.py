@@ -25,54 +25,12 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 42
+SQLITE_SCHEMA_VERSION = 43
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
-# EDINET serves a filing's descriptive columns only while its public-inspection period
-# runs. Once that period ends the day's list still returns the entry with these five
-# nulled — measured over the whole store, a row that has run out carries none of them,
-# while `doc_type_code`, `submit_datetime` and `doc_description` are present on every row
-# that has not. The converse does not hold for the other two: a filing can genuinely have
-# no securities code and no parent, so a null there is not by itself evidence of expiry.
-# The company, form, timestamp and title a filing carried do not stop being true when
-# they stop being served, so a store that once observed them keeps them — the ingest
-# preserves it when the later response is null and the same document occupies the same
-# list position. A new non-null provider value replaces the stored value. These document
-# facts travel through L1; the machine-store merge does not merge document rows.
-EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS: tuple[str, ...] = (
-    "sec_code",
-    "doc_type_code",
-    "parent_doc_id",
-    "submit_datetime",
-    "doc_description",
-)
-
-# EDINET also stops serving these filing identities once the inspection period ends.
-# They remain true of the filing just like its descriptive columns, so ingest retains
-# an identity it has observed instead of replacing it with a later null response.
-EDINET_DOCUMENT_IDENTITY_COLUMNS: tuple[str, ...] = (
-    "edinet_code",
-    "issuer_edinet_code",
-    "subject_edinet_code",
-)
-
-EDINET_DOCUMENT_RETAINED_COLUMNS: tuple[str, ...] = (
-    *EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
-    *EDINET_DOCUMENT_IDENTITY_COLUMNS,
-)
-
-# What EDINET currently does with the filing rather than what the filing says: whether
-# the inspection period is running, whether the document files are still downloadable,
-# and whether the filing has been withdrawn. Two stores that read the same day at
-# different moments can differ here, so ingest takes the new response rather than
-# preserving a previous lifecycle value when a field becomes null.
-EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
-    "legal_status",
-    "withdrawal_status",
-    "csv_flag",
-    "xbrl_flag",
-)
-
+# EDINET list projection reconstructs the current rows from retained source receipts.
+# A later response can omit fields after the public-inspection period; historical carry
+# comes from earlier receipts for the same day, never from previously derived L2 rows.
 # These indexes are part of the required read contract. Other indexes remain
 # performance choices in the DDL; do not broaden the acceptance contract implicitly.
 _REQUIRED_INDEX_NAMES = (
@@ -261,11 +219,10 @@ CREATE TABLE IF NOT EXISTS edinet_document_lists(
   doc_date TEXT PRIMARY KEY,
   process_datetime TEXT,
   result_count INTEGER NOT NULL,
-  fetched_at_utc TEXT NOT NULL,
-  is_final INTEGER NOT NULL,
+  selected_received_at_utc TEXT,
   response_json TEXT,
   selected_receipt_id TEXT,
-  latest_received_at_utc TEXT,
+  latest_received_at_utc TEXT NOT NULL,
   rechecked_asof TEXT
 );
 

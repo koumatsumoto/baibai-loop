@@ -42,7 +42,7 @@ def store_edinet_document_projection(
             process_datetime = None
             result_count = 0
             response_json = None
-            fetched_at = projection.latest_received_at
+            selected_received_at_iso = None
         else:
             payload = projection.native_payload
             if payload is None:
@@ -53,11 +53,12 @@ def store_edinet_document_projection(
             response_json = json.dumps(
                 payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
             )
-            fetched_at = selected.received_at
+            selected_received_at_iso = selected.received_at.astimezone(UTC).isoformat(
+                timespec="microseconds"
+            )
         latest_at_iso = projection.latest_received_at.astimezone(UTC).isoformat(
             timespec="microseconds"
         )
-        fetched_at_iso = fetched_at.astimezone(UTC).isoformat(timespec="microseconds")
         successful = projection.error is None and selected is not None
         conn.execute("DELETE FROM edinet_documents WHERE doc_date = ?", (doc_date_iso,))
         delete_overlapping_source_coverage(conn, "edinet_documents", doc_date, doc_date)
@@ -88,15 +89,14 @@ def store_edinet_document_projection(
         )
         conn.execute(
             "INSERT OR REPLACE INTO edinet_document_lists("
-            "doc_date, process_datetime, result_count, fetched_at_utc, is_final, "
+            "doc_date, process_datetime, result_count, selected_received_at_utc, "
             "response_json, selected_receipt_id, latest_received_at_utc, rechecked_asof"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 doc_date_iso,
                 process_datetime,
                 result_count,
-                fetched_at_iso,
-                int(successful and rechecked_asof is not None),
+                selected_received_at_iso,
                 response_json,
                 selected.receipt_id if selected is not None else None,
                 latest_at_iso,

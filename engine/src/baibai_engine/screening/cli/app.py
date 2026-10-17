@@ -15,6 +15,7 @@ from baibai_engine.foundation.env import load_project_env
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
+from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_lists_command
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
@@ -138,6 +139,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--asof",
         required=True,
         help="target date (YYYY-MM-DD); refreshes current source state, not a point-in-time view",
+    )
+
+    rebuild_lists_parser = subparsers.add_parser(
+        "rebuild-edinet-lists",
+        help="rebuild EDINET document-list L2 from retained raw receipts without acquisition",
+    )
+    rebuild_lists_parser.add_argument("--start", required=True, help="first date (YYYY-MM-DD)")
+    rebuild_lists_parser.add_argument("--end", required=True, help="last date (YYYY-MM-DD)")
+    rebuild_lists_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
 
     backfill_history_parser = subparsers.add_parser(
@@ -492,6 +505,13 @@ def main(argv: list[str] | None = None) -> int:
     load_project_env()
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "rebuild-edinet-lists":
+        return rebuild_edinet_lists_command(
+            sqlite_path=Path(args.sqlite_path),
+            start=_parse_iso_date(args.start),
+            end=_parse_iso_date(args.end),
+        )
 
     if args.command == "prune":
         return prune_command(

@@ -110,6 +110,8 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 保存場所と正本は[architecture](../architecture.md#store-authority)、L1の保持・公開・hydrateは[market lake](./market-lake.md)が所有する。正規化済みfactを保持していても、訂正前情報や当時の公開範囲を持たない期間まで完全なPITと扱わない。
 
+保存済みEDINET文書一覧のL2だけをraw receiptから再構築する場合は、`baibai-engine screening rebuild-edinet-lists --start YYYY-MM-DD --end YYYY-MM-DD --sqlite-path PATH`を使う。指定範囲の全暦日にreceiptがあることを書込前に検査し、欠ける日は空応答とみなさず停止する。取得やarchive再処理は行わず、失敗した日を報告する。
+
 <a id="edinet-metric-revision"></a>
 
 ## EDINET metricの抽出意味revision
