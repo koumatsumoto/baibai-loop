@@ -104,7 +104,7 @@ store検査・exportが成功した場合の後続公開と、致命的失敗に
 gh run list --workflow cloud-daily-batch.yml --limit 5
 ```
 
-TradingViewはL1だけを独立更新するため、完了済みreleaseをcurrent machine bundleへhydrateしてよい。`cloud-materialize`はmachine store / L1を書き換えないので待機条件にしない。ローカルの`publish-lake` / `push-machine` / `push-market` / `push-indicators`とも意図的に重ねず、発行終了後にfreshにpullする。
+TradingViewは受領receiptのL1と正規化snapshotのL2を独立更新するため、完了済みreleaseをcurrent machine bundleへhydrateしてよい。`cloud-materialize`はmachine store / L1を書き換えないので待機条件にしない。ローカルの`publish-lake` / `push-machine` / `push-market` / `push-indicators`とも意図的に重ねず、発行終了後にfreshにpullする。
 
 **実行**:
 
@@ -112,7 +112,7 @@ TradingViewはL1だけを独立更新するため、完了済みreleaseをcurren
 batch/scripts/pull.sh
 ```
 
-**成功確認**: `pull-machine`はreceipt / ETagでmarket / runs / indicatorsを同じ確認済みbundleとして取得し、`hydrate-market`は開始時のcurrent L1 releaseを固定する。途中でpointerが動けばvisible storeを置換せず停止する。ただしmachine bundleとL1 pointerを同一transactionでは固定しない。receipt / generation / pointerの競合や検査失敗後のlocal stateは分析に使わず、原因を確認してfreshにpullし直す。`baibai.sqlite`はbulk pullしない。applicationの取得は[application反映](#application-db-を反映する)の`pull-app`前提に従う。
+**成功確認**: `pull-machine`はreceipt / ETagでmarket / runs / indicatorsを同じ確認済みbundleとして取得し、`hydrate-market`は開始時のcurrent market releaseを固定する。途中でpointerが動けばvisible storeを置換せず停止する。ただしmachine bundleとmarket release pointerを同一transactionでは固定しない。receipt / generation / pointerの競合や検査失敗後のlocal stateは分析に使わず、原因を確認してfreshにpullし直す。`baibai.sqlite`はbulk pullしない。applicationの取得は[application反映](#application-db-を反映する)の`pull-app`前提に従う。
 
 ### Screening入力を検証・補修する
 
@@ -633,7 +633,7 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
 | 1 | store検査/export等の致命的失敗。今回の結果を公開へ進めない |
 | 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無はrun_revision_idとscreening_statusで確認 |
 
-クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。比較用connectionや変更前後の読み取りに失敗した場合は`market_updated=null`（不明）とし、未変更とは扱わない。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの完了を示すoutput名`export_ready`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
+クラウド公開はこの後に既存market release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存market releaseを保持する。比較用connectionや変更前後の読み取りに失敗した場合は`market_updated=null`（不明）とし、未変更とは扱わない。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存market公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの完了を示すoutput名`export_ready`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
 機械結果の`screening_status`は`published / failed / skipped_non_business_day`を区別する。Screeningが未更新でも指標・全viewsを更新し、画面生成時刻を旧Screeningの実計算時刻へ上書きしない。store schema/hydration検査と全views exportの失敗はfatalである。詳細なstepとoptionはpublic `--help`と実run logを確認する。
 
@@ -689,7 +689,7 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 **対象**: [抽出意味](../docs/architecture.md#edinet-metric-revision)を変更し、`EDINET_METRIC_REVISION`を明示更新する場合。配置・import・transport retryだけの変更では再抽出や保存行のrevision書換えを行わない。Research factsのrevisionとは別であり、過去snapshot全体を書き換えない。
 
-1. 新しい意味revisionと変更の期待差分をレビューし、現行Lakeをhydrateした隔離DBコピーで原CSV ZIPから再抽出する。既存cacheを使い、原典不足時だけ対象を限定して取得する。exit 0、保存全列・quality/failure理由・coverage/count・integrityと期待差分を確認してから本番へ進む。
+1. 新しい意味revisionと変更の期待差分をレビューし、現行Lakeをhydrateした隔離DBコピーで保存済みCSV ZIPから再抽出する。明示したSQLite source archiveを再利用し、原典不足時だけ対象を限定して取得する。exit 0、保存全列・quality/failure理由・coverage/count・integrityと期待差分を確認してから本番へ進む。
 2. daily・TradingView・materialize・外部評価publisherと他operatorが競合せず、次のslot前にreadbackまで完了できる時間帯で既存operator leaseを取得する。busyなら切替へ進まない。
 3. 同じlease内で確認済みcodeをmainへ反映し、freshな`pull-machine`と`hydrate-market`から最新as-ofを再確認して比較元をbackupする。準備コピーをそのまま本番へ戻さない。
 4. 保存済み文書と原CSV ZIPが全件あるなら、そのas-ofを指定してofflineの`baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD`を実行する。不足する原本の取得が必要なら`baibai-engine screening refresh-edinet-metrics --asof YYYY-MM-DD`を使う。refreshは文書一覧を明示取得し、隔離・再利用を除く必要な原本だけを取得してから同じ計画で抽出する。exit 0、新意味revision、全列・quality/failure・coverage/count・integrityを確認する。再抽出後にhydrateで成果を上書きしない。
@@ -703,19 +703,19 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 `edinet.source_archives`はtype=5 CSV ZIPとtype=1 XBRL ZIPの取得bytesを、`doc_id`・`source_type`別にmarket storeへ保持する。通常のlake公開・hydrate・dehydrateに含まれる。`stored_on`はこのstoreに最初に保持したUTC日付で、開示日・APIで利用可能になった日・元cacheの取得日の代用ではない。ZIPの内容をJSONへ再構成せず、元のencoding・空欄・単位・未選択の項目を保つ。
 
-原本を読む順序は共有storeの作業コピー、既存のlocal ZIP cache、必要なAPI取得である。local cacheにあったZIPも取得を繰り返さず共有保存へ取り込む。CSVとXBRLのtransport・保存経路は同じproviderを使う。取得エラーや不開示通知PDFで保存済みZIPを上書きしない。`doc_id + source_type`はcacheの論理keyであり、同じ書類・取得種別でZIP bytesが永遠に同じと保証するものではない。原本の公開世代・保持は既存lakeの不変objectとretentionに従い、別の版管理機構を追加しない。
+原本を読む順序は明示したmarket SQLiteの`edinet_source_archives`、必要なAPI取得である。以前の端末のlocal ZIP cacheは暗黙に取り込まない。CSVとXBRLのtransport・保存経路は同じproviderを使う。取得エラーや不開示通知PDFで保存済みZIPを上書きしない。`doc_id + source_type`はarchiveの論理keyであり、同じ書類・取得種別でZIP bytesが永遠に同じと保証するものではない。原本の公開世代・保持は既存lakeの不変objectとretentionに従い、別の版管理機構を追加しない。
 
-マージ後の初回切替ではcurrent schemaの候補storeを構築し、契約が一致するdatasetだけを既存releaseからhydrateする。変更した契約のdatasetは手元の原本から再構築し、旧releaseを新契約として読み替えない。現行metricの再抽出に加え、保存済みResearch factsが参照するdocIDの原本も確認する。抽出結果のreuseだけでは、失われたZIPを再取得したことにならない。不足分だけを取得・保存し、取得できない過去書類は一覧化して既存抽出履歴を残す。原本不足を理由に過去の判断・取引・抽出履歴を削除しない。新規の通常取得は、抽出結果とは別に原本を保存する。
+通常のschema移行・意味再計算では、明示して保持した原本を再利用できる。一方、この情報層整理に続くL1の全面fresh baselineは、sourceごとの対象期間と取得可能範囲を先に明示し、隔離した新規market・経済storeへ現行sourceの原本を新規取得して、その集合だけからL2を作る。旧L1・L2・`source_coverage`、正規化済み受入file、旧端末のZIP cacheをこのbaselineへhydrate・importしない。取得不能な履歴・部分sourceはそのまま報告し、旧値で補完しない。新source・L2・公開の検査が終わるまで現行本番releaseを保ち、明示的なlease保護下で切り替えて固定releaseを読戻す。既存broker factと保存済み判断は別の正本であり、黙って初期化・削除しない。これは未実行の将来手順である。
 
-文書一覧の正常API応答はmetadataとresultsの全項目をresponse_jsonに保持する。HTTP bytesそのものではなく、JSONの値・null・項目の不在を保持した記録である。正規化済みの一覧だけがある過去日には原本を捏造せずNULLを残す。再取得時の応答はそのまま置換し、期限切れ書類の既知の説明を保持する検索用列とは区別する。
+EDINET文書一覧のHTTP body bytesはJSON解析より前にL1の`edinet.list_responses`（SQLite `edinet_list_responses`）へ受領ごとに保持する。`edinet_document_lists.response_json`は選択した成功応答のnative payloadを記録するL2 projectionであり、不変のraw receipt履歴とは別である。最新応答のprojectionが失敗した日はcurrent coverageをfailedとし、過去の成功projectionを新しい原本受領の証拠や成功coverageに読み替えない。解析できない原応答もL1に残し、以前の正規化済み行から原本を捏造しない。
 
-受入ではCSV/XBRLのbytes一致、別環境の空cacheからの再読、元のcontext/単位/欠測を保った再抽出、lake公開・hydrateの往復、保存量・読込時間を確認する。archive列はPython側のbatchを一行にしてParquetへ書き出し・照合・SQLiteへ戻し、ZIP内容のmin/max統計は作らない。通常のスカラー観測は既存のrow batchを使う。全原本の取得完了や全過去期間の再計算可能性を、行が存在するだけで保証しない。
+受入ではCSV/XBRLのbytes一致、別環境の空の作業コピーへのhydrate後の再読、元のcontext/単位/欠測を保った再抽出、lake公開・hydrateの往復、保存量・読込時間を確認する。archive列はPython側のbatchを一行にしてParquetへ書き出し・照合・SQLiteへ戻し、ZIP内容のmin/max統計は作らない。通常のスカラー観測は既存のrow batchを使う。全原本の取得完了や全過去期間の再計算可能性を、行が存在するだけで保証しない。
 
 <a id="edinet-research-facts"></a>
 
 ## EDINET Research factの初期化・日次差分
 
-**前提**: current codeと整合するmarket store、既存EDINET document inventory、`EDINET_API_KEY`を使う。原典ZIP cacheは`.cache/screening/edinet/xbrl_zips/`である。
+**前提**: current codeと整合するmarket store、既存EDINET document inventory、必要な取得のための`EDINET_API_KEY`を使う。再利用入力は明示したmarket SQLiteの`edinet_source_archives`である。
 
 未初期化storeだけ、ローカルstaging storeを明示して初期抽出する。初期化済みproductionへ毎回実行しない。
 
@@ -854,15 +854,15 @@ Universeは営業日なら当日master、休場日ならcalendar上の直近営�
 
 同日のnullやunresolvedとして保存した銘柄もaccount済みであり、その日は上書き・再取得しない。既保存の完全snapshotを何度も観測する診断ではない。
 
-取得は50銘柄ずつ、応答完了後15秒以上の間隔とする。正常batchは検証後に確定し、新規rowがあれば`partial`でもL1へ公開する。後続slotはL1からhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
+取得は50銘柄ずつ、応答完了後15秒以上の間隔とする。正常batchは検証後に確定し、新規rowがあれば`partial`でもmarket releaseへ公開する。後続slotは固定market releaseからhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、market releaseだけを永続化する。dailyは独立して実行する。
 
-summaryは営業日判定・master基準日・保存済み/追加/残件・unresolved・指標ごとの正常null・first/last受領時刻・provider障害・公開結果を分けて示す。partialをcooldownで取得skipした場合も保存済みrowの品質を示す。全件account済みでも全指標が利用可能とは限らない。検証・commit済みの追加rowはcooldown記録より先にL1公開し、補助記録の失敗で正常観測の公開を止めない。公開後の補助記録・lease解放の失敗は、公開済み件数と失敗stepを併記して通知する。成功・no-opはDiscord通知せず、partial・障害は既存通知に残す。
+summaryは営業日判定・master基準日・保存済み/追加/残件・unresolved・指標ごとの正常null・first/last受領時刻・provider障害・公開結果を分けて示す。partialをcooldownで取得skipした場合も保存済みrowの品質を示す。全件account済みでも全指標が利用可能とは限らない。検証・commit済みの追加rowはcooldown記録より先にmarket releaseへ公開し、補助記録の失敗で正常観測の公開を止めない。公開後の補助記録・lease解放の失敗は、公開済み件数と失敗stepを併記して通知する。成功・no-opはDiscord通知せず、partial・障害は既存通知に残す。
 
 休日の同値観測も履歴として保持するが、独立した情報sampleとして数えない。分析時は各行の`fetched_at_utc`が評価のas-of cutoff以下であることを確認し、未来値や無条件のlatest-nonnullで欠測を埋めない。土日3 slotは候補頻度であり、実網羅率・欠測・受領時刻で受け入れを判断する。provider通信が0のno-opでもlease・pull・hydrateのR2 I/Oは発生する。R2 Standardの無料枠は[公式料金](https://developers.cloudflare.com/r2/pricing/)に従い、全bucketの月間保管量・Class A/B消費を確認する。使用量が不明なら無料とは保証せず、追加課金を前提に頻度を増やさない。
 
 ### 保存済みmasterを使う当日の手動観測
 
-mainへmanual dispatchし、`observation_master_asof`に保存済みmasterの日付を指定する。営業日は当日、休場日はcalendar上の直近営業日のmasterを指定し、上記の取得時間を守る。J-Quants masterの追加取得は行わず、指定日がcalendarの必須基準日と異なる場合やmasterがない場合はOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
+mainへmanual dispatchし、`observation_master_asof`に保存済みmasterの日付を指定する。営業日は当日、休場日はcalendar上の直近営業日のmasterを指定し、上記の取得時間を守る。J-Quants masterの追加取得は行わず、指定日がcalendarの必須基準日と異なる場合やmasterがない場合はOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・market publisherを使う。
 
 ```bash
 read -r -p '保存済みmasterの基準日 YYYY-MM-DD: ' master_asof &&
@@ -870,7 +870,7 @@ gh workflow run cloud-tradingview-snapshot.yml --ref main \
   -f observation_master_asof="$master_asof" -f interval=15
 ```
 
-同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。取得中に当日`tradingview_source_receipts`が増えたが新規の正規化済みrowが0件のときも、provider/auth/secret/time_guard/timeout系の取得失敗に限り既存L1 release publisherで原受領記録を公開する。取得runは失敗のままとし、cooldownとlease解放を続ける。storage/internal障害や中断、受領記録0件ではこの公開を行わない。公開後は固定releaseからhydrateして原受領記録を読戻し、正規化済みrowとは区別する。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は取得成功とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
+同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。取得中に当日`tradingview_source_receipts`が増えたが新規の正規化済みrowが0件のときも、provider/auth/secret/time_guard/timeout系の取得失敗に限り既存market release publisherで原受領記録を公開する。取得runは失敗のままとし、cooldownとlease解放を続ける。storage/internal障害や中断、受領記録0件ではこの公開を行わない。公開後は固定releaseからhydrateして原受領記録を読戻し、正規化済みrowとは区別する。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は取得成功とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
 
 ### 初期設定と認証の復旧
 
@@ -898,9 +898,11 @@ gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
 
 GitHub Secretの初期投入に使ったローカル認証fileは、GitHub runnerが更新した後の最新版ではない。同じstateを複数processで更新したり、古いfileを再投入しない。対話認証による置換も、`cloud-publish`の実行がない時間に行う。
 
-### 独立したローカル認証で取得・L1公開する
+<a id="独立したローカル認証で取得l1公開する"></a>
 
-GitHubとlocalはそれぞれ独立したOAuth stateを使い、共有publication leaseだけでL1 writerを直列化する。GitHub側のenvironment secretとworkflowは変更しない。local成功はprovider quotaの分離や全市場取得の安定を保証しないため、GitHub失敗直後の自動fallbackやblind retryには使わない。
+### 独立したローカル認証で取得・market releaseへ公開する
+
+GitHubとlocalはそれぞれ独立したOAuth stateを使い、共有publication leaseだけでmarket release writerを直列化する。GitHub側のenvironment secretとworkflowは変更しない。local成功はprovider quotaの分離や全市場取得の安定を保証しないため、GitHub失敗直後の自動fallbackやblind retryには使わない。
 
 **前提**: current mainのcleanな専用runtime checkoutを用意する。runnerはそのcheckoutの`stores/market/market.sqlite`をfresh pull・hydrateで置換するため、分析・編集中のcheckoutを使わず、同checkoutのstoreを他processで更新しない。`.env`には既存のstores用R2 credentialと`JQUANTS_API_KEY`を設定し、`uv sync --locked`と、workflowと同じ[DuckDB httpfsの事前配置](../tools/diagnostics/provision_duckdb_httpfs.py)を済ませる。既存transferに必要なAWS CLIも使える状態にする。
 
@@ -920,9 +922,9 @@ uv run baibai-batch tradingview \
   --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
 ```
 
-runnerは実観測日のJST当日を固定し、lease取得 → market pull → current L1 hydrate → calendarとexact-date masterのpreflight → 必要な営業日masterと未保存銘柄のTV取得 → 新規rowの`partial`または`saved`をL1公開 → releaseの順に進む。取得時間、休場日の保存済みmaster選択、calendar欠落時の停止、同日再開、batch size・intervalは[共通契約](#tradingview-expectations)を使う。全件保存済みならOAuth接続前に終了し、過去日のbackfillはしない。TV取得は25分のsoft budgetで通常終了を図り、30分のhard timeout、取得前のpullから公開まで全体60分で打ち切る。remote `market.sqlite`・machine bundle・servingは更新しない。
+runnerは実観測日のJST当日を固定し、lease取得 → market pull → current market release hydrate → calendarとexact-date masterのpreflight → 必要な営業日masterと未保存銘柄のTV取得 → 新規rowの`partial`または`saved`をmarket releaseへ公開 → releaseの順に進む。取得時間、休場日の保存済みmaster選択、calendar欠落時の停止、同日再開、batch size・intervalは[共通契約](#tradingview-expectations)を使う。全件保存済みならOAuth接続前に終了し、過去日のbackfillはしない。TV取得は25分のsoft budgetで通常終了を図り、30分のhard timeout、取得前のpullから公開まで全体60分で打ち切る。remote `market.sqlite`・machine bundle・servingは更新しない。
 
-**成功確認**: exit 0、`saved`または`partial`の`rows_added`・`rows / expected_universe`・`remaining`・`stop_reason`、L1 publish reportのrelease ID/hash、lease解放を確認する。固定releaseの行数・Universe・null・unresolved・`fetched_at_utc`・前日snapshot保持を[L1参照手順](../docs/reference/market-lake.md#shared-raw-read)で照合する。`partial`は未取得が残るDEGRADEDであり、provider正常や全指標coverageを示さない。`already_saved` / `skipped_historical_asof` / `before_close` / `before_observation`は取得・公開成功と区別したno-opである。同日後続runがfresh hydrateから保存済みrowを再取得しないことも確認する。
+**成功確認**: exit 0、`saved`または`partial`の`rows_added`・`rows / expected_universe`・`remaining`・`stop_reason`、market publish reportのrelease ID/hash、lease解放を確認する。固定releaseの行数・Universe・null・unresolved・`fetched_at_utc`・前日snapshot保持を[固定release参照手順](../docs/reference/market-lake.md#shared-raw-read)で照合する。`partial`は未取得が残るDEGRADEDであり、provider正常や全指標coverageを示さない。`already_saved` / `skipped_historical_asof` / `before_close` / `before_observation`は取得・公開成功と区別したno-opである。同日後続runがfresh hydrateから保存済みrowを再取得しないことも確認する。
 
 **停止・復旧**: busyはexit 3、その他の失敗はexit 1。失敗・SIGINT/SIGTERM・timeoutでは子processを停止してからreleaseする。release失敗時はstderrに示されたhandleを保持し、[既存lease手順](#ローカルからクラウドを更新する)に従う。SIGKILL・host停止ではreleaseできない場合がある。公開失敗後のlocal snapshotだけを根拠に保存済みとせず、次回はfresh pull/hydrateから始める。
 

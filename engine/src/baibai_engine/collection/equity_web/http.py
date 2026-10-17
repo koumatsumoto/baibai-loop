@@ -21,7 +21,7 @@ from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, 
 from baibai_engine.collection.equity_web.receipts import validate_response
 
 MIN_REQUEST_INTERVAL_SECONDS = 2.0
-# Increment this policy version whenever pair acquisition semantics change.
+# Pair policy changes require a version review in external_assessment/observations/identity.py.
 HOST_REQUEST_RATE_PER_SECOND = 2.0
 HOST_REQUEST_BURST_CREDITS = 4.0
 RATE_LIMITED_HOSTS = (

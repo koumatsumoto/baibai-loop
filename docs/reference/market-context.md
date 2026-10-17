@@ -9,7 +9,7 @@ status: active
 
 本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Stock Assessment](./stock-assessment.md)が所有する。
 
-Collectionの`economic_sources`・`economic_providers`・`economic_acquisition`がL1のsource定義と外部取得を所有する。Market Contextの`indicators`はL2系列の定義、`reading`は保存原本の選択・計算を所有し、`indicator_service.py`と`indicator_cli.py`は読取専用である。L3の統合判断と履歴は`research/market_context`が所有する。L1はL2の列選択・単位・数式・妥当範囲に依存しない。
+Collectionの`economic/{sources,providers,acquisition,store}`がL1のsource定義・取得・native record/文書/取得runを所有する。Market Contextの`indicators`はL2系列の定義、`reading`は保存原本の選択・計算を所有し、`indicator_service.py`と`indicator_cli.py`は読取専用である。L3の統合判断と履歴は`research/market_context`が所有する。CollectionはL2の列選択・単位・数式・妥当範囲に依存しない。
 
 L1の`SourceDefinition.provider_series_id`は提供元への取得コード、L2の`SeriesDefinition.reading_key`は保存済み入力の列・系列照合・数式を選ぶキーである。`reading_key`は外部取得パラメータではない。
 
@@ -31,7 +31,7 @@ Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。保存判�
 
 ## Market Contextの保存済み読取
 
-Market Contextは経済、市場全体、業種と個別株の相対状態を扱う分析領域である。L1観測、L2機械状態、L3環境判断を区別し、現行のMarketContextAssessmentと、旧Macro Contextを含む保存判断の履歴を参照する。領域読取は`market_context`、Web/batchの公開facadeは`read_api/market_context`が所有する。取得・書込・AI起動を行わず、欠測を別領域の障害や「変化なし」へ置き換えない。
+Market Contextは経済、市場全体、業種と個別株の相対状態を扱うL2分析領域である。CollectionのL1原本から機械状態を作り、ResearchのL3環境判断と、旧Macro Contextを含む保存判断の履歴を区別する。領域読取は`market_context`、Web/batchの公開facadeは`read_api/market_context`が所有する。取得・書込・AI起動を行わず、欠測を別領域の障害や「変化なし」へ置き換えない。
 
 市場・業種・個別の異なる統計をまとめて一つのscoreにはしない。
 

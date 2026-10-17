@@ -24,24 +24,24 @@ status: active
 | Market Context / 市場環境 | 経済・金利等の環境と市場全体・業種・個別相対はどのような状態か |
 | External Assessment / 外部参考評価 | 外部の媒体・評価者はこの株をどう評価して提示しているか |
 
-領域は業務の横方向、L1観測・L2決定的な計算・L3 AI解釈/調査/提案は縦方向の区別である。Market Context AssessmentはResearchが所有するL3判断成果物で、領域全体と同義ではない。Readingは同領域の登録指標系列を機械的に読むL2であり、Market SnapshotやSecurity Market Contextとは別の結果である。境界・保存責務は[architecture](./architecture.md)が所有する。
+情報の生成責務はL1 Collectionの外部入力保持、L2の決定的な解析、L3 Researchの統合・解釈・判断に分ける。上の三領域は主にL2の分析結果を整理する区分で、それぞれが独立した三層一式を持つ意味ではない。Market Context AssessmentはResearchが所有するL3判断成果物で、領域全体と同義ではない。Readingは登録指標系列を機械的に読むL2であり、Market SnapshotやSecurity Market Contextとは別の結果である。境界・保存責務は[architecture](./architecture.md)が所有する。
 
 Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を固定すると算術は決定的に再現できるが、前提は観測にならず、結果は条件付き見積りである。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
 
-外部参考評価の提示値は「その媒体がその値を提示した」というL1観測であり、独自の企業価値や実際の大衆行動を測定した事実ではない。L2は出所ごとの受領比較と被覆・欠測を返す。同じ原評価元の転載は関係を示し、尺度・期間の異なるモデル価格、アナリスト予測/rating、Quants scoreを単一投票へ潰さない。媒体のQuants総合scoreは媒体値であり、三領域の独自総合scoreではない。L1の物理identifierも`external_assessment`に揃え、提示値の観測を個人投資家の売買計測と混同しない。
+外部アナリストの判断も「その媒体がそう提示した」受領資料としてL1に保持し、独自の企業価値や実際の大衆行動を測定した事実とは扱わない。HTMLやMCP応答からの値の抽出・正規化、出所ごとの比較と被覆・欠測はL2であり、型付き観測を受領原本そのものとは呼ばない。自分たちの解釈はL3に置く。同じ原評価元の転載は関係を示し、尺度・期間の異なるモデル価格、アナリスト予測/rating、Quants scoreを単一投票へ潰さない。媒体のQuants総合scoreは媒体値であり、独自総合scoreや自動注文は作らない。
 
 ## Canonical terms
 
 | term | 種別 | 意味 |
 | --- | --- | --- |
-| Observation | source fact | 原典の値・出所・時点・欠測を保持した観測 |
+| Observation | evidence value | 受領原本と機械的に整理した観測を区別する。型名だけではL1と決めず、source契約・provenanceで確認する |
 | Assumption | judgment input | AI/人間が置く前提。観測と区別する |
 | Conditional Estimate | estimate | 観測と仮定/規則から導出する条件付き見積り |
 | Candidate | pipeline role / state | 調査・投資候補。具体artifactが分かる箇所では具体名を優先する |
 | Candidate Discovery | activity | 同runのStock Analysis群にValuation Approachごとの候補理由を確定する |
 | Candidate Discovery Method | method | approach集合、common eligibility、順位とunion ruleを束ねるversioned method identity |
 | Valuation Approach | method component | Valuation内で価値機会を発見する探索観点 |
-| External Assessment | source-bound context | 外部媒体の提示値と出所別の機械比較。企業の独自FV・採否判断と別結果 |
+| External Assessment | L2 analysis | 外部媒体の受領原本から抽出した提示値と出所別の機械比較。企業の独自FV・採否判断と別結果 |
 | Machine Valuation | rebuildable estimate | 保存済みStock Analysisの機械ER・業種中央値/自己レンジanchor |
 | Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Stock Assessmentが内包する |
 | Screening Run | artifact | ある`as_of`に対するscreening一回分 |
@@ -85,14 +85,14 @@ Research Setはpipeline stateである。storeごとのauthorityは
 ## Decision flow
 
 ```text
-保存済み市場・財務観測 -> Valuation / Market ContextのL2結果
+Collectionの保存L1 -> 共通market L2 -> Valuation / Market Context等のL2結果
              -> Screening Run -> Stock Analysis[] + 同runの候補文脈
              -> candidate.reasonsがある同じStock Analysisの候補一覧
 Stock Analysis / 候補一覧 -> Research selection (新規探索)
 指定銘柄 -> Research selection (候補外も可)
 Holding -> Research selection (保有見直し)
 各入口 -> 明示開始・単一scopeと保存capacityによる固定選択
-           -> 三領域の保存済み入力による有限Research -> Stock Assessment + Assessment Review
+           -> 保存済みL2結果と根拠資料による有限Research -> Stock Assessment + Assessment Review
 reviewed Stock Assessment群 + 現在価格/cash/保有 -> Investment Proposal
                  -> buy / hold / sell / no_action / defer + 条件付きterms
                  -> 人間の採否・broker操作・報告 -> Portfolio Ledger -> Holding

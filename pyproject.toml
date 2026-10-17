@@ -367,6 +367,7 @@ forbidden_modules = [
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
   "baibai_engine.tasks",
+  "baibai_engine.collection",
 ]
 allow_indirect_imports = true
 
@@ -398,6 +399,7 @@ forbidden_modules = [
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
   "baibai_engine.tasks",
+  "baibai_engine.collection",
   "baibai_web",
   "tools",
 ]
@@ -420,6 +422,14 @@ forbidden_modules = [
   "baibai_engine.storage.application.write",
   "baibai_engine.cli",
   "baibai_engine.collection.economic.providers",
+  "baibai_engine.collection.economic.acquisition",
+  "baibai_engine.collection.jquants.http",
+  "baibai_engine.collection.edinet.http",
+  "baibai_engine.collection.jpx.http",
+  "baibai_engine.collection.equity_web.http",
+  "baibai_engine.collection.tradingview.client",
+  "baibai_engine.collection.tradingview.auth",
+  "baibai_engine.collection.tradingview.authorize",
   "baibai_engine.position.cli",
   "baibai_engine.research.proposal_service",
   "baibai_engine.research.assessment_evaluation_cli",
@@ -598,7 +608,7 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "provider observation models, decoding and selection do not load acquisition or storage"
 type = "forbidden"
-source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.edinet_selection", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode"]
+source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.edinet_selection", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode", "baibai_engine.market.price_models", "baibai_engine.market.calendar"]
 forbidden_modules = ["baibai_engine.market.providers", "baibai_engine.storage", "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools"]
 
 
