@@ -321,10 +321,10 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             producer_git_commit="a" * 40,
             created_at=datetime(2026, 10, 14, tzinfo=UTC),
         )
-    assert exported.manifest.contract_version == 4
-    assert exported.manifest.layer == "l1_source"
+    assert exported.manifest.contract_version == 5
+    assert exported.manifest.layer == "l2_processed"
     assert all(
-        item.key.startswith("lake/l1/source/")
+        item.key.startswith("lake/l2/processed/")
         for partition in exported.manifest.partitions
         for item in partition.objects
     )
@@ -335,13 +335,13 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
         release_id="financial-documents",
         created_at=datetime(2026, 10, 14, tzinfo=UTC),
     )
-    assert manifest.datasets["jquants.fin_summaries"].layer == "l1_source"
+    assert manifest.datasets["jquants.fin_summaries"].layer == "l2_processed"
     source = LocalMirrorSource(mirror)
     release = resolve_release(
         source, manifest.release_id, manifest_sha256=sha256(release_path.read_bytes()).hexdigest()
     )
     destination = tmp_path / "arrived.sqlite"
-    # Hydration preserves source records; coverage belongs to the store skeleton.
+    # Hydration preserves adopted financial records; coverage belongs to the store skeleton.
     source_conn = sqlite3.connect(db)
     destination_conn = sqlite3.connect(destination)
     try:

@@ -17,7 +17,7 @@ def series_definition(
     series_id: str = "test.series",
     *,
     provider: str = "mof_jgb",
-    provider_series_id: str = "TEST",
+    reading_key: str = "TEST",
     name: str = "Test Series",
     category: str = "rates",
     geography: str = "world",
@@ -42,7 +42,7 @@ def series_definition(
         frequency=frequency,
         unit=unit,
         provider=provider,
-        provider_series_id=provider_series_id,
+        reading_key=reading_key,
         source_id=source_id,
         source_url=source_url,
         plausible_min=plausible_min,
@@ -150,9 +150,9 @@ def store_h15_observations(
         row = grouped.setdefault(
             key,
             {"Time Period": record.observed_at.isoformat()}
-            | {item.provider_series_id: "" for item in definitions.values()},
+            | {item.reading_key: "" for item in definitions.values()},
         )
-        row[definition.provider_series_id] = str(record.value)
+        row[definition.reading_key] = str(record.value)
     for (observed_at, fetched_at), row in grouped.items():
         store_snapshot(
             connection,
@@ -181,10 +181,10 @@ def store_mof_observations(
             (record.observed_at, fetched_at),
             {
                 "基準日": f"R{record.observed_at.year - 2018}.{record.observed_at.month}.{record.observed_at.day}",
-                **{item.provider_series_id: "" for item in definitions.values()},
+                **{item.reading_key: "" for item in definitions.values()},
             },
         )
-        row[definition.provider_series_id] = str(record.value)
+        row[definition.reading_key] = str(record.value)
     for (observed_at, fetched_at), row in grouped.items():
         definition = definitions[records[0].series_id]
         store_snapshot(

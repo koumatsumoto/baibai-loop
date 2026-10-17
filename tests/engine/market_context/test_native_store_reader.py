@@ -64,6 +64,9 @@ def test_cftc_keeps_paired_native_values_and_empty_correction_hides_prior_readin
 
 def test_ecb_crosses_use_one_native_row_and_missing_leg_never_uses_old_output(tmp_path):
     database = tmp_path / "indicators.sqlite"
+    definitions = load_definitions().by_id()
+    assert {definitions[key].source_id for key in ("usd_jpy", "eur_jpy", "aud_jpy")} == {"ecb-fx"}
+    assert len({definitions[key].reading_key for key in ("usd_jpy", "eur_jpy", "aud_jpy")}) == 3
     with closing(initialize_database(database)) as conn, conn:
         store_snapshot(
             conn,
@@ -74,8 +77,12 @@ def test_ecb_crosses_use_one_native_row_and_missing_leg_never_uses_old_output(tm
         )
     with closing(sqlite3.connect(database)) as conn:
         read = build_store_observation_reader(conn, series=load_definitions().series)
-        assert read("usd_jpy", DAY, DAY)[0].value == 150.0
-        assert read("eur_jpy", DAY, DAY)[0].value == 180.0
+        usd = read("usd_jpy", DAY, DAY)[0]
+        eur = read("eur_jpy", DAY, DAY)[0]
+        assert usd.value == 150.0
+        assert eur.value == 180.0
+        assert usd.source_url == eur.source_url == require_source("ecb-fx").source_url
+        assert usd.vintage_at == eur.vintage_at == datetime(2026, 10, 14, tzinfo=UTC)
         assert read("aud_jpy", DAY, DAY) == ()
 
 

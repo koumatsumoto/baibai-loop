@@ -7,7 +7,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: RIFLGFCY10_N.B
+    reading_key: RIFLGFCY10_N.B
     source_id: fed-h15
     tradingview_symbol: TVC:US10Y
     aliases: [米10Y利回り, 米10Y, US 10Y, DGS10, us_10y_treasury]
@@ -19,7 +19,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: RIFLGFCY02_N.B
+    reading_key: RIFLGFCY02_N.B
     source_id: fed-h15
     tradingview_symbol: TVC:US02Y
     aliases: [米2Y利回り, 米2Y, US 2Y, DGS2]
@@ -31,7 +31,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: DFEDTARU
+    reading_key: DFEDTARU
     source_id: fred-dfedtaru
     aliases: [FF upper, Fed Funds upper, FF目標上限, fed_funds_rate]
   - series_id: us.fed_funds.lower
@@ -42,7 +42,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: DFEDTARL
+    reading_key: DFEDTARL
     source_id: fred-dfedtarl
     aliases: [FF lower, Fed Funds lower, FF目標下限]
   - series_id: us.cpi.headline
@@ -53,7 +53,7 @@ series:
     unit: index
     plausible_min: 2
     plausible_max: 5000
-    provider_series_id: CPIAUCSL
+    reading_key: CPIAUCSL
     source_id: fred-cpiaucsl
     aliases: [米CPI, US CPI, CPI headline]
   - series_id: us.cpi.core
@@ -64,7 +64,7 @@ series:
     unit: index
     plausible_min: 2
     plausible_max: 5000
-    provider_series_id: CPILFESL
+    reading_key: CPILFESL
     source_id: fred-cpilfesl
     aliases: [米コアCPI, US core CPI, core CPI]
   - series_id: us.unemployment
@@ -75,7 +75,7 @@ series:
     unit: percent
     plausible_min: 0
     plausible_max: 30
-    provider_series_id: UNRATE
+    reading_key: UNRATE
     source_id: fred-unrate
     aliases: [米失業率, unemployment, UNRATE]
   - series_id: us.nonfarm_payrolls
@@ -86,7 +86,7 @@ series:
     unit: thousand-persons
     plausible_min: 2000
     plausible_max: 2000000
-    provider_series_id: PAYEMS
+    reading_key: PAYEMS
     source_id: fred-payems
     aliases: [米雇用統計, NFP, nonfarm payrolls, PAYEMS]
   - series_id: us.sp500
@@ -97,7 +97,7 @@ series:
     unit: index
     plausible_min: 200
     plausible_max: 100000
-    provider_series_id: SP500
+    reading_key: SP500
     source_id: fred-sp500
     tradingview_symbol: SP:SPX
     notes: FRED SP500は直近約10年のみ保持(ライセンス制約)。直近の調整・下落分析には十分
@@ -110,7 +110,7 @@ series:
     unit: index
     plausible_min: 5
     plausible_max: 500000
-    provider_series_id: NASDAQCOM
+    reading_key: NASDAQCOM
     source_id: fred-nasdaqcom
     tradingview_symbol: NASDAQ:IXIC
     aliases: [NASDAQ, ナスダック, NASDAQCOM, Nasdaq Composite, ナスダック総合]
@@ -122,7 +122,7 @@ series:
     unit: index
     plausible_min: 1000
     plausible_max: 1000000
-    provider_series_id: DJIA
+    reading_key: DJIA
     source_id: fred-djia
     tradingview_symbol: TVC:DJI
     aliases: [ダウ, Dow, DJIA, Dow Jones, ダウ平均, ダウ工業株30種]
@@ -134,7 +134,7 @@ series:
     unit: percent
     plausible_min: 0
     plausible_max: 100
-    provider_series_id: BAMLH0A0HYM2
+    reading_key: BAMLH0A0HYM2
     source_id: fred-bamlh0a0hym2
     aliases: [HY OAS, ハイイールドスプレッド, high yield OAS, クレジットスプレッド]
   - series_id: credit.us_ig_oas
@@ -145,7 +145,7 @@ series:
     unit: percent
     plausible_min: 0
     plausible_max: 100
-    provider_series_id: BAMLC0A0CM
+    reading_key: BAMLC0A0CM
     source_id: fred-bamlc0a0cm
     aliases: [IG OAS, 投資適格スプレッド, investment grade OAS]
   - series_id: credit.us_ccc_oas
@@ -156,7 +156,7 @@ series:
     unit: percent
     plausible_min: 0
     plausible_max: 100
-    provider_series_id: BAMLH0A3HYC
+    reading_key: BAMLH0A3HYC
     source_id: fred-bamlh0a3hyc
     notes: CCC以下の米ハイイールド債のoption-adjusted spread。HY全体との差は格付帯のspread差であり、特定業種や非公開融資の損失を直接測らない。
     aliases: [CCC OAS, CCCスプレッド, ハイイールドCCC, distressed credit]
@@ -168,7 +168,7 @@ series:
     unit: index
     plausible_min: 5
     plausible_max: 2000
-    provider_series_id: DTWEXBGS
+    reading_key: DTWEXBGS
     source_id: fred-dtwexbgs
     notes: FRBの名目・広義貿易加重ドル指数。ICEの固定6通貨バスケットによるDXYとは別系列。
     aliases: [ドル指数, dollar index, broad dollar, DTWEXBGS]
@@ -180,7 +180,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: DFII10
+    reading_key: DFII10
     source_id: fred-dfii10
     notes: 10年物TIPSの市場利回り。実質金利の市場指標であり、個別資産の将来returnを直接表さない。
     aliases: [米10Y実質金利, 実質金利, real yield, TIPS 10Y, DFII10]
@@ -192,7 +192,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: T10YIE
+    reading_key: T10YIE
     source_id: fred-t10yie
     notes: 名目10年国債利回りと10年TIPS利回りの差。インフレ期待だけでなくrisk premiumや流動性差も含む。
     aliases: [期待インフレ, ブレークイーブン, breakeven, BEI, T10YIE]
@@ -204,7 +204,7 @@ series:
     unit: usd-million
     plausible_min: 50000
     plausible_max: 100000000
-    provider_series_id: WALCL
+    reading_key: WALCL
     source_id: fred-walcl
     notes: FRB連結総資産(週次・水曜, 百万ドル)。グローバル流動性の中核でQT/QEの量的スタンス。net liquidity = 総資産 − RRP − TGA の第1項
     aliases: [FRBバランスシート, Fed balance sheet, FRB総資産, WALCL, 中銀資産]
@@ -216,7 +216,7 @@ series:
     unit: usd-billion
     plausible_min: 0
     plausible_max: 50000
-    provider_series_id: RRPONTSYD
+    reading_key: RRPONTSYD
     source_id: fred-rrpontsyd
     notes: 翌日物リバースレポ残高(十億ドル)。net liquidity proxyでは単位と観測日を揃えて控除する。残高の変化だけで市場流動性の方向を断定しない。
     aliases: [リバースレポ, ON RRP, reverse repo, RRP, RRPONTSYD]
@@ -228,7 +228,7 @@ series:
     unit: usd-billion
     plausible_min: 20
     plausible_max: 500000
-    provider_series_id: M2SL
+    reading_key: M2SL
     source_id: fred-m2sl
     notes: M2マネーストック(月次・季節調整済、十億ドル)。貨幣量の観測系列であり、リスク資産に対する固定の先行期間は定義しない。
     aliases: [M2, マネーサプライ, money supply, M2SL, マネーストック]
@@ -240,7 +240,7 @@ series:
     unit: index
     plausible_min: -20
     plausible_max: 100
-    provider_series_id: NFCI
+    reading_key: NFCI
     source_id: fred-nfci
     notes: シカゴ連銀の金融環境合成指数。正は歴史的平均より引締的、負は緩和的。構成系列・推定weightの更新で過去値も改訂される。
     aliases: [NFCI, 金融環境指数, financial conditions, シカゴ連銀NFCI]
@@ -252,7 +252,7 @@ series:
     unit: index
     plausible_min: 1
     plausible_max: 2000
-    provider_series_id: PCEPILFE
+    reading_key: PCEPILFE
     source_id: fred-pcepilfe
     notes: 食品・エネルギーを除くPCE価格指数(月次)。基調物価の確認に使う。FRBの2%目標の対象は総合PCE価格指数の前年比であり、この指数水準やcoreそのものではない。
     aliases: [コアPCE, PCE core, PCEPILFE, 米コアPCE]
@@ -264,7 +264,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: T5YIFR
+    reading_key: T5YIFR
     source_id: fred-t5yifr
     notes: 5年先から5年間のフォワード・インフレ補償率。国債市場からの導出値であり、純粋な期待インフレや調査回答ではない。
     aliases: [5y5y, 5年5年先, forward inflation, T5YIFR, 長期期待インフレ]
@@ -276,7 +276,7 @@ series:
     unit: count
     plausible_min: 10000
     plausible_max: 100000000
-    provider_series_id: ICSA
+    reading_key: ICSA
     source_id: fred-icsa
     notes: 週次・季調済の新規失業保険申請。労働市場の高頻度先行指標で月次雇用統計に先行。急増は景気後退の早期警戒
     aliases: [新規失業保険, initial claims, jobless claims, ICSA, 失業保険申請]
@@ -288,7 +288,7 @@ series:
     unit: index
     plausible_min: 0.2
     plausible_max: 2000
-    provider_series_id: INDPRO
+    reading_key: INDPRO
     source_id: fred-indpro
     notes: 鉱工業生産指数(月次)。実体経済の生産活動ゲージ。製造業循環・景気局面の判断に使う
     aliases: [鉱工業生産, industrial production, INDPRO, 米生産]
@@ -300,7 +300,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: T10Y3M
+    reading_key: T10Y3M
     source_id: fred-t10y3m
     notes: 10年国債と3ヶ月国債の利回り差(percentage point)。10Y-2Yのbp表示とは単位を揃えて比較する。逆転だけで景気後退を確定しない。
     aliases: [10Y-3Mスプレッド, 逆イールド, recession spread, T10Y3M, 10年3ヶ月]
@@ -312,7 +312,7 @@ series:
     unit: usd-million
     plausible_min: 200
     plausible_max: 20000000
-    provider_series_id: WTREGEN
+    reading_key: WTREGEN
     source_id: fred-wtregen
     notes: WTREGENは水曜を期末とする週平均残高(百万ドル)で、水曜時点の残高ではない。ネット流動性の近似計算に使うが、期末値との混在を同時点の厳密な残高と解釈しない
     aliases: [TGA, 財務省一般勘定, Treasury General Account, WTREGEN]
@@ -324,7 +324,7 @@ series:
     unit: index
     plausible_min: 2
     plausible_max: 5000
-    provider_series_id: ^MOVE
+    reading_key: ^MOVE
     source_id: yahoo-move
     notes: ICE BofA MOVE指数(米国債の予想変動率)。債券版VIX。金利ボラ上昇は流動性・リスク資産の逆風。VIX(株)・OAS(信用)と別軸の早期警戒
     aliases: [MOVE, 債券VIX, bond volatility, MOVE指数, 金利ボラ]
@@ -336,7 +336,7 @@ series:
     unit: index
     plausible_min: 10
     plausible_max: 50000
-    provider_series_id: ^RUT
+    reading_key: ^RUT
     source_id: yahoo-rut
     tradingview_symbol: TVC:RUT
     notes: 米小型株指数(日次)。大型グロース/小型バリューのローテーション・市場breadth・内需循環の温度計。S&P500との相対で局面を読む
@@ -349,7 +349,7 @@ series:
     unit: index
     plausible_min: 10
     plausible_max: 200000
-    provider_series_id: ^SOX
+    reading_key: ^SOX
     source_id: yahoo-sox
     tradingview_symbol: NASDAQ:SOX
     notes: PHLX半導体指数(日次)。AI/半導体サイクルの先行ゲージで、日本の半導体株は本指数に高感応。proprietary指数でFRED非対応のためYahooで取得
@@ -362,7 +362,7 @@ series:
     unit: percent
     plausible_min: -100
     plausible_max: 100
-    provider_series_id: A191RL1Q225SBEA
+    reading_key: A191RL1Q225SBEA
     source_id: fred-a191rl1q225sbea
     notes: 実質GDPの前期比年率(SAAR、季節調整済)。GDP水準や前年比とは別の量。
     aliases: [米GDP, GDP成長率, real GDP growth, GDP, 実質GDP成長率, A191RL1Q225SBEA]
@@ -374,7 +374,7 @@ series:
     unit: ratio
     plausible_min: 0.2
     plausible_max: 500
-    provider_series_id: shiller-pe
+    reading_key: shiller-pe
     source_id: multpl-shiller-pe
     notes: S&P500の10年実質EPS平均を用いたCAPE。multplの日付付き月次履歴表を取得し、表の現在行と月次行を読む。過去平均への回帰や将来returnを保証する指標ではない。
     aliases: [CAPE, シラーPER, Shiller PE, CAPE比率, 景気循環調整PER]
@@ -386,7 +386,7 @@ series:
     unit: ratio
     plausible_min: 0.5
     plausible_max: 2000
-    provider_series_id: s-p-500-pe-ratio
+    reading_key: s-p-500-pe-ratio
     source_id: multpl-sp500-pe
     notes: S&P500のGAAP報告利益を基礎とするPER。現在値には推定を含む。multplの日付付き月次履歴表を取得し、表の現在行と月次行を読む。益回りと国債利回りの単純差は、株式の期待超過returnであるERPそのものではない。
     aliases: [S&P500 PER, SP500 PE, 米国株PER, PER, price earnings ratio]
@@ -398,7 +398,7 @@ series:
     unit: percent
     plausible_min: -100
     plausible_max: 100
-    provider_series_id: s-p-500-earnings-yield
+    reading_key: s-p-500-earnings-yield
     source_id: multpl-sp500-ey
     notes: S&P500のGAAP報告利益を基礎とする益回り(1/PER)。現在値には推定を含む。multplの日付付き月次履歴表を取得し、表の現在行と月次行を読む。名目国債利回りとの差は比較指標であり、将来の株式returnやERPを直接測らない。
     aliases: [益回り, earnings yield, S&P500益回り, アーニングスイールド]
@@ -410,7 +410,7 @@ series:
     unit: usd-per-hour
     plausible_min: 2
     plausible_max: 500
-    provider_series_id: CES0500000003
+    reading_key: CES0500000003
     source_id: fred-ces0500000003
     notes: 米民間非農業部門の平均時給(月次・季節調整済、ドル/時)。雇用構成の変化も平均値に影響する。
     aliases: [米平均時給, 平均時給, average hourly earnings, AHE, CES0500000003, 米賃金]
@@ -422,7 +422,7 @@ series:
     unit: index
     plausible_min: 10
     plausible_max: 2000
-    provider_series_id: PPIFIS
+    reading_key: PPIFIS
     source_id: fred-ppifis
     notes: 最終需要の生産者物価指数(月次)。CPIより川上のパイプラインインフレ。売価転嫁圧力の先行観測点
     aliases: [米PPI, 生産者物価, producer price index, PPIFIS, パイプラインインフレ]
@@ -434,7 +434,7 @@ series:
     unit: thousand
     plausible_min: 200
     plausible_max: 200000
-    provider_series_id: JTSJOL
+    reading_key: JTSJOL
     source_id: fred-jtsjol
     notes: 非農業部門の求人総数(月次・千件・季節調整済)。労働需要の先行。求人/失業者比とともに賃金圧力の緩急を読む
     aliases: [米求人数, JOLTS, job openings, JTSJOL, 求人件数]
@@ -446,7 +446,7 @@ series:
     unit: usd-million
     plausible_min: 2000
     plausible_max: 1000000
-    provider_series_id: NEWORDER
+    reading_key: NEWORDER
     source_id: fred-neworder
     notes: 非国防資本財(航空機除く)の新規受注(月次・百万ドル・季節調整済)。企業設備投資サイクルの先行ゲージ
     aliases: [コア資本財受注, capex orders, core capital goods orders, NEWORDER, 設備投資先行]
@@ -458,7 +458,7 @@ series:
     unit: thousand
     plausible_min: 50
     plausible_max: 50000
-    provider_series_id: PERMIT
+    reading_key: PERMIT
     source_id: fred-permit
     notes: 建設許可の民間住宅戸数(月次・千戸・季節調整済年率)。住宅=金利感応の古典的景気先行。着工に先行する
     aliases: [住宅建設許可, building permits, PERMIT, 建設許可件数]
@@ -470,7 +470,7 @@ series:
     unit: thousand
     plausible_min: 20
     plausible_max: 50000
-    provider_series_id: HOUST
+    reading_key: HOUST
     source_id: fred-houst
     notes: 民間住宅着工戸数(月次・千戸・季節調整済年率)。許可に続く実際の建設活動。金利サイクルの実体側の反応
     aliases: [住宅着工, housing starts, HOUST, 着工件数]
@@ -482,7 +482,7 @@ series:
     unit: usd-million
     plausible_min: 10000
     plausible_max: 10000000
-    provider_series_id: RSAFS
+    reading_key: RSAFS
     source_id: fred-rsafs
     notes: 小売・飲食サービス売上高(月次・百万ドル・季節調整済)。米消費モメンタムの月次観測点
     aliases: [米小売売上, retail sales, RSAFS, 小売売上高]
@@ -494,7 +494,7 @@ series:
     unit: index
     plausible_min: 2
     plausible_max: 2000
-    provider_series_id: ICS_ALL
+    reading_key: ICS_ALL
     source_id: umich-sca-ics
     notes: ミシガン大消費者態度指数(月次・1966Q1=100)。消費者マインドの温度計。公表元の月次表を直読し、当月分は月末の確報で確定する
     aliases: [消費者信頼感, ミシガン, consumer sentiment, UMCSENT, 消費者マインド]
@@ -506,7 +506,7 @@ series:
     unit: index
     plausible_min: 0
     plausible_max: 100
-    provider_series_id: us_manufacturing
+    reading_key: us_manufacturing
     source_id: spglobal-us-pmi-mfg
     notes: S&P Global 米製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する。ISM製造業と対で米製造業サイクルを読む
     aliases: [米製造業PMI, US manufacturing PMI, S&P US manufacturing PMI]
@@ -518,7 +518,7 @@ series:
     unit: index
     plausible_min: 0
     plausible_max: 100
-    provider_series_id: us_services
+    reading_key: us_services
     source_id: spglobal-us-pmi-svc
     notes: S&P Global 米サービス業PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。米経済の約7割を占めるサービス需要の先行観測
     aliases: [米サービスPMI, US services PMI, S&P US services PMI]
@@ -530,7 +530,7 @@ series:
     unit: percent
     plausible_min: -100
     plausible_max: 100
-    provider_series_id: DRTSCILM
+    reading_key: DRTSCILM
     source_id: fred-drtscilm
     notes: SLOOS大・中堅企業向けC&Iローンの貸出基準を厳格化した銀行の純割合(四半期・%)。正=引き締め。信用サイクルの先行
     aliases: [SLOOS, 貸出態度, bank lending standards, DRTSCILM, 信用サイクル]
@@ -542,7 +542,7 @@ series:
     unit: usd-million
     plausible_min: -10000000
     plausible_max: 5000000
-    provider_series_id: MTSDS133FMS
+    reading_key: MTSDS133FMS
     source_id: fred-mtsds133fms
     notes: 月次財政収支(百万ドル・負=赤字)。国債発行=Treasury供給圧力の源。TGA・純流動性と接続して読む。月次で振れが大きい
     aliases: [米財政収支, 連邦赤字, federal deficit, MTSDS133FMS, 財政赤字]
@@ -554,7 +554,7 @@ series:
     unit: percent
     plausible_min: -20
     plausible_max: 30
-    provider_series_id: RIFLGFCY30_N.B
+    reading_key: RIFLGFCY30_N.B
     source_id: fed-h15
     notes: FRB H.15の30年物Treasury定数満期利回り(日次)。財政、期待短期金利、term premiumなどの影響を分離せず含む。
     aliases: [米30Y, US 30Y, 30年債, DGS30, 米長期金利30年]
@@ -566,7 +566,7 @@ series:
     unit: count
     plausible_min: 10000
     plausible_max: 100000000
-    provider_series_id: IC4WSA
+    reading_key: IC4WSA
     source_id: fred-ic4wsa
     notes: 新規失業保険申請件数の4週移動平均(週次・季節調整済)。週次のノイズを平滑した雇用悪化シグナル。FRED配信の移動平均系列を使う
     aliases: [新規失業保険4週平均, initial claims 4wk ma, IC4WSA, 失業保険申請移動平均]
@@ -578,7 +578,7 @@ series:
     unit: pt
     plausible_min: -100
     plausible_max: 100
-    provider_series_id: GACDISA066MSFRBNY
+    reading_key: GACDISA066MSFRBNY
     source_id: fred-gacdisa066msfrbny
     notes: ニューヨーク連銀 Empire State製造業サーベイの総合景況指数(月次・季節調整済・DI)。0が横ばいの分岐点。当月中旬に当月分が出る最速級の米サーベイで、有償のISMを載せられない中でS&P Global PMIを別sourceから相互検証する
     aliases: [Empire State, エンパイアステート, NY連銀製造業, Empire manufacturing, GACDISA066MSFRBNY]
@@ -590,7 +590,7 @@ series:
     unit: pt
     plausible_min: -100
     plausible_max: 100
-    provider_series_id: GACDFSA066MSFRBPHI
+    reading_key: GACDFSA066MSFRBPHI
     source_id: fred-gacdfsa066msfrbphi
     notes: フィラデルフィア連銀の製造業ビジネス見通しサーベイ総合景況指数(月次・季節調整済、DI)。0が増加・減少回答の均衡点。地域surveyであり、他地区との一致だけで全米動向は確定しない。
     aliases: [Philly Fed, フィラデルフィア連銀, Philadelphia Fed, GACDFSA066MSFRBPHI]

@@ -10,6 +10,7 @@ from baibai_engine.collection import economic_store as db
 from baibai_engine.collection.economic_providers import jquants_flows, jquants_indices
 from baibai_engine.collection.economic_providers.base import ProviderFetchStoppedError
 from baibai_engine.collection.economic_records import read_snapshots, store_snapshot
+from baibai_engine.collection.economic_sources import require_source
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
@@ -164,13 +165,14 @@ def test_native_sdk_source_closes_response_and_session(
     monkeypatch.setattr(module, "_read_api_key", lambda: "synthetic-key")
     monkeypatch.setattr(module, "jquants_read_client", lambda *args, **kwargs: client)
     series = load_definitions().by_id()[series_id]
+    acquisition_source = require_source(series.source_id)
     if bad_response:
         with pytest.raises(ProviderFetchStoppedError):
-            source().fetch_records(series, start=FIRST, end=FIRST, session=Mock())
+            source().fetch_records(acquisition_source, start=FIRST, end=FIRST, session=Mock())
     else:
-        assert source().fetch_records(series, start=FIRST, end=FIRST, session=Mock()) == {
-            FIRST: rows
-        }
+        assert source().fetch_records(
+            acquisition_source, start=FIRST, end=FIRST, session=Mock()
+        ) == {FIRST: rows}
     response.close.assert_called_once()
     client._request_session.return_value.close.assert_called_once()
 

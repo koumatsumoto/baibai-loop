@@ -396,7 +396,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertTrue(pmi_series)
         for series in pmi_series:
             self.assertIn(
-                series.provider_series_id,
+                series.reading_key,
                 streams,
-                f"{series.series_id} has no manifest stream {series.provider_series_id!r}",
+                f"{series.series_id} has no manifest stream {series.reading_key!r}",
             )

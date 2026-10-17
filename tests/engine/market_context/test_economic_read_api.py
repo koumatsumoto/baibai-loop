@@ -266,9 +266,7 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
                 source_id=definition.source_id,
                 observed_at=date(2024, 8, 23),
                 fetched_at=vintage_at,
-                records=[
-                    {"observation_date": "2024-08-23", definition.provider_series_id: str(value)}
-                ],
+                records=[{"observation_date": "2024-08-23", definition.reading_key: str(value)}],
             )
         connection.commit()
     finally:

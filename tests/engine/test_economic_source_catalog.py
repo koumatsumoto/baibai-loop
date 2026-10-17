@@ -69,7 +69,7 @@ def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
     series = next(
         item
         for item in load_definitions().series
-        if item.provider == "mof_jgb" and item.provider_series_id == "10年"
+        if item.provider == "mof_jgb" and item.reading_key == "10年"
     )
     with pytest.raises(ValueError, match="MOF source missing column 10年"):
         _one_value(series, records[day])
@@ -147,7 +147,8 @@ def test_l2_resolves_shared_source_metadata_from_one_catalog(monkeypatch):
     ]
     assert len(readings) > 1
     assert all(item.source_url == "https://example.com/new-h15.csv" for item in readings)
-    assert len({item.provider_series_id for item in readings}) == len(readings)
+    assert sources["fed-h15"].provider_series_id == ""
+    assert len({item.reading_key for item in readings}) == len(readings)
 
 
 def test_l2_registry_rejects_inline_external_source_configuration(tmp_path):

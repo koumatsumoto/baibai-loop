@@ -50,7 +50,7 @@ def build_store_observation_reader(
         if definition is None:
             raise KeyError(f"unknown indicator series: {series_id}")
         if definition.provider == "derived":
-            formula = FORMULAS[definition.provider_series_id]
+            formula = FORMULAS[definition.reading_key]
             input_start = start.replace(day=1) if formula.alignment == "monthly" else start
             inputs = {key: read(key, input_start, end) for key in formula.inputs}
             return derive_series(definition, inputs, start=start, end=end)

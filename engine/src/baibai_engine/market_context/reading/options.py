@@ -39,7 +39,7 @@ class OptionSeriesReader:
     ) -> tuple[ObservationRecord, ...]:
         if series.unit != "percent":
             raise ValueError(f"option series {series.series_id} has inconsistent unit")
-        field = _READING_FIELDS[series.provider_series_id]
+        field = _READING_FIELDS[series.reading_key]
         observations = []
         for chain in read_snapshots(self._connection, start, end, source_id=series.source_id):
             cached = self._readings.get(chain.observed_at)

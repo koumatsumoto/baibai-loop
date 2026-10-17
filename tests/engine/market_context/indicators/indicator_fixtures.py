@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 import openpyxl
 import requests
 from tests.helpers.indicator_store import (
+    SOURCE_URL,
     series_definition,
 )
 
@@ -26,6 +27,7 @@ from baibai_engine.collection.economic_providers.spglobal_pmi import (
     Release,
     _parse_stream,
 )
+from baibai_engine.collection.economic_sources import SourceDefinition
 from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,
 )
@@ -60,7 +62,7 @@ def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None
 
 def _series(
     provider: str,
-    provider_series_id: str,
+    reading_key: str,
     *,
     series_id: str = "test.series",
     unit: str = "percent",
@@ -73,12 +75,29 @@ def _series(
     return series_definition(
         series_id,
         provider=provider,
-        provider_series_id=provider_series_id,
+        reading_key=reading_key,
         category="test",
         unit=unit,
         frequency=frequency,
         plausible_min=plausible_min,
         plausible_max=plausible_max,
+    )
+
+
+def _source(
+    provider: str,
+    provider_series_id: str = "",
+    *,
+    source_url: str = SOURCE_URL,
+    frequency: str = "daily",
+) -> SourceDefinition:
+    """An explicit synthetic L1 acquisition request, independent of L2 readings."""
+    return SourceDefinition(
+        source_id="test-source",
+        provider=provider,
+        source_url=source_url,
+        frequency=frequency,
+        provider_series_id=provider_series_id,
     )
 
 
@@ -113,7 +132,7 @@ def _registry_yaml(*, plausible_min: str, plausible_max: str) -> str:
         "    geography: test\n"
         "    frequency: daily\n"
         "    unit: percent\n"
-        "    provider_series_id: TEST\n"
+        "    reading_key: TEST\n"
         "    source_id: fed-h15\n"
         f"    plausible_min: {plausible_min}\n"
         f"    plausible_max: {plausible_max}\n"
@@ -230,9 +249,14 @@ def _dashboard_payload(
 
 
 def _read_estat(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+    series: SeriesDefinition,
+    source: SourceDefinition,
+    text: str,
+    *,
+    start: date,
+    end: date,
 ) -> list[ObservationRecord]:
-    records = parse_estat_json(series, text, start=start, end=end)
+    records = parse_estat_json(source, text, start=start, end=end)
     return [
         reading_observation(series, observed_at=day, value=value, vintage_at=None)
         for day, value in estat_values(records).items()

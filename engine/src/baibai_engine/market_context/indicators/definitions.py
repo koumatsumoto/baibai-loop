@@ -22,7 +22,7 @@ class SeriesDefinition:
     """Resolved L2 reading definition, bound to its independently owned source.
 
     Provider and source URL are resolved from Collection, not configured twice.
-    provider_series_id selects the L2 input column or formula; it is not the
+    reading_key selects the L2 input column or formula; it is not the
     source acquisition request contract.
     """
 
@@ -33,7 +33,7 @@ class SeriesDefinition:
     frequency: str
     unit: str
     provider: str
-    provider_series_id: str
+    reading_key: str
     source_id: str
     source_url: str
     priority: int = 100
@@ -141,6 +141,8 @@ def _lint_alias_identity_collisions(series: list[SeriesDefinition]) -> None:
 
 def _parse_series(raw: object, sources: Mapping[str, SourceDefinition]) -> SeriesDefinition:
     entry = _mapping(raw, "series")
+    if "provider_series_id" in entry:
+        raise ValueError("L2 indicator definition uses reading_key, not provider_series_id")
     source_id = _required_str(entry, "source_id")
     if entry.get("provider") == "derived":
         provider = "derived"
@@ -165,7 +167,7 @@ def _parse_series(raw: object, sources: Mapping[str, SourceDefinition]) -> Serie
         frequency=_required_str(entry, "frequency"),
         unit=_required_str(entry, "unit"),
         provider=provider,
-        provider_series_id=_required_str(entry, "provider_series_id"),
+        reading_key=_required_str(entry, "reading_key"),
         source_id=source_id,
         source_url=source_url,
         priority=100 if priority is None else priority,

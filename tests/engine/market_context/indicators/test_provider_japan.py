@@ -14,12 +14,12 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _boj_workbook_bytes,
     _dashboard_payload,
     _dashboard_row,
-    _dashboard_series,
     _estat_payload,
     _parse_dashboard,
     _read_estat,
     _RecordingSession,
     _series,
+    _source,
 )
 
 from baibai_engine.collection.economic_providers import (
@@ -33,6 +33,7 @@ from baibai_engine.collection.economic_providers.estat_dashboard import (
     EStatDashboardSource,
     parse_dashboard_json,
 )
+from baibai_engine.collection.economic_sources import SourceDefinition, require_source
 from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,
     load_definitions,
@@ -43,7 +44,7 @@ from baibai_engine.market_context.reading.tsr_bankruptcies import parse_tsr_bank
 
 
 def _read_boj(series, content, *, start, end):
-    records = parse_boj_xlsx(series, content, start=start, end=end)
+    records = parse_boj_xlsx(_source("boj"), content, start=start, end=end)
     return [
         reading_observation(series, observed_at=day, value=value, vintage_at=None)
         for day, rows in records.items()
@@ -230,7 +231,13 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = _read_estat(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
+        observations = _read_estat(
+            series,
+            _source("estat", "0003427113"),
+            text,
+            start=date(2026, 2, 1),
+            end=date(2026, 3, 31),
+        )
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 2, 1))
@@ -240,7 +247,13 @@ class IndicatorsProviderParserTests(TestCase):
         series = _series("estat", "0003427113", unit="index")
         text = _estat_payload({"@time": "2026000505", "$": "102.0"})
 
-        observations = _read_estat(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
+        observations = _read_estat(
+            series,
+            _source("estat", "0003427113"),
+            text,
+            start=date(2026, 1, 1),
+            end=date(2026, 12, 31),
+        )
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 5, 1))
@@ -263,7 +276,7 @@ class IndicatorsProviderParserTests(TestCase):
                 self.assertEqual(series.frequency, "monthly")
                 self.assertEqual(series.unit, unit)
                 self.assertEqual(
-                    series.provider_series_id,
+                    series.reading_key,
                     f"0004052037?cdCat01={category}&cdArea=00000&cdTab={tab}",
                 )
                 cells = [
@@ -278,6 +291,7 @@ class IndicatorsProviderParserTests(TestCase):
                 ]
                 observations = _read_estat(
                     series,
+                    require_source(series.source_id),
                     _estat_payload(cells),
                     start=date(2024, 1, 1),
                     end=date(2026, 8, 31),
@@ -300,6 +314,7 @@ class IndicatorsProviderParserTests(TestCase):
                     ):
                         _read_estat(
                             series,
+                            require_source(series.source_id),
                             _estat_payload([*cells, {**cells[-1], attribute: wrong}]),
                             start=date(2024, 1, 1),
                             end=date(2026, 8, 31),
@@ -311,10 +326,10 @@ class IndicatorsProviderParserTests(TestCase):
         # One malformed e-Stat answer per row: the series it was requested for, the
         # response body, the window, and the refusal it must produce. Every row is a shape
         # the API has actually returned; the parser has to keep refusing all of them.
-        refusals: tuple[tuple[str, SeriesDefinition, str, date, date, str], ...] = (
+        refusals: tuple[tuple[str, SourceDefinition, str, date, date, str], ...] = (
             (
                 "missing_structure",
-                _series("estat", "0003427113", unit="index"),
+                _source("estat", "0003427113"),
                 "{}",
                 date(2026, 1, 1),
                 date(2026, 12, 31),
@@ -327,7 +342,7 @@ class IndicatorsProviderParserTests(TestCase):
                 # dimension open, and the store's upsert would then keep whichever cell of
                 # the period came last. The answer is checked cell by cell instead.
                 "a_cell_outside_the_requested_narrowing",
-                _series("estat", "0003355222?cdCat01=160&cdCat02=100&cdTab=100", unit="index"),
+                _source("estat", "0003355222?cdCat01=160&cdCat02=100&cdTab=100"),
                 _estat_payload(
                     [
                         {
@@ -352,7 +367,7 @@ class IndicatorsProviderParserTests(TestCase):
             ),
             (
                 "a_narrowing_key_it_cannot_check",
-                _series("estat", "0003355222?lvCat01=3", unit="index"),
+                _source("estat", "0003355222?lvCat01=3"),
                 _estat_payload({"@time": "2026000505", "$": "102.0"}),
                 date(2026, 1, 1),
                 date(2026, 12, 31),
@@ -360,7 +375,7 @@ class IndicatorsProviderParserTests(TestCase):
             ),
             (
                 "a_cell_spanning_more_than_one_month",
-                _series("estat", "0003427113", unit="index"),
+                _source("estat", "0003427113"),
                 _estat_payload({"@time": "2025000103", "$": "110.0"}),
                 date(2025, 1, 1),
                 date(2025, 12, 31),
@@ -368,7 +383,7 @@ class IndicatorsProviderParserTests(TestCase):
             ),
             (
                 "a_time_code_it_cannot_place",
-                _series("estat", "0003427113", unit="index"),
+                _source("estat", "0003427113"),
                 _estat_payload({"@time": "202501", "$": "110.0"}),
                 date(2025, 1, 1),
                 date(2025, 12, 31),
@@ -376,7 +391,7 @@ class IndicatorsProviderParserTests(TestCase):
             ),
             (
                 "a_rejected_request",
-                _series("estat", "0003427113", unit="index"),
+                _source("estat", "0003427113"),
                 json.dumps(
                     {
                         "GET_STATS_DATA": {
@@ -390,7 +405,7 @@ class IndicatorsProviderParserTests(TestCase):
             ),
             (
                 "one_page_of_a_longer_result",
-                _series("estat", "0003427113", unit="index"),
+                _source("estat", "0003427113"),
                 _estat_payload({"@time": "2026000505", "$": "102.0"}, next_key=100001),
                 date(2026, 1, 1),
                 date(2026, 12, 31),
@@ -398,12 +413,12 @@ class IndicatorsProviderParserTests(TestCase):
             ),
         )
 
-        for name, series, text, start, end, reason in refusals:
+        for name, source, text, start, end, reason in refusals:
             with (
                 self.subTest(case=name),
                 self.assertRaisesRegex(IndicatorsProviderError, reason),
             ):
-                _read_estat(series, text, start=start, end=end)
+                parse_estat_json(source, text, start=start, end=end)
 
     def test_parse_estat_json_reads_a_month_whose_closing_month_is_left_open(self) -> None:
         """e-Stat published 2024-01 of the watcher survey as "2024000100".
@@ -415,7 +430,13 @@ class IndicatorsProviderParserTests(TestCase):
         series = _series("estat", "0003348423", unit="pt")
         text = _estat_payload({"@time": "2024000100", "$": "50.2"})
 
-        observations = _read_estat(series, text, start=date(2024, 1, 1), end=date(2024, 12, 31))
+        observations = _read_estat(
+            series,
+            _source("estat", "0003348423"),
+            text,
+            start=date(2024, 1, 1),
+            end=date(2024, 12, 31),
+        )
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2024, 1, 1))
@@ -431,7 +452,13 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = _read_estat(series, text, start=date(2025, 1, 1), end=date(2025, 12, 31))
+        observations = _read_estat(
+            series,
+            _source("estat", "0003427113"),
+            text,
+            start=date(2025, 1, 1),
+            end=date(2025, 12, 31),
+        )
 
         self.assertEqual(
             [(o.observed_at, o.value) for o in observations], [(date(2025, 1, 1), 110.0)]
@@ -449,15 +476,20 @@ class IndicatorsProviderParserTests(TestCase):
             },
             {"@time": "2026000606", "@cat01": "0001", "@unit": "指数", "$": "***"},
         ]
+        source = _source("estat", "0003427113?cdCat01=0001")
         native = parse_estat_json(
-            series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30)
+            source, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30)
         )
         self.assertEqual(native, {date(2026, 5, 1): [rows[0]], date(2026, 6, 1): [rows[1]]})
         self.assertEqual(
             [
                 item.value
                 for item in _read_estat(
-                    series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30)
+                    series,
+                    source,
+                    _estat_payload(rows),
+                    start=date(2026, 5, 1),
+                    end=date(2026, 6, 30),
                 )
             ],
             [100.8],
@@ -482,7 +514,12 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
         observations = EStatDashboardSource().fetch_records(
-            _dashboard_series(),
+            _source(
+                "estat_dashboard",
+                _DASHBOARD_INDICATOR,
+                source_url=_DASHBOARD_SOURCE_URL,
+                frequency="monthly",
+            ),
             start=date(2026, 5, 1),
             end=date(2026, 5, 31),
             session=session,
@@ -675,7 +712,12 @@ class IndicatorsProviderParserTests(TestCase):
                 self.assertRaisesRegex(IndicatorsProviderError, message),
             ):
                 EStatDashboardSource().fetch_records(
-                    _dashboard_series(source_url=source_url),
+                    _source(
+                        "estat_dashboard",
+                        _DASHBOARD_INDICATOR,
+                        source_url=source_url,
+                        frequency="monthly",
+                    ),
                     start=date(2026, 1, 1),
                     end=date(2026, 5, 31),
                     session=_RecordingSession(_dashboard_payload([])),
@@ -684,7 +726,12 @@ class IndicatorsProviderParserTests(TestCase):
     def test_estat_dashboard_refuses_a_series_that_is_not_monthly(self) -> None:
         with self.assertRaisesRegex(IndicatorsProviderError, "monthly series only"):
             EStatDashboardSource().fetch_records(
-                _dashboard_series(frequency="quarterly"),
+                _source(
+                    "estat_dashboard",
+                    _DASHBOARD_INDICATOR,
+                    source_url=_DASHBOARD_SOURCE_URL,
+                    frequency="quarterly",
+                ),
                 start=date(2026, 1, 1),
                 end=date(2026, 5, 31),
                 session=_RecordingSession(_dashboard_payload([])),
@@ -790,7 +837,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertIsNone(reading.z_score)
 
     def test_parse_boj_timeseries_json_filters_range_without_changing_cells(self) -> None:
-        series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
+        series = _source("boj_timeseries", "FM01:STRDCLUCON")
         text = json.dumps(
             {
                 "STATUS": 200,
@@ -818,9 +865,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(observations[date(1998, 1, 5)][0]["value"], 0.49)
 
     def test_parse_boj_timeseries_json_reads_monthly_yyyymm_survey_dates(self) -> None:
-        series = _series(
-            "boj_timeseries", "PR01:PRCG20_2200000000", unit="index", frequency="monthly"
-        )
+        series = _source("boj_timeseries", "PR01:PRCG20_2200000000", frequency="monthly")
         text = json.dumps(
             {
                 "STATUS": 200,
@@ -846,9 +891,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_boj_timeseries_json_reads_quarterly_yyyy0q_survey_dates(self) -> None:
-        series = _series(
-            "boj_timeseries", "CO:TK99F1000601GCQ01000", unit="pt", frequency="quarterly"
-        )
+        series = _source("boj_timeseries", "CO:TK99F1000601GCQ01000", frequency="quarterly")
         text = json.dumps(
             {
                 "STATUS": 200,
@@ -875,9 +918,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_boj_timeseries_json_rejects_wrong_length_for_frequency(self) -> None:
-        series = _series(
-            "boj_timeseries", "PR01:PRCG20_2200000000", unit="index", frequency="monthly"
-        )
+        series = _source("boj_timeseries", "PR01:PRCG20_2200000000", frequency="monthly")
         text = json.dumps(
             {
                 "STATUS": 200,
@@ -894,7 +935,7 @@ class IndicatorsProviderParserTests(TestCase):
             parse_boj_timeseries_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_boj_timeseries_json_rejects_malformed_payload(self) -> None:
-        series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
+        series = _source("boj_timeseries", "FM01:STRDCLUCON")
         for payload, message in (
             ({"STATUS": 500, "MESSAGE": "failed"}, "status"),
             (

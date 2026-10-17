@@ -24,7 +24,7 @@ def read_flow_series(
     end: date,
     publication_cutoff: date,
 ) -> tuple[ObservationRecord, ...]:
-    if series.provider_series_id != "foreigners_net_value" or series.unit != "jpy-thousand":
+    if series.reading_key != "foreigners_net_value" or series.unit != "jpy-thousand":
         raise ValueError(f"investor flow series {series.series_id} has inconsistent unit")
     selected: dict[date, tuple[date, list[Mapping[str, object]]]] = {}
     # Source snapshots are publication-day responses, not aggregation-week snapshots.

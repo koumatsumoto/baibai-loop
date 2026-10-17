@@ -11,6 +11,8 @@ status: active
 
 Collectionの`economic_sources`・`economic_providers`・`economic_acquisition`がL1のsource定義と外部取得を所有する。Market Contextの`indicators`はL2系列の定義、`reading`は保存原本の選択・計算を所有し、`indicator_service.py`と`indicator_cli.py`は読取専用である。L3の統合判断と履歴は`research/market_context`が所有する。L1はL2の列選択・単位・数式・妥当範囲に依存しない。
 
+L1の`SourceDefinition.provider_series_id`は提供元への取得コード、L2の`SeriesDefinition.reading_key`は保存済み入力の列・系列照合・数式を選ぶキーである。`reading_key`は外部取得パラメータではない。
+
 日次工程はL1観測とL2 Readingを更新し、人間の明示開始でMarketContextAssessmentを作成する。新判断は下記assessmentの最小契約とreview手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
 
 ## 現行配置と保全するidentity

@@ -20,6 +20,7 @@ from baibai_engine.collection.economic_providers import (
 from baibai_engine.collection.economic_providers.estat_dashboard import (
     source_url_selectors as estat_dashboard_selectors,
 )
+from baibai_engine.collection.economic_sources import require_source
 from baibai_engine.market_context.indicator_cli import (
     main,
 )
@@ -69,39 +70,38 @@ class IndicatorsRegistryTests(unittest.TestCase):
             self.assertEqual(by_id[series_id].category, category)
 
         self.assertEqual(
-            by_id["jp.nominal_wage_index"].provider_series_id,
+            by_id["jp.nominal_wage_index"].reading_key,
             "0302030202010090010",
         )
         self.assertEqual(
-            by_id["jp.unemployment"].provider_series_id,
+            by_id["jp.unemployment"].reading_key,
             "0301010000020020010",
         )
 
         self.assertEqual(
-            by_id["jp.real_effective_exchange_rate"].provider_series_id,
+            by_id["jp.real_effective_exchange_rate"].reading_key,
             "RBJPBIS",
         )
         self.assertEqual(
-            by_id["jp.cpi.services"].provider_series_id,
+            by_id["jp.cpi.services"].reading_key,
             "0004052037?cdCat01=0220&cdArea=00000&cdTab=1",
         )
-        # The narrowing codes are the series identity for an e-Stat table that
-        # carries dozens of series, so an edit to them changes what is stored
-        # without changing anything else the tests look at.
+        # The narrowing codes select L2 values from one saved e-Stat table;
+        # changing them changes the reading, not the acquired source.
         self.assertEqual(
-            by_id["jp.machinery_orders"].provider_series_id,
+            by_id["jp.machinery_orders"].reading_key,
             "0003355222?cdCat01=160&cdCat02=100&cdTab=100",
         )
         self.assertEqual(
-            by_id["jp.watcher_current_di"].provider_series_id,
+            by_id["jp.watcher_current_di"].reading_key,
             "0003348423?cdCat01=100&cdCat02=100&cdTab=140",
         )
         self.assertEqual(
-            by_id["jp.consumer_confidence"].provider_series_id,
+            by_id["jp.consumer_confidence"].reading_key,
             "0003446462?cdCat01=1060&cdTab=200",
         )
         self.assertEqual(
-            by_id["jp.bank_lending_yoy"].provider_series_id,
+            by_id["jp.bank_lending_yoy"].reading_key,
             "MD13:FAAPOBAL1@",
         )
 
@@ -117,7 +117,9 @@ class IndicatorsRegistryTests(unittest.TestCase):
             if series.provider != "estat":
                 continue
             with self.subTest(series=series.series_id):
-                parse_estat_json(series, empty, start=date(1970, 1, 1), end=date(2100, 1, 1))
+                source = require_source(series.source_id)
+                self.assertEqual(series.reading_key, source.provider_series_id)
+                parse_estat_json(source, empty, start=date(1970, 1, 1), end=date(2100, 1, 1))
 
     def test_estat_dashboard_series_pin_one_upstream_series_in_their_source_url(self) -> None:
         """The registry, not a fetch, is where a mis-pinned selector must be caught.
@@ -135,9 +137,10 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
         for definition in dashboard:
             with self.subTest(series_id=definition.series_id):
-                selectors = estat_dashboard_selectors(definition)
+                source = require_source(definition.source_id)
+                selectors = estat_dashboard_selectors(source)
                 self.assertEqual(definition.frequency, "monthly")
-                self.assertEqual(selectors["IndicatorCode"], definition.provider_series_id)
+                self.assertEqual(selectors["IndicatorCode"], definition.reading_key)
                 self.assertEqual(selectors["Cycle"], "1")
                 self.assertIn(selectors["IsSeasonalAdjustment"], {"1", "2"})
 
@@ -199,7 +202,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 "    geography: us\n"
                 "    frequency: daily\n"
                 "    unit: percent\n"
-                "    provider_series_id: DGS10\n"
+                "    reading_key: DGS10\n"
                 "    source_id: fed-h15\n"
             )
             (registry / "a.yaml").write_text(block, encoding="utf-8")
@@ -219,7 +222,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 "    geography: test\n"
                 "    frequency: daily\n"
                 "    unit: percent\n"
-                "    provider_series_id: TEST\n"
+                "    reading_key: TEST\n"
                 "    source_id: fed-h15\n"
                 "    aliases: [first]\n"
                 "    aliases: [second]\n",
@@ -296,7 +299,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     "    geography: test\n"
                     "    frequency: daily\n"
                     "    unit: percent\n"
-                    "    provider_series_id: FIRST\n"
+                    "    reading_key: FIRST\n"
                     "    source_id: fed-h15\n"
                     f"    aliases: [{conflicting_alias}]\n"
                     "  - series_id: second.series\n"
@@ -305,7 +308,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     "    geography: test\n"
                     "    frequency: daily\n"
                     "    unit: percent\n"
-                    "    provider_series_id: SECOND\n"
+                    "    reading_key: SECOND\n"
                     "    source_id: fed-h15\n",
                     encoding="utf-8",
                 )
@@ -345,7 +348,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         for series in boj_series:
             with self.subTest(series_id=series.series_id):
                 column, expected_header, metadata_column, expected_metadata = (
-                    series.provider_series_id.split("|")
+                    series.reading_key.split("|")
                 )
                 self.assertGreaterEqual(int(column), 2)
                 self.assertTrue(expected_header.strip())
@@ -412,5 +415,17 @@ def test_registry_priority_is_not_a_boolean(tmp_path, priority):
 )
 def test_registry_preserves_series_identity(series_id, provider_id, excluded_alias):
     definition = load_definitions().by_id()[series_id]
-    assert definition.provider_series_id == provider_id
+    assert definition.reading_key == provider_id
     assert excluded_alias not in definition.aliases
+
+
+def test_registry_rejects_old_l2_provider_series_id(tmp_path):
+    path = tmp_path / "registry.yaml"
+    path.write_text(
+        _registry_yaml(plausible_min="-2", plausible_max="20").replace(
+            "reading_key: TEST", "provider_series_id: TEST"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="reading_key, not provider_series_id"):
+        load_definitions(path)

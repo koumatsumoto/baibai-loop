@@ -38,7 +38,7 @@ class DerivedFormula:
             raise ValueError("monthly_observation_date requires monthly alignment")
 
 
-# provider_series_id -> formula. provider_series_id equals the derived series_id.
+# reading_key -> formula. reading_key equals the derived series_id.
 FORMULAS: Mapping[str, DerivedFormula] = {
     "us.10y_2y_spread": DerivedFormula(
         inputs=("us.10y", "us.2y"),

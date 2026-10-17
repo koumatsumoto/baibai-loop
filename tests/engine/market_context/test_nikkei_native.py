@@ -30,7 +30,7 @@ def test_missing_revision_does_not_restore_prior_native_value(tmp_path, monkeypa
     series = next(
         item
         for item in load_definitions().series
-        if item.provider == "nikkei_indexes" and item.provider_series_id == "per"
+        if item.provider == "nikkei_indexes" and item.reading_key == "per"
     )
     replies = iter([table("17.82", "25.11"), table(missing, "25.12")])
     monkeypatch.setattr(nikkei_indexes, "fetch_text", lambda *args, **kwargs: next(replies))
@@ -53,7 +53,7 @@ def test_missing_unused_index_column_does_not_drop_valid_weighted_value(tmp_path
     series = next(
         item
         for item in load_definitions().series
-        if item.provider == "nikkei_indexes" and item.provider_series_id == "per"
+        if item.provider == "nikkei_indexes" and item.reading_key == "per"
     )
     monkeypatch.setattr(nikkei_indexes, "fetch_text", lambda *args, **kwargs: table("17.82", "-"))
     path = tmp_path / "indicators.sqlite"
@@ -68,7 +68,7 @@ def test_unreadable_numeric_text_is_retained_but_not_a_successful_reading(tmp_pa
     series = next(
         item
         for item in load_definitions().series
-        if item.provider == "nikkei_indexes" and item.provider_series_id == "per"
+        if item.provider == "nikkei_indexes" and item.reading_key == "per"
     )
     monkeypatch.setattr(
         nikkei_indexes, "fetch_text", lambda *args, **kwargs: table("unreadable", "25")
