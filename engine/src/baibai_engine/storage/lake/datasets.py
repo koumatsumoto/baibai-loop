@@ -261,11 +261,11 @@ JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
 
 JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
     name="jquants.master_snapshots",
-    layer="l1_source",
+    layer="l2_processed",
     sqlite_table="jquants_master_snapshots",
     date_column="snapshot_date",
     partition_grain="year",
-    contract_version=2,
+    contract_version=3,
     coverage_authority="unproven",
     population_column="security_code",
     columns=(
@@ -277,11 +277,11 @@ JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
 
 JQUANTS_FIN_SUMMARIES = LakeDataset(
     name="jquants.fin_summaries",
-    layer="l1_source",
+    layer="l2_processed",
     sqlite_table="jquants_fin_summaries",
     date_column="disclosed_at",
     partition_grain="year",
-    contract_version=4,
+    contract_version=5,
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("disclosed_at", "TEXT", _TEXT, False, 2),

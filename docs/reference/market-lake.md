@@ -51,7 +51,7 @@ dataset追加時は次を同じ変更で揃える。
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
 
-`jquants.fin_summaries`はcontract version 4で、主キーは`ticker / disclosed_at / disclosure_number`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
+`jquants.source_pages`は取得したJ-Quants応答のL1原本である。そこからidentityと日付を整えて採用した`jquants.master_snapshots`（contract version 3）と`jquants.fin_summaries`（contract version 5）はL2であり、原本の代替ではない。後者の主キーは`ticker / disclosed_at / disclosure_number`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
 
 財務の取得範囲内に開示が0件でも、正常に取得した期間は取得済みとして再利用する。未取得・不正recordを含むpartialとは区別し、計算に必要な履歴・銘柄数の充足とは別に判定する。訂正確認のための明示的な再取得と直近期間の更新は継続する。
 

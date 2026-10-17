@@ -180,9 +180,10 @@ quoteの通貨は同じresponseの`currency`を保持する。estimateの通貨�
 
 ### 銘柄マスターの原本と普通株判定
 
-J-Quants `eq/master` は取得基準日・完全な5文字の銘柄コードと原本JSONを保存する。
+J-Quants `eq/master` の取得応答は`jquants.source_pages`にL1原本として保存する。
+そこから採用した`jquants.master_snapshots`はL2で、取得基準日・完全な5文字の銘柄コードとrecord JSONを保持する。
 商品区分、英文名、17/33業種コード、規模区分、貸借区分などを取得時に削らず、
-副銘柄も原本に残す。L2で末尾0の主銘柄を4文字tickerへ投影し、
+副銘柄も保持する。L2の読取では末尾0の主銘柄を4文字tickerへ投影し、
 [商品区分](https://jpx-jquants.com/ja/spec/eq-master/product-category) `ProdCat=011`
 と組み合わせて国内普通株を識別する。末尾0だけではETF・REIT等も含むため十分でなく、
 業種名から商品種類を推測しない。対象市場の選択はこの判定とは別に行う。

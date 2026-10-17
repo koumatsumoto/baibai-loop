@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import sqlite3
 import subprocess
 from collections.abc import Iterator
@@ -8,6 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
@@ -693,9 +695,24 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
 def test_gc_keeps_source_and_processed_objects_in_current_market_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    names = ("jquants.fin_summaries", "jquants.daily_bars")
+    names = ("jquants.source_pages", "jquants.fin_summaries", "jquants.daily_bars")
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
     sqlite_path = market_store(tmp_path / "market.sqlite")
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
+        connection.execute(
+            "INSERT INTO jquants_source_pages("
+            "request_id, page_index, source, query_json, received_at_utc, received_on, body_gzip"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "gc-source",
+                0,
+                "financial_summaries",
+                '{"date":"2026-01-05"}',
+                "2026-01-05T01:00:00+00:00",
+                "2026-01-05",
+                gzip.compress(b"{}"),
+            ),
+        )
     store_jquants_fin_summaries(
         sqlite_path,
         [{"Code": "13010", "DiscDate": "2026-01-05", "DiscNo": "gc-source"}],
@@ -740,11 +757,71 @@ def test_gc_keeps_source_and_processed_objects_in_current_market_release(
         for name, item in exports.items()
     }
     assert all(objects.values())
-    assert all(key.startswith("lake/l1/source/") for key in objects["jquants.fin_summaries"])
+    assert all(key.startswith("lake/l1/source/") for key in objects["jquants.source_pages"])
+    assert all(key.startswith("lake/l2/processed/") for key in objects["jquants.fin_summaries"])
     assert all(key.startswith("lake/l2/processed/") for key in objects["jquants.daily_bars"])
     assert set.union(*objects.values()) <= set(plan.reachable)
     assert plan.unresolved_roots == ()
     assert plan.candidates == ()
+
+
+def test_jquants_source_and_adopted_rows_have_distinct_lake_layers(tmp_path: Path) -> None:
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
+        connection.execute(
+            "INSERT INTO jquants_source_pages("
+            "request_id, page_index, source, query_json, received_at_utc, received_on, body_gzip"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "raw-master",
+                0,
+                "master",
+                '{"date":"2026-01-05"}',
+                "2026-01-05T01:00:00+00:00",
+                "2026-01-05",
+                gzip.compress(b"{}"),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO jquants_master_snapshots(snapshot_date, security_code, record_json) "
+            "VALUES ('2026-01-05', '13010', '{\"Code\":\"13010\"}')"
+        )
+        connection.execute(
+            "INSERT INTO jquants_fin_summaries("
+            "ticker, disclosed_at, disclosure_number, document_payload"
+            ") VALUES ('1301', '2026-01-05', '1', '{\"Code\":\"13010\"}')"
+        )
+
+    mirror = tmp_path / "mirror"
+    for name, layer, version in (
+        ("jquants.source_pages", "l1_source", 1),
+        ("jquants.master_snapshots", "l2_processed", 3),
+        ("jquants.fin_summaries", "l2_processed", 5),
+    ):
+        export = _export(
+            dataset_name=name,
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            build_id=f"layer-{name.replace('.', '-')}",
+        )
+        assert export.manifest.layer == layer
+        assert export.manifest.contract_version == version
+        assert (
+            export.manifest_path.relative_to(mirror)
+            .as_posix()
+            .startswith(f"lake/manifests/datasets/{name}/")
+        )
+        for partition in export.manifest.partitions:
+            for obj in partition.objects:
+                assert obj.key.startswith(
+                    f"lake/{'l1/source' if layer == 'l1_source' else 'l2/processed'}/"
+                    f"{name}/contract=v{version}/"
+                )
+                metadata = pq.read_schema(mirror / obj.key).metadata
+                assert metadata is not None
+                assert metadata[b"baibai.layer"] == layer.encode()
+                assert metadata[b"baibai.contract_version"] == str(version).encode()
 
 
 def _unreferenced_processed_object(mirror: Path) -> tuple[str, Path]:

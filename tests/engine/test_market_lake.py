@@ -33,6 +33,8 @@ from baibai_engine.storage.lake.models import (
     load_manifest_json,
     validate_release_policy,
 )
+from baibai_engine.storage.lake.objects import LocalMirrorSource
+from baibai_engine.storage.lake.reader import LakeReadError, accepted_dataset, resolve_release
 
 
 def _snapshot_source_payload(digest: str = "9" * 64, schema_version: int = 22) -> dict[str, object]:
@@ -122,7 +124,9 @@ def test_dataset_manifest_is_strict_and_round_trips() -> None:
     ("dataset", "wrong_layer"),
     [
         ("jquants.daily_bars", "l1_source"),
-        ("jquants.fin_summaries", "l2_processed"),
+        ("jquants.fin_summaries", "l1_source"),
+        ("jquants.master_snapshots", "l1_source"),
+        ("jquants.source_pages", "l2_processed"),
     ],
 )
 def test_dataset_manifest_rejects_wrong_contract_layer_with_valid_object_key(
@@ -943,6 +947,81 @@ def test_release_requires_the_current_dataset_contract(monkeypatch) -> None:
     other_version = manifest.model_copy(update={"contract_version": manifest.contract_version + 1})
     with pytest.raises(ValueError, match="does not match current contract"):
         validate_release_policy(release, {manifest.dataset: other_version})
+
+
+@pytest.mark.parametrize(
+    ("legacy_dataset", "old_version"),
+    [
+        ("jquants.master_snapshots", 2),
+        ("jquants.fin_summaries", 4),
+    ],
+)
+def test_mixed_jquants_release_rejects_previous_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_dataset: str, old_version: int
+) -> None:
+    names = ("jquants.master_snapshots", "jquants.fin_summaries")
+    narrow_release_policy(monkeypatch, datasets=names)
+    manifests = {name: _load_dataset(_dataset_payload(dataset=name)) for name in names}
+
+    def release_for(items: dict[str, DatasetManifest]) -> ReleaseManifest:
+        payload = _release_payload()
+        payload["datasets"] = {
+            name: {
+                "build_id": manifest.build_id,
+                "layer": manifest.layer,
+                "contract_version": manifest.contract_version,
+                "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(manifest)).hexdigest(),
+                "data_as_of": manifest.data_as_of.isoformat(),
+                "coverage_status": manifest.coverage_status,
+                "totals": manifest.totals.model_dump(mode="json"),
+            }
+            for name, manifest in items.items()
+        }
+        return load_lake_model_json(json.dumps(payload), ReleaseManifest)
+
+    validate_release_policy(release_for(manifests), manifests)
+    old_payload = _dataset_payload(dataset=legacy_dataset)
+    old_payload["contract_version"] = old_version
+    partitions = old_payload["partitions"]
+    assert isinstance(partitions, list)
+    partition = partitions[0]
+    assert isinstance(partition, dict)
+    objects = partition["objects"]
+    assert isinstance(objects, list)
+    lake_object = objects[0]
+    assert isinstance(lake_object, dict)
+    assert isinstance(partition["values"], dict)
+    assert isinstance(lake_object["sha256"], str)
+    lake_object["key"] = canonical_object_key(
+        layer="l2_processed",
+        dataset=legacy_dataset,
+        contract_version=old_version,
+        partition_values=partition["values"],
+        partition_by=LAKE_DATASETS[legacy_dataset].partition_by,
+        content_sha256=lake_object["sha256"],
+    )
+    mixed = {**manifests, legacy_dataset: _load_dataset(old_payload)}
+    with pytest.raises(ValueError, match="does not match current contract"):
+        validate_release_policy(release_for(mixed), mixed)
+    release = release_for(mixed)
+    for name, manifest in mixed.items():
+        path = tmp_path / dataset_manifest_key(dataset=name, build_id=manifest.build_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(canonical_lake_model_bytes(manifest))
+    release_bytes = canonical_lake_model_bytes(release)
+    release_path = tmp_path / release_manifest_key(release_id=release.release_id)
+    release_path.parent.mkdir(parents=True, exist_ok=True)
+    release_path.write_bytes(release_bytes)
+    fixed = resolve_release(
+        LocalMirrorSource(tmp_path),
+        release.release_id,
+        manifest_sha256=hashlib.sha256(release_bytes).hexdigest(),
+    )
+    with pytest.raises(
+        LakeReadError,
+        match=f"this reader accepts only v{LAKE_DATASETS[legacy_dataset].contract_version}",
+    ):
+        accepted_dataset(fixed, legacy_dataset)
 
 
 def test_recomputed_exit_proxies_do_not_require_historical_conclusions() -> None:
