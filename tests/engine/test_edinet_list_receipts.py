@@ -12,9 +12,9 @@ import pytest
 from tests.helpers.http_doubles import FakeResponse, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
+from baibai_engine.collection.edinet import http
 from baibai_engine.collection.edinet.receipts import read_list_response, retain_list_response
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers import edinet
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
@@ -262,7 +262,7 @@ def test_received_time_is_recorded_once_before_decoding(tmp_path, monkeypatch):
             calls.append(zone)
             return fixed
 
-    monkeypatch.setattr(edinet, "datetime", Clock)
+    monkeypatch.setattr(http, "datetime", Clock)
     path = tmp_path / "market.sqlite"
     payload = {"metadata": {"resultset": {"count": 0}}, "results": []}
     provider = EDINETProvider(

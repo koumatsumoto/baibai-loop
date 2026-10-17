@@ -11,11 +11,7 @@ from baibai_engine.market.metric_quality import TTMQuality
 
 
 class EDINETProviderError(RuntimeError):
-    """Raised when EDINET access or normalization fails."""
-
-
-class EDINETRateLimitError(EDINETProviderError):
-    """Raised when EDINET asks the whole extraction run to back off."""
+    """Raised when saved EDINET input or its market projection is invalid."""
 
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)

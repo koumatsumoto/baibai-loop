@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
+from baibai_engine.collection.edinet.models import EdinetRateLimitError
 from baibai_engine.collection.prices import JQuantsDailyBar
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
@@ -27,7 +28,6 @@ from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_models import (
     EdinetMetricRecord,
     EDINETProviderError,
-    EDINETRateLimitError,
 )
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
@@ -283,6 +283,9 @@ class FakeEDINETProvider:
     zip_by_doc_id: dict[str, bytes] | None = None
     bootstrap_calls: list[tuple[date, date]] = field(default_factory=list)
     download_calls: list[str] = field(default_factory=list)
+
+    def close(self) -> None:
+        pass
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
@@ -1442,7 +1445,7 @@ class ScreeningCliTests(unittest.TestCase):
         class RateLimitedZipProvider(FakeEDINETProvider):
             def download_csv_zip(self, doc_id: str) -> bytes:
                 del doc_id
-                raise EDINETRateLimitError("too many requests")
+                raise EdinetRateLimitError("too many requests")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"

@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_document_events import QuarantinedDocumentEvent
 from baibai_engine.market.edinet_metrics.revision import (
     EDINET_METRIC_REVISION,
@@ -20,7 +21,6 @@ from baibai_engine.market.edinet_metrics.store import (
 from baibai_engine.market.edinet_models import (
     EdinetMetricRecord,
     EDINETProviderError,
-    EDINETRateLimitError,
 )
 from baibai_engine.market.edinet_selection import (
     TARGET_DOC_TYPE_CODES,
@@ -75,7 +75,7 @@ def extract_edinet_metrics_command(
                     file=out,
                     flush=True,
                 )
-    except EDINETProviderError as exc:
+    except (EdinetAcquisitionError, EDINETProviderError) as exc:
         message = f"EDINET document listing failed: {type(exc).__name__}: {exc}"
         _record_edinet_extraction_failure(sqlite_path, asof_date, message)
         print(message, file=sys.stderr)
@@ -242,8 +242,13 @@ def extract_edinet_metrics_command(
                 period_start=candidate.period_start,
                 period_end=candidate.period_end,
             )
-        except EDINETRateLimitError as exc:
+        except EdinetRateLimitError as exc:
             message = f"EDINET CSV download rate limited: {type(exc).__name__}: {exc}"
+            _record_edinet_extraction_failure(sqlite_path, asof_date, message)
+            print(message, file=sys.stderr)
+            return 1
+        except EdinetAcquisitionError as exc:
+            message = f"EDINET CSV acquisition failed: {type(exc).__name__}: {exc}"
             _record_edinet_extraction_failure(sqlite_path, asof_date, message)
             print(message, file=sys.stderr)
             return 1

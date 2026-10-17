@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import TextIO
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.valuation_catalysts import (
     ValuationCatalystError,
@@ -57,7 +58,7 @@ def backfill_edinet_identity_command(
         return 1
     try:
         result = providers.edinet.backfill_document_identity(start, end)
-    except (EDINETProviderError, sqlite3.Error) as exc:
+    except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(

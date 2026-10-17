@@ -84,8 +84,10 @@ class FakeSession:
         self._default = default
         self.calls: list[str] = []
 
-    def get(self, url: str, timeout: int | None = None) -> FakeResponse:
-        del timeout
+    def get(
+        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+    ) -> FakeResponse:
+        del timeout, allow_redirects
         self.calls.append(url)
         answer: Any = _UNSET
         if url in self._by_url:
@@ -122,7 +124,9 @@ class ExplodingSession:
         self._reason = reason
         self.calls: list[str] = []
 
-    def get(self, url: str, timeout: int | None = None) -> FakeResponse:
-        del timeout
+    def get(
+        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+    ) -> FakeResponse:
+        del timeout, allow_redirects
         self.calls.append(url)
         raise AssertionError(self._reason)

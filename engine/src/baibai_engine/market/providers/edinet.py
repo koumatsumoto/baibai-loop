@@ -2,31 +2,28 @@ from __future__ import annotations
 
 import io
 import json
-import time
 import zipfile
 from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
-from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlencode
+from typing import TYPE_CHECKING, Any
 
-import requests
-
+from baibai_engine.collection.edinet.http import EDINETHTTP
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_decode import safe_error_value, text_or_none
 from baibai_engine.market.edinet_document_events import parse_doc_id
 from baibai_engine.market.edinet_models import (
     EdinetMetricRecord,
     EDINETProviderError,
-    EDINETRateLimitError,
 )
 
-EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
+if TYPE_CHECKING:
+    import requests
 
 
 class EDINETProvider:
-    """API v2 client. Subscription-Key is always passed as a query parameter."""
+    """Read-through EDINET projection using explicit source acquisition."""
 
     def __init__(
         self,
@@ -39,9 +36,20 @@ class EDINETProvider:
     ) -> None:
         self._api_key = api_key
         self._cache_dir = Path(cache_dir) / "edinet"
-        self._session = session or requests.Session()
+        self._session = session
+        self._http: EDINETHTTP | None = None
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
+
+    def close(self) -> None:
+        if self._http is not None:
+            self._http.close()
+            self._http = None
+
+    def _http_client(self, operation: str) -> EDINETHTTP:
+        if self._http is None:
+            self._http = EDINETHTTP(self._require_api_key(operation), session=self._session)
+        return self._http
 
     def list_documents(
         self,
@@ -57,16 +65,7 @@ class EDINETProvider:
             if cached is not None:
                 return cached
         self._raise_if_cache_only("edinet_documents", on_date.isoformat())
-        api_key = self._require_api_key("list_documents")
-        query = urlencode(
-            {
-                "date": on_date.isoformat(),
-                "type": 2,
-                "Subscription-Key": api_key,
-            }
-        )
-        url = f"{EDINET_API_BASE}/documents.json?{query}"
-        data = self._request_json(url, on_date=on_date)
+        data = self._request_json(on_date)
         results = data.get("results", [])
         if not isinstance(results, list):
             raise EDINETProviderError("EDINET documents.json returned unexpected results payload")
@@ -188,13 +187,9 @@ class EDINETProvider:
                 return self._retain_document_zip(safe_id, source_type, content)
             cache.unlink()
         self._raise_if_cache_only(f"edinet_{source_name}_zip", safe_id)
-        query = urlencode(
-            {
-                "type": source_type,
-                "Subscription-Key": self._require_api_key("download_document_zip"),
-            }
+        content = (
+            self._http_client("download_document_zip").fetch_archive(safe_id, source_type).body
         )
-        content = self._request_bytes(f"{EDINET_API_BASE}/documents/{safe_id}?{query}")
         if not _is_zip_bytes(content):
             raise EDINETProviderError(
                 f"EDINET {source_name.upper()} ZIP response was not a zip: "
@@ -219,7 +214,7 @@ class EDINETProvider:
 
     def _require_api_key(self, operation: str) -> str:
         if not self._api_key:
-            raise EDINETProviderError(f"EDINET_API_KEY is required for {operation}")
+            raise EdinetAcquisitionError(f"EDINET_API_KEY is required for {operation}")
         return self._api_key
 
     def _raise_if_cache_only(self, source: str, requirement: str) -> None:
@@ -233,88 +228,30 @@ class EDINETProvider:
             "before running screening."
         )
 
-    def _request_json(self, url: str, *, on_date: date) -> dict[str, Any]:
-        with closing(self._request_response(url, timeout=30)) as response:
-            body = bytes(response.content)
-            received_at = datetime.now(UTC)
-            if self._sqlite_path is not None:
-                from baibai_engine.collection.edinet.receipts import retain_list_response
-                from baibai_engine.storage.observations.schema import open_connection
+    def _request_json(self, on_date: date) -> dict[str, Any]:
+        received = self._http_client("list_documents").fetch_list(on_date)
+        if self._sqlite_path is not None:
+            from baibai_engine.collection.edinet.receipts import retain_list_response
+            from baibai_engine.storage.observations.schema import open_connection
 
-                with closing(open_connection(self._sqlite_path)) as receipt_conn:
-                    retain_list_response(
-                        receipt_conn,
-                        doc_date=on_date,
-                        received_at=received_at,
-                        body=body,
-                    )
-            invalid_json = False
-            payload: Any = None
-            try:
-                payload = json.loads(body)
-            except (UnicodeError, json.JSONDecodeError):
-                invalid_json = True
+            with closing(open_connection(self._sqlite_path)) as receipt_conn:
+                retain_list_response(
+                    receipt_conn,
+                    doc_date=on_date,
+                    received_at=received.received_at,
+                    body=received.body,
+                )
+        invalid_json = False
+        payload: Any = None
+        try:
+            payload = json.loads(received.body)
+        except (UnicodeError, json.JSONDecodeError):
+            invalid_json = True
         if invalid_json:
             raise EDINETProviderError("EDINET documents.json returned invalid JSON") from None
         if not isinstance(payload, dict):
             raise EDINETProviderError("EDINET response JSON must be an object")
         return payload
-
-    def _request_bytes(self, url: str) -> bytes:
-        with closing(self._request_response(url, timeout=60)) as response:
-            return bytes(response.content)
-
-    def _request_response(self, url: str, *, timeout: int) -> requests.Response:
-        """One retry budget for HTTP failures and EDINET's HTTP 200 body 429."""
-        max_attempts = 6
-        for attempt in range(max_attempts):
-            try:
-                response = self._session.get(url, timeout=timeout)
-            except requests.RequestException as exc:
-                if attempt < max_attempts - 1:
-                    time.sleep(3 * (2**attempt))
-                    continue
-                message = self._sanitize_secret(str(exc))
-                raise EDINETProviderError(
-                    f"EDINET request raised: {type(exc).__name__}: {message}"
-                ) from None
-            rate_limited = response.status_code == 429 or (
-                response.status_code == 200 and _non_zip_response_status(response.content) == "429"
-            )
-            if response.status_code < 400 and not rate_limited:
-                return response
-            try:
-                if rate_limited and attempt >= max_attempts - 1:
-                    raise EDINETRateLimitError("EDINET request rate limited after retries")
-                if not rate_limited and response.status_code not in {500, 502, 503, 504}:
-                    raise EDINETProviderError(
-                        f"EDINET request failed with status {response.status_code}"
-                    )
-                backoff = 3 * (2**attempt)
-                wait = _retry_after_seconds(response, backoff) if rate_limited else backoff
-            finally:
-                response.close()
-            if attempt < max_attempts - 1:
-                time.sleep(wait)
-        raise EDINETProviderError("EDINET request failed after retries")
-
-    def _sanitize_secret(self, text: str) -> str:
-        if self._api_key and self._api_key in text:
-            return text.replace(self._api_key, "<redacted>")
-        return text
-
-
-def _retry_after_seconds(response: requests.Response, backoff: int) -> float:
-    value = response.headers.get("Retry-After", "").strip()
-    if value.isdigit():
-        return int(value)
-    try:
-        deadline = parsedate_to_datetime(value)
-    except (TypeError, ValueError, OverflowError):
-        return backoff
-    if deadline.tzinfo is None:
-        return backoff
-    return max(0.0, (deadline - datetime.now(UTC)).total_seconds())
 
 
 def _coerce_document_items(payload: list[Any], *, source: str) -> list[dict[str, Any]]:
@@ -330,17 +267,6 @@ def _is_zip_bytes(content: bytes) -> bool:
     return zipfile.is_zipfile(io.BytesIO(content))
 
 
-def _non_zip_response_status(content: bytes) -> str | None:
-    try:
-        payload = json.loads(content.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, Mapping):
-        return None
-    status = payload.get("StatusCode") or payload.get("statusCode") or payload.get("status")
-    return str(status) if status not in (None, "") else None
-
-
 def _non_zip_response_message(content: bytes) -> str:
     try:
         payload = json.loads(content.decode("utf-8"))
@@ -348,7 +274,8 @@ def _non_zip_response_message(content: bytes) -> str:
         return "zip_invalid"
     if not isinstance(payload, Mapping):
         return "zip_invalid"
-    status = _non_zip_response_status(content)
+    raw_status = payload.get("StatusCode") or payload.get("statusCode") or payload.get("status")
+    status = str(raw_status) if raw_status not in (None, "") else None
     message = text_or_none(payload.get("message")) or text_or_none(payload.get("Message"))
     if status and message:
         return f"StatusCode={status} message={safe_error_value(message)}"

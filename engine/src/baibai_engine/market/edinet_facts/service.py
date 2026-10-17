@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Protocol, TextIO
 from zipfile import BadZipFile
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_decode import parse_sec_code
 from baibai_engine.market.edinet_facts.extract import EXTRACTOR_REVISION, extract_facts
 from baibai_engine.market.edinet_facts.models import filing_identity
@@ -21,7 +22,7 @@ from baibai_engine.market.edinet_facts.store import (
     record_initialized,
     store_facts,
 )
-from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
+from baibai_engine.market.edinet_models import EDINETProviderError
 
 
 class XbrlSource(Protocol):
@@ -92,7 +93,13 @@ def extract_edinet_facts_command(
                 content=content, ticker=identity.ticker, doc_id=doc_id, submitted=submitted
             )
             store_facts(sqlite_path, identity=identity, facts=facts)
-        except (EDINETProviderError, ValueError, BadZipFile, OSError) as exc:
+        except (
+            EdinetAcquisitionError,
+            EDINETProviderError,
+            ValueError,
+            BadZipFile,
+            OSError,
+        ) as exc:
             # Provider exception text is sanitized; source failures are fixed reason codes.
             record_failure(
                 sqlite_path,
@@ -101,7 +108,7 @@ def extract_edinet_facts_command(
                 reason=f"{type(exc).__name__}: {exc}",
             )
             counts["failed"] += 1
-            if isinstance(exc, EDINETRateLimitError):
+            if isinstance(exc, EdinetRateLimitError):
                 counts["rate_limited"] += 1
                 break
             continue

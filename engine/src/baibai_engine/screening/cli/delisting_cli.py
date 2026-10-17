@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import TextIO
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.delistings import (
     DelistingSourceError,
     download_jpx_delistings,
@@ -52,7 +53,7 @@ def build_tender_offer_exits_command(
             sqlite_path, provider=providers.edinet, asof=asof_date
         )
         stored = store_tender_offer_exit_values(sqlite_path, values)
-    except (TenderOfferError, EDINETProviderError, sqlite3.Error) as error:
+    except (TenderOfferError, EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as error:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 1
     print(

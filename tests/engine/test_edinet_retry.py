@@ -9,8 +9,9 @@ import pytest
 import requests
 from tests.helpers.http_doubles import FakeSession, json_response, response
 
-from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
-from baibai_engine.market.providers import edinet
+from baibai_engine.collection.edinet import http
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.providers.edinet import EDINETProvider
 
 
@@ -29,8 +30,8 @@ def clock(monkeypatch):
         waits.append(seconds)
         current += timedelta(seconds=seconds)
 
-    monkeypatch.setattr(edinet, "datetime", Clock)
-    monkeypatch.setattr(edinet.time, "sleep", sleep)
+    monkeypatch.setattr(http, "datetime", Clock)
+    monkeypatch.setattr(http.time, "sleep", sleep)
     return waits
 
 
@@ -62,7 +63,7 @@ def rate_limit(body=False, retry_after=None):
 @pytest.mark.parametrize("kind", ["csv", "xbrl", "list"])
 def test_mixed_http_and_body_rate_limits_share_one_budget(kind, tmp_path, clock):
     session = FakeSession(*(rate_limit(body=bool(i % 2)) for i in range(6)))
-    with pytest.raises(EDINETRateLimitError):
+    with pytest.raises(EdinetRateLimitError):
         request(kind, tmp_path, session)
     assert len(session.calls) == 6
     assert clock == [3, 6, 12, 24, 48]
@@ -79,7 +80,7 @@ def test_transient_failures_do_not_reset_the_rate_limit_budget(kind, tmp_path, c
         rate_limit(body=True),
         rate_limit(),
     )
-    with pytest.raises(EDINETRateLimitError):
+    with pytest.raises(EdinetRateLimitError):
         request(kind, tmp_path, session)
     assert len(session.calls) == 6
     assert clock == [3, 6, 12, 24, 48]
@@ -124,9 +125,9 @@ def test_missing_or_invalid_retry_after_falls_back_and_past_deadline_does_not_wa
 @pytest.mark.parametrize("status", [400, 401, 403])
 def test_auth_or_refusal_is_not_reclassified_by_a_body_429(kind, status, tmp_path, clock):
     session = FakeSession(response(b'{"StatusCode":429}', status_code=status))
-    with pytest.raises(EDINETProviderError) as caught:
+    with pytest.raises(EdinetAcquisitionError) as caught:
         request(kind, tmp_path, session)
-    assert not isinstance(caught.value, EDINETRateLimitError)
+    assert not isinstance(caught.value, EdinetRateLimitError)
     assert len(session.calls) == 1
     assert clock == []
 
@@ -169,7 +170,7 @@ def test_each_retry_response_is_closed_before_wait_and_success_is_closed(
     unavailable = response(status_code=503)
     accepted = success(kind)
     session = FakeSession(limited, unavailable, accepted)
-    sleep = edinet.time.sleep
+    sleep = http.time.sleep
 
     def checked_sleep(seconds):
         assert limited.close_count == 1
@@ -177,7 +178,7 @@ def test_each_retry_response_is_closed_before_wait_and_success_is_closed(
             assert unavailable.close_count == 1
         sleep(seconds)
 
-    monkeypatch.setattr(edinet.time, "sleep", checked_sleep)
+    monkeypatch.setattr(http.time, "sleep", checked_sleep)
     request(kind, tmp_path, session)
     assert [item.close_count for item in (limited, unavailable, accepted)] == [1, 1, 1]
 
@@ -185,7 +186,7 @@ def test_each_retry_response_is_closed_before_wait_and_success_is_closed(
 @pytest.mark.parametrize("status", [403, 429, 503])
 def test_terminal_http_failures_close_every_response(status, tmp_path, clock):
     replies = [response(status_code=status) for _ in range(1 if status == 403 else 6)]
-    with pytest.raises(EDINETProviderError):
+    with pytest.raises(EdinetAcquisitionError):
         request("list", tmp_path, FakeSession(*replies))
     assert all(item.close_count == 1 for item in replies)
 

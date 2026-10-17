@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TextIO
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.collection.jquants_http import JQuantsAcquisitionError
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.jpx_models import JPXProviderError
@@ -435,6 +436,7 @@ def bootstrap_cache_command(
             JQuantsAcquisitionError,
             JQuantsProviderError,
             EDINETProviderError,
+            EdinetAcquisitionError,
             JPXProviderError,
             sqlite3.Error,
         ) as exc:
@@ -686,7 +688,7 @@ def refresh_edinet_documents_command(
         return 1
     try:
         result = providers.edinet.refresh_document_state(asof_date)
-    except (EDINETProviderError, sqlite3.Error) as exc:
+    except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(

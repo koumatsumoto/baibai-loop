@@ -4,12 +4,16 @@ import csv
 import io
 import unittest
 import zipfile
+from contextlib import redirect_stderr
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.delistings import DelistingRecord, store_jpx_delistings
 from baibai_engine.market.tender_offer import (
+    TenderOfferExitValue,
     build_tender_offer_exit_values,
     parse_ordinary_share_offer_price,
     pays_in_cash_only,
@@ -19,6 +23,8 @@ from baibai_engine.market.tender_offer import (
     read_tender_offer_outcome,
     store_tender_offer_exit_values,
 )
+from baibai_engine.screening.cli import delisting_cli
+from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.storage.observations.schema import open_connection
 
 _PRICE = "jptoo-ton_cor:PriceOfPurchaseEtcTextBlock"
@@ -929,6 +935,39 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
             self.assertEqual(store_tender_offer_exit_values(sqlite_path, ()), 0)
             self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
+
+    def test_cli_source_failure_does_not_replace_existing_exit_values(self) -> None:
+        for error_type in (EdinetAcquisitionError, EdinetRateLimitError):
+            with self.subTest(error_type=error_type.__name__), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+                old = TenderOfferExitValue(
+                    ticker="2000",
+                    delisted_on=self.DELISTED_ON,
+                    offer_price_yen=1060.0,
+                    offer_doc_id="SREG",
+                    result_doc_id="SRES",
+                    filed_on=date(2026, 3, 20),
+                )
+                store_tender_offer_exit_values(sqlite_path, (old,))
+                provider = Mock()
+                provider.download_csv_zip.side_effect = error_type("synthetic EDINET failure")
+                providers = ProviderBundle(jquants=Mock(), edinet=provider, jpx=Mock())
+                stderr = io.StringIO()
+                with (
+                    patch.object(delisting_cli, "store_tender_offer_exit_values") as save,
+                    redirect_stderr(stderr),
+                ):
+                    result = delisting_cli.build_tender_offer_exits_command(
+                        sqlite_path=sqlite_path,
+                        asof_date=self.ASOF,
+                        providers=providers,
+                        stdout=io.StringIO(),
+                    )
+                self.assertEqual(result, 1)
+                self.assertTrue(stderr.getvalue().startswith(f"{error_type.__name__}: "))
+                provider.download_csv_zip.assert_called()
+                save.assert_not_called()
+                self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
 
 
 class DocumentBlocksTest(unittest.TestCase):

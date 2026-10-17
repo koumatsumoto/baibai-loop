@@ -34,6 +34,7 @@ from tests.engine.test_screening_cli import (
 )
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.screening.cli import app
 from baibai_engine.screening.cli.cache import FIN_SUMMARY_REVISION_OVERLAP_DAYS
@@ -52,6 +53,10 @@ class _SeamEDINETProvider(FakeEDINETProvider):
     """The shared EDINET fake plus the document-state refresh the CLI seam calls."""
 
     refresh_calls: list[date] = field(default_factory=list)
+    close_count: int = 0
+
+    def close(self) -> None:
+        self.close_count += 1
 
     def refresh_document_state(self, asof_date: date) -> dict[str, int]:
         self.refresh_calls.append(asof_date)
@@ -191,7 +196,21 @@ def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_aso
 
     assert result.exit_code == 0, result.stderr
     assert edinet.refresh_calls == [date(2026, 5, 8)]
+    assert edinet.close_count == 1
     assert "refresh-edinet-documents: listed=3, refreshed=3" in result.stdout
+
+
+def test_main_extract_edinet_facts_closes_provider_on_exception() -> None:
+    edinet = _SeamEDINETProvider()
+    with (
+        patch.object(app, "extract_edinet_facts_command", side_effect=RuntimeError("synthetic")),
+        pytest.raises(RuntimeError, match="synthetic"),
+    ):
+        _run_cli(
+            ["extract-edinet-facts", "--asof", "2026-05-08"],
+            edinet=edinet,
+        )
+    assert edinet.close_count == 1
 
 
 def test_main_backfill_history_covers_every_range_source_over_the_argv_window() -> None:
@@ -241,6 +260,24 @@ def test_main_extract_edinet_metrics_stores_parsed_metrics_for_the_argv_asof() -
     payload = read_edinet_metrics(_STORE, date(2026, 4, 24))
     assert payload is not None
     assert payload["9682"].net_cash == 600.0
+
+
+def test_main_extract_edinet_metrics_reports_source_acquisition_failure() -> None:
+    class FailingEDINET(_SeamEDINETProvider):
+        def list_documents(self, on_date: date) -> list[dict[str, object]]:
+            del on_date
+            raise EdinetAcquisitionError("EDINET request failed with status 403")
+
+    edinet = FailingEDINET()
+    result = _run_cli(
+        ["extract-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
+        jquants=FakeJQuantsProvider(),
+        edinet=edinet,
+        jpx=FakeJPXProvider(),
+    )
+    assert result.exit_code == 1
+    assert "EdinetAcquisitionError" in result.stderr
+    assert edinet.close_count == 1
 
 
 def test_main_invalidate_coverage_deletes_only_the_rows_overlapping_the_argv_window() -> None:

@@ -29,8 +29,9 @@ from tests.helpers.http_doubles import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
-from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.market.financial_documents import (
     normalize_financial_summary,
@@ -112,8 +113,10 @@ class _DateJsonSession(FakeSession):
         self._payloads = payloads
         self._failing_dates = failing_dates or set()
 
-    def get(self, url: str, timeout: int | None = None) -> FakeResponse:
-        del timeout
+    def get(
+        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+    ) -> FakeResponse:
+        del timeout, allow_redirects
         requested_date = parse_qs(urlsplit(url).query)["date"][0]
         self.calls.append(requested_date)
         if requested_date in self._failing_dates:
@@ -356,7 +359,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 ),
             )
 
-            with patch("baibai_engine.market.providers.edinet.time.sleep"):
+            with patch("baibai_engine.collection.edinet.http.time.sleep"):
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
@@ -369,7 +372,7 @@ class ScreeningProviderTests(unittest.TestCase):
             session = _TransientThenBytesSession(content=expected)
             provider = EDINETProvider("key", cache, session=session)
 
-            with patch("baibai_engine.market.providers.edinet.time.sleep") as sleep:
+            with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
@@ -382,7 +385,7 @@ class ScreeningProviderTests(unittest.TestCase):
             session = _TransientThenJsonSession()
             provider = EDINETProvider("key", Path(tmp), session=session)
 
-            with patch("baibai_engine.market.providers.edinet.time.sleep") as sleep:
+            with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
                 documents = provider.list_documents(date(2026, 7, 10))
 
             self.assertEqual(documents, [])
@@ -459,7 +462,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 sqlite_path=sqlite_path,
             )
 
-            with self.assertRaisesRegex(EDINETProviderError, "status 400"):
+            with self.assertRaisesRegex(EdinetAcquisitionError, "status 400"):
                 provider.refresh_document_state(target)
             self.assertEqual(session.calls, [target.isoformat()])
             conn = sqlite3.connect(sqlite_path)
@@ -548,7 +551,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 session=first_session,
                 sqlite_path=sqlite_path,
             )
-            with self.assertRaisesRegex(EDINETProviderError, "status 400"):
+            with self.assertRaisesRegex(EdinetAcquisitionError, "status 400"):
                 provider.refresh_document_state(target)
             self.assertEqual(
                 first_session.calls,
@@ -581,15 +584,15 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = EDINETProvider("secret-key", Path(tmp), session=session)
 
             with (
-                patch("baibai_engine.market.providers.edinet.time.sleep") as sleep,
-                self.assertRaises(EDINETProviderError) as caught,
+                patch("baibai_engine.collection.edinet.http.time.sleep") as sleep,
+                self.assertRaises(EdinetAcquisitionError) as caught,
             ):
                 provider.download_csv_zip("S100TEST")
 
             self.assertEqual(len(session.calls), 6)
             self.assertEqual(sleep.call_count, 5)
             self.assertNotIn("secret-key", str(caught.exception))
-            self.assertIn("<redacted>", str(caught.exception))
+            self.assertIn("transport failed", str(caught.exception))
 
     def test_download_csv_zip_raises_rate_limit_after_json_retries_without_caching_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -610,8 +613,8 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
             with (
-                patch("baibai_engine.market.providers.edinet.time.sleep"),
-                self.assertRaisesRegex(EDINETRateLimitError, "rate limited"),
+                patch("baibai_engine.collection.edinet.http.time.sleep"),
+                self.assertRaisesRegex(EdinetRateLimitError, "rate limited"),
             ):
                 provider.download_csv_zip("S100TEST")
 
@@ -1277,7 +1280,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_edinet_provider_requires_api_key_for_download_without_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             provider = EDINETProvider(None, Path(tmpdir))
-            with self.assertRaisesRegex(EDINETProviderError, "EDINET_API_KEY"):
+            with self.assertRaisesRegex(EdinetAcquisitionError, "EDINET_API_KEY"):
                 provider.download_csv_zip("S100TEST")
 
     def test_normalize_market_calendar_business_day(self) -> None:

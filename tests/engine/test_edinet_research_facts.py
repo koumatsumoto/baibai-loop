@@ -332,7 +332,7 @@ def test_retained_annual_family_receives_later_corrections():
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
     provider = EDINETProvider("test-key", tmp_path, session=session)
-    monkeypatch.setattr("baibai_engine.market.providers.edinet.time.sleep", lambda _: None)
+    monkeypatch.setattr("baibai_engine.collection.edinet.http.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data
     assert len(session.calls) == 2

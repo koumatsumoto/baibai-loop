@@ -584,18 +584,21 @@ def main(argv: list[str] | None = None) -> int:
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
     if args.command == "extract-edinet-facts":
-        return extract_edinet_facts_command(
-            asof=_parse_iso_date(args.asof),
-            sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
-            provider=EDINETProvider(
+        with ExitStack() as resources:
+            facts_edinet = EDINETProvider(
                 config.edinet_api_key,
                 config.cache_dir,
                 sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
                 cache_only=args.cache_only,
-            ),
-            initialize=args.initialize,
-            tickers=tuple(args.ticker),
-        )
+            )
+            resources.callback(facts_edinet.close)
+            return extract_edinet_facts_command(
+                asof=_parse_iso_date(args.asof),
+                sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
+                provider=facts_edinet,
+                initialize=args.initialize,
+                tickers=tuple(args.ticker),
+            )
     run_asof_date = _parse_iso_date(args.asof) if args.command == "run" else None
     run_rules = load_screening_rules(config.rules_path) if args.command == "run" else None
     if args.command == "run":
@@ -621,18 +624,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         if jquants_refresh is not None:
             resources.callback(jquants_refresh.close)
+        edinet = (
+            EDINETProvider(
+                config.edinet_api_key,
+                config.cache_dir,
+                sqlite_path=sqlite_path,
+                cache_only=args.command == "run",
+            )
+            if config.edinet_api_key or args.command == "run"
+            else None
+        )
+        if edinet is not None:
+            resources.callback(edinet.close)
         providers = ProviderBundle(
             jquants=JQuantsReader(sqlite_path),
-            edinet=(
-                EDINETProvider(
-                    config.edinet_api_key,
-                    config.cache_dir,
-                    sqlite_path=sqlite_path,
-                    cache_only=args.command == "run",
-                )
-                if config.edinet_api_key or args.command == "run"
-                else None
-            ),
+            edinet=edinet,
             jpx=JPXProvider(
                 regulation_urls=JPX_REGULATION_URLS,
                 sqlite_path=sqlite_path,
