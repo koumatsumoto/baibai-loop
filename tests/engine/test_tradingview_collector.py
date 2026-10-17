@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from mcp.types import CallToolResult
 from tests.helpers.master import insert_master_rows
 
 from baibai_engine.external_assessment.tradingview.collector import (
@@ -27,6 +28,10 @@ from baibai_engine.storage.observations.schema import open_connection
 
 DAY = date(2026, 9, 18)
 NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
+
+
+def _sdk(body: dict) -> CallToolResult:
+    return CallToolResult(isError=False, structuredContent=body, content=[])
 
 
 def store(path: Path, count: int = 51) -> Path:
@@ -67,9 +72,9 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     calls = []
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols, missing=symbols[1:2] if len(symbols) == 50 else [])
+        return _sdk(payload(symbols, missing=symbols[1:2] if len(symbols) == 50 else []))
 
     async def sleep(interval):
         pauses.append(interval)
@@ -139,8 +144,8 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
             [(DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011") for i in range(2)],
         )
 
-    async def healthy(symbols):
-        return payload(symbols)
+    async def healthy(symbols, _columns):
+        return _sdk(payload(symbols))
 
     asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
     with closing(sqlite3.connect(path)) as conn, conn:
@@ -149,9 +154,9 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
 
     calls = []
 
-    async def resume(symbols):
+    async def resume(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     assert asyncio.run(collect(path, DAY, resume, clock=lambda: NOW))["rows_added"] == 1
     assert calls == [["TSE:1001"]]
@@ -162,13 +167,13 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
     path = store(tmp_path / "market.sqlite")
     calls = 0
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         nonlocal calls
         calls += 1
         if calls == 1:
-            return payload(symbols)
+            return _sdk(payload(symbols))
         if failure == "malformed":
-            return {"success": True}
+            return _sdk({"success": True})
         if failure == "429":
             from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
 
@@ -194,8 +199,8 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
     assert len(original) == 50
 
     # A same-day whole-run retry can still succeed.
-    async def healthy(symbols):
-        return payload(symbols)
+    async def healthy(symbols, _columns):
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
     assert result["rows"] == 51
@@ -208,9 +213,9 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
     calls = []
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
-        return {"success": True} if symbols == ["TSE:1001"] else payload(symbols)
+        return _sdk({"success": True} if symbols == ["TSE:1001"] else payload(symbols))
 
     async def sleep(seconds):
         pauses.append(seconds)
@@ -225,9 +230,9 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
     assert pauses == [2, 2]
     original = stored(path)
 
-    async def resume(symbols):
+    async def resume(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, resume, batch_size=1, clock=lambda: NOW))
     assert result["status"] == "saved"
@@ -242,9 +247,9 @@ def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 5)
     calls = []
 
-    async def bad(symbols):
+    async def bad(symbols, _columns):
         calls.append(symbols)
-        return {"success": True}
+        return _sdk({"success": True})
 
     with pytest.raises(CollectionFailure):
         asyncio.run(collect(path, DAY, bad, batch_size=1, interval=0, clock=lambda: NOW))
@@ -258,15 +263,15 @@ def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) ->
 
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def first(symbols):
+    async def first(symbols, _columns):
         if symbols == ["TSE:1001"]:
             raise ProviderHTTPError(429)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, first, batch_size=1, interval=0, clock=lambda: NOW))
     assert result["rows_added"] == 1
 
-    async def blocked(symbols):
+    async def blocked(symbols, _columns):
         assert symbols == ["TSE:1001"]
         raise ProviderHTTPError(429)
 
@@ -278,8 +283,8 @@ def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) ->
 def test_unknown_stored_ticker_blocks_preflight_and_provider(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def healthy(symbols):
-        return payload(symbols)
+    async def healthy(symbols, _columns):
+        return _sdk(payload(symbols))
 
     asyncio.run(collect(path, DAY, healthy, clock=lambda: NOW))
     with closing(sqlite3.connect(path)) as conn, conn:
@@ -287,7 +292,7 @@ def test_unknown_stored_ticker_blocks_preflight_and_provider(tmp_path: Path) -> 
     with pytest.raises(SourceDataError, match="outside"):
         preflight_snapshot(path, DAY)
 
-    async def forbidden(_symbols):
+    async def forbidden(_symbols, _columns):
         pytest.fail("inconsistent source must not reach provider")
 
     with pytest.raises(SourceDataError, match="outside"):
@@ -299,10 +304,10 @@ def test_soft_budget_keeps_first_batch_without_next_request(tmp_path: Path) -> N
     timer = Timer()
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         timer.value = 25 * 60
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def no_sleep(_seconds):
         pass
@@ -333,10 +338,10 @@ def test_soft_budget_stops_before_interval_that_exceeds_remaining_time(tmp_path:
     calls = []
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         timer.value = 20 * 60
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def sleep(seconds):
         pauses.append(seconds)
@@ -368,11 +373,11 @@ def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 6)
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         if symbols[0] in {"TSE:1000", "TSE:1001", "TSE:1003", "TSE:1004"}:
-            return {"success": True}
-        return payload(symbols)
+            return _sdk({"success": True})
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
     assert result["status"] == "partial"
@@ -386,7 +391,7 @@ def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
 def test_no_backfill_or_preclose_collection(tmp_path: Path, observed: datetime) -> None:
     path = store(tmp_path / "market.sqlite", 1)
 
-    async def forbidden(symbols):
+    async def forbidden(symbols, _columns):
         pytest.fail("provider must not be called")
 
     with pytest.raises(FetchError, match="backfill"):
@@ -398,8 +403,8 @@ def test_midnight_crossing_aborts_the_run(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
     times = iter([NOW, NOW, NOW + timedelta(days=1)])
 
-    async def fetch(symbols):
-        return payload(symbols)
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols))
 
     with pytest.raises(FetchError):
         asyncio.run(collect(path, DAY, fetch, clock=lambda: next(times)))
@@ -433,7 +438,7 @@ def test_exact_date_master_and_calendar_are_required(tmp_path: Path) -> None:
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("DELETE FROM jquants_master_snapshots")
 
-    async def forbidden(symbols):
+    async def forbidden(symbols, _columns):
         pytest.fail("provider must not be called")
 
     with pytest.raises(FetchError, match="Exact-date"):
@@ -505,7 +510,7 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     calls = 0
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         nonlocal calls
         calls += 1
         timer.value += calls * 1.23456
@@ -513,8 +518,8 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
             if failure == "429":
                 raise ProviderHTTPError(429)
             if failure == "malformed":
-                return {"success": True}
-        return payload(symbols)
+                return _sdk({"success": True})
+        return _sdk(payload(symbols))
 
     async def sleep(interval):
         pauses.append(interval)
@@ -615,7 +620,7 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
     path = store(tmp_path / "market.sqlite", 2)
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         if len(calls) == 2:
             response = httpx2.Response(
@@ -624,7 +629,7 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
                 request=httpx2.Request("GET", "https://example.com"),
             )
             raise httpx2.HTTPStatusError("private", request=response.request, response=response)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
     assert result["status"] == "partial"
@@ -653,9 +658,9 @@ def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tm
     path = store(tmp_path / "market.sqlite", 51)
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols, missing=[s for s in symbols if s == "TSE:1050"])
+        return _sdk(payload(symbols, missing=[s for s in symbols if s == "TSE:1050"]))
 
     async def no_sleep(_seconds):
         pass
@@ -681,8 +686,8 @@ def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tm
 def test_successful_all_missing_day_is_accounted_but_not_normal_null_data(tmp_path):
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def fetch(symbols):
-        return payload(symbols, missing=symbols)
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols, missing=symbols))
 
     result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
     assert (result["status"], result["rows"], result["unresolved"]) == ("saved", 2, 2)

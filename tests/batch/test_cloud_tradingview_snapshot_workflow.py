@@ -83,20 +83,21 @@ def test_metadata_order_and_exclusive_writer():
 
 
 def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pull(tmp_path):
-    from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
+    from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
     from baibai_engine.external_assessment.tradingview.collector import collect
-    from baibai_engine.external_assessment.tradingview.observations import FetchError
+    from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
 
     local = store(tmp_path / "local.sqlite", 51)
     published = tmp_path / "published.sqlite"
     requests = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, columns):
+        assert columns == COLUMNS
         requests.append(symbols)
         if len(requests) == 2:
             raise FetchError("fixture provider failure after one valid chunk")
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def sleep(_interval):
         pass

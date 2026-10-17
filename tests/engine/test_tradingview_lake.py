@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
+from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.screening_sqlite import make_master_records
 
@@ -46,6 +46,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         "jquants.daily_bars",
         "jquants.market_calendar",
         "jquants.master_snapshots",
+        "tradingview.source_receipts",
         NAME,
     )
     narrow_release_policy(monkeypatch, datasets=datasets)
@@ -79,8 +80,8 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
             ("1000", DAY.isoformat(), 100),
         )
 
-    async def fetch(symbols):
-        return payload(symbols)
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols))
 
     asyncio.run(collect(path, DAY, fetch, interval=0, clock=lambda: NOW))
     mirror = tmp_path / "mirror"
@@ -126,12 +127,12 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
 
     calls = 0
 
-    async def partial_fetch(symbols):
+    async def partial_fetch(symbols, _columns):
         nonlocal calls
         calls += 1
         if calls == 2:
             raise ProviderHTTPError(429)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     first = asyncio.run(
         collect(
@@ -222,8 +223,8 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     narrow_release_policy(monkeypatch, datasets=[NAME])
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def fetch(symbols):
-        return payload(symbols, missing=symbols[1:])
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols, missing=symbols[1:]))
 
     asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
     next_day = date(2026, 10, 1)

@@ -954,9 +954,18 @@ engineの`refresh --state-file`は取得だけの低レベル入口であり、p
 
 ### 保存と再試行
 
-当日の各銘柄で最初に保存した正常応答を維持する。正常batchは各transactionで保存し、取得不良batchは保存せず次の未保存batchを試す。応答不良が3 batch連続した場合と明示的429では新規requestを止める。同一batchの即時retryは行わず、skip後も通常intervalを置く。新規rowが0件なら失敗とし、過去に公開した部分snapshotだけで今回を成功にしない。次slotは公開済みの未保存銘柄から再開する。過去日の穴を現在値で埋めない。
+当日の各銘柄で最初に保存した正常応答を維持する。受領したSDK応答は検証前に`tradingview.source_receipts`へ独立commitし、L2は正常batchごとに別transactionで保存する。取得不良batchはL2へ保存せず次の未保存batchを試す。応答不良が3 batch連続した場合と明示的429では新規requestを止める。同一batchの即時retryは行わず、skip後も通常intervalを置く。新規rowが0件なら失敗とし、過去に公開した部分snapshotだけで今回を成功にしない。次slotは公開済みの未保存銘柄から再開する。過去日の穴を現在値で埋めない。
 
 正常応答が要求銘柄を明示的に`missing`と返した場合は、batch内の全件か一部かによらず`unresolved`として保存する。`saved`は全銘柄の応答を記録した意味であり、予測値の充足やproviderの健全性を保証しない。全件`unresolved`でも同日の自動再取得・障害通知は行わない。明示的なHTTP・認証・通信エラーと不正応答は、引き続き未保存として失敗・再開を扱う。
+
+保存済みL1から1日のL2を再構築する場合は、作業用の既存`market.sqlite`と対象receipt IDを明示してofflineで実行する。認証・provider接続は使わず、他の日付のL2には触れない。実行前に対象receiptが同じ観測日・master・tool・要求列・Universeに属することを確認する。返値の`rows`・`unresolved`・`expected_universe`・`remaining`・`rejected_receipts`を読み、正常receipt 0件や同日銘柄重複ではL2が置換されず、全銘柄が明示的な`missing`の正常receiptは`unresolved`行へ復元されることを確認する。
+
+```bash
+uv run baibai-engine tradingview rebuild \
+  --sqlite /tmp/market-rebuild.sqlite \
+  --asof 2026-10-16 \
+  --receipt-id <対象receipt ID>
+```
 
 ### TradingView Expectationsの障害診断
 

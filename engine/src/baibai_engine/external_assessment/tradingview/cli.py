@@ -15,6 +15,7 @@ from datetime import date, datetime
 from functools import partial
 from pathlib import Path
 
+from mcp.types import CallToolResult
 from pydantic import ValidationError
 
 from baibai_engine.external_assessment.tradingview.accepted import (
@@ -29,20 +30,28 @@ from baibai_engine.external_assessment.tradingview.auth import (
     save_github_secret,
     write_local_state,
 )
-from baibai_engine.external_assessment.tradingview.client import connect, fetch_batch
+from baibai_engine.external_assessment.tradingview.client import (
+    connect,
+    fetch_batch,
+)
 from baibai_engine.external_assessment.tradingview.collector import (
     JST,
     TimeGuardError,
     collect,
     preflight_snapshot,
 )
+from baibai_engine.external_assessment.tradingview.decode import decode_tool_result
 from baibai_engine.external_assessment.tradingview.diagnostics import (
     CollectionProgress,
     failure_category,
     failure_line,
     safe_progress,
 )
-from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
+from baibai_engine.external_assessment.tradingview.observations import FetchError
+from baibai_engine.external_assessment.tradingview.rebuild import (
+    RebuildError,
+    rebuild_from_receipts,
+)
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 
 
@@ -65,11 +74,18 @@ async def smoke(storage: CredentialStorage) -> dict[str, object]:
     # Exercise rotation rather than accepting a still-valid interactive token.
     storage.state = storage.state.model_copy(update={"expires_at": 1.0})
     async with connect(storage) as session:
-        result = await fetch_batch(
+        received = await fetch_batch(
             session,
             ["TSE:7203", "TSE:8306"],
             ["close", "currency", "earnings_per_share_forecast_next_fy"],
         )
+    result = decode_tool_result(
+        json.dumps(
+            received.model_dump(mode="python", by_alias=True),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    )
     print(
         json.dumps({"returned_rows": result.get("count"), "missing": result.get("missing_count")})
     )
@@ -107,8 +123,8 @@ async def snapshot(
     try:
         async with connect(storage) as session:
 
-            async def fetch(symbols: list[str]) -> dict[str, object]:
-                return await fetch_batch(session, symbols, COLUMNS)
+            async def fetch(symbols: list[str], columns: list[str]) -> CallToolResult:
+                return await fetch_batch(session, symbols, columns)
 
             result = await collect(
                 path,
@@ -199,6 +215,10 @@ def build_parser() -> argparse.ArgumentParser:
     accepted.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
     accepted.add_argument("--input", type=Path, required=True)
     accepted.add_argument("--input-sha256", required=True)
+    rebuild = sub.add_parser("rebuild", help="rebuild one date from explicit saved MCP receipts")
+    rebuild.add_argument("--sqlite", type=Path, required=True)
+    rebuild.add_argument("--asof", type=date.fromisoformat, required=True)
+    rebuild.add_argument("--receipt-id", action="append", required=True)
     return parser
 
 
@@ -211,6 +231,10 @@ def main(argv: list[str] | None = None, /) -> int:
             result = accept_observations(
                 args.sqlite, load_observations(args.input, sha256=args.input_sha256)
             )
+            print(json.dumps(result, sort_keys=True))
+            return 0
+        if args.command == "rebuild":
+            result = rebuild_from_receipts(args.sqlite, args.asof, args.receipt_id)
             print(json.dumps(result, sort_keys=True))
             return 0
         if args.command == "authorize":
@@ -255,6 +279,9 @@ def main(argv: list[str] | None = None, /) -> int:
                     master_asof=args.master_asof,
                 )
             )
+    except RebuildError as exc:
+        print(json.dumps({"status": "failed", "rejected_receipts": exc.rejected}), file=sys.stderr)
+        return 1
     except Exception as exc:
         # OAuth / HTTP exceptions may embed credential-bearing responses. Never
         # print their body, exception chain, environment, or serialized state.
