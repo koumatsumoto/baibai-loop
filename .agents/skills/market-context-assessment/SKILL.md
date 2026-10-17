@@ -9,7 +9,7 @@ description: 人間の明示開始から保存済み入力を固定し、小さ�
 
 ## 手順
 
-1. 対象日`as_of`と入力確定時刻`known_at`を固定する。通常は今回の入力確定時刻、当時の分析入力を調べる場合は人間が指定した過去cutoffを使う。前営業日の評価を週末に発行でき、対象日末を一律cutoffにはしない。保存済みReading・市場/業種/個別状態と一次資料を読む。`market-context indicators get`は取得を伴うため、保存済み読取と混同しない。正本と同期は[Ops Maintenance](../ops-maintenance/SKILL.md)に従う。
+1. 対象日`as_of`と入力確定時刻`known_at`を固定する。通常は今回の入力確定時刻、当時の分析入力を調べる場合は人間が指定した過去cutoffを使う。前営業日の評価を週末に発行でき、対象日末を一律cutoffにはしない。保存済みReading・市場/業種/個別状態と一次資料を読む。`market-context indicators get`は保存原本からの機械的な読取で、外部取得は`collection economic refresh`が担う。正本と同期は[Ops Maintenance](../ops-maintenance/SKILL.md)に従う。
 2. 固定入力の出典・利用可能時刻と、要約・重要変化の根拠・反証/不確実性・調査とリスクへの含意を書く。変化が小さい場合や欠測をそのまま記録する。定量状態はL1/L2を引用し、AIが同じ値を別の正本として保存しない。形は[model](../../../engine/src/baibai_engine/research/market_context/models.py)、意味は[reference](../../../docs/reference/market-context.md#assessment)に従う。
 3. [判断文書の編集](../../../docs/reference/judgment-writing.md)に従って編集し、authorと別sessionのreviewerへ固定draftとsourceを渡す。source、因果、反証、含意を確認する。最大3巡で未解決なら発行せず人間へ上げる。機械checkを意味のreviewの代わりにしない。
 4. review PASSまたは人間のdraft承認後にcheckし、既存headを確認してCAS発行する。以下のfileと非秘密IDは実値へ置換する。

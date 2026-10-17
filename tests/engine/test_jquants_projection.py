@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, date, datetime
 
 import pytest
 import requests
+from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
 from baibai_engine.collection.jquants.receipts import (
@@ -15,9 +17,16 @@ from baibai_engine.collection.jquants.receipts import (
     read_complete_request,
     read_request_pages,
 )
+from baibai_engine.market import master_snapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.hydrate import hydrate_market_store
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.reader import resolve_release
+from baibai_engine.storage.lake.release import create_release
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.schema import open_connection
 
 DAY = "2026-10-16"
@@ -123,6 +132,127 @@ def source_record(source, on_date):
             "TSEMrgnRegCls": "none",
         }
     raise AssertionError(f"unexpected source: {source}")
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "table"),
+    [
+        ("master", DAY, "jquants_master_snapshots"),
+        ("daily_bars", DAY, "jquants_daily_bars"),
+        ("financial_summaries", DAY, "jquants_fin_summaries"),
+        ("market_calendar", DAY, "jquants_market_calendar"),
+        ("margin_interest", "2026-07-24", "jquants_weekly_margin"),
+        ("margin_interest", "2026-10-02", "jquants_all_issues_daily_margin"),
+        ("margin_alerts", DAY, "jquants_margin_alerts"),
+        ("short_sale_reports", DAY, "jquants_short_sale_reports"),
+    ],
+    ids=(
+        "master",
+        "bars",
+        "financial",
+        "calendar",
+        "weekly-margin",
+        "daily-margin",
+        "alerts",
+        "short-sale",
+    ),
+)
+def test_source_only_fixed_release_replays_typed_rows_and_coverage(
+    tmp_path, monkeypatch, source, target, table
+):
+    narrow_release_policy(monkeypatch, datasets=("jquants.source_pages",), carries_history=None)
+    if source == "master":
+        monkeypatch.setattr(master_snapshot, "MIN_COMMON_STOCK_MASTER_ROWS", 1)
+        record = {
+            "Date": target,
+            "Code": "13010",
+            "CoName": "Fixture",
+            "MktNm": "Prime",
+            "S33Nm": "情報・通信業",
+            "ProdCat": "011",
+        }
+    elif source == "daily_bars":
+        record = {"Code": "13010", "Date": target, "C": 111.0, "AdjFactor": 1.0}
+    elif source == "market_calendar":
+        record = {"Date": target, "HolDiv": "1"}
+    else:
+        record = source_record(source, target)
+    query = (
+        {"from": target, "to": target}
+        if source == "market_calendar"
+        else {"disc_date" if source == "short_sale_reports" else "date": target}
+    )
+    original = tmp_path / "source.sqlite"
+    received = Session(body([record]))
+    with open_connection(original) as conn:
+        request_id = acquire_request(
+            conn,
+            JQuantsHTTP("synthetic-test-key", session=received, clock=lambda: FIRST_AT),
+            source,
+            query,
+        )
+    assert len(received.calls) == 1
+    assert project_request(original, request_id) == 1
+    with sqlite3.connect(original) as conn:
+        expected_rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+        expected_coverage = conn.execute(
+            "SELECT * FROM source_coverage WHERE source = ?", (table,)
+        ).fetchall()
+    assert len(expected_rows) == len(expected_coverage) == 1
+    assert FIRST_AT.isoformat(timespec="microseconds") in expected_coverage[0]
+
+    mirror = tmp_path / "mirror"
+    with sealed_sqlite_snapshot(sqlite_path=original, mirror_root=mirror) as snapshot:
+        exported = export_dataset_snapshot(
+            dataset_name="jquants.source_pages",
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            source_snapshot=snapshot,
+            build_id=f"replay-{source}-{target}",
+        )
+    assert exported.manifest.layer == "l1_source"
+    manifest_path, release_manifest = create_release(
+        dataset_manifest_paths=[exported.manifest_path],
+        mirror_root=mirror,
+        release_id=f"source-only-{source}-{target}",
+    )
+    assert set(release_manifest.datasets) == {"jquants.source_pages"}
+    source_mirror = LocalMirrorSource(mirror)
+    fixed = resolve_release(
+        source_mirror,
+        release_id=release_manifest.release_id,
+        manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+    )
+    rebuilt = tmp_path / "rebuilt.sqlite"
+    open_connection(rebuilt).close()
+
+    def no_http(*_args, **_kwargs):
+        pytest.fail("raw-only hydrate/replay attempted HTTP")
+
+    monkeypatch.setattr(requests.Session, "get", no_http)
+    monkeypatch.setattr(Session, "get", no_http)
+    with lake_session() as session:
+        report = hydrate_market_store(
+            session,
+            release=fixed,
+            cache=LakeObjectCache(root=mirror, source=source_mirror),
+            store=rebuilt,
+            dataset_names=("jquants.source_pages",),
+        )
+    assert report.rows == {"jquants.source_pages": 1}
+    with sqlite3.connect(rebuilt) as conn:
+        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
+        assert conn.execute(
+            "SELECT COUNT(*) FROM source_coverage WHERE source = ?", (table,)
+        ).fetchone() == (0,)
+        assert [page.body for page in read_request_pages(conn, request_id)] == [body([record])]
+    assert project_request(rebuilt, request_id) == 1
+    with sqlite3.connect(rebuilt) as conn:
+        assert conn.execute(f"SELECT * FROM {table}").fetchall() == expected_rows
+        assert (
+            conn.execute("SELECT * FROM source_coverage WHERE source = ?", (table,)).fetchall()
+            == expected_coverage
+        )
 
 
 @pytest.mark.parametrize(
