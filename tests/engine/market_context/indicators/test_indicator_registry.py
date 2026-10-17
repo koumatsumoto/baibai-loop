@@ -210,10 +210,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 "    geography: us\n"
                 "    frequency: daily\n"
                 "    unit: percent\n"
-                "    provider: fred_csv\n"
                 "    provider_series_id: DGS10\n"
-                "    source_id: x\n"
-                "    source_url: https://example.com/x.csv\n"
+                "    source_id: fed-h15\n"
             )
             (registry / "a.yaml").write_text(block, encoding="utf-8")
             (registry / "b.yaml").write_text(block, encoding="utf-8")
@@ -232,10 +230,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 "    geography: test\n"
                 "    frequency: daily\n"
                 "    unit: percent\n"
-                "    provider: fred_csv\n"
                 "    provider_series_id: TEST\n"
-                "    source_id: test-source\n"
-                "    source_url: https://example.com/test.csv\n"
+                "    source_id: fed-h15\n"
                 "    aliases: [first]\n"
                 "    aliases: [second]\n",
                 encoding="utf-8",
@@ -311,10 +307,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     "    geography: test\n"
                     "    frequency: daily\n"
                     "    unit: percent\n"
-                    "    provider: fred_csv\n"
                     "    provider_series_id: FIRST\n"
-                    "    source_id: first-source\n"
-                    "    source_url: https://example.com/first.csv\n"
+                    "    source_id: fed-h15\n"
                     f"    aliases: [{conflicting_alias}]\n"
                     "  - series_id: second.series\n"
                     "    name: Second series\n"
@@ -322,10 +316,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     "    geography: test\n"
                     "    frequency: daily\n"
                     "    unit: percent\n"
-                    "    provider: fred_csv\n"
                     "    provider_series_id: SECOND\n"
-                    "    source_id: second-source\n"
-                    "    source_url: https://example.com/second.csv\n",
+                    "    source_id: fed-h15\n",
                     encoding="utf-8",
                 )
 

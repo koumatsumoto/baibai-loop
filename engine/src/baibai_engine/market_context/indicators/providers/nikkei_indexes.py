@@ -6,7 +6,8 @@ from collections.abc import Iterator, Mapping
 from datetime import date
 from html.parser import HTMLParser
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -45,7 +46,7 @@ class NikkeiIndexesSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -74,7 +75,7 @@ class NikkeiIndexesSource:
 
 
 def parse_nikkei_valuation(
-    series: SeriesDefinition,
+    series: SourceDefinition,
     text: str,
     *,
     start: date,

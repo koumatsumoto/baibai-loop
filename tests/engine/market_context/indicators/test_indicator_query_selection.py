@@ -87,10 +87,11 @@ def test_fetch_cache_latest_and_rebuild_share_publication_vintage_selection(
             ).records[0]["FrgnBal"]
             == 300
         )
+        # Two received publication records produce one selected L2 observation.
         assert [row[0] for row in connection.execute("SELECT record_count FROM provider_runs")] == [
-            1,
-            1,
-            1,
+            2,
+            2,
+            2,
         ]
 
 

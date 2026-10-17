@@ -15,10 +15,7 @@ from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.providers.base import (
-    FetchContext,
-    IndicatorsProviderError,
-)
+from baibai_engine.market_context.indicators.providers.base import FetchContext
 from baibai_engine.market_context.indicators.providers.cftc import CftcSource
 from baibai_engine.market_context.indicators.providers.ecb_fx import EcbFxSource
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
@@ -94,10 +91,13 @@ def test_unusable_calculation_does_not_roll_back_native_bulk_records(tmp_path, m
     first = date(2000, 1, 1)
     row = {"noncomm_positions_long_all": "3", "noncomm_positions_short_all": None}
     monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: {first: [row]})
-    with pytest.raises(IndicatorsProviderError, match="no observations"):
+    with pytest.raises(ValueError, match="no observations"):
         IndicatorsService(database).refresh_all_history("positioning.jpy_noncomm_net", end=first)
     with closing(sqlite3.connect(database)) as conn:
         assert next(read_snapshots(conn, first, first, source_key="cftc:097741")).records == (row,)
+        assert conn.execute("SELECT status, record_count FROM provider_runs").fetchall() == [
+            ("ok", 1)
+        ]
 
 
 def test_bulk_sources_share_response_bytes_and_do_not_project_away_native_fields():

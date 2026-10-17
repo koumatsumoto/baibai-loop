@@ -12,6 +12,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from baibai_engine.collection.economic_sources import require_source
 from baibai_engine.foundation.redaction import redact_credentials
 
 from .indicators import db
@@ -415,61 +416,61 @@ class IndicatorsService:
         source_key = native_source_key(series)
         known = stored_days(conn, start, end, source_key=source_key)
         cache_hit = not refresh and len(known) == (end - start).days + 1
-        started_at = datetime.now(UTC)
-        try:
-            if not cache_hit:
+        if not cache_hit:
+            started_at = datetime.now(UTC)
+            try:
                 records = _fetch_with_retry(
-                    lambda: fetch_native_records(series, start=start, end=end, context=context),
+                    lambda: fetch_native_records(
+                        require_source(series.source_id), start=start, end=end, context=context
+                    ),
                     context=context,
                 )
                 fetched_at = datetime.now(UTC)
-                # One complete bulk response owns this window. Empty days are source
-                # facts too, so an older payload for the same source day cannot revive.
+                record_count = 0
+                # Acquisition commits independently of L2 projection. A missing
+                # output column must not turn successfully retained input into a
+                # provider failure or trigger a needless external reacquisition.
                 with conn:
                     for offset in range((end - start).days + 1):
                         day = start + timedelta(days=offset)
+                        rows = records.get(day, ())
                         store_snapshot(
                             conn,
                             source_key=source_key,
                             observed_at=day,
                             fetched_at=fetched_at,
-                            records=records.get(day, ()),
+                            records=rows,
                         )
-            # Persist source records before calculation. An unusable L2 result does
-            # not destroy the native fields needed to diagnose or recalculate it.
-            observations = read_native_series(conn, series, start=start, end=end)
-            if require_observations and not observations:
-                raise IndicatorsProviderError(
-                    f"all-history refresh returned no observations for {series.series_id}"
-                )
-        except sqlite3.Error:
-            raise
-        except Exception as error:
-            with conn:
-                db.record_provider_run(
-                    conn,
-                    provider=series.provider,
-                    series_id=series.series_id,
-                    start=start,
-                    end=end,
-                    started_at=started_at,
-                    status="failed",
-                    record_count=0,
-                    error_message=redact_credentials(str(error)),
-                )
-            raise
-        if not cache_hit:
-            with conn:
-                db.record_provider_run(
-                    conn,
-                    provider=series.provider,
-                    series_id=series.series_id,
-                    start=start,
-                    end=end,
-                    started_at=started_at,
-                    status="ok",
-                    record_count=len(observations),
-                )
+                        record_count += len(rows)
+                    db.record_provider_run(
+                        conn,
+                        provider=series.provider,
+                        series_id=series.series_id,
+                        start=start,
+                        end=end,
+                        started_at=started_at,
+                        status="ok",
+                        record_count=record_count,
+                    )
+            except sqlite3.Error:
+                raise
+            except Exception as error:
+                with conn:
+                    db.record_provider_run(
+                        conn,
+                        provider=series.provider,
+                        series_id=series.series_id,
+                        start=start,
+                        end=end,
+                        started_at=started_at,
+                        status="failed",
+                        record_count=0,
+                        error_message=redact_credentials(str(error)),
+                    )
+                raise
+        observations = read_native_series(conn, series, start=start, end=end)
+        if require_observations and not observations:
+            raise ValueError(f"retained inputs produced no observations for {series.series_id}")
         return QueryResult(series, observations, cache_hit=cache_hit)
 
     def _fetch_and_store(

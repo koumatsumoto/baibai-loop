@@ -6,7 +6,8 @@ import zipfile
 from collections import defaultdict
 from datetime import date
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from ..read_contracts import ECB_FX_SPEC
 from .base import (
@@ -30,7 +31,7 @@ class EcbFxSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,

@@ -80,6 +80,7 @@ packages = [
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
+"engine/src/baibai_engine/collection/economic_sources.yaml" = "baibai_engine/collection/economic_sources.yaml"
 "engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
 "engine/src/baibai_engine/market_context/indicators/schema.sql" = "baibai_engine/market_context/indicators/schema.sql"
 "engine/src/baibai_engine/market_context/indicators/registry/us.yaml" = "baibai_engine/market_context/indicators/registry/us.yaml"

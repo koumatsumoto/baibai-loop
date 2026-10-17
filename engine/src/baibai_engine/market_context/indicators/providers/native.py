@@ -2,7 +2,8 @@
 
 from datetime import date
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import FetchContext, IndicatorsProviderError
 from .boj import BojSource
@@ -23,7 +24,7 @@ from .yahoo import YahooChartSource
 
 
 def fetch_native_records(
-    series: SeriesDefinition, *, start: date, end: date, context: FetchContext
+    series: SourceDefinition, *, start: date, end: date, context: FetchContext
 ) -> NativeRecords:
     source: (
         CftcSource

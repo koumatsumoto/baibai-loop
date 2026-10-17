@@ -8,9 +8,9 @@ from collections.abc import Mapping
 from datetime import date
 from typing import cast
 
+from baibai_engine.collection.economic_sources import SourceDefinition
 from baibai_engine.foundation.env import load_project_env
 
-from ..definitions import SeriesDefinition
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -58,7 +58,7 @@ class EStatSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -106,7 +106,7 @@ def _split_stats_data_id(provider_series_id: str) -> tuple[str, dict[str, str]]:
 
 
 def parse_estat_json(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+    series: SourceDefinition, text: str, *, start: date, end: date
 ) -> NativeRecords:
     try:
         payload: object = json.loads(text)
@@ -143,13 +143,13 @@ def _require_narrowed_cell(
     row: Mapping[str, object],
     *,
     expectations: Mapping[str, str],
-    series: SeriesDefinition,
+    series: SourceDefinition,
 ) -> None:
     for attribute, wanted in expectations.items():
         answered = row.get(attribute)
         if answered != wanted:
             raise IndicatorsProviderError(
-                f"e-Stat answered {series.series_id} with a cell outside the requested "
+                f"e-Stat answered {series.source_id} with a cell outside the requested "
                 f"narrowing ({attribute}={answered!r}, requested {wanted!r})"
             )
 
@@ -197,7 +197,7 @@ def _require_mapping(node: object, label: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], node)
 
 
-def _parse_estat_month(raw: object, *, series: SeriesDefinition) -> date | None:
+def _parse_estat_month(raw: object, *, series: SourceDefinition) -> date | None:
     """The month an e-Stat cell belongs to, or None when the cell is an aggregate.
 
     A time code is the year, a two-digit period kind, and the first and last month
@@ -208,11 +208,11 @@ def _parse_estat_month(raw: object, *, series: SeriesDefinition) -> date | None:
     """
 
     if not isinstance(raw, str):
-        raise IndicatorsProviderError(f"e-Stat gave {series.series_id} a non-string time code")
+        raise IndicatorsProviderError(f"e-Stat gave {series.source_id} a non-string time code")
     match = _ESTAT_TIME_CODE_RE.fullmatch(raw)
     if match is None:
         raise IndicatorsProviderError(
-            f"e-Stat gave {series.series_id} a time code it cannot place (time={raw!r})"
+            f"e-Stat gave {series.source_id} a time code it cannot place (time={raw!r})"
         )
     if match["kind"] != _ESTAT_MONTHLY_KIND or match["first"] == _ESTAT_NO_MONTH:
         return None
@@ -221,7 +221,7 @@ def _parse_estat_month(raw: object, *, series: SeriesDefinition) -> date | None:
     # is read as the month itself; a close that widens the period is not a month.
     if not 1 <= month <= 12 or match["last"] not in {match["first"], _ESTAT_NO_MONTH}:
         raise IndicatorsProviderError(
-            f"e-Stat gave {series.series_id} a monthly cell spanning more than "
+            f"e-Stat gave {series.source_id} a monthly cell spanning more than "
             f"one month (time={raw!r})"
         )
     return date(int(match["year"]), month, 1)

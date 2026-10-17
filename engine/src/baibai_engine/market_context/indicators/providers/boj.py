@@ -8,7 +8,8 @@ from datetime import date, datetime, time
 
 import openpyxl
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_ZIP_RESPONSE_BYTES,
@@ -37,7 +38,7 @@ class BojSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -55,7 +56,7 @@ class BojSource:
 
 
 def parse_boj_xlsx(
-    _series: SeriesDefinition, content: bytes, *, start: date, end: date
+    _series: SourceDefinition, content: bytes, *, start: date, end: date
 ) -> NativeRecords:
     if not zipfile.is_zipfile(io.BytesIO(content)):
         raise IndicatorsProviderError("BOJ response is not a .xlsx (zip) workbook")

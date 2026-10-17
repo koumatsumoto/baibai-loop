@@ -112,13 +112,6 @@ class IndicatorsProviderParserTests(TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "not a month of a year"):
             parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
 
-    def test_parse_umich_table_rejects_a_missing_value_column(self) -> None:
-        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
-        text = "Month,YYYY,ICE_ALL\nJune,2026,49.5\n"
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing column ICS_ALL"):
-            parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
-
     def test_parse_h15_csv_retains_rows_without_the_requested_yield_column(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
         # Synthetic CSV: acquisition retains a source row even if L2 cannot read

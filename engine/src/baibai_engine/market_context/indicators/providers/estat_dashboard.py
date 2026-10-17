@@ -7,7 +7,8 @@ from datetime import date
 from typing import cast
 from urllib.parse import parse_qsl, urlsplit
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -62,7 +63,7 @@ class EStatDashboardSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -90,7 +91,7 @@ class EStatDashboardSource:
         )
 
 
-def source_url_selectors(series: SeriesDefinition) -> Mapping[str, str]:
+def source_url_selectors(series: SourceDefinition) -> Mapping[str, str]:
     """Read the series identity out of the source URL, or fail.
 
     The URL is the provenance recorded on every observation, so it has to be the
@@ -100,7 +101,7 @@ def source_url_selectors(series: SeriesDefinition) -> Mapping[str, str]:
 
     if series.frequency != "monthly":
         raise IndicatorsProviderError(
-            f"e-Stat dashboard serves monthly series only: {series.series_id} is {series.frequency}"
+            f"e-Stat dashboard serves monthly series only: {series.source_id} is {series.frequency}"
         )
     query = urlsplit(series.source_url).query
     try:

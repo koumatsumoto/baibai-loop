@@ -6,7 +6,8 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import cast
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -38,7 +39,7 @@ class YahooChartSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -66,7 +67,7 @@ def _to_unix(day: date) -> int:
 
 
 def parse_yahoo_chart(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+    series: SourceDefinition, text: str, *, start: date, end: date
 ) -> NativeRecords:
     try:
         payload: object = json.loads(text)

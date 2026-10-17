@@ -5,7 +5,8 @@ from collections import defaultdict
 from datetime import date
 from typing import cast
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from ..read_contracts import CFTC_SPEC
 from .base import (
@@ -32,7 +33,7 @@ class CftcSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -60,7 +61,7 @@ class CftcSource:
 
 
 def parse_cftc_records(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+    series: SourceDefinition, text: str, *, start: date, end: date
 ) -> NativeRecords:
     try:
         payload: object = json.loads(text)

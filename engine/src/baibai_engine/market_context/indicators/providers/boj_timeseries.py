@@ -6,7 +6,8 @@ from collections.abc import Mapping
 from datetime import date
 from typing import cast
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -26,7 +27,7 @@ class BojTimeSeriesSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -63,7 +64,7 @@ class BojTimeSeriesSource:
 
 
 def parse_boj_timeseries_json(
-    series: SeriesDefinition,
+    series: SourceDefinition,
     text: str,
     *,
     start: date,

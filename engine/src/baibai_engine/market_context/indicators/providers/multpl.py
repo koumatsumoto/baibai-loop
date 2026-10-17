@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import date
 from html.parser import HTMLParser
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from ..read_contracts import MULTPL_SPEC
 from .base import (
@@ -35,7 +36,7 @@ class MultplSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -54,7 +55,7 @@ class MultplSource:
 
 
 def parse_multpl_table(
-    series: SeriesDefinition,
+    series: SourceDefinition,
     text: str,
     *,
     start: date,

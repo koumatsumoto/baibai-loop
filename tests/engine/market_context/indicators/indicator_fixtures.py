@@ -214,10 +214,8 @@ def _registry_yaml(*, plausible_min: str, plausible_max: str) -> str:
         "    geography: test\n"
         "    frequency: daily\n"
         "    unit: percent\n"
-        "    provider: fred_csv\n"
         "    provider_series_id: TEST\n"
-        "    source_id: test-source\n"
-        "    source_url: https://example.com/test.csv\n"
+        "    source_id: fed-h15\n"
         f"    plausible_min: {plausible_min}\n"
         f"    plausible_max: {plausible_max}\n"
     )

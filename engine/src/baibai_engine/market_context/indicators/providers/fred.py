@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 
 from requests import RequestException, Session
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -33,7 +34,7 @@ class FredSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -61,7 +62,7 @@ class FredSource:
             raise ProviderFetchStoppedError(str(exc)) from None
 
 
-def parse_fred_csv(series: SeriesDefinition, text: str, *, start: date, end: date) -> NativeRecords:
+def parse_fred_csv(series: SourceDefinition, text: str, *, start: date, end: date) -> NativeRecords:
     reader = csv.DictReader(io.StringIO(text))
     for column in ("observation_date", series.provider_series_id):
         if column not in (reader.fieldnames or ()):

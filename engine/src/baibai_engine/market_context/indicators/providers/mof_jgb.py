@@ -8,7 +8,8 @@ from dataclasses import replace
 from datetime import date
 from urllib.parse import urljoin
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -24,11 +25,10 @@ _ERA_DATE_RE = re.compile(r"^(?P<era>[SHR])(?P<year>\d+)\.(?P<month>\d+)\.(?P<da
 
 
 class MofJgbSource:
-    """MOF JGB constant-maturity yield CSV.
+    """Acquire the complete MOF constant-maturity yield tables.
 
-    The Ministry of Finance publishes a Shift_JIS CSV with daily constant
-    maturity yields from 1974 onward. ``provider_series_id`` is the maturity
-    column header, e.g. ``10年``.
+    Both historical and current-month files retain all received columns.
+    Selecting a maturity column and interpreting its value belong to L2.
     """
 
     spec = ProviderSpec(name="mof_jgb", all_history_start=date(1974, 1, 1))
@@ -36,7 +36,7 @@ class MofJgbSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -64,7 +64,7 @@ class MofJgbSource:
 
 
 def parse_mof_jgb_csv(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+    series: SourceDefinition, text: str, *, start: date, end: date
 ) -> NativeRecords:
     reader = csv.reader(io.StringIO(text))
     header: list[str] | None = None
@@ -77,10 +77,6 @@ def parse_mof_jgb_csv(
             header = row
             if len(header) != len(set(header)):
                 raise IndicatorsProviderError("MOF JGB CSV has duplicate columns")
-            if series.provider_series_id not in header:
-                raise IndicatorsProviderError(
-                    f"MOF JGB CSV missing column {series.provider_series_id}"
-                )
             continue
         if header is None:
             preamble.append(row)

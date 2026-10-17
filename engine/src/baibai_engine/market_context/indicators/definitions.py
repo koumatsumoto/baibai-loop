@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from baibai_engine.collection.economic_sources import SourceDefinition, load_sources
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
 # Series definitions are split across one yaml per region so no single file grows
@@ -29,6 +30,13 @@ _REGISTRY_MEMBERSHIP_GENERATIONS = {
 
 @dataclass(frozen=True)
 class SeriesDefinition:
+    """Resolved L2 reading definition, bound to its independently owned source.
+
+    Provider and source URL are resolved from Collection, not configured twice.
+    provider_series_id selects the L2 input column or formula; it is not the
+    source acquisition request contract.
+    """
+
     series_id: str
     name: str
     category: str
@@ -100,12 +108,13 @@ def load_definitions(path: Path = DEFAULT_REGISTRY_DIR) -> IndicatorDefinitions:
     files = sorted(path.glob("*.yaml")) if path.is_dir() else [path]
     if not files:
         raise ValueError(f"indicator registry directory has no yaml files: {path}")
+    sources = load_sources()
     series: list[SeriesDefinition] = []
     for file in files:
         raw = strict_safe_load(file.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError(f"indicator definitions root must be a mapping: {file}")
-        series.extend(_parse_series(item) for item in _list(raw.get("series")))
+        series.extend(_parse_series(item, sources) for item in _list(raw.get("series")))
     _lint_unique_series_ids(series)
     _lint_alias_identity_collisions(series)
     generation = _canonical_registry_generation(series) if path == DEFAULT_REGISTRY_DIR else 1
@@ -154,8 +163,21 @@ def _lint_alias_identity_collisions(series: list[SeriesDefinition]) -> None:
         )
 
 
-def _parse_series(raw: object) -> SeriesDefinition:
+def _parse_series(raw: object, sources: Mapping[str, SourceDefinition]) -> SeriesDefinition:
     entry = _mapping(raw, "series")
+    source_id = _required_str(entry, "source_id")
+    if entry.get("provider") == "derived":
+        provider = "derived"
+        source_url = _required_str(entry, "source_url")
+    else:
+        if "provider" in entry or "source_url" in entry:
+            raise ValueError("external provider and URL belong in the Collection source catalog")
+        try:
+            source = sources[source_id]
+        except KeyError as error:
+            raise ValueError(f"unknown economic collection source: {source_id}") from error
+        provider = source.provider
+        source_url = source.source_url
     priority = _optional_int(entry, "priority")
     plausible_min = _optional_float(entry, "plausible_min")
     plausible_max = _optional_float(entry, "plausible_max")
@@ -166,10 +188,10 @@ def _parse_series(raw: object) -> SeriesDefinition:
         geography=_required_str(entry, "geography"),
         frequency=_required_str(entry, "frequency"),
         unit=_required_str(entry, "unit"),
-        provider=_required_str(entry, "provider"),
+        provider=provider,
         provider_series_id=_required_str(entry, "provider_series_id"),
-        source_id=_required_str(entry, "source_id"),
-        source_url=_required_str(entry, "source_url"),
+        source_id=source_id,
+        source_url=source_url,
         priority=100 if priority is None else priority,
         notes=_optional_str(entry, "notes"),
         plausible_min=plausible_min,

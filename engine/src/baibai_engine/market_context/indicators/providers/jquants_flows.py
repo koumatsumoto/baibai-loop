@@ -6,9 +6,9 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import date
 
+from baibai_engine.collection.economic_sources import SourceDefinition
 from baibai_engine.foundation.env import load_project_env
 
-from ..definitions import SeriesDefinition
 from ..observations import NativeRecords
 from ..read_contracts import JQUANTS_FLOWS_SPEC
 from .base import FetchContext, HttpSession, ProviderFetchStoppedError
@@ -29,7 +29,7 @@ def _read_api_key() -> str:
 class JQuantsFlowsSource:
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,

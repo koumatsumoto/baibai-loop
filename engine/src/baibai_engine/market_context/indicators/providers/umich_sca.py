@@ -5,7 +5,8 @@ import io
 from collections import defaultdict
 from datetime import date
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
@@ -37,19 +38,10 @@ _MONTH_NUMBERS = {
 
 
 class UmichScaSource:
-    """University of Michigan Surveys of Consumers index table (no auth).
+    """Acquire the complete University of Michigan Surveys of Consumers table.
 
-    ``provider_series_id`` names the value column (``ICS_ALL`` is the Index of
-    Consumer Sentiment) and ``source_url`` names the table, so another table from
-    the same publisher is a registry entry rather than a code change.
-
-    Reading the publisher directly keeps the series on the publisher's own release
-    calendar. A relay adds its own ingestion lag, and a relay that stops is
-    indistinguishable in the store from a survey that stopped.
-
-    The table carries one row per published month, so a month appears once its
-    reading is final; the monthly history reaches back to 1952 and is quarterly
-    before 1978, which leaves the early months sparse rather than missing.
+    The source URL identifies the table. Acquisition retains its columns and
+    missing cells; selecting and interpreting an index value belong to L2.
     """
 
     spec = ProviderSpec(name="umich_sca", all_history_start=date(1952, 11, 1))
@@ -57,7 +49,7 @@ class UmichScaSource:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -75,7 +67,7 @@ class UmichScaSource:
 
 
 def parse_umich_table(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+    series: SourceDefinition, text: str, *, start: date, end: date
 ) -> NativeRecords:
     """Retain the whole Surveys of Consumers row, including missing cells.
 
@@ -86,7 +78,7 @@ def parse_umich_table(
 
     reader = csv.DictReader(io.StringIO(text))
     columns = reader.fieldnames or []
-    for column in ("Month", "YYYY", series.provider_series_id):
+    for column in ("Month", "YYYY"):
         if column not in columns:
             raise IndicatorsProviderError(f"UMich table missing column {column}")
     if len(columns) != len(set(columns)):

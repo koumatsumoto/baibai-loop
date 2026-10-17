@@ -5,7 +5,8 @@ import io
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from ..definitions import SeriesDefinition
+from baibai_engine.collection.economic_sources import SourceDefinition
+
 from ..observations import NativeRecords
 from ..read_contracts import FRB_H15_PACKAGE_SERIES
 from .base import (
@@ -49,7 +50,7 @@ class FrbH15Source:
 
     def fetch_records(
         self,
-        series: SeriesDefinition,
+        series: SourceDefinition,
         *,
         start: date,
         end: date,
@@ -190,7 +191,7 @@ def snippet(text: str) -> str:
     return " ".join(text.split())[:160]
 
 
-def parse_h15_csv(series: SeriesDefinition, text: str, *, start: date, end: date) -> NativeRecords:
+def parse_h15_csv(series: SourceDefinition, text: str, *, start: date, end: date) -> NativeRecords:
     lines = text.splitlines(keepends=True)
     header_index = next(
         (index for index, line in enumerate(lines) if line.startswith(_HEADER_PREFIXES)),

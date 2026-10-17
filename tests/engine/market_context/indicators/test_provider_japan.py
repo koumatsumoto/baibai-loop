@@ -219,13 +219,6 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(observations[date(2026, 7, 9)][0]["row"]["10年"], "-")
         self.assertEqual(observations[date(2026, 7, 9)][0]["row"]["15年"], "3.445")
 
-    def test_parse_mof_jgb_csv_rejects_missing_column(self) -> None:
-        series = _series("mof_jgb", "10年")
-        text = "基準日,1年\nR8.7.8,1.18\n"
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing column 10年"):
-            parse_mof_jgb_csv(series, text, start=date(2026, 7, 8), end=date(2026, 7, 8))
-
     def test_parse_estat_json_filters_range_and_skips_nonnumeric(self) -> None:
         series = _series("estat", "0003427113", unit="index")
         text = _estat_payload(
