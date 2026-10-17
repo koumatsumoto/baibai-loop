@@ -672,6 +672,28 @@ TRADINGVIEW_SOURCE_RECEIPTS = LakeDataset(
     ),
 )
 
+EQUITY_WEB_SOURCE_RESPONSES = LakeDataset(
+    name="equity_web.source_responses",
+    layer="l1_source",
+    sqlite_table="equity_web_source_responses",
+    date_column="received_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("receipt_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("attempt_id", "TEXT", _TEXT, False),
+        LakeColumn("source", "TEXT", _TEXT, False),
+        LakeColumn("requested_ticker", "TEXT", _TEXT, False),
+        LakeColumn("role", "TEXT", _TEXT, False),
+        LakeColumn("parent_receipt_id", "TEXT", _TEXT, True),
+        LakeColumn("requested_url", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("received_on", "TEXT", _TEXT, False),
+        LakeColumn("selected_encoding", "TEXT", _TEXT, False),
+        LakeColumn("body_gzip", "BLOB", pa.binary(), False),
+    ),
+)
+
 TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
     name="tradingview.forecast_snapshots",
     layer="l2_processed",
@@ -734,6 +756,7 @@ LAKE_DATASETS = {
     JPX_SOURCE_BUNDLES.name: JPX_SOURCE_BUNDLES,
     JPX_SOURCE_RESPONSES.name: JPX_SOURCE_RESPONSES,
     TRADINGVIEW_SOURCE_RECEIPTS.name: TRADINGVIEW_SOURCE_RECEIPTS,
+    EQUITY_WEB_SOURCE_RESPONSES.name: EQUITY_WEB_SOURCE_RESPONSES,
     EDINET_SOURCE_ARCHIVES.name: EDINET_SOURCE_ARCHIVES,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS.name: (
         EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS

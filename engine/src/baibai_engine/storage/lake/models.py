@@ -474,6 +474,12 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
+            dataset="equity_web.source_responses",
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="tradingview.forecast_snapshots",
             required=False,
             carries_history=True,
