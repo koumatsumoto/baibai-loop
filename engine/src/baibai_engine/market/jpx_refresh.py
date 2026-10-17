@@ -17,6 +17,11 @@ from baibai_engine.collection.jpx.receipts import (
     declare_bundle_resources,
     retain_bundle_response,
 )
+from baibai_engine.market.delistings import (
+    JPX_DELISTING_INDEX_URL,
+    DelistingRecord,
+    resolve_delisting_archive_urls,
+)
 from baibai_engine.market.jpx_decode import resolve_earnings_calendar_urls
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarSnapshot,
@@ -108,6 +113,31 @@ class JPXRefresh:
             summary = rebuild_jpx_snapshot(self._sqlite_path, bundle_id)
             assert isinstance(summary, TSECapitalPolicyRefreshSummary)
             return summary
+        except (JPXAcquisitionError, JPXBundleError) as exc:
+            raise JPXProviderError(str(exc)) from exc
+
+    def refresh_delistings_snapshot(self, asof_date: date) -> tuple[DelistingRecord, ...]:
+        """Retain the index and every linked archive before replacing the L2 view."""
+        try:
+            with closing(open_connection(self._sqlite_path)) as conn:
+                bundle_id = create_bundle(conn, "delistings", asof_date, datetime.now(UTC))
+                index = self._http.fetch(JPX_DELISTING_INDEX_URL)
+                retain_bundle_response(conn, bundle_id, "index", index)
+                urls = resolve_delisting_archive_urls(index.body, index.requested_url)
+                declare_bundle_resources(
+                    conn,
+                    bundle_id,
+                    (
+                        ("index", index.requested_url),
+                        *((f"page:{number}", url) for number, url in enumerate(urls)),
+                    ),
+                )
+                for number, url in enumerate(urls):
+                    retain_bundle_response(conn, bundle_id, f"page:{number}", self._http.fetch(url))
+                complete_bundle(conn, bundle_id)
+            snapshot = rebuild_jpx_snapshot(self._sqlite_path, bundle_id)
+            assert isinstance(snapshot, tuple)
+            return snapshot
         except (JPXAcquisitionError, JPXBundleError) as exc:
             raise JPXProviderError(str(exc)) from exc
 

@@ -592,11 +592,10 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jpx.delistings",
             required=True,
-            # Accumulating by construction: the store keeps a delisting that JPX's
-            # archive page has since dropped, so its earliest row does not move.
-            carries_history=True,
-            # No fetch record: the operator derives this rather than a provider serving
-            # it, so nothing can prove the archive was read completely.
+            # Each selected index and its linked pages replace the observation view.
+            # The index may stop linking an older archive without retracting its events.
+            carries_history=False,
+            # A complete bundle proves its declared pages arrived, not full history.
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(

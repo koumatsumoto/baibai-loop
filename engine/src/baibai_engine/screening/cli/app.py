@@ -14,6 +14,7 @@ from typing import cast
 from baibai_engine.foundation.env import load_project_env
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.delistings import DelistingSourceError
 from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
 from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_lists_command
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
@@ -264,7 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     delistings_parser = subparsers.add_parser(
         "refresh-jpx-delistings",
-        help="re-read and accumulate the JPX delisting record",
+        help="capture the linked JPX delisting pages and replace the observed view",
     )
     delistings_parser.add_argument(
         "--sqlite-path",
@@ -528,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
             snapshot = rebuild_jpx_snapshot(Path(args.sqlite_path), args.bundle_id)
         except (
             JPXProviderError,
+            DelistingSourceError,
             ValuationCatalystError,
             SQLiteSchemaError,
             sqlite3.Error,
@@ -541,6 +543,9 @@ def main(argv: list[str] | None = None) -> int:
         elif isinstance(snapshot, TSECapitalPolicyRefreshSummary):
             collection = "capital_policy"
             rows = snapshot.row_count
+        elif isinstance(snapshot, tuple):
+            collection = "delistings"
+            rows = len(snapshot)
         else:
             assert isinstance(snapshot, JPXEarningsCalendarSnapshot)
             collection = "earnings_calendar"

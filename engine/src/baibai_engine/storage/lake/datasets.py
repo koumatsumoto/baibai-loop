@@ -548,6 +548,7 @@ JPX_REGULATION_SOURCES = LakeDataset(
 JPX_DELISTINGS = LakeDataset(
     name="jpx.delistings",
     layer="l2_processed",
+    contract_version=2,
     sqlite_table="jpx_delistings",
     date_column="delisted_on",
     partition_grain="year",

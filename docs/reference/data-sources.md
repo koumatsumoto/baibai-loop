@@ -116,6 +116,8 @@ JPXの規制情報と決算発表予定は、明示した1件の完了済みsour
 
 TSE資本政策も同じcommandで、選択した完了済み`capital_policy` bundleのworkbook全体をL2へ再構築する。旧L2の月は持ち越さず、選択workbookに含まれる月だけを観測として保持する。旧月が消えても、その月に開示がなかったことや全履歴の取得完了は意味しない。bundleの`asof_date`は取得の文脈であり、公表日ではない。
 
+上場廃止も選択した完了済み`delistings` bundleのindexと、そこから列挙されたarchive全ページだけをL2へ反映する。旧L2の行は合流させない。現在のindexから消えたarchiveは今回の観測範囲外であり、過去の上場廃止が取り消された証拠ではない。古いraw bundleは明示して再構築できる。
+
 EDINET archiveの再利用・取得後の保存は、明示したSQLite source storeだけを対象にする。以前の端末に残るローカルZIPは暗黙に取り込まない。
 
 <a id="edinet-metric-revision"></a>

@@ -6,6 +6,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from baibai_engine.collection.jpx.receipts import JPXSourceBundle, read_complete_bundle
+from baibai_engine.market.delistings import (
+    DelistingRecord,
+    DelistingSourceError,
+    build_delisting_snapshot,
+    resolve_delisting_archive_urls,
+    store_jpx_delistings,
+)
 from baibai_engine.market.jpx_decode import (
     build_earnings_calendar_snapshot,
     build_regulation_snapshot,
@@ -32,7 +39,12 @@ from baibai_engine.storage.observations.ingest.jpx import (
 )
 from baibai_engine.storage.observations.schema import connect_current
 
-JPXSnapshot = JPXRegulationSnapshot | JPXEarningsCalendarSnapshot | TSECapitalPolicyRefreshSummary
+JPXSnapshot = (
+    JPXRegulationSnapshot
+    | JPXEarningsCalendarSnapshot
+    | TSECapitalPolicyRefreshSummary
+    | tuple[DelistingRecord, ...]
+)
 
 
 def rebuild_jpx_snapshot(sqlite_path: Path, bundle_id: str) -> JPXSnapshot:
@@ -66,6 +78,8 @@ def rebuild_jpx_snapshot(sqlite_path: Path, bundle_id: str) -> JPXSnapshot:
         return earnings_snapshot
     if bundle.collection_name == "capital_policy":
         return _capital_policy(bundle, sqlite_path)
+    if bundle.collection_name == "delistings":
+        return _delistings(bundle, sqlite_path)
     raise JPXProviderError(f"JPX bundle collection is not rebuildable: {bundle.collection_name}")
 
 
@@ -128,3 +142,24 @@ def _capital_policy(bundle: JPXSourceBundle, sqlite_path: Path) -> TSECapitalPol
     )
     store_tse_capital_policy_rows(sqlite_path, rows)
     return summary
+
+
+def _delistings(bundle: JPXSourceBundle, sqlite_path: Path) -> tuple[DelistingRecord, ...]:
+    receipts = {item.resource_name: item.response for item in bundle.responses}
+    index = receipts.get("index")
+    if index is None:
+        raise DelistingSourceError("JPX delisting bundle has no index")
+    archive_urls = resolve_delisting_archive_urls(index.body, index.requested_url)
+    expected = (
+        ("index", index.requested_url),
+        *((f"page:{number}", url) for number, url in enumerate(archive_urls)),
+    )
+    if bundle.expected_resources != expected:
+        raise DelistingSourceError("JPX delisting manifest differs from retained index links")
+    pages = (
+        (index.requested_url, index.body),
+        *((url, receipts[f"page:{number}"].body) for number, url in enumerate(archive_urls)),
+    )
+    rows = build_delisting_snapshot(pages)
+    store_jpx_delistings(sqlite_path, rows)
+    return rows

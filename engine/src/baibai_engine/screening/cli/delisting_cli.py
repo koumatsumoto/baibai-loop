@@ -5,17 +5,17 @@ from __future__ import annotations
 import sqlite3
 import sys
 from collections.abc import Callable, Mapping
-from datetime import date
+from contextlib import closing
+from datetime import date, datetime
 from pathlib import Path
 from typing import TextIO
 
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
-from baibai_engine.market.delistings import (
-    DelistingSourceError,
-    download_jpx_delistings,
-    store_jpx_delistings,
-)
+from baibai_engine.foundation.time import JST
+from baibai_engine.market.delistings import DelistingSourceError
 from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.market.jpx_models import JPXProviderError
+from baibai_engine.market.jpx_refresh import JPXRefresh
 from baibai_engine.market.tender_offer import (
     TenderOfferDocumentReader,
     TenderOfferError,
@@ -26,16 +26,24 @@ from baibai_engine.market.tender_offer import (
     read_tender_offer_blocks,
     store_tender_offer_exit_values,
 )
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 from .providers import EDINETMaintenance
 
 
 def refresh_jpx_delistings_command(*, sqlite_path: Path, stdout: TextIO | None = None) -> int:
-    """Download and accumulate the current JPX delisting record."""
+    """Capture the linked JPX pages and replace the observed view."""
     out = stdout if stdout is not None else sys.stdout
     try:
-        stored = store_jpx_delistings(sqlite_path, download_jpx_delistings())
-    except (DelistingSourceError, OSError, sqlite3.Error) as error:
+        with closing(JPXRefresh(sqlite_path=sqlite_path)) as refresh:
+            stored = len(refresh.refresh_delistings_snapshot(datetime.now(JST).date()))
+    except (
+        DelistingSourceError,
+        JPXProviderError,
+        SQLiteSchemaError,
+        OSError,
+        sqlite3.Error,
+    ) as error:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 1
     print(f"refresh-jpx-delistings: rows={stored}", file=out, flush=True)
