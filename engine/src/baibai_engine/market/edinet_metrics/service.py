@@ -22,7 +22,7 @@ from baibai_engine.market.edinet_models import (
     EDINETProviderError,
     EDINETRateLimitError,
 )
-from baibai_engine.market.providers.edinet import (
+from baibai_engine.market.edinet_selection import (
     TARGET_DOC_TYPE_CODES,
     EdinetDocumentCandidate,
     select_document_candidates,

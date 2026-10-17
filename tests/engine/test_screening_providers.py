@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
+from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.market.financial_documents import (
     normalize_financial_summary,
     project_financial_documents,
@@ -48,11 +49,7 @@ from baibai_engine.market.jquants_decode import (
     parse_jquants_code,
 )
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.providers.edinet import (
-    EDINETProvider,
-    parse_doc_id,
-    select_document_candidates,
-)
+from baibai_engine.market.providers.edinet import EDINETProvider, parse_doc_id
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
 from baibai_engine.market.providers.jpx import JPXProvider, _EarningsCalendarFile
 from baibai_engine.storage.observations.ingest.edinet import (

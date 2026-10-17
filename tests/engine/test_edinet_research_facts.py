@@ -454,7 +454,7 @@ def test_operation_cannot_introduce_a_cycle_before_annual_family_selection():
 
 
 def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
-    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+    from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 
     original = document()
     newer = document("S100NEW1", "2027-06-24 10:00")
@@ -479,7 +479,7 @@ def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
 def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
     include_withdrawal,
 ):
-    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+    from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 
     original = document()
     original.update(withdrawalStatus="2", legalStatus="0", docInfoEditStatus="2")
@@ -506,8 +506,8 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
 
 @pytest.mark.parametrize("through_sqlite", [False, True])
 def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, through_sqlite):
+    from baibai_engine.market.edinet_document_events import _canonicalize_document_events
     from baibai_engine.market.edinet_metrics.store import read_edinet_documents
-    from baibai_engine.market.providers.edinet import _canonicalize_document_events
     from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 
     original = document()
@@ -547,7 +547,7 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
 
 @pytest.mark.parametrize("edited", ["0", "2"])
 def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
-    from baibai_engine.market.providers.edinet import select_document_candidates
+    from baibai_engine.market.edinet_selection import select_document_candidates
 
     # EDINET API v2 section 3-1-6: 2 identifies the edited filing, not a withdrawal.
     original = document()
@@ -562,7 +562,7 @@ def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
 @pytest.mark.parametrize("field", ["legalStatus", "disclosureStatus", "withdrawalStatus"])
 @pytest.mark.parametrize("missing", [None, "", "omitted"])
 def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missing):
-    from baibai_engine.market.providers.edinet import select_document_candidates
+    from baibai_engine.market.edinet_selection import select_document_candidates
 
     original = document()
     if missing == "omitted":

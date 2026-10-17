@@ -10,10 +10,10 @@ from datetime import date
 import pytest
 
 from baibai_engine.market import edinet_document_store
+from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 from baibai_engine.market.edinet_facts.store import document_inventory
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import _canonicalize_document_events
 from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 
 ORIGIN_DAY = date(2026, 8, 1)
