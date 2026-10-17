@@ -868,7 +868,7 @@ gh workflow run cloud-tradingview-snapshot.yml --ref main \
   -f observation_master_asof="$master_asof" -f interval=15
 ```
 
-同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は公開完了とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
+同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。取得中に当日`tradingview_source_receipts`が増えたが新規の正規化済みrowが0件のときも、provider/auth/secret/time_guard/timeout系の取得失敗に限り既存L1 release publisherで原受領記録を公開する。取得runは失敗のままとし、cooldownとlease解放を続ける。storage/internal障害や中断、受領記録0件ではこの公開を行わない。公開後は固定releaseからhydrateして原受領記録を読戻し、正規化済みrowとは区別する。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は取得成功とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
 
 ### 保存済み実観測の明示的な受入
 

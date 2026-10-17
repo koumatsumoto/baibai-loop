@@ -244,18 +244,27 @@ jobs:
           if [[ -n "${MASTER_ASOF:-}" ]]; then
             observation_options+=(--master-asof "$MASTER_ASOF")
           fi
+          counts_before="$(uv run python -m baibai_batch.jobs.tradingview_receipts --asof "$TARGET_DATE")"
+          read -r receipts_before rows_before <<< "$counts_before"
           set +e
           timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh \
             --asof "$TARGET_DATE" --interval "$interval" \
             "${observation_options[@]}" \
             --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
           status=$?
+          counts_after="$(uv run python -m baibai_batch.jobs.tradingview_receipts --asof "$TARGET_DATE")"
+          count_status=$?
+          if [[ "$count_status" != 0 ]]; then
+            counts_after='-1 -1'
+            if [[ "$status" == 0 ]]; then status=1; fi
+          fi
+          read -r receipts_after rows_after <<< "$counts_after"
           set -e
           if [[ "$status" == 124 || "$status" == 137 ]]; then
             echo 'TradingView acquisition failed; category=timeout' | tee -a "$stderr" >&2
           fi
           set +e
-          python - "$progress" "$result" "$stderr" "$status" <<'PYRESULT'
+          python - "$progress" "$result" "$stderr" "$status" "$receipts_before" "$receipts_after" "$rows_before" "$rows_after" <<'PYRESULT'
           import json
           import os
           import re
@@ -264,6 +273,8 @@ jobs:
 
           progress, result, stderr = map(Path, sys.argv[1:4])
           status = int(sys.argv[4])
+          receipts_before, receipts_after = map(int, sys.argv[5:7])
+          rows_before, rows_after = map(int, sys.argv[7:9])
           fields = (
               "snapshot_date", "master_asof", "phase", "expected_universe", "chunks_total", "chunks_completed",
               "requests_attempted", "symbols_requested",
@@ -319,16 +330,24 @@ jobs:
                   safe_stderr = stderr.read_text(encoding="utf-8")
               except (OSError, UnicodeError):
                   safe_stderr = ""
-              match = re.search(r"TradingView acquisition failed; category=([a-z_]+)", safe_stderr)
+              matches = re.findall(r"TradingView acquisition failed; category=([a-z_]+)", safe_stderr)
               categories = {
                   "secret_persistence", "auth", "time_guard", "storage",
                   "provider_rate_limit", "provider_response", "provider_transport", "internal", "timeout",
               }
               category = (
                   "timeout" if status in (124, 137) else
-                  match.group(1) if match and match.group(1) in categories else "internal"
+                  matches[-1] if matches and matches[-1] in categories else "internal"
               )
               outputs.extend(("status=failure", "failure_category=" + category))
+              outputs.append(
+                  "publish_failed_receipts=" + str(
+                      category in {"provider_rate_limit", "provider_response", "provider_transport",
+                                   "auth", "secret_persistence", "time_guard", "timeout"}
+                      and receipts_before >= 0 and receipts_after > receipts_before
+                      and rows_before >= 0 and rows_after == rows_before
+                  ).lower()
+              )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print("\n".join(outputs), file=output)
           if int(sys.argv[4]) == 0 and status != 0:
@@ -342,7 +361,14 @@ jobs:
           exit "$status"
       - name: Publish the L1 release
         id: publish-lake
-        if: (steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial') && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0
+        if: >-
+          ${{ always() && !cancelled() && steps.lease-acquire.outputs.acquired == 'true'
+          && steps.pull.outcome == 'success' && steps.hydrate.outcome == 'success'
+          && steps.tradingview.outcome != 'skipped'
+          && (((steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial')
+          && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0)
+          || (steps.tradingview.outcome == 'failure'
+          && steps.tradingview.outputs.publish_failed_receipts == 'true')) }}
         env:
           PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}

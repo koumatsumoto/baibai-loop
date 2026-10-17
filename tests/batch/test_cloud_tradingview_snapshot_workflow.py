@@ -288,7 +288,7 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
     uv = tmp_path / "uv"
     uv.write_text(
-        '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$RUNNER_TEMP/arguments"\nprintf \'%s\\n\' \'{"status":"already_saved"}\'\n'
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then printf "0 0\\n"; exit 0; fi\nprintf \'%s\\n\' "$@" > "$RUNNER_TEMP/arguments"\nprintf \'%s\\n\' \'{"status":"already_saved"}\'\n'
     )
     uv.chmod(0o755)
     result = subprocess.run(
@@ -317,7 +317,7 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
-        "#!/bin/sh\nprintf '%s\\n' '"
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
         + json.dumps(
             {
                 "status": status,
@@ -364,7 +364,11 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
 def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"
-    uv.write_text("#!/bin/sh\nprintf '%s\\n' '" + body + "'\n")
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
+        + body
+        + "'\n"
+    )
     uv.chmod(0o755)
     output = tmp_path / "output"
     result = subprocess.run(
@@ -390,7 +394,8 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
-        f"#!/bin/sh\necho 'TradingView acquisition failed; category=provider_rate_limit' >&2\nexit {exit_code}\n"
+        f'#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\n'
+        f"echo 'TradingView acquisition failed; category=provider_rate_limit' >&2\nexit {exit_code}\n"
     )
     uv.chmod(0o755)
     (tmp_path / "tradingview-progress.json").write_text("private-token")
@@ -411,6 +416,108 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
     assert f"failure_category={category}" in output.read_text()
     assert "TradingView progress: unavailable" in result.stdout
     assert "private-token" not in result.stdout + result.stderr
+
+
+def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_path):
+    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "1 0"; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        "echo 'TradingView acquisition failed; category=provider_response' >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", steps["tradingview"]["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "failure_category=provider_response" in output.read_text()
+    assert "publish_failed_receipts=true" in output.read_text()
+    gate = steps["publish-lake"]["if"]
+    assert "always()" in gate
+    assert "!cancelled()" in gate
+    for guard in ("lease-acquire", "pull.outcome", "hydrate.outcome", "tradingview.outcome"):
+        assert guard in gate
+    assert "publish_failed_receipts == 'true'" in gate
+    assert "always()" in steps["cooldown-save"]["if"]
+    assert "always()" in steps["lease-release"]["if"]
+
+
+@pytest.mark.parametrize(
+    ("category", "after", "count_fails"),
+    [
+        ("internal", "1 0", False),
+        ("storage", "1 0", False),
+        ("unknown", "1 0", False),
+        ("provider_response", "0 0", False),
+        ("provider_response", "1 1", False),
+        ("provider_response", "1 0", True),
+    ],
+)
+def test_failed_acquisition_without_publishable_raw_only_delta(
+    tmp_path, category, after, count_fails
+):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    second = "exit 1" if count_fails else f"echo '{after}'"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        f'if [ -f "$RUNNER_TEMP/count-seen" ]; then {second}; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        f"echo 'TradingView acquisition failed; category={category}' >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "publish_failed_receipts=false" in output.read_text()
+
+
+def test_failed_initial_count_does_not_start_acquisition(tmp_path):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then exit 1; fi\ntouch "$RUNNER_TEMP/refresh-started"\n'
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert not (tmp_path / "refresh-started").exists()
+    assert not output.exists()
 
 
 def test_summary_preserves_partial_failure_and_null_counts(tmp_path):
