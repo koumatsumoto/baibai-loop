@@ -120,6 +120,24 @@ def test_dataset_manifest_is_strict_and_round_trips() -> None:
     assert manifest.model_dump(mode="json") == payload
 
 
+def test_edinet_list_responses_manifest_round_trips_as_optional_l1() -> None:
+    contract = LAKE_DATASETS["edinet.list_responses"]
+    payload = _dataset_payload(dataset=contract.name, population_count=None)
+    manifest = _load_dataset(payload)
+    assert manifest.layer == "l1_source"
+    assert manifest.contract_version == contract.contract_version
+    assert manifest.partition_by == ("year",)
+    assert manifest.population_count is None
+    assert _load_dataset(manifest.model_dump(mode="json")) == manifest
+    policy = next(
+        item
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        if item.dataset == contract.name
+    )
+    assert not policy.required
+    assert policy.carries_history
+
+
 @pytest.mark.parametrize(
     ("dataset", "wrong_layer"),
     [

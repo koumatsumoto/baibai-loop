@@ -37,6 +37,33 @@ def test_connect_current_accepts_uri_sensitive_path_characters(tmp_path):
     connection.close()
 
 
+def test_edinet_list_receipts_require_fresh_schema_and_index(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(schema.open_connection(path)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (41,)
+        assert [
+            row[1] for row in connection.execute("PRAGMA table_info(edinet_list_responses)")
+        ] == [
+            "receipt_id",
+            "doc_date",
+            "received_at_utc",
+            "body_gzip",
+        ]
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'idx_edinet_list_responses_date_received'"
+        ).fetchone() == (1,)
+
+
+def test_version_only_change_cannot_pass_for_receipt_schema(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(schema.open_connection(path)) as connection, connection:
+        connection.execute("DROP TABLE edinet_list_responses")
+        connection.execute(f"PRAGMA user_version = {schema.SQLITE_SCHEMA_VERSION}")
+    with pytest.raises(schema.SQLiteSchemaError, match="missing tables: edinet_list_responses"):
+        schema.open_connection(path)
+
+
 @pytest.mark.parametrize(
     ("extra_ddl", "message"),
     [

@@ -10,6 +10,7 @@ came back.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -58,7 +59,11 @@ def html_response(content: bytes) -> FakeResponse:
 
 
 def json_response(payload: Any, *, status_code: int = 200) -> FakeResponse:
-    return response(status_code=status_code, payload=payload)
+    return response(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        status_code=status_code,
+        payload=payload,
+    )
 
 
 class FakeSession:

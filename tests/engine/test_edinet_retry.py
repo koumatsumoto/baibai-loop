@@ -153,7 +153,9 @@ def test_listing_schema_error_is_not_retried(payload, tmp_path, clock):
 
 def test_listing_json_parse_error_is_not_retried(tmp_path, clock):
     session = FakeSession(response(b"invalid JSON"))
-    with pytest.raises(ValueError, match="no JSON body"):
+    with pytest.raises(
+        EDINETProviderError, match=r"^EDINET documents\.json returned invalid JSON$"
+    ):
         request("list", tmp_path, session)
     assert len(session.calls) == 1
     assert clock == []
@@ -190,6 +192,8 @@ def test_terminal_http_failures_close_every_response(status, tmp_path, clock):
 
 def test_json_parse_failure_still_closes_the_successful_http_response(tmp_path, clock):
     invalid = response(b"invalid JSON")
-    with pytest.raises(ValueError, match="no JSON body"):
+    with pytest.raises(
+        EDINETProviderError, match=r"^EDINET documents\.json returned invalid JSON$"
+    ):
         request("list", tmp_path, FakeSession(invalid))
     assert invalid.close_count == 1

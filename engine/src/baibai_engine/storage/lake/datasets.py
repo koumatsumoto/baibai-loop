@@ -460,6 +460,22 @@ EDINET_DOCUMENT_LISTS = LakeDataset(
     ),
 )
 
+EDINET_LIST_RESPONSES = LakeDataset(
+    name="edinet.list_responses",
+    layer="l1_source",
+    sqlite_table="edinet_list_responses",
+    date_column="doc_date",
+    partition_grain="year",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("receipt_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("doc_date", "TEXT", _TEXT, False),
+        LakeColumn("received_at_utc", "TEXT", _TEXT, False),
+        LakeColumn("body_gzip", "BLOB", pa.binary(), False),
+    ),
+)
+
 JPX_REGULATION_FLAGS = LakeDataset(
     name="jpx.regulation_flags",
     layer="l2_processed",
@@ -636,6 +652,7 @@ EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
 
 LAKE_DATASETS = {
     JQUANTS_SOURCE_PAGES.name: JQUANTS_SOURCE_PAGES,
+    EDINET_LIST_RESPONSES.name: EDINET_LIST_RESPONSES,
     EDINET_SOURCE_ARCHIVES.name: EDINET_SOURCE_ARCHIVES,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS.name: (
         EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS

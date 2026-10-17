@@ -16,6 +16,7 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
+from baibai_engine.collection.edinet.contract import EDINET_LIST_RESPONSES_DDL
 from baibai_engine.collection.jquants_contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.external_assessment.observations.contract import (
     ANALYST_RATING_DDL,
@@ -24,7 +25,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 40
+SQLITE_SCHEMA_VERSION = 41
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -72,11 +73,12 @@ EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
     "xbrl_flag",
 )
 
-# These two indexes are part of the required read contract. Other indexes remain
+# These indexes are part of the required read contract. Other indexes remain
 # performance choices in the DDL; do not broaden the acceptance contract implicitly.
 _REQUIRED_INDEX_NAMES = (
     "idx_jquants_daily_bars_traded_at",
     "idx_source_coverage_source_window",
+    "idx_edinet_list_responses_date_received",
 )
 
 _SCHEMA_SQL = """
@@ -432,7 +434,12 @@ CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
 
 
 _SCHEMA_SQL += (
-    TV_DDL + MODEL_VALUATION_DDL + ANALYST_RATING_DDL + QUANTS_SCORE_DDL + JQUANTS_SOURCE_PAGES_DDL
+    TV_DDL
+    + MODEL_VALUATION_DDL
+    + ANALYST_RATING_DDL
+    + QUANTS_SCORE_DDL
+    + JQUANTS_SOURCE_PAGES_DDL
+    + EDINET_LIST_RESPONSES_DDL
 )
 
 

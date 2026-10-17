@@ -66,7 +66,7 @@ class EDINETProvider:
             }
         )
         url = f"{EDINET_API_BASE}/documents.json?{query}"
-        data = self._request_json(url)
+        data = self._request_json(url, on_date=on_date)
         results = data.get("results", [])
         if not isinstance(results, list):
             raise EDINETProviderError("EDINET documents.json returned unexpected results payload")
@@ -233,9 +233,29 @@ class EDINETProvider:
             "before running screening."
         )
 
-    def _request_json(self, url: str) -> dict[str, Any]:
+    def _request_json(self, url: str, *, on_date: date) -> dict[str, Any]:
         with closing(self._request_response(url, timeout=30)) as response:
-            payload = response.json()
+            body = bytes(response.content)
+            received_at = datetime.now(UTC)
+            if self._sqlite_path is not None:
+                from baibai_engine.collection.edinet.receipts import retain_list_response
+                from baibai_engine.storage.observations.schema import open_connection
+
+                with closing(open_connection(self._sqlite_path)) as receipt_conn:
+                    retain_list_response(
+                        receipt_conn,
+                        doc_date=on_date,
+                        received_at=received_at,
+                        body=body,
+                    )
+            invalid_json = False
+            payload: Any = None
+            try:
+                payload = json.loads(body)
+            except (UnicodeError, json.JSONDecodeError):
+                invalid_json = True
+        if invalid_json:
+            raise EDINETProviderError("EDINET documents.json returned invalid JSON") from None
         if not isinstance(payload, dict):
             raise EDINETProviderError("EDINET response JSON must be an object")
         return payload

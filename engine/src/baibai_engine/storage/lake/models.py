@@ -566,6 +566,12 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
+            dataset="edinet.list_responses",
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="jpx.regulation_flags",
             required=True,
             carries_history=True,
