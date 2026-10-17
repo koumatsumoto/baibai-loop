@@ -16,6 +16,7 @@ from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
@@ -624,21 +625,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         if jquants_refresh is not None:
             resources.callback(jquants_refresh.close)
-        edinet = (
+        edinet_refresh = (
             EDINETProvider(
                 config.edinet_api_key,
                 config.cache_dir,
                 sqlite_path=sqlite_path,
-                cache_only=args.command == "run",
             )
-            if config.edinet_api_key or args.command == "run"
+            if config.edinet_api_key
+            and args.command
+            in {
+                "bootstrap-cache",
+                "refresh-edinet-documents",
+                "backfill-edinet-identity",
+                "extract-edinet-metrics",
+                "build-tender-offer-exits",
+            }
             else None
         )
-        if edinet is not None:
-            resources.callback(edinet.close)
+        if edinet_refresh is not None:
+            resources.callback(edinet_refresh.close)
         providers = ProviderBundle(
             jquants=JQuantsReader(sqlite_path),
-            edinet=edinet,
+            edinet=EDINETReader(sqlite_path),
             jpx=JPXProvider(
                 regulation_urls=JPX_REGULATION_URLS,
                 sqlite_path=sqlite_path,
@@ -646,6 +654,7 @@ def main(argv: list[str] | None = None) -> int:
                 allow_stale_snapshot=args.allow_stale_jpx if args.command == "run" else False,
             ),
             jquants_refresh=jquants_refresh,
+            edinet_refresh=edinet_refresh,
         )
 
         if args.command == "run":
@@ -779,13 +788,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.lookback_days < 0:
                 print("--lookback-days must be zero or greater", file=sys.stderr)
                 return 1
-            if providers.edinet is None:
+            if providers.edinet_refresh is None:
                 print("EDINET_API_KEY is required for extract-edinet-metrics", file=sys.stderr)
                 return 1
             return extract_edinet_metrics_command(
                 asof_date=_parse_iso_date(args.asof),
                 lookback_days=args.lookback_days,
-                provider=providers.edinet,
+                provider=providers.edinet_refresh,
                 sqlite_path=sqlite_path,
             )
 

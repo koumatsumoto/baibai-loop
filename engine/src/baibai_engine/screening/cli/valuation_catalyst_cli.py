@@ -50,14 +50,14 @@ def backfill_edinet_identity_command(
 ) -> int:
     """Re-list a window of EDINET days so its rows carry submitter and target codes."""
     out = stdout if stdout is not None else sys.stdout
-    if providers.edinet is None:
+    if providers.edinet_refresh is None:
         print("EDINET provider is not configured", file=sys.stderr)
         return 1
     if start > end:
         print(f"--start {start.isoformat()} is after --end {end.isoformat()}", file=sys.stderr)
         return 1
     try:
-        result = providers.edinet.backfill_document_identity(start, end)
+        result = providers.edinet_refresh.backfill_document_identity(start, end)
     except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

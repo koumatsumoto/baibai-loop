@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -278,15 +279,7 @@ class _FailingOnDateJQuantsProvider(FakeJQuantsProvider):
 
 
 @dataclass
-class FakeEDINETProvider:
-    documents: list[dict[str, object]] | None = None
-    zip_by_doc_id: dict[str, bytes] | None = None
-    bootstrap_calls: list[tuple[date, date]] = field(default_factory=list)
-    download_calls: list[str] = field(default_factory=list)
-
-    def close(self) -> None:
-        pass
-
+class FakeEDINETReader:
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
         return {
@@ -305,6 +298,27 @@ class FakeEDINETProvider:
                 source_submit_datetime="2025-10-15 12:00",
             )
         }
+
+    def list_documents(self, on_date: date) -> list[dict[str, Any]]:
+        del on_date
+        return []
+
+    def read_csv_zip(self, doc_id: str) -> bytes:
+        raise KeyError(doc_id)
+
+    def read_xbrl_zip(self, doc_id: str) -> bytes:
+        raise KeyError(doc_id)
+
+
+@dataclass
+class FakeEDINETProvider:
+    documents: list[dict[str, object]] | None = None
+    zip_by_doc_id: dict[str, bytes] | None = None
+    bootstrap_calls: list[tuple[date, date]] = field(default_factory=list)
+    download_calls: list[str] = field(default_factory=list)
+
+    def close(self) -> None:
+        pass
 
     def list_documents(self, on_date: date) -> list[dict[str, object]]:
         del on_date
@@ -334,7 +348,7 @@ def build_output_path(asof_date: date) -> Path:
     )
 
 
-class _FailingEDINETProvider(FakeEDINETProvider):
+class _FailingEDINETReader(FakeEDINETReader):
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
         raise EDINETProviderError("broken metrics cache")
@@ -418,7 +432,7 @@ class ScreeningCliTests(unittest.TestCase):
                     # raw close は 899 円。自己株 10% でも normalized PER は
                     # treasury-adjusted market cap / gross shares (=809.1 円) へ戻さない。
                     jquants=FakeJQuantsProvider(treasury_shares=40_000_000.0),
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
                     jpx=FakeJPXProvider(),
                 )
                 stdout = io.StringIO()
@@ -473,7 +487,7 @@ class ScreeningCliTests(unittest.TestCase):
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
                     jpx=FakeJPXProvider(),
                 )
                 output_path = Path(".cache/screening/exports/screening-run.yaml")
@@ -514,7 +528,7 @@ class ScreeningCliTests(unittest.TestCase):
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
                     jpx=FakeJPXProvider(),
                 )
                 kwargs = {
@@ -547,7 +561,7 @@ class ScreeningCliTests(unittest.TestCase):
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
                     jpx=FakeJPXProvider(),
                 )
                 output_path = (Path.cwd() / ".cache/simplify/screening-run.yaml").resolve()
@@ -602,7 +616,7 @@ class ScreeningCliTests(unittest.TestCase):
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
-                    edinet=_FailingEDINETProvider(),
+                    edinet=_FailingEDINETReader(),
                     jpx=FakeJPXProvider(),
                 )
                 stderr = io.StringIO()
@@ -629,7 +643,7 @@ class ScreeningCliTests(unittest.TestCase):
                 config = ScreeningConfig("token", "key", cache_dir=cache_dir)
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
                     jpx=FakeJPXProvider(),
                 )
                 rules = load_screening_rules(config.rules_path)
@@ -670,7 +684,7 @@ class ScreeningCliTests(unittest.TestCase):
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(business_day=False),
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
                     jpx=FakeJPXProvider(),
                 )
                 exit_code = run_command(date(2026, 4, 24), config, providers)
@@ -686,7 +700,7 @@ class ScreeningCliTests(unittest.TestCase):
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
                     jpx=FakeJPXProvider(source_names=("特別注意銘柄", "整理銘柄")),
                 )
                 stderr = io.StringIO()
@@ -711,7 +725,8 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
+                    edinet_refresh=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(fail_bootstrap=True),
                     jquants_refresh=jquants,
                 ),
@@ -729,7 +744,8 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
+                    edinet_refresh=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
@@ -749,7 +765,11 @@ class ScreeningCliTests(unittest.TestCase):
         exit_code = bootstrap_cache_command(
             asof_date=asof,
             providers=ProviderBundle(
-                jquants=jquants, edinet=edinet, jpx=jpx, jquants_refresh=jquants
+                jquants=jquants,
+                edinet=FakeEDINETReader(),
+                edinet_refresh=edinet,
+                jpx=jpx,
+                jquants_refresh=jquants,
             ),
             sqlite_path=Path("stores/market/market.sqlite"),
             stdout=buffer,
@@ -821,7 +841,8 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=asof,
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
+                    edinet_refresh=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
@@ -873,7 +894,8 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=asof,
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETProvider(),
+                    edinet=FakeEDINETReader(),
+                    edinet_refresh=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
@@ -897,7 +919,7 @@ class ScreeningCliTests(unittest.TestCase):
             exit_code = backfill_master_command(
                 asof_dates=dates,
                 providers=ProviderBundle(
-                    jquants=jquants, edinet=FakeEDINETProvider(), jpx=None, jquants_refresh=jquants
+                    jquants=jquants, edinet=None, jpx=None, jquants_refresh=jquants
                 ),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
@@ -920,7 +942,7 @@ class ScreeningCliTests(unittest.TestCase):
             exit_code = backfill_master_command(
                 asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
                 providers=ProviderBundle(
-                    jquants=jquants, edinet=FakeEDINETProvider(), jpx=None, jquants_refresh=jquants
+                    jquants=jquants, edinet=None, jpx=None, jquants_refresh=jquants
                 ),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
@@ -2100,7 +2122,11 @@ def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_p
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
-                jquants=jquants, edinet=edinet, jpx=jpx, jquants_refresh=jquants
+                jquants=jquants,
+                edinet=FakeEDINETReader(),
+                edinet_refresh=edinet,
+                jpx=jpx,
+                jquants_refresh=jquants,
             ),
             sqlite_path=tmp_path / "market.sqlite",
             stdout=io.StringIO(),
@@ -2121,7 +2147,11 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
-                jquants=jquants, edinet=edinet, jpx=jpx, jquants_refresh=jquants
+                jquants=jquants,
+                edinet=FakeEDINETReader(),
+                edinet_refresh=edinet,
+                jpx=jpx,
+                jquants_refresh=jquants,
             ),
             sqlite_path=tmp_path / "market.sqlite",
             stdout=io.StringIO(),

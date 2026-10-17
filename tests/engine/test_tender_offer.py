@@ -951,7 +951,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 store_tender_offer_exit_values(sqlite_path, (old,))
                 provider = Mock()
                 provider.download_csv_zip.side_effect = error_type("synthetic EDINET failure")
-                providers = ProviderBundle(jquants=Mock(), edinet=provider, jpx=Mock())
+                providers = ProviderBundle(
+                    jquants=Mock(), edinet=None, jpx=Mock(), edinet_refresh=provider
+                )
                 stderr = io.StringIO()
                 with (
                     patch.object(delisting_cli, "store_tender_offer_exit_values") as save,

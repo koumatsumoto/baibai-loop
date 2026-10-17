@@ -10,6 +10,7 @@ from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.providers.edinet import EDINETProvider
@@ -259,7 +260,6 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
 
     def test_load_metric_records_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.execute(
@@ -289,39 +289,13 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            provider = EDINETProvider("api-key", cache_dir, sqlite_path=sqlite_path)
+            reader = EDINETReader(sqlite_path)
 
-            records = provider.load_metric_records(date(2026, 4, 24))
+            records = reader.load_metric_records(date(2026, 4, 24))
 
             self.assertIn("1301", records)
             self.assertEqual(records["1301"].sales_ttm, 1_000_000.0)
             self.assertEqual(records["1301"].source_submit_datetime, "2026-04-01 12:00")
-
-    def test_cache_only_load_metric_records_returns_empty_without_api_key(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
-            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
-
-            provider = EDINETProvider(None, cache_dir, sqlite_path=sqlite_path, cache_only=True)
-
-            self.assertEqual(provider.load_metric_records(date(2026, 4, 24)), {})
-
-    def test_cache_only_load_metric_records_returns_empty_with_api_key(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
-            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
-
-            provider = EDINETProvider(
-                "api-key", cache_dir, sqlite_path=sqlite_path, cache_only=True
-            )
-
-            self.assertEqual(provider.load_metric_records(date(2026, 4, 24)), {})
 
     def test_cache_only_list_documents_raises_when_sqlite_missing_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

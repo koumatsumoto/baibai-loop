@@ -638,14 +638,14 @@ def _bootstrap_edinet_cache(
     out: TextIO,
 ) -> None:
     fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
-    if providers.edinet is not None:
+    if providers.edinet_refresh is not None:
         print(
             "bootstrap-cache edinet documents: "
             f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
             file=out,
             flush=True,
         )
-        edinet_result = providers.edinet.bootstrap_cache(fin_start, asof_date)
+        edinet_result = providers.edinet_refresh.bootstrap_cache(fin_start, asof_date)
         print(
             "bootstrap-cache edinet documents: "
             + ", ".join(f"{key}={value}" for key, value in sorted(edinet_result.items())),
@@ -683,11 +683,11 @@ def refresh_edinet_documents_command(
 ) -> int:
     """Refresh current EDINET list state independently of broad cache coverage."""
     out = stdout if stdout is not None else sys.stdout
-    if providers.edinet is None:
+    if providers.edinet_refresh is None:
         print("EDINET provider is not configured", file=sys.stderr)
         return 1
     try:
-        result = providers.edinet.refresh_document_state(asof_date)
+        result = providers.edinet_refresh.refresh_document_state(asof_date)
     except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

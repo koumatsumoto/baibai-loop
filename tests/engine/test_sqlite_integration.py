@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.cli.run import run_command
@@ -295,11 +295,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 )
                 providers = ProviderBundle(
                     jquants=JQuantsReader(sqlite_path),
-                    edinet=EDINETProvider(
-                        config.edinet_api_key,
-                        config.cache_dir,
-                        sqlite_path=sqlite_path,
-                    ),
+                    edinet=EDINETReader(sqlite_path),
                     jpx=JPXProvider(
                         sqlite_path=sqlite_path,
                     ),

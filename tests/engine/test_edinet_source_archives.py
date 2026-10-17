@@ -7,14 +7,16 @@ import zipfile
 from contextlib import closing
 from datetime import UTC, date, datetime
 from io import BytesIO
+from unittest.mock import patch
 
 import pyarrow.parquet as pq
 import pytest
 from tests.helpers.http_doubles import ExplodingSession, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
+from baibai_engine.collection.edinet.archives import read_source_archive, retain_source_archive
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_sources import read_source_archive, retain_source_archive
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.storage.lake.datasets import EDINET_SOURCE_ARCHIVES
 from baibai_engine.storage.lake.duck import lake_session
@@ -24,6 +26,7 @@ from baibai_engine.storage.lake.reader import iter_partition_rows, resolve_relea
 from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
+from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -32,6 +35,16 @@ def _zip(content: bytes) -> bytes:
     with zipfile.ZipFile(target, "w") as archive:
         archive.writestr("source/document", content)
     return target.getvalue()
+
+
+def _read_stored_archive(path, doc_id, source_type):
+    with closing(connect_read_only(path)) as connection:
+        return read_source_archive(connection, doc_id, source_type)
+
+
+def _retain_stored_archive(path, doc_id, source_type, content, *, stored_on):
+    with closing(open_connection(path)) as connection:
+        return retain_source_archive(connection, doc_id, source_type, content, stored_on=stored_on)
 
 
 @pytest.mark.parametrize(
@@ -48,7 +61,7 @@ def test_downloaded_bytes_are_available_without_the_local_cache(tmp_path, source
     )
     assert getattr(provider, method)("S100TEST") == content
     assert reply.close_count == 1
-    assert read_source_archive(tmp_path / "market.sqlite", "S100TEST", source_type) == content
+    assert _read_stored_archive(tmp_path / "market.sqlite", "S100TEST", source_type) == content
     offline = EDINETProvider(
         None,
         tmp_path / "different-cache",
@@ -82,16 +95,16 @@ def test_existing_zip_is_retained_without_repeating_acquisition(
         cache_only=True,
     )
     assert getattr(provider, method)("S100TEST") == content
-    assert read_source_archive(tmp_path / "market.sqlite", "S100TEST", source_type) == content
+    assert _read_stored_archive(tmp_path / "market.sqlite", "S100TEST", source_type) == content
     assert cache.read_bytes() == content
 
 
 def test_cache_identity_does_not_claim_every_download_is_a_new_filing(tmp_path):
     db = tmp_path / "market.sqlite"
     first, later = _zip(b"first"), _zip(b"later")
-    assert retain_source_archive(db, "S100TEST", 5, first, stored_on=date(2026, 1, 1)) == first
-    assert retain_source_archive(db, "S100TEST", 5, later, stored_on=date(2026, 2, 1)) == first
-    assert retain_source_archive(db, "S100TEST", 1, later, stored_on=date(2026, 2, 1)) == later
+    assert _retain_stored_archive(db, "S100TEST", 5, first, stored_on=date(2026, 1, 1)) == first
+    assert _retain_stored_archive(db, "S100TEST", 5, later, stored_on=date(2026, 2, 1)) == first
+    assert _retain_stored_archive(db, "S100TEST", 1, later, stored_on=date(2026, 2, 1)) == later
     with closing(sqlite3.connect(db)) as connection:
         assert connection.execute(
             "SELECT source_type, stored_on FROM edinet_source_archives ORDER BY source_type"
@@ -100,8 +113,46 @@ def test_cache_identity_does_not_claim_every_download_is_a_new_filing(tmp_path):
 
 def test_absent_source_read_does_not_create_a_store(tmp_path):
     path = tmp_path / "absent.sqlite"
-    assert read_source_archive(path, "S100TEST", 5) is None
+    with pytest.raises(EDINETProviderError, match="archive is unavailable"):
+        EDINETReader(path).read_csv_zip("S100TEST")
     assert not path.exists()
+
+
+def test_retention_rolls_back_insert_when_readback_fails(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection:
+        with (
+            patch(
+                "baibai_engine.collection.edinet.archives.read_source_archive",
+                side_effect=RuntimeError("readback failed"),
+            ),
+            pytest.raises(RuntimeError, match="readback failed"),
+        ):
+            retain_source_archive(
+                connection, "S100TEST", 5, _zip(b"source"), stored_on=date(2026, 1, 1)
+            )
+        assert not connection.in_transaction
+        assert read_source_archive(connection, "S100TEST", 5) is None
+
+
+def test_retention_does_not_commit_a_callers_pending_transaction(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection:
+        connection.execute(
+            "INSERT INTO edinet_source_archives "
+            "(doc_id, source_type, stored_on, zip_content) VALUES (?, ?, ?, ?)",
+            ("S100PENDING", 5, "2026-01-01", _zip(b"pending")),
+        )
+        with pytest.raises(ValueError, match="idle connection"):
+            retain_source_archive(
+                connection, "S100TEST", 5, _zip(b"new"), stored_on=date(2026, 1, 1)
+            )
+        assert connection.in_transaction
+        assert read_source_archive(connection, "S100PENDING", 5) == _zip(b"pending")
+        with closing(connect_read_only(path)) as other:
+            assert read_source_archive(other, "S100PENDING", 5) is None
+        connection.rollback()
+        assert read_source_archive(connection, "S100PENDING", 5) is None
 
 
 def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monkeypatch):
@@ -110,7 +161,7 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
     db = tmp_path / "source.sqlite"
     originals = {1: _zip(b"<xbrl>\x00\xff</xbrl>"), 5: _zip("円\t－\t".encode("utf-16-le"))}
     for source_type, content in originals.items():
-        retain_source_archive(db, "S100TEST", source_type, content, stored_on=date(2026, 1, 1))
+        _retain_stored_archive(db, "S100TEST", source_type, content, stored_on=date(2026, 1, 1))
     mirror = tmp_path / "mirror"
     stamp = datetime(2026, 2, 1, tzinfo=UTC)
     with sealed_sqlite_snapshot(
@@ -165,7 +216,7 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
         )
     assert report.rows == {name: 2}
     for source_type, content in originals.items():
-        assert read_source_archive(target, "S100TEST", source_type) == content
+        assert _read_stored_archive(target, "S100TEST", source_type) == content
 
 
 def test_existing_broken_store_is_not_treated_as_a_network_cache_miss(tmp_path):
@@ -185,7 +236,7 @@ def test_existing_broken_store_is_not_treated_as_a_network_cache_miss(tmp_path):
 def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
     path = tmp_path / "market.sqlite"
     original = _zip(b"retained filing")
-    retain_source_archive(path, "S100KEPT", 5, original, stored_on=date(2026, 1, 1))
+    _retain_stored_archive(path, "S100KEPT", 5, original, stored_on=date(2026, 1, 1))
     provider = EDINETProvider(
         "test-key",
         tmp_path / "cache",
@@ -194,8 +245,8 @@ def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
     )
     with pytest.raises(EDINETProviderError, match="not a zip"):
         provider.download_csv_zip("S100BAD")
-    assert read_source_archive(path, "S100KEPT", 5) == original
-    assert read_source_archive(path, "S100BAD", 5) is None
+    assert _read_stored_archive(path, "S100KEPT", 5) == original
+    assert _read_stored_archive(path, "S100BAD", 5) is None
 
 
 def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):

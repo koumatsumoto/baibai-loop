@@ -27,6 +27,7 @@ from unittest.mock import patch
 import pytest
 from tests.engine.test_screening_cli import (
     FakeEDINETProvider,
+    FakeEDINETReader,
     FakeJPXProvider,
     FakeJQuantsProvider,
     _edinet_csv_zip,
@@ -36,8 +37,15 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bar
 
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.screening.cli import app
-from baibai_engine.screening.cli.cache import FIN_SUMMARY_REVISION_OVERLAP_DAYS
+from baibai_engine.screening.cli.cache import (
+    FIN_SUMMARY_REVISION_OVERLAP_DAYS,
+    refresh_edinet_documents_command,
+)
+from baibai_engine.screening.cli.delisting_cli import build_tender_offer_exits_command
+from baibai_engine.screening.cli.providers import ProviderBundle
+from baibai_engine.screening.cli.valuation_catalyst_cli import backfill_edinet_identity_command
 from baibai_engine.screening.metrics.snapshot import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
@@ -61,6 +69,9 @@ class _SeamEDINETProvider(FakeEDINETProvider):
     def refresh_document_state(self, asof_date: date) -> dict[str, int]:
         self.refresh_calls.append(asof_date)
         return {"listed": 3, "refreshed": 3}
+
+    def backfill_document_identity(self, start: date, end: date) -> dict[str, int]:
+        return {"days": (end - start).days + 1, "documents": 0}
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +209,94 @@ def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_aso
     assert edinet.refresh_calls == [date(2026, 5, 8)]
     assert edinet.close_count == 1
     assert "refresh-edinet-documents: listed=3, refreshed=3" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("argv", "handler", "provider_arg"),
+    [
+        (["bootstrap-cache", "--asof", "2026-05-08"], "bootstrap_cache_command", "providers"),
+        (
+            ["refresh-edinet-documents", "--asof", "2026-05-08"],
+            "refresh_edinet_documents_command",
+            "providers",
+        ),
+        (
+            ["backfill-edinet-identity", "--start", "2026-05-07", "--end", "2026-05-08"],
+            "backfill_edinet_identity_command",
+            "providers",
+        ),
+        (
+            ["extract-edinet-metrics", "--asof", "2026-05-08", "--lookback-days", "0"],
+            "extract_edinet_metrics_command",
+            "provider",
+        ),
+        (
+            ["build-tender-offer-exits", "--asof", "2026-05-08"],
+            "build_tender_offer_exits_command",
+            "providers",
+        ),
+    ],
+)
+def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
+    argv, handler, provider_arg
+) -> None:
+    edinet = _SeamEDINETProvider()
+    with patch.object(app, handler, return_value=0) as command:
+        result = _run_cli(argv, edinet=edinet)
+    assert result.exit_code == 0, result.stderr
+    routed = command.call_args.kwargs[provider_arg]
+    assert (routed if provider_arg == "provider" else routed.edinet_refresh) is edinet
+    assert edinet.close_count == 1
+
+
+def test_main_run_does_not_construct_an_edinet_acquisition_provider() -> None:
+    with (
+        patch.dict(
+            os.environ,
+            {"JQUANTS_API_KEY": "test-jquants-key", "EDINET_API_KEY": "test-edinet-key"},
+        ),
+        patch.object(
+            app, "EDINETProvider", side_effect=AssertionError("acquisition constructed")
+        ) as factory,
+        patch.object(app, "verify_screening_sqlite_coverage", return_value=[]),
+        patch.object(app, "load_screening_rules") as rules,
+        patch.object(app, "run_command", return_value=0) as run,
+    ):
+        rules.return_value.universe.required_jpx_flags = ()
+        assert app.main(["run", "--asof", "2026-05-08"]) == 0
+    factory.assert_not_called()
+    providers = run.call_args.args[2]
+    assert isinstance(providers.edinet, EDINETReader)
+    assert providers.edinet_refresh is None
+
+
+def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> None:
+    providers = ProviderBundle(
+        jquants=FakeJQuantsProvider(),
+        edinet=FakeEDINETReader(),
+        jpx=FakeJPXProvider(),
+    )
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        assert (
+            refresh_edinet_documents_command(asof_date=date(2026, 5, 8), providers=providers) == 1
+        )
+        assert (
+            backfill_edinet_identity_command(
+                start=date(2026, 5, 7), end=date(2026, 5, 8), providers=providers
+            )
+            == 1
+        )
+        assert (
+            build_tender_offer_exits_command(
+                sqlite_path=tmp_path / "market.sqlite",
+                asof_date=date(2026, 5, 8),
+                providers=providers,
+            )
+            == 1
+        )
+    assert stderr.getvalue().count("EDINET provider is not configured") == 3
+    assert not (tmp_path / "market.sqlite").exists()
 
 
 def test_main_extract_edinet_facts_closes_provider_on_exception() -> None:

@@ -10,7 +10,7 @@ from datetime import date, datetime
 import pytest
 import yaml
 from tests.engine.test_screening_cli import (
-    FakeEDINETProvider,
+    FakeEDINETReader,
     FakeJPXProvider,
     FakeJQuantsProvider,
 )
@@ -105,7 +105,7 @@ def test_committed_run_export_failure_reports_revision_and_run_show_recovers(
     output = tmp_path / "failed.yaml"
     config = ScreeningConfig("synthetic-token", "synthetic-key", cache_dir=tmp_path / "cache")
     providers = ProviderBundle(
-        jquants=FakeJQuantsProvider(), edinet=FakeEDINETProvider(), jpx=FakeJPXProvider()
+        jquants=FakeJQuantsProvider(), edinet=FakeEDINETReader(), jpx=FakeJPXProvider()
     )
 
     def fail_export(*_args, **_kwargs):

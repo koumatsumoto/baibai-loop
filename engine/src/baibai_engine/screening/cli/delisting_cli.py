@@ -45,12 +45,12 @@ def build_tender_offer_exits_command(
 ) -> int:
     """Derive tender-offer-price exit proxies for delisted names."""
     out = stdout if stdout is not None else sys.stdout
-    if providers.edinet is None:
+    if providers.edinet_refresh is None:
         print("EDINET provider is not configured", file=sys.stderr)
         return 1
     try:
         values, summary = build_tender_offer_exit_values(
-            sqlite_path, provider=providers.edinet, asof=asof_date
+            sqlite_path, provider=providers.edinet_refresh, asof=asof_date
         )
         stored = store_tender_offer_exit_values(sqlite_path, values)
     except (TenderOfferError, EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as error:

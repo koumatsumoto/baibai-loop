@@ -9,14 +9,14 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from baibai_engine.collection.edinet.archives import read_source_archive, retain_source_archive
 from baibai_engine.collection.edinet.http import EDINETHTTP
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_decode import safe_error_value, text_or_none
 from baibai_engine.market.edinet_document_events import parse_doc_id
-from baibai_engine.market.edinet_models import (
-    EdinetMetricRecord,
-    EDINETProviderError,
-)
+from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.observations.schema import open_connection
 
 if TYPE_CHECKING:
     import requests
@@ -109,15 +109,6 @@ class EDINETProvider:
             )
         return documents
 
-    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
-        if self._sqlite_path is not None:
-            from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
-
-            cached = read_edinet_metrics(self._sqlite_path, asof_date)
-            if cached is not None:
-                return dict(cached)
-        return {}
-
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         fetched = self._refresh_document_state(end)
         cursor = start
@@ -170,12 +161,11 @@ class EDINETProvider:
         return self._download_document_zip(doc_id, source_type=1)
 
     def _download_document_zip(self, doc_id: str, *, source_type: int) -> bytes:
-        from baibai_engine.market.edinet_sources import read_source_archive
-
         safe_id = parse_doc_id(doc_id)
         source_name = "csv" if source_type == 5 else "xbrl"
-        if self._sqlite_path is not None:
-            retained = read_source_archive(self._sqlite_path, safe_id, source_type)
+        if self._sqlite_path is not None and self._sqlite_path.exists():
+            with closing(connect_read_only(self._sqlite_path)) as connection:
+                retained = read_source_archive(connection, safe_id, source_type)
             if retained is not None:
                 if not _is_zip_bytes(retained):
                     raise EDINETProviderError(f"stored EDINET {source_name} archive is not a ZIP")
@@ -202,15 +192,14 @@ class EDINETProvider:
     def _retain_document_zip(self, doc_id: str, source_type: int, content: bytes) -> bytes:
         if self._sqlite_path is None:
             return content
-        from baibai_engine.market.edinet_sources import retain_source_archive
-
-        return retain_source_archive(
-            self._sqlite_path,
-            doc_id,
-            source_type,
-            content,
-            stored_on=datetime.now(UTC).date(),
-        )
+        with closing(open_connection(self._sqlite_path)) as connection:
+            return retain_source_archive(
+                connection,
+                doc_id,
+                source_type,
+                content,
+                stored_on=datetime.now(UTC).date(),
+            )
 
     def _require_api_key(self, operation: str) -> str:
         if not self._api_key:

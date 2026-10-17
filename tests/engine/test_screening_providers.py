@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[2]
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.market.financial_documents import (
     normalize_financial_summary,
@@ -1254,9 +1255,8 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.EXACT)
         self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
-    def test_edinet_provider_reads_cached_metrics_without_api_key(self) -> None:
+    def test_edinet_reader_reads_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = Path(tmpdir) / ".cache" / "screening"
             sqlite_path = Path(tmpdir) / "data" / "screening" / "market.sqlite"
             store_edinet_metrics(
                 sqlite_path,
@@ -1271,8 +1271,8 @@ class ScreeningProviderTests(unittest.TestCase):
                 ],
             )
 
-            provider = EDINETProvider(None, cache_dir, sqlite_path=sqlite_path)
-            records = provider.load_metric_records(date(2026, 5, 1))
+            reader = EDINETReader(sqlite_path)
+            records = reader.load_metric_records(date(2026, 5, 1))
 
         self.assertEqual(records["7203"].cash, 100.0)
         self.assertEqual(records["7203"].debt, 10.0)

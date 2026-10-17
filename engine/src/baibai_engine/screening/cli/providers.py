@@ -63,10 +63,18 @@ class JQuantsMaintenance(Protocol):
     def close(self) -> None: ...
 
 
-class EDINETAdapter(Protocol):
-    def close(self) -> None: ...
-
+class EDINETRead(Protocol):
     def load_metric_records(self, asof_date: date) -> Mapping[str, EdinetMetricRecord]: ...
+
+    def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
+
+    def read_csv_zip(self, doc_id: str) -> bytes: ...
+
+    def read_xbrl_zip(self, doc_id: str) -> bytes: ...
+
+
+class EDINETMaintenance(Protocol):
+    def close(self) -> None: ...
 
     def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
 
@@ -90,6 +98,7 @@ class JPXAdapter(Protocol):
 @dataclass(frozen=True, slots=True)
 class ProviderBundle:
     jquants: JQuantsRead
-    edinet: EDINETAdapter | None
+    edinet: EDINETRead | None
     jpx: JPXAdapter
     jquants_refresh: JQuantsMaintenance | None = None
+    edinet_refresh: EDINETMaintenance | None = None
