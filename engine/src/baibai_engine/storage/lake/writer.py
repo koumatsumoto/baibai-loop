@@ -46,7 +46,7 @@ from baibai_engine.storage.lake.models import (
     load_lake_model_json,
 )
 from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.observations.coverage import daily_bars_covered_by_data, range_covered
+from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
@@ -449,8 +449,6 @@ def _coverage_assessment(
 def _coverage_status(
     connection: sqlite3.Connection, dataset: LakeDataset, *, start: date, end: date
 ) -> CoverageStatus:
-    if dataset.coverage_authority == "daily_bars_rows":
-        return "complete" if daily_bars_covered_by_data(connection, start, end) else "partial"
     if dataset.coverage_authority == "unproven":
         # Nothing records what was fetched and the rows carry no invariant to check them
         # against, so the build can say what it holds and not that it holds everything.

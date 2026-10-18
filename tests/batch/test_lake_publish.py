@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -38,6 +38,7 @@ from baibai_engine.storage.lake.writer import (
     export_market_store,
     sealed_sqlite_snapshot,
 )
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
@@ -1137,6 +1138,17 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     connection.executemany(
         "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
         [("1301", "2026-01-28", 1.0), ("1301", "2026-02-04", 2.0)],
+    )
+    record_range_source_coverage(
+        connection,
+        source="jquants_daily_bars",
+        operation="get_daily_quotes",
+        table="jquants_daily_bars",
+        date_column="traded_at",
+        requested_start=date(2026, 1, 28),
+        requested_end=date(2026, 2, 4),
+        status="ok",
+        error=None,
     )
     connection.executemany(
         """INSERT INTO jquants_short_sale_reports(

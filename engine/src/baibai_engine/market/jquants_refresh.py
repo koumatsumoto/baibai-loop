@@ -123,8 +123,8 @@ class JQuantsRefresh:
         return len(self._reader.get_mkt_calendar(start, end))
 
     def ensure_daily_bars(self, start: date, end: date) -> int:
-        _check_range(start, end)
-        if daily_bars_covered(self._path, start, end):
+        missing = self._missing("jquants_daily_bars", start, end)
+        if not missing:
             latest = latest_daily_bar_date(self._path, start, end)
             stored_latest = latest_stored_daily_bar_date(self._path)
             if (
@@ -135,13 +135,6 @@ class JQuantsRefresh:
                 return count_daily_bars(self._path, start, end)
             self._fetch_days("daily_bars", ((latest, end),))
         else:
-            missing: list[tuple[date, date]] = []
-            cursor = start
-            while cursor <= end:
-                high = min(cursor + timedelta(days=30), end)
-                if not daily_bars_covered(self._path, cursor, high):
-                    missing.append((cursor, high))
-                cursor = high + timedelta(days=1)
             self._fetch_days("daily_bars", missing)
         if not daily_bars_covered(self._path, start, end):
             raise JQuantsProviderError("daily bar projection remains incomplete after acquisition")

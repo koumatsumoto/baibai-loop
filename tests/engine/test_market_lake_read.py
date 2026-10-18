@@ -1626,7 +1626,10 @@ class TestDehydrate:
         emptied = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
         try:
             assert emptied.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
-            assert emptied.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 1
+            assert {row[0] for row in emptied.execute("SELECT source FROM source_coverage")} == {
+                "jquants_daily_bars",
+                "jquants_short_sale_reports",
+            }
         finally:
             emptied.close()
 

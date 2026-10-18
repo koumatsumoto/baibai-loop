@@ -31,6 +31,7 @@ from baibai_engine.storage.lake.writer import (
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
 from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
@@ -152,6 +153,17 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         conn.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
             ("1000", DAY.isoformat(), 100),
+        )
+        record_range_source_coverage(
+            conn,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=DAY,
+            requested_end=DAY,
+            status="ok",
+            error=None,
         )
 
     async def fetch(symbols, _columns):

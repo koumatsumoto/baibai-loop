@@ -119,11 +119,11 @@ def invalidate_coverage_command(
 ) -> int:
     """Invalidate fetch coverage without deleting the stored observations.
 
-    Sources governed by coverage windows will be fetched again when required.
-    Sources that reuse actual observations, including daily bars, can still use
-    those observations; this command is not a forced refresh. With start/end,
-    only overlapping coverage windows are removed. Source retention, the active
-    plan and availability determine whether a later fetch can succeed.
+    Sources governed by coverage windows, including daily bars, will be fetched
+    again when required. Stored observations alone do not establish acquisition
+    coverage. With start/end, only overlapping coverage windows are removed.
+    Source retention, the active plan and availability determine whether a later
+    fetch can succeed.
     """
     out = stdout if stdout is not None else sys.stdout
     if (start is None) != (end is None):

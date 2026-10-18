@@ -12,7 +12,7 @@ from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.storage.observations.convert import optional_float
-from baibai_engine.storage.observations.coverage import daily_bars_covered_by_data, range_covered
+from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.schema import connect_current
 
 
@@ -26,7 +26,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     if conn is None:
         return None
     try:
-        if not daily_bars_covered_by_data(conn, start, end):
+        if not range_covered(conn, "jquants_daily_bars", start, end):
             return None
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, volume, "
@@ -46,12 +46,12 @@ def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
 
     `read_daily_bars` answers the same question, but only as a side effect of
     materialising every row in the window. A 1,200-day window is ~3.4M rows, and
-    the callers that only need the yes/no (the fetch planner, the chunk skip test)
+    callers that only need the yes/no (the refresh planner and coverage checks)
     would pay for a model per row to read one boolean.
 
-    Coverage here is about which dates are present, so a row that cannot be turned
-    into a bar is not detected: `read_daily_bars` raises on one, this does not. The
-    screen builds its inputs through that reader, which is where such a row surfaces.
+    Coverage is the recorded successful acquisition of every requested date; it
+    does not prove that every ticker has a bar. A row that cannot be turned into a
+    bar is detected by `read_daily_bars`, not by this count-free check.
     """
     if not sqlite_path.exists():
         return False
@@ -59,7 +59,7 @@ def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
     if conn is None:
         return False
     try:
-        return daily_bars_covered_by_data(conn, start, end)
+        return range_covered(conn, "jquants_daily_bars", start, end)
     finally:
         conn.close()
 
@@ -96,7 +96,7 @@ def read_adjustment_factor_bars(
     if conn is None:
         return None
     try:
-        if not daily_bars_covered_by_data(conn, start, end):
+        if not range_covered(conn, "jquants_daily_bars", start, end):
             return None
         rows = conn.execute(
             "SELECT ticker, traded_at, adjustment_factor, ex_right_type "
@@ -159,7 +159,7 @@ def _read_ticker_bars(
 ) -> list[JQuantsDailyBar] | None:
     if not tickers:
         return []
-    if not daily_bars_covered_by_data(conn, start, end):
+    if not range_covered(conn, "jquants_daily_bars", start, end):
         return None
     placeholders = ", ".join("?" for _ in tickers)
     rows = conn.execute(
@@ -196,9 +196,8 @@ def latest_stored_daily_bar_date(sqlite_path: Path) -> date | None:
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:
     """Return the most recent ``traded_at`` stored within ``[start, end]``, or None.
 
-    Lets a fetch-capable bootstrap decide whether it still needs the recent tail:
-    ``read_daily_bars`` tolerates a holiday-sized edge gap, so it can report a
-    window covered while the asof's own bar is not yet stored.
+    Lets a fetch-capable bootstrap explicitly recheck the recent tail when the
+    recorded acquisition is complete but the end date has no stored bar.
     """
     if not sqlite_path.exists():
         return None

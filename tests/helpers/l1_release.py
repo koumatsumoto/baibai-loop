@@ -35,6 +35,7 @@ from baibai_engine.storage.lake.models import (
 )
 from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from tests.helpers.lake_policy import narrow_release_policy
 
@@ -183,6 +184,20 @@ def market_store(
         "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) VALUES (?, ?, ?, ?)",
         list(daily_bars),
     )
+    # This synthetic fixture represents a completed fetch across the supplied span.
+    # Production coverage is recorded by acquisition, never inferred from rows.
+    if daily_bars:
+        record_range_source_coverage(
+            connection,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=date.fromisoformat(min(row[1] for row in daily_bars)),
+            requested_end=date.fromisoformat(max(row[1] for row in daily_bars)),
+            status="ok",
+            error=None,
+        )
     connection.executemany(
         """INSERT INTO jquants_short_sale_reports(
              disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,

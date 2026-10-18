@@ -38,13 +38,12 @@ _GRAIN_LAYOUTS: dict[PartitionGrain, tuple[str, ...]] = {
     "year": ("year",),
 }
 
-CoverageAuthority = Literal["daily_bars_rows", "source_coverage", "unproven"]
+CoverageAuthority = Literal["source_coverage", "unproven"]
 """The dataset-specific evidence used for the operational coverage status.
 
-For most sources, an absent observation cannot distinguish "not published" from
-"not fetched", so range coverage comes from fetch records. Daily bars instead use
-the stored-date fetch-reuse heuristic: endpoint proximity and bounded internal gaps.
-That heuristic does not prove every trading date or the full market's rows are present.
+An absent observation cannot distinguish "not published" from "not fetched", so
+range coverage comes from successful fetch records. This also permits genuinely
+empty daily-bars responses without treating unfetched days as market holidays.
 Reported row/population counts describe retained data, not a completeness proof.
 
 `source_coverage` holds two shapes of record and only one of them can answer the
@@ -169,7 +168,6 @@ JQUANTS_DAILY_BARS = LakeDataset(
     contract_version=2,
     sqlite_table="jquants_daily_bars",
     date_column="traded_at",
-    coverage_authority="daily_bars_rows",
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("traded_at", "TEXT", _TEXT, False, 2),

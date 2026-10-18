@@ -32,6 +32,7 @@ from baibai_engine.storage.lake.writer import (
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
@@ -306,6 +307,61 @@ def test_short_sale_unknown_coverage_is_not_publishable(tmp_path: Path) -> None:
     )
 
     assert report.manifest.coverage_status == "partial"
+
+
+def test_daily_bar_lake_coverage_requires_the_short_missing_fetch(tmp_path: Path) -> None:
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    start, gap_start, gap_end, end = (
+        date(2026, 1, 5),
+        date(2026, 1, 16),
+        date(2026, 1, 18),
+        date(2026, 2, 2),
+    )
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
+        connection.execute("DELETE FROM source_coverage WHERE source = 'jquants_daily_bars'")
+        for low, high in ((start, date(2026, 1, 15)), (date(2026, 1, 19), end)):
+            record_range_source_coverage(
+                connection,
+                source="jquants_daily_bars",
+                operation="get_daily_quotes",
+                table="jquants_daily_bars",
+                date_column="traded_at",
+                requested_start=low,
+                requested_end=high,
+                status="ok",
+                error=None,
+            )
+    before = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=tmp_path / "mirror",
+        producer_git_commit=_COMMIT,
+        build_id="gap-before",
+    )
+    assert before.manifest.totals.rows == 4
+    assert before.manifest.coverage_status == "partial"
+
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
+        record_range_source_coverage(
+            connection,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=gap_start,
+            requested_end=gap_end,
+            status="ok",
+            error=None,
+        )
+    after = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=tmp_path / "mirror",
+        producer_git_commit=_COMMIT,
+        build_id="gap-after",
+    )
+    assert after.manifest.totals.rows == 4
+    assert after.manifest.coverage_status == "complete"
 
 
 def test_wal_snapshot_is_one_generation_for_both_pilot_datasets(tmp_path: Path) -> None:

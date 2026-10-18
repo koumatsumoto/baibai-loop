@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.schema import open_connection
 from tests.helpers.master import insert_master_rows
 
@@ -111,6 +112,20 @@ def insert_daily_bars_from_closes(
             "(ticker, traded_at, close, turnover_value) VALUES (?, ?, ?, ?)",
             rows,
         )
+        # Synthetic closes here represent a completed fetch of their date range.
+        # Production coverage comes from acquisition, not observation presence.
+        if closes:
+            record_range_source_coverage(
+                conn,
+                source="jquants_daily_bars",
+                operation="get_daily_quotes",
+                table="jquants_daily_bars",
+                date_column="traded_at",
+                requested_start=start,
+                requested_end=end_date,
+                status="ok",
+                error=None,
+            )
         conn.commit()
     finally:
         conn.close()

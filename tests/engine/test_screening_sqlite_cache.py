@@ -23,7 +23,7 @@ from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.storage.observations.convert import code_quality, to_float, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     covered_intervals,
-    daily_bars_covered_by_data,
+    record_range_source_coverage,
 )
 from baibai_engine.storage.observations.ingest.edinet import (
     store_edinet_metrics,
@@ -952,41 +952,42 @@ class SQLiteCacheTest(unittest.TestCase):
 
 
 class DailyBarsCoverageTest(unittest.TestCase):
-    def test_the_ten_day_imperial_transition_closure_is_not_a_missing_window(self) -> None:
-        # The market was shut for the ten consecutive days of the 2019 imperial
-        # transition, leaving eleven days between two trading days. Treating that as
-        # a hole makes the bar store read as incomplete for every window covering it
-        # and sends the fetch back for data it already holds.
+    def test_the_ten_day_imperial_transition_closure_uses_successful_empty_fetches(self) -> None:
+        # The closure is reusable because its dates were fetched, not because
+        # the surrounding prices happen to be close together.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
             try:
-                days = [
-                    *(date(2019, 4, 22) + timedelta(days=offset) for offset in range(5)),
-                    *(date(2019, 5, 7) + timedelta(days=offset) for offset in range(5)),
-                ]
-                conn.executemany(
-                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
-                    [("7203", day.isoformat(), 1000.0) for day in days],
+                for start, end in (
+                    (date(2019, 4, 22), date(2019, 4, 26)),
+                    (date(2019, 4, 27), date(2019, 5, 6)),
+                    (date(2019, 5, 7), date(2019, 5, 11)),
+                ):
+                    record_range_source_coverage(
+                        conn,
+                        source="jquants_daily_bars",
+                        operation="get_daily_quotes",
+                        table="jquants_daily_bars",
+                        date_column="traded_at",
+                        requested_start=start,
+                        requested_end=end,
+                        status="ok",
+                        error=None,
+                    )
+                conn.commit()
+                covered = range_covered(
+                    conn, "jquants_daily_bars", date(2019, 4, 22), date(2019, 5, 11)
                 )
-                conn.commit()
-                covered = daily_bars_covered_by_data(conn, date(2019, 4, 22), date(2019, 5, 11))
-                # A whole fetch chunk missing still has to read as incomplete.
-                conn.execute("DELETE FROM jquants_daily_bars WHERE traded_at > '2019-04-26'")
-                conn.commit()
-                after_deletion = daily_bars_covered_by_data(
-                    conn, date(2019, 4, 22), date(2019, 6, 30)
+                later_unfetched = range_covered(
+                    conn, "jquants_daily_bars", date(2019, 4, 22), date(2019, 6, 30)
                 )
             finally:
                 conn.close()
             self.assertTrue(covered)
-            self.assertFalse(after_deletion)
+            self.assertFalse(later_unfetched)
 
-    def test_a_fetch_chunk_holding_one_trading_day_is_not_covered(self) -> None:
-        # The edge tolerances apply at both ends, so if they are wide enough to meet
-        # in the middle of a 31-day fetch chunk, a chunk holding a single day reads as
-        # covered and the rest is never fetched. Nothing downstream catches a hole
-        # that small: the density check works in 120-day buckets.
+    def test_a_fetch_chunk_holding_one_trading_day_is_not_covered_without_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
@@ -997,24 +998,24 @@ class DailyBarsCoverageTest(unittest.TestCase):
                     ("7203", (start + timedelta(days=15)).isoformat(), 1000.0),
                 )
                 conn.commit()
-                sparse = daily_bars_covered_by_data(conn, start, end)
-                # The closure that forced the gap threshold up still has to be
-                # reachable from a boundary that lands on its first day.
-                conn.executemany(
-                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
-                    [
-                        ("7203", (date(2019, 5, 7) + timedelta(days=offset)).isoformat(), 1.0)
-                        for offset in range(8)
-                    ],
+                sparse = range_covered(conn, "jquants_daily_bars", start, end)
+                record_range_source_coverage(
+                    conn,
+                    source="jquants_daily_bars",
+                    operation="get_daily_quotes",
+                    table="jquants_daily_bars",
+                    date_column="traded_at",
+                    requested_start=start,
+                    requested_end=end,
+                    status="ok",
+                    error=None,
                 )
                 conn.commit()
-                after_closure = daily_bars_covered_by_data(
-                    conn, date(2019, 4, 27), date(2019, 5, 14)
-                )
+                after_fetch = range_covered(conn, "jquants_daily_bars", start, end)
             finally:
                 conn.close()
             self.assertFalse(sparse)
-            self.assertTrue(after_closure)
+            self.assertTrue(after_fetch)
 
 
 class EmptyPayloadReplacementTest(unittest.TestCase):
@@ -1653,7 +1654,7 @@ class CoverageReadErrorsTest(unittest.TestCase):
         with closing(sqlite3.connect(":memory:")) as connection:
             self.assertEqual(covered_intervals(connection, "jquants_fin_summaries"), ())
             self.assertFalse(
-                daily_bars_covered_by_data(connection, date(2026, 5, 1), date(2026, 5, 31))
+                range_covered(connection, "jquants_daily_bars", date(2026, 5, 1), date(2026, 5, 31))
             )
 
     def test_invalid_coverage_schema_is_not_an_unfetched_range(self) -> None:
@@ -1662,11 +1663,11 @@ class CoverageReadErrorsTest(unittest.TestCase):
             with self.assertRaisesRegex(sqlite3.OperationalError, "no such column"):
                 covered_intervals(connection, "jquants_fin_summaries")
 
-    def test_invalid_bars_schema_is_not_an_unfetched_range(self) -> None:
+    def test_invalid_daily_coverage_schema_is_not_an_unfetched_range(self) -> None:
         with closing(sqlite3.connect(":memory:")) as connection:
-            connection.execute("CREATE TABLE jquants_daily_bars (ticker TEXT)")
+            connection.execute("CREATE TABLE source_coverage (source TEXT)")
             with self.assertRaisesRegex(sqlite3.OperationalError, "no such column"):
-                daily_bars_covered_by_data(connection, date(2026, 5, 1), date(2026, 5, 31))
+                range_covered(connection, "jquants_daily_bars", date(2026, 5, 1), date(2026, 5, 31))
 
 
 class RepeatedObservationTest(unittest.TestCase):

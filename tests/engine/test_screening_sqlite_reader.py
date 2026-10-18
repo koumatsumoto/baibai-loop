@@ -140,7 +140,7 @@ class ReadDailyBarsTests(unittest.TestCase):
 
             self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
 
-    def test_sparse_bar_dates_do_not_cover_requested_range(self) -> None:
+    def test_sparse_bars_from_a_successful_range_are_read_as_observed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_daily_bars(
@@ -149,7 +149,11 @@ class ReadDailyBarsTests(unittest.TestCase):
                 requested_start=date(2024, 3, 19),
                 requested_end=date(2024, 4, 18),
             )
-            self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
+            bars = read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18))
+            self.assertIsNotNone(bars)
+            self.assertEqual(
+                [(bar.traded_at, bar.close) for bar in bars or []], [(date(2024, 3, 19), 3790.0)]
+            )
 
 
 class ReadFinSummariesTests(unittest.TestCase):

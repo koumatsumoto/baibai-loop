@@ -40,6 +40,7 @@ from baibai_engine.storage.lake.objects import LakeObjectCache, LakeObjectError,
 from baibai_engine.storage.lake.reader import LakeReadError, resolve_current_release
 from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 
@@ -104,6 +105,17 @@ def build_master_lake(
         connection.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close,volume) VALUES (?,?,?,?)",
             ("130A", "2026-09-30", 1, 1),
+        )
+        record_range_source_coverage(
+            connection,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=date(2026, 9, 30),
+            requested_end=date(2026, 9, 30),
+            status="ok",
+            error=None,
         )
         if calendar is not None:
             connection.executemany("INSERT INTO jquants_market_calendar VALUES (?,?)", calendar)

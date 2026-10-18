@@ -22,7 +22,7 @@ lakeは物理的な公開bundleであり、各dataset契約の`l1_source`と`l2_
 - partition grainはdataset契約が宣言し、row数から動的に変えない
 - object key、SHA-256、byte数、row数、Arrow schemaを読取時に照合する
 - releaseは`production` profileだけを持ち、required dataset・coverage・非空の観測と世代整合を満たす
-- coverageはdatasetごとの運用判定である。日次株価は保存日の端点・間隔による再取得判定を使い、全営業日・全銘柄の網羅を証明しない。過去に保存した件数や銘柄数を新しい取得範囲の最低値にしない。件数は実際に保持する量であり、完全性の証明ではない
+- coverageはdatasetごとの運用判定である。日次株価は成功した取得区間の連続性を使い、休日等の空応答も取得済みとする。未取得日・partialは取得済みとしない。取得区間は全営業日・全銘柄の価格の存在を証明しない。過去に保存した件数や銘柄数を新しい取得範囲の最低値にしない。件数は実際に保持する量であり、完全性の証明ではない
 - prefix listing、glob、`union_by_name`、provider fallbackで欠損を補わない
 - 一つのdatasetへ同時に二つのcanonical writerを持たない
 - readerは開始時にcurrentを一度だけ解決し、以後は固定releaseだけを読む
