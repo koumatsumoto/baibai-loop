@@ -103,7 +103,7 @@ Portfolio Ledger -> Portfolio Outcome
 
 保存済み価格・master -> Market Snapshot / Security Market Context
 外部媒体の提示値 -> External Assessmentの出所別比較・欠測 -> 判断の参考
-登録指標の保存観測 -> Reading（機械的な統計・鮮度・変化）
+Collectionの保存経済原本 -> 登録L2系列の選択・計算 -> Reading（機械的な統計・鮮度・変化）
 保存済み観測・Reading・市場/個別状態・一次資料
        -> 明示作成するMarket Context Assessment
 Market Context Assessment -> Research・資本判断の補助入力

@@ -81,7 +81,7 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 `fred_csv`・`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`・`frb_h15`・`multpl`もnative recordを`economic_source_records`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
 
-e-Stat dashboardのsource identityはIndicatorCodeだけではなく、頻度・季節調整・地域を固定するsource URLである。要求窓のVALUE行は速報・null記号・未使用属性もそのまま残し、L2が`@isProvisional=0`の確報だけを選ぶ。確報の欠測から旧値や速報へ戻らない。単位コードの混在は読み取りに使う期間の確報間で検証し、要求窓外の単位差だけで読み取りを止めない。取得時刻は公表時刻ではない。VALUEの単位コードだけで基準年を復元できるとは限らず、系列の意味はregistryと[公表元の系列メタデータ](https://dashboard.e-stat.go.jp/api/1.0/Json/getIndicatorInfo?Lang=JP&IndicatorCode=0302030202010090010)に従う。名目賃金の単位コード000は単位名が空欄であり、2020年平均=100という意味は系列注記から確認する。旧scalar値だけから失われた速報・属性は復元せず、マージ後に必要な原本を取得する。
+e-Stat dashboardのsource identityはIndicatorCodeだけではなく、頻度・季節調整・地域を固定するsource URLである。要求窓のVALUE行は速報・null記号・未使用属性もそのまま残し、L2が`@isProvisional=0`の確報だけを選ぶ。確報の欠測から旧値や速報へ戻らない。単位コードの混在は読み取りに使う期間の確報間で検証し、要求窓外の単位差だけで読み取りを止めない。取得時刻は公表時刻ではない。VALUEの単位コードだけで基準年を復元できるとは限らず、系列の意味はregistryと[公表元の系列メタデータ](https://dashboard.e-stat.go.jp/api/1.0/Json/getIndicatorInfo?Lang=JP&IndicatorCode=0302030202010090010)に従う。名目賃金の単位コード000は単位名が空欄であり、2020年平均=100という意味は系列注記から確認する。旧scalar値だけから失われた速報・属性は復元せず、必要な原本を新規取得してL2を検証してから切り替える。
 
 multplは取得窓の長短でcurrent pageと履歴表を切り替えず、日付付き月次表を使う。最新行の日付は取得日ではなく公表元の表示日とし、日付・値のセル文字列、推定記号の注記、表のcaption、出典説明とリンクを保存する。L2は比率と百分率を区別し、同日で矛盾する値を行順だけで採用しない。現在の月次表から、過去に取得した日々のcurrent値までは再構成できない。PE・益回りの最新値には推定が含まれ、GAAP報告利益を基礎とすることは、その観測が確定値である保証ではない。
 
@@ -272,4 +272,4 @@ CFTCは要求contractのAPI record全項目、ECB FXはCSVの全通貨列を、s
 
 正常なbulk responseは要求期間の全日を調べた結果として保存し、行のない日も空snapshotを残す。訂正で行が消えた日は新しい空snapshotが以前の値を隠す。取得時刻は取得・改訂の順序であり、当時の公表可能時刻の証明ではない。計算不能でも取得済みnative記録は残す。提供元record JSONであり、HTTP bytesそのものの保管を意味しない。
 
-旧net値やcross値だけから元のlong/short・各通貨レートは復元できない。不足するnative履歴はマージ後に取得し、L2再計算と公開を確認する。実際の保存済み判断は書き換えない。
+旧net値やcross値だけから元のlong/short・各通貨レートは復元できない。不足するnative履歴は取得可能な範囲を明示して新規取得し、L2再計算・検証後にcodeとstoreを一組で切り替え、公開を確認する。実際の保存済み判断は書き換えない。
