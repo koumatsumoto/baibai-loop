@@ -60,7 +60,7 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | bucket | object | owner |
 | --- | --- | --- |
 | `baibai-stores` | `market.sqlite`（store-local data + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
-| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`・`cloud-tradingview-snapshot`・`cloud-external-assessment`の公開job + ローカル`r2_transfer.sh publish-lake` |
+| `baibai-stores` | `lake/`（`l1_source`原本と`l2_processed`派生datasetの正本） | `cloud-daily-batch`・`cloud-tradingview-snapshot`・`cloud-external-assessment`の公開job + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `indicators.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-indicators`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | 取得世代への条件付き更新（実行環境の分担は前節） |
@@ -705,7 +705,7 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 原本を読む順序は明示したmarket SQLiteの`edinet_source_archives`、必要なAPI取得である。以前の端末のlocal ZIP cacheは暗黙に取り込まない。CSVとXBRLのtransport・保存経路は同じproviderを使う。取得エラーや不開示通知PDFで保存済みZIPを上書きしない。`doc_id + source_type`はarchiveの論理keyであり、同じ書類・取得種別でZIP bytesが永遠に同じと保証するものではない。原本の公開世代・保持は既存lakeの不変objectとretentionに従い、別の版管理機構を追加しない。
 
-通常のschema移行・意味再計算では、明示して保持した原本を再利用できる。一方、この情報層整理に続くL1の全面fresh baselineは、sourceごとの対象期間と取得可能範囲を先に明示し、隔離した新規market・経済storeへ現行sourceの原本を新規取得して、その集合だけからL2を作る。旧L1・L2・`source_coverage`、正規化済み受入file、旧端末のZIP cacheをこのbaselineへhydrate・importしない。取得不能な履歴・部分sourceはそのまま報告し、旧値で補完しない。新source・L2・公開の検査が終わるまで現行本番releaseを保ち、明示的なlease保護下で切り替えて固定releaseを読戻す。既存broker factと保存済み判断は別の正本であり、黙って初期化・削除しない。これは未実行の将来手順である。
+通常のschema移行・意味再計算では、明示して保持した原本を再利用できる。一方、この情報層整理に続くL1の全面fresh baselineは、sourceごとの対象期間と取得可能範囲を先に明示し、隔離した新規market・経済storeへ現行sourceの原本を新規取得して、その集合だけからL2を作る。旧L1・L2・`source_coverage`、正規化済み受入file、旧端末のZIP cacheをこのbaselineへhydrate・importしない。取得不能な履歴・部分sourceはそのまま報告し、旧値で補完しない。新source・L2・公開の検査が終わるまで現行本番releaseを保ち、明示的なlease保護下で切り替えて固定releaseを読戻す。既存broker factと保存済み判断は別の正本であり、黙って初期化・削除しない。実施状況と未完了の受入は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)で追う。
 
 EDINET文書一覧のHTTP body bytesはJSON解析より前にL1の`edinet.list_responses`（SQLite `edinet_list_responses`）へ受領ごとに保持する。`edinet_document_lists.response_json`は選択した成功応答のnative payloadを記録するL2 projectionであり、不変のraw receipt履歴とは別である。最新応答のprojectionが失敗した日はcurrent coverageをfailedとし、過去の成功projectionを新しい原本受領の証拠や成功coverageに読み替えない。解析できない原応答もL1に残し、以前の正規化済み行から原本を捏造しない。
 
