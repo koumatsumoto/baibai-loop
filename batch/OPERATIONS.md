@@ -81,7 +81,7 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | ローカルPCの`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write。通常のクラウド開発へ持ち込まない |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
 | Worker secret（閲覧認証） | `VIEW_PASSWORD` / `READ_ACCESS_TOKEN` | Worker runtimeだけ、ownerと共有を分離 |
-| Worker secret（L1接続） | `L1_R2_BASE_URL` / `L1_R2_ACCESS_KEY_ID` / `L1_R2_SECRET_ACCESS_KEY` | `baibai-stores`だけのObject Read only、publisher credentialと分離 |
+| Worker secret（market lake接続） | `L1_R2_BASE_URL` / `L1_R2_ACCESS_KEY_ID` / `L1_R2_SECRET_ACCESS_KEY` | `baibai-stores`だけのObject Read only、publisher credentialと分離 |
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
@@ -1053,12 +1053,12 @@ web/edge/scripts/verify-deployment.sh
 
 <a id="shared-read-setup"></a>
 
-### 共有readとL1接続の設定
+### 共有readとmarket lake接続の設定
 
 **前提**: mainのweb deployが共有read実装を含むことを確認します。CloudflareのR2 API token管理で、
 production `baibai-stores`だけにscopeした **Object Read only** credentialを新規作成します。
 publisherのread-write credentialは流用せず、canonical bucketのWorker bindingは追加しません。
-Object Read onlyはbucket全体を読めます。L1以外を外部へ返さない境界はWorkerのnamespace allowlistであり、
+Object Read onlyはbucket全体を読めます。外部へ返す範囲をmarket lakeのpointer・manifest・L1/L2 Parquetに限定する境界はWorkerのnamespace allowlistであり、
 prefix単位IAMではありません（[Cloudflare公式](https://developers.cloudflare.com/r2/api/tokens/)）。
 
 `READ_ACCESS_TOKEN`はowner passwordとは別に、32 random bytes以上をCSPRNGで生成しbase64url等にします。
@@ -1088,15 +1088,15 @@ owner Bearerと共有Bearer/queryで既存JSONの具体値・更新時点を読�
 401、重複shareが400になることを確認します。`/?share=...`は通常UIを開き、最初のAPI request前にURLから
 shareが消え、owner保存値が維持されることを確認します。共有URLを第三者へ一般公開しません。
 
-L1は[固定release手順](../docs/reference/market-lake.md#shared-raw-read)でcurrent → release manifest → dataset manifest → 実Parquetへ進む。対象の分析workspaceで取得・decodeし、同じreleaseの対象値をlocal baselineと照合する。HTTP 200や手動uploadだけでは成功としない。取得・decode・照合が失敗した場合は原因を確認して利用を止める。
+market lakeのL1原本・L2派生値は[固定release手順](../docs/reference/market-lake.md#shared-raw-read)でcurrent → release manifest → dataset manifest → 実Parquetへ進む。対象の分析workspaceで取得・decodeし、同じreleaseの対象値をlocal baselineと照合する。HTTP 200や手動uploadだけでは成功としない。取得・decode・照合が失敗した場合は原因を確認して利用を止める。
 
-**停止と復旧**: shared secret未設定・空は共有accessだけを無効化し、L1接続値の不足はlakeだけ503にします。
+**停止と復旧**: shared secret未設定・空は共有accessだけを無効化し、market lake接続値の不足はlakeだけ503にします。
 上流403/5xx等は安全な502となるので、read-only scopeとendpoint設定を確認します。秘密値や上流error bodyを
 logへ出しません。設定失敗時はowner credential、store、daily batchを変更せず設定をやり直します。
 
 **rotationと撤回**: 共有tokenは同じ`(cd web/edge && npx wrangler secret put READ_ACCESS_TOKEN)`で置換し、旧値401・新値成功を確認します。
 次の401でfrontendは共有sessionだけを消します。共有撤回は`(cd web/edge && npx wrangler secret delete READ_ACCESS_TOKEN)`です。
-L1 credentialは新しいbucket-scoped Object Read only tokenを作り、2つのS3 secretを更新してGETを確認した後に
-旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。L1公開自体の撤回は
+market lake credentialは新しいbucket-scoped Object Read only tokenを作り、2つのS3 secretを更新してGETを確認した後に
+旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。market lakeの共有読取を止める場合は
 `(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
 既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。

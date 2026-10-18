@@ -6,7 +6,7 @@
 | --- | --- |
 | `application/` | 判断・確認済み取引事実・運用状態 |
 | `market/` | market dataのruntime copyとstore-local data |
-| `market_context/` | 指標観測・vintage・取得情報（`indicators.sqlite`） |
+| `market_context/` | 経済sourceの原本・native record・取得情報（`indicators.sqlite`）。L2系列は保存せず読取時に計算 |
 | `screening/` | Screening Run・候補集合・calibration |
 | `lake/` | local mirror・staging・cache |
 
