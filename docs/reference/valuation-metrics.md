@@ -15,7 +15,7 @@ Researchの判断見積りは[Stock AssessmentのBase/Downsideと共通算術](.
 
 screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Stock Assessment payloadへ重複転記しない](./stock-assessment.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。保存済み較正文脈の意味・解釈はValuationが所有し、生成とevidenceの条件は[見積り較正](./estimate-calibration.md#判断面へ渡す較正文脈)を参照する。
 
-財務・倍率計算の正本は[valuation/metrics](../../engine/src/baibai_engine/valuation/metrics/)にある。`models`がFinancialSnapshot/4項目TTMRules/配当basisを所有し、`financial_snapshot`が生成本体、`periods`が会計期間/TTM、`capital`が株式/普通株自己資本basis、`dividends`が配当/還元、`profit`が利益、`history`が価格感応倍率履歴、`relative`が値で渡された業種/市場母集団と自己レンジの倍率比較を所有する。価格騰落・標本volatility・出来高・安値乖離・信用需給は`market_context/{history,margin}`、共有split算術は`market/bars`、対象/母集団選択とStock Analysis向けの結果組立は`screening/metrics/snapshot`が所有する。ScreeningRulesはTTMRulesを構成して計算へ渡し、計算領域へ設定読込や母集団選択を持ち込まない。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
+財務・倍率計算の正本は[valuation/metrics](../../engine/src/baibai_engine/valuation/metrics/)にある。`models`がFinancialSnapshot/4項目TTMRules/配当basisを所有し、`financial_snapshot`が生成本体、`periods`が会計期間/TTM、`capital`が株式/普通株自己資本basis、`dividends`が配当/還元、`profit`が利益、`history`が価格感応倍率履歴、`relative`が値で渡された業種/市場母集団と自己レンジの倍率比較を所有する。価格騰落・標本volatility・出来高・安値乖離・信用需給は`market_context/{history,margin}`、共有の価格・株式basis算術は`price_basis.py`、対象/母集団選択とStock Analysis向けの結果組立は`screening/metrics/snapshot`が所有する。ScreeningRulesはTTMRulesを構成して計算へ渡し、計算領域へ設定読込や母集団選択を持ち込まない。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
 
 <a id="machine-valuation"></a>
 
@@ -202,7 +202,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。必要なEDINET指標を欠くApproachではnominateしないが、他の指標・Approachまで一律に無効にしない。現行Asset Valueの`net_cash_to_market_cap`はanalysis contextであり、eligibility/orderには使わない。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。取得・更新は[EDINETRefresh](../../engine/src/baibai_engine/market/edinet_refresh.py)、保存済み書類の読取は[EDINETReader](../../engine/src/baibai_engine/market/edinet_reader.py)、選択は[保存・選択処理](../../engine/src/baibai_engine/market/edinet_metrics/store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。取得・更新は[EDINETRefresh](../../engine/src/baibai_engine/market/edinet_refresh.py)、保存済み書類の読取は[EDINETReader](../../engine/src/baibai_engine/market/edinet_reader.py)、選択は[文書選択](../../engine/src/baibai_engine/market/edinet_selection.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
 
 [EDINET API仕様](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140206.pdf)の書類情報訂正を畳む際は、保存したnative responseの同日・seqNumber・docIDに対応する操作行を使う。供給されたキーの明示nullは反映し、キーの省略は以前の値を変更しない。特定の4項目が揃うかから完全な置換を推定しない。native responseを持たない保存行ではSQL NULLから元のキー有無を復元できないため、NULLは明示的な消去の証拠にしない。通常の提出行は閲覧期限前に観測したidentityを保持し、同日の複数行は操作日時・seqNumberの順で選ぶ。
 
@@ -301,7 +301,7 @@ Stock Analysisへの入力は有効価格1本から許すが、履歴を要す�
 
 ### 9.1 価格調整と株数・配当の単位
 
-Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engine/src/baibai_engine/price_basis.py)でraw `close`と`adjustment_factor`からas-of基準へ揃えた価格系列を使う。配信元の調整済みOHLCV列は保持しない。取得世代で基準が混ざる値を再生成せず、必要な価格基準をraw値とfactorから組み立てる。factorは価格日より後・as-of以前のものを適用し、権利落ち日当日のfactorを当日価格へ重ねて掛けない。
+Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engine/src/baibai_engine/price_basis.py)でraw `close`と`adjustment_factor`からas-of基準へ揃えた価格系列を使う。L1の受領応答には配信元の調整済みOHLCV列も残すが、L2の日足projectionや計算の入力には使わない。取得世代で基準が混ざる調整済み値を接続せず、必要な価格基準をraw値とfactorから組み立てる。factorは価格日より後・as-of以前のものを適用し、権利落ち日当日のfactorを当日価格へ重ねて掛けない。
 価格系列の換算に使うfactorは正の有限値に限定し、`0`を調整なしとして除外しない。係数は価格日の翌日からas-ofまでの範囲に適用する。価格調整と株数単位の変更は別であり、株数・配当の換算ではExRTによる分割/併合の確認が必要となる。
 
 J-Quantsの価格factorには分割・併合だけでなくライツイシューも含まれる。`ExRT` が `1` / `2` のときだけ株数の逆数換算と1株当たり財務値・現金配当の換算に用いる。`3` は価格調整であり、既存株式の単位を変える係数として扱わない。種別を確定できない非1factorは分割と推定せず、影響する株数・per-share値を未解決にする。新株発行後の発行済株式総数を価格factorから推定することもしない。[配信元の調整仕様](https://jpx-jquants.com/en/spec/eq-bars-daily/adj)
