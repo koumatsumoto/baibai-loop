@@ -9,8 +9,8 @@ status: active
 
 ## 1. 目的
 
-JPX の信用取引残高は 2026-09-28 に公表粒度が変更された。L1 store は変更前後のデータを別 table・
-別 balance date 域として保持し、指標側は「どちらの series がその balance date を公表したか」を
+JPX の信用取引残高は 2026-09-28 に公表粒度が変更された。L1は取得応答を原本として保持し、
+L2 projectionは変更前後のデータを別table・別balance date域に分ける。指標側は「どちらのseriesがそのbalance dateを公表したか」を
 明示して読む。本書は公表日、balance date、対象母集団を区別する取込契約の正本である。
 
 本書は§6の固定語義と制度切替後のsource契約を所有する。初回契約確認と連続性の実測は
@@ -50,10 +50,10 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 
 全銘柄日次系列では `PubDate` と六つの金額 field（`LongVal` / `ShrtVal`、standard / negotiable 内訳）も保存・lake 公開する。現在の L2 が株数だけを使うことを理由に、同じ応答で得られる金額を捨てない。値は提供元の単位のまま保持し、株数×市場価格で補完しない。欠測は null とし、金額欠測を理由に正常な株数まで再取得しない。`PubDate` は公表日であり、正確な API 利用可能時刻ではない。現行 serving の公表可否は§6の暦規約を使う。
 
-旧保存にはこの公表日・金額がないため、schema 切替だけで値を復元したことにしない。PR マージ後に利用可能な原本を再利用し、不足する期間だけ再取得して再構築する。runtime に旧schema救済は追加しない。[公式 ClientV2 の現行列定義](https://github.com/J-Quants/jquants-api-client-python/blob/main/jquantsapi/constants.py)を入力契約の確認に使う。
+旧保存にはこの公表日・金額がないため、schema 切替だけで値を復元したことにしない。利用可能な原本を再利用し、不足する期間だけ再取得して再構築・検証したうえでcodeとstoreを切り替える。runtime に旧schema救済は追加しない。[公式 ClientV2 の現行列定義](https://github.com/J-Quants/jquants-api-client-python/blob/main/jquantsapi/constants.py)を入力契約の確認に使う。
 
 日々公表銘柄等は `ShrtOut` / `LongOut`、各 change / ratio、standard / negotiable 内訳、
-`PubReason`、`TSEMrgnRegCls` を provider field のまま L1 列へ写す。この dataset は対象銘柄が
+`PubReason`、`TSEMrgnRegCls` を原本に保持し、対応する L2 列へ投影する。この dataset は対象銘柄が
 選別されるため、欠けている ticker を残高ゼロと解釈しない。
 
 ## 5. 連続性と発火条件
@@ -95,6 +95,6 @@ ISO 週の最終 balance date だけを sampling する。欠測週を補間し�
 日次の高頻度性そのものを使う軸（日次 delta など）はこの列へ足さない。別名の metric と事前登録
 study を用意する。
 
-serving の統合列は `sqlite_reader.published_margin_balance_dates` で、公表ラグは cadence 別に
+serving の統合列は `storage.observations.reader.published_margin_balance_dates` で、公表ラグは cadence 別に
 持つ（週次は第 2 営業日、日次は翌営業日）。いずれも公表日当日のas-ofには含めず、
 公表日より後のas-ofから利用する。
