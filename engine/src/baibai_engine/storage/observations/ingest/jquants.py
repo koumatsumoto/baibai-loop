@@ -528,7 +528,7 @@ def _margin_alert_rows_with_quality(
             )
         )
     return NormalizedRows(
-        rows=distinct_source_rows(rows, identity_columns=2, source="margin alerts"),
+        rows=distinct_source_rows(rows, identity_columns=3, source="margin alerts"),
         rejected_count=rejected_count,
         excluded_count=excluded_count,
     )

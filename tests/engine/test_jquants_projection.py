@@ -7,6 +7,7 @@ import json
 import sqlite3
 from datetime import UTC, date, datetime
 
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
 import requests
 from tests.helpers.lake_policy import narrow_release_policy
@@ -21,12 +22,14 @@ from baibai_engine.market import master_snapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.storage.lake.datasets import JQUANTS_MARGIN_ALERTS
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.lake.reader import resolve_release
 from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.reader import read_margin_alerts
 from baibai_engine.storage.observations.schema import open_connection
 
 DAY = "2026-10-16"
@@ -604,3 +607,194 @@ def test_offline_reader_uses_projected_rows_without_writing(db_path, monkeypatch
     assert [row.fiscal_period for row in reader.get_fy_summary_range(day, day)] == ["FY"]
     assert reader.get_mkt_calendar(day, day)[0].is_business_day
     assert db_path.read_bytes() == original_db
+
+
+def _margin_alert_records_2018() -> list[dict[str, object]]:
+    """Two real-shaped balances published for code 13090 on the same day."""
+    reason = {
+        "DailyPublication": "0",
+        "Monitoring": "0",
+        "PrecautionByJSF": "1",
+        "Restricted": "0",
+        "RestrictedByJSF": "0",
+        "UnclearOrSecOnAlert": "0",
+    }
+    later = {
+        "AppDate": "2018-08-09",
+        "Code": "13090",
+        "LongNegOut": 1627.0,
+        "LongNegOutChg": 2.0,
+        "LongOut": 3130.0,
+        "LongOutChg": 3.0,
+        "LongOutRatio": "*",
+        "LongStdOut": 1503.0,
+        "LongStdOutChg": 1.0,
+        "PubDate": "2018-08-10",
+        "PubReason": reason,
+        "SLRatio": 34.7,
+        "ShrtNegOut": 0.0,
+        "ShrtNegOutChg": 0.0,
+        "ShrtOut": 1086.0,
+        "ShrtOutChg": -37.0,
+        "ShrtOutRatio": "*",
+        "ShrtStdOut": 1086.0,
+        "ShrtStdOutChg": -37.0,
+        "TSEMrgnRegCls": "001",
+    }
+    earlier = {
+        **later,
+        "AppDate": "2018-08-08",
+        "LongNegOut": 1625.0,
+        "LongNegOutChg": 5.0,
+        "LongOut": 3127.0,
+        "LongOutChg": -48.0,
+        "LongStdOut": 1502.0,
+        "LongStdOutChg": -53.0,
+        "SLRatio": 35.9,
+        "ShrtOut": 1123.0,
+        "ShrtOutChg": -21.0,
+        "ShrtStdOut": 1123.0,
+        "ShrtStdOutChg": -21.0,
+    }
+    return [later, earlier]
+
+
+def test_margin_alert_offline_replay_keeps_distinct_application_dates(db_path, monkeypatch):
+    records = _margin_alert_records_2018()
+    raw = body([*records, records[0]])
+    request_id = receive(db_path, "margin_alerts", {"date": "2018-08-10"}, raw, FIRST_AT)
+    with sqlite3.connect(db_path) as conn:
+        request = read_complete_request(conn, request_id)
+        assert [page.body for page in request.pages] == [raw]
+        assert request.records() == [*records, records[0]]
+        assert request.records()[0]["PubReason"] == records[0]["PubReason"]
+        assert request.records()[0]["LongOutRatio"] == "*"
+
+    def no_http(*_args, **_kwargs):
+        pytest.fail("offline replay attempted HTTP")
+
+    monkeypatch.setattr(requests.Session, "get", no_http)
+    assert project_request(db_path, request_id) == 2
+    assert project_request(db_path, request_id) == 2
+    alerts = read_margin_alerts(db_path, date(2018, 8, 10), date(2018, 8, 10))
+    assert alerts is not None
+    assert [(row.ticker, row.applied_date, row.short_outstanding) for row in alerts] == [
+        ("1309", date(2018, 8, 8), 1123.0),
+        ("1309", date(2018, 8, 9), 1086.0),
+    ]
+    assert all(row.publication_reason == str(records[0]["PubReason"]) for row in alerts)
+    assert all(row.short_ratio is None and row.long_ratio is None for row in alerts)
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jquants_margin_alerts").fetchone() == (2,)
+
+
+def test_margin_alert_later_publication_retains_correction_to_old_application(db_path):
+    later, earlier = _margin_alert_records_2018()
+    first_id = receive(
+        db_path, "margin_alerts", {"date": "2018-08-10"}, body([later, earlier]), FIRST_AT
+    )
+    assert project_request(db_path, first_id) == 2
+    correction = {**earlier, "PubDate": "2018-08-11", "LongOut": 3131.0}
+    correction_id = receive(
+        db_path, "margin_alerts", {"date": "2018-08-11"}, body([correction]), CORRECTION_AT
+    )
+    assert project_request(db_path, correction_id) == 3
+    alerts = read_margin_alerts(db_path, date(2018, 8, 10), date(2018, 8, 11))
+    assert alerts is not None
+    assert [(row.publication_date, row.applied_date, row.long_outstanding) for row in alerts] == [
+        (date(2018, 8, 10), date(2018, 8, 8), 3127.0),
+        (date(2018, 8, 10), date(2018, 8, 9), 3130.0),
+        (date(2018, 8, 11), date(2018, 8, 8), 3131.0),
+    ]
+
+
+def test_margin_alert_same_three_column_identity_conflict_preserves_stored_rows(db_path):
+    later, earlier = _margin_alert_records_2018()
+    first_id = receive(
+        db_path, "margin_alerts", {"date": "2018-08-10"}, body([later, earlier]), FIRST_AT
+    )
+    assert project_request(db_path, first_id) == 2
+    with sqlite3.connect(db_path) as conn:
+        before_rows = conn.execute(
+            "SELECT * FROM jquants_margin_alerts ORDER BY applied_date"
+        ).fetchall()
+        before_coverage = coverage(db_path, "jquants_margin_alerts")
+    conflicting = {**earlier, "LongOut": 9999.0}
+    conflict_id = receive(
+        db_path,
+        "margin_alerts",
+        {"date": "2018-08-10"},
+        body([later, earlier, conflicting]),
+        CORRECTION_AT,
+    )
+    with pytest.raises(JQuantsProviderError, match="conflicting margin alerts observation"):
+        project_request(db_path, conflict_id)
+    with sqlite3.connect(db_path) as conn:
+        assert (
+            conn.execute("SELECT * FROM jquants_margin_alerts ORDER BY applied_date").fetchall()
+            == before_rows
+        )
+        assert [page.body for page in read_request_pages(conn, conflict_id)] == [
+            body([later, earlier, conflicting])
+        ]
+    assert coverage(db_path, "jquants_margin_alerts") == before_coverage
+
+
+def test_margin_alert_lake_round_trip_preserves_three_column_identity(
+    db_path, tmp_path, monkeypatch
+):
+    narrow_release_policy(monkeypatch, datasets=("jquants.margin_alerts",), carries_history=None)
+    records = _margin_alert_records_2018()
+    request_id = receive(db_path, "margin_alerts", {"date": "2018-08-10"}, body(records), FIRST_AT)
+    assert project_request(db_path, request_id) == 2
+    mirror = tmp_path / "mirror"
+    with sealed_sqlite_snapshot(sqlite_path=db_path, mirror_root=mirror) as snapshot:
+        exported = export_dataset_snapshot(
+            dataset_name="jquants.margin_alerts",
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            source_snapshot=snapshot,
+            build_id="margin-alert-three-column-identity",
+        )
+    assert JQUANTS_MARGIN_ALERTS.primary_key == ("publication_date", "ticker", "applied_date")
+    assert exported.manifest.contract_version == 2
+    assert JQUANTS_MARGIN_ALERTS.columns[2].nullable is False
+    object_key = exported.manifest.partitions[0].objects[0].key
+    assert "contract=v2" in object_key
+    arrow_schema = pq.read_schema(mirror / object_key)
+    assert arrow_schema.field("applied_date").nullable is False
+    assert arrow_schema.metadata is not None
+    assert arrow_schema.metadata[b"baibai.primary_key"] == b"publication_date,ticker,applied_date"
+    manifest_path, manifest = create_release(
+        dataset_manifest_paths=[exported.manifest_path],
+        mirror_root=mirror,
+        release_id="margin-alert-three-column-identity",
+    )
+    source = LocalMirrorSource(mirror)
+    release = resolve_release(
+        source,
+        release_id=manifest.release_id,
+        manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+    )
+    rebuilt = tmp_path / "rebuilt.sqlite"
+    open_connection(rebuilt).close()
+    with lake_session() as session:
+        report = hydrate_market_store(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=mirror, source=source),
+            store=rebuilt,
+            dataset_names=("jquants.margin_alerts",),
+        )
+    assert report.rows == {"jquants.margin_alerts": 2}
+    with sqlite3.connect(db_path) as original, sqlite3.connect(rebuilt) as hydrated:
+        assert (
+            hydrated.execute("SELECT * FROM jquants_margin_alerts ORDER BY applied_date").fetchall()
+            == original.execute(
+                "SELECT * FROM jquants_margin_alerts ORDER BY applied_date"
+            ).fetchall()
+        )
+        assert [
+            (row[3], row[5])
+            for row in hydrated.execute("PRAGMA table_info(jquants_margin_alerts)").fetchall()
+        ][:3] == [(1, 1), (1, 2), (1, 3)]

@@ -28,7 +28,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 46
+SQLITE_SCHEMA_VERSION = 47
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET list projection reconstructs the current rows from retained source receipts.
@@ -118,7 +118,8 @@ CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker
 CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
   publication_date TEXT NOT NULL,
   ticker TEXT NOT NULL,
-  applied_date TEXT,
+  -- AppDate is the reported balance's application date (申込日), not a regulation effective date.
+  applied_date TEXT NOT NULL,
   publication_reason TEXT,
   short_outstanding REAL,
   short_change REAL,
@@ -136,7 +137,7 @@ CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
   long_standard_outstanding REAL,
   long_standard_change REAL,
   tse_margin_regulation_classification TEXT,
-  PRIMARY KEY (publication_date, ticker)
+  PRIMARY KEY (publication_date, ticker, applied_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_jquants_margin_alerts_ticker

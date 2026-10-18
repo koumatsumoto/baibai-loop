@@ -32,11 +32,13 @@ JPX の集計システムは 2026-09-27 に移行した。変更後データの�
 | source / table | 対象 | 日付 identity | cadence / 公表 | 利用契約 |
 | --- | --- | --- | --- | --- |
 | J-Quants `margin-interest` / `jquants_weekly_margin` | 全銘柄 | `week_end` | 2026-09-18 残高まで週次。原則第2営業日に公表 | 2026-09-18 残高までの `margin_*` の残高 source。9/18 後を拒否する |
-| J-Quants `margin-alert` / `jquants_margin_alerts` | 日々公表銘柄等だけ | `(publication_date, ticker)` | 日次。現行 API は同日 16:30 更新 | 過熱・規制 risk の fact / annotation 用。全銘柄系列や rank / gate へ代用しない |
+| J-Quants `margin-alert` / `jquants_margin_alerts` | 日々公表銘柄等だけ | `(publication_date, ticker, applied_date)` | 日次。現行 API は同日 16:30 更新 | 過熱・規制 risk の fact / annotation 用。全銘柄系列や rank / gate へ代用しない |
 | J-Quants `margin-interest` 全銘柄 daily / `jquants_all_issues_daily_margin` | 全銘柄 | `(balance_date, ticker)` | 2026-09-25 残高から日次。翌営業日 16:00 公表 | 2026-09-25 残高以後の `margin_*` の残高 source。ClientV2 bindingは2026-09-28に実payloadを確認して有効化した（[検証記録](../../reports/operations/2026-09-28-margin-publication-transition/contract.md)）。週次 table と row を union しない |
 
-`margin-alert` は `PubDate` と `AppDate` を別々に保存する。`TSEMrgnRegCls` は取引所の規制
-分類 fact であり、残高値から導出しない。全銘柄日次系列は `Date` を balance date として保存し、
+`margin-alert` は `PubDate`（公表日）と `AppDate`（残高基準の申込日）を別々に保存する。
+`AppDate` は規制の適用開始日ではない。同じ銘柄・公表日でも申込日が違えば別の残高として保持し、
+同じ申込日への後日訂正も公表日別に保持する。`TSEMrgnRegCls` は取引所の規制分類 fact であり、
+残高値から導出しない。全銘柄日次系列は `Date` を balance date として保存し、
 公表前の当日残高を要求しない。
 
 ## 4. field 対応

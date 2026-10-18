@@ -321,10 +321,11 @@ JQUANTS_MARGIN_ALERTS = LakeDataset(
     sqlite_table="jquants_margin_alerts",
     date_column="publication_date",
     partition_grain="year",
+    contract_version=2,
     columns=(
         LakeColumn("publication_date", "TEXT", _TEXT, False, 1),
         LakeColumn("ticker", "TEXT", _TEXT, False, 2),
-        LakeColumn("applied_date", "TEXT", _TEXT, True),
+        LakeColumn("applied_date", "TEXT", _TEXT, False, 3),
         LakeColumn("publication_reason", "TEXT", _TEXT, True),
         LakeColumn("short_outstanding", "REAL", _REAL, True),
         LakeColumn("short_change", "REAL", _REAL, True),
