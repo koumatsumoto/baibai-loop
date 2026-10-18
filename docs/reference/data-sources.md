@@ -18,13 +18,13 @@ related_docs:
 | --- | --- |
 | 指標の数値・経済統計 | 原公表機関の一次情報、または出所を確認できる公式集約先 |
 | 地政学・速報の事実 | Tier 2の事実報道。意見記事・論説は判断根拠にしない |
-| 企業・市場の機械入力 | 現行providerとregistryの取得契約 |
+| 企業・市場の機械入力 | Collectionのsource契約・catalogと、対応するL2読取規則 |
 | 企業の個別調査 | 会社の一次開示、EDINET、TDnet、JPX等の対象資料 |
 | broker fact | 人間が確認して報告した注文・約定事実 |
 
 Tierは用途の分類であり、正確さや利用許諾の点数ではない。原公表機関と集約先、公的予測と実績、市場の織り込みと観測値を区別する。
 
-機械取得の仕様・column・単位変換はproviderとregistryを正本とする。指標の意味は[valuation metrics](./valuation-metrics.md)、指標観測・vintage・retractionは[Market Context](./market-context.md)に従う。
+機械取得と原本fieldはCollectionのsource契約・providerが、単位変換や系列選択・計算はL2が所有する。指標の意味は[valuation metrics](./valuation-metrics.md)、経済原本・vintageとL2読取は[Market Context](./market-context.md)に従う。
 
 <a id="スコアリング軸"></a>
 
@@ -206,4 +206,4 @@ J-Quants `eq/master` の取得応答は`jquants.source_pages`にL1原本とし�
 と組み合わせて国内普通株を識別する。末尾0だけではETF・REIT等も含むため十分でなく、
 業種名から商品種類を推測しない。対象市場の選択はこの判定とは別に行う。
 旧派生列だけのマスターから原本項目を復元しない。切替時は取得済み原本があれば再利用し、
-原本のない基準日についてはマージ後に再取得する。
+原本のない基準日は取得可能な範囲を明示して新規取得し、原本とL2を検証してからcodeとstoreを一組で切り替える。
