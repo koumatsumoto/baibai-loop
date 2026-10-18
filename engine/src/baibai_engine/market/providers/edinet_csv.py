@@ -12,6 +12,7 @@ import io
 import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
+from typing import Literal
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.foundation.time import JST
@@ -43,8 +44,19 @@ def parse_csv_zip_metric_record(
         )
 
     quality = _flow_period_quality(doc_type_code, period_start, period_end, submit_datetime)
-    rows, basis = _select_statement_rows(rows, doc_type_code)
+    consolidation_dei = _consolidation_dei_status(rows)
+    rows, basis = _select_statement_rows(
+        rows,
+        doc_type_code,
+        allow_non_consolidated=consolidation_dei in {"false", "missing"},
+    )
     failures: list[str] = []
+    if consolidation_dei == "true" and basis is None:
+        failures.append("consolidated_dei_no_supported_current_facts")
+    elif consolidation_dei in {"conflict", "invalid"}:
+        failures.append(f"consolidation_dei_{consolidation_dei}")
+    elif consolidation_dei == "missing" and basis == "non_consolidated":
+        failures.append("consolidation_dei_missing")
     if basis == "non_consolidated":
         failures.append("non_consolidated_fallback")
 
@@ -218,8 +230,32 @@ def _flow_period_quality(
     return TTMQuality.EXACT if period_start == annual_start else TTMQuality.APPROXIMATED
 
 
+_ConsolidationDEIStatus = Literal["true", "false", "missing", "conflict", "invalid"]
+_CONSOLIDATION_DEI_ELEMENT = "jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI"
+
+
+def _consolidation_dei_status(rows: Sequence[Mapping[str, str]]) -> _ConsolidationDEIStatus:
+    facts = [
+        row
+        for row in rows
+        if _row_element(row) == _CONSOLIDATION_DEI_ELEMENT
+        and _row_context(row) == "FilingDateInstant"
+    ]
+    if not facts:
+        return "missing"
+    if any(
+        row.get("ユニットID") != "－" or row.get("値") not in {"true", "false"} for row in facts
+    ):
+        return "invalid"
+    values = {row["値"] for row in facts}
+    return "conflict" if len(values) > 1 else "true" if "true" in values else "false"
+
+
 def _select_statement_rows(
-    rows: Sequence[Mapping[str, str]], doc_type_code: str
+    rows: Sequence[Mapping[str, str]],
+    doc_type_code: str,
+    *,
+    allow_non_consolidated: bool = True,
 ) -> tuple[list[Mapping[str, str]], str | None]:
     # Financial-statement contexts, not arbitrary current-looking IDs. Quarterly
     # flow values use YTD, not the standalone quarter. Extra dimensions are not
@@ -237,6 +273,8 @@ def _select_statement_rows(
     consolidated = [row for row in financial if _row_context(row) in contexts]
     if consolidated:
         return consolidated, "consolidated"
+    if not allow_non_consolidated:
+        return [], None
     individual_contexts = {f"{context}_NonConsolidatedMember" for context in contexts}
     individual = [row for row in financial if _row_context(row) in individual_contexts]
     return individual, "non_consolidated" if individual else None

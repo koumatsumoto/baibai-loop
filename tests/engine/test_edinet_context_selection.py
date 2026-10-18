@@ -5,21 +5,41 @@ from datetime import date
 from io import BytesIO
 
 import pytest
+from tests.engine.screening.metric_fixtures import _summary
 
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.valuation.metrics.financial_snapshot import build_financial_snapshot
+
+_CONSOLIDATION_DEI = "jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI"
 
 
-def _parse(kind, rows, *, start=None, end=None, submitted=None):
+def _parse(
+    kind,
+    rows,
+    *,
+    start=None,
+    end=None,
+    submitted=None,
+    dei_rows=(),
+    ticker="0000",
+    doc_id="S100TEST",
+):
     header = "要素ID\tコンテキストID\t連結・個別\tユニットID\t値\n"
-    text = header + "\n".join(
+    facts = [
         f"{element}\t{context}\t{basis}\tJPY\t{value}" for element, context, basis, value in rows
+    ]
+    facts.extend(
+        f"{element}\t{context}\tその他\t{unit}\t{value}"
+        for element, context, unit, value in dei_rows
     )
+    text = header + "\n".join(facts)
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/facts.csv", text.encode("utf-16-le"))
     return parse_csv_zip_metric_record(
-        ticker="0000",
-        doc_id="S100TEST",
+        ticker=ticker,
+        doc_id=doc_id,
         doc_type_code=kind,
         content=buffer.getvalue(),
         period_start=start,
@@ -100,6 +120,190 @@ def test_prior_consolidated_fact_does_not_hide_current_individual_statement():
     )
     assert record.cash == 100
     assert record.consolidation_basis == "non_consolidated"
+
+
+def test_consolidated_dei_does_not_adopt_individual_facts_when_ifrs_tags_are_unsupported():
+    record = _parse(
+        "120",
+        [
+            ("jpigp_cor:Revenue2IFRS", "CurrentYearDuration", "連結", "53449000000"),
+            ("jpigp_cor:AssetsIFRS", "CurrentYearInstant", "連結", "37686000000"),
+            (
+                "jppfs_cor:NetSales",
+                "CurrentYearDuration_NonConsolidatedMember",
+                "個別",
+                "35372000000",
+            ),
+            (
+                "jppfs_cor:Assets",
+                "CurrentYearInstant_NonConsolidatedMember",
+                "個別",
+                "46872000000",
+            ),
+        ],
+        dei_rows=[(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "true")],
+    )
+    assert record.consolidation_basis is None
+    assert record.sales_ttm is None
+    assert record.total_assets is None
+    assert "consolidated_dei_no_supported_current_facts" in record.failure_reasons
+    assert "metric_unavailable:sales" in record.failure_reasons
+    assert "non_consolidated_fallback" not in record.failure_reasons
+
+
+def test_consolidated_dei_uses_supported_consolidated_facts():
+    record = _parse(
+        "120",
+        [
+            ("jppfs_cor:NetSales", "CurrentYearDuration", "連結", "200"),
+            (
+                "jppfs_cor:NetSales",
+                "CurrentYearDuration_NonConsolidatedMember",
+                "個別",
+                "900",
+            ),
+            ("jppfs_cor:Assets", "CurrentYearInstant_NonConsolidatedMember", "個別", "900"),
+        ],
+        dei_rows=[(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "true")],
+    )
+    assert record.consolidation_basis == "consolidated"
+    assert record.sales_ttm == 200
+    assert record.total_assets is None
+    assert "consolidated_dei_no_supported_current_facts" not in record.failure_reasons
+
+
+def test_1375_unsupported_consolidated_facts_do_not_enter_financial_snapshot():
+    # S100YK0W の原本にある科目・値。単体総資産はこの J-Quants fixture と2倍以内なので、
+    # 旧 parser の単体 fallback は既存の規模 gate を通ってしまった。
+    individual = "CurrentYearInstant_NonConsolidatedMember"
+    record = _parse(
+        "120",
+        [
+            ("jpigp_cor:AssetsIFRS", "CurrentYearInstant", "連結", "37686000000"),
+            ("jpigp_cor:Revenue2IFRS", "CurrentYearDuration", "連結", "53449000000"),
+            ("jppfs_cor:CashAndDeposits", individual, "個別", "3778000000"),
+            ("jppfs_cor:Assets", individual, "個別", "46872000000"),
+            ("jppfs_cor:CurrentPortionOfLongTermLoansPayable", individual, "個別", "4431000000"),
+            ("jppfs_cor:LeaseObligationsCL", individual, "個別", "4000000"),
+            ("jppfs_cor:LongTermLoansPayable", individual, "個別", "11029000000"),
+            ("jppfs_cor:LeaseObligationsNCL", individual, "個別", "14000000"),
+        ],
+        start=date(2025, 4, 1),
+        end=date(2026, 3, 31),
+        submitted="2026-06-25 15:30",
+        dei_rows=[(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "true")],
+        ticker="1375",
+        doc_id="S100YK0W",
+    )
+    financial = build_financial_snapshot(
+        latest_price=120.0,
+        summaries=[
+            _summary(
+                "1375",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=100_000_000.0,
+                total_assets=37_686_000_000.0,
+                sales=53_449_000_000.0,
+                eps_ttm=20.0,
+                forecast_eps=25.0,
+            )
+        ],
+        edinet=record,
+        ttm_rules=load_screening_rules().ttm,
+        adjustment_events=(),
+        asof_date=date(2026, 7, 1),
+    )
+    assert record.consolidation_basis is None
+    assert record.net_cash is None
+    assert financial.edinet_source_doc_id == "S100YK0W"
+    assert financial.consolidation_basis is None
+    assert financial.cash is None
+    assert financial.debt is None
+    assert financial.net_cash is None
+    assert financial.net_cash_to_market_cap is None
+    assert financial.ev_ebitda is None
+    assert financial.per_trailing is not None
+    assert financial.per_forward is not None
+    assert financial.p_s is not None
+    assert financial.edinet_failure_reasons is not None
+    assert "consolidated_dei_no_supported_current_facts" in financial.edinet_failure_reasons
+
+
+@pytest.mark.parametrize(
+    ("dei_rows", "basis", "sales", "reason"),
+    [
+        (
+            [(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "true")],
+            None,
+            None,
+            "consolidated_dei_no_supported_current_facts",
+        ),
+        (
+            [(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "true")] * 2,
+            None,
+            None,
+            "consolidated_dei_no_supported_current_facts",
+        ),
+        ([(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "false")], "non_consolidated", 100, None),
+        (
+            [(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "false")] * 2,
+            "non_consolidated",
+            100,
+            None,
+        ),
+        (
+            [
+                (_CONSOLIDATION_DEI, "FilingDateInstant", "－", "true"),
+                (_CONSOLIDATION_DEI, "FilingDateInstant", "－", "false"),
+            ],
+            None,
+            None,
+            "consolidation_dei_conflict",
+        ),
+        (
+            [(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "TRUE")],
+            None,
+            None,
+            "consolidation_dei_invalid",
+        ),
+        (
+            [(_CONSOLIDATION_DEI, "FilingDateInstant", "JPY", "true")],
+            None,
+            None,
+            "consolidation_dei_invalid",
+        ),
+        ([], "non_consolidated", 100, "consolidation_dei_missing"),
+        (
+            [(_CONSOLIDATION_DEI, "CurrentYearInstant", "－", "true")],
+            "non_consolidated",
+            100,
+            "consolidation_dei_missing",
+        ),
+        (
+            [(_CONSOLIDATION_DEI + "Extra", "FilingDateInstant", "－", "true")],
+            "non_consolidated",
+            100,
+            "consolidation_dei_missing",
+        ),
+    ],
+)
+def test_dei_values_are_exact_and_missing_or_duplicate_status_is_visible(
+    dei_rows, basis, sales, reason
+):
+    record = _parse(
+        "120",
+        [("jppfs_cor:NetSales", "CurrentYearDuration_NonConsolidatedMember", "個別", "100")],
+        dei_rows=dei_rows,
+    )
+    assert record.consolidation_basis == basis
+    assert record.sales_ttm == sales
+    if reason is not None:
+        assert reason in record.failure_reasons
+    else:
+        assert not any(item.startswith("consolidation_dei_") for item in record.failure_reasons)
 
 
 @pytest.mark.parametrize("reverse", [False, True])

@@ -82,6 +82,7 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
     ("change", "expected_exit", "downloads"),
     [
         ("current_revision", 0, 0),
+        ("old_scope_revision", 0, 1),
         ("legacy", 0, 1),
         ("other_revision", 0, 1),
         ("null_revision", 0, 1),
@@ -126,6 +127,11 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
             connection.execute(
                 "UPDATE edinet_metrics SET extractor_revision=?",
                 ("9b82e8d0d13ac87aaf325561de0d93fb54466178254f49856beff1b433e07187",),
+            )
+        elif change == "old_scope_revision":
+            connection.execute(
+                "UPDATE edinet_metrics SET extractor_revision=?",
+                ("edinet-metrics-v6-capex-total-presence",),
             )
         elif change in {"other_revision", "null_revision"}:
             connection.execute(
@@ -176,3 +182,8 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
     elif change == "current_revision":
         # All extracted columns, including provenance and quality, are reused unchanged.
         assert [row[1:] for row in latest] == [row[1:] for row in original]
+    elif change == "old_scope_revision":
+        with closing(sqlite3.connect(db)) as connection:
+            assert connection.execute(
+                "SELECT extractor_revision FROM edinet_metrics WHERE asof_date='2026-04-25'"
+            ).fetchone() == (EDINET_METRIC_REVISION,)
