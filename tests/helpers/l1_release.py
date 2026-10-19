@@ -1,4 +1,4 @@
-"""Build synthetic L1 release graphs and SQLite-backed export fixtures.
+"""Build synthetic market release graphs and SQLite-backed export fixtures.
 
 `stored_release_source` supplies checksum-consistent placeholder object bytes for
 reference/retention tests, not readable Parquet. The `lake` fixture instead exports
@@ -17,14 +17,15 @@ import pytest
 from baibai_engine.storage.lake import models
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.keys import (
-    current_l1_pointer_key,
+    canonical_object_key,
+    current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
 from baibai_engine.storage.lake.models import (
     DatasetManifest,
-    L1ReleaseSourceRef,
     LakeObject,
+    LakeReleaseSourceRef,
     ManifestTotals,
     PartitionManifest,
     ReleaseDataset,
@@ -32,24 +33,25 @@ from baibai_engine.storage.lake.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from tests.helpers.lake_policy import narrow_release_policy
 
 
-def release_source(release_id: str = "20260130T000000Z-release") -> L1ReleaseSourceRef:
-    return L1ReleaseSourceRef(
-        kind="l1_release",
+def release_source(release_id: str = "20260130T000000Z-release") -> LakeReleaseSourceRef:
+    return LakeReleaseSourceRef(
+        kind="lake_release",
         source_id=release_id,
         key=release_manifest_key(release_id=release_id),
         sha256="b" * 64,
-        manifest_version=1,
+        manifest_version=2,
     )
 
 
 def _snapshot_source() -> SQLiteSnapshotSourceRef:
-    digest = hashlib.sha256(b"synthetic L1 test input\n").hexdigest()
+    digest = hashlib.sha256(b"synthetic lake test input\n").hexdigest()
     return SQLiteSnapshotSourceRef(
         kind="sqlite_snapshot",
         source_id=f"market-v{SQLITE_SCHEMA_VERSION}-{digest[:24]}",
@@ -59,7 +61,7 @@ def _snapshot_source() -> SQLiteSnapshotSourceRef:
     )
 
 
-def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
+def stored_release_source(root: Path) -> tuple[Path, LakeReleaseSourceRef]:
     """A checksum-consistent retained graph, with placeholder rather than Parquet bytes.
 
     This exercises reference closure and retention. It does not establish Parquet
@@ -69,9 +71,13 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
     reference = release_source()
     dataset = LAKE_DATASETS["jquants.daily_bars"]
     body = b"parquet-bytes-for-test"
-    object_key = (
-        f"lake/l1/canonical/{dataset.name}/contract=v{dataset.contract_version}"
-        f"/year=2026/month=1/part-{hashlib.sha256(body).hexdigest()}.parquet"
+    object_key = canonical_object_key(
+        layer=dataset.layer,
+        dataset=dataset.name,
+        contract_version=dataset.contract_version,
+        partition_values={"year": 2026, "month": 1},
+        content_sha256=hashlib.sha256(body).hexdigest(),
+        partition_by=dataset.partition_by,
     )
     object_path = root / object_key
     object_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,9 +96,9 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
         sources=(_snapshot_source(),),
     )
     dataset_manifest = DatasetManifest(
-        manifest_version=1,
+        manifest_version=2,
         dataset=dataset.name,
-        layer="l1_canonical",
+        layer=dataset.layer,
         contract_version=dataset.contract_version,
         build_id="20260130T000000Z-legacy-abcdef01-0123456789ab",
         created_at=datetime(2026, 1, 30, tzinfo=UTC),
@@ -113,7 +119,7 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
     dataset_path.parent.mkdir(parents=True, exist_ok=True)
     dataset_path.write_bytes(dataset_bytes)
     release = ReleaseManifest(
-        manifest_version=1,
+        manifest_version=2,
         release_id=reference.source_id,
         profile="production",
         created_at=datetime(2026, 1, 30, tzinfo=UTC),
@@ -121,6 +127,7 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
         datasets={
             dataset.name: ReleaseDataset(
                 build_id=dataset_manifest.build_id,
+                layer=dataset.layer,
                 contract_version=dataset.contract_version,
                 manifest_sha256=hashlib.sha256(dataset_bytes).hexdigest(),
                 data_as_of=dataset_manifest.data_as_of,
@@ -177,6 +184,20 @@ def market_store(
         "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) VALUES (?, ?, ?, ?)",
         list(daily_bars),
     )
+    # This synthetic fixture represents a completed fetch across the supplied span.
+    # Production coverage is recorded by acquisition, never inferred from rows.
+    if daily_bars:
+        record_range_source_coverage(
+            connection,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=date.fromisoformat(min(row[1] for row in daily_bars)),
+            requested_end=date.fromisoformat(max(row[1] for row in daily_bars)),
+            status="ok",
+            error=None,
+        )
     connection.executemany(
         """INSERT INTO jquants_short_sale_reports(
              disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
@@ -245,18 +266,18 @@ def lake(tmp_path, monkeypatch):
             ).manifest_path
             for name in datasets
         ]
-    path, release = create_l1_release(
+    path, release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id="test-release",
         created_at=built,
     )
-    pointer = L1ReleasePointer(
+    pointer = LakeReleasePointer(
         release_id=release.release_id,
         manifest_key=path.relative_to(mirror).as_posix(),
         manifest_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
     )
-    current = mirror / current_l1_pointer_key()
+    current = mirror / current_release_pointer_key()
     current.parent.mkdir(parents=True)
     current.write_bytes(canonical_lake_model_bytes(pointer))
     return mirror, pointer

@@ -299,7 +299,7 @@ def read_margin_alerts(
             "long_negotiable_outstanding, long_negotiable_change, long_standard_outstanding, "
             "long_standard_change, tse_margin_regulation_classification "
             "FROM jquants_margin_alerts WHERE publication_date BETWEEN ? AND ? "
-            "ORDER BY publication_date, ticker",
+            "ORDER BY publication_date, ticker, applied_date",
             (start.isoformat(), end.isoformat()),
         ).fetchall()
     finally:
@@ -308,7 +308,7 @@ def read_margin_alerts(
         JQuantsMarginAlert(
             publication_date=date.fromisoformat(str(row[0])),
             ticker=str(row[1]),
-            applied_date=optional_date(row[2]),
+            applied_date=date.fromisoformat(str(row[2])),
             publication_reason=str(row[3]) if row[3] is not None else None,
             short_outstanding=_opt_float_value(row[4]),
             short_change=_opt_float_value(row[5]),

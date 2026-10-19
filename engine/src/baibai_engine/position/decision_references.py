@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.position.ledger import ExecutionEvent, LedgerEvent, ReservationEvent
 from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.storage.application.paths import database_path

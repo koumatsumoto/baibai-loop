@@ -11,7 +11,7 @@ from tests.engine.screening.metric_fixtures import (
     _summary,
 )
 
-from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.market.price_models import JQuantsDailyBar
 from baibai_engine.screening.calibration.forward import (
     _asof_basis_dividend as _forward_asof_basis_dividend,
 )

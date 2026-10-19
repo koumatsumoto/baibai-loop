@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 # 意味変更時だけ明示更新する。配置・import・transport retryは対象外。
 # native CSVの科目・当期範囲・JPY単位・欠測と12か月フローを区別する。
-EDINET_METRIC_REVISION = "edinet-metrics-v6-capex-total-presence"
+EDINET_METRIC_REVISION = "edinet-metrics-v7-consolidation-dei-scope"
 
 
 def has_hard_metric_failure(reasons: Sequence[str]) -> bool:

@@ -9,10 +9,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
+from mcp.types import CallToolResult
+from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.screening_sqlite import make_master_records
 
+from baibai_engine.collection.tradingview.receipts import retain_tool_result
 from baibai_engine.external_assessment.tradingview.collector import collect, preflight_snapshot
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
@@ -23,12 +25,13 @@ from baibai_engine.storage.lake.reader import (
     resolve_release,
     selected_partitions,
 )
-from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import (
     export_dataset_snapshot,
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
 from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
@@ -36,6 +39,78 @@ from baibai_engine.storage.observations.reader import read_eq_master_exact
 from baibai_engine.storage.observations.schema import open_connection
 
 NAME = "tradingview.forecast_snapshots"
+
+
+def test_raw_only_failed_acquisition_receipt_survives_fixed_release(tmp_path, monkeypatch):
+    dataset = "tradingview.source_receipts"
+    narrow_release_policy(monkeypatch, datasets=(dataset,))
+    source_path = store(tmp_path / "source.sqlite", 1)
+    results = (
+        CallToolResult(isError=True, content=[], structuredContent={"status": 429}),
+        CallToolResult(isError=True, content=[], structuredContent={"status": 503}),
+        CallToolResult(isError=False, content=[], structuredContent={"unexpected": "malformed"}),
+    )
+    with closing(sqlite3.connect(source_path)) as conn:
+        for result in results:
+            retain_tool_result(
+                conn,
+                snapshot_date=DAY,
+                master_asof=DAY,
+                tool_name="test_tool",
+                received_at_utc=NOW,
+                requested_symbols=["1000"],
+                requested_columns=["close"],
+                result=result,
+            )
+    with closing(sqlite3.connect(source_path)) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM tradingview_source_receipts WHERE snapshot_date=?",
+            (DAY.isoformat(),),
+        ).fetchone() == (3,)
+    assert stored(source_path) == []
+    mirror = tmp_path / "mirror"
+    with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
+        manifest = export_dataset_snapshot(
+            dataset_name=dataset,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            source_snapshot=snapshot,
+            build_id="raw-only-receipts",
+        ).manifest_path
+    release_path, _ = create_release(
+        dataset_manifest_paths=[manifest], mirror_root=mirror, release_id="raw-only-release"
+    )
+    digest = hashlib.sha256(release_path.read_bytes()).hexdigest()
+    source = LocalMirrorSource(mirror)
+    release = resolve_release(source, release_id="raw-only-release", manifest_sha256=digest)
+    cache = LakeObjectCache(root=mirror, source=source)
+    restored = tmp_path / "restored.sqlite"
+    open_connection(restored).close()
+    with lake_session() as session:
+        hydrate_market_store(
+            session, release=release, cache=cache, store=restored, dataset_names=(dataset,)
+        )
+    with closing(sqlite3.connect(restored)) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM tradingview_source_receipts WHERE snapshot_date=?",
+            (DAY.isoformat(),),
+        ).fetchone() == (3,)
+    assert stored(restored) == []
+    with closing(sqlite3.connect(restored)) as conn:
+        restored_json = [
+            row[0]
+            for row in conn.execute(
+                "SELECT result_json FROM tradingview_source_receipts ORDER BY result_json"
+            )
+        ]
+    with closing(sqlite3.connect(source_path)) as conn:
+        original_json = [
+            row[0]
+            for row in conn.execute(
+                "SELECT result_json FROM tradingview_source_receipts ORDER BY result_json"
+            )
+        ]
+    assert restored_json == original_json
 
 
 @pytest.mark.parametrize("manual_observation", [False, True])
@@ -46,6 +121,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         "jquants.daily_bars",
         "jquants.market_calendar",
         "jquants.master_snapshots",
+        "tradingview.source_receipts",
         NAME,
     )
     narrow_release_policy(monkeypatch, datasets=datasets)
@@ -78,9 +154,20 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
             ("1000", DAY.isoformat(), 100),
         )
+        record_range_source_coverage(
+            conn,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=DAY,
+            requested_end=DAY,
+            status="ok",
+            error=None,
+        )
 
-    async def fetch(symbols):
-        return payload(symbols)
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols))
 
     asyncio.run(collect(path, DAY, fetch, interval=0, clock=lambda: NOW))
     mirror = tmp_path / "mirror"
@@ -97,7 +184,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
                 ).manifest_path
                 for i, name in enumerate(datasets)
             ]
-        manifest_path, _ = create_l1_release(
+        manifest_path, _ = create_release(
             dataset_manifest_paths=manifests,
             mirror_root=mirror,
             release_id=release_id,
@@ -126,12 +213,12 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
 
     calls = 0
 
-    async def partial_fetch(symbols):
+    async def partial_fetch(symbols, _columns):
         nonlocal calls
         calls += 1
         if calls == 2:
             raise ProviderHTTPError(429)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     first = asyncio.run(
         collect(
@@ -222,8 +309,8 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     narrow_release_policy(monkeypatch, datasets=[NAME])
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def fetch(symbols):
-        return payload(symbols, missing=symbols[1:])
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols, missing=symbols[1:]))
 
     asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
     next_day = date(2026, 10, 1)
@@ -250,7 +337,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     ]
     assert exported.manifest.totals.rows == 4
     validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=exported.manifest)
-    manifest_path, _ = create_l1_release(
+    manifest_path, _ = create_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="tv-release",

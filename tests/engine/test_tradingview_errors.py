@@ -6,11 +6,11 @@ import pytest
 from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.shared.exceptions import MCPError
 
-from baibai_engine.external_assessment.tradingview import cli, diagnostics
-from baibai_engine.external_assessment.tradingview.auth import (
+from baibai_engine.collection.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
+from baibai_engine.external_assessment.tradingview import cli, diagnostics
 from baibai_engine.external_assessment.tradingview.collector import SourceDataError, TimeGuardError
 from baibai_engine.external_assessment.tradingview.observations import FetchError
 
@@ -292,7 +292,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
 
     from mcp.shared.auth import OAuthToken
     from tests.engine.test_tradingview_auth import state
-    from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
+    from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
     path = store(tmp_path / "market.sqlite")
     progress_path = tmp_path / "progress.json"
@@ -309,7 +309,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
         await storage_ref[0].set_tokens(
             OAuthToken(access_token="private-token", token_type="Bearer")
         )
-        return payload(args[1])
+        return _sdk(payload(args[1]))
 
     def write(path, value):
         writes.append(value)

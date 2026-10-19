@@ -9,8 +9,8 @@ status: active
 
 ## 1. 目的
 
-JPX の信用取引残高は 2026-09-28 に公表粒度が変更された。L1 store は変更前後のデータを別 table・
-別 balance date 域として保持し、指標側は「どちらの series がその balance date を公表したか」を
+JPX の信用取引残高は 2026-09-28 に公表粒度が変更された。L1は取得応答を原本として保持し、
+L2 projectionは変更前後のデータを別table・別balance date域に分ける。指標側は「どちらのseriesがそのbalance dateを公表したか」を
 明示して読む。本書は公表日、balance date、対象母集団を区別する取込契約の正本である。
 
 本書は§6の固定語義と制度切替後のsource契約を所有する。初回契約確認と連続性の実測は
@@ -32,11 +32,13 @@ JPX の集計システムは 2026-09-27 に移行した。変更後データの�
 | source / table | 対象 | 日付 identity | cadence / 公表 | 利用契約 |
 | --- | --- | --- | --- | --- |
 | J-Quants `margin-interest` / `jquants_weekly_margin` | 全銘柄 | `week_end` | 2026-09-18 残高まで週次。原則第2営業日に公表 | 2026-09-18 残高までの `margin_*` の残高 source。9/18 後を拒否する |
-| J-Quants `margin-alert` / `jquants_margin_alerts` | 日々公表銘柄等だけ | `(publication_date, ticker)` | 日次。現行 API は同日 16:30 更新 | 過熱・規制 risk の fact / annotation 用。全銘柄系列や rank / gate へ代用しない |
+| J-Quants `margin-alert` / `jquants_margin_alerts` | 日々公表銘柄等だけ | `(publication_date, ticker, applied_date)` | 日次。現行 API は同日 16:30 更新 | 過熱・規制 risk の fact / annotation 用。全銘柄系列や rank / gate へ代用しない |
 | J-Quants `margin-interest` 全銘柄 daily / `jquants_all_issues_daily_margin` | 全銘柄 | `(balance_date, ticker)` | 2026-09-25 残高から日次。翌営業日 16:00 公表 | 2026-09-25 残高以後の `margin_*` の残高 source。ClientV2 bindingは2026-09-28に実payloadを確認して有効化した（[検証記録](../../reports/operations/2026-09-28-margin-publication-transition/contract.md)）。週次 table と row を union しない |
 
-`margin-alert` は `PubDate` と `AppDate` を別々に保存する。`TSEMrgnRegCls` は取引所の規制
-分類 fact であり、残高値から導出しない。全銘柄日次系列は `Date` を balance date として保存し、
+`margin-alert` は `PubDate`（公表日）と `AppDate`（残高基準の申込日）を別々に保存する。
+`AppDate` は規制の適用開始日ではない。同じ銘柄・公表日でも申込日が違えば別の残高として保持し、
+同じ申込日への後日訂正も公表日別に保持する。`TSEMrgnRegCls` は取引所の規制分類 fact であり、
+残高値から導出しない。全銘柄日次系列は `Date` を balance date として保存し、
 公表前の当日残高を要求しない。
 
 ## 4. field 対応
@@ -48,10 +50,10 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 
 全銘柄日次系列では `PubDate` と六つの金額 field（`LongVal` / `ShrtVal`、standard / negotiable 内訳）も保存・lake 公開する。現在の L2 が株数だけを使うことを理由に、同じ応答で得られる金額を捨てない。値は提供元の単位のまま保持し、株数×市場価格で補完しない。欠測は null とし、金額欠測を理由に正常な株数まで再取得しない。`PubDate` は公表日であり、正確な API 利用可能時刻ではない。現行 serving の公表可否は§6の暦規約を使う。
 
-旧保存にはこの公表日・金額がないため、schema 切替だけで値を復元したことにしない。PR マージ後に利用可能な原本を再利用し、不足する期間だけ再取得して再構築する。runtime に旧schema救済は追加しない。[公式 ClientV2 の現行列定義](https://github.com/J-Quants/jquants-api-client-python/blob/main/jquantsapi/constants.py)を入力契約の確認に使う。
+旧保存にはこの公表日・金額がないため、schema 切替だけで値を復元したことにしない。利用可能な原本を再利用し、不足する期間だけ再取得して再構築・検証したうえでcodeとstoreを切り替える。runtime に旧schema救済は追加しない。[公式 ClientV2 の現行列定義](https://github.com/J-Quants/jquants-api-client-python/blob/main/jquantsapi/constants.py)を入力契約の確認に使う。
 
 日々公表銘柄等は `ShrtOut` / `LongOut`、各 change / ratio、standard / negotiable 内訳、
-`PubReason`、`TSEMrgnRegCls` を provider field のまま L1 列へ写す。この dataset は対象銘柄が
+`PubReason`、`TSEMrgnRegCls` を原本に保持し、対応する L2 列へ投影する。この dataset は対象銘柄が
 選別されるため、欠けている ticker を残高ゼロと解釈しない。
 
 ## 5. 連続性と発火条件
@@ -93,6 +95,6 @@ ISO 週の最終 balance date だけを sampling する。欠測週を補間し�
 日次の高頻度性そのものを使う軸（日次 delta など）はこの列へ足さない。別名の metric と事前登録
 study を用意する。
 
-serving の統合列は `sqlite_reader.published_margin_balance_dates` で、公表ラグは cadence 別に
+serving の統合列は `storage.observations.reader.published_margin_balance_dates` で、公表ラグは cadence 別に
 持つ（週次は第 2 営業日、日次は翌営業日）。いずれも公表日当日のas-ofには含めず、
 公表日より後のas-ofから利用する。

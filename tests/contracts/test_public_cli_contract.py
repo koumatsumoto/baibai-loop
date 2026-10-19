@@ -37,6 +37,7 @@ def test_candidate_capacity_is_not_a_public_cli_override() -> None:
 def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
     choices = _choices(build_research_parser())
     assert {
+        "market-context",
         "selection-context",
         "prepare",
         "assessment-scaffold",
@@ -74,7 +75,7 @@ def test_routed_domain_help_reaches_its_parser(domain: str) -> None:
     assert exit_info.value.code == 0
 
 
-@pytest.mark.parametrize("group", ["indicators", "reading", "assessment"])
+@pytest.mark.parametrize("group", ["indicators", "reading"])
 def test_market_context_group_help_reaches_its_owner(group: str) -> None:
     with pytest.raises(SystemExit) as result:
         main(["market-context", group, "--help"])
@@ -144,3 +145,12 @@ for module in ("app", "cache", "run", "query"):
         ],
         check=True,
     )
+
+
+def test_market_judgment_is_owned_by_research_cli():
+    with pytest.raises(SystemExit) as result:
+        main(["research", "market-context", "--help"])
+    assert result.value.code == 0
+    with pytest.raises(SystemExit) as retired:
+        main(["market-context", "assessment", "--help"])
+    assert retired.value.code == 2

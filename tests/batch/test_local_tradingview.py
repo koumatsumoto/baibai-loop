@@ -2,16 +2,26 @@
 
 import json
 import os
+import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from mcp.types import CallToolResult
 
 from baibai_batch.jobs import tradingview as runner
+from baibai_batch.jobs import tradingview_receipts as receipt_jobs
+from baibai_batch.jobs.tradingview_receipts import can_publish_failure_receipts, count_layer_rows
+from baibai_engine.batch_api import MarketSchemaError
+from baibai_engine.collection.tradingview.receipts import retain_tool_result
+from baibai_engine.storage.observations.schema import open_connection
+
+REAL_COMMAND = runner.command
 
 
 @pytest.fixture
@@ -87,6 +97,7 @@ def runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.lease, "main", lease_main)
     monkeypatch.setattr(runner, "command", command)
     monkeypatch.setattr(runner, "preflight", preflight)
+    monkeypatch.setattr(runner, "count_layer_rows", lambda *_a: (0, 0))
     return state, calls, settings
 
 
@@ -269,6 +280,64 @@ def test_real_command_timeout_kills_descendants(tmp_path, monkeypatch):
         time.sleep(0.01)
 
 
+def test_refresh_stderr_uses_final_safe_category_without_echo(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    stderr_path = tmp_path / "stderr.log"
+    script = (
+        "import sys; "
+        "print('TradingView acquisition failed; category=provider_response', file=sys.stderr); "
+        "print('private-token', file=sys.stderr); "
+        "print('TradingView acquisition failed; category=storage', file=sys.stderr); "
+        "sys.exit(1)"
+    )
+    with pytest.raises(runner.StageFailure) as error:
+        runner.command([sys.executable, "-c", script], stderr_path=stderr_path)
+    assert error.value.category == "storage"
+    assert "private-token" not in capsys.readouterr().err
+
+
+def test_count_uses_validated_read_transaction(tmp_path, monkeypatch):
+    market = tmp_path / "market.sqlite"
+    open_connection(market).close()
+    original_validate = receipt_jobs.validate_market_schema
+
+    def validate(conn):
+        assert conn.in_transaction
+        assert conn.execute("PRAGMA query_only").fetchone() == (1,)
+        original_validate(conn)
+
+    monkeypatch.setattr(receipt_jobs, "validate_market_schema", validate)
+    assert count_layer_rows(market, date(2026, 9, 28)) == (0, 0)
+    malformed = tmp_path / "malformed.sqlite"
+    sqlite3.connect(malformed).close()
+    with pytest.raises(MarketSchemaError):
+        count_layer_rows(malformed, date(2026, 9, 28))
+
+
+def test_actual_refresh_failure_prints_only_safe_category(runtime, monkeypatch, capsys):
+    state, calls, _settings = runtime
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh-child-stopped")
+            script = (
+                "import sys; "
+                "print('private-token', file=sys.stderr); "
+                "print('TradingView acquisition failed; category=provider_response', file=sys.stderr); "
+                "sys.exit(1)"
+            )
+            return REAL_COMMAND([sys.executable, "-c", script], stderr_path=kwargs["stderr_path"])
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    assert runner.main(["--state-file", str(state)]) == 1
+    stderr = capsys.readouterr().err
+    assert "TradingView acquisition failed; category=provider_response" in stderr
+    assert "private-token" not in stderr
+    assert "publish-lake" not in calls
+
+
 def test_collection_and_release_failures_are_both_reported(runtime, capsys):
     state, _, settings = runtime
     settings["fail"] = "refresh"
@@ -365,3 +434,224 @@ def test_batch_size_is_not_a_configurable_operational_option(runtime):
         runner.main(["--state-file", str(state), "--batch-size", "50"])
     assert error.value.code == 2
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("category", "receipt"),
+    [
+        (
+            "provider_rate_limit",
+            CallToolResult(isError=True, content=[], structuredContent={"status": 429}),
+        ),
+        (
+            "provider_response",
+            CallToolResult(isError=False, content=[], structuredContent={"unexpected": 1}),
+        ),
+        (
+            "provider_transport",
+            CallToolResult(isError=True, content=[], structuredContent={"status": 503}),
+        ),
+        ("auth", CallToolResult(isError=True, content=[], structuredContent={"status": 401})),
+        (
+            "secret_persistence",
+            CallToolResult(isError=False, content=[], structuredContent={"unexpected": 1}),
+        ),
+        (
+            "time_guard",
+            CallToolResult(isError=False, content=[], structuredContent={"unexpected": 1}),
+        ),
+        ("timeout", CallToolResult(isError=False, content=[], structuredContent={"unexpected": 1})),
+    ],
+)
+def test_failed_acquisition_publishes_retained_l1_only(
+    runtime, monkeypatch, tmp_path, category, receipt
+):
+    state, calls, _settings = runtime
+    market = runner.ROOT / runner.MARKET_DB_PATH
+    market.parent.mkdir(parents=True, exist_ok=True)
+    with open_connection(market):
+        pass
+    monkeypatch.setattr(
+        runner,
+        "count_layer_rows",
+        lambda _path, day: count_layer_rows(market, day),
+    )
+    original = runner.command
+    published = tmp_path / "published.sqlite"
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh-child-stopped")
+            with sqlite3.connect(market) as conn:
+                retain_tool_result(
+                    conn,
+                    snapshot_date=date(2026, 9, 28),
+                    master_asof=date(2026, 9, 28),
+                    tool_name="test_tool",
+                    received_at_utc=datetime(2026, 9, 28, tzinfo=UTC),
+                    requested_symbols=["1000"],
+                    requested_columns=["close"],
+                    result=receipt,
+                )
+            raise runner.StageFailure("original acquisition failure", category=category)
+        if args[-1] == "publish-lake":
+            calls.append("publish-lake")
+            shutil.copyfile(market, published)
+            return ""
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    assert runner.main(["--state-file", str(state)]) == 1
+    assert calls[-3:] == ["refresh-child-stopped", "publish-lake", "release"]
+    assert can_publish_failure_receipts(category, 0, 1, 0, 0)
+    with sqlite3.connect(published) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone() == (1,)
+        assert conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone() == (
+            0,
+        )
+
+
+@pytest.mark.parametrize("category", ["internal", "storage", "unknown", None])
+def test_nonprovider_failure_does_not_expand_publication(runtime, monkeypatch, category):
+    state, calls, _settings = runtime
+    counts = iter([(0, 0), (1, 0)])
+    monkeypatch.setattr(runner, "count_layer_rows", lambda *_a: next(counts))
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh-child-stopped")
+            raise runner.StageFailure("failed", category=category)
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    assert runner.main(["--state-file", str(state)]) == 1
+    assert "publish-lake" not in calls
+    assert calls[-1] == "release"
+
+
+def test_no_receipt_delta_does_not_publish_transport_failure(runtime, monkeypatch):
+    state, calls, _settings = runtime
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            raise runner.StageFailure("failed", category="provider_transport")
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    assert runner.main(["--state-file", str(state)]) == 1
+    assert "publish-lake" not in calls
+
+
+def test_failed_acquisition_with_l2_delta_does_not_expand_publication(runtime, monkeypatch):
+    state, calls, _settings = runtime
+    counts = iter([(0, 0), (1, 1)])
+    monkeypatch.setattr(runner, "count_layer_rows", lambda *_a: next(counts))
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            raise runner.StageFailure("failed", category="provider_response")
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    assert runner.main(["--state-file", str(state)]) == 1
+    assert "publish-lake" not in calls
+    assert calls[-1] == "release"
+
+
+def test_publication_failure_keeps_original_acquisition_failure(runtime, monkeypatch, capsys):
+    state, calls, _settings = runtime
+    counts = iter([(0, 0), (1, 0)])
+    monkeypatch.setattr(runner, "count_layer_rows", lambda *_a: next(counts))
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh-child-stopped")
+            raise runner.StageFailure("original acquisition failure", category="provider_response")
+        if args[-1] == "publish-lake":
+            calls.append("publish-lake")
+            raise runner.StageFailure("private publication detail")
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    with pytest.raises(runner.StageFailure, match="original acquisition failure"):
+        runner.run_local(state)
+    assert calls[-3:] == ["refresh-child-stopped", "publish-lake", "release"]
+    stderr = capsys.readouterr().err
+    assert "category=storage" in stderr
+    assert "private publication detail" not in stderr
+
+
+def test_actual_timeout_bounds_recovery_and_preserves_failure(runtime, monkeypatch, capsys):
+    state, calls, _settings = runtime
+    counts = iter([(0, 0), (1, 0)])
+    monkeypatch.setattr(runner, "count_layer_rows", lambda *_a: next(counts))
+    monkeypatch.setattr(runner, "RECOVERY_PUBLISH_TIMEOUT", 0.03)
+    original = runner.command
+    sleeper = [sys.executable, "-c", "import time; time.sleep(60)"]
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh-child-stopped")
+            return REAL_COMMAND(sleeper, timeout=0.07)
+        if args[-1] == "publish-lake":
+            calls.append("publish-lake")
+            assert kwargs["timeout"] == 0.03
+            return REAL_COMMAND(sleeper, timeout=kwargs["timeout"])
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    with pytest.raises(subprocess.TimeoutExpired) as error:
+        runner.run_local(state)
+    assert error.value.timeout == 0.07
+    assert calls[-3:] == ["refresh-child-stopped", "publish-lake", "release"]
+    assert "category=storage" in capsys.readouterr().err
+
+
+def test_actual_overall_alarm_bounds_recovery_publication(runtime, monkeypatch, capsys):
+    state, calls, _settings = runtime
+    counts = iter([(0, 0), (1, 0)])
+    monkeypatch.setattr(runner, "count_layer_rows", lambda *_a: next(counts))
+    monkeypatch.setattr(runner, "RECOVERY_PUBLISH_TIMEOUT", 0.03)
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh-child-stopped")
+            script = "import os,signal,time; os.kill(os.getppid(), signal.SIGALRM); time.sleep(60)"
+            return REAL_COMMAND([sys.executable, "-c", script], timeout=5)
+        if args[-1] == "publish-lake":
+            calls.append("publish-lake")
+            assert kwargs["timeout"] == 0.03
+            return REAL_COMMAND(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                timeout=kwargs["timeout"],
+            )
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    with pytest.raises(runner.RunTimeout):
+        runner.run_local(state)
+    assert calls[-3:] == ["refresh-child-stopped", "publish-lake", "release"]
+    assert "category=storage" in capsys.readouterr().err
+
+
+def test_actual_cancellation_stops_without_recovery_publication(runtime, monkeypatch, capsys):
+    state, calls, _settings = runtime
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh-child-stopped")
+            script = "import os,signal,time; os.kill(os.getppid(), signal.SIGTERM); time.sleep(60)"
+            return REAL_COMMAND([sys.executable, "-c", script], timeout=5)
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    assert runner.main(["--state-file", str(state)]) == 1
+    assert calls[-2:] == ["refresh-child-stopped", "release"]
+    assert "publish-lake" not in calls
+    assert "category=cancelled" in capsys.readouterr().err

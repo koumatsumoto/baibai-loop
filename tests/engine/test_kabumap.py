@@ -16,9 +16,9 @@ from baibai_batch.jobs.external_assessment_cohorts import make_plan
 from baibai_batch.storage.external_assessment_raw import RAW_PREFIX, read_raw_bundle
 from baibai_batch.storage.external_assessment_staging import read_stages
 from baibai_engine.external_assessment.acquisition import collection
-from baibai_engine.external_assessment.acquisition.sources import ParseError, kabumap
 from baibai_engine.external_assessment.acquisition.universe import frozen_universe
 from baibai_engine.external_assessment.acquisition.verification import verify_observations
+from baibai_engine.external_assessment.normalization import ParseError, kabumap
 from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
 from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.external_assessment.store import ObservationConflictError, save_observations
@@ -128,9 +128,6 @@ def test_cutoff_immutable_replay_and_conflict(tmp_path):
     path = tmp_path / "market.sqlite"
     first = observation()
     later = observation(text=html(cheap="9/10"), received=RECEIVED + timedelta(days=1))
-    stage = tmp_path / "quants.json"
-    collection.save_staging(stage, [first, later])
-    assert collection.load_staging(stage) == (first, later)
     assert save_observations(path, [first, later]) == 2
     assert save_observations(path, [first, later]) == 0
     assert read_observations(path, "130A", RECEIVED).quants_scores[0].latest == first
@@ -153,8 +150,13 @@ def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect):
     assert read_stages(store, p)[0][0] == saved
     manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
     meta, body = manifest["receipts"][0], bodies[0]
+    assert body.source == "kabumap"
+    assert body.role == "page"
+    assert body.attempt_id == saved.result.entries[0].attempt_id
+    assert body.body == html().encode("shift_jis")
     reparsed = observation(
-        text=body.decode(meta["encoding"]), received=datetime.fromisoformat(meta["fetched_at_utc"])
+        text=body.body.decode(meta["selected_encoding"]),
+        received=datetime.fromisoformat(meta["received_at_utc"]),
     )
     assert reparsed == saved.result.observations[0]
     external_assessment_daily.acquire_cohort(store, p, 0)

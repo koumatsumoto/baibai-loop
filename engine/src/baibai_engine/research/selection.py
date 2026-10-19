@@ -18,8 +18,8 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.research.selection_policy import ResearchCapacity, validate_capacity
 from baibai_engine.storage.application.json import canonical_json
 

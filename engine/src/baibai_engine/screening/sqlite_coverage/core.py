@@ -12,7 +12,7 @@ from baibai_engine.screening.metrics.snapshot import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
-from baibai_engine.storage.observations.coverage import daily_bars_covered_by_data, range_covered
+from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
@@ -98,11 +98,10 @@ def verify_screening_sqlite_coverage(
             if schema_shape_issue is not None:
                 return (schema_shape_issue,)
             _append_master_snapshot_issues(conn, issues, asof_date=asof_date)
-            # Daily-bars fetch reuse checks stored-date spans and gaps, not full
-            # cross-section completeness. Quality / density checks run regardless
-            # so a grossly incomplete cache reports both the missing window and
-            # the specific density problem, rather than only the first failure.
-            bars_window_covered = daily_bars_covered_by_data(conn, bars_start, asof_date)
+            # Acquisition coverage and analytical density are separate. Quality /
+            # density checks run regardless so a sparse accepted response still
+            # reports the specific input problem.
+            bars_window_covered = range_covered(conn, "jquants_daily_bars", bars_start, asof_date)
             _append_source_coverage_quality_issues(
                 conn,
                 issues,
@@ -185,7 +184,7 @@ def verify_screening_sqlite_coverage(
                     start=fin_start,
                     end=asof_date,
                 )
-            if not daily_bars_covered_by_data(conn, normalized_start, asof_date):
+            if not range_covered(conn, "jquants_daily_bars", normalized_start, asof_date):
                 issues.append(
                     CacheCoverageIssue(
                         source="jquants_daily_bars",

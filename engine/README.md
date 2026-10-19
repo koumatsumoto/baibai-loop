@@ -4,7 +4,7 @@ Baibai Loopのdomain処理と正本への書き込みを所有します。
 
 | 項目 | 内容 |
 | --- | --- |
-| 所有 | Valuation、Market Context、External Assessment、Screening、Research、Portfolio/Position、Operation、task、application storage、query-only `read_api` |
+| 所有 | Collection（外部原本の取得・保持）、共通market L2、Valuation、Market Context、External Assessment、Screening、Research、Portfolio/Position、Operation、task、共有storage、query-only `read_api` |
 | 所有しない | Web表示、定期実行、store転送、開発tool |
 | 入口 | `baibai-engine`、`baibai_engine.read_api`、batch向け`baibai_engine.batch_api` |
 | 依存境界 | `baibai_web`、`baibai_batch`、`tools`をimportしない。import-linterが検査する |

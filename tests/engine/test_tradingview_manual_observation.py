@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import httpx2
 import pytest
-from tests.engine.test_tradingview_collector import Timer, payload, store, stored
+from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
 
 from baibai_engine.external_assessment.tradingview import cli
 from baibai_engine.external_assessment.tradingview.collector import collect, preflight_snapshot
@@ -55,12 +55,12 @@ def test_weekend_observation_resumes_only_missing_and_preserves_nulls_times_and_
     starts, ends = [], []
     requests = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         requests.append(symbols)
         starts.append(timer.value)
         timer.value += 5
         ends.append(timer.value)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def sleep(seconds):
         assert seconds >= 15
@@ -107,7 +107,7 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
     timer = Timer()
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         if failure == "soft_budget":
             timer.value = 1490
@@ -118,7 +118,7 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
                 request=httpx2.Request("GET", "https://example.com"),
             )
             raise httpx2.HTTPStatusError("private", request=response.request, response=response)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def sleep(_seconds):
         pass
@@ -145,9 +145,9 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
     assert first[:100] == prior
     requests = []
 
-    async def resume(symbols):
+    async def resume(symbols, _columns):
         requests.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, resume, master_asof=MASTER, clock=lambda: NOW))
     assert (result["rows_added"], result["remaining"]) == (2, 0)
@@ -214,8 +214,8 @@ def test_manual_cli_passes_today_and_saved_master_and_completed_noop_avoids_oaut
         assert options["master_asof"] == MASTER
         assert interval == 15
 
-        async def fetch(symbols):
-            return payload(symbols)
+        async def fetch(symbols, _columns):
+            return _sdk(payload(symbols))
 
         return await collect(path, DAY, fetch, master_asof=MASTER, clock=lambda: NOW)
 
@@ -240,10 +240,10 @@ def test_weekend_response_after_midnight_is_rejected(tmp_path):
     before = stored(path)
     count = 0
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         nonlocal count
         count += 1
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     with pytest.raises(FetchError):
         asyncio.run(
@@ -274,9 +274,9 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
     )
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, observation_day, fetch, clock=lambda: morning))
     assert (result["status"], result["master_asof"], result["rows_added"]) == (
@@ -368,8 +368,8 @@ def test_business_day_manual_morning_does_not_block_post_close_collection(
     assert json.loads(capsys.readouterr().out)["status"] == "before_close"
     assert stored(path) == []
 
-    async def fetch(symbols):
-        return payload(symbols)
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols))
 
     with pytest.raises(TimeGuardError):
         asyncio.run(collect(path, day, fetch, master_asof=day, clock=lambda: morning))

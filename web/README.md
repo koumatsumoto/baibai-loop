@@ -40,7 +40,7 @@ Bearerに使い、401ではそのtokenだけを消して通常の認証画面へ
 APIはGET専用、no-storeです。share付きbootstrap documentはno-store / no-referrer /
 noindex, nofollow, noarchiveを返し、通常のstatic配信は維持します。
 
-market L1は同じ認証で`GET /api/lake/current`と`GET /api/lake/object?key=<object-key>`からraw bytesを
+market lakeのL1原本・L2派生値は同じ認証で`GET /api/lake/current`と`GET /api/lake/object?key=<object-key>`からraw bytesを
 取得できます。canonical bucketへの接続はbucket-scoped Object Read only S3 credentialを使い、Workerへ
 write-capableなcanonical R2 bindingを付けません。新routeはmaterializer outputではないため
 `contracts/routes.json`へ追加せず、`edge/tests`でtransport境界を検証します。

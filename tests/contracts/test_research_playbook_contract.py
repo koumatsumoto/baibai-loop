@@ -46,5 +46,5 @@ def test_research_skill_completes_the_investment_proposal_session() -> None:
     assert "--selection-file" in text
     assert "--operation-id" in text
     assert "record-unfinished" in text
-    assert "operation complete --payload" in text
+    assert "operation complete <OPERATION_ID> --payload" in text
     assert "人間の採否・broker操作・実約定を完了条件へ補完しない" in text

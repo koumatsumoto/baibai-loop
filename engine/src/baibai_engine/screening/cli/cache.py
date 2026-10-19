@@ -9,6 +9,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TextIO
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
+from baibai_engine.collection.jquants.http import JQuantsAcquisitionError
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError
@@ -27,7 +29,6 @@ from baibai_engine.screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
 from baibai_engine.storage.observations.coverage import (
-    EmptyRangeReplacementError,
     count_overlapping_source_coverage,
     count_source_coverage,
     delete_overlapping_source_coverage,
@@ -44,7 +45,14 @@ from baibai_engine.storage.observations.reader import (
 )
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
-from .providers import ProviderBundle
+from .providers import JQuantsMaintenance, ProviderBundle
+
+
+def _maintenance(providers: ProviderBundle) -> JQuantsMaintenance:
+    if providers.jquants_refresh is None:
+        raise ValueError("this command requires explicit J-Quants maintenance")
+    return providers.jquants_refresh
+
 
 # Market calendar bootstrap window. The unattended daily batch reads the current
 # day's calendar row to gate on business days, so bootstrap fetches a forward
@@ -96,7 +104,7 @@ def _print_cache_coverage_issues(
         print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
     print(
         "screening run is cache-only and will not fall back to raw JSON or provider APIs; "
-        "run bootstrap-cache --asof and extract-edinet-metrics, then rerun coverage verification.",
+        "run bootstrap-cache --asof and refresh-edinet-metrics, then rerun coverage verification.",
         file=stream,
     )
 
@@ -111,11 +119,11 @@ def invalidate_coverage_command(
 ) -> int:
     """Invalidate fetch coverage without deleting the stored observations.
 
-    Sources governed by coverage windows will be fetched again when required.
-    Sources that reuse actual observations, including daily bars, can still use
-    those observations; this command is not a forced refresh. With start/end,
-    only overlapping coverage windows are removed. Source retention, the active
-    plan and availability determine whether a later fetch can succeed.
+    Sources governed by coverage windows, including daily bars, will be fetched
+    again when required. Stored observations alone do not establish acquisition
+    coverage. With start/end, only overlapping coverage windows are removed.
+    Source retention, the active plan and availability determine whether a later
+    fetch can succeed.
     """
     out = stdout if stdout is not None else sys.stdout
     if (start is None) != (end is None):
@@ -214,34 +222,32 @@ def backfill_history_command(
     wrong one otherwise spends hours filling a store nobody reads and reports success.
     """
     out = stdout if stdout is not None else sys.stdout
+    refresh = _maintenance(providers)
     window = f"{start.isoformat()}..{end.isoformat()}"
     state = "existing" if sqlite_path.exists() else "new"
     print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
     print(f"backfill-history start: {window}", file=out, flush=True)
-    sources: tuple[tuple[str, Callable[[date, date], Sequence[object]], bool], ...] = (
-        ("daily_bars", providers.jquants.get_eq_bars_daily_range, True),
-        ("fin_summaries", providers.jquants.get_fin_summary_range, True),
-        ("market_calendar", providers.jquants.get_mkt_calendar, False),
-        ("short_sale_reports", providers.jquants.get_mkt_short_sale_report_range, True),
-        ("margin_alerts", providers.jquants.get_mkt_margin_alert_range, True),
+    sources: tuple[tuple[str, Callable[[date, date], int], bool], ...] = (
+        ("daily_bars", refresh.ensure_daily_bars, True),
+        ("fin_summaries", refresh.ensure_fin_summaries, True),
+        ("market_calendar", refresh.ensure_market_calendar, False),
+        ("short_sale_reports", refresh.ensure_short_sale_reports, True),
+        ("margin_alerts", refresh.ensure_margin_alerts, True),
     )
     weekly_margin_source = "weekly_margin"
     failures: list[str] = []
     for name, fetch, by_year in sources:
         print(f"backfill-history {name}: {window} start", file=out, flush=True)
-        # The range readers answer with every row in the window, so asking for a
-        # decade at once holds a decade of bars in memory for the sake of a count.
-        # A year at a time bounds that and reports progress on a pass that runs for
-        # hours; the calendar is one provider call and is not worth splitting.
+        # Bound historical source planning and progress by calendar year.
         spans = _calendar_year_spans(start, end) if by_year else ((start, end),)
         count = 0
         try:
             for span_start, span_end in spans:
-                count += len(fetch(span_start, span_end))
+                count += fetch(span_start, span_end)
         except (
+            JQuantsAcquisitionError,
             JQuantsProviderError,
             SQLiteSchemaError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             print(
@@ -260,13 +266,11 @@ def backfill_history_command(
                     f"no weekly margin balance date candidates in {window}; "
                     "the window holds no complete week of stored trading days"
                 )
-            margin_rows = sum(
-                len(providers.jquants.get_mkt_margin_interest_week(week)) for week in weeks
-            )
+            margin_rows = sum(refresh.ensure_weekly_margin(week) for week in weeks)
         except (
+            JQuantsAcquisitionError,
             JQuantsProviderError,
             SQLiteSchemaError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             print(
@@ -286,13 +290,11 @@ def backfill_history_command(
         print(f"backfill-history {daily_margin_source}: {window} start", file=out, flush=True)
         try:
             dates = all_issues_daily_margin_backfill_candidate_dates(sqlite_path, start, end)
-            daily_margin_rows = sum(
-                len(providers.jquants.get_mkt_all_issues_daily_margin(day)) for day in dates
-            )
+            daily_margin_rows = sum(refresh.ensure_all_issues_daily_margin(day) for day in dates)
         except (
+            JQuantsAcquisitionError,
             JQuantsProviderError,
             SQLiteSchemaError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             print(
@@ -370,6 +372,7 @@ def backfill_master_command(
     every remaining date the same way.
     """
     out = stdout if stdout is not None else sys.stdout
+    refresh = _maintenance(providers)
     print(f"backfill-master start: {len(asof_dates)} date(s)", file=out, flush=True)
     failures: list[date] = []
     consecutive = 0
@@ -377,8 +380,13 @@ def backfill_master_command(
         iso = asof_date.isoformat()
         cached = read_eq_master_exact(sqlite_path, asof_date) is not None
         try:
-            securities = providers.jquants.get_eq_master(asof_date)
-        except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
+            row_count = refresh.ensure_master(asof_date)
+        except (
+            JQuantsAcquisitionError,
+            JQuantsProviderError,
+            SQLiteSchemaError,
+            sqlite3.Error,
+        ) as exc:
             print(f"backfill-master {iso}: {type(exc).__name__}: {exc}", file=sys.stderr)
             failures.append(asof_date)
             consecutive += 1
@@ -393,7 +401,7 @@ def backfill_master_command(
             continue
         consecutive = 0
         source = "cached" if cached else "fetched"
-        print(f"backfill-master {iso}: {source} {len(securities)} row(s)", file=out, flush=True)
+        print(f"backfill-master {iso}: {source} {row_count} row(s)", file=out, flush=True)
     if failures:
         print(
             f"backfill-master: {len(failures)} of {len(asof_dates)} date(s) failed",
@@ -425,10 +433,11 @@ def bootstrap_cache_command(
         try:
             acquire(asof_date, providers, sqlite_path, out)
         except (
+            JQuantsAcquisitionError,
             JQuantsProviderError,
             EDINETProviderError,
+            EdinetAcquisitionError,
             JPXProviderError,
-            EmptyRangeReplacementError,
             sqlite3.Error,
         ) as exc:
             failed = True
@@ -443,24 +452,26 @@ def _bootstrap_market_cache(
     sqlite_path: Path,
     out: TextIO,
 ) -> None:
+    refresh = _maintenance(providers)
     bars_start = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
     normalized_start = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
+    shared_bars_start = min(bars_start, normalized_start)
     print("bootstrap-cache jquants eq_master: start", file=out, flush=True)
-    securities = providers.jquants.get_eq_master(asof_date)
+    master_rows = refresh.ensure_master(asof_date)
     print(
-        f"bootstrap-cache jquants eq_master: {len(securities)} row(s)",
+        f"bootstrap-cache jquants eq_master: {master_rows} row(s)",
         file=out,
         flush=True,
     )
     print(
         "bootstrap-cache jquants daily_bars: "
-        f"{bars_start.isoformat()}..{asof_date.isoformat()} start",
+        f"{shared_bars_start.isoformat()}..{asof_date.isoformat()} start",
         file=out,
         flush=True,
     )
     # `ensure_*` rather than `get_*`: the window is over three million rows and
     # the only thing wanted from it here is the count on the next line.
-    bar_rows = providers.jquants.ensure_eq_bars_daily_range(bars_start, asof_date)
+    bar_rows = refresh.ensure_daily_bars(shared_bars_start, asof_date)
     print(
         f"bootstrap-cache jquants daily_bars: {bar_rows} row(s)",
         file=out,
@@ -486,9 +497,9 @@ def _bootstrap_market_cache(
         file=out,
         flush=True,
     )
-    calendar = providers.jquants.get_mkt_calendar(calendar_start, calendar_end)
+    calendar_rows = refresh.ensure_market_calendar(calendar_start, calendar_end)
     print(
-        f"bootstrap-cache jquants market_calendar: {len(calendar)} row(s)",
+        f"bootstrap-cache jquants market_calendar: {calendar_rows} row(s)",
         file=out,
         flush=True,
     )
@@ -517,9 +528,9 @@ def _bootstrap_market_cache(
             # final legacy week was published. Re-read this one boundary row
             # after its official publication date so the transition cannot
             # inherit that false-empty claim.
-            margin_rows += len(providers.jquants.refresh_mkt_margin_interest_week(week_end))
+            margin_rows += refresh.refresh_weekly_margin(week_end)
         else:
-            margin_rows += len(providers.jquants.get_mkt_margin_interest_week(week_end))
+            margin_rows += refresh.ensure_weekly_margin(week_end)
     print(
         f"bootstrap-cache jquants weekly_margin: {margin_rows} row(s)",
         file=out,
@@ -532,9 +543,9 @@ def _bootstrap_market_cache(
         file=out,
         flush=True,
     )
-    margin_alerts = providers.jquants.refresh_mkt_margin_alert_range(alert_start, asof_date)
+    margin_alert_rows = refresh.refresh_margin_alerts(alert_start, asof_date)
     print(
-        f"bootstrap-cache jquants margin_alerts: {len(margin_alerts)} row(s)",
+        f"bootstrap-cache jquants margin_alerts: {margin_alert_rows} row(s)",
         file=out,
         flush=True,
     )
@@ -547,8 +558,7 @@ def _bootstrap_market_cache(
         flush=True,
     )
     daily_margin_rows = sum(
-        len(providers.jquants.get_mkt_all_issues_daily_margin(balance_date))
-        for balance_date in daily_margin_dates
+        refresh.ensure_all_issues_daily_margin(balance_date) for balance_date in daily_margin_dates
     )
     print(
         f"bootstrap-cache jquants all_issues_daily_margin: {daily_margin_rows} row(s)",
@@ -562,11 +572,11 @@ def _bootstrap_market_cache(
         file=out,
         flush=True,
     )
-    short_reports = providers.jquants.refresh_mkt_short_sale_report_range(
+    short_report_rows = refresh.refresh_short_sale_reports(
         asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS), asof_date
     )
     print(
-        f"bootstrap-cache jquants short_sale_reports: {len(short_reports)} row(s)",
+        f"bootstrap-cache jquants short_sale_reports: {short_report_rows} row(s)",
         file=out,
         flush=True,
     )
@@ -578,19 +588,21 @@ def _bootstrap_financial_cache(
     _sqlite_path: Path,
     out: TextIO,
 ) -> None:
+    refresh = _maintenance(providers)
     fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
     normalized_start = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
+    shared_fin_start = min(fin_start, normalized_start)
     print(
         "bootstrap-cache jquants fin_summaries: "
-        f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
+        f"{shared_fin_start.isoformat()}..{asof_date.isoformat()} start",
         file=out,
         flush=True,
     )
     # The trailing window is re-read here and nowhere else in the run: the
     # normalized-profit call below shares this source, and asking it there too
     # would buy the same week twice.
-    summary_rows = providers.jquants.refresh_fin_summary_range(
-        fin_start,
+    summary_rows = refresh.refresh_fin_summaries(
+        shared_fin_start,
         asof_date,
         revision_overlap_days=FIN_SUMMARY_REVISION_OVERLAP_DAYS,
         progress=lambda index, total, chunk_start, chunk_end: print(
@@ -626,14 +638,14 @@ def _bootstrap_edinet_cache(
     out: TextIO,
 ) -> None:
     fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
-    if providers.edinet is not None:
+    if providers.edinet_refresh is not None:
         print(
             "bootstrap-cache edinet documents: "
             f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
             file=out,
             flush=True,
         )
-        edinet_result = providers.edinet.bootstrap_cache(fin_start, asof_date)
+        edinet_result = providers.edinet_refresh.bootstrap_cache(fin_start, asof_date)
         print(
             "bootstrap-cache edinet documents: "
             + ", ".join(f"{key}={value}" for key, value in sorted(edinet_result.items())),
@@ -654,7 +666,9 @@ def _bootstrap_jpx_cache(
     out: TextIO,
 ) -> None:
     print("bootstrap-cache jpx snapshots: start", file=out, flush=True)
-    jpx_result = providers.jpx.bootstrap_cache(asof_date)
+    if providers.jpx_refresh is None:
+        raise JPXProviderError("JPX maintenance provider is not configured")
+    jpx_result = providers.jpx_refresh.bootstrap_cache(asof_date)
     print(
         "bootstrap-cache jpx snapshots: "
         + ", ".join(f"{key}={value}" for key, value in sorted(jpx_result.items())),
@@ -671,12 +685,12 @@ def refresh_edinet_documents_command(
 ) -> int:
     """Refresh current EDINET list state independently of broad cache coverage."""
     out = stdout if stdout is not None else sys.stdout
-    if providers.edinet is None:
+    if providers.edinet_refresh is None:
         print("EDINET provider is not configured", file=sys.stderr)
         return 1
     try:
-        result = providers.edinet.refresh_document_state(asof_date)
-    except (EDINETProviderError, sqlite3.Error) as exc:
+        result = providers.edinet_refresh.refresh_document_state(asof_date)
+    except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(

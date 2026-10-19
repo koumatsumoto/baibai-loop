@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_engine.market_context.indicators.db import (
+from baibai_engine.collection.economic.store import (
     initialize_database as initialize_indicators_db,
 )
 from baibai_engine.market_context.reading.rules import (

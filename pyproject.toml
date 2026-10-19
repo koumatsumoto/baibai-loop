@@ -80,13 +80,14 @@ packages = [
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
+"engine/src/baibai_engine/collection/economic/sources.yaml" = "baibai_engine/collection/economic/sources.yaml"
 "engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
-"engine/src/baibai_engine/market_context/indicators/schema.sql" = "baibai_engine/market_context/indicators/schema.sql"
+"engine/src/baibai_engine/collection/economic/store.sql" = "baibai_engine/collection/economic/store.sql"
 "engine/src/baibai_engine/market_context/indicators/registry/us.yaml" = "baibai_engine/market_context/indicators/registry/us.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/japan.yaml" = "baibai_engine/market_context/indicators/registry/japan.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/global.yaml" = "baibai_engine/market_context/indicators/registry/global.yaml"
 "engine/src/baibai_engine/market_context/indicators/registry/derived.yaml" = "baibai_engine/market_context/indicators/registry/derived.yaml"
-"engine/src/baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml"
+"engine/src/baibai_engine/collection/economic/providers/pmi_release_urls.yaml" = "baibai_engine/collection/economic/providers/pmi_release_urls.yaml"
 "web/backend/src/baibai_web/py.typed" = "baibai_web/py.typed"
 "batch/src/baibai_batch/py.typed" = "baibai_batch/py.typed"
 
@@ -232,6 +233,8 @@ forbidden_modules = [
   "baibai_engine.storage",
   "baibai_engine.read_api",
   "baibai_engine.research",
+  "baibai_engine.collection",
+  "baibai_engine.price_basis",
 ]
 
 [[tool.importlinter.contracts]]
@@ -280,7 +283,7 @@ forbidden_modules = [
   "baibai_engine.external_assessment.reader",
   "baibai_engine.external_assessment.query",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.cli",
 
   "baibai_engine.position",
@@ -340,12 +343,9 @@ ignore_imports = [
   "baibai_engine.research.selection_query -> baibai_engine.screening.run_store",
   "baibai_engine.research.selection_query -> baibai_engine.screening.run_store.read",
   "baibai_engine.research.selection_query -> baibai_engine.screening.discovery.projection",
-  "baibai_engine.research.selection -> baibai_engine.market.ticker",
-  "baibai_engine.research.assessment -> baibai_engine.market.ticker",
   # Pure cash-equity cutoff only; research still cannot import market acquisition.
   "baibai_engine.research.assessment -> baibai_engine.market.sessions",
   "baibai_engine.research.proposal_service -> baibai_engine.market.sessions",
-  "baibai_engine.research.proposal -> baibai_engine.market.ticker",
   "baibai_engine.research.proposal_conditions -> baibai_engine.market.universe",
 ]
 
@@ -367,6 +367,7 @@ forbidden_modules = [
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
   "baibai_engine.tasks",
+  "baibai_engine.collection",
 ]
 allow_indirect_imports = true
 
@@ -398,6 +399,7 @@ forbidden_modules = [
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
   "baibai_engine.tasks",
+  "baibai_engine.collection",
   "baibai_web",
   "tools",
 ]
@@ -419,7 +421,15 @@ source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.storage.application.write",
   "baibai_engine.cli",
-  "baibai_engine.market_context.indicators.providers",
+  "baibai_engine.collection.economic.providers",
+  "baibai_engine.collection.economic.acquisition",
+  "baibai_engine.collection.jquants.http",
+  "baibai_engine.collection.edinet.http",
+  "baibai_engine.collection.jpx.http",
+  "baibai_engine.collection.equity_web.http",
+  "baibai_engine.collection.tradingview.client",
+  "baibai_engine.collection.tradingview.auth",
+  "baibai_engine.collection.tradingview.authorize",
   "baibai_engine.position.cli",
   "baibai_engine.research.proposal_service",
   "baibai_engine.research.assessment_evaluation_cli",
@@ -464,9 +474,9 @@ forbidden_modules = [
   "baibai_engine.external_assessment.acquisition",
   "baibai_engine.storage",
   "baibai_engine.market.providers",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.collection.tradingview.auth",
 ]
 
 [[tool.importlinter.contracts]]
@@ -474,7 +484,7 @@ name = "external assessment read facade cannot acquire or write"
 type = "forbidden"
 source_modules = ["baibai_engine.read_api.external_assessment"]
 forbidden_modules = [
-  "baibai_engine.external_assessment.acquisition.sources",
+  "baibai_engine.external_assessment.normalization",
   "baibai_engine.external_assessment.acquisition.collection",
   "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.acquisition.cli",
@@ -485,7 +495,7 @@ name = "external acquisition does not enter investment decisions"
 type = "forbidden"
 source_modules = ["baibai_engine.screening", "baibai_engine.position", "baibai_engine.research"]
 forbidden_modules = [
-  "baibai_engine.external_assessment.acquisition.sources",
+  "baibai_engine.external_assessment.normalization",
   "baibai_engine.external_assessment.acquisition.collection",
   "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.acquisition.cli",
@@ -504,7 +514,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "market context reads observations and judgments without composition or writes"
+name = "market context computes readings without judgments or writes"
 type = "forbidden"
 source_modules = [
   "baibai_engine.market_context.reading.query", "baibai_engine.market_context.snapshot",
@@ -513,14 +523,12 @@ source_modules = [
   "baibai_engine.market_context.master", "baibai_engine.market_context.history",
   "baibai_engine.market_context.margin", "baibai_engine.market_context.reading.reader",
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.models",
-  "baibai_engine.market_context.assessment.query", "baibai_engine.market_context.assessment.projection", "baibai_engine.market_context.assessment.models",
 ]
 forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
-  "baibai_engine.storage.application.write", "baibai_engine.market_context.assessment.service",
-  "baibai_engine.market_context.assessment.cli", "baibai_engine.market_context.reading.cli",
-  "baibai_engine.market_context.indicator_service", "baibai_engine.market_context.indicators.providers",
+  "baibai_engine.storage.application.write", "baibai_engine.market_context.reading.cli",
+  "baibai_engine.market_context.indicator_service", "baibai_engine.collection.economic.providers",
 ]
 
 [[tool.importlinter.contracts]]
@@ -533,7 +541,6 @@ forbidden_modules = [
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",
   "baibai_engine.market_context.reading.query", "baibai_engine.market_context.benchmark",
   "baibai_engine.market_context.snapshot", "baibai_engine.market_context.security",
-  "baibai_engine.market_context.assessment",
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.external_assessment", "baibai_engine.position", "baibai_engine.tasks",
   "baibai_engine.read_api", "baibai_engine.storage.application.write",
@@ -547,8 +554,8 @@ forbidden_modules = [
   "baibai_engine.research", "baibai_engine.screening", "baibai_engine.position",
   "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.read_api",
   "baibai_engine.external_assessment.acquisition.collection", "baibai_engine.external_assessment.store",
-  "baibai_engine.external_assessment.acquisition.sources", "baibai_engine.external_assessment.acquisition.cli",
-  "baibai_engine.external_assessment.tradingview.collector", "baibai_engine.external_assessment.tradingview.accepted",
+  "baibai_engine.external_assessment.normalization", "baibai_engine.external_assessment.acquisition.cli",
+  "baibai_engine.external_assessment.tradingview.collector",
 ]
 
 
@@ -577,10 +584,9 @@ forbidden_modules = [
   "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.analysis", "baibai_engine.external_assessment.reader",
   "baibai_engine.external_assessment.query", "baibai_engine.external_assessment.cli",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.accepted",
-  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.collection.tradingview.auth",
   "baibai_engine.external_assessment.tradingview.cli",
   "baibai_web", "baibai_batch", "tools",
 ]
@@ -592,18 +598,17 @@ source_modules = ["baibai_engine.external_assessment.tradingview.contract", "bai
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.providers",
   "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
-  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.collection.tradingview.client",
   "baibai_engine.external_assessment.tradingview.collector",
-  "baibai_engine.external_assessment.tradingview.accepted",
-  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.collection.tradingview.auth",
   "baibai_engine.external_assessment.tradingview.cli",
   "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools",
 ]
 
 [[tool.importlinter.contracts]]
-name = "provider observation models and decoding do not load acquisition or storage"
+name = "provider observation models, decoding and selection do not load acquisition or storage"
 type = "forbidden"
-source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode"]
+source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.edinet_selection", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode", "baibai_engine.market.price_models", "baibai_engine.market.calendar"]
 forbidden_modules = ["baibai_engine.market.providers", "baibai_engine.storage", "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools"]
 
 
@@ -642,10 +647,10 @@ source_modules = [
   "baibai_engine.market_context.reading.derived", "baibai_engine.market_context.reading.formulas",
 ]
 forbidden_modules = [
-  "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicator_service",
-  "baibai_engine.market_context.indicators.providers", "baibai_engine.market_context.indicator_cli",
+  "baibai_engine.collection.economic.store", "baibai_engine.market_context.indicator_service",
+  "baibai_engine.collection.economic.providers", "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
-  "baibai_engine.storage", "baibai_engine.market_context.assessment", "baibai_engine.read_api",
+  "baibai_engine.storage", "baibai_engine.research.market_context", "baibai_engine.read_api",
 ]
 
 [[tool.importlinter.contracts]]
@@ -675,3 +680,31 @@ type = "forbidden"
 source_modules = ["baibai_engine.research.selection_query", "baibai_engine.research.workspace.admission"]
 forbidden_modules = ["baibai_engine.read_api"]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "market judgment reads do not publish or compose investment proposals"
+type = "forbidden"
+source_modules = [
+  "baibai_engine.research.market_context.models",
+  "baibai_engine.research.market_context.query",
+  "baibai_engine.research.market_context.projection",
+]
+forbidden_modules = [
+  "baibai_engine.storage.application.write",
+  "baibai_engine.research.market_context.service",
+  "baibai_engine.research.market_context.cli",
+  "baibai_engine.research.workspace",
+  "baibai_engine.research.proposal_service",
+  "baibai_engine.read_api",
+]
+
+[[tool.importlinter.contracts]]
+name = "collection does not depend on calculations or judgments"
+type = "forbidden"
+source_modules = ["baibai_engine.collection"]
+forbidden_modules = [
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.research",
+  "baibai_engine.screening", "baibai_engine.external_assessment", "baibai_engine.position",
+  "baibai_engine.market", "baibai_engine.read_api", "baibai_engine.batch_api",
+  "baibai_engine.price_basis",
+]

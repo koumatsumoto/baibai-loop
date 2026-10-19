@@ -1,7 +1,7 @@
 """Find and verify the current month's S&P Global PMI release URLs for the manifest.
 
-The `spglobal_pmi` provider reads each month's headline from the release PDF that
-month's manifest entry names, and the manifest is maintained by hand. The provider
+Collection retains the original PDF named by each manifest entry; L2 extracts
+the headline later. The manifest is maintained by hand. The provider
 fails a refresh once a published month is missing from it, so the append is not a
 task that can be forgotten — it is a task that recurs every month for four streams.
 
@@ -27,22 +27,29 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic.providers.base import (
     FetchContext,
+    HttpSession,
     IndicatorsProviderError,
     SourceWithheldError,
     fetch_text,
 )
-from baibai_engine.market_context.indicators.providers.pmi_extraction import (
+from baibai_engine.collection.economic.providers.spglobal_pmi import (
+    MANIFEST_PATH,
+    RELEASE_URL_RE,
+    fetch_pdf_bytes,
+    load_manifest,
+)
+from baibai_engine.market_context.reading.pmi import extract_pdf_text
+from baibai_engine.market_context.reading.pmi_extraction import (
     PmiExtractionError,
     extract_pmi_value,
 )
-from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
-    MANIFEST_PATH,
-    RELEASE_URL_RE,
-    load_manifest,
-    release_text,
-)
+
+
+def release_text(url: str, *, session: HttpSession, context: FetchContext | None) -> str:
+    return extract_pdf_text(fetch_pdf_bytes(url, session=session, context=context))
+
 
 RELEASE_INDEX_URL = "https://www.pmi.spglobal.com/Public/Release/PressReleases?language=en"
 

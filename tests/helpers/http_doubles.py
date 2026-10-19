@@ -10,6 +10,7 @@ came back.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -58,7 +59,11 @@ def html_response(content: bytes) -> FakeResponse:
 
 
 def json_response(payload: Any, *, status_code: int = 200) -> FakeResponse:
-    return response(status_code=status_code, payload=payload)
+    return response(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        status_code=status_code,
+        payload=payload,
+    )
 
 
 class FakeSession:
@@ -79,8 +84,10 @@ class FakeSession:
         self._default = default
         self.calls: list[str] = []
 
-    def get(self, url: str, timeout: int | None = None) -> FakeResponse:
-        del timeout
+    def get(
+        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+    ) -> FakeResponse:
+        del timeout, allow_redirects
         self.calls.append(url)
         answer: Any = _UNSET
         if url in self._by_url:
@@ -117,7 +124,9 @@ class ExplodingSession:
         self._reason = reason
         self.calls: list[str] = []
 
-    def get(self, url: str, timeout: int | None = None) -> FakeResponse:
-        del timeout
+    def get(
+        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+    ) -> FakeResponse:
+        del timeout, allow_redirects
         self.calls.append(url)
         raise AssertionError(self._reason)

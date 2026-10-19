@@ -237,7 +237,7 @@ script=""
 for argument in "$@"; do
   case "${argument}" in
     baibai_batch.storage.sqlite_snapshot) script=snapshot ;;
-    baibai_batch.storage.merge_indicator_store) script=merge ;;
+    baibai_batch.storage.merge_economic_store) script=merge ;;
     baibai_batch.storage.merge_market_store) script=merge ;;
     baibai_batch.validation.repository_layout) script=layout ;;
     baibai_batch.storage.publish_market_lake) script=publish ;;
@@ -847,13 +847,21 @@ def test_a_bundle_pull_refuses_a_set_the_receipt_does_not_name(tmp_path: Path) -
     )
 
 
-def test_a_bundle_pull_accepts_the_set_the_receipt_names(tmp_path: Path) -> None:
-    current = (
-        '{\n  "schema_version": 1,\n  "written_at_utc": "2026-08-19T00:00:00Z",\n'
-        '  "keys": {\n'
-        '    "market.sqlite": "etag-stable",\n'
-        '    "runs.sqlite": "etag-stable",\n'
-        '    "indicators.sqlite": "etag-stable"\n  }\n}\n'
+@pytest.mark.parametrize("indent", [None, 0, 2])
+def test_a_bundle_pull_accepts_the_set_the_receipt_names(
+    tmp_path: Path, indent: int | None
+) -> None:
+    current = json.dumps(
+        {
+            "schema_version": 1,
+            "written_at_utc": "2026-08-19T00:00:00Z",
+            "keys": {
+                "market.sqlite": "etag-stable",
+                "runs.sqlite": "etag-stable",
+                "indicators.sqlite": "etag-stable",
+            },
+        },
+        indent=indent,
     )
 
     completed = _pull_machine(tmp_path, receipt=current)
@@ -868,7 +876,6 @@ def test_a_bundle_pull_accepts_the_set_the_receipt_names(tmp_path: Path) -> None
 def test_machine_receipt_requires_current_indicator_key(
     tmp_path: Path, indicator_key: str, expected_exit: int
 ) -> None:
-    # Keep the writer's line-oriented shape so failure tests the key, not JSON layout.
     receipt = json.dumps(
         {
             "keys": {
@@ -888,11 +895,24 @@ def test_machine_receipt_requires_current_indicator_key(
         assert "machine bundle receipt matches" in result.stdout
 
 
-def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "receipt",
+    [
+        '{"keys": {"market.sqlite": ""}}',
+        '{"keys": {"market.sqlite": 1}}',
+        '{"keys": []}',
+        "[]",
+        '{"elsewhere": {"market.sqlite": "etag-stable"}, "keys": {}}',
+        '{"keys": {"market.sqlite": "etag-stable"}',
+    ],
+)
+def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(
+    tmp_path: Path, receipt: str
+) -> None:
     """A receipt this script cannot parse says nothing about the set, and nothing is
     exactly what a check that waves it through would also say."""
 
-    completed = _pull_machine(tmp_path, receipt='{"keys": {"market.sqlite": ""}}\n')
+    completed = _pull_machine(tmp_path, receipt=receipt)
 
     assert completed.returncode == 1
     assert "receipt names no generation" in completed.stderr
@@ -1392,6 +1412,7 @@ def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -
 
     assert completed.returncode != 0
     commands = _transfer_commands(log)
+    assert any(command.startswith("merge ") for command in commands)
     assert not any(
         command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
         for command in commands
@@ -1462,7 +1483,7 @@ def test_market_dehydrate_resolves_current_and_leaves_identity_check_to_the_core
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
     environment["SNAPSHOT_FAKE_COPY"] = "1"
-    environment["AWS_FAKE_EXISTING_KEY"] = "lake/pointers/l1/current.json"
+    environment["AWS_FAKE_EXISTING_KEY"] = "lake/pointers/market/current.json"
 
     completed = subprocess.run(
         [root / "batch/scripts/r2_transfer.sh", "push-market"],
@@ -1643,9 +1664,9 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     carrying the full store while still reporting success.
     """
 
-    from baibai_engine.batch_api import lake_current_l1_pointer_key
+    from baibai_engine.batch_api import lake_current_release_pointer_key
 
-    assert lake_current_l1_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
+    assert lake_current_release_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
 
 
 def test_first_publication_needs_no_sidecar_and_prints_its_result(
@@ -1729,7 +1750,7 @@ def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
     ("action", "key"),
     [
         ("pull-machine", "machine-manifest.json"),
-        ("push-machine", "lake/pointers/l1/current.json"),
+        ("push-machine", "lake/pointers/market/current.json"),
         ("push-app", "baibai.sqlite"),
         ("seed-all", "market.sqlite"),
     ],

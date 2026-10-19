@@ -17,8 +17,8 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.position.price_grid import common_stock_limit_is_valid, floor_common_stock_limit
 from baibai_engine.research.assessment import AssessmentRef
 from baibai_engine.research.selection import ResearchTarget

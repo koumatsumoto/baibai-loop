@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
-from itertools import pairwise
 
 from baibai_engine.foundation.sqlite_read import is_missing_table_error
 
@@ -128,6 +127,7 @@ def record_range_source_coverage(
     requested_end: date,
     status: str,
     error: str | None,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Record coverage for a freshly fetched ``[requested_start, requested_end]`` range.
 
@@ -217,6 +217,7 @@ def record_range_source_coverage(
         record_count=persisted_count,
         status=status,
         error=error,
+        fetched_at_utc=fetched_at_utc,
     )
     return persisted_count
 
@@ -293,39 +294,6 @@ def delete_date_range(
     )
 
 
-class EmptyRangeReplacementError(RuntimeError):
-    """An empty payload would have deleted rows the store already holds."""
-
-
-def replace_date_range(
-    conn: sqlite3.Connection,
-    table: str,
-    date_column: str,
-    start: date,
-    end: date,
-    *,
-    replacement_row_count: int,
-) -> None:
-    """Clear `[start, end]` so a refetch can rewrite it.
-
-    A range fetch answers with the whole range, so replacing is how a refetch
-    corrects rows already held. An answer with nothing in it is different: these
-    sources record what the market did, and a range that once had rows does not
-    become empty afterwards. Deleting on one would let any provider hiccup that
-    reports success with no payload destroy a stored cross-section, and the
-    coverage row it writes afterwards would say the range is fine. This refuses
-    instead and leaves the store as it was.
-    """
-    if replacement_row_count == 0:
-        held = date_range_row_count(conn, table, date_column, start, end)
-        if held:
-            raise EmptyRangeReplacementError(
-                f"refusing to replace {held} stored {table} row(s) in "
-                f"{start.isoformat()}..{end.isoformat()} with an empty payload"
-            )
-    delete_date_range(conn, table, date_column, start, end)
-
-
 def date_range_row_count(
     conn: sqlite3.Connection,
     table: str,
@@ -379,7 +347,7 @@ def _range_coverage_key(operation: str, start: date, end: date) -> str:
     return f"{operation}:{start.isoformat()}..{end.isoformat()}"
 
 
-_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_daily_bars", "jquants_market_calendar"})
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_market_calendar"})
 
 
 def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, date], ...]:
@@ -406,8 +374,8 @@ def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, 
 def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date, date], ...]:
     """Merge the coverage windows a source can actually be read through.
 
-    A window counts only when it is `ok`. Daily bars and calendars additionally
-    require rows; financial disclosures may legitimately be absent in a fetched
+    A window counts only when it is `ok`. Calendars additionally require rows;
+    daily bars and financial disclosures may legitimately be absent in a fetched
     window. Acquisition coverage does not establish analytical sufficiency.
     Abutting windows are merged, so two fetches that stopped either side of a
     chunk boundary describe one continuous range.
@@ -445,13 +413,12 @@ def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date
 def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
     """True when source_coverage rows collectively span the requested range.
 
-    Used for fetch-provenance sources (financial summaries, market calendar)
-    whose completeness cannot be re-derived from row presence: a missing filing
-    is indistinguishable from "no filing was due". jquants_daily_bars uses
-    `daily_bars_covered_by_data` instead: that heuristic
-    checks the span and gaps of dates present, not completeness of each trading
-    day or of every security within a date.
+    Fetch provenance cannot be re-derived from row presence: an empty daily-bars
+    response may be a holiday, and an empty financial response may mean no filing
+    was due. Coverage does not prove every expected security has a row.
     """
+    if start > end:
+        return False
     return any(
         interval_start <= start and interval_end >= end
         for interval_start, interval_end in covered_intervals(conn, source)
@@ -485,63 +452,3 @@ def missing_intervals(
     if cursor <= end:
         gaps.append((cursor, end))
     return tuple(gaps)
-
-
-# daily_bars fetch reuse is based on distinct stored dates, not source_coverage.
-# This detects long gaps but cannot prove every expected trading day or ticker is
-# present: a short missing run can fit inside the tolerances below. Reusing dates
-# avoids re-fetching a broad history solely because its bookkeeping is missing.
-# The natural gaps are weekends, the
-# Golden Week / New Year closures, and the ten consecutive closed days of the 2019
-# imperial transition, which puts eleven days between two trading days.
-#
-# The two thresholds answer different questions and are deliberately not equal. The
-# gap threshold has to clear that eleven-day run with margin for another exceptional
-# closure. The edge tolerance only has to reach from a requested boundary to the
-# nearest trading day, so ten days covers the longest closure exactly; raising it
-# further would let a 31-day chunk holding a single trading day near its middle read
-# as covered, because the two tolerances would then span the whole chunk between them.
-_DAILY_BARS_MAX_GAP_DAYS = 15
-_DAILY_BARS_EDGE_TOLERANCE_DAYS = 10
-_DAILY_BARS_COVERAGE_QUERY = (
-    "SELECT DISTINCT traded_at FROM jquants_daily_bars "
-    "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at"
-)
-
-
-def daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date) -> bool:
-    """Whether stored dates satisfy the daily-bars fetch-reuse heuristic.
-
-    Aggregates distinct dates rather than consulting source_coverage. A positive
-    result avoids a broad re-fetch; it is not evidence of full-market row coverage.
-    Covered means present trading dates reach both ends (within an edge
-    tolerance) with no internal gap wider than a market holiday run.
-    """
-    if start > end:
-        return False
-    try:
-        rows = conn.execute(
-            _DAILY_BARS_COVERAGE_QUERY, (start.isoformat(), end.isoformat())
-        ).fetchall()
-    except sqlite3.OperationalError as error:
-        if not is_missing_table_error(error):
-            raise
-        return False
-    dates: list[date] = []
-    for (value,) in rows:
-        if not value:
-            continue
-        try:
-            dates.append(date.fromisoformat(value))
-        except (TypeError, ValueError):
-            continue
-    if not dates:
-        return False
-    if (dates[0] - start).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
-        return False
-    if (end - dates[-1]).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
-        return False
-    return all(
-        (current - previous).days <= _DAILY_BARS_MAX_GAP_DAYS
-        for previous, current in pairwise(dates)
-    )

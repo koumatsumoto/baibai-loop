@@ -8,7 +8,7 @@ from tests.engine.screening.metric_fixtures import (
 )
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.market.price_models import JQuantsDailyBar
 from baibai_engine.screening.metrics.snapshot import build_metrics
 from baibai_engine.valuation.metrics.dividends import build_shareholder_return_change_signals
 

@@ -1,22 +1,15 @@
-"""Read-only validation of indicator observations and stored market assessments.
+"""Read-only validation of collected sources and saved market assessments.
 
-Market Context state lives in two existing stores. The L1 indicator
-store carries observations and their vintages, the application store carries the
-published context reports written against them. Their production agreement is not established by
-quality CI, which uses synthetic stores. This read-only operational check compares
-the actual stores supplied by the caller.
-
-The two directions of drift are asymmetric. An observation that the registry no longer
-covers is a contract violation and fails. A published report is immutable: it must still
-*load*, but citing a series that has since been retired is a warning, because retiring a
-series is normal operation and rewriting history is not an option.
+The source store retains uninterpreted inputs and acquisition outcomes. The
+application store carries immutable published context reports. This check
+validates each store on its own terms without treating source payloads as L2
+observations or rewriting reports that cite a retired series.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import sqlite3
 import sys
 import zlib
@@ -26,18 +19,18 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from baibai_engine.batch_api import (
-    DEFAULT_INDICATORS_DB_PATH as DEFAULT_DB_PATH,
+    DEFAULT_ECONOMIC_DB_PATH as DEFAULT_DB_PATH,
 )
 from baibai_engine.batch_api import (
+    EconomicSchemaError,
     IndicatorDefinitions,
-    IndicatorsSchemaError,
     StoredAssessment,
     assessment_series_ids,
     connect_read_only,
     database_path,
-    decode_indicator_source_records,
+    decode_economic_source_records,
     load_definitions,
-    validate_indicator_schema,
+    validate_economic_schema,
 )
 
 MAX_RENDERED_VIOLATIONS = 100
@@ -46,9 +39,9 @@ MAX_RENDERED_VIOLATIONS = 100
 @dataclass(frozen=True, slots=True)
 class ValidationReport:
     schema_version: int
-    registry_series: int
-    observations: int
-    source_snapshots: int
+    source_records: int
+    source_documents: int
+    source_runs: int
     violation_count: int
     violations: tuple[str, ...]
 
@@ -70,18 +63,8 @@ class PublishedContextReport:
 
 def validate_store(
     database: Path,
-    *,
-    definitions: IndicatorDefinitions | None = None,
 ) -> ValidationReport:
-    """Check scalar contracts and every native payload, without changing source values.
-
-    Native checks prove that retained records decode and match their stored count,
-    not that all external dates or securities were acquired. Native fields are not
-    filtered through the current scalar registry or plausible ranges.
-    """
-
-    resolved = definitions or load_definitions()
-    registry = resolved.by_id()
+    """Check source payload counts and document metadata without L2 interpretation."""
     violations: list[str] = []
     violation_count = 0
 
@@ -91,68 +74,50 @@ def validate_store(
         if len(violations) < MAX_RENDERED_VIOLATIONS:
             violations.append(message)
 
-    for series in resolved.series:
-        if series.plausible_min is None or series.plausible_max is None:
-            record(f"{series.series_id}: registry plausible range is incomplete")
-
     connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        validate_indicator_schema(connection)
-        observations = 0
+        validate_economic_schema(connection)
+        source_records = 0
         for row in connection.execute(
-            # Retraction changes visibility, not the stored unit/value contract.
-            # Both SQLite constraints and merge validate every retained row.
-            "SELECT series_id, observed_at, vintage_at, value, unit "
-            "FROM observations "
-            "ORDER BY series_id, observed_at, vintage_at"
+            "SELECT source_id, observed_at, fetched_at, record_count, payload "
+            "FROM economic_source_records ORDER BY source_id, observed_at, fetched_at"
         ):
-            observations += 1
-            series_id = str(row["series_id"])
-            definition = registry.get(series_id)
-            identity = f"{series_id} {row['observed_at']} vintage {row['vintage_at']}"
-            if definition is None:
-                record(f"{identity}: series is absent from the current registry")
-                continue
-            if str(row["unit"]) != definition.unit:
-                record(f"{identity}: unit {row['unit']!r}; expected {definition.unit!r}")
-                continue
-            value = float(row["value"])
-            if not math.isfinite(value):
-                record(f"{identity}: value {value!r} is not finite")
-                continue
-            low = definition.plausible_min
-            high = definition.plausible_max
-            if (low is not None and value < low) or (high is not None and value > high):
-                rendered_low = "-inf" if low is None else f"{low:g}"
-                rendered_high = "inf" if high is None else f"{high:g}"
-                record(
-                    f"{identity}: value {value:g} outside plausible range "
-                    f"[{rendered_low}, {rendered_high}]"
-                )
-        source_snapshots = 0
-        for row in connection.execute(
-            "SELECT source_key, observed_at, fetched_at, record_count, payload "
-            "FROM indicator_source_snapshots ORDER BY source_key, observed_at, fetched_at"
-        ):
-            source_snapshots += 1
-            identity = f"{row['source_key']} {row['observed_at']} fetched {row['fetched_at']}"
+            source_records += 1
+            identity = f"{row['source_id']} {row['observed_at']} fetched {row['fetched_at']}"
             try:
-                native = decode_indicator_source_records(row["payload"])
+                native = decode_economic_source_records(row["payload"])
             except (OSError, EOFError, ValueError, zlib.error):
                 record(f"{identity}: native payload cannot be decoded")
                 continue
             if len(native) != row["record_count"]:
                 record(f"{identity}: native record count differs from the payload")
+        source_documents = 0
+        for row in connection.execute(
+            "SELECT source_id, request_key, fetched_at, metadata "
+            "FROM economic_source_documents ORDER BY source_id, request_key, fetched_at"
+        ):
+            source_documents += 1
+            identity = f"{row['source_id']} {row['request_key']} fetched {row['fetched_at']}"
+            try:
+                metadata = json.loads(str(row["metadata"]))
+            except (TypeError, ValueError):
+                record(f"{identity}: document metadata is not a JSON object")
+                continue
+            if not isinstance(metadata, dict):
+                record(f"{identity}: document metadata is not a JSON object")
+        source_runs = int(
+            connection.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0]
+        )
     finally:
         connection.close()
 
     return ValidationReport(
         schema_version=schema_version,
-        registry_series=len(resolved.series),
-        observations=observations,
-        source_snapshots=source_snapshots,
+        source_records=source_records,
+        source_documents=source_documents,
+        source_runs=source_runs,
         violation_count=violation_count,
         violations=tuple(violations),
     )
@@ -212,8 +177,8 @@ def validate_published_contexts(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "validate scalar observations against the registry and native snapshot payloads, "
-            "and every saved market assessment against the read path"
+            "validate collected source payloads and every saved market assessment "
+            "against the read path"
         )
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
@@ -225,8 +190,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         report = validate_store(args.db)
-    except (IndicatorsSchemaError, OSError, sqlite3.Error, ValueError) as exc:
-        print(f"error: unable to validate indicator store {args.db}: {exc}", file=sys.stderr)
+    except (EconomicSchemaError, OSError, sqlite3.Error, ValueError) as exc:
+        print(f"error: unable to validate economic source store {args.db}: {exc}", file=sys.stderr)
         return 1
     exit_code = _render_store_report(report)
 
@@ -250,16 +215,15 @@ def main(argv: list[str] | None = None) -> int:
 def _render_store_report(report: ValidationReport) -> int:
     if report.valid:
         print(
-            f"ok: schema v{report.schema_version}; {report.registry_series} registry series; "
-            f"{report.observations} scalar observations; "
-            f"{report.source_snapshots} native snapshots",
+            f"ok: schema v{report.schema_version}; {report.source_records} native records; "
+            f"{report.source_documents} documents; {report.source_runs} source runs",
             flush=True,
         )
         return 0
     print(
-        f"error: {report.violation_count} indicator store contract violations "
-        f"across {report.observations} scalar observations and "
-        f"{report.source_snapshots} native snapshots",
+        f"error: {report.violation_count} economic source store contract violations "
+        f"across {report.source_records} native records, "
+        f"{report.source_documents} documents and {report.source_runs} source runs",
         file=sys.stderr,
     )
     for violation in report.violations:

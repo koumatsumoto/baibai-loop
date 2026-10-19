@@ -1,10 +1,10 @@
 """External Assessmentの新規plan・stage・raw bundleの保存identity。"""
 
-PLAN_FORMAT = "external-assessment-daily-plan-v1"
-STAGE_FORMAT = "external-assessment-cohort-stage-v1"
+PLAN_FORMAT = "external-assessment-daily-plan-v2"
+STAGE_FORMAT = "external-assessment-cohort-stage-v2"
 PUBLISHED_FORMAT = "external-assessment-published-batch-v1"
 PARTIAL_TERMINAL_FORMAT = "external-assessment-partially-published-batch-v1"
-RAW_BUNDLE_FORMAT = "external-assessment-cohort-raw-v1"
+RAW_BUNDLE_FORMAT = "external-assessment-cohort-raw-v2"
 RAW_PREFIX = "external-assessment/raw/"
 COORDINATION_PREFIX = "coordination/external-assessment/"
 SCHEDULED_BATCH_PREFIX = "external-assessment-daily-"

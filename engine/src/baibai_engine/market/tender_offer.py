@@ -27,6 +27,7 @@ from typing import Protocol
 from baibai_engine.market.delistings import DelistingRecord, read_jpx_delistings
 from baibai_engine.market.edinet_decode import is_usable_filing_status
 from baibai_engine.market.edinet_document_store import read_current_filing_documents
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
@@ -72,8 +73,8 @@ class TenderOfferError(RuntimeError):
     """A tender-offer filing cannot be read into an exit value without guessing."""
 
 
-class TenderOfferDocumentSource(Protocol):
-    def download_csv_zip(self, doc_id: str) -> bytes: ...
+class TenderOfferDocumentReader(Protocol):
+    def read_csv_zip(self, doc_id: str) -> bytes: ...
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -107,8 +108,8 @@ class TenderOfferExitSummary:
     delisting_count: int
     candidate_delisting_count: int
     resolved_count: int
-    # Provider payloads received, including archives that cannot be decoded.
-    downloaded_document_count: int
+    # Document reads requested, including archives that cannot be decoded.
+    read_document_count: int
     rejection_reason_counts: Mapping[str, int]
 
 
@@ -185,6 +186,14 @@ def read_document_blocks(content: bytes) -> dict[str, str]:
     return blocks
 
 
+def read_tender_offer_blocks(reader: TenderOfferDocumentReader, doc_id: str) -> Mapping[str, str]:
+    """Read a retained EDINET archive; missing or non-ZIP source is fatal."""
+    content = reader.read_csv_zip(doc_id)
+    if not zipfile.is_zipfile(io.BytesIO(content)):
+        raise EDINETProviderError("stored EDINET tender-offer archive is not a ZIP")
+    return read_document_blocks(content)
+
+
 def read_tender_offer_filings(
     connection: sqlite3.Connection, *, through: date
 ) -> tuple[TenderOfferFiling, ...]:
@@ -221,10 +230,24 @@ def read_tender_offer_filings(
 def build_tender_offer_exit_values(
     sqlite_path: Path,
     *,
-    provider: TenderOfferDocumentSource,
+    reader: TenderOfferDocumentReader,
     asof: date,
 ) -> tuple[tuple[TenderOfferExitValue, ...], TenderOfferExitSummary]:
-    """Investigate candidate mechanisms and resolve only documented cash offers."""
+    """Derive exit proxies from retained EDINET archives without acquisition."""
+    return derive_tender_offer_exit_values(
+        sqlite_path,
+        read_blocks=lambda doc_id: read_tender_offer_blocks(reader, doc_id),
+        asof=asof,
+    )
+
+
+def derive_tender_offer_exit_values(
+    sqlite_path: Path,
+    *,
+    read_blocks: Callable[[str], Mapping[str, str]],
+    asof: date,
+) -> tuple[tuple[TenderOfferExitValue, ...], TenderOfferExitSummary]:
+    """Investigate candidate mechanisms in their established document request order."""
     connection = connect_current(sqlite_path)
     if connection is None:
         raise TenderOfferError(f"market store is not readable: {sqlite_path}")
@@ -244,13 +267,12 @@ def build_tender_offer_exit_values(
 
     exits: list[TenderOfferExitValue] = []
     reasons: dict[str, int] = {}
-    downloads = 0
+    reads = 0
 
-    def download_blocks(doc_id: str) -> Mapping[str, str]:
-        nonlocal downloads
-        content = provider.download_csv_zip(doc_id)
-        downloads += 1
-        return read_document_blocks(content)
+    def counted_read_blocks(doc_id: str) -> Mapping[str, str]:
+        nonlocal reads
+        reads += 1
+        return read_blocks(doc_id)
 
     for delisting in candidates:
         case, reason = _select_case(by_target.get(delisting.ticker, ()), delisting=delisting)
@@ -258,7 +280,7 @@ def build_tender_offer_exit_values(
             reasons[reason] = reasons.get(reason, 0) + 1
             continue
         try:
-            value = _realize_case(case, delisting=delisting, read_blocks=download_blocks)
+            value = _realize_case(case, delisting=delisting, read_blocks=counted_read_blocks)
         except TenderOfferError:
             reasons["document_unreadable"] = reasons.get("document_unreadable", 0) + 1
             continue
@@ -273,7 +295,7 @@ def build_tender_offer_exit_values(
             delisting_count=len(delistings),
             candidate_delisting_count=len(candidates),
             resolved_count=len(exits),
-            downloaded_document_count=downloads,
+            read_document_count=reads,
             rejection_reason_counts=dict(sorted(reasons.items())),
         )
     )
@@ -584,14 +606,17 @@ def _block(blocks: Mapping[str, str], suffix: str) -> str | None:
 
 __all__ = (
     "TENDER_OFFER_CANDIDATE_MARKERS",
+    "TenderOfferDocumentReader",
     "TenderOfferError",
     "TenderOfferExitSummary",
     "TenderOfferExitValue",
     "TenderOfferFiling",
     "build_tender_offer_exit_values",
+    "derive_tender_offer_exit_values",
     "parse_ordinary_share_offer_price",
     "pays_in_cash_only",
     "read_document_blocks",
+    "read_tender_offer_blocks",
     "read_tender_offer_exit_values",
     "read_tender_offer_filings",
     "read_tender_offer_outcome",

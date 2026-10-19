@@ -14,7 +14,7 @@ from baibai_engine.storage.lake.duck import LakeCredentialError
 from baibai_engine.storage.lake.inventory import inventory
 from baibai_engine.storage.lake.models import (
     DatasetManifest,
-    L1ReleaseSourceRef,
+    LakeReleaseSourceRef,
     load_lake_model_json,
     load_manifest_json,
 )
@@ -96,7 +96,7 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
         elif args.release_ref is not None:
             reference = load_lake_model_json(
                 args.release_ref.read_bytes(),
-                L1ReleaseSourceRef,
+                LakeReleaseSourceRef,
             )
             release = resolve_release_ref(cache.source, reference)
         else:

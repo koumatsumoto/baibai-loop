@@ -16,6 +16,7 @@ from baibai_engine.market.store import read_daily_bars, read_daily_bars_for_tick
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.panel import _coverage_floors
 from baibai_engine.storage.observations import reader as observation_reader
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from baibai_engine.tasks.earnings_schedule import read_published_earnings_dates
@@ -65,6 +66,17 @@ def test_bar_readers_share_decoding_and_corrupt_row_behavior(tmp_path, scoped, c
                 ("1302", day.isoformat(), 202.0, 20.0),
                 ("1303", day.isoformat(), None, 30.0),
             ],
+        )
+        record_range_source_coverage(
+            conn,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=day,
+            requested_end=day,
+            status="ok",
+            error=None,
         )
 
     def read():

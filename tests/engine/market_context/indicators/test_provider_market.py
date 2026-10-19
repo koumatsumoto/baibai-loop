@@ -6,21 +6,24 @@ from unittest import TestCase
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _multpl_monthly_table,
-    _series,
+    _source,
 )
 
-from baibai_engine.market_context.indicators.providers import (
+from baibai_engine.collection.economic.providers import (
     IndicatorsProviderError,
     parse_multpl_table,
     parse_yahoo_chart,
 )
-from baibai_engine.market_context.indicators.providers.cftc import parse_cftc_records
-from baibai_engine.market_context.indicators.providers.nikkei_indexes import parse_nikkei_valuation
+from baibai_engine.collection.economic.providers.cftc import parse_cftc_records
+from baibai_engine.collection.economic.providers.nikkei_indexes import parse_nikkei_valuation
 
 
 class IndicatorsProviderParserTests(TestCase):
     def test_parse_cftc_records_retains_both_native_position_legs(self) -> None:
-        series = _series("cftc", "097741", unit="contracts")
+        series = _source(
+            "cftc",
+            "097741",
+        )
         text = json.dumps(
             [
                 {
@@ -42,7 +45,10 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(row["noncomm_positions_short_all"], "238628")
 
     def test_parse_cftc_records_rejects_mismatched_contract_code(self) -> None:
-        series = _series("cftc", "097741", unit="contracts")
+        series = _source(
+            "cftc",
+            "097741",
+        )
         text = json.dumps(
             [
                 {
@@ -58,7 +64,10 @@ class IndicatorsProviderParserTests(TestCase):
             parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
     def test_parse_cftc_records_preserves_values_for_l2_range_policy(self) -> None:
-        series = _series("cftc", "097741", unit="contracts")
+        series = _source(
+            "cftc",
+            "097741",
+        )
         text = json.dumps(
             [
                 {
@@ -78,7 +87,10 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_nikkei_valuation_retains_both_columns_and_filters_range(self) -> None:
-        series = _series("nikkei_indexes", "per", unit="ratio")
+        series = _source(
+            "nikkei_indexes",
+            "per",
+        )
         html = (
             "<table><tbody>"
             "<tr><!--daily_changing--><td>2026.06.30</td>"
@@ -107,7 +119,10 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_nikkei_valuation_leaves_range_policy_to_storage(self) -> None:
-        series = _series("nikkei_indexes", "per", unit="ratio")
+        series = _source(
+            "nikkei_indexes",
+            "per",
+        )
         html = (
             "<tr><!--daily_changing--><td>2026.07.24</td>"
             "<!--daily_changing--><td>99.90</td><!--daily_changing--><td>120.0</td></tr>"
@@ -119,7 +134,10 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(observations[date(2026, 7, 24)][0]["weighted_text"], "99.90")
 
     def test_parse_yahoo_chart_filters_range_without_discarding_null_close(self) -> None:
-        series = _series("yahoo", "GC=F", unit="usd-per-oz")
+        series = _source(
+            "yahoo",
+            "GC=F",
+        )
 
         def ts(year: int, month: int, day: int) -> int:
             return int(datetime(year, month, day, 14, 30, tzinfo=UTC).timestamp())
@@ -149,7 +167,10 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_parse_yahoo_chart_rejects_unpaired_dates_or_values(self) -> None:
-        series = _series("yahoo", "GC=F", unit="usd-per-oz")
+        series = _source(
+            "yahoo",
+            "GC=F",
+        )
         stamp = int(datetime(2026, 5, 1, tzinfo=UTC).timestamp())
         for timestamps, closes in (
             ([stamp, stamp + 86400], [4000.0]),
@@ -173,7 +194,10 @@ class IndicatorsProviderParserTests(TestCase):
                     parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
 
     def test_parse_yahoo_chart_rejects_error_payload(self) -> None:
-        series = _series("yahoo", "BADSYM", unit="index")
+        series = _source(
+            "yahoo",
+            "BADSYM",
+        )
         text = json.dumps(
             {"chart": {"result": None, "error": {"code": "Not Found", "description": "no data"}}}
         )
@@ -182,7 +206,10 @@ class IndicatorsProviderParserTests(TestCase):
             parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
     def test_parse_yahoo_chart_rejects_missing_quote(self) -> None:
-        series = _series("yahoo", "GC=F", unit="usd-per-oz")
+        series = _source(
+            "yahoo",
+            "GC=F",
+        )
         text = json.dumps(
             {"chart": {"error": None, "result": [{"timestamp": [1], "indicators": {}}]}}
         )
@@ -191,7 +218,10 @@ class IndicatorsProviderParserTests(TestCase):
             parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
 
     def test_multpl_retains_cells_and_source_explanation(self) -> None:
-        series = _series("multpl", "shiller-pe", unit="ratio")
+        series = _source(
+            "multpl",
+            "shiller-pe",
+        )
         html = """<table id="datatable">
           <caption>† Estimate</caption>
           <tr><th>Date</th><th>Value</th></tr>
@@ -215,7 +245,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
     def test_multpl_does_not_invent_explanation(self) -> None:
-        series = _series("multpl", "shiller-pe")
+        series = _source("multpl", "shiller-pe")
         html = '<table id="datatable"><tr><td>Oct 15, 2026</td><td>41.01</td></tr></table>'
         rows = parse_multpl_table(series, html, start=date(2026, 10, 15), end=date(2026, 10, 15))
         self.assertNotIn("description_text", rows[date(2026, 10, 15)][0])
@@ -224,7 +254,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertNotIn("value_annotations", rows[date(2026, 10, 15)][0])
 
     def test_multpl_rejects_missing_or_malformed_table(self) -> None:
-        series = _series("multpl", "shiller-pe")
+        series = _source("multpl", "shiller-pe")
         for html, reason in (
             ("<html>no table</html>", "table missing or empty"),
             ('<table id="datatable"><tr><td>Oct 15, 2026</td></tr></table>', "exactly two"),
@@ -237,7 +267,7 @@ class IndicatorsProviderParserTests(TestCase):
                 parse_multpl_table(series, html, start=date(2026, 10, 1), end=date(2026, 10, 15))
 
     def test_multpl_completeness_checks_rows_not_values(self) -> None:
-        series = _series("multpl", "shiller-pe")
+        series = _source("multpl", "shiller-pe")
         html = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
         html = html.replace(
             '<table id="datatable">',
@@ -252,7 +282,7 @@ class IndicatorsProviderParserTests(TestCase):
             parse_multpl_table(series, missing, start=date(1871, 1, 1), end=date(2026, 8, 3))
 
     def test_multpl_retains_same_date_current_and_monthly_rows(self) -> None:
-        series = _series("multpl", "shiller-pe")
+        series = _source("multpl", "shiller-pe")
         html = (
             '<table id="datatable">'
             "<tr><td>Oct 1, 2026</td><td>41.01</td></tr>"

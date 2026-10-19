@@ -1,6 +1,7 @@
 """保存済み外部値だけで候補外の銘柄detailとserving exportへ到達できる。"""
 
 import json
+import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 
@@ -22,12 +23,8 @@ from baibai_batch.jobs.external_assessment_cohorts import (
     record_outcome,
     result_value,
 )
-from baibai_engine.external_assessment.acquisition.collection import (
-    CollectionOutcome,
-    load_staging,
-    save_staging,
-)
-from baibai_engine.external_assessment.acquisition.sources import ParseError, rakuten
+from baibai_engine.external_assessment.acquisition.collection import CollectionOutcome
+from baibai_engine.external_assessment.normalization import ParseError, rakuten
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.external_assessment.store import save_observations
 from baibai_engine.read_api import (
@@ -128,11 +125,22 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
             parse()
         observation = None
         outcome = CollectionOutcome(
-            "rakuten", "9999", "parse_failure", "no_estimates_identity_unconfirmed", 200
+            "rakuten",
+            "9999",
+            "parse_failure",
+            "no_estimates_identity_unconfirmed",
+            200,
+            str(uuid.uuid4()),
         )
     else:
         observation = parse()
-        outcome = CollectionOutcome("rakuten", "9999", "observed", http_status=200)
+        outcome = CollectionOutcome(
+            "rakuten",
+            "9999",
+            "observed",
+            http_status=200,
+            attempt_id=str(uuid.uuid4()),
+        )
     plan = make_plan(
         run_id="synthetic-missingness",
         tickers=("9999",),
@@ -145,11 +153,8 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
     assert restored.entries[0].state == checkpoint_state
     if observation is None:
         assert restored.entries[0].reason == "no_estimates_identity_unconfirmed"
-    stage = tmp_path / "stage.json"
-    save_staging(stage, restored.observations)
-    observations = load_staging(stage)
-    assert save_observations(market, observations) == int(observation is not None)
-    assert save_observations(market, observations) == 0
+    assert save_observations(market, restored.observations) == int(observation is not None)
+    assert save_observations(market, restored.observations) == 0
     before = market.read_bytes()
     expected = external_assessment(market, ticker="9999", cutoff=received, evaluated_at=received)
     source = expected.analyst_ratings[0]

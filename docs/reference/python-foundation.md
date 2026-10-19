@@ -114,7 +114,7 @@ VaultのKeyとTypeを揃え、Applies toに対象環境を含める。保存・�
 | 基本開発・fixture・空データUI | secret不要。任意の検証コピーpathは`BAIBAI_DB` / `BAIBAI_RUNS_DB`（非secret） |
 | 実データの読取 | 許可されたSQLite snapshotと固定lake releaseが必要。データがなければ未検証 |
 | lakeの直接R2読取 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`。対象bucket専用のObject Read only credentialとhttpfsが必要 |
-| Workerの開発用認証・L1接続検証 | `VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、L1はObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
+| Workerの開発用認証・market lake接続検証 | `VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、market lakeはObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
 | provider読取 | `JQUANTS_API_KEY`, `EDINET_API_KEY`, `ESTAT_APP_ID`。認可された接続と利用枠で必要な読取を行い、保存先は検証コピーにする。[sample](../../.env.sample)参照 |
 | JPXの公開source（非secret） | [JPX source設定](../../engine/src/baibai_engine/market/jpx_sources.py)の固定値を使う。環境変数の設定は不要 |
 | TradingViewの認証・取得 | [batch運用](../../batch/OPERATIONS.md#tradingview-expectations)を参照。独立stateのrotationはローカル保存を伴う。本番stateをコピーせず、GitHub Secretへの書戻しを通常のクラウド読取に含めない |

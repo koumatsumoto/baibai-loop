@@ -183,7 +183,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 cache schema versionは[store実装](../../engine/src/baibai_engine/screening/calibration/store.py)がfieldと計算revision等から導出する。計算の意味変更は所有領域のrevision（`VALUATION_CALCULATION_REVISION` / `MARKET_CONTEXT_CALCULATION_REVISION`）を明示更新する。run・panel・cacheは両方をidentityに含め、旧計算の再利用を防ぐ。保存済み資料のidentityを新値へ付け替えない。市場storeの整数`user_version`とは別契約である。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。これらのpanel列と`ProfitabilityLevelSignals`はcalibration専用で、productionへ渡さない。production ReinvestmentはStock Analysisから別途収益性を計算し、[native eligibility/order](./screening-runtime.md#candidate-discovery)に使う。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・Valuation / Market Context calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
-報告空売り残高は L1 に disclosure date と calculation date、reporter 名tupleと住所、ratio / shares / units、前回報告値、Notes、provider row ordinalを保持する。Notes は自由記述であり、取消やゼロ残高へ推測変換しない。取得済み無報告と未取得を区別する。現在の評価・選定に利用者がない報告者別の残高集計と専用 panel 列は持たず、必要な分析は保存原本から設計する。旧較正研究の coverage 不足という判定を、効果なしや現行実装の保持義務へ読み替えない。
+報告空売り残高はL1の受領応答に提供元fieldを保持し、L2 projectionにdisclosure dateとcalculation date、reporter名tupleと住所、ratio / shares / units、前回報告値、Notes、provider row ordinalを持つ。Notes は自由記述であり、取消やゼロ残高へ推測変換しない。取得済み無報告と未取得を区別する。現在の評価・選定に利用者がない報告者別の残高集計と専用 panel 列は持たず、必要な分析は保存原本から設計する。旧較正研究の coverage 不足という判定を、効果なしや現行実装の保持義務へ読み替えない。
 
 信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation であり、candidates・rank・候補一覧を変えない。空売り残/ADVを追加guardrailにする事前登録済みrunだけが`--required-metric margin_short_to_adv`を指定する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。保存形式は[`market-lake.md`](./market-lake.md#較正store)を正本とする。
 
@@ -216,7 +216,7 @@ productionとproduction-authority calibrationは同じADV-freeな`candidate_disc
 
 ## store の再構築
 
-対象はcalibrationのmachine snapshotであり、market L1やapplication DBではない。全再構築では保持する全cohortを覆うstart/endを指定する。先に現行snapshotを削除せず、builderのtemporary build・検証・atomic replaceを使う。
+対象はcalibrationのmachine snapshotであり、marketのL1原本・L2 projectionやapplication DBではない。全再構築では保持する全cohortを覆うstart/endを指定する。先に現行snapshotを削除せず、builderのtemporary build・検証・atomic replaceを使う。
 
 ```bash
 uv run baibai-engine screening calibration-build \
@@ -324,6 +324,8 @@ Research Setの対象について、[Stock Assessment](./stock-assessment.md#sce
 上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格を代理値として計算する（`resolved_control_event_exit`）。買付価格と成立報告は観測事実だが、上場廃止日にその価格で退出したという扱いは較正上の測定規約である。非応募株主のスクイーズアウト対価、実際の支払日、個々の受取額を確認したものではない。`resolved` はこの規約で計算できたことを表し、実約定・現金受領の証明とは区別する。[JPXの上場制度FAQ](https://www.jpx.co.jp/faq/stock_listed_company.html)も、非応募株主の後続手続について発行会社の開示確認を案内している。導入時の[事前登録](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md)と[比較結果](../../reports/studies/2026-08-11-capital-control-exit-values/report.md)は履歴として残す。旧schema・CLI・再構築範囲・停止条件を現在の手順へ読み替えず、現行の導出・置換条件は本節と実装を正本とする。代理値を確定できない上場廃止は従来どおり全損・中立の感度ケースに残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
 
 JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等売渡請求」は資料確認へ進む候補条件で、現金対価の証明ではない。株式併合・売渡請求だけの表記でも、先行する現金公開買付けを資料で検証する。対象ticker・届出/訂正・取下げ・成立報告・普通株1株の単一価格・現金のみという既存の証拠条件を保ち、資料なし・撤回・非現金・価格不一致は未解決に残す。CLIの`candidates`は調査候補件数、`resolved`が証拠を満たした件数である。6881の通常資料取得による再現と取得範囲は[測定記録](../../reports/studies/2026-10-14-tender-exit-candidate-coverage/report.md)を参照する。
+
+`build-tender-offer-exits --asof YYYY-MM-DD --sqlite-path PATH`は同じstoreに保存済みのEDINET type=5原本だけを読み、追加取得しない。必要な原本を明示取得する時は`refresh-tender-offer-exits`に同じ引数を渡す。いずれも成立報告・新しい訂正から必要な順に読み、CLIの`reads`は文書読込要求の件数である。必要な原本が未保存またはZIPでない場合、導出とexit値の置換を中止して既存値を保持する。証拠の評価を正常に終えて結果が空なら、以前のexit値も撤回する。
 
 ### 破綻型の実現 exit 値
 

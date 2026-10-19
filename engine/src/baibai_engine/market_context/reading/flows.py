@@ -9,10 +9,9 @@ from datetime import UTC, date, datetime
 from math import isfinite
 from typing import cast
 
+from baibai_engine.collection.economic.records import read_snapshots
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
 from .observations import reading_observation
 
@@ -25,13 +24,13 @@ def read_flow_series(
     end: date,
     publication_cutoff: date,
 ) -> tuple[ObservationRecord, ...]:
-    if series.provider_series_id != "foreigners_net_value" or series.unit != "jpy-thousand":
+    if series.reading_key != "foreigners_net_value" or series.unit != "jpy-thousand":
         raise ValueError(f"investor flow series {series.series_id} has inconsistent unit")
     selected: dict[date, tuple[date, list[Mapping[str, object]]]] = {}
     # Source snapshots are publication-day responses, not aggregation-week snapshots.
     # A later correction may describe a period earlier than the requested range end.
     for snapshot in read_snapshots(
-        connection, date.min, publication_cutoff, source_key=native_source_key(series)
+        connection, date.min, publication_cutoff, source_id=series.source_id
     ):
         for row in snapshot.records:
             period_end = _date(row.get("EnDate"), "EnDate")

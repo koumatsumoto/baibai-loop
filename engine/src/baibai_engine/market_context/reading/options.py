@@ -5,9 +5,9 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, datetime
 
+from baibai_engine.collection.economic.records import read_snapshots
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
 from .observations import reading_observation
 from .option_iv import OptionIvReadings, option_iv_readings, quotes_from_records
@@ -39,11 +39,9 @@ class OptionSeriesReader:
     ) -> tuple[ObservationRecord, ...]:
         if series.unit != "percent":
             raise ValueError(f"option series {series.series_id} has inconsistent unit")
-        field = _READING_FIELDS[series.provider_series_id]
+        field = _READING_FIELDS[series.reading_key]
         observations = []
-        for chain in read_snapshots(
-            self._connection, start, end, source_key="jquants_options:n225"
-        ):
+        for chain in read_snapshots(self._connection, start, end, source_id=series.source_id):
             cached = self._readings.get(chain.observed_at)
             if cached is None or cached[0] != chain.fetched_at:
                 readings = option_iv_readings(quotes_from_records(chain.records), chain.observed_at)

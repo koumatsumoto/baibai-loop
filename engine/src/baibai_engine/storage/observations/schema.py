@@ -16,6 +16,11 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
+from baibai_engine.collection.edinet.contract import EDINET_LIST_RESPONSES_DDL
+from baibai_engine.collection.equity_web.contract import EQUITY_WEB_SOURCE_RESPONSES_DDL
+from baibai_engine.collection.jpx.contract import JPX_SOURCE_BUNDLES_DDL
+from baibai_engine.collection.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
+from baibai_engine.collection.tradingview.contract import TRADINGVIEW_SOURCE_RECEIPTS_DDL
 from baibai_engine.external_assessment.observations.contract import (
     ANALYST_RATING_DDL,
     MODEL_VALUATION_DDL,
@@ -23,59 +28,18 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 39
+SQLITE_SCHEMA_VERSION = 47
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
-# EDINET serves a filing's descriptive columns only while its public-inspection period
-# runs. Once that period ends the day's list still returns the entry with these five
-# nulled — measured over the whole store, a row that has run out carries none of them,
-# while `doc_type_code`, `submit_datetime` and `doc_description` are present on every row
-# that has not. The converse does not hold for the other two: a filing can genuinely have
-# no securities code and no parent, so a null there is not by itself evidence of expiry.
-# The company, form, timestamp and title a filing carried do not stop being true when
-# they stop being served, so a store that once observed them keeps them — the ingest
-# preserves it when the later response is null and the same document occupies the same
-# list position. A new non-null provider value replaces the stored value. These document
-# facts travel through L1; the machine-store merge does not merge document rows.
-EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS: tuple[str, ...] = (
-    "sec_code",
-    "doc_type_code",
-    "parent_doc_id",
-    "submit_datetime",
-    "doc_description",
-)
-
-# EDINET also stops serving these filing identities once the inspection period ends.
-# They remain true of the filing just like its descriptive columns, so ingest retains
-# an identity it has observed instead of replacing it with a later null response.
-EDINET_DOCUMENT_IDENTITY_COLUMNS: tuple[str, ...] = (
-    "edinet_code",
-    "issuer_edinet_code",
-    "subject_edinet_code",
-)
-
-EDINET_DOCUMENT_RETAINED_COLUMNS: tuple[str, ...] = (
-    *EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
-    *EDINET_DOCUMENT_IDENTITY_COLUMNS,
-)
-
-# What EDINET currently does with the filing rather than what the filing says: whether
-# the inspection period is running, whether the document files are still downloadable,
-# and whether the filing has been withdrawn. Two stores that read the same day at
-# different moments can differ here, so ingest takes the new response rather than
-# preserving a previous lifecycle value when a field becomes null.
-EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
-    "legal_status",
-    "withdrawal_status",
-    "csv_flag",
-    "xbrl_flag",
-)
-
-# These two indexes are part of the required read contract. Other indexes remain
+# EDINET list projection reconstructs the current rows from retained source receipts.
+# A later response can omit fields after the public-inspection period; historical carry
+# comes from earlier receipts for the same day, never from previously derived L2 rows.
+# These indexes are part of the required read contract. Other indexes remain
 # performance choices in the DDL; do not broaden the acceptance contract implicitly.
 _REQUIRED_INDEX_NAMES = (
     "idx_jquants_daily_bars_traded_at",
     "idx_source_coverage_source_window",
+    "idx_edinet_list_responses_date_received",
 )
 
 _SCHEMA_SQL = """
@@ -154,7 +118,8 @@ CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker
 CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
   publication_date TEXT NOT NULL,
   ticker TEXT NOT NULL,
-  applied_date TEXT,
+  -- AppDate is the reported balance's application date (申込日), not a regulation effective date.
+  applied_date TEXT NOT NULL,
   publication_reason TEXT,
   short_outstanding REAL,
   short_change REAL,
@@ -172,7 +137,7 @@ CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
   long_standard_outstanding REAL,
   long_standard_change REAL,
   tse_margin_regulation_classification TEXT,
-  PRIMARY KEY (publication_date, ticker)
+  PRIMARY KEY (publication_date, ticker, applied_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_jquants_margin_alerts_ticker
@@ -258,9 +223,11 @@ CREATE TABLE IF NOT EXISTS edinet_document_lists(
   doc_date TEXT PRIMARY KEY,
   process_datetime TEXT,
   result_count INTEGER NOT NULL,
-  fetched_at_utc TEXT NOT NULL,
-  is_final INTEGER NOT NULL,
-  response_json TEXT
+  selected_received_at_utc TEXT,
+  response_json TEXT,
+  selected_receipt_id TEXT,
+  latest_received_at_utc TEXT NOT NULL,
+  rechecked_asof TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edinet_segment_facts(
@@ -430,7 +397,17 @@ CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
 """
 
 
-_SCHEMA_SQL += TV_DDL + MODEL_VALUATION_DDL + ANALYST_RATING_DDL + QUANTS_SCORE_DDL
+_SCHEMA_SQL += (
+    TV_DDL
+    + MODEL_VALUATION_DDL
+    + ANALYST_RATING_DDL
+    + QUANTS_SCORE_DDL
+    + JQUANTS_SOURCE_PAGES_DDL
+    + EDINET_LIST_RESPONSES_DDL
+    + JPX_SOURCE_BUNDLES_DDL
+    + TRADINGVIEW_SOURCE_RECEIPTS_DDL
+    + EQUITY_WEB_SOURCE_RESPONSES_DDL
+)
 
 
 class SQLiteSchemaError(RuntimeError):

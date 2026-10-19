@@ -26,8 +26,9 @@ from baibai_batch.jobs.schedule import (
     external_assessment_target_date,
 )
 from baibai_batch.storage import external_assessment_staging as staging
+from baibai_engine.collection.equity_web import http as source_http
 from baibai_engine.external_assessment.acquisition import collection
-from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.keys import current_release_pointer_key
 
 CREATED = datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
 FRIDAY = date(2026, 10, 9)
@@ -99,14 +100,14 @@ def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_rel
         any(name in key for name in ("jquants.master_snapshots/", "jquants.market_calendar/"))
         for key in parquet_reads
     )
-    store.store_object(current_l1_pointer_key(), b"unreadable newer pointer")
+    store.store_object(current_release_pointer_key(), b"unreadable newer pointer")
     store.get_keys.clear()
     store.head_keys.clear()
     assert (
         daily.initialize(store, run_id=run_id, master_asof=None, observation_date=day, mirror=None)
         == p
     )
-    assert current_l1_pointer_key() not in store.head_keys
+    assert current_release_pointer_key() not in store.head_keys
     assert set(store.get_keys) == {staging.prefix(run_id) + "/plan.json"}
 
 
@@ -231,7 +232,7 @@ def test_holiday_receipt_keeps_actual_day_and_same_plan_resume_never_repeats_htt
         def now(cls, tz=None):
             return CREATED.astimezone(tz)
 
-    monkeypatch.setattr(collection, "datetime", ReceiptDatetime)
+    monkeypatch.setattr(source_http, "datetime", ReceiptDatetime)
     report = daily.acquire_cohort(store, p, 0)
     assert report["state_counts"]["success"] == 1
     saved = staging.read_stages(store, p)[0][0]

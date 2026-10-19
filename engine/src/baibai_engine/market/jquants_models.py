@@ -7,8 +7,8 @@ from datetime import date
 from pydantic import field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.market.bars import MODEL_CONFIG, validate_finite
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.market.price_models import MODEL_CONFIG, validate_finite
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
@@ -49,11 +49,15 @@ class JQuantsAllIssuesDailyMargin:
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsMarginAlert:
-    """Daily balance and regulation facts for an issue selected for daily publication."""
+    """Daily balance and regulation facts for an issue selected for daily publication.
+
+    ``applied_date`` stores provider AppDate: the balance's application date (申込日),
+    not the date when a regulation takes effect.
+    """
 
     publication_date: date
     ticker: str
-    applied_date: date | None = None
+    applied_date: date
     publication_reason: str | None = None
     short_outstanding: float | None = None
     short_change: float | None = None

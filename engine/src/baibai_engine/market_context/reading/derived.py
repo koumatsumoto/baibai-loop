@@ -26,7 +26,7 @@ def derive_series(
     falling back to a formerly stored derived value. A result's optional vintage
     describes its selected inputs, not a new provider publication or wall-clock read.
     """
-    formula = FORMULAS[series.provider_series_id]
+    formula = FORMULAS[series.reading_key]
     if series.unit != formula.unit:
         raise ValueError(f"derived series {series.series_id} has inconsistent unit")
     selected = {key: inputs.get(key, ()) for key in formula.inputs}

@@ -2,142 +2,43 @@ from __future__ import annotations
 
 import io
 import json
-import sqlite3
 from collections.abc import Mapping, Sequence
-from contextlib import closing
 from dataclasses import replace
-from datetime import UTC, date, datetime
-from pathlib import Path
+from datetime import date
 from typing import TYPE_CHECKING, cast
-from unittest.mock import patch
 
 import openpyxl
 import requests
 from tests.helpers.indicator_store import (
+    SOURCE_URL,
     series_definition,
 )
 
-import baibai_engine.market_context.indicators.db as indicators_db
-from baibai_engine.market_context.indicators.db import (
-    get_series,
-    initialize_database,
-    insert_observations,
-    record_provider_run,
-)
-from baibai_engine.market_context.indicators.definitions import (
-    SeriesDefinition,
-    load_definitions,
-)
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.providers import (
+from baibai_engine.collection.economic.providers import (
     parse_estat_json,
-    spglobal_pmi,
 )
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic.providers.base import (
     FetchContext,
-    HttpSession,
-    record_observation,
 )
-from baibai_engine.market_context.indicators.providers.estat_dashboard import (
+from baibai_engine.collection.economic.providers.estat_dashboard import (
     parse_dashboard_json,
 )
-from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
+from baibai_engine.collection.economic.providers.spglobal_pmi import (
     Release,
-    SpGlobalPmiProvider,
     _parse_stream,
 )
+from baibai_engine.collection.economic.sources import SourceDefinition
+from baibai_engine.market_context.indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading.estat import estat_values
+from baibai_engine.market_context.reading.observations import reading_observation
 
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
     # onto the import path of the whole suite, which the lazy launch avoids.
-    from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
-
-
-def _prune_store_rows(database: Path) -> dict[str, tuple[tuple[object, ...], ...]]:
-    with closing(sqlite3.connect(database)) as connection:
-        return {
-            table: tuple(sorted(connection.execute(f"SELECT * FROM {table}").fetchall(), key=repr))
-            for table in ("series", "aliases", "observations", "provider_runs", "registry_state")
-        }
-
-
-def _write_retired_series(database: Path) -> None:
-    """A store written while the series was still registered, then left behind.
-
-    The generation is one behind the current registry because retiring a series
-    changes the canonical membership, and only a client whose registry is newer
-    than the store may prune what the store still holds.
-    """
-
-    conn = initialize_database(database)
-    try:
-        indicators_db.set_registry_generation(conn, load_definitions().generation - 1)
-        conn.execute(
-            "INSERT INTO series("
-            "series_id, name, category, geography, frequency, unit, provider, "
-            "provider_series_id, source_id, source_url"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "jp.cpi.stale",
-                "stale",
-                "inflation",
-                "japan",
-                "monthly",
-                "index",
-                "fred_csv",
-                "JPNCPIALLMINMEI",
-                "fred-jp-cpi",
-                "https://example.com/stale.csv",
-            ),
-        )
-        conn.execute(
-            "INSERT INTO aliases(alias, series_id) VALUES (?, ?)",
-            ("stale alias", "jp.cpi.stale"),
-        )
-        insert_observations(
-            conn,
-            [
-                ObservationRecord(
-                    series_id="jp.cpi.stale",
-                    observed_at=date(2021, 12, 1),
-                    value=100.0,
-                    unit="index",
-                    source_url="https://example.com/stale.csv",
-                    vintage_at=datetime(2026, 5, 1, tzinfo=UTC),
-                )
-            ],
-        )
-        record_provider_run(
-            conn,
-            provider="fred_csv",
-            series_id="jp.cpi.stale",
-            start=date(2021, 1, 1),
-            end=date(2021, 12, 31),
-            started_at=datetime(2026, 5, 1, tzinfo=UTC),
-            status="ok",
-            record_count=1,
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _retired_counts(database: Path) -> tuple[int, int, int]:
-    conn = sqlite3.connect(database)
-    try:
-        return cast(
-            tuple[int, int, int],
-            tuple(
-                conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                ).fetchone()[0]
-                for table in ("series", "observations", "provider_runs")
-            ),
-        )
-    finally:
-        conn.close()
+    from baibai_engine.collection.economic.providers.browser import BrowserFetcher
 
 
 def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None) -> str:
@@ -161,7 +62,7 @@ def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None
 
 def _series(
     provider: str,
-    provider_series_id: str,
+    reading_key: str,
     *,
     series_id: str = "test.series",
     unit: str = "percent",
@@ -174,12 +75,29 @@ def _series(
     return series_definition(
         series_id,
         provider=provider,
-        provider_series_id=provider_series_id,
+        reading_key=reading_key,
         category="test",
         unit=unit,
         frequency=frequency,
         plausible_min=plausible_min,
         plausible_max=plausible_max,
+    )
+
+
+def _source(
+    provider: str,
+    provider_series_id: str = "",
+    *,
+    source_url: str = SOURCE_URL,
+    frequency: str = "daily",
+) -> SourceDefinition:
+    """An explicit synthetic L1 acquisition request, independent of L2 readings."""
+    return SourceDefinition(
+        source_id="test-source",
+        provider=provider,
+        source_url=source_url,
+        frequency=frequency,
+        provider_series_id=provider_series_id,
     )
 
 
@@ -214,10 +132,8 @@ def _registry_yaml(*, plausible_min: str, plausible_max: str) -> str:
         "    geography: test\n"
         "    frequency: daily\n"
         "    unit: percent\n"
-        "    provider: fred_csv\n"
-        "    provider_series_id: TEST\n"
-        "    source_id: test-source\n"
-        "    source_url: https://example.com/test.csv\n"
+        "    reading_key: TEST\n"
+        "    source_id: fed-h15\n"
         f"    plausible_min: {plausible_min}\n"
         f"    plausible_max: {plausible_max}\n"
     )
@@ -234,58 +150,6 @@ def _pmi_stream(months: list[str]) -> tuple[Release, ...]:
             for index, month in enumerate(months, start=1)
         ],
     )
-
-
-def _pmi_stored(
-    series_id: str, releases: Sequence[Release], values: Sequence[float]
-) -> tuple[ObservationRecord, ...]:
-    """Stored observations carrying the release URL their month names in the manifest."""
-    return tuple(
-        ObservationRecord(
-            series_id=series_id,
-            observed_at=release.observed_at,
-            value=value,
-            unit="index",
-            source_url=release.url,
-            vintage_at=datetime.now(UTC),
-        )
-        for release, value in zip(releases, values, strict=True)
-    )
-
-
-def _fetch_pmi_stream(
-    series: SeriesDefinition,
-    stream: tuple[Release, ...],
-    *,
-    start: date,
-    end: date,
-    context: FetchContext | None,
-) -> tuple[list[ObservationRecord], list[str]]:
-    """Run the PMI provider against a fixture manifest, recording what it fetched.
-
-    Release text is stubbed per URL so the test stays on the fetch-selection and
-    manifest-freshness behaviour instead of PDF parsing.
-    """
-
-    month_by_url = {release.url: release.observed_at for release in stream}
-    fetched: list[str] = []
-
-    def release_text(url: str, *, session: object, context: object) -> str:
-        fetched.append(url)
-        return f"the headline PMI posted 50.4 in {month_by_url[url].strftime('%B')}."
-
-    with (
-        patch.object(spglobal_pmi, "load_manifest", return_value={"jp_manufacturing": stream}),
-        patch.object(spglobal_pmi, "release_text", side_effect=release_text),
-    ):
-        observations = SpGlobalPmiProvider().fetch(
-            series,
-            start=start,
-            end=end,
-            session=cast(HttpSession, _RaisingSession()),
-            context=context,
-        )
-    return observations, fetched
 
 
 def _boj_workbook_bytes(
@@ -316,62 +180,6 @@ def _boj_workbook_bytes(
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
-
-
-def _write_observation_with_coverage(
-    db: Path,
-    series_id: str,
-    *,
-    observed_at: date,
-    value: float,
-    coverage_start: date,
-    coverage_end: date,
-) -> None:
-    _write_observation(db, series_id, observed_at=observed_at, value=value)
-    conn = sqlite3.connect(db)
-    try:
-        record_provider_run(
-            conn,
-            provider="test",
-            series_id=series_id,
-            start=coverage_start,
-            end=coverage_end,
-            started_at=datetime.now(UTC),
-            status="ok",
-            record_count=1,
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _write_observation(
-    db: Path,
-    series_id: str,
-    *,
-    observed_at: date,
-    value: float,
-    vintage_at: datetime | None = None,
-) -> None:
-    conn = initialize_database(db)
-    try:
-        series = get_series(conn, series_id)
-        insert_observations(
-            conn,
-            [
-                ObservationRecord(
-                    series_id=series_id,
-                    observed_at=observed_at,
-                    value=value,
-                    unit=series.unit,
-                    source_url=series.source_url,
-                    vintage_at=vintage_at or datetime.now(UTC),
-                )
-            ],
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 _DASHBOARD_INDICATOR = "0301010000020020010"
@@ -441,11 +249,16 @@ def _dashboard_payload(
 
 
 def _read_estat(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+    series: SeriesDefinition,
+    source: SourceDefinition,
+    text: str,
+    *,
+    start: date,
+    end: date,
 ) -> list[ObservationRecord]:
-    records = parse_estat_json(series, text, start=start, end=end)
+    records = parse_estat_json(source, text, start=start, end=end)
     return [
-        record_observation(series, observed_at=day, value=value)
+        reading_observation(series, observed_at=day, value=value, vintage_at=None)
         for day, value in estat_values(records).items()
     ]
 
@@ -463,7 +276,7 @@ def _parse_dashboard(
         selectors=_DASHBOARD_SELECTORS,
     )
     return [
-        record_observation(_dashboard_series(), observed_at=day, value=value)
+        reading_observation(_dashboard_series(), observed_at=day, value=value, vintage_at=None)
         for day, value in estat_values(records, final_only=True).items()
     ]
 

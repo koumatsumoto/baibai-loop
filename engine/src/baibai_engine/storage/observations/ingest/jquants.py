@@ -28,10 +28,9 @@ from baibai_engine.storage.observations.convert import (
     to_str_or_none,
 )
 from baibai_engine.storage.observations.coverage import (
-    EmptyRangeReplacementError,
+    delete_date_range,
     record_range_source_coverage,
     record_source_coverage,
-    replace_date_range,
 )
 from baibai_engine.storage.observations.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
@@ -52,6 +51,7 @@ def store_jquants_fin_summaries(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     if requested_start > requested_end:
         raise ValueError("financial request start must not follow end")
@@ -63,13 +63,12 @@ def store_jquants_fin_summaries(
         raise ValueError("financial payload contains a disclosure date outside the request")
     conn = open_connection(db_path)
     try:
-        replace_date_range(
+        delete_date_range(
             conn,
             "jquants_fin_summaries",
             "disclosed_at",
             requested_start,
             requested_end,
-            replacement_row_count=len(rows),
         )
         if rows:
             conn.executemany(
@@ -90,6 +89,7 @@ def store_jquants_fin_summaries(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count
@@ -102,6 +102,7 @@ def store_jquants_weekly_margin(
     records: Iterable[Mapping[str, Any]],
     *,
     week_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist one weekly balance date, including the fact that it was empty.
 
@@ -119,17 +120,6 @@ def store_jquants_weekly_margin(
     try:
         iso = week_end.isoformat()
         conn.execute("BEGIN")
-        held = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM jquants_weekly_margin WHERE week_end = ?", (iso,)
-            ).fetchone()[0]
-            or 0
-        )
-        if not rows and held:
-            raise EmptyRangeReplacementError(
-                f"refusing to replace {held} stored jquants_weekly_margin row(s) "
-                f"for {iso} with an empty payload"
-            )
         conn.execute("DELETE FROM jquants_weekly_margin WHERE week_end = ?", (iso,))
         if rows:
             conn.executemany(
@@ -156,6 +146,7 @@ def store_jquants_weekly_margin(
             record_count=persisted_count,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count
@@ -172,19 +163,19 @@ def store_jquants_margin_alerts(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist the daily designated-issue dataset by publication date."""
     normalized = _margin_alert_rows_with_quality(records, requested_start, requested_end)
     conn = open_connection(db_path)
     try:
         conn.execute("BEGIN")
-        replace_date_range(
+        delete_date_range(
             conn,
             "jquants_margin_alerts",
             "publication_date",
             requested_start,
             requested_end,
-            replacement_row_count=len(normalized.rows),
         )
         if normalized.rows:
             conn.executemany(
@@ -212,6 +203,7 @@ def store_jquants_margin_alerts(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted
@@ -227,6 +219,7 @@ def store_jquants_all_issues_daily_margin(
     records: Iterable[Mapping[str, Any]],
     *,
     balance_date: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist one post-transition all-issues daily balance date."""
     require_all_issues_daily_balance_date(balance_date)
@@ -235,18 +228,6 @@ def store_jquants_all_issues_daily_margin(
     try:
         iso = balance_date.isoformat()
         conn.execute("BEGIN")
-        held = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM jquants_all_issues_daily_margin WHERE balance_date = ?",
-                (iso,),
-            ).fetchone()[0]
-            or 0
-        )
-        if not normalized.rows and held:
-            raise EmptyRangeReplacementError(
-                f"refusing to replace {held} stored jquants_all_issues_daily_margin row(s) "
-                f"for {iso} with an empty payload"
-            )
         conn.execute("DELETE FROM jquants_all_issues_daily_margin WHERE balance_date = ?", (iso,))
         if normalized.rows:
             conn.executemany(
@@ -276,6 +257,7 @@ def store_jquants_all_issues_daily_margin(
             record_count=persisted,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted
@@ -292,12 +274,12 @@ def store_jquants_short_sale_reports(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     """Persist a complete disclosure-date range without inventing missing reports.
 
-    A successful empty response proves only that the endpoint returned no report
-    rows for the requested disclosure dates. It records coverage, but an empty
-    payload never replaces rows already held for that range.
+    A complete empty response removes rows previously held for the requested
+    disclosure dates and records that empty source observation.
     """
     normalized = _short_sale_report_rows_with_quality(records)
     rows = normalized.rows
@@ -315,13 +297,12 @@ def store_jquants_short_sale_reports(
         while cursor <= requested_end:
             iso = cursor.isoformat()
             day_rows = by_date.get(iso, [])
-            replace_date_range(
+            delete_date_range(
                 conn,
                 "jquants_short_sale_reports",
                 "disclosed_at",
                 cursor,
                 cursor,
-                replacement_row_count=len(day_rows),
             )
             if day_rows:
                 conn.executemany(
@@ -345,6 +326,7 @@ def store_jquants_short_sale_reports(
                 record_count=len(day_rows),
                 status=normalized.status,
                 error=normalized.error,
+                fetched_at_utc=fetched_at_utc,
             )
             cursor += timedelta(days=1)
         persisted_count = int(
@@ -546,7 +528,7 @@ def _margin_alert_rows_with_quality(
             )
         )
     return NormalizedRows(
-        rows=distinct_source_rows(rows, identity_columns=2, source="margin alerts"),
+        rows=distinct_source_rows(rows, identity_columns=3, source="margin alerts"),
         rejected_count=rejected_count,
         excluded_count=excluded_count,
     )
@@ -613,6 +595,7 @@ def store_jquants_master(
     records: Iterable[Mapping[str, Any]],
     *,
     requested_asof: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     validated = validate_master_snapshot(list(records), requested_asof)
     conn = open_connection(db_path)
@@ -640,6 +623,7 @@ def store_jquants_master(
             record_count=persisted_count,
             status="ok",
             error=None,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count

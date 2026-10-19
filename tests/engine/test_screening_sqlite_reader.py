@@ -140,7 +140,7 @@ class ReadDailyBarsTests(unittest.TestCase):
 
             self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
 
-    def test_sparse_bar_dates_do_not_cover_requested_range(self) -> None:
+    def test_sparse_bars_from_a_successful_range_are_read_as_observed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_daily_bars(
@@ -149,7 +149,11 @@ class ReadDailyBarsTests(unittest.TestCase):
                 requested_start=date(2024, 3, 19),
                 requested_end=date(2024, 4, 18),
             )
-            self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
+            bars = read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18))
+            self.assertIsNotNone(bars)
+            self.assertEqual(
+                [(bar.traded_at, bar.close) for bar in bars or []], [(date(2024, 3, 19), 3790.0)]
+            )
 
 
 class ReadFinSummariesTests(unittest.TestCase):
@@ -528,7 +532,7 @@ def test_edinet_readers_preserve_named_values_and_provenance(tmp_path):
     assert baseline.rows["7203"].source_document_revision == "document-test"
 
 
-def test_unfinalized_edinet_query_failure_is_not_an_empty_worklist(tmp_path, monkeypatch):
+def test_unrechecked_edinet_query_failure_is_not_an_empty_worklist(tmp_path, monkeypatch):
     from baibai_engine.market.edinet_metrics import store
 
     db = tmp_path / "market.sqlite"
@@ -544,7 +548,7 @@ def test_unfinalized_edinet_query_failure_is_not_an_empty_worklist(tmp_path, mon
 
     monkeypatch.setattr(store, "connect_current", lambda path: BrokenConnection())
     with pytest.raises(sqlite3.OperationalError, match="read failed"):
-        store.read_unfinalized_edinet_document_dates(db, before=date(2026, 5, 8))
+        store.read_unrechecked_edinet_document_dates(db, before=date(2026, 5, 8))
     assert closed == [True]
 
 

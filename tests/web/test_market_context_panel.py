@@ -10,9 +10,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.market_context.indicators.db import initialize_database
+from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.indicators.definitions import (
-    IndicatorDefinitions,
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
@@ -53,10 +52,7 @@ def _panel_source(
 ) -> DbMarketContextSource:
     store = tmp_path / "indicators.sqlite"
     stored_definition = load_definitions().by_id()[stored]
-    connection = initialize_database(
-        store,
-        definitions=IndicatorDefinitions(series=(stored_definition,)),
-    )
+    connection = initialize_database(store)
     try:
         # This is how a store written before the registry grew looks: it has no
         # row at all for the series added since.
@@ -108,10 +104,7 @@ def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Pat
 def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Path) -> None:
     store = tmp_path / "indicators.sqlite"
     definition = load_definitions().by_id()["us.10y"]
-    connection = initialize_database(
-        store,
-        definitions=IndicatorDefinitions(series=(definition,)),
-    )
+    connection = initialize_database(store)
     try:
         observations: list[ObservationRecord] = []
         # Fifteen calendar months with two observations each.  The overview must retain

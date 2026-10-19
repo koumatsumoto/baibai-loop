@@ -6,11 +6,14 @@ from contextlib import closing
 from datetime import date
 
 import pytest
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import FakeSession, json_response
 
+from baibai_engine.collection.edinet.receipts import read_list_responses
+from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import EDINETProvider
-from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
+from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _saved_response(path):
@@ -35,9 +38,8 @@ def test_listing_keeps_native_fields_without_invented_request_date(tmp_path):
         "futureMetadata": [False, ""],
     }
     path = tmp_path / "market.sqlite"
-    provider = EDINETProvider(
+    provider = EDINETRefresh(
         "test-key",
-        tmp_path / "cache",
         session=FakeSession(json_response(payload)),
         sqlite_path=path,
     )
@@ -62,9 +64,8 @@ def test_refresh_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_
         },
         {"metadata": {"resultset": {"count": 0}}, "results": []},
     ]
-    provider = EDINETProvider(
+    provider = EDINETRefresh(
         "test-key",
-        tmp_path / "cache",
         session=FakeSession(*(json_response(value) for value in payloads)),
         sqlite_path=path,
     )
@@ -75,23 +76,28 @@ def test_refresh_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_
             with closing(sqlite3.connect(path)) as connection:
                 assert connection.execute(
                     "SELECT doc_description FROM edinet_documents"
-                ).fetchone() == ("有価証券報告書",)
+                ).fetchone() == (None,)
 
 
-def test_invalid_refresh_does_not_replace_last_valid_response(tmp_path):
+def test_invalid_refresh_retains_raw_and_blocks_stale_success(tmp_path):
     path = tmp_path / "market.sqlite"
     valid = {"metadata": {"resultset": {"count": 0}}, "results": []}
     invalid = {"metadata": {"resultset": {"count": 1}}, "results": []}
-    provider = EDINETProvider(
+    provider = EDINETRefresh(
         "test-key",
-        tmp_path / "cache",
         session=FakeSession(json_response(valid), json_response(invalid)),
         sqlite_path=path,
     )
     provider.list_documents(date(2026, 10, 15))
-    with pytest.raises(EDINETProviderError, match="count mismatch"):
+    with pytest.raises(EDINETProviderError, match="does not match"):
         provider.list_documents(date(2026, 10, 15), force_refresh=True)
     assert json.loads(_saved_response(path)) == valid
+    with closing(open_connection(path)) as connection:
+        assert len(read_list_responses(connection, doc_date=date(2026, 10, 15))) == 2
+        assert connection.execute(
+            "SELECT status FROM source_coverage WHERE source = 'edinet_documents'"
+        ).fetchone() == ("failed",)
+    assert read_edinet_documents(path, date(2026, 10, 15)) is None
 
 
 def test_normalized_import_does_not_claim_to_recover_an_original_response(tmp_path):

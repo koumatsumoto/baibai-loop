@@ -272,9 +272,9 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
                 patch.object(ScreeningConfig, "from_env", staticmethod(lambda: config)),
                 patch.object(app_module, "load_screening_rules", lambda _path: rules),
                 patch.object(app_module, "run_command", fake_run),
-                patch.object(app_module, "JQuantsProvider"),
-                patch.object(app_module, "EDINETProvider"),
-                patch.object(app_module, "JPXProvider"),
+                patch.object(app_module, "JQuantsReader"),
+                patch.object(app_module, "EDINETRefresh"),
+                patch.object(app_module, "JPXRefresh"),
                 patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100),
             ):
                 code = app_module.main(["run", "--asof", _COMMON_COVERAGE_ASOF.isoformat()])
@@ -505,6 +505,11 @@ class SQLiteCoverageTests(unittest.TestCase):
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
                 conn.execute(
                     "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
+                    (current_start.isoformat(),),
+                )
+                conn.execute(
+                    "UPDATE source_coverage SET coverage_start = ? "
+                    "WHERE source = 'jquants_daily_bars'",
                     (current_start.isoformat(),),
                 )
                 conn.commit()
@@ -904,7 +909,7 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
-    def test_complete_daily_bars_do_not_require_fetch_coverage_bookkeeping(self) -> None:
+    def test_daily_bars_without_fetch_coverage_are_not_acquired(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
@@ -915,7 +920,13 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
-            self.assertNotIn("jquants_daily_bars", {issue.source for issue in issues})
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_daily_bars"
+                    and issue.reason == "daily bars request window is not fully covered in SQLite"
+                    for issue in issues
+                )
+            )
 
     def test_all_past_earnings_calendar_snapshot_reports_issue(self) -> None:
         asof = date(2026, 5, 8)

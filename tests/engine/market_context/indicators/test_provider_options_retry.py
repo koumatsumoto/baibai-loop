@@ -6,6 +6,7 @@ import gzip
 import io
 import json
 from collections import Counter
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from urllib.parse import parse_qs, urlsplit
@@ -13,25 +14,21 @@ from urllib.parse import parse_qs, urlsplit
 import jquantsapi
 import pytest
 from tests.engine.market_context.indicators.test_option_iv import ASOF, _chain_records, _registered
-from tests.helpers.indicator_store import observation
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
-    RefreshFailure,
-    RefreshSuccess,
-)
-from baibai_engine.market_context.indicators.db import initialize_database
-from baibai_engine.market_context.indicators.providers import jquants_options, registry
-from baibai_engine.market_context.indicators.providers.base import (
+from baibai_engine.collection.economic import acquisition as acquisition
+from baibai_engine.collection.economic.documents import SourceDocument
+from baibai_engine.collection.economic.providers import jquants_options
+from baibai_engine.collection.economic.providers.base import (
     FetchContext,
     ProviderFetchStoppedError,
 )
-from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
-from baibai_engine.market_context.option_acquisition import OptionAcquisition
+from baibai_engine.collection.economic.providers.read_retry import read_deadline
+from baibai_engine.collection.economic.records import read_snapshots, store_snapshot
+from baibai_engine.collection.economic.sources import require_source
+from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.reading.option_iv import (
     option_iv_readings,
     quotes_from_records,
@@ -80,22 +77,23 @@ def wire(monkeypatch, tmp_path):
                 preload_content=False,
             )
 
-        def fetch(self, series_id=READINGS[0], *, start=ASOF, end=ASOF):
-            if self.acquisition_context is not self.context:
-                if self.acquisition is not None:
-                    self.acquisition.close()
-                self.acquisition = OptionAcquisition(self.connection, self.context)
-                self.acquisition_context = self.context
-            observations, _ = self.acquisition.query(
-                _registered(series_id), start=start, end=end, refresh=True
+        def acquire(self, *, start=ASOF, end=ASOF):
+            return acquisition._refresh_source(
+                self.connection,
+                require_source("jquants-options-n225"),
+                start=start,
+                end=end,
+                context=self.context,
             )
-            return observations
+
+        def read(self, series_id=READINGS[0], *, start=ASOF, end=ASOF):
+            return OptionSeriesReader(self.connection).read(
+                _registered(series_id), start=start, end=end
+            )
 
     wire = Wire()
     wire.context = FetchContext()
     wire.connection = initialize_database(tmp_path / "wire.sqlite")
-    wire.acquisition_context = None
-    wire.acquisition = None
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
@@ -116,8 +114,6 @@ def wire(monkeypatch, tmp_path):
 
     monkeypatch.setattr("socket.socket.connect", no_socket)
     yield wire
-    if wire.acquisition is not None:
-        wire.acquisition.close()
     wire.context.close()
     wire.connection.close()
 
@@ -138,9 +134,10 @@ def test_same_get_has_initial_plus_five_retries_and_keeps_success_value(wire, fa
     wire.reply = lambda url: (429, {}, {}) if len(wire.calls) <= failures else success()
     if failures == 6:
         with pytest.raises(ProviderFetchStoppedError, match="RetryError"):
-            wire.fetch()
+            wire.acquire()
     else:
-        records = wire.fetch()
+        wire.acquire()
+        records = wire.read()
         expected = option_iv_readings(quotes_from_records(_chain_records()), ASOF).iv_30d
         assert len(records) == 1
         assert records[0].value == expected
@@ -151,9 +148,9 @@ def test_same_get_has_initial_plus_five_retries_and_keeps_success_value(wire, fa
 
 def test_three_readings_do_not_restart_a_failed_days_http_budget(wire):
     wire.reply = lambda url: (429, {}, {})
-    for series_id in READINGS:
-        with pytest.raises(ProviderFetchStoppedError):
-            wire.fetch(series_id)
+    with pytest.raises(ProviderFetchStoppedError):
+        wire.acquire()
+    assert all(wire.read(series_id) == () for series_id in READINGS)
     assert len(wire.calls) == 6
     assert wire.waits == [30, 60, 120, 300, 600]
 
@@ -162,7 +159,7 @@ def test_three_readings_do_not_restart_a_failed_days_http_budget(wire):
 def test_existing_transient_get_statuses_remain_bounded(wire, status):
     wire.reply = lambda url: (status, {}, {})
     with pytest.raises(ProviderFetchStoppedError, match="RetryError"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 6
     assert wire.waits == [30, 60, 120, 300, 600]
 
@@ -173,7 +170,7 @@ def test_read_timeouts_do_not_reset_the_transport_budget_at_service(wire):
 
     wire.reply = reply
     with pytest.raises(ProviderFetchStoppedError, match="ConnectionError"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 6
     assert wire.waits == [30, 60, 120, 300, 600]
 
@@ -182,8 +179,9 @@ def test_http200_body_timeout_then_success_keeps_all_three_readings(wire):
     wire.reply = lambda url: (
         (200, {}, BodyTimeout(b"partial JSON")) if len(wire.calls) == 1 else success()
     )
+    wire.acquire()
     for series_id in READINGS:
-        assert len(wire.fetch(series_id)) == 1
+        assert len(wire.read(series_id)) == 1
     assert len(wire.calls) == 2
     assert wire.waits == [30]
 
@@ -195,9 +193,9 @@ def test_status_and_body_timeout_use_one_initial_plus_five_budget(wire):
         return 200, {}, BodyTimeout(b"partial JSON")
 
     wire.reply = reply
-    for series_id in READINGS:
-        with pytest.raises(ProviderFetchStoppedError):
-            wire.fetch(series_id)
+    with pytest.raises(ProviderFetchStoppedError):
+        wire.acquire()
+    assert all(wire.read(series_id) == () for series_id in READINGS)
     assert len(wire.calls) == 6
     assert wire.waits == [30, 60, 120, 300, 600]
 
@@ -209,7 +207,7 @@ def test_body_timeout_consumes_the_same_elapsed_deadline(wire):
 
     wire.reply = reply
     with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -227,7 +225,8 @@ def test_body_timeout_on_later_page_does_not_replay_successful_page(wire):
         return success(rows=chain()[1:])
 
     wire.reply = reply
-    assert len(wire.fetch()) == 1
+    wire.acquire()
+    assert len(wire.read()) == 1
     assert counts == {"first": 1, "second": 2}
     assert wire.waits == [30]
 
@@ -236,7 +235,7 @@ def test_body_timeout_on_later_page_does_not_replay_successful_page(wire):
 def test_body_timeout_cannot_turn_a_permanent_status_into_a_retry(wire, status):
     wire.reply = lambda url: (status, {}, BodyTimeout(b"partial error body"))
     with pytest.raises(ProviderFetchStoppedError, match=f"HTTP {status} body failed"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -247,7 +246,8 @@ def test_rate_limit_with_incomplete_error_body_still_respects_retry_after(wire):
         if len(wire.calls) == 1
         else success()
     )
-    assert len(wire.fetch()) == 1
+    wire.acquire()
+    assert len(wire.read()) == 1
     assert len(wire.calls) == 2
     assert wire.waits == [17]
 
@@ -258,7 +258,8 @@ def test_preloaded_gzip_json_keeps_the_sdk_payload(wire):
         {"Content-Encoding": "gzip"},
         gzip.compress(json.dumps(success()[2]).encode()),
     )
-    assert len(wire.fetch()) == 1
+    wire.acquire()
+    assert len(wire.read()) == 1
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -273,7 +274,8 @@ def test_proxied_body_read_has_the_same_retry_and_no_global_pool_patch(wire, mon
     wire.reply = lambda url: (
         (200, {}, BodyTimeout(b"partial JSON")) if len(wire.calls) == 1 else success()
     )
-    assert len(wire.fetch()) == 1
+    wire.acquire()
+    assert len(wire.read()) == 1
     assert len(wire.calls) == 2
     assert wire.waits == [30]
     other = (
@@ -300,16 +302,17 @@ def test_retry_after_seconds_or_date_precedes_fallback(wire, header, delay):
     wire.reply = lambda url: (
         (429, {"Retry-After": header}, {}) if len(wire.calls) == 1 else success()
     )
-    assert len(wire.fetch()) == 1
+    wire.acquire()
+    assert len(wire.read()) == 1
     assert len(wire.calls) == 2
     assert wire.waits == ([] if delay == 0 else [delay])
 
 
 def test_sdk_retry_after_wait_is_inside_one_elapsed_deadline(wire):
     wire.reply = lambda url: (429, {"Retry-After": "900"}, {})
-    for series_id in READINGS:
-        with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
-            wire.fetch(series_id)
+    with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
+        wire.acquire()
+    assert all(wire.read(series_id) == () for series_id in READINGS)
     assert len(wire.calls) == 2
     assert wire.waits == [900]
 
@@ -317,7 +320,7 @@ def test_sdk_retry_after_wait_is_inside_one_elapsed_deadline(wire):
 def test_retry_after_beyond_deadline_is_not_shortened_or_retried(wire):
     wire.reply = lambda url: (429, {"Retry-After": "1201"}, {})
     with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -329,7 +332,7 @@ def test_communication_time_counts_before_waiting(wire):
 
     wire.reply = reply
     with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -345,10 +348,10 @@ def test_days_share_one_deadline_and_completed_day_stays_readable(wire):
         return success()
 
     wire.reply = reply
+    with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
+        wire.acquire(end=ASOF + timedelta(days=1))
     for series_id in READINGS:
-        with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
-            wire.fetch(series_id, end=ASOF + timedelta(days=1))
-        assert len(wire.fetch(series_id)) == 1
+        assert len(wire.read(series_id)) == 1
     assert list(counts.values()) == [2, 1]
     assert wire.waits == [900]
 
@@ -356,10 +359,10 @@ def test_days_share_one_deadline_and_completed_day_stays_readable(wire):
 def test_terminal_day_failure_is_not_carried_into_a_new_acquisition(wire):
     wire.reply = lambda url: (403, {}, {})
     with pytest.raises(ProviderFetchStoppedError):
-        wire.fetch()
-    wire.acquisition_context = None
+        wire.acquire()
     wire.reply = lambda url: success()
-    assert len(wire.fetch()) == 1
+    wire.acquire()
+    assert len(wire.read()) == 1
     assert len(wire.calls) == 2
     assert wire.waits == []
 
@@ -367,12 +370,13 @@ def test_terminal_day_failure_is_not_carried_into_a_new_acquisition(wire):
 def test_a_new_pass_can_recover_a_day_that_failed_in_the_same_provider(wire):
     wire.reply = lambda url: (403, {}, {})
     with pytest.raises(ProviderFetchStoppedError):
-        wire.fetch()
+        wire.acquire()
     wire.elapsed += 3600
     wire.context.close()
     wire.context = FetchContext()
     wire.reply = lambda url: success()
-    assert len(wire.fetch()) == 1
+    wire.acquire()
+    assert len(wire.read()) == 1
     assert len(wire.calls) == 2
     assert wire.waits == []
 
@@ -385,7 +389,7 @@ def test_permanent_http_failure_is_one_request_even_with_rate_limit_text(wire, s
         {"message": "429 Too Many Requests synthetic-key"},
     )
     with pytest.raises(ProviderFetchStoppedError, match="HTTPError") as caught:
-        wire.fetch()
+        wire.acquire()
     assert "synthetic-key" not in str(caught.value)
     assert caught.value.__suppress_context__
     assert len(wire.calls) == 1
@@ -397,9 +401,9 @@ def test_permanent_http_failure_is_one_request_even_with_rate_limit_text(wire, s
 )
 def test_json_or_schema_failure_does_not_repeat_the_sdk_fetch(wire, body):
     wire.reply = lambda url: (200, {}, body)
-    for series_id in READINGS:
-        with pytest.raises(ProviderFetchStoppedError):
-            wire.fetch(series_id)
+    with pytest.raises(ProviderFetchStoppedError):
+        wire.acquire()
+    assert all(wire.read(series_id) == () for series_id in READINGS)
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -411,7 +415,7 @@ def test_successful_first_page_is_not_replayed_when_second_page_exhausts(wire):
         else success(rows=chain()[:1], next_page="second")
     )
     with pytest.raises(ProviderFetchStoppedError):
-        wire.fetch()
+        wire.acquire()
     counts = Counter(
         "second" if "pagination_key" in parse_qs(urlsplit(url).query) else "first"
         for url in wire.calls
@@ -434,8 +438,9 @@ def test_separate_pages_have_separate_get_budgets_and_the_same_calculation(wire)
         )
 
     wire.reply = reply
+    wire.acquire()
     for series_id, field in zip(READINGS, ("iv_30d", "iv_skew", "iv_term"), strict=True):
-        records = wire.fetch(series_id)
+        records = wire.read(series_id)
         expected = getattr(option_iv_readings(quotes_from_records(_chain_records()), ASOF), field)
         assert len(records) == 1
         assert records[0].value == expected
@@ -450,7 +455,7 @@ def test_next_page_is_not_started_after_communication_spends_the_deadline(wire):
 
     wire.reply = reply
     with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -466,8 +471,9 @@ def test_separate_days_have_separate_get_budgets_and_reuse_all_three_readings(wi
         return success(ASOF if day == ASOF.strftime("%Y%m%d") else ASOF + timedelta(days=1))
 
     wire.reply = reply
+    wire.acquire(end=ASOF + timedelta(days=1))
     for series_id in READINGS:
-        records = wire.fetch(series_id, end=ASOF + timedelta(days=1))
+        records = wire.read(series_id, end=ASOF + timedelta(days=1))
         assert len(records) == 2
         assert [r.observed_at for r in records] == [ASOF, ASOF + timedelta(days=1)]
     assert list(counts.values()) == [6, 6]
@@ -491,33 +497,44 @@ def test_normal_tls_proxy_pool_timeout_and_other_sdk_clients_are_unchanged(wire)
         == 3
     )
     wire.reply = lambda url: success()
-    wire.fetch()
+    wire.acquire()
     assert all(t.connect_timeout == t.read_timeout == 30 for t in wire.timeouts)
 
 
 def test_failed_options_keep_native_chain_readable_and_another_series_can_commit(
     wire, monkeypatch, tmp_path
 ):
-    provider_name = _registered("jp.bankruptcies").provider
-
-    class OtherProvider:
-        spec = registry._PROVIDERS[provider_name].spec
-
-        def fetch(self, series, *, start, end, session, context):
-            return [observation(series, ASOF, 420.0)]
-
-    monkeypatch.setitem(registry._PROVIDERS, provider_name, OtherProvider())
+    definition = _registered("jp.bankruptcies")
+    body = json.dumps(
+        [
+            {
+                "period_division": "月次",
+                "title": f"{ASOF.year}年{ASOF.month}月 全国企業倒産 420件",
+            }
+        ],
+        ensure_ascii=False,
+    ).encode()
+    document = SourceDocument(
+        source_id=definition.source_id,
+        request_key="history",
+        source_url=definition.source_url,
+        content_type="application/json",
+        fetched_at=datetime.combine(ASOF, datetime.min.time(), UTC),
+        payload=body,
+        metadata={"params": {"data": "data"}},
+    )
+    monkeypatch.setattr(acquisition, "fetch_source_documents", lambda *a, **k: iter([document]))
     database = tmp_path / "indicators.sqlite"
     conn = initialize_database(database)
     store_snapshot(
         conn,
-        source_key="jquants_options:n225",
+        source_id="jquants-options-n225",
         observed_at=ASOF,
         fetched_at=datetime.combine(ASOF, datetime.min.time(), UTC),
         records=_chain_records(ASOF),
     )
     conn.commit()
-    before = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
+    before = tuple(read_snapshots(conn, ASOF, ASOF, source_id="jquants-options-n225"))
     reader = OptionSeriesReader(conn)
     before_values = {
         series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
@@ -526,27 +543,27 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
     assert all(before_values.values())
     conn.close()
     wire.reply = lambda url: (403, {}, {"message": "synthetic-key"})
-    results = IndicatorsService(database).refresh_series(
-        [*READINGS, "jp.bankruptcies"], start=ASOF, end=ASOF
+    results = acquisition.refresh_sources(
+        ["jquants-options-n225", definition.source_id], db_path=database, start=ASOF, end=ASOF
     )
-    assert all(isinstance(r, RefreshFailure) for r in results[:3])
-    assert isinstance(results[3], RefreshSuccess)
+    assert isinstance(results[0], acquisition.SourceRefreshFailure)
+    assert isinstance(results[1], acquisition.SourceRefreshSuccess)
     conn = initialize_database(database)
     try:
-        after = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
+        after = tuple(read_snapshots(conn, ASOF, ASOF, source_id="jquants-options-n225"))
         assert after == before
         reader = OptionSeriesReader(conn)
         assert {
             series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
             for series_id in READINGS
         } == before_values
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM observations WHERE series_id = 'jp.bankruptcies'"
-            ).fetchone()[0]
-            == 1
-        )
-        assert conn.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 4
+        documents = conn.execute(
+            "SELECT payload FROM economic_source_documents WHERE source_id = ?",
+            (definition.source_id,),
+        ).fetchall()
+        assert len(documents) == 1
+        assert documents[0][0] == body
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0] == 2
     finally:
         conn.close()
     assert len(wire.calls) == 1
@@ -556,15 +573,17 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
 @pytest.mark.parametrize("initially_empty", [False, True])
 def test_new_pass_refreshes_successful_and_empty_chain_results(wire, initially_empty):
     wire.reply = lambda url: success(rows=[] if initially_empty else chain())
+    wire.acquire()
     for series_id in READINGS:
-        assert len(wire.fetch(series_id)) == (0 if initially_empty else 1)
+        assert len(wire.read(series_id)) == (0 if initially_empty else 1)
     assert len(wire.calls) == 1
 
     wire.context.close()
     wire.context = FetchContext()
     wire.reply = lambda url: success(rows=chain() if initially_empty else [])
+    wire.acquire()
     for series_id in READINGS:
-        assert len(wire.fetch(series_id)) == (1 if initially_empty else 0)
+        assert len(wire.read(series_id)) == (1 if initially_empty else 0)
     assert len(wire.calls) == 2
 
 
@@ -572,7 +591,7 @@ def test_new_pass_refreshes_successful_and_empty_chain_results(wire, initially_e
 def test_malformed_native_page_is_not_a_successful_empty_day(wire, payload):
     wire.reply = lambda url: (200, {}, payload)
     with pytest.raises(ProviderFetchStoppedError, match="data"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 1
     assert wire.waits == []
 
@@ -594,7 +613,7 @@ def test_later_malformed_page_does_not_return_a_partial_day(wire):
         else success(rows=chain()[:1], next_page="second")
     )
     with pytest.raises(ProviderFetchStoppedError, match="data list"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 2
     assert wire.waits == []
 
@@ -602,6 +621,24 @@ def test_later_malformed_page_does_not_return_a_partial_day(wire):
 def test_repeated_pagination_key_cannot_loop_or_complete_a_day(wire):
     wire.reply = lambda url: success(rows=[], next_page="same")
     with pytest.raises(ProviderFetchStoppedError, match=r"repeated.*pagination_key"):
-        wire.fetch()
+        wire.acquire()
     assert len(wire.calls) == 2
     assert wire.waits == []
+
+
+def test_public_refresh_deduplicates_repeated_source_ids_and_readings_stay_offline(wire, tmp_path):
+    wire.reply = lambda url: success()
+    database = tmp_path / "public-source.sqlite"
+    outcomes = acquisition.refresh_sources(
+        ["jquants-options-n225"] * 3, db_path=database, start=ASOF, end=ASOF
+    )
+    assert len(outcomes) == 1
+    assert isinstance(outcomes[0], acquisition.SourceRefreshSuccess)
+    assert len(wire.calls) == 1
+    with closing(initialize_database(database)) as connection:
+        reader = OptionSeriesReader(connection)
+        assert all(
+            len(reader.read(_registered(series_id), start=ASOF, end=ASOF)) == 1
+            for series_id in READINGS
+        )
+    assert len(wire.calls) == 1

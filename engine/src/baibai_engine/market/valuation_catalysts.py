@@ -17,12 +17,11 @@ from pathlib import Path
 from typing import Literal
 
 import openpyxl
-import requests
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
 from baibai_engine.market.edinet_document_store import read_current_filing_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"
@@ -43,7 +42,6 @@ TENDER_OFFER_WITHDRAWAL_DOC_TYPE = "260"
 TENDER_OFFER_RESULT_DOC_TYPE = "270"
 TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE = "280"
 
-_HTTP_TIMEOUT_SECONDS = 30
 _MONTH_SHEET_RE = re.compile(r"(?:【過去分】)?開示企業一覧（(\d{4})年(\d{1,2})月末時点）")
 
 type CapitalPolicyStatus = Literal["disclosed", "considering"]
@@ -62,7 +60,7 @@ class TSECapitalPolicyRow:
     status_change: str | None
     updated_on: date | None
     contact_requested: bool
-    # First observed disclosed month at/before this row, not the exact disclosure day.
+    # First disclosed month observed in the selected workbook, not the exact day.
     first_disclosed_month_end: date | None
     first_disclosure_left_censored: bool
 
@@ -113,11 +111,10 @@ class ControlFilingIndex:
 def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyRow, ...]:
     """Expand every monthly sheet without inventing an exact first disclosure day.
 
-    The workbook carries the current month plus past-month snapshots, so the series is
-    reconstructable by snapshot month, not by the publication time or revision vintage.
-    The earliest sheet cannot say whether a company that
-    already appears on it disclosed that month or earlier, so those rows are marked
-    left-censored instead of being dated to the first sheet.
+    Each sheet is one snapshot month within this workbook. This does not prove that
+    earlier months are all present. The earliest included sheet cannot say whether a
+    company already on it disclosed that month or earlier, so those rows are marked
+    left-censored instead of assigning an exact first-disclosure day.
     """
     try:
         workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
@@ -185,18 +182,13 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
 
 
 def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPolicyRow]) -> int:
-    """Replace whole months, because a month's sheet is a complete snapshot of it."""
+    """Atomically replace the full view with one successfully decoded workbook."""
     if not rows:
         raise ValuationCatalystError("refusing to replace TSE capital-policy facts with zero rows")
-    month_ends = sorted({row.snapshot_month_end for row in rows})
     connection = open_connection(sqlite_path)
     try:
-        placeholders = ",".join("?" for _ in month_ends)
-        connection.execute(
-            "DELETE FROM tse_capital_policy_snapshots "
-            f"WHERE snapshot_month_end IN ({placeholders})",  # nosec B608
-            tuple(day.isoformat() for day in month_ends),
-        )
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("DELETE FROM tse_capital_policy_snapshots")
         connection.executemany(
             "INSERT INTO tse_capital_policy_snapshots("
             "snapshot_month_end, ticker, status, status_change, updated_on, "
@@ -218,35 +210,11 @@ def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPo
         )
         connection.commit()
         return len(rows)
+    except BaseException:
+        connection.rollback()
+        raise
     finally:
         connection.close()
-
-
-def refresh_tse_capital_policy(
-    sqlite_path: Path, *, session: requests.Session | None = None
-) -> TSECapitalPolicyRefreshSummary:
-    """Download and replace every month present in the TSE workbook."""
-    client = session if session is not None else requests.Session()
-    try:
-        response = client.get(TSE_CAPITAL_POLICY_URL, timeout=_HTTP_TIMEOUT_SECONDS)
-        try:
-            if response.status_code >= 400:
-                raise ValuationCatalystError(
-                    f"failed to download TSE capital-policy workbook: {response.status_code}"
-                )
-            rows = parse_tse_capital_policy_workbook(response.content)
-        finally:
-            response.close()
-    finally:
-        if session is None:
-            client.close()
-    store_tse_capital_policy_rows(sqlite_path, rows)
-    return TSECapitalPolicyRefreshSummary(
-        sheet_count=len({row.snapshot_month_end for row in rows}),
-        row_count=len(rows),
-        disclosed_count=sum(row.status == "disclosed" for row in rows),
-        considering_count=sum(row.status == "considering" for row in rows),
-    )
 
 
 def read_valuation_catalyst_contexts(
@@ -605,6 +573,5 @@ __all__ = (
     "parse_tse_capital_policy_workbook",
     "read_control_filing_index",
     "read_valuation_catalyst_contexts",
-    "refresh_tse_capital_policy",
     "store_tse_capital_policy_rows",
 )

@@ -17,8 +17,8 @@ from baibai_engine.storage.observations.convert import (
     to_str_or_none,
 )
 from baibai_engine.storage.observations.coverage import (
+    delete_date_range,
     record_range_source_coverage,
-    replace_date_range,
 )
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -29,19 +29,19 @@ def store_jquants_daily_bars(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     normalized = _bars_rows_with_quality(records)
     rows = normalized.rows
     _validate_request_dates(rows, date_index=1, start=requested_start, end=requested_end)
     conn = open_connection(db_path)
     try:
-        replace_date_range(
+        delete_date_range(
             conn,
             "jquants_daily_bars",
             "traded_at",
             requested_start,
             requested_end,
-            replacement_row_count=len(rows),
         )
         if rows:
             conn.executemany(
@@ -64,6 +64,7 @@ def store_jquants_daily_bars(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count
@@ -77,19 +78,19 @@ def store_jquants_market_calendar(
     *,
     requested_start: date,
     requested_end: date,
+    fetched_at_utc: str | None = None,
 ) -> int:
     normalized = _market_calendar_rows_with_quality(records)
     rows = normalized.rows
     _validate_request_dates(rows, date_index=0, start=requested_start, end=requested_end)
     conn = open_connection(db_path)
     try:
-        replace_date_range(
+        delete_date_range(
             conn,
             "jquants_market_calendar",
             "day",
             requested_start,
             requested_end,
-            replacement_row_count=len(rows),
         )
         if rows:
             conn.executemany(
@@ -107,6 +108,7 @@ def store_jquants_market_calendar(
             requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
         )
         conn.commit()
         return persisted_count

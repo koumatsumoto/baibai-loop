@@ -4,13 +4,16 @@ import io
 import json
 import sqlite3
 import zipfile
+from contextlib import closing
 from datetime import date
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
+from baibai_engine.collection.edinet.archives import retain_source_archive
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_facts.extract import extract_facts
 from baibai_engine.market.edinet_facts.models import ExtractedFacts, filing_identity
 from baibai_engine.market.edinet_facts.selection import (
@@ -26,7 +29,10 @@ from baibai_engine.market.edinet_facts.store import (
 )
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import EDINETProvider
+from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_engine.screening.cli import app
+from baibai_engine.screening.cli.edinet_cli import refresh_edinet_facts_command
 from baibai_engine.storage.observations.schema import open_connection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
@@ -229,22 +235,266 @@ def insert_documents(path, documents):
 def test_initialization_is_explicit_repeat_is_idempotent_and_failure_retries(tmp_path):
     path = tmp_path / "market.sqlite"
     insert_documents(path, [document()])
-    provider = Mock()
-    provider.download_xbrl_zip.return_value = source_zip()
-    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    reader = Mock()
+    reader.read_xbrl_zip.return_value = source_zip()
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, reader=reader)
     assert extract_edinet_facts_command(**kwargs) == 0
-    provider.download_xbrl_zip.assert_not_called()
-    provider.download_xbrl_zip.side_effect = EDINETProviderError("unavailable")
+    reader.read_xbrl_zip.assert_not_called()
+    reader.read_xbrl_zip.side_effect = EDINETProviderError("unavailable")
     assert extract_edinet_facts_command(**kwargs, initialize=True) == 1
     assert "initialized" not in extraction_status(path)
-    provider.download_xbrl_zip.side_effect = None
+    reader.read_xbrl_zip.side_effect = None
     assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
-    count = provider.download_xbrl_zip.call_count
+    count = reader.read_xbrl_zip.call_count
     assert extract_edinet_facts_command(**kwargs) == 0
-    assert provider.download_xbrl_zip.call_count == count
+    assert reader.read_xbrl_zip.call_count == count
     conn = sqlite3.connect(path)
     assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 40
     conn.close()
+
+
+def _three_annual_documents():
+    documents = []
+    for index, ticker in enumerate(("1873", "7203", "8306"), 1):
+        filing = document(f"S100TEST{index}", f"2026-06-{23 + index:02d} 10:00")
+        filing["secCode"] = ticker + "0"
+        documents.append(filing)
+    return documents
+
+
+def _retain_xbrl(path, doc_id):
+    with closing(open_connection(path)) as connection:
+        return retain_source_archive(
+            connection, doc_id, 1, source_zip(), stored_on=date(2026, 6, 24)
+        )
+
+
+def test_offline_facts_cli_uses_saved_archive_without_keys_or_http(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, [document()])
+    _retain_xbrl(path, "S100TEST")
+    monkeypatch.delenv("EDINET_API_KEY", raising=False)
+    monkeypatch.delenv("JQUANTS_API_KEY", raising=False)
+    with (
+        patch.object(app, "load_project_env", return_value=None),
+        patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
+        patch.object(app, "EDINETRefresh", side_effect=AssertionError("provider constructed")),
+    ):
+        assert (
+            app.main(
+                [
+                    "extract-edinet-facts",
+                    "--asof",
+                    "2026-09-18",
+                    "--initialize",
+                    "--sqlite-path",
+                    str(path),
+                ]
+            )
+            == 0
+        )
+    assert extraction_status(path)["S100TEST"][0] == "ok"
+    assert "initialized" in extraction_status(path)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT count(*) FROM edinet_segment_facts").fetchone()[0] == 40
+
+
+def test_offline_facts_cli_records_missing_archive_without_keys_or_http(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, [document()])
+    monkeypatch.delenv("EDINET_API_KEY", raising=False)
+    monkeypatch.delenv("JQUANTS_API_KEY", raising=False)
+    with (
+        patch.object(app, "load_project_env", return_value=None),
+        patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
+        patch.object(app, "EDINETRefresh", side_effect=AssertionError("provider constructed")),
+    ):
+        assert (
+            app.main(
+                [
+                    "extract-edinet-facts",
+                    "--asof",
+                    "2026-09-18",
+                    "--initialize",
+                    "--sqlite-path",
+                    str(path),
+                ]
+            )
+            == 1
+        )
+    status = extraction_status(path)
+    assert status["S100TEST"][0] == "failed"
+    assert "stored EDINET archive is unavailable" in (status["S100TEST"][1] or "")
+    assert "initialized" not in status
+
+
+def test_refresh_facts_cli_acquires_selected_ticker_and_closes(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, _three_annual_documents())
+    acquisition = Mock()
+    acquisition.download_xbrl_zip.side_effect = lambda doc_id: _retain_xbrl(path, doc_id)
+    monkeypatch.setenv("EDINET_API_KEY", "test-key")
+    with (
+        patch.object(app, "load_project_env", return_value=None),
+        patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
+        patch.object(app, "EDINETRefresh", return_value=acquisition),
+    ):
+        assert (
+            app.main(
+                [
+                    "refresh-edinet-facts",
+                    "--asof",
+                    "2026-09-18",
+                    "--initialize",
+                    "--ticker",
+                    "7203",
+                    "--sqlite-path",
+                    str(path),
+                ]
+            )
+            == 0
+        )
+    acquisition.download_xbrl_zip.assert_called_once_with("S100TEST2")
+    acquisition.close.assert_called_once_with()
+    assert set(extraction_status(path)) == {"S100TEST2"}
+
+
+def test_refresh_facts_reuses_success_without_acquiring_or_reading_archive(tmp_path):
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, [document()])
+    reader = Mock()
+    reader.read_xbrl_zip.return_value = source_zip()
+    assert (
+        extract_edinet_facts_command(
+            asof=date(2026, 9, 18), sqlite_path=path, reader=reader, initialize=True
+        )
+        == 0
+    )
+    acquisition = Mock()
+    offline_reader = Mock()
+    output = io.StringIO()
+    assert (
+        refresh_edinet_facts_command(
+            asof=date(2026, 9, 18),
+            sqlite_path=path,
+            reader=offline_reader,
+            acquisition=acquisition,
+            stdout=output,
+        )
+        == 0
+    )
+    acquisition.download_xbrl_zip.assert_not_called()
+    offline_reader.read_xbrl_zip.assert_not_called()
+    assert json.loads(output.getvalue())["edinet_research_facts"]["reused"] == 1
+
+
+def test_research_facts_continue_after_one_acquisition_failure(tmp_path):
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, _three_annual_documents())
+    provider = Mock()
+    requested = []
+
+    def download(doc_id):
+        requested.append(doc_id)
+        if doc_id == "S100TEST2":
+            raise EdinetAcquisitionError("unavailable")
+        return _retain_xbrl(path, doc_id)
+
+    provider.download_xbrl_zip.side_effect = download
+    output = io.StringIO()
+    assert (
+        refresh_edinet_facts_command(
+            asof=date(2026, 9, 18),
+            sqlite_path=path,
+            reader=EDINETReader(path),
+            acquisition=provider,
+            initialize=True,
+            stdout=output,
+        )
+        == 1
+    )
+    assert requested == ["S100TEST1", "S100TEST2", "S100TEST3"]
+    statuses = extraction_status(path)
+    assert [statuses[doc_id][0] for doc_id in requested] == ["ok", "failed", "ok"]
+    assert "initialized" not in statuses
+    with sqlite3.connect(path) as conn:
+        saved = conn.execute(
+            "SELECT DISTINCT source_doc_id FROM edinet_segment_facts ORDER BY source_doc_id"
+        ).fetchall()
+    assert saved == [("S100TEST1",), ("S100TEST3",)]
+    assert json.loads(output.getvalue())["edinet_research_facts"]["extracted"] == 2
+
+
+def test_research_facts_stop_after_rate_limit_without_planning_later_documents(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, _three_annual_documents())
+    provider = Mock()
+    requested = []
+    planned = []
+
+    from baibai_engine.screening.cli import edinet_cli
+
+    original_plan = edinet_cli.plan_fact_item
+
+    def track_plan(doc, **kwargs):
+        planned.append(doc["docID"])
+        return original_plan(doc, **kwargs)
+
+    def download(doc_id):
+        requested.append(doc_id)
+        if doc_id == "S100TEST2":
+            raise EdinetRateLimitError("rate limited")
+        return _retain_xbrl(path, doc_id)
+
+    monkeypatch.setattr(edinet_cli, "plan_fact_item", track_plan)
+    provider.download_xbrl_zip.side_effect = download
+    output = io.StringIO()
+    assert (
+        refresh_edinet_facts_command(
+            asof=date(2026, 9, 18),
+            sqlite_path=path,
+            reader=EDINETReader(path),
+            acquisition=provider,
+            initialize=True,
+            stdout=output,
+        )
+        == 1
+    )
+    assert planned == requested == ["S100TEST1", "S100TEST2"]
+    statuses = extraction_status(path)
+    assert statuses["S100TEST1"][0] == "ok"
+    assert statuses["S100TEST2"][0] == "failed"
+    assert "S100TEST3" not in statuses
+    assert "initialized" not in statuses
+    with sqlite3.connect(path) as conn:
+        saved = conn.execute("SELECT DISTINCT source_doc_id FROM edinet_segment_facts").fetchall()
+    assert saved == [("S100TEST1",)]
+    counts = json.loads(output.getvalue())["edinet_research_facts"]
+    assert counts["failed"] == counts["rate_limited"] == 1
+
+
+def test_research_facts_ticker_limit_does_not_initialize_global_baseline(tmp_path):
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, _three_annual_documents())
+    provider = Mock()
+    provider.download_xbrl_zip.side_effect = lambda doc_id: _retain_xbrl(path, doc_id)
+    assert (
+        refresh_edinet_facts_command(
+            asof=date(2026, 9, 18),
+            sqlite_path=path,
+            reader=EDINETReader(path),
+            acquisition=provider,
+            initialize=True,
+            tickers=("7203",),
+        )
+        == 0
+    )
+    provider.download_xbrl_zip.assert_called_once_with("S100TEST2")
+    statuses = extraction_status(path)
+    assert set(statuses) == {"S100TEST2"}
+    assert statuses["S100TEST2"][0] == "ok"
 
 
 def test_new_correction_failure_preserves_original_and_does_not_reuse_it(tmp_path):
@@ -253,12 +503,12 @@ def test_new_correction_failure_preserves_original_and_does_not_reuse_it(tmp_pat
     correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
     correction["docTypeCode"] = "130"
     insert_documents(path, [original])
-    provider = Mock()
-    provider.download_xbrl_zip.return_value = source_zip()
-    kwargs = dict(sqlite_path=path, provider=provider)
+    reader = Mock()
+    reader.read_xbrl_zip.return_value = source_zip()
+    kwargs = dict(sqlite_path=path, reader=reader)
     assert extract_edinet_facts_command(**kwargs, asof=date(2026, 7, 1), initialize=True) == 0
     insert_documents(path, [original, correction])
-    provider.download_xbrl_zip.side_effect = EDINETProviderError("unavailable")
+    reader.read_xbrl_zip.side_effect = EDINETProviderError("unavailable")
     assert extract_edinet_facts_command(**kwargs, asof=date(2026, 8, 2)) == 1
     assert extraction_status(path)["S100CORR"][0] == "failed"
     assert selected_filing(path, "2026-07-31")[0] == "S100TEST"
@@ -331,8 +581,8 @@ def test_retained_annual_family_receives_later_corrections():
 
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
-    provider = EDINETProvider("test-key", tmp_path, session=session)
-    monkeypatch.setattr("baibai_engine.market.providers.edinet.time.sleep", lambda _: None)
+    provider = EDINETRefresh("test-key", sqlite_path=tmp_path / "market.sqlite", session=session)
+    monkeypatch.setattr("baibai_engine.collection.edinet.http.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data
     assert len(session.calls) == 2
@@ -369,14 +619,14 @@ def test_new_annual_unknown_period_blocks_old_filing_and_records_reason(tmp_path
     assert selected_filing(path, "2027-06-25")[-1] == "validity_unknown"
     selected = annual_documents([old, new])
     assert [d["docID"] for d in selected] == ["S100NEXT"]
-    provider = Mock()
+    reader = Mock()
     assert (
         extract_edinet_facts_command(
-            asof=date(2027, 6, 25), sqlite_path=path, provider=provider, initialize=True
+            asof=date(2027, 6, 25), sqlite_path=path, reader=reader, initialize=True
         )
         == 0
     )
-    provider.download_xbrl_zip.assert_not_called()
+    reader.read_xbrl_zip.assert_not_called()
     assert extraction_status(path)["S100NEXT"] == ("failed", "annual_period_unknown")
 
 
@@ -454,7 +704,7 @@ def test_operation_cannot_introduce_a_cycle_before_annual_family_selection():
 
 
 def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
-    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+    from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 
     original = document()
     newer = document("S100NEW1", "2027-06-24 10:00")
@@ -479,7 +729,7 @@ def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
 def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
     include_withdrawal,
 ):
-    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+    from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 
     original = document()
     original.update(withdrawalStatus="2", legalStatus="0", docInfoEditStatus="2")
@@ -506,9 +756,10 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
 
 @pytest.mark.parametrize("through_sqlite", [False, True])
 def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, through_sqlite):
+    from tests.helpers.edinet_documents import store_edinet_documents
+
+    from baibai_engine.market.edinet_document_events import _canonicalize_document_events
     from baibai_engine.market.edinet_metrics.store import read_edinet_documents
-    from baibai_engine.market.providers.edinet import _canonicalize_document_events
-    from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 
     original = document()
     correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
@@ -547,7 +798,7 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
 
 @pytest.mark.parametrize("edited", ["0", "2"])
 def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
-    from baibai_engine.market.providers.edinet import select_document_candidates
+    from baibai_engine.market.edinet_selection import select_document_candidates
 
     # EDINET API v2 section 3-1-6: 2 identifies the edited filing, not a withdrawal.
     original = document()
@@ -562,7 +813,7 @@ def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
 @pytest.mark.parametrize("field", ["legalStatus", "disclosureStatus", "withdrawalStatus"])
 @pytest.mark.parametrize("missing", [None, "", "omitted"])
 def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missing):
-    from baibai_engine.market.providers.edinet import select_document_candidates
+    from baibai_engine.market.edinet_selection import select_document_candidates
 
     original = document()
     if missing == "omitted":
@@ -647,9 +898,9 @@ def test_research_facts_reextract_when_document_identity_changes(tmp_path, field
     path = tmp_path / "market.sqlite"
     original = document()
     insert_documents(path, [original])
-    provider = Mock()
-    provider.download_xbrl_zip.return_value = source_zip()
-    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    reader = Mock()
+    reader.read_xbrl_zip.return_value = source_zip()
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, reader=reader)
     assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
     changed = {**original, field: value}
     insert_documents(path, [changed])
@@ -660,38 +911,38 @@ def test_research_facts_reextract_when_document_identity_changes(tmp_path, field
             assert conn.execute(
                 f"SELECT DISTINCT ticker, source_submit_datetime FROM {table}"
             ).fetchall() == [(expected.ticker, expected.source_submit_datetime)]
-    assert provider.download_xbrl_zip.call_count == 2
+    assert reader.read_xbrl_zip.call_count == 2
     assert extract_edinet_facts_command(**kwargs) == 0
-    assert provider.download_xbrl_zip.call_count == 2
+    assert reader.read_xbrl_zip.call_count == 2
 
 
 def test_research_facts_identity_uses_normalized_submission_time(tmp_path):
     path = tmp_path / "market.sqlite"
     original = document()
     insert_documents(path, [original])
-    provider = Mock()
-    provider.download_xbrl_zip.return_value = source_zip()
-    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    reader = Mock()
+    reader.read_xbrl_zip.return_value = source_zip()
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, reader=reader)
     assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
     insert_documents(path, [{**original, "submitDateTime": "2026-06-24T14:00:00+09:00"}])
     assert extract_edinet_facts_command(**kwargs) == 0
-    assert provider.download_xbrl_zip.call_count == 1
+    assert reader.read_xbrl_zip.call_count == 1
 
 
 def test_empty_research_facts_still_bind_the_extraction_identity(tmp_path, monkeypatch):
     path = tmp_path / "market.sqlite"
     original = document()
     insert_documents(path, [original])
-    provider = Mock()
-    provider.download_xbrl_zip.return_value = source_zip()
+    reader = Mock()
+    reader.read_xbrl_zip.return_value = source_zip()
     monkeypatch.setattr(
         "baibai_engine.market.edinet_facts.service.extract_facts",
         lambda **kwargs: ExtractedFacts((), ()),
     )
-    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, reader=reader)
     assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
     assert extract_edinet_facts_command(**kwargs) == 0
-    assert provider.download_xbrl_zip.call_count == 1
+    assert reader.read_xbrl_zip.call_count == 1
     insert_documents(path, [{**original, "secCode": "99990"}])
     assert extract_edinet_facts_command(**kwargs) == 0
-    assert provider.download_xbrl_zip.call_count == 2
+    assert reader.read_xbrl_zip.call_count == 2

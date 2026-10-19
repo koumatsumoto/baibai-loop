@@ -40,6 +40,14 @@ def _market_store(path: Path, *, calendar: bool = True, bars: bool = True) -> No
                 "VALUES ('1301', ?, ?, 1.0)",
                 [(START.isoformat(), 100.0), (END.isoformat(), 101.0)],
             )
+            add_source_coverage(
+                connection,
+                source="jquants_daily_bars",
+                coverage_key="fixture-prices",
+                min_date=START.isoformat(),
+                max_date=END.isoformat(),
+                record_count=2,
+            )
 
 
 def test_portfolio_market_inputs_keep_one_snapshot_across_a_writer_commit(tmp_path, monkeypatch):

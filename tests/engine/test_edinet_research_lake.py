@@ -22,7 +22,7 @@ from baibai_engine.storage.lake.reader import (
     resolve_release,
     selected_partitions,
 )
-from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -37,7 +37,7 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
     with sealed_sqlite_snapshot(
         sqlite_path=db, mirror_root=mirror, snapshot_id="facts"
     ) as snapshot:
-        paths = [
+        exports = [
             export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
@@ -45,15 +45,23 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
                 producer_git_commit="a" * 40,
                 build_id=name.replace(".", "-"),
                 created_at=stamp,
-            ).manifest_path
+            )
             for name in names
         ]
-    path, release = create_l1_release(
-        dataset_manifest_paths=paths,
+    for exported in exports:
+        assert exported.manifest.layer == "l2_processed"
+        assert all(
+            item.key.startswith("lake/l2/processed/")
+            for partition in exported.manifest.partitions
+            for item in partition.objects
+        )
+    path, release = create_release(
+        dataset_manifest_paths=[exported.manifest_path for exported in exports],
         mirror_root=mirror,
         release_id="facts-release",
         created_at=stamp,
     )
+    assert all(release.datasets[name].layer == "l2_processed" for name in names)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     source = LocalMirrorSource(mirror)
     fixed = resolve_release(source, release.release_id, manifest_sha256=digest)

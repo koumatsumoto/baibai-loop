@@ -34,14 +34,16 @@ def _capacity_class(key: str) -> str | None:
     """The budget a stored key counts against, or ``None`` when another class holds it."""
     if key.startswith("lake/staging/"):
         return "workspace"
-    if key.startswith(("lake/l1/", "lake/manifests/", "lake/pointers/")):
+    if key.startswith(
+        ("lake/l1/source/", "lake/l2/processed/", "lake/manifests/", "lake/pointers/")
+    ):
         return "published"
     return None
 
 
 def _area(key: str) -> str:
     parts = key.split("/")
-    if parts[:3] == ["lake", "l1", "canonical"] and len(parts) >= 4:
+    if parts[:3] in (["lake", "l1", "source"], ["lake", "l2", "processed"]) and len(parts) >= 4:
         return "/".join(parts[:4])
     if parts[:2] == ["lake", "manifests"] and len(parts) >= 3:
         return "/".join(parts[:3])

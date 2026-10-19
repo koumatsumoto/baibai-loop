@@ -10,8 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.market_context.indicators import db as indicators_db
-from baibai_engine.market_context.indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
+from baibai_engine.collection.economic import store as economic_store
+from baibai_engine.collection.economic.store import DEFAULT_DB_PATH, EconomicSchemaError
 from baibai_engine.market_context.reading.query import read_store_snapshot, store_snapshot_payload
 
 from .models import ReadingSnapshot, SeriesReading
@@ -30,13 +30,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        conn = indicators_db.open_read_only_connection(args.db)
+        conn = economic_store.open_read_only_connection(args.db)
         try:
             conn.execute("BEGIN")
             snapshot = read_store_snapshot(conn, asof=args.asof, rules_path=args.rules)
         finally:
             conn.close()
-    except IndicatorsSchemaError as exc:
+    except EconomicSchemaError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except (ReadingRulesError, ValueError) as exc:

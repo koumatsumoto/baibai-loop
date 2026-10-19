@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp.types import CallToolResult, TextContent
 
-from baibai_engine.external_assessment.tradingview.client import BATCH_TOOL, fetch_batch
+from baibai_engine.collection.tradingview.client import fetch_batch
+from baibai_engine.collection.tradingview.tool import BATCH_TOOL
+from baibai_engine.external_assessment.tradingview.decode import decode_tool_result
 
 SCANNER_ERROR = (
     "tradingview api: https://scanner.tradingview.com/japan/scan?label-product=tv-mcp: 429"
@@ -16,17 +18,17 @@ SCANNER_ERROR = (
 SCANNER_ERROR_WITH_SUFFIX = SCANNER_ERROR + ": "
 
 
+def _decoded(session) -> dict:
+    result = asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"]))
+    return decode_tool_result(json.dumps(result.model_dump(mode="python", by_alias=True)))
+
+
 def test_official_batch_tool_preserves_raw_response() -> None:
     data = {"success": True, "count": 1, "data": {"TSE:7203": {"close": None}}}
-    session = SimpleNamespace(
-        call_tool=AsyncMock(
-            return_value=SimpleNamespace(
-                is_error=False,
-                structured_content=data,
-            )
-        )
-    )
-    assert asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"])) is data
+    received = CallToolResult(isError=False, structuredContent=data, content=[])
+    session = SimpleNamespace(call_tool=AsyncMock(return_value=received))
+    assert asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"])) is received
+    assert decode_tool_result(json.dumps(received.model_dump(mode="python", by_alias=True))) == data
     session.call_tool.assert_awaited_once_with(
         BATCH_TOOL, {"symbols": ["TSE:7203"], "columns": ["close"]}
     )
@@ -42,10 +44,10 @@ def test_invalid_chunk_never_calls_provider(symbols) -> None:
 
 def test_tool_error_is_not_converted_to_missing() -> None:
     session = SimpleNamespace(
-        call_tool=AsyncMock(return_value=SimpleNamespace(is_error=True, content=[]))
+        call_tool=AsyncMock(return_value=CallToolResult(isError=True, content=[]))
     )
     with pytest.raises(RuntimeError, match="tool failed"):
-        asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"]))
+        _decoded(session)
 
 
 @pytest.mark.parametrize(
@@ -75,7 +77,7 @@ def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
         )
     )
     with pytest.raises(FetchError) as caught:
-        asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"]))
+        _decoded(session)
     assert getattr(caught.value, "status_code", None) == status
     assert isinstance(caught.value, ProviderHTTPError) == (status is not None)
     assert "private-token" not in str(caught.value)
@@ -102,7 +104,7 @@ def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, err
         )
     )
     with pytest.raises(ProviderHTTPError) as caught:
-        asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"]))
+        _decoded(session)
     assert caught.value.status_code == 429
     assert failure_line(caught.value) == (
         "TradingView acquisition failed; category=provider_rate_limit; provider_http_status=429"
@@ -139,7 +141,7 @@ def test_unrecognized_envelope_stays_invalid_without_text_fallback(payload):
         )
     )
     with pytest.raises(ProviderPayloadError) as caught:
-        asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"]))
+        _decoded(session)
     assert caught.value.reason == "malformed_envelope"
     session.call_tool.assert_awaited_once()
 
@@ -151,4 +153,4 @@ def test_successful_envelope_does_not_extract_status_from_error_field():
             return_value=CallToolResult(isError=False, structuredContent=payload, content=[])
         )
     )
-    assert asyncio.run(fetch_batch(session, ["TSE:7203"], ["close"])) == payload
+    assert _decoded(session) == payload

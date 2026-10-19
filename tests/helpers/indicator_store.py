@@ -1,17 +1,14 @@
-"""Builders for the indicator store: series, observations, readers, and seeds."""
+"""Builders for indicator series, temporary L2 observations, and source fixtures."""
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.collection.economic.records import store_snapshot
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 SOURCE_URL = "https://example.com/data.csv"
 
@@ -20,7 +17,7 @@ def series_definition(
     series_id: str = "test.series",
     *,
     provider: str = "mof_jgb",
-    provider_series_id: str = "TEST",
+    reading_key: str = "TEST",
     name: str = "Test Series",
     category: str = "rates",
     geography: str = "world",
@@ -45,7 +42,7 @@ def series_definition(
         frequency=frequency,
         unit=unit,
         provider=provider,
-        provider_series_id=provider_series_id,
+        reading_key=reading_key,
         source_id=source_id,
         source_url=source_url,
         plausible_min=plausible_min,
@@ -66,12 +63,11 @@ def observation(
     period_end: date | None = None,
     fetch_status: str = "ok",
 ) -> ObservationRecord:
-    """One stored observation.
+    """One temporary L2 calculation value used by a reader fixture.
 
-    Passing a `SeriesDefinition` takes its unit and source URL, because a record whose
-    unit disagrees with its series is one the store's own triggers refuse — a fixture
-    that builds it is testing a shape production never writes. ``period_days`` is the
-    start-to-end date offset, not an inclusive day count (4 means Monday to Friday).
+    Passing a `SeriesDefinition` takes its unit and source URL. This record is not
+    retained source input. ``period_days`` is the start-to-end date offset, not an
+    inclusive day count (4 means Monday to Friday).
     """
 
     if period_days is not None:
@@ -132,17 +128,6 @@ def store_reader(
     return read
 
 
-def seed_store(path: Path, *records: ObservationRecord) -> None:
-    """Create an indicator store at `path` holding exactly `records`."""
-
-    connection = initialize_database(path)
-    try:
-        if records:
-            insert_observations(connection, list(records))
-    finally:
-        connection.close()
-
-
 def store_h15_observations(
     connection: sqlite3.Connection, records: Sequence[ObservationRecord]
 ) -> None:
@@ -165,13 +150,13 @@ def store_h15_observations(
         row = grouped.setdefault(
             key,
             {"Time Period": record.observed_at.isoformat()}
-            | {item.provider_series_id: "" for item in definitions.values()},
+            | {item.reading_key: "" for item in definitions.values()},
         )
-        row[definition.provider_series_id] = str(record.value)
+        row[definition.reading_key] = str(record.value)
     for (observed_at, fetched_at), row in grouped.items():
         store_snapshot(
             connection,
-            source_key=native_source_key(definitions[records[0].series_id]),
+            source_id=definitions[records[0].series_id].source_id,
             observed_at=observed_at,
             fetched_at=fetched_at,
             records=[{"row": row, "preamble": []}],
@@ -196,15 +181,15 @@ def store_mof_observations(
             (record.observed_at, fetched_at),
             {
                 "基準日": f"R{record.observed_at.year - 2018}.{record.observed_at.month}.{record.observed_at.day}",
-                **{item.provider_series_id: "" for item in definitions.values()},
+                **{item.reading_key: "" for item in definitions.values()},
             },
         )
-        row[definition.provider_series_id] = str(record.value)
+        row[definition.reading_key] = str(record.value)
     for (observed_at, fetched_at), row in grouped.items():
         definition = definitions[records[0].series_id]
         store_snapshot(
             connection,
-            source_key=native_source_key(definition),
+            source_id=definition.source_id,
             observed_at=observed_at,
             fetched_at=fetched_at,
             records=[{"row": row, "preamble": [], "source_url": definition.source_url}],
@@ -215,7 +200,6 @@ __all__ = [
     "SOURCE_URL",
     "observation",
     "observations",
-    "seed_store",
     "series_definition",
     "store_h15_observations",
     "store_mof_observations",

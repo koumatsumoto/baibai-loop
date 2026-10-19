@@ -34,12 +34,13 @@ from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.external_assessment.store import save_observations
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.models import canonical_lake_model_bytes
 from baibai_engine.storage.lake.objects import LakeObjectCache, LakeObjectError, LocalMirrorSource
 from baibai_engine.storage.lake.reader import LakeReadError, resolve_current_release
-from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 
@@ -105,6 +106,17 @@ def build_master_lake(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close,volume) VALUES (?,?,?,?)",
             ("130A", "2026-09-30", 1, 1),
         )
+        record_range_source_coverage(
+            connection,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=date(2026, 9, 30),
+            requested_end=date(2026, 9, 30),
+            status="ok",
+            error=None,
+        )
         if calendar is not None:
             connection.executemany("INSERT INTO jquants_market_calendar VALUES (?,?)", calendar)
             connection.execute(
@@ -135,18 +147,18 @@ def build_master_lake(
             ).manifest_path
             for name in datasets
         ]
-    path, release = create_l1_release(
+    path, release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id="synthetic-master-only",
         created_at=RECEIVED,
     )
-    pointer = L1ReleasePointer(
+    pointer = LakeReleasePointer(
         release_id=release.release_id,
         manifest_key=path.relative_to(mirror).as_posix(),
         manifest_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
     )
-    pointer_path = mirror / current_l1_pointer_key()
+    pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_bytes(canonical_lake_model_bytes(pointer))
     fixed = resolve_current_release(LocalMirrorSource(mirror))

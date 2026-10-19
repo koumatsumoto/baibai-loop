@@ -48,27 +48,16 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "source_coverage": ("source", "coverage_key"),
 }
 
-# Derived snapshots belong to the target generation. Unioning them could restore
-# source rows that a later derivation removed or reject an intentional correction.
-DERIVED_KEYS: Mapping[str, tuple[str, ...]] = {
-    "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
-}
 # Store-local publication metadata belongs to the target SQLite generation. Importing
 # the cloud copy's marker would claim that target rows came from a release they did not
 # come from; hydrate/publish are the only writers allowed to advance it.
 LOCAL_METADATA_KEYS: Mapping[str, tuple[str, ...]] = {
     "lake_store_origin": ("singleton",),
 }
-# `jpx_delistings` and `tender_offer_exit_values` used to be here. They are lake datasets
-# now, which answers the retraction problem this table exists to describe rather than
-# working around it: `hydrate` empties a lake-owned table before filling it from the
-# release, so a row a later derivation dropped is absent from the next generation and
-# stays absent. The merge never sees them, so there is no older copy to reinstate from.
+# Derived snapshots are lake datasets. Hydrate replaces those tables from the selected
+# release, so a row removed by a later derivation is not reinstated by store merge.
 
-TARGET_RETAINED_KEYS: Mapping[str, tuple[str, ...]] = {
-    **DERIVED_KEYS,
-    **LOCAL_METADATA_KEYS,
-}
+TARGET_RETAINED_KEYS: Mapping[str, tuple[str, ...]] = LOCAL_METADATA_KEYS
 ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **TARGET_RETAINED_KEYS}
 
 # When a store read the source, not what the source said. Two stores that read the same
