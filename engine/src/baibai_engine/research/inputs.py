@@ -1,4 +1,4 @@
-"""保存済み三領域を調査workspaceへ合成する。AI起動・取得・store書込は行わない。"""
+"""保存済み分析と文脈を調査workspaceへ投影する。取得・store書込は行わない。"""
 
 from __future__ import annotations
 
@@ -97,6 +97,15 @@ def project_research_inputs(selection: ResearchSelection) -> dict[str, JsonValue
         {
             "research_as_of": selection.research_as_of.isoformat(),
             "known_at": selection.input_known_at.isoformat(),
+            "analysis_source": {
+                "run_revision_id": snapshot.run_revision_id,
+                "analysis_as_of": None
+                if snapshot.analysis_as_of is None
+                else snapshot.analysis_as_of.isoformat(),
+                "run_at": None if snapshot.run_at is None else snapshot.run_at.isoformat(),
+                "screening_rules_hash": snapshot.screening_rules_hash,
+                "er_model_version": snapshot.er_model_version,
+            },
             "market_context": selection.inputs.market_context,
             "securities": securities,
             "research_targets": [

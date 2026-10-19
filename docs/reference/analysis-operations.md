@@ -21,6 +21,8 @@ Operationの`payload.artifacts`内に保存した唯一の`research_selection.in
 
 Research日、機械analysis_as_of/run_at、cutoff対応readerのinput_known_at、実際のAssessment/Review/Proposalの正式評価日を区別する。input_known_atは全入力の厳密なPIT再現保証ではない。Market Context/Readingの既存readerが現在storeから再計算する意味を保持し、prepareで読んだ値を固定する。当日Researchに前日runを使えるが、前日Assessmentの日付だけを改変して当日Proposalにしない。
 
+`domain-inputs.yaml`の`analysis_source`は、この固定snapshotに保存済みのrun ID、analysis_as_of、run_at、rules hash、E[r] modelをそのまま示す。較正文脈はSelectionへ追加保存せず、必要時に明示的な読取照会で固定runと照合する。照会日の変化は過去の入力、Assessment本文、独立Reviewのhashを変えない。
+
 ## 成果と被覆
 
 new/holdingの各固定対象はexact Reviewed Assessment参照または理由・参照付き未完了で被覆する。未完了は経済的unsupported/no_actionと別に扱う。全対象の被覆から共通Investment Proposalを作り、未調査は評価参照なしのdeferとして保存する。0対象では空Proposalを捏造せず選定理由とresult/nextを残す。

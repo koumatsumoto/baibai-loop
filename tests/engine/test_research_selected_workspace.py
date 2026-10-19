@@ -392,6 +392,13 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
     assert canonical_row == row
     projected = project_research_inputs(saved)
     assert projected["securities"]["1234"]["machine_valuation"]["as_of"] == "2026-09-06"
+    assert projected["analysis_source"] == {
+        "run_revision_id": "run-revision-" + "a" * 32,
+        "analysis_as_of": "2026-09-06",
+        "run_at": "2026-09-06T18:00:00+09:00",
+        "screening_rules_hash": analysis.screening_rules_hash,
+        "er_model_version": None,
+    }
     directory = prepared.workspace / "1234"
     directory.mkdir()
     assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")

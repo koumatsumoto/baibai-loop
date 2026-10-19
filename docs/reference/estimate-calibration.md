@@ -161,6 +161,8 @@ schema 4では、結果の観測可否で予測帯を選ばない。宣言母集
 
 UIとResearchの明示照会は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / 候補一覧 の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。identity不明・不一致は較正文脈を利用不能として扱い、Research全体の新hard gateにしない。E[r]、順位、選定、FVは変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
 
+Researchでは固定Operation IDを指定し、`research calibration-context --operation-id <ID> --db stores/application/baibai.sqlite`で照会する。既定の照会日は実行日のJST日付で、`--asof YYYY-MM-DD`と`--context-path`を検証・隔離調査時に指定できる。出力は固定Selectionのhash/run identity、利用可否と理由、利用可能なら3y/5yの候補別対応帯、宣言・観測・未評価の分母、formal evidenceの成立可否を含む。これはread-onlyで、固定入力・候補順位・保存判断へ較正artifactを混入しない。古いrunに対して現行artifactが不一致なら、古いrunを現行runに付け替えず`rules_identity_mismatch`等を示す。
+
 配当予想の鮮度など計算入力の意味を変える場合は、既存の`VALUATION_CALCULATION_REVISION`を更新する。productionのrules hash、panelのrules hash、派生cache contractへ同じrevisionを伝え、旧panelの再利用と旧contextの新runへの適用を拒否する。ER算式が同じなら`expected-return-v1`は維持する。保持artifactの旧計算revision・scope・入力窓はprovenance検証だけで認識し、元bytes/hashを変更しない。複数の変更を統合する場合、panel・contextの再生成は承認済みの最終methodでまとめて行う。
 
 rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schemaはidentityが一致しても`invalid_artifact`として非表示にする。CIは保持する旧schema 2の原bytesと凍結rulesへのprovenanceを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。最新schema4への更新結果と元bytesの旧artifactは[v26固定19月の受入記録](../../reports/studies/2026-10-14-er-context-v26/report.md)を参照する。旧統計のhash/schemaだけを新定義へ差し替えず、保存済みの整合したpanel/forwardと明示required scopeから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
