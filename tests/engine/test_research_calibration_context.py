@@ -1,8 +1,9 @@
 """Researchの固定runにだけ適用する保存済み較正文脈。"""
 
 import json
-from datetime import date, datetime
+from datetime import datetime
 
+import pytest
 import yaml
 from tests.helpers.er_calibration_context import context_artifact
 from tests.helpers.research_selection import draft_for, selection
@@ -68,9 +69,48 @@ def test_missing_or_inapplicable_context_is_reasoned_and_nonblocking(tmp_path):
         yaml.safe_dump(context_artifact(rules_hash=source.screening_rules_hash)),
         encoding="utf-8",
     )
-    expired = research_calibration_context(selected, context_path=path, as_of=date(2026, 11, 16))
-    assert expired["unavailable_reason"] == "expired"
     assert selected.inputs.analysis.analyses["1234"]["candidate"] is not None
+
+
+@pytest.mark.parametrize("value", [True, None, "not-a-ratio"])
+def test_invalid_or_missing_er_is_not_used_as_a_band(tmp_path, value):
+    selected = _selection(tmp_path)
+    source = selected.inputs.analysis
+    row = dict(source.analyses["1234"])
+    metrics = dict(row["metrics"])
+    if value is None:
+        metrics.pop("er_annual", None)
+    else:
+        metrics["er_annual"] = value
+    row["metrics"] = metrics
+    analysis = source.model_copy(update={"analyses": {"1234": row}})
+    selected = selected.model_copy(
+        update={"inputs": selected.inputs.model_copy(update={"analysis": analysis})}
+    )
+    path = tmp_path / "context.yaml"
+    path.write_text(
+        yaml.safe_dump(context_artifact(rules_hash=source.screening_rules_hash)),
+        encoding="utf-8",
+    )
+    result = research_calibration_context(selected, context_path=path, as_of=NOW.date())
+    assert result["status"] == "available"
+    assert result["targets"] == [{"ticker": "1234", "unavailable_reason": "er_unavailable"}]
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_nonfinite_fixed_selection_is_rejected_before_band_lookup(tmp_path, value):
+    selected = _selection(tmp_path)
+    source = selected.inputs.analysis
+    row = dict(source.analyses["1234"])
+    row["metrics"] = {**row["metrics"], "er_annual": value}
+    analysis = source.model_copy(update={"analyses": {"1234": row}})
+    selected = selected.model_copy(
+        update={"inputs": selected.inputs.model_copy(update={"analysis": analysis})}
+    )
+    with pytest.raises(ValueError, match="Out of range float values"):
+        research_calibration_context(
+            selected, context_path=tmp_path / "unused.yaml", as_of=NOW.date()
+        )
 
 
 def test_missing_fixed_identity_does_not_use_present_day_method(tmp_path):
@@ -135,3 +175,23 @@ def test_cli_uses_saved_operation_and_returns_only_read_only_diagnostics(tmp_pat
     missing_args = [*args[:5], "--context-path", str(tmp_path / "missing.yaml")]
     assert main(missing_args, now=NOW) == 0
     assert json.loads(capsys.readouterr().out)["unavailable_reason"] == "missing_artifact"
+    assert main([*missing_args[:2], "unknown-operation", *missing_args[3:]], now=NOW) == 3
+    assert json.loads(capsys.readouterr().out)["status"] == "invalid_source"
+    assert (tmp_path / "app.sqlite").read_bytes() == app_bytes
+
+
+def test_calibration_cli_rejects_invalid_asof_before_reading_operation(tmp_path):
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "calibration-context",
+                "--operation-id",
+                "unread-operation",
+                "--db",
+                str(tmp_path / "missing.sqlite"),
+                "--asof",
+                "2026-13-19",
+            ]
+        )
+    assert error.value.code == 2
+    assert not (tmp_path / "missing.sqlite").exists()
