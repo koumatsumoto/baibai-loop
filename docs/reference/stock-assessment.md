@@ -61,7 +61,7 @@ required_total_value_at_P = price * (1 + required_annual_return_pct / 100) ** (h
 
 Decimalで計算・比較し、Pmaxを呼値や整数円に丸めない。価格・期間は正、bool/NaN/Infinityは拒否。W=0の総return・年率は-100%。表示年率は小数4桁。この年率は条件付き・税費用控除前・分配再投資なしで、確率加重の期待利回りではない。
 
-terminalは分配後に残る価値、cashは当該期間の累積分配である。配当・資産売却・買戻しを二重算入しない。起点の未調整1株に権利単位を揃え、分割、自己株控除、希薄化を説明する。NI×PERへ負債を再度控除せず、EVと株主価値を混同しない。回復可能な赤字を正の起点利益へ捏造しない。Downsideは経済的に不利な状態から組み立てる。
+terminalは分配後に残る価値、cashは当該期間の累積分配である。配当・資産売却・買戻しを二重算入しない。終期が配当基準日の後で入金前なら、権利落ち後株価と未入金の受取権を別に数え、cashへ受取済みとしても重ねない。未公表の次期配当は維持条件と権利なしの保守条件を分け、確定値へ変換しない。起点の未調整1株に権利単位を揃え、分割、自己株控除、希薄化を説明する。NI×PERへ負債を再度控除せず、EVと株主価値を混同しない。回復可能な赤字を正の起点利益へ捏造しない。Downsideは経済的に不利な状態から組み立てる。
 
 <a id="capital-bridge"></a>
 
@@ -169,7 +169,7 @@ AIを含む技術・産業構造変化も、materialな場合だけ通常のcalc
 
 ## 独立Review
 
-全公開Stock Assessmentに、review_id、独立passのidentity/role/time、exact core hash、primary_source_check、checked_source_ids、review_scope、最強反証を持つReviewを組み合わせる。Base/Downside各1件のterminal/cashを独立に再計算する。作者値をscaffoldでコピーして検算としない。照合許容差は0.0001円。source・単位・hash不一致は公開できない。
+全公開Stock Assessmentに、review_id、独立passのidentity/role/time、exact core hash、primary_source_check、checked_source_ids、review_scope、最強反証を持つReviewを組み合わせる。Base/Downside各1件のterminal/cashを独立に再計算する。原本の比較表では行・年度見出し・当期/前期列を合わせて照合し、期間内入金と終期の配当権利を別に検算する。作者値をscaffoldでコピーして検算としない。照合許容差は0.0001円。source・単位・hash不一致は公開できない。
 
 materialな[資本のつながり](#capital-bridge)はReview側も一次資料と独立入力で追い、留保・投資・分配・返済・希薄化の片側だけを動かした仮定を確認する。配当停止なら残る現金、借入返済なら残る負債、増資なら調達額と分母株数も更新し、結論が変わる条件を既存の反対仮説・riskへ記す。最終terminal/cashの数値一致だけでは上流仮定の正しさを証明しない。
 

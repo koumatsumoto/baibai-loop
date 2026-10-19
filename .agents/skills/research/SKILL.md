@@ -66,10 +66,10 @@ uv run baibai-engine research prepare \
 
 1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof YYYY-MM-DD --out <WORKSPACE>/<TICKER>/assessment-draft.yaml`で新しいdraftを作る。保有はholdings/<ticker>子workspaceを指定する。明示mappingされたplaybookの問いを一次資料で検討し、[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使う。
 2. [投資目的とリスク許容](../../../docs/doctrine.md#investment-strategy)と[Stock Assessment](../../../docs/reference/stock-assessment.md)に従い、事業理解、価値差の説明、実現経路と遅延、仮説・未解決の問いを記し、Base/Downsideと投資仮説を構成する。保存された市場環境の含意と機械見積りはmaterialな仮定・source・反証へ接続し、観測factへ変換しない。新しい通常評価の要求率は[要求年率方針](../../../docs/portfolio-management.md#required-return-policy)から作者が明記する。scaffoldのnullを0・空・自動推計で埋めず、既存評価の率を現在policyで置換しない。
-   利益の1株換算には直近の自己株控除株数を起点とし、重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。資料・単位・期間を確認し、重要な事実の欠落と合理的な見積りの幅を分ける。利益・倍率・要求率で同じリスクを重複控除せず、経済経路が違う影響は区別する。
+   利益の1株換算には直近の自己株控除株数を起点とし、重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。資料・単位・期間を確認し、比較表の数値は行だけでなく年度見出しと当期・前期の列を一組で読む。重要な事実の欠落と合理的な見積りの幅を分ける。利益・倍率・要求率で同じリスクを重複控除せず、経済経路が違う影響は区別する。
    ratioとProjectionは[Draft算術](../../../docs/reference/stock-assessment.md#draft-calculation)の`research calculate <INPUTS>`を使えるが、企業見積りと算式は一次資料から別途確認する。
 3. `research assessment-evaluate <DRAFT>`で公開内容と原価格の計算資料を確認する。Review未添付だけのreview_requiredもexit 2であり、公開前にはReviewが必要である。他のerrorを無視する許可ではない。
-4. `research assessment-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`で現在coreに束縛するReview draftを作り、作者と別の作業者がsource・算術・反証を確認する。Review側も資料・単位・期間・重要仮定を独立確認した入力でcalculateを呼び、recalculated_projectionsへ渡す。作者の入力・出力をコピーして独立検算としない。review_scopeに原典を再確認した範囲と保存済み根拠を読み直した範囲・限界を書く。`assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、core変更時はReviewを取り直す。
+4. `research assessment-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`で現在coreに束縛するReview draftを作り、作者と別の作業者がsource・算術・反証を確認する。Review側も原本の年度見出し・当期/前期列と算術期間を自分で照合し、終期の権利落ち後株価・未入金配当権利・期間内現金受取を分けた独立入力でcalculateを呼び、recalculated_projectionsへ渡す。作者の抽出値・入力・出力をコピーして独立検算としない。review_scopeに原典を再確認した範囲と保存済み根拠を読み直した範囲・限界を書く。`assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、core変更時はReviewを取り直す。
 5. supported/uncertain/unsupportedを確定し、`research assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で評価とReviewを原子的に公開する。supportedは購入採用ではなく、cash不足や現在価格だけで評価結論を書き換えない。valuation unresolvedでも所見と理由を独立検証した評価は完成できる。調査そのものの根拠不足は未完了として記録する。
 
 同日には同じimmutable pairを提案が参照できる。翌日以降に当日算術を使う場合は`assessment-scaffold --from-assessment-id <ID>`で差分draftを作り、価値・残る期間・今後分配・株式単位を確認する。旧source/fact日付は不変で、horizonと今後分配・refresh理由は未入力から記す。旧期間を毎日延長せず、受取済み分配を今後分へ持ち越さない。以前の根拠を再利用できるが、今回の全coreへ新しい独立Reviewを取る。
