@@ -48,7 +48,7 @@ writer用R2 credential、GitHub Secret writer token、deploy tokenは下表の�
 対象run IDを固定して監視する。hard timeoutはworkflow定義を正本とする。
 
 ```bash
-gh run watch <RUN_ID> --exit-status --compact --interval 60
+gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
 外部監視がtimeoutでも処理が終了したとは限らないため、対象の状態と現在stepを確認し、activeな処理を重複起動しない。

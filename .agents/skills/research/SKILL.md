@@ -114,7 +114,7 @@ uv run baibai-engine research proposal-publish <REVIEWED_DRAFT> --db stores/appl
 
 ## 5. Operationを完了する
 
-`operation show`の現在payloadを基に固定selection/outcomesを保持してresult/nextを記し、`operation complete --payload <FILE>`へ渡す。公開済みProposalは`operation record-proposal <OPERATION_ID> --proposal-id <ID>`でID/hash参照を記録する。本文やhold draftをOperationへ再保存しない。
+`operation show`の現在payloadを基に固定selection/outcomesを保持してresult/nextを記し、`operation complete <OPERATION_ID> --payload <FILE>`へ渡す。公開済みProposalは`operation record-proposal <OPERATION_ID> --proposal-id <ID>`でID/hash参照を記録する。本文やhold draftをOperationへ再保存しない。
 
 固定対象の被覆と公開済み提案を確認する。buy/sellの具体terms不足は未完了理由を明示し、具体提案完成と区別する。0対象は理由ある選定結果を保って終了できる。L3提案完成と調査終了を記録し、人間の採否・broker操作・実約定を完了条件へ補完しない。
 
