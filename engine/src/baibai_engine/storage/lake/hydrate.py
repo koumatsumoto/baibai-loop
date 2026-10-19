@@ -37,7 +37,11 @@ from pathlib import Path
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS, LakeDataset
 from baibai_engine.storage.lake.duck import LakeSession
 from baibai_engine.storage.lake.models import PartitionManifest
-from baibai_engine.storage.lake.objects import LakeObjectCache, TransferAccounting
+from baibai_engine.storage.lake.objects import (
+    MAX_BUFFERED_OBJECT_BYTES,
+    LakeObjectCache,
+    TransferAccounting,
+)
 from baibai_engine.storage.lake.reader import (
     FixedRelease,
     accepted_dataset,
@@ -533,9 +537,17 @@ def load_dataset_rows(
     loaded = 0
     for partition in partitions:
         paths = materialize_partitions(cache, dataset=dataset, partitions=(partition,))
-        for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=names):
-            connection.executemany(statement, batch)
-            loaded += len(batch)
+        try:
+            for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=names):
+                connection.executemany(statement, batch)
+                loaded += len(batch)
+        finally:
+            # The R2 mirror is a derived cache. Retaining a 4 GB archive beside the
+            # growing SQLite copy can exhaust a hosted runner even with bounded reads.
+            if cache.evict_large_after_read:
+                for item, path in zip(partition.objects, paths, strict=True):
+                    if item.bytes > MAX_BUFFERED_OBJECT_BYTES:
+                        path.unlink(missing_ok=True)
     return loaded
 
 

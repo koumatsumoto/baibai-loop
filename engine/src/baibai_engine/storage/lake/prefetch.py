@@ -20,6 +20,8 @@ that outlives one fetch by a wide margin walks away to that same base read — t
 sequential behaviour this module exists to overlap. Falling back can add the worker
 wait and repeat a download; it is not a guarantee of equal or faster completion.
 Worker waits and joins are bounded separately from the base source's own timeouts.
+Objects above the buffered-size limit are skipped by workers and streamed by the
+consumer; otherwise one raw archive could occupy several gigabytes in a slot.
 
 Each worker owns its own source. For R2 that means its own DuckDB session, because a
 ``LakeSession`` holds one connection and one connection must not serve two threads.
@@ -37,7 +39,9 @@ from pathlib import Path
 from baibai_engine.storage.lake.duck import R2ReadCredentials, lake_session
 from baibai_engine.storage.lake.models import LakeObject
 from baibai_engine.storage.lake.objects import (
+    MAX_BUFFERED_OBJECT_BYTES,
     LakeObjectCache,
+    LakeObjectError,
     LakeObjectSource,
     R2ObjectSource,
     mirror_path,
@@ -46,8 +50,7 @@ from baibai_engine.storage.lake.reader import FixedRelease, selected_partitions
 
 _PREFETCH_WORKERS = 8
 # Fetched-but-unconsumed payloads the buffer may hold, workers' in-flight fetches
-# included. This bounds the number of buffered objects, not their total bytes;
-# peak memory also depends on the sizes of the selected Parquet objects.
+# included. The per-object size limit in objects.py bounds the total payload bytes.
 _PREFETCH_BUFFER = 16
 # A consumer's wait is one in-flight fetch (the reservation discipline in `_work`
 # keeps the key it needs inside the taken window), which completes in seconds. A wait
@@ -117,6 +120,7 @@ class PrefetchingSource:
         self._wait_seconds = wait_seconds
         self._served = 0
         self._mirrored = 0
+        self._streamed = 0
         unique: dict[str, LakeObject] = {}
         for item in objects:
             unique.setdefault(item.key, item)
@@ -165,6 +169,15 @@ class PrefetchingSource:
     def uri(self, key: str) -> str:
         return self._base.uri(key)
 
+    def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
+        # Large planned objects are deliberately absent from the in-memory slots.
+        with self._lock:
+            self._slots.pop(key, None)
+        downloader = getattr(self._base, "download_file", None)
+        if downloader is None:
+            raise LakeObjectError(f"streaming lake source is unavailable: {key}")
+        downloader(key, destination, max_bytes=max_bytes)
+
     def close(self) -> None:
         """Stop the workers and resolve whatever the plan still holds as skipped.
 
@@ -179,9 +192,10 @@ class PrefetchingSource:
         if self._plan:
             # The mirrored count keeps a warm fill's "served 0/N" reading as healthy
             # reuse rather than as a silent degrade, which prints its own line.
+            streamed = f" ({self._streamed} streamed)" if self._streamed else ""
             print(
                 f"lake prefetch served {self._served}/{len(self._plan)} planned objects "
-                f"({self._mirrored} already mirrored)",
+                f"({self._mirrored} already mirrored){streamed}",
                 file=sys.stderr,
             )
 
@@ -226,6 +240,12 @@ class PrefetchingSource:
                 self._budget.release()
                 with self._lock:
                     self._mirrored += 1
+                slot.resolve(None)
+                return True
+            if item.bytes > MAX_BUFFERED_OBJECT_BYTES:
+                self._budget.release()
+                with self._lock:
+                    self._streamed += 1
                 slot.resolve(None)
                 return True
             payload = source.read_bytes(item.key)
@@ -295,6 +315,11 @@ def prefetching_hydration_cache(
         mirror=cache.root,
     )
     try:
-        yield LakeObjectCache(root=cache.root, source=source, transfers=cache.transfers)
+        yield LakeObjectCache(
+            root=cache.root,
+            source=source,
+            transfers=cache.transfers,
+            evict_large_after_read=True,
+        )
     finally:
         source.close()

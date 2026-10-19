@@ -22,7 +22,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+import boto3
 import duckdb
+from botocore.config import Config
 
 from baibai_engine.storage.lake.duck import LakeSession, R2ReadCredentials, lake_session, r2_uri
 from baibai_engine.storage.lake.keys import validate_lake_object_key
@@ -30,6 +32,10 @@ from baibai_engine.storage.lake.models import LakeObject
 from baibai_engine.storage.lake.sources import sha256_file
 
 _GLOB_METACHARACTERS = frozenset("*?[]{}")
+# The first fresh release contains a 4 GB archive object. Fetching that object as
+# one Python bytes value (or holding it in a prefetch slot) exhausts a hosted runner.
+MAX_BUFFERED_OBJECT_BYTES = 8 * 1024 * 1024
+_STREAM_CHUNK_BYTES = 8 * 1024 * 1024
 
 
 class LakeObjectError(RuntimeError):
@@ -42,6 +48,10 @@ class LakeObjectSource(Protocol):
     def read_bytes(self, key: str) -> bytes: ...
 
     def uri(self, key: str) -> str: ...
+
+
+class _Downloader(Protocol):
+    def __call__(self, key: str, destination: Path, *, max_bytes: int) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +69,18 @@ class LocalMirrorSource:
 
     def uri(self, key: str) -> str:
         return str(self.path(key))
+
+    def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
+        try:
+            with self.path(key).open("rb") as source, destination.open("xb") as target:
+                size = 0
+                while chunk := source.read(_STREAM_CHUNK_BYTES):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise LakeObjectError(f"lake object exceeds manifest size: {key}")
+                    target.write(chunk)
+        except OSError as exc:
+            raise LakeObjectError(f"lake object is not readable: {key}") from exc
 
     def path(self, key: str) -> Path:
         return mirror_path(self.root, key)
@@ -88,6 +110,47 @@ class R2ObjectSource:
         if self.session.credentials is None:
             raise LakeObjectError("R2 object source requires an authorised session")
         return r2_uri(self.session.credentials, validate_lake_object_key(key))
+
+    def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
+        """Stream one exact R2 key to disk without materializing its body in memory."""
+        credentials = self.session.credentials
+        if credentials is None:
+            raise LakeObjectError("R2 object source requires an authorised session")
+        validate_lake_object_key(key)
+        client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{credentials.account_id}.r2.cloudflarestorage.com",
+            region_name="auto",
+            aws_access_key_id=credentials.access_key_id,
+            aws_secret_access_key=credentials.secret_access_key,
+            config=Config(
+                connect_timeout=120,
+                read_timeout=120,
+                retries={"mode": "standard", "total_max_attempts": 3},
+                response_checksum_validation="when_required",
+            ),
+        )
+        body = None
+        try:
+            response = client.get_object(Bucket=credentials.bucket, Key=key)
+            body = response["Body"]
+            size = 0
+            with destination.open("xb") as target:
+                while chunk := body.read(_STREAM_CHUNK_BYTES):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise LakeObjectError(f"lake object exceeds manifest size: {key}")
+                    target.write(chunk)
+        except Exception as exc:
+            if isinstance(exc, LakeObjectError):
+                raise
+            raise LakeObjectError(
+                f"lake object is not readable: {key}: {self.session.redact(str(exc))}"
+            ) from None
+        finally:
+            if body is not None:
+                body.close()
+            client.close()
 
 
 def mirror_path(root: Path, key: str) -> Path:
@@ -163,6 +226,7 @@ class LakeObjectCache:
     root: Path
     source: LakeObjectSource
     transfers: TransferAccounting = field(default_factory=TransferAccounting)
+    evict_large_after_read: bool = False
 
     def materialize(self, lake_object: LakeObject) -> Path:
         path = mirror_path(self.root, lake_object.key)
@@ -170,9 +234,13 @@ class LakeObjectCache:
             self.transfers.reused_objects += 1
             self.transfers.reused_bytes += lake_object.bytes
             return path
-        payload = self.source.read_bytes(lake_object.key)
-        _require_payload_identity(payload, lake_object)
-        _install(path, payload)
+        downloader = getattr(self.source, "download_file", None)
+        if lake_object.bytes > MAX_BUFFERED_OBJECT_BYTES and downloader is not None:
+            _install_stream(path, lake_object, downloader)
+        else:
+            payload = self.source.read_bytes(lake_object.key)
+            _require_payload_identity(payload, lake_object)
+            _install(path, payload)
         self.transfers.fetched_objects += 1
         self.transfers.fetched_bytes += lake_object.bytes
         return path
@@ -218,6 +286,24 @@ def _install(path: Path, payload: bytes) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.part")
     try:
         temporary.write_bytes(payload)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _install_stream(path: Path, lake_object: LakeObject, downloader: _Downloader) -> None:
+    """Install only after the streamed file matches the manifest byte for byte."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.part")
+    try:
+        downloader(lake_object.key, temporary, max_bytes=lake_object.bytes)
+        if (
+            temporary.stat().st_size != lake_object.bytes
+            or sha256_file(temporary) != lake_object.sha256
+        ):
+            raise LakeObjectError(
+                f"lake object digest differs from its manifest: {lake_object.key}"
+            )
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
