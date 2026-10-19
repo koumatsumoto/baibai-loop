@@ -709,6 +709,8 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 2026-10-19に承認された履歴移行方針では、現行sourceから再取得できない旧公開期間は旧releaseを参照用に保持し、fresh baselineには混ぜず欠測として扱う。適用先は専用の一回限りの`tools/cutover/publish_fresh_market_v47.py`に固定した12 dataset・旧公開下限・新候補の最古日までであり、他datasetや拡大した欠損には適用しない。新releaseの`coverage_start`は実際の最古日を記し、欠ける旧期間とqualityはprivateな切替記録へ別に残す。現在の取得範囲の`source_coverage`にあるpartial/failed状態、required dataset・complete coverage・Parquet/SQLite整合性の通常検査はそのまま守る。これは後続の通常発行へ履歴下限の免除を持ち越す方針ではない。
 
+この一回限りの公開は、検算済みの候補SHA-256と固定release ID/digestをコードにpinした`--verified-fixed-release`を使う。既存mirrorの固定releaseを検証して既存publisherへ渡し、再exportや新release作成を行わない。後日の実行時は本番pinとwriter/lease状態を再確認し、公開後のpointer・origin・固定releaseを読戻す。通常の`publish-lake`やこのtoolの再export入口で代用しない。
+
 EDINET文書一覧のHTTP body bytesはJSON解析より前にL1の`edinet.list_responses`（SQLite `edinet_list_responses`）へ受領ごとに保持する。`edinet_document_lists.response_json`は選択した成功応答のnative payloadを記録するL2 projectionであり、不変のraw receipt履歴とは別である。最新応答のprojectionが失敗した日はcurrent coverageをfailedとし、過去の成功projectionを新しい原本受領の証拠や成功coverageに読み替えない。解析できない原応答もL1に残し、以前の正規化済み行から原本を捏造しない。
 
 受入ではCSV/XBRLのbytes一致、別環境の空の作業コピーへのhydrate後の再読、元のcontext/単位/欠測を保った再抽出、lake公開・hydrateの往復、保存量・読込時間を確認する。archive列はPython側のbatchを一行にしてParquetへ書き出し・照合・SQLiteへ戻し、ZIP内容のmin/max統計は作らない。通常のスカラー観測は既存のrow batchを使う。全原本の取得完了や全過去期間の再計算可能性を、行が存在するだけで保証しない。

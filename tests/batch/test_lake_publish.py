@@ -166,6 +166,28 @@ def test_publish_uploads_immutable_graph_before_current_pointer(tmp_path) -> Non
     )
 
 
+def test_upload_copy_is_released_before_remote_readback(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+
+    class ReadbackStore(MemoryR2Store):
+        sealed: dict[str, Path] = {}
+
+        def put_file(self, key: str, path: Path, **kwargs: object) -> RemoteObject:
+            if key.endswith(".parquet"):
+                self.sealed[key] = path
+                assert path.exists()
+            return super().put_file(key, path, **kwargs)  # type: ignore[arg-type]
+
+        def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+            if key in self.sealed:
+                assert not self.sealed[key].exists()
+            super().download_file(key, path, expect_bytes=expect_bytes)
+
+    store = ReadbackStore()
+    publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    assert store.sealed
+
+
 def test_publication_proves_each_remote_key_once(tmp_path: Path) -> None:
     mirror, release_path = _release(tmp_path)
     store = MemoryR2Store()

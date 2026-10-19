@@ -8,6 +8,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.helpers.l1_release import market_store
@@ -187,6 +188,173 @@ def test_success_publishes_then_advances_origin(setup) -> None:  # type: ignore[
     _assert_old_unchanged(store)
     assert MARKET_KEY not in store.get_keys
     assert store.header_reads >= 2
+
+
+def _verified_release(
+    setup: tuple[Path, Path, CutoverFake, PublicationLeaseHandle],
+    monkeypatch: pytest.MonkeyPatch,
+) -> str:
+    from tools.cutover import publish_fresh_market_v47 as tool
+
+    candidate, mirror, _, _ = setup
+    export = tool.export_market_store(
+        sqlite_path=candidate,
+        mirror_root=mirror,
+        producer_git_commit="a" * 40,
+        expected_store_origin=None,
+    )
+    with tool._export_manifest_snapshot(export.datasets, mirror) as paths:
+        release_path, release = tool.create_lake_release(
+            dataset_manifest_paths=paths,
+            mirror_root=mirror,
+            release_id="20261019T100002Z-verified-test",
+            published_coverage_start={
+                "jquants.daily_bars": date(2026, 1, 5),
+                "jquants.short_sale_reports": date(2026, 1, 6),
+            },
+        )
+    digest = _sha(release_path.read_bytes())
+    monkeypatch.setattr(tool, "VERIFIED_CANDIDATE_SHA256", _sha(candidate.read_bytes()))
+    monkeypatch.setattr(tool, "VERIFIED_FIXED_RELEASE_ID", release.release_id)
+    monkeypatch.setattr(tool, "VERIFIED_FIXED_RELEASE_SHA256", digest)
+
+    def no_export(**_: object) -> None:
+        pytest.fail("verified fixed release must not export again")
+
+    monkeypatch.setattr(tool, "export_market_store", no_export)
+    return digest
+
+
+def test_verified_fixed_release_publishes_without_reexport(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, mirror, store, lease = setup
+    pin = _source(store)
+    digest = _verified_release(setup, monkeypatch)
+    result = publish_fresh_market(
+        candidate=candidate,
+        mirror=mirror,
+        store=store,
+        lease=lease,
+        pin=pin,
+        verified_fixed_release=True,
+        recovery_record=mirror.parent / "fixed-recovery.json",
+    )
+    assert result["release_manifest_sha256"] == digest
+    assert (
+        json.loads((mirror.parent / "fixed-recovery.json").read_text())["manifest_sha256"] == digest
+    )
+    assert read_lake_store_origin(candidate) is not None
+    assert NEW_POINTER_KEY in store.values
+    _assert_old_unchanged(store)
+
+
+def test_verified_fixed_release_rejects_changed_candidate_before_upload(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, mirror, store, lease = setup
+    pin = _source(store)
+    _verified_release(setup, monkeypatch)
+    with sqlite3.connect(candidate) as connection:
+        connection.execute("UPDATE jquants_daily_bars SET close = close + 1")
+    with pytest.raises(CutoverError, match="differs from the verified fixed release source"):
+        publish_fresh_market(
+            candidate=candidate,
+            mirror=mirror,
+            store=store,
+            lease=lease,
+            pin=pin,
+            verified_fixed_release=True,
+            recovery_record=mirror.parent / "fixed-recovery.json",
+        )
+    assert NEW_POINTER_KEY not in store.values
+    assert not any(key.startswith("lake/") for key in store.put_keys)
+
+
+def test_verified_fixed_release_rejects_corrupt_object_before_upload(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, mirror, store, lease = setup
+    pin = _source(store)
+    _verified_release(setup, monkeypatch)
+    object_path = next(mirror.rglob("*.parquet"))
+    object_path.write_bytes(b"corrupt")
+    with pytest.raises(LakePublishError, match="local object does not match manifest"):
+        publish_fresh_market(
+            candidate=candidate,
+            mirror=mirror,
+            store=store,
+            lease=lease,
+            pin=pin,
+            verified_fixed_release=True,
+            recovery_record=mirror.parent / "fixed-recovery.json",
+        )
+    assert NEW_POINTER_KEY not in store.values
+    assert not any(key.startswith("lake/") for key in store.put_keys)
+
+
+def test_verified_fixed_release_requires_temporary_space_before_upload(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, mirror, store, lease = setup
+    pin = _source(store)
+    _verified_release(setup, monkeypatch)
+    from tools.cutover import publish_fresh_market_v47 as tool
+
+    monkeypatch.setattr(tool.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    with pytest.raises(CutoverError, match="insufficient temporary space"):
+        publish_fresh_market(
+            candidate=candidate,
+            mirror=mirror,
+            store=store,
+            lease=lease,
+            pin=pin,
+            verified_fixed_release=True,
+            recovery_record=mirror.parent / "fixed-recovery.json",
+        )
+    assert NEW_POINTER_KEY not in store.values
+    assert not any(key.startswith("lake/") for key in store.put_keys)
+
+
+def test_verified_fixed_release_keeps_origin_unset_on_pointer_race(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, mirror, store, lease = setup
+    pin = _source(store)
+    _verified_release(setup, monkeypatch)
+    store.pointer_behavior = "race"
+    with pytest.raises(LakeCASConflict):
+        publish_fresh_market(
+            candidate=candidate,
+            mirror=mirror,
+            store=store,
+            lease=lease,
+            pin=pin,
+            verified_fixed_release=True,
+            recovery_record=mirror.parent / "fixed-recovery.json",
+        )
+    assert read_lake_store_origin(candidate) is None
+
+
+def test_verified_fixed_release_checks_lease_before_pointer(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, mirror, store, lease = setup
+    pin = _source(store)
+    _verified_release(setup, monkeypatch)
+    store.before_release_put = lambda: release(store, lease)
+    with pytest.raises(LeaseError):
+        publish_fresh_market(
+            candidate=candidate,
+            mirror=mirror,
+            store=store,
+            lease=lease,
+            pin=pin,
+            verified_fixed_release=True,
+            recovery_record=mirror.parent / "fixed-recovery.json",
+        )
+    assert NEW_POINTER_KEY not in store.values
+    assert read_lake_store_origin(candidate) is None
 
 
 def test_uncertain_successful_pointer_put_is_read_back(setup) -> None:  # type: ignore[no-untyped-def]

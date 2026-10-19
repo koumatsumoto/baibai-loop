@@ -11,8 +11,10 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import struct
+import tempfile
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
@@ -38,12 +40,17 @@ from baibai_batch.storage.publish_market_lake import (
 )
 from baibai_engine.batch_api import (
     LakeStoreOrigin,
+    LocalMirrorSource,
     advance_lake_store_origin,
     canonical_lake_model_bytes,
     create_lake_release,
     export_market_store,
     lake_dataset_manifest_key,
+    lake_mirror_path,
+    lake_release_manifest_key,
     lake_verified_git_commit,
+    resolve_release,
+    validate_lake_release_policy,
 )
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.writer import validate_snapshot_parity
@@ -60,6 +67,9 @@ OLD_POINTER_KEY = "lake/pointers/l1/current.json"
 NEW_POINTER_KEY = "lake/pointers/market/current.json"
 MARKET_KEY = "market.sqlite"
 CANDIDATE_SCHEMA = 47
+VERIFIED_CANDIDATE_SHA256 = "8e107d53c00c5101d4bc83a408ec768a1d644e3a6acae9e644728313f3b8ef4a"
+VERIFIED_FIXED_RELEASE_ID = "20261019T100002Z-54cf954c-d37a5ef3028d"
+VERIFIED_FIXED_RELEASE_SHA256 = "45eac7c1c004b629941979b4b382b23629ff85b3d017b72d074db54ec6a62891"
 
 # The user accepted these twelve unavailable pre-baseline spans on 2026-10-19.
 # This applies only to this one-shot transition from PRODUCTION_SOURCE. The old
@@ -429,66 +439,100 @@ def publish_fresh_market(
     release_id: str | None = None,
     producer_git_commit: str | None = None,
     recovery_record: Path | None = None,
+    verified_fixed_release: bool = False,
 ) -> dict[str, object]:
     """Publish only a complete fresh L1; leave machine/application/runs unchanged."""
     verify_held(store, lease)
     floors = _legacy_history_floors(store, pin)
     with _CandidateWatch(candidate) as watch:
         history_gaps = watch.require_prior_history(floors)
-        export = export_market_store(
-            sqlite_path=candidate,
-            mirror_root=mirror,
-            producer_git_commit=producer_git_commit or lake_verified_git_commit(),
-            expected_store_origin=None,
-        )
+        published_floors = {
+            name: floor for name, floor in floors.items() if name not in history_gaps
+        }
+        if verified_fixed_release:
+            if release_id is not None or producer_git_commit is not None:
+                raise CutoverError("verified fixed release does not accept a new release identity")
+            if _candidate_hashes(candidate) != (VERIFIED_CANDIDATE_SHA256, None):
+                raise CutoverError("candidate differs from the verified fixed release source")
+            fixed = resolve_release(
+                LocalMirrorSource(mirror),
+                VERIFIED_FIXED_RELEASE_ID,
+                manifest_sha256=VERIFIED_FIXED_RELEASE_SHA256,
+            )
+            release_path = lake_mirror_path(
+                mirror, lake_release_manifest_key(release_id=VERIFIED_FIXED_RELEASE_ID)
+            )
+            release = fixed.manifest
+            manifests = fixed.dataset_manifests
+            validate_lake_release_policy(
+                release, manifests, published_coverage_start=published_floors
+            )
+            largest_object = max(
+                (
+                    item.bytes
+                    for manifest in manifests.values()
+                    for part in manifest.partitions
+                    for item in part.objects
+                ),
+                default=0,
+            )
+            if shutil.disk_usage(tempfile.gettempdir()).free < largest_object + 2 * 1024**3:
+                raise CutoverError("insufficient temporary space for upload and readback")
+            digest = VERIFIED_FIXED_RELEASE_SHA256
+        else:
+            export = export_market_store(
+                sqlite_path=candidate,
+                mirror_root=mirror,
+                producer_git_commit=producer_git_commit or lake_verified_git_commit(),
+                expected_store_origin=None,
+            )
+            with _export_manifest_snapshot(export.datasets, mirror) as paths:
+                release_path, release = create_lake_release(
+                    dataset_manifest_paths=paths,
+                    mirror_root=mirror,
+                    release_id=release_id,
+                    published_coverage_start=published_floors,
+                )
+            manifests = {name: item.manifest for name, item in export.datasets.items()}
+            digest = hashlib.sha256(canonical_lake_model_bytes(release)).hexdigest()
         watch.require_unchanged()
         for name, floor in floors.items():
-            report = export.datasets.get(name)
-            if report is None:
+            manifest = manifests.get(name)
+            if manifest is None:
                 raise CutoverError(f"fresh release omits prior dataset: {name}")
             if name in history_gaps:
                 if (
-                    report.manifest.coverage_start.isoformat()
+                    manifest.coverage_start.isoformat()
                     != history_gaps[name]["fresh_coverage_start"]
                 ):
                     raise CutoverError(f"fresh release changes approved history gap: {name}")
-            elif report.manifest.coverage_start > floor:
+            elif manifest.coverage_start > floor:
                 raise CutoverError(f"fresh release loses prior history: {name}")
-        with _export_manifest_snapshot(export.datasets, mirror) as manifests:
-            release_path, release = create_lake_release(
-                dataset_manifest_paths=manifests,
-                mirror_root=mirror,
-                release_id=release_id,
-                published_coverage_start={
-                    name: floor for name, floor in floors.items() if name not in history_gaps
-                },
-            )
-            digest = hashlib.sha256(canonical_lake_model_bytes(release)).hexdigest()
-            if recovery_record is None:
-                raise CutoverError("a private recovery record is required before publication")
-            _write_recovery_record(
-                recovery_record,
-                candidate=candidate,
-                release_id=release.release_id,
-                digest=digest,
-                watch=watch,
-                history_gaps=history_gaps,
-            )
+        if recovery_record is None:
+            raise CutoverError("a private recovery record is required before publication")
+        _write_recovery_record(
+            recovery_record,
+            candidate=candidate,
+            release_id=release.release_id,
+            digest=digest,
+            watch=watch,
+            history_gaps=history_gaps,
+        )
 
-            def before_switch() -> None:
-                verify_held(store, lease)
-                watch.require_unchanged()
-                _legacy_history_floors(store, pin)
+        def before_switch() -> None:
+            verify_held(store, lease)
+            watch.require_unchanged()
+            _legacy_history_floors(store, pin)
 
-            before_switch()
-            published = publish_release(
-                mirror_root=mirror,
-                release_manifest_path=release_path,
-                store=store,
-                pointer_precondition=PointerPrecondition(etag=None),
-                expected_release_sha256=digest,
-                before_pointer_switch=before_switch,
-            )
+        before_switch()
+        published = publish_release(
+            mirror_root=mirror,
+            release_manifest_path=release_path,
+            store=store,
+            pointer_precondition=PointerPrecondition(etag=None),
+            expected_release_sha256=digest,
+            before_pointer_switch=before_switch,
+        )
         # A pointer may have switched before an error was raised. Do not infer rollback.
         watch.require_unchanged()
         _legacy_history_floors_after_switch(store, pin)
@@ -624,6 +668,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--lease-handle", type=Path, required=True)
     parser.add_argument("--release-id")
+    parser.add_argument("--verified-fixed-release", action="store_true")
     parser.add_argument("--recovery-record", type=Path, required=True)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--publish", action="store_true")
@@ -654,6 +699,7 @@ def main() -> int:
             lease=lease,
             release_id=args.release_id,
             recovery_record=args.recovery_record,
+            verified_fixed_release=args.verified_fixed_release,
         )
     print(json.dumps(result, sort_keys=True))
     return 0

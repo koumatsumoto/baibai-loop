@@ -609,19 +609,21 @@ def _ensure_immutable(
             )
         except LakeCASConflict:
             uploaded = False
-        publication.require_identity(
-            key=key,
-            expected_sha256=digest,
-            expected_size=size,
-            content_type=content_type,
-            read_back=uploaded,
-        )
-        if uploaded:
-            publication.uploaded_objects += 1
-            publication.uploaded_bytes += size
-        else:
-            publication.reused_objects += 1
-        return uploaded
+    # The PUT has consumed the sealed upload. Release those bytes before the full
+    # remote readback; large first-publication objects otherwise need two copies.
+    publication.require_identity(
+        key=key,
+        expected_sha256=digest,
+        expected_size=size,
+        content_type=content_type,
+        read_back=uploaded,
+    )
+    if uploaded:
+        publication.uploaded_objects += 1
+        publication.uploaded_bytes += size
+    else:
+        publication.reused_objects += 1
+    return uploaded
 
 
 class Boto3R2Store:
