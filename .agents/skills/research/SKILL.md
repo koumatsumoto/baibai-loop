@@ -35,6 +35,8 @@ uv run baibai-engine research prepare \
 
 Operation内の一つのsnapshotが固定入力の正本であり、`domain-inputs.yaml`は削除・再生成可能なAI読取投影である。選択済み対象だけの機械値・市場・外部評価と、scope/summary/選定理由/問い/リスクを読む。保有子は `domain_inputs_ref` で親入力を共有する。観測・機械anchor・保存判断・今回の仮定を分け、materialな環境変化だけ企業評価と提案へ接続する。
 
+`domain-inputs.yaml`の`analysis_source`で固定runの日付・rules hash・E[r] modelを確認する。保存済みE[r]較正文脈を参照する場合だけ、`research calibration-context --operation-id <OPERATION_ID> --db stores/application/baibai.sqlite`を明示実行する。結果は固定runのmethod identityと照合した読取専用の歴史分布であり、欠損・期限切れ・不一致は理由付き利用不能とする。候補順、Selection、Research進行、購入の6%条件へ接続しない。分母、未評価、formal evidenceの限界を合わせて読み、今の企業見積りや現在の市場判断へ読み替えない。
+
 ```bash
 uv run baibai-engine research prepare \
   --operation-id <OPERATION_ID> --db stores/application/baibai.sqlite \
