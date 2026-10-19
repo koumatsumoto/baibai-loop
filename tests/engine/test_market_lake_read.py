@@ -22,6 +22,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.storage.lake import duck as duck_module
 from baibai_engine.storage.lake import hydrate as hydrate_module
+from baibai_engine.storage.lake import objects as objects_module
 from baibai_engine.storage.lake import prefetch as prefetch_module
 from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS, LAKE_DATASETS
 from baibai_engine.storage.lake.duck import (
@@ -47,9 +48,11 @@ from baibai_engine.storage.lake.models import (
     canonical_lake_model_bytes,
 )
 from baibai_engine.storage.lake.objects import (
+    MAX_BUFFERED_OBJECT_BYTES,
     LakeObjectCache,
     LakeObjectError,
     LocalMirrorSource,
+    R2ObjectSource,
     mirror_path,
     mirror_root,
 )
@@ -1877,6 +1880,129 @@ class _RefusingSource:
         return self.inner.uri(key)
 
 
+@dataclass
+class _StreamingSource:
+    payload: bytes
+    reads: int = 0
+    downloads: int = 0
+
+    def read_bytes(self, key: str) -> bytes:
+        self.reads += 1
+        raise AssertionError(f"large object was buffered: {key}")
+
+    def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
+        self.downloads += 1
+        assert len(self.payload) <= max_bytes
+        destination.write_bytes(self.payload)
+
+    def uri(self, key: str) -> str:
+        return key
+
+
+class TestLargeObjectStreaming:
+    def _object(self, lake: Lake, payload: bytes) -> LakeObject:
+        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        item = hydration_order(release, ("jquants.daily_bars",))[0]
+        return LakeObject(
+            key=item.key,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            bytes=len(payload),
+            rows=item.rows,
+            min_key=item.min_key,
+            max_key=item.max_key,
+        )
+
+    def test_large_object_is_streamed_and_installed_only_after_digest_check(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        payload = b"x" * (MAX_BUFFERED_OBJECT_BYTES + 1)
+        item = self._object(lake, payload)
+        source = _StreamingSource(payload)
+        cache = LakeObjectCache(root=tmp_path / "cache", source=source)
+
+        target = cache.materialize(item)
+
+        assert target.stat().st_size == len(payload)
+        assert hashlib.sha256(target.read_bytes()).hexdigest() == item.sha256
+        assert source.reads == 0
+        assert source.downloads == 1
+
+    def test_corrupt_stream_keeps_the_cache_empty(self, lake: Lake, tmp_path: Path) -> None:
+        payload = b"x" * (MAX_BUFFERED_OBJECT_BYTES + 1)
+        item = self._object(lake, payload)
+        source = _StreamingSource(b"y" * len(payload))
+        cache = LakeObjectCache(root=tmp_path / "cache", source=source)
+
+        with pytest.raises(LakeObjectError, match="digest differs"):
+            cache.materialize(item)
+
+        assert not mirror_path(cache.root, item.key).exists()
+        assert not list(mirror_path(cache.root, item.key).parent.glob("*.part"))
+
+    def test_prefetch_skips_a_large_object_and_streams_on_the_consumer(
+        self, lake: Lake, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        payload = b"x" * (MAX_BUFFERED_OBJECT_BYTES + 1)
+        item = self._object(lake, payload)
+        base = _StreamingSource(payload)
+        worker = _StreamingSource(payload)
+        source = PrefetchingSource(
+            base=base,
+            objects=(item,),
+            source_factory=lambda: nullcontext(worker),
+            mirror=tmp_path / "cache",
+        )
+        try:
+            target = LakeObjectCache(root=tmp_path / "cache", source=source).materialize(item)
+        finally:
+            source.close()
+
+        assert target.stat().st_size == len(payload)
+        assert base.downloads == 1
+        assert base.reads == 0
+        assert worker.reads == 0
+        assert "(1 streamed)" in capfd.readouterr().err
+
+    def test_r2_download_reads_bounded_chunks(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        payload = b"one" + b"two" + b"three"
+        item = self._object(lake, payload)
+
+        class Body:
+            chunks = iter((b"one", b"two", b"three", b""))
+            requested: list[int] = []
+
+            def read(self, size: int) -> bytes:
+                self.requested.append(size)
+                return next(self.chunks)
+
+            def close(self) -> None:
+                pass
+
+        class Client:
+            body = Body()
+
+            def get_object(self, *, Bucket: str, Key: str) -> dict[str, Body]:
+                assert Bucket == "baibai-stores"
+                assert Key == item.key
+                return {"Body": self.body}
+
+            def close(self) -> None:
+                pass
+
+        client = Client()
+        monkeypatch.setattr(objects_module.boto3, "client", lambda *args, **kwargs: client)
+        credentials = R2ReadCredentials("0" * 32, "A" * 20, "dummy", "baibai-stores")
+        source = R2ObjectSource(replace(session, credentials=credentials))
+        destination = tmp_path / "remote.parquet"
+
+        source.download_file(item.key, destination, max_bytes=len(payload))
+
+        assert destination.read_bytes() == payload
+        assert client.body.requested == [objects_module._STREAM_CHUNK_BYTES] * 4
+
+
 class TestPrefetchingHydration:
     """The prefetching source must change wall time only, never a fill's meaning."""
 
@@ -1884,6 +2010,41 @@ class TestPrefetchingHydration:
 
     def _release(self, lake: Lake) -> Any:
         return resolve_current_release(LocalMirrorSource(lake.mirror))
+
+    def test_large_fetched_objects_are_evicted_after_their_rows_load(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(objects_module, "MAX_BUFFERED_OBJECT_BYTES", 1)
+        monkeypatch.setattr(prefetch_module, "MAX_BUFFERED_OBJECT_BYTES", 1)
+        monkeypatch.setattr(hydrate_module, "MAX_BUFFERED_OBJECT_BYTES", 1)
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        source = PrefetchingSource(
+            base=LocalMirrorSource(lake.mirror),
+            objects=planned,
+            source_factory=lambda: nullcontext(LocalMirrorSource(lake.mirror)),
+            mirror=tmp_path / "cache",
+        )
+        try:
+            report = hydrate_market_store(
+                session,
+                release=release,
+                cache=LakeObjectCache(
+                    root=tmp_path / "cache", source=source, evict_large_after_read=True
+                ),
+                store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+                dataset_names=self._NAMES,
+            )
+        finally:
+            source.close()
+
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+        assert all(not mirror_path(tmp_path / "cache", item.key).exists() for item in planned)
+        assert all(mirror_path(lake.mirror, item.key).is_file() for item in planned)
 
     def test_planned_order_is_exactly_the_order_a_fill_reads_objects(
         self, session: LakeSession, lake: Lake, tmp_path: Path
