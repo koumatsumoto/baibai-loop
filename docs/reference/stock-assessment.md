@@ -35,6 +35,8 @@ Snapshotは必要な値を固定し、元run storeの存在を要求しない。
 
 factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外部sourceはHTTPS、local dataはprovider/datasetを持つ。ticker、source参照、取得・観測時刻、単位を検証する。判断後の資料を判断前の事実として混入しない。市場価格は未調整1株の`price_basis`を明示する。日次終値は原典の取引日`as_of`で扱い、観測時刻を捏造しない。実際に観測時刻がある場合だけ`observed_at`を付け、realtime価格では必須とする。終値の利用可能な取引日はJSTの立会終了境界で判定する。
 
+財務実績の`fact.as_of`には対象期間の末日を記し、資料の公表日・提出日は`source.as_of`へ記す。例えば3月期通期の売上・CF・期末残高は3月31日、6月末1Qの損益・株数・期末残高は6月30日を実績factの日付とする。通期予想の数値は予想を公表した日を用い、実績期間の末日へ遡らせない。独立Reviewでも、同じ資料から転記した数値だけでなく、この期間と公表日の対応を原典で照合する。
+
 resolved valuationは価格factを参照する。unresolvedでは価格もnullでよく、valuation_metricや正の起点利益を要求しない。財務根拠が未確定なら所見と理由を独立確認しuncertain/unsupportedの評価を完成させる。欠損を0やverifiedへ変換しない。
 
 <a id="scenario-arithmetic"></a>
