@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
 from tools.cutover.publish_fresh_market_v47 import (
+    APPROVED_TRANSITION_GAPS,
     MARKET_KEY,
     NEW_POINTER_KEY,
     OLD_POINTER_KEY,
@@ -236,6 +238,105 @@ def test_prior_history_omission_stops_before_any_upload(setup) -> None:  # type:
     assert NEW_POINTER_KEY not in store.values
     assert read_lake_store_origin(candidate) is None
     assert not any(key.startswith("lake/l1/") for key in store.put_keys)
+
+
+def test_transition_history_policy_names_only_the_twelve_reviewed_gaps() -> None:
+    assert set(APPROVED_TRANSITION_GAPS) == {
+        "edinet.metrics",
+        "external_assessment.analyst_rating_observations",
+        "external_assessment.model_valuation_observations",
+        "external_assessment.quants_score_observations",
+        "jpx.regulation_flags",
+        "jpx.regulation_sources",
+        "jquants.daily_bars",
+        "jquants.fin_summaries",
+        "jquants.market_calendar",
+        "jquants.short_sale_reports",
+        "jquants.weekly_margin",
+        "tradingview.forecast_snapshots",
+    }
+
+
+def test_approved_transition_gap_records_missing_history_without_old_rows(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, mirror, store, _ = setup
+    pin = _source(store, daily_floor="2025-01-05")
+    from tools.cutover import publish_fresh_market_v47 as tool
+
+    monkeypatch.setattr(
+        tool,
+        "APPROVED_TRANSITION_GAPS",
+        {"jquants.daily_bars": (date(2025, 1, 5), date(2026, 1, 5))},
+    )
+    result = _publish(setup, pin)
+    assert result["history_gaps"] == {
+        "jquants.daily_bars": {
+            "previous_coverage_start": "2025-01-05",
+            "fresh_coverage_start": "2026-01-05",
+            "quality": "missing_previous_history",
+        }
+    }
+    assert (
+        json.loads((mirror.parent / "recovery.json").read_text())["history_gaps"]
+        == result["history_gaps"]
+    )
+    pointer = json.loads(store.values[NEW_POINTER_KEY].body)
+    release = json.loads(store.values[pointer["manifest_key"]].body)
+    assert release["datasets"]["jquants.daily_bars"]["coverage_status"] == "complete"
+    with sqlite3.connect(candidate) as connection:
+        assert (
+            connection.execute("SELECT MIN(traded_at) FROM jquants_daily_bars").fetchone()[0]
+            == "2026-01-05"
+        )
+    _assert_old_unchanged(store)
+
+
+@pytest.mark.parametrize(
+    ("approved_floor", "latest_first"),
+    [(date(2024, 1, 5), date(2026, 1, 5)), (date(2025, 1, 5), date(2026, 1, 4))],
+)
+def test_transition_gap_refuses_wrong_old_floor_or_larger_gap(
+    setup,
+    monkeypatch: pytest.MonkeyPatch,
+    approved_floor: date,
+    latest_first: date,
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, _, store, _ = setup
+    pin = _source(store, daily_floor="2025-01-05")
+    from tools.cutover import publish_fresh_market_v47 as tool
+
+    monkeypatch.setattr(
+        tool,
+        "APPROVED_TRANSITION_GAPS",
+        {"jquants.daily_bars": (approved_floor, latest_first)},
+    )
+    with pytest.raises(CutoverError, match="omits prior history"):
+        _publish(setup, pin)
+    assert NEW_POINTER_KEY not in store.values
+    assert read_lake_store_origin(candidate) is None
+
+
+def test_approved_history_gap_does_not_waive_current_coverage(
+    setup, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    candidate, _, store, _ = setup
+    pin = _source(store, daily_floor="2025-01-05")
+    from tools.cutover import publish_fresh_market_v47 as tool
+
+    monkeypatch.setattr(
+        tool,
+        "APPROVED_TRANSITION_GAPS",
+        {"jquants.daily_bars": (date(2025, 1, 5), date(2026, 1, 5))},
+    )
+    with sqlite3.connect(candidate) as connection:
+        connection.execute(
+            "UPDATE source_coverage SET status = 'partial' WHERE source = 'jquants_daily_bars'"
+        )
+    with pytest.raises(ValueError, match="coverage is partial"):
+        _publish(setup, pin)
+    assert NEW_POINTER_KEY not in store.values
+    assert read_lake_store_origin(candidate) is None
 
 
 def test_missing_prior_dataset_stops_before_export(setup) -> None:  # type: ignore[no-untyped-def]

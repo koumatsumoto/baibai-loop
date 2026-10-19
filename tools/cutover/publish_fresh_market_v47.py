@@ -61,6 +61,26 @@ NEW_POINTER_KEY = "lake/pointers/market/current.json"
 MARKET_KEY = "market.sqlite"
 CANDIDATE_SCHEMA = 47
 
+# The user accepted these twelve unavailable pre-baseline spans on 2026-10-19.
+# This applies only to this one-shot transition from PRODUCTION_SOURCE. The old
+# release remains reference data; no old rows or coverage ledger enter the new
+# candidate. Ordinary coverage, required-dataset and integrity policy is intact.
+# Each pair is (the exact pinned old floor, latest allowed fresh first date).
+APPROVED_TRANSITION_GAPS: Mapping[str, tuple[date, date]] = {
+    "edinet.metrics": (date(2026, 5, 8), date(2026, 10, 18)),
+    "external_assessment.analyst_rating_observations": (date(2026, 10, 12), date(2026, 10, 19)),
+    "external_assessment.model_valuation_observations": (date(2026, 10, 12), date(2026, 10, 19)),
+    "external_assessment.quants_score_observations": (date(2026, 10, 12), date(2026, 10, 19)),
+    "jpx.regulation_flags": (date(2026, 5, 8), date(2026, 10, 18)),
+    "jpx.regulation_sources": (date(2026, 5, 8), date(2026, 10, 18)),
+    "jquants.daily_bars": (date(2016, 10, 3), date(2016, 10, 18)),
+    "jquants.fin_summaries": (date(2016, 10, 1), date(2016, 10, 18)),
+    "jquants.market_calendar": (date(2016, 10, 17), date(2016, 10, 18)),
+    "jquants.short_sale_reports": (date(2016, 8, 10), date(2016, 10, 18)),
+    "jquants.weekly_margin": (date(2016, 8, 5), date(2016, 10, 21)),
+    "tradingview.forecast_snapshots": (date(2026, 10, 11), date(2026, 10, 19)),
+}
+
 
 class CutoverError(RuntimeError):
     """A pinned source, candidate generation, or publication outcome is unsafe."""
@@ -188,7 +208,13 @@ def _candidate_hashes(path: Path) -> tuple[str, str | None]:
 
 
 def _write_recovery_record(
-    path: Path, *, candidate: Path, release_id: str, digest: str, watch: _CandidateWatch
+    path: Path,
+    *,
+    candidate: Path,
+    release_id: str,
+    digest: str,
+    watch: _CandidateWatch,
+    history_gaps: Mapping[str, dict[str, str]],
 ) -> None:
     market_hash, wal_hash = _candidate_hashes(candidate)
     watch.require_unchanged()
@@ -199,6 +225,7 @@ def _write_recovery_record(
         "wal_sha256": wal_hash,
         "release_id": release_id,
         "manifest_sha256": digest,
+        "history_gaps": history_gaps,
     }
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as target:
@@ -354,12 +381,13 @@ class _CandidateWatch:
         ):
             raise CutoverError("candidate SQLite changed during preparation or publication")
 
-    def require_prior_history(self, floors: Mapping[str, date]) -> None:
-        """Reject obvious omissions before a multi-gigabyte sealed export is made."""
+    def require_prior_history(self, floors: Mapping[str, date]) -> dict[str, dict[str, str]]:
+        """Bound this one transition's accepted missing spans before export."""
         connection = self.connection
         if connection is None:
             raise CutoverError("candidate generation watch is unavailable")
         omissions: list[str] = []
+        approved: dict[str, dict[str, str]] = {}
         for name, floor in sorted(floors.items()):
             dataset = LAKE_DATASETS.get(name)
             if dataset is None:
@@ -370,11 +398,25 @@ class _CandidateWatch:
                 f'SELECT MIN("{dataset.date_column}") FROM "{dataset.sqlite_table}"'
             ).fetchone()
             first = row[0] if row is not None else None
-            if first is None or date.fromisoformat(first) > floor:
+            if first is None:
+                omissions.append(f"{name}: prior={floor.isoformat()}, candidate=None")
+                continue
+            first_date = date.fromisoformat(first)
+            if first_date <= floor:
+                continue
+            allowance = APPROVED_TRANSITION_GAPS.get(name)
+            if allowance is None or floor != allowance[0] or first_date > allowance[1]:
                 omissions.append(f"{name}: prior={floor.isoformat()}, candidate={first}")
+                continue
+            approved[name] = {
+                "previous_coverage_start": floor.isoformat(),
+                "fresh_coverage_start": first,
+                "quality": "missing_previous_history",
+            }
         self.require_unchanged()
         if omissions:
             raise CutoverError("fresh candidate omits prior history: " + "; ".join(omissions))
+        return approved
 
 
 def publish_fresh_market(
@@ -392,7 +434,7 @@ def publish_fresh_market(
     verify_held(store, lease)
     floors = _legacy_history_floors(store, pin)
     with _CandidateWatch(candidate) as watch:
-        watch.require_prior_history(floors)
+        history_gaps = watch.require_prior_history(floors)
         export = export_market_store(
             sqlite_path=candidate,
             mirror_root=mirror,
@@ -404,14 +446,22 @@ def publish_fresh_market(
             report = export.datasets.get(name)
             if report is None:
                 raise CutoverError(f"fresh release omits prior dataset: {name}")
-            if report.manifest.coverage_start > floor:
+            if name in history_gaps:
+                if (
+                    report.manifest.coverage_start.isoformat()
+                    != history_gaps[name]["fresh_coverage_start"]
+                ):
+                    raise CutoverError(f"fresh release changes approved history gap: {name}")
+            elif report.manifest.coverage_start > floor:
                 raise CutoverError(f"fresh release loses prior history: {name}")
         with _export_manifest_snapshot(export.datasets, mirror) as manifests:
             release_path, release = create_lake_release(
                 dataset_manifest_paths=manifests,
                 mirror_root=mirror,
                 release_id=release_id,
-                published_coverage_start=floors,
+                published_coverage_start={
+                    name: floor for name, floor in floors.items() if name not in history_gaps
+                },
             )
             digest = hashlib.sha256(canonical_lake_model_bytes(release)).hexdigest()
             if recovery_record is None:
@@ -422,6 +472,7 @@ def publish_fresh_market(
                 release_id=release.release_id,
                 digest=digest,
                 watch=watch,
+                history_gaps=history_gaps,
             )
 
             def before_switch() -> None:
@@ -460,6 +511,7 @@ def publish_fresh_market(
             "prior_release_id": pin.release_id,
             "candidate_schema": CANDIDATE_SCHEMA,
             "old_dataset_count": len(floors),
+            "history_gaps": history_gaps,
             "fresh_dataset_count": len(release.datasets),
             "uploaded_objects": published.transfers.uploaded_objects,
             "pointer_etag": current.precondition.etag,
@@ -487,9 +539,11 @@ def recover_committed_origin(
             "wal_sha256",
             "release_id",
             "manifest_sha256",
+            "history_gaps",
         }
         or record.get("record_version") != 1
         or record.get("candidate") != str(candidate.resolve())
+        or not isinstance(record.get("history_gaps"), dict)
     ):
         raise CutoverError("recovery record does not identify this candidate")
     release_id = record["release_id"]
