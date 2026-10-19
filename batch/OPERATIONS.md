@@ -198,6 +198,8 @@ leaseがmalformedなら自動修復しない。GitHubの`cloud-publish` writer�
 batch/scripts/publish.sh
 ```
 
+既存のdated backupを削除してはいけない依頼では、実行前にbackup一覧と当日keyの不在を確認した上で、`R2_APP_BACKUP_PRUNE=skip batch/scripts/publish.sh`を使う。この指定は`push-app`の世代照合・backup作成・条件付きPUTを変えず、古いbackupの整理だけを省く。当日keyが既にあればbackup作成時に上書きするため、この指定だけでは上書きを防げない。確認できない場合は公開せず停止する。
+
 引数なしでだけ実行する。`-h` / `--help`は外部書き込みを行わずusageを表示し、その他の引数はupload前に拒否する。
 引数なしでは最初に`position ledger`を実行し、ledgerの整合性を確認する。保有価格の欠損・staleや権利単位の未確認は時価未評価として表示し、uploadを止めない。価格の読み取りは[`portfolio-ledger.md`](../docs/reference/portfolio-ledger.md#market-price-and-tax)を正本とし、配信のための台帳への価格転記は要求しない。
 
