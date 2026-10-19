@@ -252,7 +252,8 @@ def require_space(stage_dir: Path, market_bytes: int, economic_bytes: int) -> di
     stage_dir.mkdir(parents=True, exist_ok=True)
     free = os.statvfs(stage_dir).f_bavail * os.statvfs(stage_dir).f_frsize
     required = required_workspace_bytes(market_bytes, economic_bytes)
-    old_economic_copy = Path("/tmp/baibai-old-indicators-v9-readonly.sqlite")
+    # Read-only capacity diagnostic; this path is never created or written here.
+    old_economic_copy = Path("/tmp/baibai-old-indicators-v9-readonly.sqlite")  # nosec B108
     retained = old_economic_copy.stat().st_size if old_economic_copy.exists() else 0
     if free < required:
         raise CutoverError(

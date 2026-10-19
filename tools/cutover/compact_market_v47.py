@@ -51,7 +51,12 @@ def _require_published_source(
         plan_release_load(release, dataset_names=tuple(sorted(release.dataset_manifests)))[0]
     )
     for name, dataset in sorted(LAKE_DATASETS.items()):
-        held = int(src.execute(f'SELECT COUNT(*) FROM "{dataset.sqlite_table}"').fetchone()[0])
+        # Dataset identifiers come from the fixed registry.
+        held = int(
+            src.execute(
+                f'SELECT COUNT(*) FROM "{dataset.sqlite_table}"'  # nosec B608
+            ).fetchone()[0]
+        )
         if name not in release.dataset_manifests:
             if held:
                 raise ValueError(f"{name} holds {held} row(s) absent from the fixed release")
@@ -81,7 +86,8 @@ def _ordered_rows(conn: sqlite3.Connection, table: str) -> Iterator[tuple[Any, .
     if not keys:
         raise ValueError(f"store-local table has no primary key: {table}")
     order = ", ".join(f'"{key}"' for key in keys)
-    yield from conn.execute(f'SELECT * FROM "{table}" ORDER BY {order}')
+    # The table is allowlisted; the ordering columns came from its validated schema.
+    yield from conn.execute(f'SELECT * FROM "{table}" ORDER BY {order}')  # nosec B608
 
 
 def _row_digest(rows: list[tuple[Any, ...]]) -> str:
@@ -164,8 +170,9 @@ def build_compact_market(
                     for name, rows in source_rows.items():
                         columns = len(target.execute(f'PRAGMA table_info("{name}")').fetchall())
                         placeholders = ",".join("?" for _ in range(columns))
+                        # Local table is allowlisted; row values use bound parameters.
                         target.executemany(
-                            f'INSERT INTO "{name}" VALUES ({placeholders})',
+                            f'INSERT INTO "{name}" VALUES ({placeholders})',  # nosec B608
                             rows,
                         )
                 validate_current_schema(target)
@@ -182,7 +189,8 @@ def build_compact_market(
                     counts[name] = len(rows)
                     digests[name] = _row_digest(rows)
                 for name in sorted(lake_tables):
-                    if target.execute(f'SELECT EXISTS(SELECT 1 FROM "{name}")').fetchone()[0]:
+                    # Lake table names come from the fixed dataset registry.
+                    if target.execute(f'SELECT EXISTS(SELECT 1 FROM "{name}")').fetchone()[0]:  # nosec B608
                         raise ValueError(f"compact output contains lake-owned rows: {name}")
                 if target.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                     raise ValueError("compact output failed SQLite quick_check")

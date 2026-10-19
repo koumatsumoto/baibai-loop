@@ -405,7 +405,7 @@ class _CandidateWatch:
                 continue
             # Names come from the fixed in-repository dataset registry, not input.
             row = connection.execute(
-                f'SELECT MIN("{dataset.date_column}") FROM "{dataset.sqlite_table}"'
+                f'SELECT MIN("{dataset.date_column}") FROM "{dataset.sqlite_table}"'  # nosec B608
             ).fetchone()
             first = row[0] if row is not None else None
             if first is None:
