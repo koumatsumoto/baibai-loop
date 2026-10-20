@@ -234,6 +234,12 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
         preview.items[0]["current_quote_calculation"]["hard_blockers"][0]["code"]
         == "limit_above_pmax"
     )
+    for calculation_key in ("current_quote_calculation", "saved_limit_revalidation"):
+        current = preview.items[0][calculation_key]
+        assert Decimal(current["maximum_price_yen"]).quantize(Decimal("0.0001")) == Decimal(
+            expected_maximum
+        )
+        assert current["current_price_projection"]["horizon_months"] == horizon_months
     assert _snapshot(case.app) == before
     assert assessment_core_hash(case.pair.document) == original_hash
     assert (
@@ -253,6 +259,12 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     assert changed.current_inputs.quotes[0].price_yen == Decimal(1000)
     assert changed.items[0]["current_quote_calculation"]["hard_blockers"] == []
     assert changed.items[0]["saved_limit_revalidation"]["hard_blockers"] == []
+    for calculation_key in ("current_quote_calculation", "saved_limit_revalidation"):
+        current = changed.items[0][calculation_key]
+        assert Decimal(current["maximum_price_yen"]).quantize(Decimal("0.0001")) == Decimal(
+            expected_maximum
+        )
+        assert current["current_price_projection"]["horizon_months"] == horizon_months
     assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     after_projection = reviewed_assessment_projection(
         case.app, assessment_id=case.pair.assessment_id
