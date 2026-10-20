@@ -21,9 +21,20 @@ uv run baibai-engine research selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
-指定銘柄は `--scope specified_stocks --ticker <TICKER>`、保有は `--scope review_positions` とし、必要なら指定tickerを付ける。contextのrun参照、research_as_of、input_known_atとrequestをdraftへコピーし、比較した選定理由・調査の問い・主要リスク・今回の範囲をAIが記す。構造はCLIのhelpとselection modelが正本である。現在の三領域・保有・既存調査を読み、弱い対象で上限を埋めず、脱落を自動補充しない。
+指定銘柄は `--scope specified_stocks --ticker <TICKER>`、保有は `--scope review_positions` とし、必要なら指定tickerを付ける。通常依頼ではユーザーの目的と比較したい戦略仮説を読み取り、保存済みの機械候補を調査の入口として比較する。contextのrun参照、research_as_of、input_known_atとrequestをdraftへコピーし、比較した選定理由・調査の問い・主要リスク・今回の範囲と確認しなかった範囲を`selection_summary`と対象ごとの`rationale`へ記す。構造はCLIのhelpとselection modelが正本である。現在の三領域・保有・既存調査を読み、弱い対象で上限を埋めず、脱落を自動補充しない。
 
-selection-context schema2の`candidates`は同runのraw Stock Analysisで、`candidate_discovery_method`と各行の`candidate.reasons`が機械選抜の方式とApproach内rankを表す。候補0件は完成したrunの正常結果である。候補外の指定・保有対象も同runの全分析から読み、AIの`SelectedTarget.rationale`を機械rankと混ぜない。normalized gapの0とnull、rawの欠落とnullを保持し、候補一覧の別保存・再発行は行わない。
+selection-context schema2の`candidates`は同runのraw Stock Analysisで、`candidate_discovery_method`と各行の`candidate.reasons`が機械選抜の方式とApproach内rankを表す。候補0件は完成したrunの正常結果である。機械候補は全投資機会ではない。通常の`discover_new`でも、依頼から導いた重要な仮説が候補に表れない場合は、同じ固定runの候補外分析を必要な範囲だけ確認できる。候補外の指定・保有対象も同runの全分析から読む。AIの選定理由を機械rankと混ぜず、新しい暗黙の順位や配当利回り・機械E[r]による購入条件を作らない。normalized gapの0とnull、rawの欠落とnullを保持し、候補一覧の別保存・再発行は行わない。
+
+必要時の読取には、readyなcontextの`run_revision_id`を使う。`run-show`は保存revisionの読取であり、Researchのcutoffは自動照合しないため、出力の`run_revision_id`がcontextの同名field、`asof_date`が`analysis_as_of`と一致し、`asof_date <= research_as_of`、`run_at <= input_known_at`であることを確認する。不一致なら選定を止めてcontextを取り直す。
+
+```bash
+uv run baibai-engine screening run-show \
+  --run-revision-id <CONTEXT_RUN_REVISION_ID> \
+  --runs-db stores/screening/runs.sqlite --format json \
+  --output-path <PRIVATE_RUN_JSON> > /dev/null
+```
+
+全runをLLMへ一括投入せず、仮説に関係する保存行をローカルで有限に読み、候補内の対照と欠測・流動性も確認する。候補外を選んでも一般依頼のscopeは`discover_new`のままとし、`candidate.reasons`の空を経済的な棄却へ読み替えない。調査対象はcontextのcapacity（現行最大3件）内で固定し、選定理由、比較した代替、未確認の範囲を既存Selectionへ残す。一時的なフィルタやticker順を恒久の選抜規則にしない。
 
 inputs_requiredは経済的見送りではない。既存 `screening ticker-profile`、`verify-cache-coverage`、必要な `bootstrap-cache` / `screening run` と一次資料確認で補完し、同じ依頼でcontextを取り直す。Research factsは保存済みXBRLの再抽出なら `extract-edinet-facts`、原本取得が必要なら `refresh-edinet-facts` を使う。未初期化storeの扱いは[初期化手順](../../../batch/OPERATIONS.md#edinet-research-facts)に従い、通常のskipを取得・抽出成功と扱わない。通常の認可済みread取得に再許可を要求しない。新課金・権限変更・本番反映は[Ops Maintenance](../ops-maintenance/SKILL.md)の別境界であり、単一銘柄の不足を無断の全期間backfillで埋めない。標準補完後も機械分析を得られなければInputGapに試したsourceと不足理由を残し、一次資料で企業評価を進める。重要fact自体を得られない対象は未完了として扱う。
 
