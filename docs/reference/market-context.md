@@ -129,6 +129,14 @@ registryは現在のL2定義の正本であり、追加・退役・改名でsour
 | `yahoo` | 金属先物・MOVE・Russell2000・SOX等 | 登録URLのchartを取得し、timestamp・OHLCV等の配列・metadata・nullを保存する。L2で終値を読む |
 | `multpl` | 米株バリュエーション | current levelと確定済み月次標本を区別する。未公表月を合成せず、readingの統計標本だけ月次化する。HTML変更時は短期窓と全履歴の取得を確認する |
 
+### CFTC・ECBのnative入力
+
+CFTCは要求contractのAPI record全項目、ECB FXはCSVの全通貨列を、source単位の日次native snapshotに保持する。CFTCの非商業long−short、ECBのJPY/USD・JPY/AUDはL2で同じ原本行から計算する。原値の片脚を独立に改訂したり、旧scalar cacheから計算結果を復活させたりしない。
+
+正常なbulk responseは要求期間の全日を調べた結果として保存し、行のない日も空snapshotを残す。訂正で行が消えた日は新しい空snapshotが以前の値を隠す。取得時刻は取得・改訂の順序であり、当時の公表可能時刻の証明ではない。計算不能でも取得済みnative記録は残す。提供元record JSONであり、HTTP bytesそのものの保管を意味しない。
+
+旧net値やcross値だけから元のlong/short・各通貨レートは復元できない。不足するnative履歴は取得可能な範囲を明示して新規取得し、L2再計算・検証後にcodeとstoreを一組で切り替え、公開を確認する。実際の保存済み判断は書き換えない。
+
 ### GETの再試行
 
 `jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/collection/economic/providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
@@ -233,11 +241,11 @@ Baibai Loop の Market Context タブは、上から **市場・業種の価格�
 
 取得失敗、stale、insufficient_history、分布の端は別の状態である。系列の開始時点や配信範囲による履歴不足は、再取得すれば必ず解消する障害ではない。現在読み値ではこれらを件数と絞り込みに使い、indicator storeがない場合は読み値をunavailableとして、保存済みContextとreport indexを表示する。
 
-<a id="assessment"></a>
-
 保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
 
 `read_semantics.mode: recomputed_from_current_store`は現在のstoreからの再計算を示すprovenanceであり、その日の`known_at`を満たす証明ではない。過去の判断や成績と突き合わせるときは、この利用可能時点の制約を残す。
+
+<a id="assessment"></a>
 
 ## ③ 明示作成する市場環境判断
 
@@ -248,6 +256,8 @@ Baibai Loop の Market Context タブは、上から **市場・業種の価格�
 ### 対象日と利用可能時刻
 
 `as_of`は判断の対象日、`known_at`は入力を確定する利用可能時刻である。通常はcallerが入力確定時刻を一度固定し、当時の入力を調べる場合は過去cutoffを明示する。対象日以下で、その時刻までに発行された判断から実時刻順で選ぶ。selectorは現在時刻を読まず、timezone offsetの異なるISO文字列を辞書順で並べない。週末発行の前営業日評価も、利用可能時刻の範囲内なら選べる。
+
+`available_at`を保存入力を確認できていた時刻として記録する場合は、その意味をreferenceへ明記し、元提供者の公表時刻を捏造しない。新たな判断をResearchの開始入力に使うなら、実発行後のSelection cutoffで固定する。既存の開始snapshotを後発判断へ差し替えない。
 
 この判断の時刻制約を、全L1観測の改定前情報が再現可能である保証とは扱わない。ProviderSpecが宣言する公表vintageの能力と、bulk backfillの取得時刻の制約は上記Readingに従う。
 
@@ -264,12 +274,3 @@ uv run baibai-engine research market-context history
 uv run baibai-engine research market-context show --context-id macro-context-2026-07-17-example
 uv run baibai-engine research market-context latest --asof 2026-07-17 --known-at 2026-07-18T13:00:00+09:00
 ```
-
-
-### CFTC・ECBのnative入力
-
-CFTCは要求contractのAPI record全項目、ECB FXはCSVの全通貨列を、source単位の日次native snapshotに保持する。CFTCの非商業long−short、ECBのJPY/USD・JPY/AUDはL2で同じ原本行から計算する。原値の片脚を独立に改訂したり、旧scalar cacheから計算結果を復活させたりしない。
-
-正常なbulk responseは要求期間の全日を調べた結果として保存し、行のない日も空snapshotを残す。訂正で行が消えた日は新しい空snapshotが以前の値を隠す。取得時刻は取得・改訂の順序であり、当時の公表可能時刻の証明ではない。計算不能でも取得済みnative記録は残す。提供元record JSONであり、HTTP bytesそのものの保管を意味しない。
-
-旧net値やcross値だけから元のlong/short・各通貨レートは復元できない。不足するnative履歴は取得可能な範囲を明示して新規取得し、L2再計算・検証後にcodeとstoreを一組で切り替え、公開を確認する。実際の保存済み判断は書き換えない。
