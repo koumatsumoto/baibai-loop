@@ -82,6 +82,12 @@ describe('保存した提案と評価', () => {
     expect(questionHtml).toContain('aria-label="残る確認事項"')
     expect(questionHtml).not.toContain('観測と個社への伝達')
   })
+  it('参照Review本文が欠けたときは反証節でも表示不足を明示する', () => {
+    const html = render(ProposalAssessmentDetails, { ...item, assessment_review: null })
+    expect(html).toContain('独立Review本文を表示できません。保存した評価版のReviewを確認してください。')
+    expect(html).toContain('参照した Review 本文を表示できません。保存 ID から確認してください。')
+    expect(html).not.toContain('独立Reviewの最も強い反対仮説')
+  })
   it('価値未解決をBase/Downsideの架空表示へ変換しない', () => {
     const unresolved = { ...item, action: 'defer' as const, terms: null, order_readiness: 'not_applicable' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, valuation: { status: 'unresolved', unresolved_reason: '借換条件が未取得', base: null, downside: null, horizon_months: null, required_annual_return_pct: null } }, projections: {} } }
     const html = render(ProposalAssessmentDetails, unresolved)

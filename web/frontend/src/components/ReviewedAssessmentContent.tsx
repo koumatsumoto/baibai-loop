@@ -70,7 +70,7 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
       <h3 className="text-sm font-semibold">反証と独立Review</h3>
       <Field label="重大な不成立条件"><p>{Array.isArray(investment.invalidation_conditions) ? investment.invalidation_conditions.join(' / ') : '未確認'}</p></Field>
       <Field label="作者の最も強い反対仮説"><p>{text(conclusion.strongest_countercase)}</p></Field>
-      {review && <><Field label="独立Reviewの最も強い反対仮説"><p>{text(independentReview.strongest_countercase)}</p></Field><Field label="独立Reviewの確認範囲"><p>{text(independentReview.review_scope)}</p><SourceRefs ids={independentReview.checked_source_ids} sources={sources} /></Field></>}
+      {review ? <><Field label="独立Reviewの最も強い反対仮説"><p>{text(independentReview.strongest_countercase)}</p></Field><Field label="独立Reviewの確認範囲"><p>{text(independentReview.review_scope)}</p><SourceRefs ids={independentReview.checked_source_ids} sources={sources} /></Field></> : <p className="text-sm text-muted-foreground">独立Review本文を表示できません。保存した評価版のReviewを確認してください。</p>}
     </section>
     <details className="rounded border p-4"><summary className="cursor-pointer font-medium">Stock Assessment 本文・入力・出典</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(document, null, 2)}</pre></details>
   </div>
