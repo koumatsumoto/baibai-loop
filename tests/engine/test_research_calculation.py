@@ -108,26 +108,50 @@ def test_cli_generates_ratio_compatible_with_existing_tolerance_without_writes(t
 
 
 @pytest.mark.parametrize(
-    ("terminal", "cash", "months", "rate", "total", "annual", "pmax"),
+    ("price", "terminal", "cash", "months", "rate", "total", "annual", "pmax"),
     [
-        (1204, 30, 12, 12, 23.4, 23.4, 1101.7857142857142),
-        (1210, 0, 24, 10, 21, 10, 1000),
-        (1210, 0, 6, 21, 21, 46.41, 1100),
-        (0, 0, 12, 12, -100, -100, 0),
-        (800, 200, 12, 12, 0, 0, 892.8571428571429),
+        (1000, 1204, 30, 12, 12, 23.4, 23.4, 1101.7857142857142),
+        (1000, 1210, 0, 24, 10, 21, 10, 1000),
+        (1000, 1210, 0, 6, 21, 21, 46.41, 1100),
+        (1000, 0, 0, 12, 12, -100, -100, 0),
+        (1000, 800, 200, 12, 12, 0, 0, 892.8571428571429),
+        # Public study sensitivities: arithmetic, not validation of the business assumptions.
+        # The 30-month case includes an unpaid right in terminal, not cash received.
+        (
+            2508,
+            2673.6552366347546,
+            240,
+            30,
+            6,
+            16.174451221481445,
+            6.18037427794863,
+            2518.68292909091,
+        ),
+        (2539, 2544, 40, 36, 6, 1.7723513194170933, 0.5873274840467164, 2169.576227355468),
+        (
+            2539,
+            3138.972900283149,
+            40,
+            36,
+            6,
+            25.20570698240052,
+            7.780793084579649,
+            2669.126947314855,
+        ),
     ],
 )
 def test_projection_numbers_use_recorded_price_horizon_rate(
-    terminal, cash, months, rate, total, annual, pmax
+    price, terminal, cash, months, rate, total, annual, pmax
 ):
     payload = inputs_payload()
+    payload["input_snapshot"]["facts"][0]["value"] = price
     payload["valuation"].update(horizon_months=months, required_annual_return_pct=rate)
     payload["valuation"]["base"].update(
         terminal_value_per_share_yen=terminal, cash_distribution_per_share_yen=cash
     )
     result = calculate(CalculationInput.model_validate(payload))
     numbers = result["projection_numbers"]
-    assert numbers["price_yen"] == 1000
+    assert numbers["price_yen"] == price
     assert numbers["valuation_as_of"] == "2026-09-07"
     assert numbers["price_as_of"] == "2026-09-04"
     assert numbers["horizon_months"] == months
