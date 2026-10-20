@@ -46,7 +46,9 @@ _ASSESSMENT_DRAFT_HEADER = (
     "# 要求率は案件ごとに現金との比較・下振れ・期間・不確実性を踏まえ、"
     "理由をcalculationへ記す。価格に合わせて率を下げない。\n"
     "# 外部値の対象期・株式basis・元前提が不明なら推定しない。"
-    "未確認は理由付き unresolved とし、一次資料で補う。\n"
+    "比較不能な参考値だけで企業評価を一律保留にしない。\n"
+    "# 重要な根拠不足はcase・risk・stanceに残し、"
+    "企業価値を評価できない場合にvaluationを理由付き unresolved とする。\n"
 )
 
 _REVIEW_DRAFT_HEADER = (
