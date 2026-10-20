@@ -41,4 +41,3 @@ uv run baibai-engine research market-context latest --asof 2026-07-17 --known-at
 ```
 
 市場判断は調査・価値判断・購入量やリスクの検討に接続する入力であり、最終注文は人間が確認する。旧固定章report・handoff・scorecardを新規作成する経路は使わない。保存済み履歴を共通projectionで置き換えたり、旧runner `input.json`を上書き再生成しない。
-

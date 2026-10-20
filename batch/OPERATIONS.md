@@ -1116,4 +1116,3 @@ market lake credentialは新しいbucket-scoped Object Read only tokenを作り�
 旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。market lakeの共有読取を止める場合は
 `(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
 既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。
-

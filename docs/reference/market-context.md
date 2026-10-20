@@ -277,4 +277,3 @@ CFTCは要求contractのAPI record全項目、ECB FXはCSVの全通貨列を、s
 正常なbulk responseは要求期間の全日を調べた結果として保存し、行のない日も空snapshotを残す。訂正で行が消えた日は新しい空snapshotが以前の値を隠す。取得時刻は取得・改訂の順序であり、当時の公表可能時刻の証明ではない。計算不能でも取得済みnative記録は残す。提供元record JSONであり、HTTP bytesそのものの保管を意味しない。
 
 旧net値やcross値だけから元のlong/short・各通貨レートは復元できない。不足するnative履歴は取得可能な範囲を明示して新規取得し、L2再計算・検証後にcodeとstoreを一組で切り替え、公開を確認する。実際の保存済み判断は書き換えない。
-

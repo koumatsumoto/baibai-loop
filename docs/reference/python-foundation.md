@@ -230,4 +230,3 @@ documented-command gateはskillsと指定したactive runbookの単純なcommand
 ## 10. Review rule
 
 設定・workflow・本節のcommandを整合させる。通常の開発変更に別の承認手順、検査結果台帳、全domainの再検証を追加しない。
-

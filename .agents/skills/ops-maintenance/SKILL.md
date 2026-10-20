@@ -35,4 +35,3 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 ## 運用task
 
 運用taskはapplication DBで管理し、同じ期限・種別・対象のopen taskがあれば更新または統合する。実行後は完了を記録し、必要な反復taskだけを次回分として作る。開発変更はGitHub Issueで扱う。
-

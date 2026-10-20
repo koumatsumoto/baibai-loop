@@ -80,4 +80,3 @@ Review後の初回発行直前に実時刻を`published_at`へ設定し、prepar
 集中度、ADV、budget、dry powderの純粋projectionは[`proposal_warnings.py`](../../engine/src/baibai_engine/research/proposal_warnings.py)が単独で所有する。閾値と理由は[資本方針](../portfolio-management.md#reservation-and-warnings)に従う。予約分を含み、保有quote不足ではtotal NAVをunknownとする。common_factor_unclassified_tickersがある場合は既知factor比率が下限であり、coverageと集中warningを区別する。saved warningとcurrent preview warningを混ぜない。
 
 本人の採否とbroker操作は別工程である。提案なしの直接取引、遅延報告、部分約定・部分売却も、人間が確認した事実として[Portfolio Ledger](./portfolio-ledger.md)へ記録する。旧判断参照はtickerを識別する最小bindingとして保持し、当時未保存の価格・数量・期限をFillから復元しない。
-
