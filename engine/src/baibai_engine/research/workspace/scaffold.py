@@ -43,6 +43,8 @@ from baibai_engine.storage.application.read import connect_read_only
 _ASSESSMENT_DRAFT_HEADER = (
     "# 企業評価 draft。価値を生む仮説、重要な観測の個社への伝達、"
     "Base/Downside・時間・反証を既存欄へつなぐ。\n"
+    "# 主要モデルと期間は価値獲得経路から選ぶ。12か月・EPS×PERを既定にせず、"
+    "更新/再投資・資本の帰属・分配後残余をcalculationへ接続する。\n"
     "# 要求率は案件ごとに現金との比較・下振れ・期間・不確実性を踏まえ、"
     "理由をcalculationへ記す。価格に合わせて率を下げない。\n"
     "# 外部値の対象期・株式basis・元前提が不明なら推定しない。"
@@ -309,3 +311,4 @@ def _enum_field_header(model: type[BaseModel]) -> str:
             continue
         lines.append(f"# - {name}: {' | '.join(str(choice) for choice in choices)}\n")
     return "".join(lines)
+

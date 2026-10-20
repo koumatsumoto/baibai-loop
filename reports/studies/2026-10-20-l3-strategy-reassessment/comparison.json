@@ -1,0 +1,85 @@
+{
+  "status": "conditional_sensitivity_not_assessment_or_investment_recommendation",
+  "snapshot": {
+    "run_revision_id": "run-revision-41f490fe8c1041a8b6ebb4d6972edf44",
+    "asof_date": "2026-10-16",
+    "run_at": "2026-10-16T21:51:03.194615+09:00",
+    "screening_rules_hash": "f76da65ad960feb3",
+    "export_sha256": "51f7bd470c7c476c82315de787a0503bef5cbf2acf2fe1484e2dbae38d4e282c",
+    "method": {
+      "method_hash": "06c5fe5a3c954367c4e5f8618cae9508ea653c790231059a29cf51ca261b1d64",
+      "method_id": "multi-valuation-v6",
+      "nomination_depth": 20
+    }
+  },
+  "saved_membership_diagnostics": {
+    "all": {
+      "rows": 3693,
+      "special_gain_flags": 153
+    },
+    "common_eligible": {
+      "rows": 3499,
+      "special_gain_flags": 142
+    },
+    "candidate_union": {
+      "rows": 76,
+      "special_gain_flags": 16
+    },
+    "eligible_outside_candidates": {
+      "rows": 3423,
+      "special_gain_flags": 126
+    },
+    "current-earnings-power": {
+      "rows": 20,
+      "special_gain_flags": 12
+    },
+    "normalized-earnings-power": {
+      "rows": 20,
+      "special_gain_flags": 2
+    },
+    "asset-value": {
+      "rows": 20,
+      "special_gain_flags": 1
+    },
+    "reinvestment-value": {
+      "rows": 20,
+      "special_gain_flags": 2
+    }
+  },
+  "ncd": {
+    "public_starting_shares_assumed_constant": "8020116",
+    "price_yen": "2508",
+    "horizon_months": 30,
+    "required_annual_return_pct": "6",
+    "exit_pe_assumption": "10.5",
+    "net_income_to_operating_profit_assumption": "1830000000 / 2750000000",
+    "distribution_assumption": "60 yen each half year maintained; 240 yen received during horizon plus 60 yen ex-date receivable in terminal; no entitlement fixed before start included",
+    "cases": [
+      {
+        "terminal_operating_profit_yen": "2750000000",
+        "terminal_parent_net_income_yen": "1830000000.000000000000000000",
+        "terminal_value_per_share_yen": "2455.850633581858417010427280",
+        "cash_distribution_per_share_yen": "240",
+        "annualized_return_pct": "2.931266742377351537253805300",
+        "pmax_yen": "2330.403708993353834211553548"
+      },
+      {
+        "terminal_operating_profit_yen": "3000000000",
+        "terminal_parent_net_income_yen": "1996363636.363636363636363636",
+        "terminal_value_per_share_yen": "2673.655236634754636738647942",
+        "cash_distribution_per_share_yen": "240",
+        "annualized_return_pct": "6.180374277948629931392816000",
+        "pmax_yen": "2518.682929090909832293968942"
+      },
+      {
+        "terminal_operating_profit_yen": "3500000000",
+        "terminal_parent_net_income_yen": "2329090909.090909090909090909",
+        "terminal_value_per_share_yen": "3109.264442740547076195089266",
+        "cash_distribution_per_share_yen": "240",
+        "annualized_return_pct": "12.26613274322169337255968090",
+        "pmax_yen": "2895.241369286021828458799730"
+      }
+    ],
+    "required_terminal_operating_profit_yen": "2985815044.956402354829917633"
+  }
+}

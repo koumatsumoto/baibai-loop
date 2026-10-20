@@ -75,8 +75,8 @@ uv run baibai-engine research prepare \
 
 この節は企業の調査・算術・独立Reviewを扱う。保有を扱う場合は同じ有限Operationの保有workspaceを使い、新規買付へ混ぜない。
 
-1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof YYYY-MM-DD --out <WORKSPACE>/<TICKER>/assessment-draft.yaml`で新しいdraftを作る。保有はholdings/<ticker>子workspaceを指定する。明示mappingされたplaybookの問いを一次資料で検討し、[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使う。
-2. [投資目的とリスク許容](../../../docs/doctrine.md#investment-strategy)と[Stock Assessment](../../../docs/reference/stock-assessment.md)に従い、事業・資本配分が生む価値と市場価格との差を分け、重要な観測が将来cash・終価の評価・要求率・実現時期のどこを変えるかを既存Case/Findings/Projectionへ一続きに記す。Base/Downsideと反証を各経路へ結び、比較不能な外部値をfactや自己終価へ変換しない。全入力の採否や仮説の件数は要求しない。新しい評価の要求率は[要求年率方針](../../../docs/portfolio-management.md#required-return-policy)に従い、現金維持との比較、下振れ・期間・予測の不確実性を踏まえて作者が明記し、既存calculationへ経済的理由を書く。価格を通すために率を合わせない。scaffoldのnullを0・空・自動推計で埋めず、既存評価の率を現在policyで置換しない。
+1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof YYYY-MM-DD --out <WORKSPACE>/<TICKER>/assessment-draft.yaml`で新しいdraftを作る。保有はholdings/<ticker>子workspaceを指定する。明示mappingされたplaybookを入口に、[事業モデル別調査](../../../docs/reference/business-model-research.md)から判断を変える問いを選び、一次資料で検討する。全問を埋める作業にしない。
+2. [主要モデルと期間](../../../docs/reference/stock-assessment.md#valuation-model-choice)を経済的な価値獲得経路から選ぶ。12か月・EPS×PERを自動採用せず、価格を通すモデルや期間を選ばない。[投資目的とリスク許容](../../../docs/doctrine.md#investment-strategy)と[Stock Assessment](../../../docs/reference/stock-assessment.md)に従い、事業・資本配分が生む価値と市場価格との差を分け、重要な観測が将来cash・終価の評価・要求率・実現時期のどこを変えるかを既存Case/Findings/Projectionへ一続きに記す。Base/Downsideと反証を各経路へ結び、比較不能な外部値をfactや自己終価へ変換しない。全入力の採否や仮説の件数は要求しない。新しい評価の要求率は[要求年率方針](../../../docs/portfolio-management.md#required-return-policy)に従い、現金維持との比較、下振れ・期間・予測の不確実性を踏まえて作者が明記し、既存calculationへ経済的理由を書く。価格を通すために率を合わせない。scaffoldのnullを0・空・自動推計で埋めず、既存評価の率を現在policyで置換しない。
    利益の1株換算には直近の自己株控除株数を起点とし、重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。資料・単位・期間を確認し、比較表の数値は行だけでなく年度見出しと当期・前期の列を一組で読む。重要な事実の欠落と合理的な見積りの幅を分ける。利益・倍率・要求率で同じリスクを重複控除せず、経済経路が違う影響は区別する。
    ratioとProjectionは[Draft算術](../../../docs/reference/stock-assessment.md#draft-calculation)の`research calculate <INPUTS>`を使えるが、企業見積りと算式は一次資料から別途確認する。
 3. `research assessment-evaluate <DRAFT>`で公開内容と原価格の計算資料を確認する。Review未添付だけのreview_requiredもexit 2であり、公開前にはReviewが必要である。他のerrorを無視する許可ではない。
@@ -130,3 +130,4 @@ uv run baibai-engine research proposal-publish <REVIEWED_DRAFT> --db stores/appl
 固定対象の被覆と公開済み提案を確認する。buy/sellの具体terms不足は未完了理由を明示し、具体提案完成と区別する。0対象は理由ある選定結果を保って終了できる。L3提案完成と調査終了を記録し、人間の採否・broker操作・実約定を完了条件へ補完しない。
 
 必要なmonitoringは既存taskを確認して登録する。cloud反映は[Ops Maintenance](../ops-maintenance/SKILL.md)に従う。対象未確定、重要な入力矛盾、独立Review未完了、binding競合は解消するまで先へ進まない。
+
