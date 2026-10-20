@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { researchRecord as record, researchText as text } from '../lib/research'
+import { STANCE_LABELS, researchRecord as record, researchReturnPct, researchText as text } from '../lib/research'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <dl className="grid gap-1"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="text-sm font-medium">{children}</dd></dl>
@@ -34,10 +34,11 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
   return <div className="grid gap-5">
     <section className="grid gap-3" aria-label="価値を生む仮説">
       <h3 className="text-sm font-semibold">価値を生む仮説</h3>
+      <Field label="企業評価の結論"><p>{STANCE_LABELS[text(conclusion.stance)] ?? text(conclusion.stance)}</p></Field>
       <Field label="事業の収益構造"><p>{text(findings.business_understanding)}</p></Field>
       <Field label="価値と価格の隔たり"><p>{text(findings.value_gap_explanation)}</p></Field>
       <Field label="投資仮説"><p>{text(investment.explanation)}</p><SourceRefs ids={investment.source_ids} sources={sources} /></Field>
-      <Field label="投資理由の成立性"><p>{text(investment.status)} — {text(investment.status_reason)}</p></Field>
+      <Field label="投資仮説の成立性"><p>{text(investment.status)} — {text(investment.status_reason)}</p></Field>
     </section>
     <SourceRefs ids={findings.source_ids} sources={sources} label="所見全体の参照:" />
     {(hasHypotheses || unresolvedQuestions.length > 0) && <section className="grid gap-3 border-t pt-4" aria-label={observationTitle}>
@@ -59,7 +60,7 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
         const assumptions = record(valuation[name])
         return <div className="rounded border p-4" key={name}><strong>{name === 'base' ? 'Base' : 'Downside'}</strong>
           <p>分配後の価値 {text(assumptions.terminal_value_per_share_yen)} 円 / 今後の累積分配 {text(assumptions.cash_distribution_per_share_yen)} 円</p>
-          <p>原評価価格の条件付き総 return {text(arithmetic.total_return_pct)}% / 年率換算 {text(arithmetic.annualized_return_pct)}%</p>
+          <p>原評価価格の条件付き総 return {researchReturnPct(arithmetic.total_return_pct)} / 年率換算 {researchReturnPct(arithmetic.annualized_return_pct)}</p>
           <p className="mt-2 text-sm">{text(assumptions.calculation)}</p>
           <SourceRefs ids={assumptions.source_ids} sources={sources} />
         </div>

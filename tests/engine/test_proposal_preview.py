@@ -232,3 +232,24 @@ def test_sub_six_rate_flows_through_context_publication_and_preview(tmp_path):
         reviewed_assessment_projection(case.app, assessment_id=case.pair.assessment_id)
         == original_projection
     )
+    # Only the current observation changes. Saved rate, exact pair and proposal stay fixed.
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=1000")
+    changed = preview_current_terms(
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=6),
+    )
+    assert changed.status == "changed"
+    assert changed.current_inputs.quotes[0].price_yen == Decimal(1000)
+    assert changed.items[0]["current_quote_calculation"]["hard_blockers"] == []
+    assert changed.items[0]["saved_limit_revalidation"]["hard_blockers"] == []
+    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+    after_projection = reviewed_assessment_projection(
+        case.app, assessment_id=case.pair.assessment_id
+    )
+    assert after_projection == original_projection
+    assert after_projection["core_sha256"] == original_hash
+    assert after_projection["required_annual_return_pct"] == 3
+    assert _snapshot(case.app) == before

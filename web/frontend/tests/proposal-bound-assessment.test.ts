@@ -30,6 +30,30 @@ function render(component: typeof ProposalItemContent | typeof ProposalAssessmen
 }
 
 describe('保存した提案と評価', () => {
+  it.each([
+    { stance: 'uncertain', label: '未確定' },
+    { stance: null, label: '未確認' },
+  ])('intactでも企業評価の結論 $label を別に示す', ({ stance, label }) => {
+    const saved = { ...item, action: 'defer' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, conclusion: { ...document.conclusion, stance } } } }
+    const html = render(ProposalAssessmentDetails, saved)
+    expect(html).toMatch(new RegExp(`企業評価の結論</dt><dd[^>]*><p>${label}</p>`))
+    expect(html).toMatch(/投資仮説の成立性<\/dt><dd[^>]*><p>intact/)
+    expect(render(ProposalItemContent, saved)).toContain('判断保留')
+  })
+  it.each([
+    { total: -100, annual: 0, expectedTotal: '-100.0000%', expectedAnnual: '0.0000%' },
+    { total: '33.33333333333333', annual: 14.0175425099138, expectedTotal: '33.3333%', expectedAnnual: '14.0175%' },
+    { total: null, annual: undefined, expectedTotal: '未確認', expectedAnnual: '未確認' },
+  ])('収益率 $total / $annual は表示だけを丸め欠測を保つ', ({ total, annual, expectedTotal, expectedAnnual }) => {
+    const saved = { ...item, assessment_projection: { ...item.assessment_projection, projections: { base: { total_return_pct: total, annualized_return_pct: annual } } } }
+    const before = JSON.stringify(saved)
+    expect(render(ProposalAssessmentDetails, saved)).toContain(`原評価価格の条件付き総 return ${expectedTotal} / 年率換算 ${expectedAnnual}`)
+    expect(JSON.stringify(saved)).toBe(before)
+    const preview = { saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: {}, change_reasons: [], items: [{ ticker: '1234', saved_action: 'buy', current_quote_calculation: { current_price_projection: { base: { total_return_pct: total }, downside: { total_return_pct: annual } } }, saved_limit_revalidation: null, blockers: [] }], warnings: [], portfolio_exposure: null } as InvestmentProposalPreviewView
+    const previewBefore = JSON.stringify(preview)
+    expect(renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))).toContain(`Base ${expectedTotal} · Downside ${expectedAnnual}`)
+    expect(JSON.stringify(preview)).toBe(previewBefore)
+  })
   it('exact評価/Reviewと根拠・所見・原価格を表示する', () => {
     const html = render(ProposalAssessmentDetails)
     for (const text of ['stock-assessment-original', 'assessment-review-original', '保存した収益構造', '当時の投資仮説', 'original-source', '保存した独立reviewer', 'ユーザーの仮説', '原評価の観測価格 1100']) expect(html).toContain(text)
