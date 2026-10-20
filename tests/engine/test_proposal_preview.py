@@ -206,9 +206,9 @@ def test_sub_six_rate_flows_through_context_publication_and_preview(tmp_path):
     assert calculation["calculation_at_maximum_price"]["hard_blockers"] == []
     assert calculation["buy_at_actual_quote"]["hard_blockers"][0]["code"] == "limit_above_pmax"
     raw = reviewed_proposal(case).payload()
-    raw["items"][0]["terms"]["maximum_entry_price_yen"] = calculation["calculation_at_maximum_price"][
-        "maximum_price_yen"
-    ]
+    raw["items"][0]["terms"]["maximum_entry_price_yen"] = calculation[
+        "calculation_at_maximum_price"
+    ]["maximum_price_yen"]
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
