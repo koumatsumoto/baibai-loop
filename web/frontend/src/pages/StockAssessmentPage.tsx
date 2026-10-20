@@ -35,7 +35,7 @@ export function StockAssessmentPage() {
   if (!data) return <LoadingPage label="銘柄評価を読み込んでいます" />
   const ticker = data.revision.ticker
   return <PageShell above={<ResearchNav />} title={`${ticker} · 保存した銘柄評価`} lead="この評価版の事業理解・根拠・価値見積りです。提案時や現在の価格・資金へ付け替えません。" width="reading" meta={<div className="flex flex-wrap gap-2"><Badge variant="outline">{STANCE_LABELS[data.revision.stance] ?? data.revision.stance}</Badge><AsOfBadge value={data.revision.as_of} /><UpdatedAtBadge value={data.revision.published_at} /></div>}>
-    <SectionCard padded title="企業評価の根拠"><p className="mb-4 text-sm">原評価の購入上限（Pmax・丸め前） <YenAmount value={data.revision.pmax_original_yen} /></p><ReviewedAssessmentContent document={data.document} projection={data.projection} /></SectionCard>
+    <SectionCard padded title="企業評価の根拠"><p className="mb-4 text-sm">原評価の購入上限（Pmax・丸め前） <YenAmount value={data.revision.pmax_original_yen} /></p><ReviewedAssessmentContent document={data.document} projection={data.projection} review={data.review} /></SectionCard>
     <SectionCard padded title="独立 Review"><p className="break-all text-xs">Assessment: {data.revision.assessment_id} · Review: {data.revision.review_id}</p><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(data.review, null, 2)}</pre></SectionCard>
     <Link className="text-sm underline" to={`/securities/${ticker}`}>最新の銘柄情報・評価を見る →</Link>
     <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>

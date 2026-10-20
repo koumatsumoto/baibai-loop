@@ -59,7 +59,7 @@ export function ProposalAssessmentDetails({ item }: { item: InvestmentProposalIt
     <summary className="cursor-pointer px-4 py-3 font-medium">{item.ticker} · 提案が参照した評価と Review</summary>
     <SectionCard padded title={`${item.ticker} · 保存評価の根拠`} description="この提案が参照した評価版です。最新評価へ付け替えません。">
       <p className="mb-4 break-all text-xs">Assessment: {item.assessment_ref.assessment_id} · Review: {item.assessment_ref.review_id}</p>
-      {Object.keys(document).length > 0 ? <ReviewedAssessmentContent document={document} projection={projection} /> : <p>参照評価の本文を表示できません。保存 ID から評価を確認してください。</p>}
+      {Object.keys(document).length > 0 ? <ReviewedAssessmentContent document={document} projection={projection} review={item.assessment_review} /> : <p>参照評価の本文を表示できません。保存 ID から評価を確認してください。</p>}
       <details className="mt-4 rounded border p-4"><summary className="cursor-pointer text-sm">参照した独立 Review</summary>{item.assessment_review ? <pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(item.assessment_review, null, 2)}</pre> : <p className="mt-3 text-sm">参照した Review 本文を表示できません。保存 ID から確認してください。</p>}</details>
       <Link className="mt-4 inline-block text-sm underline" to={`/stocks/stock-assessments/${item.assessment_ref.assessment_id}`}>保存した評価版を開く →</Link>
     </SectionCard>
@@ -139,11 +139,10 @@ export function InvestmentProposalPage() {
   const quotes = Array.isArray(data.saved_inputs.quotes) ? data.saved_inputs.quotes.map(record) : []
   return <PageShell above={<ResearchNav />} title={data.headline} lead="発行時の評価・比較範囲・価格・資金を固定した提案です。採否・注文・約定は別工程です。" width="reading" meta={<div className="flex flex-wrap gap-3"><AsOfBadge value={data.as_of} /><UpdatedAtBadge value={data.published_at} /></div>}>
     <SectionCard padded title="比較と今回の判断"><p className="whitespace-pre-line text-sm">{data.comparison}</p><p className="mt-3 whitespace-pre-line text-sm">見送った選択肢: {data.forgone}</p></SectionCard>
-    {data.items.map(item => <ProposalItemContent item={item} savedQuote={quotes.find(quote => quote.ticker === item.ticker)} key={item.ticker} />)}
+    {data.items.map(item => <div className="grid gap-3" key={item.ticker}><ProposalItemContent item={item} savedQuote={quotes.find(quote => quote.ticker === item.ticker)} /><ProposalAssessmentDetails item={item} /></div>)}
     {data.unfinished_research.length > 0 && <SectionCard padded title="調査未完了" description="完成した経済的な見送りと区別した、提案当時の不足です。">{data.unfinished_research.map(item => <div className="mb-3 text-sm" key={item.ticker}><p>{item.ticker} · {item.unfinished_reason}</p><p className="break-all text-xs text-muted-foreground">{item.references.join(' · ')}</p></div>)}</SectionCard>}
     <SectionCard padded title="発行時の資金・範囲・警告"><p className="text-sm">保存した利用可能 cash {text(data.saved_inputs.available_cash_yen)}円 · 入力確認時点 {text(data.saved_inputs.checked_at)}</p>{data.warnings.length > 0 && <p className="mt-2 break-words text-xs">当時の警告: {data.warnings.map(proposalWarningLabel).join(' / ')}</p>}<details className="mt-3"><summary className="cursor-pointer text-sm">保存した入力・比較範囲・資本集中</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify({ inputs: data.saved_inputs, research_scope: data.research_scope, portfolio_exposure: data.portfolio_exposure, liquidity_context: data.liquidity_context }, null, 2)}</pre></details></SectionCard>
     <CurrentProposalPreviewPanel key={data.proposal_id} proposalId={data.proposal_id} />
-    {data.items.map(item => <ProposalAssessmentDetails item={item} key={item.ticker} />)}
     <details className="rounded border p-4"><summary className="cursor-pointer text-sm">提案内容の独立 Review</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(data.review, null, 2)}</pre><p className="mt-3 break-all text-xs">Proposal: {data.proposal_id} · draft hash: {data.draft_sha256}</p></details>
     {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この提案が参照した市場環境評価を見る →</Link>}
     <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>

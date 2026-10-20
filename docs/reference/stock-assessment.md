@@ -19,10 +19,10 @@ status: active
 | --- | --- |
 | `input_snapshot` | ticker、企業名、正式評価基準日、採用した観測factとsource |
 | `derived.metrics` | 必要な機械再計算値と入力・式・単位 |
-| `investment_case` | 未織込み、価値の変化、実現経路、重大な不成立条件、成立性と根拠 |
+| `investment_case` | 未織込みから価値が生まれる経路・変化、重大な不成立条件、成立性と根拠 |
 | `valuation` | 一つの期間、記録済み要求年率、BaseとDownside |
 | `permanent_loss_risks` | 永久損失7軸の調査結果 |
-| `findings` | 事業理解、価値差の説明、実現経路と遅延、依頼者・作者の検証仮説、未解決の問い |
+| `findings` | 事業理解、重要観測の個社伝達、価値差と実現経路・遅延、依頼者/作者の検証仮説と重要な相違、未解決の問い |
 | `conclusion` | `supported / uncertain / unsupported`、作者の評価時刻、最強反対仮説 |
 
 `investment_case.status`は`intact / broken / uncertain`。brokenはunsupported、uncertainの投資仮説をsupportedへしない。supportedにはresolved valuationと重要な根拠の独立確認が必要だが、購入採用を意味しない。現在価格がPmaxを超えても企業評価を書き換えず、cash不足を評価結論へ混ぜない。
@@ -31,7 +31,7 @@ status: active
 
 ## 観測・根拠・単位
 
-Snapshotは必要な値を固定し、元run storeの存在を要求しない。ScreeningのE[r]とFV anchorは候補発見のsecondary machine priorであり、Stock Assessmentへ重複転記しない。
+Snapshotは必要な値を固定し、元run storeの存在を要求しない。ScreeningのE[r]とFV anchorは候補発見のsecondary machine priorであり、Stock Assessmentへ重複転記しない。Market Contextや外部評価の保存sourceがあるだけでは個社の利益、元評価者の対象期・株式basis、将来終価を確定できない。重要な材料だけを自己仮定へ接続し、重要でない観測、比較条件が未確認の観測、観測自体の未取得を分ける。
 
 factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外部sourceはHTTPS、local dataはprovider/datasetを持つ。ticker、source参照、取得・観測時刻、単位を検証する。判断後の資料を判断前の事実として混入しない。市場価格は未調整1株の`price_basis`を明示する。日次終値は原典の取引日`as_of`で扱い、観測時刻を捏造しない。実際に観測時刻がある場合だけ`observed_at`を付け、realtime価格では必須とする。終値の利用可能な取引日はJSTの立会終了境界で判定する。
 
@@ -153,7 +153,7 @@ Base/Downsideの必要terminalは、その累積分配で要求年率以上に�
 | 返済条件不明と、将来EPSの幅 | materialな返済条件を確認できなければuncertain等を維持し、`nonmaterial_unknown_reason`で通さない。一方、一次根拠から将来EPSを幅で置くこと自体は自動排除の理由にしない。根拠のない回復予測や合理的に評価できないcaseはuncertain等とする |
 | 企業評価はsupportedだが現在価格がPmax超過 | 同じ評価を参照してPmax以下の条件付きbuyを検討できる。実quoteを安い架空価格へ置換せず、仮説・cash・保有・権利単位等のgateを別に確認する |
 
-必要な業績・倍率・分配・感度は既存Base/Downsideの`calculation`、実現経路と成立条件は`investment_case.explanation / status_reason / invalidation_conditions`、作者と独立Reviewの反証はそれぞれの`strongest_countercase`に書く。数値の引用は原価格・期間・仮定に対応させ、全出力や新しい派生fieldをStock Assessment/Investment Proposalへ複写しない。
+価値差を生む仮説と重要な観測・外部との相違は既存`findings.value_gap_explanation / hypotheses`へ、個社の利益・cashに届く経路と成立条件は`investment_case.explanation / status_reason / invalidation_conditions`へ書く。Base/Downsideの`calculation`にはその仮説が業績・倍率・分配と期間へ与える方向または感応度を、作者と独立Reviewの`strongest_countercase`には結論を覆す反例を記す。外部の元評価者、metric、対象期、株式basis、元更新日・前提が揃わないときは比較できない条件を明示し、値だけを自己終価へ採用しない。同じ候補の複数仮説も分けて検討し、戦略名や全入力の採否欄を固定しない。数値の引用は原価格・期間・仮定に対応させ、全出力や新しい派生fieldをStock Assessment/Investment Proposalへ複写しない。
 
 作成・評価・独立Review・公開・Proposalへの接続順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。
 
@@ -171,7 +171,7 @@ AIを含む技術・産業構造変化も、materialな場合だけ通常のcalc
 
 全公開Stock Assessmentに、review_id、独立passのidentity/role/time、exact core hash、primary_source_check、checked_source_ids、review_scope、最強反証を持つReviewを組み合わせる。Base/Downside各1件のterminal/cashを独立に再計算する。原本の比較表では行・年度見出し・当期/前期列を合わせて照合し、期間内入金と終期の配当権利を別に検算する。作者値をscaffoldでコピーして検算としない。照合許容差は0.0001円。source・単位・hash不一致は公開できない。
 
-materialな[資本のつながり](#capital-bridge)はReview側も一次資料と独立入力で追い、留保・投資・分配・返済・希薄化の片側だけを動かした仮定を確認する。配当停止なら残る現金、借入返済なら残る負債、増資なら調達額と分母株数も更新し、結論が変わる条件を既存の反対仮説・riskへ記す。最終terminal/cashの数値一致だけでは上流仮定の正しさを証明しない。
+materialな[資本のつながり](#capital-bridge)はReview側も一次資料と独立入力で追い、留保・投資・分配・返済・希薄化の片側だけを動かした仮定を確認する。重要な市場/マクロの観測が個社のcashへ伝わる根拠と、外部評価との重要な相違が比較可能か、不明ならその制約を確認する。配当停止なら残る現金、借入返済なら残る負債、増資なら調達額と分母株数も更新し、結論が変わる条件を既存の反対仮説・riskへ記す。最終terminal/cashの数値一致だけでは上流仮定の正しさを証明しない。
 
 primary_source_check=verifiedは重要な判断根拠を確認した意味で、全非開示事項を解明した意味ではない。重要なunknownはsupportedを通さず、非重要なunknownは`nonmaterial_unknown_reason`で説明する。hashは整合性を保証するだけで、独立性や文章の真実性の証明ではない。
 

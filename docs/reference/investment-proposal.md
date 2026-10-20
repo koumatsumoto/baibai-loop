@@ -27,7 +27,7 @@ related_docs:
 
 三入口とも[Operationの固定選定](./analysis-operations.md#明示開始と固定対象)の全対象を被覆する。完成対象はexact Assessment ID/core hash/Review IDへ、未完了対象は理由と参照へ束縛する。未完了を経済的な見送りに混ぜず、new/holdingを混在させない。0対象では空Proposalを生成しない。
 
-比較理由には[投資目的とリスク許容](../doctrine.md#investment-strategy)に沿って、重要な成立条件、根拠と反証、実現までの時間、上振れ・下振れの見返りを書く。同じBase年率でも倍率上昇と業績回復への依存を分け、Pmax内というだけで買付を決めない。企業別の根拠を比較欄へ全文コピーせず、[原価格の成立条件](./stock-assessment.md#valuation-context)と参照評価を示す。
+比較理由には[投資目的とリスク許容](../doctrine.md#investment-strategy)に沿って、価値を生む経済経路、重要な観測と個社への伝達、Base/Downside・反証・実現までの時間を現金維持や他の完成案と比べて書く。同じBase年率でも倍率上昇と業績回復への依存を分け、外部評価との重要な相違を採用・反証・保留または参考とした理由へ辿れるようにする。比較不能な観測や未完了対象を有利/不利な確定判断に変えず、Pmax内というだけで買付を決めない。企業別の根拠を比較欄へ全文コピーせず、[原価格の成立条件](./stock-assessment.md#valuation-context)と参照評価を示す。
 
 ## 条件付き購入
 

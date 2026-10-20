@@ -141,7 +141,7 @@ export function SecurityDetailPage() {
                 <Field label="Pmax（原評価・丸め前）"><YenAmount value={assessment.revision.pmax_original_yen} /></Field>
               </dl>
               <p className="text-sm text-muted-foreground">supported は評価の根拠が確認された結論です。購入提案・採否・実約定は別に確認します。</p>
-              <ReviewedAssessmentContent document={assessment.document} projection={assessment.projection} />
+              <ReviewedAssessmentContent document={assessment.document} projection={assessment.projection} review={assessment.review} />
               <Link className="w-fit text-sm underline" to={`/stocks/stock-assessments/${assessment.revision.assessment_id}`}>この評価版と独立 Review を見る →</Link>
             </div>
           )}

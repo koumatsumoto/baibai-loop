@@ -40,9 +40,17 @@ from baibai_engine.research.workspace.validation import (
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 
-_ASSESSMENT_DRAFT_HEADER = "# 企業評価 draft。未確認は理由付き unresolved とし、一次資料で補う。\n"
+_ASSESSMENT_DRAFT_HEADER = (
+    "# 企業評価 draft。価値を生む仮説、重要な観測の個社への伝達、"
+    "Base/Downside・時間・反証を既存欄へつなぐ。\n"
+    "# 外部値の対象期・株式basis・元前提が不明なら推定しない。"
+    "未確認は理由付き unresolved とし、一次資料で補う。\n"
+)
 
-_REVIEW_DRAFT_HEADER = "# 独立検算の値を入力する。作者の値をコピーしない。\n"
+_REVIEW_DRAFT_HEADER = (
+    "# 独立検算の値を入力する。作者の値をコピーしない。"
+    "重要な個社伝達と外部相違の反証も原典から確認する。\n"
+)
 
 # --------------------------------------------------------------------------- #
 # assessment-scaffold

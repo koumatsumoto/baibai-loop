@@ -36,6 +36,39 @@ describe('保存した提案と評価', () => {
     expect(html).toContain('href="/stocks/stock-assessments/stock-assessment-original"')
     expect(html).not.toContain('最新評価の根拠')
   })
+  it('合成例の個社経路・比較不能な外部相違・反証を保存sourceとReviewへ辿れる', () => {
+    const syntheticDocument = {
+      ...document,
+      input_snapshot: { ...document.input_snapshot, sources: [
+        { source_id: 'macro', source_tier: 'local_data', as_of: '2026-10-10', used_for: 'financing_conditions' },
+        { source_id: 'issuer', source_tier: 'primary', as_of: '2026-10-12', ref: 'https://example.invalid/issuer', used_for: 'debt_maturity' },
+        { source_id: 'external', source_tier: 'secondary', as_of: '2026-10-13', ref: 'https://example.invalid/estimate', used_for: 'reference_only' },
+      ] },
+      findings: { ...document.findings, value_gap_explanation: '借換費用を織り込んだ自前Baseと外部目標の差は対象期不明で比較保留', hypotheses: [
+        { statement: '金利上昇が借換費用を増す', result: 'supported', reason: '満期開示から個社cashへ伝達', source_ids: ['macro', 'issuer'] },
+        { statement: '外部目標は自前Baseより高い', result: 'unresolved', reason: '対象期と株式basisが未確認のため参考', source_ids: ['external'] },
+      ], source_ids: ['macro', 'issuer', 'external'] },
+      investment_case: { ...document.investment_case, explanation: '借換後も残るcashが価値を生む', status: 'uncertain', status_reason: '借換条件は未取得', source_ids: ['issuer'] },
+      valuation: { ...document.valuation, base: { ...document.valuation.base, calculation: '借換費用を控除したBase', source_ids: ['macro', 'issuer'] }, downside: { ...document.valuation.downside, calculation: '追加利払いと遅延を反映したDownside', source_ids: ['macro', 'issuer'] } },
+    }
+    const syntheticItem: InvestmentProposalItemView = { ...item, action: 'defer', rationale: '借換条件が未取得のため判断保留', terms: null, order_readiness: 'not_applicable', blockers: [{ code: 'material_unknown', message: '借換条件を確認する' }], resume_conditions: ['借換条件の一次資料を入手する'], assessment_projection: { ...item.assessment_projection, raw: syntheticDocument }, assessment_review: { ...item.assessment_review, strongest_countercase: '借換条件悪化でcashが残らない', review_scope: '満期の原典を独立確認し外部目標の対象期は未確認', checked_source_ids: ['issuer', 'external'] } }
+    const before = JSON.stringify(syntheticItem)
+    const html = render(ProposalAssessmentDetails, syntheticItem)
+    for (const phrase of ['価値を生む仮説', '観測と個社への伝達', '条件付き価値と時間', '反証と独立Review', '対象期と株式basisが未確認のため参考', '借換費用を控除したBase', '追加利払いと遅延を反映したDownside', '借換条件悪化でcashが残らない']) expect(html).toContain(phrase)
+    expect(html.indexOf('観測と個社への伝達')).toBeLessThan(html.indexOf('条件付き価値と時間'))
+    expect(html.indexOf('条件付き価値と時間')).toBeLessThan(html.indexOf('反証と独立Review'))
+    expect(html).toContain('href="https://example.invalid/estimate"')
+    expect(html).toContain('external · 保存sourceのas_of 2026-10-13')
+    expect(render(ProposalItemContent, syntheticItem)).toContain('判断保留')
+    expect(JSON.stringify(syntheticItem)).toBe(before)
+  })
+  it('価値未解決をBase/Downsideの架空表示へ変換しない', () => {
+    const unresolved = { ...item, action: 'defer' as const, terms: null, order_readiness: 'not_applicable' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, valuation: { status: 'unresolved', unresolved_reason: '借換条件が未取得', base: null, downside: null, horizon_months: null, required_annual_return_pct: null } }, projections: {} } }
+    const html = render(ProposalAssessmentDetails, unresolved)
+    expect(html).toContain('借換条件が未取得')
+    expect(html).not.toContain('分配後の価値')
+    expect(html).not.toContain('要求年率 未確認')
+  })
   it('保存limit/quantity/target_session/warningsを示し、注文や約定と区別する', () => {
     const html = render(ProposalItemContent)
     for (const text of ['保存した提案条件', '提案条件確定', '1,000円', '300株', '300,000円', '2026-10-15', '指定の指値で待つ提案', '買付後の現金余力が警告水準を下回ります', '注文受理・約定の保証ではありません']) expect(html).toContain(text)
