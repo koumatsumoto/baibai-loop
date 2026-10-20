@@ -5,12 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from baibai_engine.collection.jpx.models import (
     JPXAcquisitionError,
     JPXResponse,
     validate_jpx_url,
 )
+from baibai_engine.collection.read_http import ReadRetry, check_acquisition_deadline
 
 
 class JPXHTTP:
@@ -25,8 +27,19 @@ class JPXHTTP:
 
     def fetch(self, url: str) -> JPXResponse:
         validate_jpx_url(url)
+        check_acquisition_deadline()
         if self._session is None:
             self._session = requests.Session()
+            self._session.mount(
+                "https://",
+                HTTPAdapter(
+                    max_retries=ReadRetry(
+                        total=5,
+                        allowed_methods=frozenset({"GET"}),
+                        status_forcelist=(429, 500, 502, 503, 504),
+                    )
+                ),
+            )
         try:
             response = self._session.get(url, timeout=30)
             try:

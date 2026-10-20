@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,9 +11,8 @@ from typing import Any, Literal, cast
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.exceptions import InvalidHeader
-from urllib3.response import BaseHTTPResponse
-from urllib3.util import Retry
+
+from baibai_engine.collection.read_http import ReadRetry, check_acquisition_deadline
 
 JQuantsSource = Literal[
     "master",
@@ -38,7 +36,6 @@ _ENDPOINTS: dict[JQuantsSource, tuple[str, frozenset[str]]] = {
         frozenset({"code", "disc_date", "disc_date_from", "disc_date_to", "calc_date"}),
     ),
 }
-_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 
 
 class JQuantsAcquisitionError(RuntimeError):
@@ -47,27 +44,6 @@ class JQuantsAcquisitionError(RuntimeError):
     def __init__(self, message: str, *, request_id: str | None = None) -> None:
         super().__init__(message)
         self.request_id = request_id
-
-
-class _ReadRetry(Retry):
-    """Retry one GET, never replay an already received pagination sequence."""
-
-    def get_backoff_time(self) -> float:
-        if not self.history:
-            return 0.0
-        return float(_BACKOFF_SECONDS[min(len(self.history), 5) - 1])
-
-    def sleep(self, response: BaseHTTPResponse | None = None) -> None:
-        delay = self.get_backoff_time()
-        if response is not None and self.respect_retry_after_header:
-            try:
-                retry_after = self.get_retry_after(response)
-            except InvalidHeader:
-                retry_after = None
-            if retry_after is not None:
-                delay = retry_after
-        if delay > 0:
-            time.sleep(delay)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +103,7 @@ class JQuantsHTTP:
             self._session.mount(
                 "https://",
                 HTTPAdapter(
-                    max_retries=_ReadRetry(
+                    max_retries=ReadRetry(
                         total=5,
                         allowed_methods=frozenset({"GET"}),
                         status_forcelist=(429, 500, 502, 503, 504),
@@ -154,6 +130,7 @@ class JQuantsHTTP:
         query = dict(base_query)
         seen: set[str] = set()
         while True:
+            check_acquisition_deadline()
             failure_kind: str | None = None
             page: JQuantsPage | None = None
             try:

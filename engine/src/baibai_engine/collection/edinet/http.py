@@ -18,6 +18,7 @@ from baibai_engine.collection.edinet.models import (
     EdinetRateLimitError,
     EdinetResponse,
 )
+from baibai_engine.collection.read_http import check_acquisition_deadline
 
 EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
 _DOC_ID = re.compile(r"S[0-9A-Z]{3,32}\Z")
@@ -49,6 +50,7 @@ class EDINETHTTP:
         query = urlencode({**params, "Subscription-Key": self._api_key})
         url = f"{EDINET_API_BASE}/{path}?{query}"
         for attempt in range(6):
+            check_acquisition_deadline()
             response: requests.Response | None = None
             network_error: str | None = None
             try:
@@ -65,6 +67,7 @@ class EDINETHTTP:
             if network_error is not None:
                 if attempt == 5:
                     raise EdinetAcquisitionError(f"EDINET transport failed: {network_error}")
+                check_acquisition_deadline(3 * (2**attempt))
                 time.sleep(3 * (2**attempt))
                 continue
             assert response is not None
@@ -84,6 +87,7 @@ class EDINETHTTP:
                 if rate_limited:
                     raise EdinetRateLimitError("EDINET request rate limited after retries")
                 raise EdinetAcquisitionError("EDINET request failed after retries")
+            check_acquisition_deadline(wait)
             time.sleep(wait)
         raise AssertionError("unreachable EDINET retry state")
 

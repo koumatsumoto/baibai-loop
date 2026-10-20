@@ -36,6 +36,11 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      # Reserve the last 15 minutes for publication and lease release. The cutoff
+      # covers setup/hydration time too and is inherited by acquisition CLIs.
+      - name: Set acquisition cutoff for this job
+        run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 75 * 60 ))" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The notification script must import on the runner's system python3
