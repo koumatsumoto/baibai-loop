@@ -19,7 +19,7 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 | 人間からの注文・資金報告 | [Ledger Record](../ledger-record/SKILL.md) |
 | 手法の計測・採否 | [Estimate calibration](../../../docs/reference/estimate-calibration.md) |
 
-正本・依存は[architecture](../../../docs/architecture.md#store-authority)、操作する環境は[batch運用の実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)に従う。ここに転送command、失敗調査、no-loss条件を複写しない。`research_watch`の原評価比較は保有の売却判断ではなく、必要ならResearchの`review_positions`入口へ進む。
+正本・依存は[architecture](../../../docs/architecture.md#store-authority)、操作する環境は[batch運用の実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)に従う。ここに転送command、失敗調査、no-loss条件を複写しない。依頼された変更内容・本番保存先・実行環境を確かめ、作業コピーの保存、正本反映、serving生成、表示確認のどこまで終わったかを区別する。`research_watch`の原評価比較は保有の売却判断ではなく、必要ならResearchの`review_positions`入口へ進む。
 
 ## 定期maintenance
 
@@ -35,3 +35,4 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 ## 運用task
 
 運用taskはapplication DBで管理し、同じ期限・種別・対象のopen taskがあれば更新または統合する。実行後は完了を記録し、必要な反復taskだけを次回分として作る。開発変更はGitHub Issueで扱う。
+

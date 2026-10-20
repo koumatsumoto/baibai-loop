@@ -38,6 +38,8 @@ uv run baibai-engine screening run-show \
 
 `selection-context`の市場判断は保存済みAssessmentであり、現在のReadingそのものではない。市場環境から探索する依頼では、`market-context reading --asof <RESEARCH_AS_OF> --format json`と必要な`screening market-snapshot --asof <RESEARCH_AS_OF>`を読取専用で確認し、保存判断の日付と今回の観測を区別する。対象日をcontextに揃えても全入力の当時点再現は保証されないため、Readingの`read_semantics`と出典時点を選定理由に残す。観測日・公表/取得時点を確かめ、重要な変化から需要・価格転嫁・調達費・資金制約への伝達仮説を先に立てる。その影響が異なるセクターや事業を比較し、業種名だけで一律に受益/逆風を割り当てない。同じ業種でも顧客地域、契約、原料、負債・ヘッジによって影響は逆転し得る。下落率の大きさを割安とせず、業績/価値の下方修正と価格変化を分ける。マクロ予測が外れた場合の対照も必要な範囲で残し、必ず特定業種を選ぶ制約にはしない。既存の`selection_summary / rationale`へ対象を選ぶ理由を記し、セクター配分scoreや新しい必須artifactは作らない。
 
+今回の依頼で新しい共通市場判断も作る場合は、[Market Context assessment](../market-context-assessment/SKILL.md)でReview・発行・読戻しを終えてから、発行後のcutoffでSelectionを確定する。通常Researchの全件に新規市場判断を要求しない。既にprepare済みなら開始snapshotへ後発判断を挿入せず、追加根拠として評価・提案に扱う範囲と参照を明示する。
+
 inputs_requiredは経済的見送りではない。既存 `screening ticker-profile`、`verify-cache-coverage`、必要な `bootstrap-cache` / `screening run` と一次資料確認で補完し、同じ依頼でcontextを取り直す。Research factsは保存済みXBRLの再抽出なら `extract-edinet-facts`、原本取得が必要なら `refresh-edinet-facts` を使う。未初期化storeの扱いは[初期化手順](../../../batch/OPERATIONS.md#edinet-research-facts)に従い、通常のskipを取得・抽出成功と扱わない。通常の認可済みread取得に再許可を要求しない。新課金・権限変更・本番反映は[Ops Maintenance](../ops-maintenance/SKILL.md)の別境界であり、単一銘柄の不足を無断の全期間backfillで埋めない。標準補完後も機械分析を得られなければInputGapに試したsourceと不足理由を残し、一次資料で企業評価を進める。重要fact自体を得られない対象は未完了として扱う。
 
 ```bash
@@ -58,7 +60,7 @@ uv run baibai-engine research prepare \
 
 再開はOperationの保存入力から復元し、元runやmutable storeを再読しない。scope/対象/理由/source/cutoffは固定。`--force`は生成投影を修復し、執筆済みdraftを保持する。DB commit後のfile失敗も返されたOperation IDで再開できる。completedの再送はalready_completedで成果を追記しない。本当に再依頼された同じ文は、新workspaceで別Operationとして開始できる。
 
-分析日が前日でもResearch日は当日。開始入力を当日の分析へ付け替えず、Assessment/Review/Proposalは実際の正式評価日で作る。翌日再開でも開始snapshotは不変であり、当日の価格・cash・保有・注文・正式評価条件は再確認する。
+新しい依頼のResearch日は開始日とし、前日の機械分析も利用できる。日付を跨いだ継続では開始入力を新しい分析へ付け替えず、Assessment/Review/Proposalは実際の正式評価日・作成時刻で作る。翌日再開でも開始snapshotは不変であり、当日の価格・cash・保有・注文・正式評価条件は再確認する。
 
 <a id="company-research"></a>
 
@@ -111,13 +113,13 @@ buyは実quoteと試算limitを分け、Pmax以下の指値待ちも許される
 uv run baibai-engine research proposal-check <DRAFT> --db stores/application/baibai.sqlite
 ```
 
-確認したdraft_sha256に作者と別の作業者が内容Reviewを行う。価格・数量・cash・scope・warningもhashに含まれる。修正時は再Reviewし、一致した原稿を公開する。
+checkの`valid`と`review_binding`を別に読み、staleをReview完了としない。正規modelが返したdraft_sha256に作者と別の作業者が内容Reviewを行う。価格・数量・cash・scope・warningもhashに含まれる。修正時は再Reviewし、一致した原稿を公開する。生成SchemaやファイルhashだけでID形式・参照・時刻・canonical bindingを代替せず、[保存とReview](../../../docs/reference/investment-proposal.md#publication-review)の正規checkへ通す。
 
 ```bash
 uv run baibai-engine research proposal-publish <REVIEWED_DRAFT> --db stores/application/baibai.sqlite
 ```
 
-公開は提案を保存する工程であり、予約・注文・約定や人間の採用を作らない。
+公開は接続先application DBへ提案を保存する工程であり、予約・注文・約定や人間の採用を作らない。作業コピーでのpublishだけでは本番アプリへ反映されない。
 
 ## 4. 保存条件と現在preview、人間判断
 
@@ -134,3 +136,4 @@ uv run baibai-engine research proposal-publish <REVIEWED_DRAFT> --db stores/appl
 固定対象の被覆と公開済み提案を確認する。buy/sellの具体terms不足は未完了理由を明示し、具体提案完成と区別する。0対象は理由ある選定結果を保って終了できる。L3提案完成と調査終了を記録し、人間の採否・broker操作・実約定を完了条件へ補完しない。
 
 必要なmonitoringは既存taskを確認して登録する。cloud反映は[Ops Maintenance](../ops-maintenance/SKILL.md)に従う。対象未確定、重要な入力矛盾、独立Review未完了、binding競合は解消するまで先へ進まない。
+

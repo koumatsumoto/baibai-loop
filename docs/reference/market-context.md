@@ -239,6 +239,8 @@ Baibai Loop の Market Context タブは、上から **市場・業種の価格�
 
 `read_semantics.mode: recomputed_from_current_store`は現在のstoreからの再計算を示すprovenanceであり、その日の`known_at`を満たす証明ではない。過去の判断や成績と突き合わせるときは、この利用可能時点の制約を残す。
 
+<a id="assessment"></a>
+
 ## ③ 明示作成する市場環境判断
 
 `research/market_context`は固定したL1/L2入力と基準時点、重要変化と根拠、反証/不確実性、調査・業種・リスクへの含意を扱う。新writerは小さな判断一本で、固定章数・シナリオ数・確率格子・指標条件・前回採点を必須にしない。変化が小さい判断や資料不足も表現でき、経済・金利を株価トレンドだけへ縮小しない。文章の品質は独立reviewで確認する。
@@ -248,6 +250,8 @@ Baibai Loop の Market Context タブは、上から **市場・業種の価格�
 ### 対象日と利用可能時刻
 
 `as_of`は判断の対象日、`known_at`は入力を確定する利用可能時刻である。通常はcallerが入力確定時刻を一度固定し、当時の入力を調べる場合は過去cutoffを明示する。対象日以下で、その時刻までに発行された判断から実時刻順で選ぶ。selectorは現在時刻を読まず、timezone offsetの異なるISO文字列を辞書順で並べない。週末発行の前営業日評価も、利用可能時刻の範囲内なら選べる。
+
+`available_at`を保存入力を確認できていた時刻として記録する場合は、その意味をreferenceへ明記し、元提供者の公表時刻を捏造しない。新たな判断をResearchの開始入力に使うなら、実発行後のSelection cutoffで固定する。既存の開始snapshotを後発判断へ差し替えない。
 
 この判断の時刻制約を、全L1観測の改定前情報が再現可能である保証とは扱わない。ProviderSpecが宣言する公表vintageの能力と、bulk backfillの取得時刻の制約は上記Readingに従う。
 
@@ -273,3 +277,4 @@ CFTCは要求contractのAPI record全項目、ECB FXはCSVの全通貨列を、s
 正常なbulk responseは要求期間の全日を調べた結果として保存し、行のない日も空snapshotを残す。訂正で行が消えた日は新しい空snapshotが以前の値を隠す。取得時刻は取得・改訂の順序であり、当時の公表可能時刻の証明ではない。計算不能でも取得済みnative記録は残す。提供元record JSONであり、HTTP bytesそのものの保管を意味しない。
 
 旧net値やcross値だけから元のlong/short・各通貨レートは復元できない。不足するnative履歴は取得可能な範囲を明示して新規取得し、L2再計算・検証後にcodeとstoreを一組で切り替え、公開を確認する。実際の保存済み判断は書き換えない。
+
