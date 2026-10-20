@@ -184,12 +184,19 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
     assert _snapshot(case.app) == before
 
 
-def test_sub_six_rate_flows_through_context_publication_and_preview(tmp_path):
+@pytest.mark.parametrize(
+    ("horizon_months", "expected_maximum"),
+    [(12, "1067.9612"), (30, "1021.6441"), (36, "1006.6558")],
+)
+def test_rate_and_horizon_flow_through_context_publication_and_preview(
+    tmp_path, horizon_months, expected_maximum
+):
     from baibai_engine.read_api.research import reviewed_assessment_projection
     from baibai_engine.research.assessment import assessment_core_hash
     from baibai_engine.research.proposal_inputs import build_proposal_context
 
-    case = backend_case(tmp_path, required_rate="3")
+    # A synthetic fixed total value isolates period propagation, not business growth.
+    case = backend_case(tmp_path, required_rate="3", horizon_months=horizon_months)
     original_hash = assessment_core_hash(case.pair.document)
     original_projection = reviewed_assessment_projection(
         case.app, assessment_id=case.pair.assessment_id
@@ -202,7 +209,8 @@ def test_sub_six_rate_flows_through_context_publication_and_preview(tmp_path):
     )
     calculation = context.payload()["calculations"]["1234"]
     maximum = original_projection["pmax_original_yen"]
-    assert Decimal(str(maximum)).quantize(Decimal("0.0001")) == Decimal("1067.9612")
+    assert original_projection["horizon_months"] == horizon_months
+    assert Decimal(str(maximum)).quantize(Decimal("0.0001")) == Decimal(expected_maximum)
     assert calculation["calculation_at_maximum_price"]["hard_blockers"] == []
     assert calculation["buy_at_actual_quote"]["hard_blockers"][0]["code"] == "limit_above_pmax"
     raw = reviewed_proposal(case).payload()
@@ -252,4 +260,5 @@ def test_sub_six_rate_flows_through_context_publication_and_preview(tmp_path):
     assert after_projection == original_projection
     assert after_projection["core_sha256"] == original_hash
     assert after_projection["required_annual_return_pct"] == 3
+    assert after_projection["horizon_months"] == horizon_months
     assert _snapshot(case.app) == before
