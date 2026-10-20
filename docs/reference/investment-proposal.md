@@ -33,7 +33,7 @@ related_docs:
 
 買付算術は[`evaluate_buy_terms`](../../engine/src/baibai_engine/research/entry_policy.py)が所有する。実quoteは観測、提案limitは試算価格であり、現在quoteを架空の安い値へ置換しない。pmaxはBase終価・今後分配・記録された期間と要求率から求め、Downside算術を別の購入閾値へしない。
 
-最新reviewed評価がsupported/intact、valuationが当日起点で、現在要求率・実quote・仮説・権利単位・cash・既保有・予約・同Proposalの買約定等のgateを満たすことを確認する。現在closeがpmax超過でもpmax以下の低いlimitで待つことはできる。価格以外の不足を安い指値で迂回しない。数量は提案limitで計算し、guide上限とcashの単元床を使う。guide超でもcash内の1単元を許す現方針とwarningを維持する。
+最新reviewed評価がsupported/intact、valuationが当日起点で、記録済み要求率によるPmax・実quote・仮説・権利単位・cash・既保有・予約・同Proposalの買約定等のgateを満たすことを確認する。現在closeがpmax超過でもpmax以下の低いlimitで待つことはできる。価格以外の不足を安い指値で迂回しない。数量は提案limitで計算し、guide上限とcashの単元床を使う。guide超でもcash内の1単元を許す現方針とwarningを維持する。
 
 現在limitは現在closeを上限とする指値であり、成行や即約定の保証ではない。wait_limitには実quoteより低い価格と選択理由が必要である。価格・数量・対象日（session）・前提条件を保存し、株式単位、仮説、資金、注文状態に重要変化がないことを条件にする。未約定売却代金はcashへ加えない。
 

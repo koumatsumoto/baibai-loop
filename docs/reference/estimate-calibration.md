@@ -145,7 +145,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 <a id="estimator-vs-decision"></a>
 
-機械E[r]の収束係数・clip・固定8.5%帯は近似推計と歴史分布の座標であり、企業判断の[通常購入6%](../portfolio-management.md#required-return-policy)とは別の仮定である。6%は暫定政策で、最適値や確率加重期待収益を実証した値ではない。E[r]較正の成立は4 Approachのfidelity、個別企業の利益・倍率・分配の見積り、購入採否を代行しない。係数の優劣を主張する変更は事前登録と3y/5y evidenceで検証し、診断帯を購入floorに追随させて統計を付け替えない。
+機械E[r]の収束係数・clip・固定8.5%帯は近似推計と歴史分布の座標であり、企業判断の[案件ごとの要求年率](../portfolio-management.md#required-return-policy)とは別の仮定である。比較目安の6%は最適値や確率加重期待収益を実証した値ではない。E[r]較正の成立は4 Approachのfidelity、個別企業の利益・倍率・分配の見積り、購入採否を代行しない。係数の優劣を主張する変更は事前登録と3y/5y evidenceで検証し、診断帯をL3の要求率に追随させて統計を付け替えない。
 
 <a id="er-level-distribution-context"></a>
 

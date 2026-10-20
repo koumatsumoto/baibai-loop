@@ -73,9 +73,6 @@ def buy_evaluation(
         quote=quote,
         proposed_limit_yen=proposed_limit_yen,
         basis_confirmed=assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path),
-        minimum_required_annual_return_pct=Decimal(
-            str(PORTFOLIO_POLICY["valuation"]["minimum_required_annual_return_pct"])
-        ),
         market_price_max_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
         held_quantity=sum(
             position.quantity for position in inputs.positions if position.ticker == ticker

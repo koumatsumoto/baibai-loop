@@ -23,10 +23,6 @@ PORTFOLIO_POLICY: dict[str, Any] = {
     "order_constraints": {"board_lot": 100},
     "valuation": {
         "market_price_max_age_days": 7,
-        # 暫定の通常購入floor。新しい通常評価もこの率を出発点とする。
-        # 公開済みStock Assessmentの要求率・Pmaxは変更しない。採用理由は refs #1464。
-        # docs/portfolio-management.md#required-return-policy
-        "minimum_required_annual_return_pct": 6.0,
     },
 }
 
@@ -49,7 +45,6 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
         ("risk_budget", "max_sector_concentration_pct"),
         ("risk_budget", "max_common_factor_concentration_pct"),
         ("risk_budget", "max_adv_participation_pct"),
-        ("valuation", "minimum_required_annual_return_pct"),
     )
     for path in percentage_paths:
         value = _value_at(policy, path)

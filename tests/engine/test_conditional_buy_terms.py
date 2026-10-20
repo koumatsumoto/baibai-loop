@@ -39,7 +39,6 @@ def evaluate(document=None, **overrides):
             quote=quote(),
             proposed_limit_yen=Decimal(1000),
             basis_confirmed=True,
-            minimum_required_annual_return_pct=Decimal(6),
             market_price_max_age_days=7,
             held_quantity=0,
             active_reservation=False,
@@ -99,17 +98,18 @@ def test_cash_is_checked_at_recommended_limit_and_guide_is_not_a_hard_cap():
         ({"proposal_executed": True}, "proposal_already_executed"),
         ({"basis_confirmed": False}, "corporate_action_unresolved"),
         ({"quote": None}, "quote_missing_or_stale"),
-        (
-            {"minimum_required_annual_return_pct": Decimal(11)},
-            "required_return_below_current_policy",
-        ),
         ({"available_cash_yen": Decimal(0)}, "available_cash_below_board_lot"),
         ({"proposed_limit_yen": Decimal(0)}, "positive_limit_required"),
         ({"proposed_limit_yen": Decimal(-1)}, "positive_limit_required"),
     ],
 )
 def test_discount_limit_cannot_bypass_any_hard_gate(overrides, blocker):
-    result = evaluate(**dict(proposed_limit_yen=Decimal(900)) | overrides)
+    payload, _ = pair_payload()
+    payload["valuation"]["required_annual_return_pct"] = "3"
+    result = evaluate(
+        StockAssessmentDocument.model_validate(payload),
+        **dict(proposed_limit_yen=Decimal(900)) | overrides,
+    )
     assert blocker in codes(result)
     assert result.quantity == 0
 

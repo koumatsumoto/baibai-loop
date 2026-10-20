@@ -43,6 +43,8 @@ from baibai_engine.storage.application.read import connect_read_only
 _ASSESSMENT_DRAFT_HEADER = (
     "# 企業評価 draft。価値を生む仮説、重要な観測の個社への伝達、"
     "Base/Downside・時間・反証を既存欄へつなぐ。\n"
+    "# 要求率は案件ごとに現金との比較・下振れ・期間・不確実性を踏まえ、"
+    "理由をcalculationへ記す。価格に合わせて率を下げない。\n"
     "# 外部値の対象期・株式basis・元前提が不明なら推定しない。"
     "未確認は理由付き unresolved とし、一次資料で補う。\n"
 )

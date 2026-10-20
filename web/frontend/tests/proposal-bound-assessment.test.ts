@@ -115,6 +115,14 @@ describe('保存した提案と評価', () => {
       expect(priceLine).not.toContain('価格基準日 2026-10-14')
     }
   })
+  it('案件別の保存要求率を比較目安へ置換せず表示する', () => {
+    const saved = { ...item, assessment_projection: { ...item.assessment_projection, raw: { ...document, valuation: { ...document.valuation, required_annual_return_pct: '3' } } } }
+    const before = JSON.stringify(saved)
+    const html = render(ProposalAssessmentDetails, saved)
+    expect(html).toContain('要求年率 3%')
+    expect(html).not.toContain('要求年率 6%')
+    expect(JSON.stringify(saved)).toBe(before)
+  })
   it('保存limit/quantity/target_session/warningsを示し、注文や約定と区別する', () => {
     const html = render(ProposalItemContent)
     for (const text of ['保存した提案条件', '提案条件確定', '1,000円', '300株', '300,000円', '2026-10-15', '指定の指値で待つ提案', '買付後の現金余力が警告水準を下回ります', '注文受理・約定の保証ではありません']) expect(html).toContain(text)
