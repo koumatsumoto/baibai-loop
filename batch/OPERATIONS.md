@@ -237,21 +237,7 @@ cloud反映が終わるまで保持する。完了証拠を残してから同じ
 完了済みのResearch domain切替は[切替記録](#research-domain-cutover)を参照する。
 対象外のsource versionでは手書きSQLや汎用移行へ進まず、schema変更issueで専用toolと検証を用意する。
 
-**旧source限定の切替手順（通常Researchでは実行しない）**: PR #1541 の application24→25 は、別candidateから不要な価格cacheを除き、台帳headerのschema_versionを2から3へ進める。
-明示したsourceが旧schema24で、対応する切替を実施する場合だけ次を使う。既にcurrent schemaの正本を取得した通常更新では再実行しない。sourceと取得ETagは保持し、outputに既存ファイルを指定しない。
-
-```bash
-uv run python -m tools.cutover.prepare_application_v25 \
-  --source /tmp/private-cutover/application-v24.sqlite \
-  --output /tmp/private-cutover/application-v25.sqlite
-```
-
-このtoolはsourceを変更せず、台帳event・判断・参照をコピーする。台帳headerはversion以外を保持し、現行readerで読めることを検証する。
-新しい価格の生成・取得・公開はしない。
-candidateの台帳再生とmachine storeを合わせたmaterializeを確認してから、取得世代に対する条件付きapplication反映を行う。
-market・indicatorsのschema切替をこのtoolで代行しない。全L1の新規再取得は #1543 のアーキテクチャ改善後にまとめて行い、
-それ以前の切替で利用する既存資料を、再取得済みの原本と表示しない。反映・読戻し完了後、この一回限りのtoolと専用テストを除去する。
-
+application24→25は #1541、market47・経済source12のfresh L1切替は #1544/#1546 で受入済み。一回限りの準備・公開・machine切替toolと専用testは撤去した。当時の実装は[固定commit](https://github.com/koumatsumoto/baibai-loop/tree/c2a854bc6eb9f54941cdd2486ccb37bec1d65a78/tools/cutover)、fresh切替後の公開は[materialize成功](https://github.com/koumatsumoto/baibai-loop/actions/runs/39245024546)、その後の認証済み表示受入は[完了記録 #1548](https://github.com/koumatsumoto/baibai-loop/issues/1548)を参照する。旧sourceや旧pointerを現行正本へ再適用しない。これは今回のIFRS意味revision再計算を完了済みとする記録ではなく、現行の[意味再抽出手順](#edinet-metrics-revision)を別に行う。
 
 <a id="research-domain-cutover"></a>
 
@@ -724,11 +710,9 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 原本を読む順序は明示したmarket SQLiteの`edinet_source_archives`、必要なAPI取得である。以前の端末のlocal ZIP cacheは暗黙に取り込まない。CSVとXBRLのtransport・保存経路は同じproviderを使う。取得エラーや不開示通知PDFで保存済みZIPを上書きしない。`doc_id + source_type`はarchiveの論理keyであり、同じ書類・取得種別でZIP bytesが永遠に同じと保証するものではない。原本の公開世代・保持は既存lakeの不変objectとretentionに従い、別の版管理機構を追加しない。
 
-通常のschema移行・意味再計算では、明示して保持した原本を再利用できる。一方、この情報層整理に続くL1の全面fresh baselineは、sourceごとの対象期間と取得可能範囲を先に明示し、隔離した新規market・経済storeへ現行sourceの原本を新規取得して、その集合だけからL2を作る。旧L1・L2・`source_coverage`、正規化済み受入file、旧端末のZIP cacheをこのbaselineへhydrate・importしない。取得不能な履歴・部分sourceはそのまま報告し、旧値で補完しない。新source・L2・公開の検査が終わるまで現行本番releaseを保ち、明示的なlease保護下で切り替えて固定releaseを読戻す。既存broker factと保存済み判断は別の正本であり、黙って初期化・削除しない。実施状況と未完了の受入は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)で追う。
+通常のschema移行・意味再計算では、明示して保持した原本を再利用できる。2026-10-19の全面fresh baselineは旧L1/L2を混ぜず取得・公開・読戻しを完了した。固定releaseは`20261019T100002Z-54cf954c-d37a5ef3028d`。当時取得できなかった12 datasetの旧公開期間は旧releaseを参照用に保持し、新baselineでは欠測として記録した。範囲と受入証拠は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)と当時の[固定切替実装](https://github.com/koumatsumoto/baibai-loop/blob/c2a854bc6eb9f54941cdd2486ccb37bec1d65a78/tools/cutover/publish_fresh_market_v47.py)を参照する。
 
-2026-10-19に承認された履歴移行方針では、現行sourceから再取得できない旧公開期間は旧releaseを参照用に保持し、fresh baselineには混ぜず欠測として扱う。適用先は専用の一回限りの`tools/cutover/publish_fresh_market_v47.py`に固定した12 dataset・旧公開下限・新候補の最古日までであり、他datasetや拡大した欠損には適用しない。新releaseの`coverage_start`は実際の最古日を記し、欠ける旧期間とqualityはprivateな切替記録へ別に残す。現在の取得範囲の`source_coverage`にあるpartial/failed状態、required dataset・complete coverage・Parquet/SQLite整合性の通常検査はそのまま守る。これは後続の通常発行へ履歴下限の免除を持ち越す方針ではない。
-
-この一回限りの公開は、検算済みの候補SHA-256と固定release ID/digestをコードにpinした`--verified-fixed-release`を使う。既存mirrorの固定releaseを検証して既存publisherへ渡し、再exportや新release作成を行わない。後日の実行時は本番pinとwriter/lease状態を再確認し、公開後のpointer・origin・固定releaseを読戻す。通常の`publish-lake`やこのtoolの再export入口で代用しない。
+この履歴移行の例外を通常発行や別datasetへ持ち越さない。通常の`publish-lake`はrequired dataset、coverage、Parquet/SQLite整合を検査する。新たな再取得・保存契約変更が必要な場合は対象と取得不能範囲を明示し、broker factや判断履歴を黙って初期化しない。完了済みの切替用commandを通常運用として再実行しない。
 
 EDINET文書一覧のHTTP body bytesはJSON解析より前にL1の`edinet.list_responses`（SQLite `edinet_list_responses`）へ受領ごとに保持する。`edinet_document_lists.response_json`は選択した成功応答のnative payloadを記録するL2 projectionであり、不変のraw receipt履歴とは別である。最新応答のprojectionが失敗した日はcurrent coverageをfailedとし、過去の成功projectionを新しい原本受領の証拠や成功coverageに読み替えない。解析できない原応答もL1に残し、以前の正規化済み行から原本を捏造しない。
 
