@@ -134,10 +134,9 @@ Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2
 Ubuntu Linux/POSIXを対象とし、作業分担は[Python foundation](./reference/python-foundation.md#cloud-development-boundary)に従う。SQLite編集は作業コピー上で行い、検証済み変更をクラウドへ反映する。
 
 ```text
-承認済み環境の作業コピー ──条件付き更新──> R2 stores（データ状態の正本）
-                                      ↑
-GitHub Actions ──定期処理・転送─────────┤
-       └──read model生成──> R2 serving ──> Worker ──> browser
+承認済み作業環境 ──条件付き更新──> R2 stores（データ状態の正本）
+GitHub Actions ──定期処理・転送──> R2 stores
+GitHub Actions ──read model生成──> R2 serving ──> Worker ──> browser
 ```
 
 `baibai-engine`はdomain操作、`baibai-web`は表示/read model、`baibai-batch`は運用の入口である。optionの正本はpublic `--help`。[docs portal](./README.md#目的別の入口)から実操作へ進む。

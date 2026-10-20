@@ -69,7 +69,7 @@ intactでmaterialな反証が無いことを今回確認した場合は、旧val
 
 scaffoldで入力snapshotとProposal/ReviewのIDを固定し、作者が行動・具体条件・比較理由を記す。初期draftの未記述比較はdeferであり、経済的no_actionへ自動変換しない。`proposal-check`は書込をせず、Review前にdraft_sha256を確認できる。`valid=true`やexit 0でも`review_binding=stale`はあり得るため、入力checkとReview完了を別に確認する。作者とは別の役が内容Reviewを行い、正規modelの`proposal_draft_sha256`へ束縛し、公開前は`review_binding=match`を確かめる。raw JSON/YAMLファイルのhashを代用しない。内容を変更した場合は取り直す。
 
-Review後の初回発行直前に実時刻を`published_at`へ設定し、prepared_at ≤ reviewed_at ≤ published_atを守る。Reviewの時刻や対象hashを承認なしに付け替えない。Review hashにはreviewとpublished_at以外の全文を含め、cash、scope、価格・数量・対象日・前提、grid、warnings/exposureを束縛する。公開時はOperationの現在被覆と保存scope、exact評価pair、現在入力事実を再読照合する。checked_atの経過だけをdriftにせず、実入力値を比較する。入力が変わればsnapshotと独立Reviewを取り直す。
+Review後の初回発行直前に実時刻を`published_at`へ設定し、prepared_at ≤ reviewed_at ≤ published_atを守る。Reviewの時刻や対象hashを、内容を再確認せずに付け替えない。Review hashにはreviewとpublished_at以外の全文を含め、cash、scope、価格・数量・対象日・前提、grid、warnings/exposureを束縛する。公開時はOperationの現在被覆と保存scope、exact評価pair、現在入力事実を再読照合する。checked_atの経過だけをdriftにせず、実入力値を比較する。入力が変わればsnapshotと独立Reviewを取り直す。
 
 同ID同内容は保存済みpublicationを返し、異内容はimmutable conflictとなる。Proposal本文、item indexと具体buyのdecision bindingを同transactionで保存する。hold/sell/no_action/deferにbuy bindingを作らず、公開でledgerを変更しない。保存後は固定scopeが当時の正本であり、Operationの進捗や最新候補へ付け替えない。
 
