@@ -23,7 +23,7 @@ uv run baibai-engine research selection-context \
 
 指定銘柄は `--scope specified_stocks --ticker <TICKER>`、保有は `--scope review_positions` とし、必要なら指定tickerを付ける。通常依頼ではユーザーの目的と比較したい戦略仮説を読み取り、保存済みの機械候補を調査の入口として比較する。contextのrun参照、research_as_of、input_known_atとrequestをdraftへコピーし、比較した選定理由・調査の問い・主要リスク・今回の範囲と確認しなかった範囲を`selection_summary`と対象ごとの`rationale`へ記す。構造はCLIのhelpとselection modelが正本である。現在の三領域・保有・既存調査を読み、弱い対象で上限を埋めず、脱落を自動補充しない。
 
-selection-context schema2の`candidates`は同runのraw Stock Analysisで、`candidate_discovery_method`と各行の`candidate.reasons`が機械選抜の方式とApproach内rankを表す。候補0件は完成したrunの正常結果である。機械候補は全投資機会ではない。通常の`discover_new`でも、依頼から導いた重要な仮説が候補に表れない場合は、同じ固定runの候補外分析を必要な範囲だけ確認できる。候補外の指定・保有対象も同runの全分析から読む。AIの選定理由を機械rankと混ぜず、新しい暗黙の順位や配当利回り・機械E[r]による購入条件を作らない。normalized gapの0とnull、rawの欠落とnullを保持し、候補一覧の別保存・再発行は行わない。
+selection-context schema2の`candidates`は同runのraw Stock Analysisで、`candidate_discovery_method`と各行の`candidate.reasons`が機械選抜の方式とApproach内rankを表す。候補0件は完成したrunの正常結果である。機械候補は全投資機会ではない。通常の`discover_new`では、ユーザーが戦略名を指定していなくても、投資目的と候補の偏りから作者が価値獲得の仮説を立てる。低倍率の極端値を順に読むだけで比較を終えず、重要な経路が候補に表れない場合は同じ固定runの候補外分析を必要な範囲だけ確認する。候補外を毎回一定数選ぶquotaにはしない。候補外の指定・保有対象も同runの全分析から読む。AIの選定理由を機械rankと混ぜず、新しい暗黙の順位や配当利回り・機械E[r]による購入条件を作らない。normalized gapの0とnull、rawの欠落とnullを保持し、候補一覧の別保存・再発行は行わない。
 
 必要時の読取には、readyなcontextの`run_revision_id`を使う。`run-show`は保存revisionの読取であり、Researchのcutoffは自動照合しないため、出力の`run_revision_id`がcontextの同名field、`asof_date`が`analysis_as_of`と一致し、`asof_date <= research_as_of`、`run_at <= input_known_at`であることを確認する。不一致なら選定を止めてcontextを取り直す。
 

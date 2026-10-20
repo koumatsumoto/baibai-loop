@@ -80,6 +80,59 @@
         "pmax_yen": "2895.241369286021828458799730"
       }
     ],
-    "required_terminal_operating_profit_yen": "2985815044.956402354829917633"
+    "required_terminal_operating_profit_yen": "2985815044.956402354829917633",
+    "countercases": [
+      {
+        "terminal_operating_profit_yen": "3000000000",
+        "net_income_conversion_assumption": "0.6654545454545454545454545455",
+        "exit_pe_assumption": "9",
+        "terminal_receivable_assumption_yen": "60",
+        "terminal_value_per_share_yen": "2300.275917115503974347412522",
+        "cash_distribution_per_share_yen": "240",
+        "annualized_return_pct": "0.512793554433200515983626300",
+        "pmax_yen": "2195.918551780813835581256839"
+      },
+      {
+        "terminal_operating_profit_yen": "2200000000",
+        "net_income_conversion_assumption": "0.60",
+        "exit_pe_assumption": "9",
+        "terminal_receivable_assumption_yen": "45",
+        "terminal_value_per_share_yen": "1526.275333174732136043917569",
+        "cash_distribution_per_share_yen": "180",
+        "annualized_return_pct": "-14.27872300905600161278297059",
+        "pmax_yen": "1474.974286580231362043923885"
+      }
+    ]
+  },
+  "zeria": {
+    "price_yen": "2008",
+    "public_starting_shares_assumed_constant": "44079398",
+    "exit_pe_assumption": "9",
+    "required_annual_return_pct": "6",
+    "reference_management_single_year_net_income_yen": "10000000000",
+    "cases": [
+      {
+        "horizon_months": 12,
+        "cash_distribution_assumption_yen": "25",
+        "terminal_receivable_assumption_yen": "25",
+        "required_terminal_parent_net_income_yen": "10179794128.33777777777777778",
+        "annualized_return_with_unchanged_10b_net_income_pct": "4.1718212739367515772695812"
+      },
+      {
+        "horizon_months": 30,
+        "cash_distribution_assumption_yen": "100",
+        "terminal_receivable_assumption_yen": "25",
+        "required_terminal_parent_net_income_yen": "10764622641.30739045990849309",
+        "annualized_return_with_unchanged_10b_net_income_pct": "3.0907397260469546793551097"
+      }
+    ],
+    "cash_observation_not_normalized_owner_earnings": {
+      "fiscal_year_end": "2026-03-31",
+      "ocf_yen": "9955621000",
+      "tangible_cash_investment_yen": "2360986000",
+      "intangible_cash_investment_yen": "534750000",
+      "lease_principal_yen": "445090000",
+      "after_these_items_yen": "6614795000"
+    }
   }
 }
