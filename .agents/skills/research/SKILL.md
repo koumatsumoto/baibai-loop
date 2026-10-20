@@ -75,6 +75,8 @@ uv run baibai-engine research prepare \
 
 候補のValuation Approachは調査の入口であり戦略ラベルではない。複数の価値実現仮説が重なるなら、経済経路・時期・反証を分けて検討する。[Market Context読取](../../../docs/reference/market-context.md#market-context-reads)の比較基準日・母集団を確かめ、重要な環境変化が企業の需要・費用・資金と将来cash、割引率・要求収益、市場の織込み・流動性のどの経路に効くか区別する。cashへの影響がないだけで除外せず、個別相対値を企業価値認定へ置き換えず、同じリスクを利益・倍率・要求率で無説明に重複計上しない。[External Assessmentの保存済み照会](../../../docs/reference/market-lake.md#external-assessment-query)の目標値・rating・scoreは、元評価者、metric、対象期、株式basis、元更新日と前提が判る範囲で比較する。重要な相違だけを採用・反証・保留または参考扱いの理由とともに既存の仮説・価値差へ記す。比較不能な値を無理に採用せず、同原評価元の重複配信を独立票としない。非重要な観測、観測はあるが比較条件が未確認、観測自体が未取得を区別する。
 
+共通の市場判断を使う場合も、個社の需要・費用・負債条件で伝達は変わる。金利なら固定/変動、借換時期、ヘッジ、自由cashと必要cashを区別し、成長改善による上昇と供給制約による上昇を同じ悪化係数にしない。重要な持続水準も扱い、最近の変化だけを判断対象にしない。基準の企業価値に、独自のマクロ予想がどれだけ作用したかを分ける。反対条件でも価値を支えるかを確認し、全ての変数を独立に最悪化しただけのscenarioを採らない。市場状態の要約が正しいことと、動的な候補除外・要求率・配分ルールが有効なことは別である。
+
 この節は企業の調査・算術・独立Reviewを扱う。保有を扱う場合は同じ有限Operationの保有workspaceを使い、新規買付へ混ぜない。
 
 1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof YYYY-MM-DD --out <WORKSPACE>/<TICKER>/assessment-draft.yaml`で新しいdraftを作る。保有はholdings/<ticker>子workspaceを指定する。明示mappingされたplaybookを入口に、[事業モデル別調査](../../../docs/reference/business-model-research.md)から判断を変える問いを選び、一次資料で検討する。全問を埋める作業にしない。

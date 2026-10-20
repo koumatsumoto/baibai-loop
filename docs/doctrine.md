@@ -62,9 +62,9 @@ Baibai Loopは、健全な企業の割安な機会を継続的に探し、日本
 - **(b)** 事実と意見が混ざると、AIが過去の解釈を「事実」として再生産してしまう。観測と判断の責務・読取契約を分け、判断を参照する範囲を選べるようにして、後知恵バイアスと責任の所在の混乱を防ぐ。
 - **(c)** 観測の読取へ判断を混入させず、値の由来と役割を識別する。物理配置と保存責務は[architecture](./architecture.md#store-authority)に従う。
 
-### 柱 2: マクロは機械読み値 + material delta、構造変化は企業価値への影響として扱う
+### 柱 2: マクロは共通の経済条件と個社への伝達を分ける
 
-- **(a)** Market Contextは保存済みの環境観測、機械Reading、市場・業種・個別の相対状態を材料とし、AIは重要な変化と伝達経路だけを企業評価・リスクの取り方・提案へ接続する。毎回独立した旧章立てreportや主観確率を必須にしない。Market Context Assessmentの意味と明示作成は[Market Context reference](./reference/market-context.md)が所有する。環境上の含意は企業価値や機械rankingと別結果であり、乖離や攻め/守りの方向だけで自動数量・合成score・注文を決めない。対象時点・鮮度・不足を示し、環境の欠測だけで正常な他領域を止めず、重要な不足は提案の留保理由にする。
+- **(a)** Market Contextは保存済みの環境観測、機械Reading、市場・業種・個別の相対状態を材料とし、AIは重要な水準・変化・脆弱性と伝達経路を企業評価・リスクの取り方・提案へ接続する。変化が小さくても、高い調達費や近づく借換期限を無影響にしない。市場参加者のrisk appetiteという観測と、今回取るべきriskという意思決定を分ける。基準となる企業価値と、独自のマクロ予想や対立scenarioによる差を識別し、共通の経済条件に対する個社の耐性と支払価格を比較する。毎回独立した旧章立てreportや主観確率を必須にしない。Market Context Assessmentの意味と明示作成は[Market Context reference](./reference/market-context.md)が所有する。環境上の含意は企業価値や機械rankingと別結果であり、乖離や攻め/守りの方向だけで自動数量・合成score・注文を決めない。対象時点・鮮度・不足を示し、環境の欠測だけで正常な他領域を止めず、重要な不足は提案の留保理由にする。
 - **(b)** AIを含む技術・産業構造変化は、その仮説を外すとBase/Downside projection、FVとrequired return、永久損失、最強反対仮説、またはInvestment Proposalが変わる場合だけmaterialとする。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、比較理由へ、負の影響は`structural_decline`、最強反対仮説、必要ならscenarioとFVへ接続する。「AIを使っている」「市場が成長する」という事実だけでbase scenarioや倍率を上げない。
 - **(c)** materialでない構造変化には言及・専用source・専用reviewを要求しない。AI theme、role、専用scoreでscreening、順位、sizingを変えず、企業ごとの条件付きの見返り、成立条件と永久損失リスクを同じ土俵で比較する。
 
