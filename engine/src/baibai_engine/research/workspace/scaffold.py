@@ -311,4 +311,3 @@ def _enum_field_header(model: type[BaseModel]) -> str:
             continue
         lines.append(f"# - {name}: {' | '.join(str(choice) for choice in choices)}\n")
     return "".join(lines)
-
