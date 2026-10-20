@@ -131,6 +131,27 @@ def parse_csv_zip_metric_record(
     )
 
 
+# Only standard IFRS concepts whose statement meaning has been checked against
+# native CSV/XBRL are aliases. Issuer extensions and similarly named totals are
+# not inferred. In particular, bonds/borrowings alone do not establish complete
+# financial debt, and other financial assets are not investment securities.
+_IFRS_ALIASES = {
+    "jpigp_cor:RevenueIFRS": "netsales",
+    "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS": (
+        "netcashprovidedbyusedinoperatingactivities"
+    ),
+    "jpigp_cor:OperatingProfitLossIFRS": "operatingincome",
+    "jpigp_cor:CashAndCashEquivalentsIFRS": "cashandcashequivalents",
+    "jpigp_cor:EquityIFRS": "netassets",
+    "jpigp_cor:AssetsIFRS": "assets",
+    "jpigp_cor:DepreciationAndAmortizationOpeCFIFRS": "depreciationandamortizationopecf",
+    "jpigp_cor:PurchaseOfPropertyPlantAndEquipmentInvCFIFRS": (
+        "purchaseofpropertyplantandequipmentinvcf"
+    ),
+    "jpigp_cor:PurchaseOfIntangibleAssetsInvCFIFRS": "purchaseofintangibleassetsinvcf",
+}
+
+
 _TAGS: dict[str, tuple[str, ...]] = {
     "sales": (
         "netsales",
@@ -356,6 +377,8 @@ def _row_context(row: Mapping[str, str]) -> str:
 
 
 def _local_element(value: str) -> str:
+    if value in _IFRS_ALIASES:
+        return _IFRS_ALIASES[value]
     return "".join(char for char in value.rsplit(":", 1)[-1].lower() if char.isalnum())
 
 

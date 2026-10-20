@@ -29,6 +29,7 @@ from baibai_engine.valuation.estimates import estimate_expected_return
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 from baibai_engine.valuation.query import (
     anchor_gap_pct,
+    balance_sheet_from_analysis,
     cash_flow_from_analysis,
     machine_valuation_from_analysis,
 )
@@ -63,6 +64,19 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
             # Half-year document metadata may contain a future fiscal year end.
             "edinet_source_period_end": "2027-03-31",
             "edinet_capex_source": "purchase_of_fixed_assets",
+            "cash_eq": jq_ocf,
+            "cash": edinet_ocf,
+            "debt": capex,
+            # Deliberately not cash - debt: projection preserves saved facts.
+            "net_cash": fcf,
+            "investment_securities": 75.0,
+            "total_assets": 900.0,
+            "same_state_equity_yen": 400.0,
+            "equity_ratio": 0.4,
+            "bs_carry_forward_fields": "cash_eq,total_assets",
+            "bs_carry_forward_lag_days": 90,
+            "capital_basis_failure_reason": "synthetic_basis_gap",
+            "edinet_failure_reasons": "metric_unavailable:debt_breakdown",
         },
         ttm_quality={"ocf_yield": "exact", "fcf_yield": "approximated"},
     )
@@ -127,6 +141,28 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
         },
     }
     assert inputs["securities"]["9999"]["cash_flow"] is None
+    bs = security["balance_sheet"]
+    assert bs["amount_unit"] == "JPY"
+    assert bs["jquants"] == {
+        "cash_eq": jq_ocf,
+        "total_assets": 900.0,
+        "same_state_equity_yen": 400.0,
+        "equity_ratio": 0.4,
+        "fin_latest_disclosed_date": "2026-09-18",
+        "measurement_date": None,
+        "measurement_date_status": "field_measurement_dates_not_stored",
+        "bs_carry_forward_fields": "cash_eq,total_assets",
+        "bs_carry_forward_lag_days": 90,
+        "capital_basis_failure_reason": "synthetic_basis_gap",
+    }
+    assert bs["edinet"]["cash"] == edinet_ocf
+    assert bs["edinet"]["debt"] == capex
+    assert bs["edinet"]["net_cash"] == fcf
+    assert bs["edinet"]["investment_securities"] == 75.0
+    assert bs["edinet"]["measurement_date"] is None
+    assert bs["edinet"]["debt_scope"] is None
+    assert bs["edinet"]["document_metadata"] == security["cash_flow"]["edinet"]["document_metadata"]
+    assert inputs["securities"]["9999"]["balance_sheet"] is None
     assert row == original
     assert (
         build_candidate_contexts(
@@ -146,6 +182,17 @@ def test_absent_cf_and_document_metadata_stay_missing():
         assert cf["edinet"]["edinet_ocf_ttm"] is None
         assert cf["edinet"]["capex_ttm"] is None
         assert cf["edinet"]["fcf_ttm"] is None
+
+
+@pytest.mark.parametrize("bad", [None, True, "100", float("nan"), float("inf")])
+def test_balance_sheet_projection_keeps_unknowns_and_never_derives_dates(bad):
+    bs = balance_sheet_from_analysis({"metrics": {"cash": bad, "cash_eq": bad}})
+    assert bs["edinet"]["cash"] is None
+    assert bs["jquants"]["cash_eq"] is None
+    assert bs["edinet"]["measurement_date"] is None
+    assert bs["jquants"]["measurement_date"] is None
+    assert bs["edinet"]["net_cash_quality"] is None
+    assert all(value is None for value in bs["edinet"]["document_metadata"].values())
 
 
 @pytest.mark.parametrize(

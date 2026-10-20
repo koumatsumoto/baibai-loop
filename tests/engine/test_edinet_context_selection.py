@@ -122,7 +122,7 @@ def test_prior_consolidated_fact_does_not_hide_current_individual_statement():
     assert record.consolidation_basis == "non_consolidated"
 
 
-def test_consolidated_dei_does_not_adopt_individual_facts_when_ifrs_tags_are_unsupported():
+def test_supported_ifrs_assets_do_not_allow_individual_revenue_fallback():
     record = _parse(
         "120",
         [
@@ -143,10 +143,10 @@ def test_consolidated_dei_does_not_adopt_individual_facts_when_ifrs_tags_are_uns
         ],
         dei_rows=[(_CONSOLIDATION_DEI, "FilingDateInstant", "－", "true")],
     )
-    assert record.consolidation_basis is None
+    assert record.consolidation_basis == "consolidated"
     assert record.sales_ttm is None
-    assert record.total_assets is None
-    assert "consolidated_dei_no_supported_current_facts" in record.failure_reasons
+    assert record.total_assets == 37_686_000_000
+    assert "consolidated_dei_no_supported_current_facts" not in record.failure_reasons
     assert "metric_unavailable:sales" in record.failure_reasons
     assert "non_consolidated_fallback" not in record.failure_reasons
 
@@ -172,7 +172,7 @@ def test_consolidated_dei_uses_supported_consolidated_facts():
     assert "consolidated_dei_no_supported_current_facts" not in record.failure_reasons
 
 
-def test_1375_unsupported_consolidated_facts_do_not_enter_financial_snapshot():
+def test_1375_supported_assets_do_not_adopt_individual_cash_or_debt():
     # S100YK0W の原本にある科目・値。単体総資産はこの J-Quants fixture と2倍以内なので、
     # 旧 parser の単体 fallback は既存の規模 gate を通ってしまった。
     individual = "CurrentYearInstant_NonConsolidatedMember"
@@ -216,10 +216,10 @@ def test_1375_unsupported_consolidated_facts_do_not_enter_financial_snapshot():
         adjustment_events=(),
         asof_date=date(2026, 7, 1),
     )
-    assert record.consolidation_basis is None
+    assert record.consolidation_basis == "consolidated"
     assert record.net_cash is None
     assert financial.edinet_source_doc_id == "S100YK0W"
-    assert financial.consolidation_basis is None
+    assert financial.consolidation_basis == "consolidated"
     assert financial.cash is None
     assert financial.debt is None
     assert financial.net_cash is None
@@ -229,7 +229,7 @@ def test_1375_unsupported_consolidated_facts_do_not_enter_financial_snapshot():
     assert financial.per_forward is not None
     assert financial.p_s is not None
     assert financial.edinet_failure_reasons is not None
-    assert "consolidated_dei_no_supported_current_facts" in financial.edinet_failure_reasons
+    assert "metric_unavailable:cash" in financial.edinet_failure_reasons
 
 
 @pytest.mark.parametrize(
