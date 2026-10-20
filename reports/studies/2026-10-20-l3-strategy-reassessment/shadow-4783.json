@@ -28,7 +28,7 @@
           "source_tier": "primary",
           "ref": "https://assets.minkabu.jp/news/article_media_content/urn:newsml:tdnet.info:20260805510616/140120260805510616.pdf",
           "retrieved_at": "2026-10-20T12:37:50+00:00",
-          "as_of": "2026-08-05",
+          "as_of": "2026-08-07",
           "used_for": "FY2027Q1会社予想、株数、BS、セグメントの当期/前期。"
         },
         {
@@ -78,7 +78,7 @@
           "fact_kind": "net_income_attributable_to_owners",
           "value": 1830000000,
           "unit": "JPY",
-          "as_of": "2026-08-05",
+          "as_of": "2026-08-07",
           "source_ids": [
             "ncd_q1"
           ]
@@ -88,7 +88,7 @@
           "fact_kind": "other",
           "value": 2750000000,
           "unit": "JPY",
-          "as_of": "2026-08-05",
+          "as_of": "2026-08-07",
           "source_ids": [
             "ncd_q1"
           ]
@@ -98,7 +98,7 @@
           "fact_kind": "other",
           "value": 120,
           "unit": "JPY_per_share",
-          "as_of": "2026-08-05",
+          "as_of": "2026-08-07",
           "source_ids": [
             "ncd_q1"
           ]
