@@ -48,7 +48,7 @@ describe('保存した提案と評価', () => {
         { statement: '金利上昇が借換費用を増す', result: 'supported', reason: '満期開示から個社cashへ伝達', source_ids: ['macro', 'issuer'] },
         { statement: '外部目標は自前Baseより高い', result: 'unresolved', reason: '対象期と株式basisが未確認のため参考', source_ids: ['external'] },
       ], source_ids: ['macro', 'issuer', 'external'] },
-      investment_case: { ...document.investment_case, explanation: '借換後も残るcashが価値を生む', status: 'uncertain', status_reason: '借換条件は未取得', source_ids: ['issuer'] },
+      investment_case: { ...document.investment_case, explanation: '継続収益と負債管理が株主に帰属するcashを生む', status: 'uncertain', status_reason: '借換条件は未取得', source_ids: ['issuer'] },
       valuation: { ...document.valuation, base: { ...document.valuation.base, calculation: '借換費用を控除したBase', source_ids: ['macro', 'issuer'] }, downside: { ...document.valuation.downside, calculation: '追加利払いと遅延を反映したDownside', source_ids: ['macro', 'issuer'] } },
     }
     const syntheticItem: InvestmentProposalItemView = { ...item, action: 'defer', rationale: '借換条件が未取得のため判断保留', terms: null, order_readiness: 'not_applicable', blockers: [{ code: 'material_unknown', message: '借換条件を確認する' }], resume_conditions: ['借換条件の一次資料を入手する'], assessment_projection: { ...item.assessment_projection, raw: syntheticDocument }, assessment_review: { ...item.assessment_review, strongest_countercase: '借換条件悪化でcashが残らない', review_scope: '満期の原典を独立確認し外部目標の対象期は未確認', checked_source_ids: ['issuer', 'external'] } }
@@ -59,8 +59,28 @@ describe('保存した提案と評価', () => {
     expect(html.indexOf('条件付き価値と時間')).toBeLessThan(html.indexOf('反証と独立Review'))
     expect(html).toContain('href="https://example.invalid/estimate"')
     expect(html).toContain('external · 保存sourceのas_of 2026-10-13')
+    expect(html).toContain('所見全体の参照:')
+    const businessField = html.match(/<dl[^>]*><dt[^>]*>事業の収益構造<\/dt><dd[^>]*>(.*?)<\/dd><\/dl>/)?.[1]
+    expect(businessField).toContain('保存した収益構造')
+    expect(businessField).not.toContain('external')
+    expect(html.indexOf('所見全体の参照:')).toBeGreaterThan(html.indexOf('事業の収益構造'))
+    expect(html.indexOf('所見全体の参照:')).toBeLessThan(html.indexOf('観測と個社への伝達'))
     expect(render(ProposalItemContent, syntheticItem)).toContain('判断保留')
     expect(JSON.stringify(syntheticItem)).toBe(before)
+  })
+  it('検証仮説がない場合は空見出しを出さず、所見全体の参照と未解決の問いの範囲を保つ', () => {
+    const withoutHypotheses = { ...document, findings: { ...document.findings, source_ids: ['issuer'], hypotheses: [], unresolved_questions: [] }, input_snapshot: { ...document.input_snapshot, sources: [{ source_id: 'issuer', as_of: '2026-10-12' }] } }
+    const assessmentItem = { ...item, assessment_projection: { ...item.assessment_projection, raw: withoutHypotheses } }
+    const html = render(ProposalAssessmentDetails, assessmentItem)
+    expect(html).toContain('所見全体の参照: <span>issuer · 保存sourceのas_of 2026-10-12</span>')
+    expect(html).not.toContain('観測と個社への伝達')
+    expect(html).not.toContain('未解決の問い')
+
+    const onlyQuestion = { ...withoutHypotheses, findings: { ...withoutHypotheses.findings, unresolved_questions: ['借換条件が未取得'] } }
+    const questionHtml = render(ProposalAssessmentDetails, { ...assessmentItem, assessment_projection: { ...assessmentItem.assessment_projection, raw: onlyQuestion } })
+    expect(questionHtml).toContain('借換条件が未取得')
+    expect(questionHtml).toContain('aria-label="残る確認事項"')
+    expect(questionHtml).not.toContain('観測と個社への伝達')
   })
   it('価値未解決をBase/Downsideの架空表示へ変換しない', () => {
     const unresolved = { ...item, action: 'defer' as const, terms: null, order_readiness: 'not_applicable' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, valuation: { status: 'unresolved', unresolved_reason: '借換条件が未取得', base: null, downside: null, horizon_months: null, required_annual_return_pct: null } }, projections: {} } }

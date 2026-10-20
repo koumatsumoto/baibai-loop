@@ -5,9 +5,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <dl className="grid gap-1"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="text-sm font-medium">{children}</dd></dl>
 }
 
-function SourceRefs({ ids, sources }: { ids: unknown; sources: Record<string, unknown>[] }) {
+function SourceRefs({ ids, sources, label = '参照:' }: { ids: unknown; sources: Record<string, unknown>[]; label?: string }) {
   if (!Array.isArray(ids) || ids.length === 0) return null
-  return <p className="text-xs text-muted-foreground">参照: {ids.map((value, index) => {
+  return <p className="text-xs text-muted-foreground">{label} {ids.map((value, index) => {
     const id = text(value)
     const source = sources.find(item => item.source_id === id)
     const label = `${id}${typeof source?.as_of === 'string' ? ` · 保存sourceのas_of ${source.as_of}` : ''}`
@@ -27,22 +27,27 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
   const sources = Array.isArray(snapshot.sources) ? snapshot.sources.map(record) : []
   const projections = record(projection.projections)
   const independentReview = record(review)
+  const hypotheses = Array.isArray(findings.hypotheses) ? findings.hypotheses : []
+  const unresolvedQuestions = Array.isArray(findings.unresolved_questions) ? findings.unresolved_questions : []
+  const hasHypotheses = hypotheses.length > 0
+  const observationTitle = hasHypotheses ? '観測と個社への伝達' : '残る確認事項'
   return <div className="grid gap-5">
     <section className="grid gap-3" aria-label="価値を生む仮説">
       <h3 className="text-sm font-semibold">価値を生む仮説</h3>
-      <Field label="事業の収益構造"><p>{text(findings.business_understanding)}</p><SourceRefs ids={findings.source_ids} sources={sources} /></Field>
+      <Field label="事業の収益構造"><p>{text(findings.business_understanding)}</p></Field>
       <Field label="価値と価格の隔たり"><p>{text(findings.value_gap_explanation)}</p></Field>
       <Field label="投資仮説"><p>{text(investment.explanation)}</p><SourceRefs ids={investment.source_ids} sources={sources} /></Field>
       <Field label="投資理由の成立性"><p>{text(investment.status)} — {text(investment.status_reason)}</p></Field>
     </section>
-    <section className="grid gap-3 border-t pt-4" aria-label="観測と個社への伝達">
-      <h3 className="text-sm font-semibold">観測と個社への伝達</h3>
-      {Array.isArray(findings.hypotheses) && findings.hypotheses.length > 0 && <Field label="検証した仮説・相違"><div className="grid gap-2">{findings.hypotheses.map((value, index) => {
+    <SourceRefs ids={findings.source_ids} sources={sources} label="所見全体の参照:" />
+    {(hasHypotheses || unresolvedQuestions.length > 0) && <section className="grid gap-3 border-t pt-4" aria-label={observationTitle}>
+      <h3 className="text-sm font-semibold">{observationTitle}</h3>
+      {hasHypotheses && <Field label="検証した仮説・相違"><div className="grid gap-2">{hypotheses.map((value, index) => {
         const hypothesis = record(value)
         return <div key={index}><p>{text(hypothesis.statement)} · {text(hypothesis.result)} · {text(hypothesis.reason)}</p><SourceRefs ids={hypothesis.source_ids} sources={sources} /></div>
       })}</div></Field>}
-      {Array.isArray(findings.unresolved_questions) && findings.unresolved_questions.length > 0 && <Field label="未解決の問い"><p>{findings.unresolved_questions.join(' / ')}</p></Field>}
-    </section>
+      {unresolvedQuestions.length > 0 && <Field label="未解決の問い"><p>{unresolvedQuestions.join(' / ')}</p></Field>}
+    </section>}
     <section className="grid gap-3 border-t pt-4" aria-label="条件付き価値と時間">
       <h3 className="text-sm font-semibold">条件付き価値と時間</h3>
       <Field label="価値実現の道筋"><p>{text(realization.mechanism)}</p><p>時期 {text(realization.timing)} · {text(realization.timing_reason)}</p><p>長期化のリスク: {text(realization.delay_risk)}</p></Field>

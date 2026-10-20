@@ -60,12 +60,12 @@ uv run baibai-engine research prepare \
 
 短い価格bar期間も一律の見送り条件にしない。`price_history_span_days`は利用可能な価格履歴の日数proxyであり、実上場日や財務履歴ではない。企業評価に必要な財務期間は一次資料で確認し、短い自己価格レンジを長期の価値根拠と読み替えない。
 
-候補のValuation Approachは調査の入口であり戦略ラベルではない。複数の価値実現仮説が重なるなら、経済経路・時期・反証を分けて検討する。[Market Context読取](../../../docs/reference/market-context.md#market-context-reads)の比較基準日・母集団を確かめ、重要な環境変化が対象企業の需要・費用・資金・cashへ伝わる場合だけ価値へ接続する。個別相対値を企業価値認定へ置き換えない。[External Assessmentの保存済み照会](../../../docs/reference/market-lake.md#external-assessment-query)の目標値・rating・scoreは、元評価者、metric、対象期、株式basis、元更新日と前提が判る範囲で比較する。重要な相違だけを採用・反証・保留または参考扱いの理由とともに既存の仮説・価値差へ記す。比較不能な値を無理に採用せず、同原評価元の重複配信を独立票としない。非重要な観測、観測はあるが比較条件が未確認、観測自体が未取得を区別する。
+候補のValuation Approachは調査の入口であり戦略ラベルではない。複数の価値実現仮説が重なるなら、経済経路・時期・反証を分けて検討する。[Market Context読取](../../../docs/reference/market-context.md#market-context-reads)の比較基準日・母集団を確かめ、重要な環境変化が企業の需要・費用・資金と将来cash、割引率・要求収益、市場の織込み・流動性のどの経路に効くか区別する。cashへの影響がないだけで除外せず、個別相対値を企業価値認定へ置き換えず、同じリスクを利益・倍率・要求率で無説明に重複計上しない。[External Assessmentの保存済み照会](../../../docs/reference/market-lake.md#external-assessment-query)の目標値・rating・scoreは、元評価者、metric、対象期、株式basis、元更新日と前提が判る範囲で比較する。重要な相違だけを採用・反証・保留または参考扱いの理由とともに既存の仮説・価値差へ記す。比較不能な値を無理に採用せず、同原評価元の重複配信を独立票としない。非重要な観測、観測はあるが比較条件が未確認、観測自体が未取得を区別する。
 
 この節は企業の調査・算術・独立Reviewを扱う。保有を扱う場合は同じ有限Operationの保有workspaceを使い、新規買付へ混ぜない。
 
 1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof YYYY-MM-DD --out <WORKSPACE>/<TICKER>/assessment-draft.yaml`で新しいdraftを作る。保有はholdings/<ticker>子workspaceを指定する。明示mappingされたplaybookの問いを一次資料で検討し、[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使う。
-2. [投資目的とリスク許容](../../../docs/doctrine.md#investment-strategy)と[Stock Assessment](../../../docs/reference/stock-assessment.md)に従い、何が価値を生むか、重要な観測が個社の利益・cashへどう伝わるか、Base/Downsideと実現時期・反証をどう変えるかを、既存Case/Findings/Projectionへ一続きに記す。比較不能な外部値をfactや自己終価へ変換しない。全入力の採否や仮説の件数は要求しない。新しい通常評価の要求率は[要求年率方針](../../../docs/portfolio-management.md#required-return-policy)から作者が明記する。scaffoldのnullを0・空・自動推計で埋めず、既存評価の率を現在policyで置換しない。
+2. [投資目的とリスク許容](../../../docs/doctrine.md#investment-strategy)と[Stock Assessment](../../../docs/reference/stock-assessment.md)に従い、事業・資本配分が生む価値と市場価格との差を分け、重要な観測が将来cash・終価の評価・要求率・実現時期のどこを変えるかを既存Case/Findings/Projectionへ一続きに記す。Base/Downsideと反証を各経路へ結び、比較不能な外部値をfactや自己終価へ変換しない。全入力の採否や仮説の件数は要求しない。新しい通常評価の要求率は[要求年率方針](../../../docs/portfolio-management.md#required-return-policy)から作者が明記する。scaffoldのnullを0・空・自動推計で埋めず、既存評価の率を現在policyで置換しない。
    利益の1株換算には直近の自己株控除株数を起点とし、重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。資料・単位・期間を確認し、比較表の数値は行だけでなく年度見出しと当期・前期の列を一組で読む。重要な事実の欠落と合理的な見積りの幅を分ける。利益・倍率・要求率で同じリスクを重複控除せず、経済経路が違う影響は区別する。
    ratioとProjectionは[Draft算術](../../../docs/reference/stock-assessment.md#draft-calculation)の`research calculate <INPUTS>`を使えるが、企業見積りと算式は一次資料から別途確認する。
 3. `research assessment-evaluate <DRAFT>`で公開内容と原価格の計算資料を確認する。Review未添付だけのreview_requiredもexit 2であり、公開前にはReviewが必要である。他のerrorを無視する許可ではない。
