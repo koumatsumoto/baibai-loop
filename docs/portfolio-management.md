@@ -17,11 +17,11 @@ related_docs:
 <a id="required-return-policy"></a>
 ## 要求年率
 
-通常購入の最低要求年率と、新しい通常評価の出発点は暫定6%とする。数値の正本は[`PORTFOLIO_POLICY.valuation.minimum_required_annual_return_pct`](../engine/src/baibai_engine/position/policy.py)。既存8.5%の根拠と機会損失を見直した政策上の調整であり、最適値、株主資本コスト、確率加重期待収益の推定ではない。採用理由と検証は[#1464](https://github.com/koumatsumoto/baibai-loop/issues/1464)に記録する。
+要求年率は案件ごとに作者が根拠を説明して定める正の有限値であり、Stock Assessmentに記録する。6%は比較の目安で、一律下限や自動入力値ではない。6%未満も選べるが、3%等の数値だけで購入を決めず、現在価格を通すために要求率を逆算・引き下げない。最適値、株主資本コスト、確率加重期待収益の推定とは区別する。採用判断と検証の正本は[#1548](https://github.com/koumatsumoto/baibai-loop/issues/1548)である。
 
-作者は新評価の要求率をStock Assessmentへ明記する。個別に高くする場合は独立した経済的理由を既存のcalculationへ記し、利益・倍率・要求率へ同じリスクを説明なく重複上乗せしない。数値条件を満たしても、重大な事実不足や永久的な企業価値毀損を免除しない。
+要求率の経済的理由は既存のBase/Downsideの`calculation`へ記し、下振れ・永久損失、実現期間と遅延、予測の不確実性を既存の仮説・反証・riskへ接続する。同じリスクを利益・倍率・要求率へ説明なく重複計上しない。Proposalの`comparison / forgone`では同じ期間・通貨・税費用の前提で現金維持や他の完成案と比べ、現金の流動性・待機価値と機会損失も説明する。現金利率、ユーザーの損失許容度、シナリオ確率を捏造せず、未確認ならその範囲を明示する。重要な不足は保留理由にする。低い要求率や財務の健全さを、現金より安全という意味へ読み替えない。
 
-buy提案は現在のfloorと、記録済み要求率によるPmaxを確認する。policy変更だけで既存Stock Assessment・Review・Pmax・Proposal・ledgerを書き換えない。機械E[r]の固定較正帯と保有sell判断は、この新規購入floorから分離する。
+独立Reviewは要求率を支える根拠と結論が反転する条件も確認する。buy提案は記録済み要求率によるPmaxと他の購入条件を確認し、数値条件だけで重大な事実不足や企業価値毀損を免除しない。policy変更だけで既存Stock Assessment・Review・Pmax・Proposal・ledgerを書き換えない。要求率を再評価する場合は新しい評価と独立Reviewにする。機械E[r]の固定較正帯と保有sell判断は、この新規購入判断から分離する。
 
 <a id="capital-guidance"></a>
 ## 資金目安
@@ -48,7 +48,7 @@ ticker10%、sector40%、common-factor35%、ADV5%などの集中・執行warning�
 
 残存見返りにはこれから持ち続けることで得る分配だけを含める。受取済み配当と、権利確定済みで今売っても受け取れる未入金配当を再算入しない。旧horizonを残日数で割り直して年率を水増ししない。売却税・費用・遅延・下振れで結論が変わり得るならuncertainとする。
 
-Target到達・価格下落・経過期間・新規買いfloor未達・集中warningだけでは売らない。現金回収に次の候補は不要。数量basis不明なら数量付き売却案は作らず、人間にbroker実状態の確認を求める。
+Target到達・価格下落・経過期間・新規購入条件未達・集中warningだけでは売らない。現金回収に次の候補は不要。数量basis不明なら数量付き売却案は作らず、人間にbroker実状態の確認を求める。
 
 ## 人間が確認した取引事実
 
