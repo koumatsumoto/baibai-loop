@@ -1,0 +1,243 @@
+{
+  "study_scope": "公開原典による10/16固定価格の後日shadow評価。実口座・本番store・注文へ適用しない。",
+  "timestamp_basis": "retrieved_atは本shadow作成で保存原典を読み直した時刻。原公表時刻や当時取得済みの証明ではない。",
+  "document": {
+    "kind": "stock_assessment",
+    "schema_version": 1,
+    "input_snapshot": {
+      "snapshot_version": 1,
+      "producer_model_version": "l3-strategy-shadow-20261020",
+      "ticker": "4559",
+      "company_name": "ゼリア新薬工業",
+      "sector": "医薬品",
+      "common_factors": [],
+      "as_of": "2026-10-16",
+      "sources": [
+        {
+          "source_id": "zeria_annual",
+          "ticker": "4559",
+          "source_tier": "primary",
+          "ref": "https://api.edinet-fsa.go.jp/api/v2/documents/S100YKC2?type=1",
+          "retrieved_at": "2026-10-20T12:37:50+00:00",
+          "as_of": "2026-06-25",
+          "used_for": "FY2026有報の契約・権利寿命・事業方針。関連箇所のみ実読。"
+        },
+        {
+          "source_id": "zeria_q1",
+          "ticker": "4559",
+          "source_tier": "primary",
+          "ref": "https://finance-frontend-pc-dist.west.edge.storage-yahoo.jp/disclosure/20260806/20260805510294.pdf",
+          "retrieved_at": "2026-10-20T12:37:50+00:00",
+          "as_of": "2026-08-06",
+          "used_for": "FY2027Q1の損益、会計見積り変更、製品売上、会社予想。"
+        },
+        {
+          "source_id": "fixed_price",
+          "ticker": "4559",
+          "source_tier": "local_data",
+          "provider": "jquants",
+          "dataset": "fixed-study/run-revision-41f490fe8c1041a8b6ebb4d6972edf44",
+          "retrieved_at": "2026-10-20T12:37:50+00:00",
+          "as_of": "2026-10-16",
+          "used_for": "取得済み10/16固定断面の未調整終値。後日取得の対照でありpoint-in-time再現ではない。"
+        }
+      ],
+      "facts": [
+        {
+          "fact_id": "price",
+          "fact_kind": "market_price",
+          "value": 2008,
+          "unit": "JPY_per_share",
+          "as_of": "2026-10-16",
+          "source_ids": [
+            "fixed_price"
+          ],
+          "price_basis": "last_close_unadjusted"
+        },
+        {
+          "fact_id": "shares",
+          "fact_kind": "shares_outstanding",
+          "value": 44079398,
+          "unit": "shares",
+          "as_of": "2026-06-30",
+          "source_ids": [
+            "zeria_q1"
+          ]
+        },
+        {
+          "fact_id": "forecast_ni",
+          "fact_kind": "net_income_attributable_to_owners",
+          "value": 10000000000,
+          "unit": "JPY",
+          "as_of": "2026-08-06",
+          "source_ids": [
+            "zeria_q1"
+          ]
+        },
+        {
+          "fact_id": "forecast_dps",
+          "fact_kind": "other",
+          "value": 50,
+          "unit": "JPY_per_share",
+          "as_of": "2026-08-06",
+          "source_ids": [
+            "zeria_q1"
+          ]
+        }
+      ]
+    },
+    "derived": {
+      "metrics": []
+    },
+    "valuation": {
+      "status": "unresolved",
+      "market_price_fact_id": "price",
+      "horizon_months": null,
+      "required_annual_return_pct": null,
+      "base": null,
+      "downside": null,
+      "unresolved_reason": "製品別の権利残存収益・減衰と更新投資を確認できず、主要な継続価値を一点の終価へ固定しない。条件感応度はfindingsへ留める。"
+    },
+    "investment_case": {
+      "explanation": "有限の販売権からの収益と、代替製品・更新権利に必要な投資後の残余価値を検討する。単年予想純利益を無期限に資本化しない。",
+      "invalidation_conditions": [
+        "後発品による減益を、投資負担後の代替製品の利益で補えない。",
+        "契約条件・更新支出・通貨影響により想定した株主回収が成立しない。"
+      ],
+      "status": "uncertain",
+      "status_reason": "権利後の製品別利益と更新費用を確認できず、継続価値の主要部分を合理的に固定できない。",
+      "source_ids": [
+        "zeria_annual",
+        "zeria_q1"
+      ]
+    },
+    "permanent_loss_risks": [
+      {
+        "axis": "funding_liquidity",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "当期BSは売掛金回収と棚卸増・借入減が混在する。cash創出の持続性と更新投資負担が未確定。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "zeria_annual",
+          "zeria_q1"
+        ]
+      },
+      {
+        "axis": "debt_repayment",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "Q1短期借入減少は返済の観測であり、更新権利の資金負担や全満期条件が解けた意味ではない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "zeria_annual",
+          "zeria_q1"
+        ]
+      },
+      {
+        "axis": "cash_flow",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "償却期間短縮は非現金だが、経済的権利寿命と更新費用を消せない。単年度CFを恒久owner earningsとしない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "zeria_annual",
+          "zeria_q1"
+        ]
+      },
+      {
+        "axis": "dilution",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "6月末自己株控除株数44,079,398を算術用に固定。評価日までの後発資本異動は全件照合未実施。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "zeria_q1"
+        ]
+      },
+      {
+        "axis": "customer_concentration",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "製品依存と販売先・ライセンサー依存は別。ディフィクリアの重要性は確認したが、顧客別契約条件を全確認していない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "zeria_annual"
+        ]
+      },
+      {
+        "axis": "structural_decline",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "ディフィクリアの特許後の後発品と契約継続条件が重要。会社は代替製品を育成しているが、製品別の減益と補填利益は未確認。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "zeria_annual",
+          "zeria_q1"
+        ]
+      },
+      {
+        "axis": "governance_accounting",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "販売権の償却期間短縮を確認。会計見積りの変更は経済的な寿命の検証を要するが、不正や全社価値ゼロを示す事実ではない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "zeria_q1"
+        ]
+      }
+    ],
+    "findings": {
+      "business_understanding": "医療用医薬品とコンシューマー事業。成長製品と有限寿命の権利が同じ増収に混在し、営業利益と為替影響後の株主利益は異なる。",
+      "value_gap_explanation": "価格2008円・PER9・6%の条件対照では、12か月の必要純利益約101.798億円、30か月約107.646億円。単年100億円の維持だけでは通らず、期間延長は置換後利益の証明にならない。これらは価格に整合する条件であって推計されたfair valueではない。",
+      "realization": {
+        "mechanism": "既存権利の回収と、更新投資後の代替製品の収益が株主に残る。",
+        "timing": "uncertain",
+        "timing_reason": "2026〜2028年度中計期間の特許期限・後発品浸透・地域別契約条件に左右される。",
+        "delay_risk": "新製品拡大が遅れても旧製品の権利寿命は延びず、追加投資が必要になり得る。"
+      },
+      "hypotheses": [
+        {
+          "statement": "販売権の償却は非現金なので足し戻せば従来利益が続く。",
+          "origin": "research",
+          "result": "refuted",
+          "reason": "経済的便益期間の短縮と後発品・更新投資を無視できない。営業CFへの二重足し戻しも不可。",
+          "source_ids": [
+            "zeria_annual",
+            "zeria_q1"
+          ]
+        },
+        {
+          "statement": "他製品の増収がディフィクリアの将来減益を補う。",
+          "origin": "research",
+          "result": "unresolved",
+          "reason": "製品別利益率と更新費用が不明で、売上同士の相殺では証明できない。",
+          "source_ids": [
+            "zeria_annual",
+            "zeria_q1"
+          ]
+        }
+      ],
+      "unresolved_questions": [
+        "地域別の後発品浸透と契約終了条件の未開示閾値。",
+        "製品別利益と代替・更新投資の範囲。",
+        "為替の営業/営業外経路と株主利益。"
+      ],
+      "source_ids": [
+        "zeria_annual",
+        "zeria_q1"
+      ]
+    },
+    "conclusion": {
+      "stance": "uncertain",
+      "assessed_at": "2026-10-20T12:37:50+00:00",
+      "strongest_countercase": "既存製品のcash創出と代替成長を過小評価している可能性は残るが、製品別利益・更新費用を確認せずに高い継続価値へ反転することもできない。"
+    }
+  },
+  "expected_action": "defer",
+  "expected_blockers": [
+    "assessment_not_supported",
+    "valuation_unresolved"
+  ],
+  "review": null
+}
