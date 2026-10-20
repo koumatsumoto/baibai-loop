@@ -36,6 +36,8 @@ uv run baibai-engine screening run-show \
 
 全runをLLMへ一括投入せず、仮説に関係する保存行をローカルで有限に読み、候補内の対照と欠測・流動性も確認する。候補外を選んでも一般依頼のscopeは`discover_new`のままとし、`candidate.reasons`の空を経済的な棄却へ読み替えない。調査対象はcontextのcapacity（現行最大3件）内で固定し、選定理由、比較した代替、未確認の範囲を既存Selectionへ残す。一時的なフィルタやticker順を恒久の選抜規則にしない。
 
+市場環境から探索する依頼では、固定入力の観測日・公表/取得時点を確かめ、重要な変化から需要・価格転嫁・調達費・資金制約への伝達仮説を先に立てる。その影響が異なるセクターや事業を比較し、業種名だけで一律に受益/逆風を割り当てない。同じ業種でも顧客地域、契約、原料、負債・ヘッジによって影響は逆転し得る。下落率の大きさを割安とせず、業績/価値の下方修正と価格変化を分ける。マクロ予測が外れた場合の対照も必要な範囲で残し、必ず特定業種を選ぶ制約にはしない。既存の`selection_summary / rationale`へ対象を選ぶ理由を記し、セクター配分scoreや新しい必須artifactは作らない。
+
 inputs_requiredは経済的見送りではない。既存 `screening ticker-profile`、`verify-cache-coverage`、必要な `bootstrap-cache` / `screening run` と一次資料確認で補完し、同じ依頼でcontextを取り直す。Research factsは保存済みXBRLの再抽出なら `extract-edinet-facts`、原本取得が必要なら `refresh-edinet-facts` を使う。未初期化storeの扱いは[初期化手順](../../../batch/OPERATIONS.md#edinet-research-facts)に従い、通常のskipを取得・抽出成功と扱わない。通常の認可済みread取得に再許可を要求しない。新課金・権限変更・本番反映は[Ops Maintenance](../ops-maintenance/SKILL.md)の別境界であり、単一銘柄の不足を無断の全期間backfillで埋めない。標準補完後も機械分析を得られなければInputGapに試したsourceと不足理由を残し、一次資料で企業評価を進める。重要fact自体を得られない対象は未完了として扱う。
 
 ```bash
