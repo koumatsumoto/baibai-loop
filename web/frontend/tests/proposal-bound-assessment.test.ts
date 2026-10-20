@@ -30,6 +30,35 @@ function render(component: typeof ProposalItemContent | typeof ProposalAssessmen
 }
 
 describe('保存した提案と評価', () => {
+  it('永久損失の判断・証拠・基準日・出典を本文に表示し、未確認を安全に変えない', () => {
+    const axes = ['funding_liquidity', 'debt_repayment', 'cash_flow', 'dilution', 'customer_concentration', 'structural_decline', 'governance_accounting']
+    const riskDocument = {
+      ...document,
+      input_snapshot: { ...document.input_snapshot, sources: [{ source_id: 'risk_source', as_of: '2026-10-12', ref: 'https://example.invalid/risk-source' }] },
+      permanent_loss_risks: axes.map((axis, index) => ({ axis, assessment: index === 0 ? 'acceptable' : index === 1 ? 'adverse' : 'unknown', evidence_status: index === 0 ? 'partially_verified' : index === 1 ? 'verified' : 'unverified', summary: `保存リスク根拠${index}`, as_of: '2026-10-14', source_ids: ['risk_source'] })),
+    }
+    const saved = { ...item, assessment_projection: { ...item.assessment_projection, raw: riskDocument } }
+    const before = JSON.stringify(saved)
+    const html = render(ProposalAssessmentDetails, saved)
+    const section = html.match(/<section[^>]*aria-label="永久損失リスク"[^>]*>([\s\S]*?)<\/section>/)?.[1] ?? ''
+    for (const label of ['資金繰り', '債務返済', 'キャッシュフロー', '希薄化', '顧客集中', '構造的な衰退', 'ガバナンス・会計']) expect(section).toContain(label)
+    expect(section).toContain('判断: 許容できる / 根拠: 一部確認')
+    expect(section).toContain('判断: 不利 / 根拠: 確認済み')
+    expect(section).toContain('判断: 未確認 / 根拠: 未確認')
+    expect(section).toContain('評価基準日: 2026-10-14')
+    expect(section).toContain('risk_source · 保存sourceのas_of 2026-10-12')
+    expect(section).toContain('href="https://example.invalid/risk-source"')
+    expect(section).toContain('保存リスク根拠6')
+    expect(section).toContain('確認済みは、リスクがないことを意味しません。')
+    expect(JSON.stringify(saved)).toBe(before)
+  })
+  it('リスク本文が欠けた場合は評価済み・リスクなしと表示しない', () => {
+    const html = render(ProposalAssessmentDetails)
+    const section = html.match(/<section[^>]*aria-label="永久損失リスク"[^>]*>([\s\S]*?)<\/section>/)?.[1] ?? ''
+    expect(section).toContain('リスク本文を表示できません。保存した評価版を確認してください。')
+    expect(section).not.toContain('判断: 許容できる')
+  })
+
   it.each([
     { stance: 'uncertain', label: '未確定' },
     { stance: null, label: '未確認' },

@@ -1,6 +1,18 @@
 import type { ReactNode } from 'react'
 import { STANCE_LABELS, researchRecord as record, researchReturnPct, researchText as text } from '../lib/research'
 
+const RISK_AXIS_LABELS: Readonly<Record<string, string>> = {
+  funding_liquidity: '資金繰り', debt_repayment: '債務返済', cash_flow: 'キャッシュフロー',
+  dilution: '希薄化', customer_concentration: '顧客集中', structural_decline: '構造的な衰退',
+  governance_accounting: 'ガバナンス・会計',
+}
+const RISK_ASSESSMENT_LABELS: Readonly<Record<string, string>> = {
+  acceptable: '許容できる', adverse: '不利', unknown: '未確認',
+}
+const EVIDENCE_LABELS: Readonly<Record<string, string>> = {
+  verified: '確認済み', partially_verified: '一部確認', unverified: '未確認',
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <dl className="grid gap-1"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="text-sm font-medium">{children}</dd></dl>
 }
@@ -27,6 +39,7 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
   const sources = Array.isArray(snapshot.sources) ? snapshot.sources.map(record) : []
   const projections = record(projection.projections)
   const independentReview = record(review)
+  const risks = Array.isArray(document.permanent_loss_risks) ? document.permanent_loss_risks.map(record) : []
   const hypotheses = Array.isArray(findings.hypotheses) ? findings.hypotheses : []
   const unresolvedQuestions = Array.isArray(findings.unresolved_questions) ? findings.unresolved_questions : []
   const hasHypotheses = hypotheses.length > 0
@@ -66,6 +79,16 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
         </div>
       })}</div>
       <p className="text-sm text-muted-foreground">条件付き・税費用控除前・分配再投資なし。現在の購入判断は提案で確認します。</p></>}
+    </section>
+    <section className="grid gap-3 border-t pt-4" aria-label="永久損失リスク">
+      <h3 className="text-sm font-semibold">永久損失リスク</h3>
+      <p className="text-xs text-muted-foreground">保存評価のリスク判断と根拠の確認状態です。確認済みは、リスクがないことを意味しません。</p>
+      {risks.length > 0 ? <ul className="grid gap-3">{risks.map((risk, index) => <li className="grid gap-1" key={`${text(risk.axis)}-${index}`}>
+        <p className="text-sm font-medium">{RISK_AXIS_LABELS[text(risk.axis)] ?? text(risk.axis)}</p>
+        <p className="text-xs text-muted-foreground">判断: {RISK_ASSESSMENT_LABELS[text(risk.assessment)] ?? text(risk.assessment)} / 根拠: {EVIDENCE_LABELS[text(risk.evidence_status)] ?? text(risk.evidence_status)} / 評価基準日: {text(risk.as_of)}</p>
+        <p className="whitespace-pre-line text-sm">{text(risk.summary)}</p>
+        <SourceRefs ids={risk.source_ids} sources={sources} />
+      </li>)}</ul> : <p className="text-sm text-muted-foreground">リスク本文を表示できません。保存した評価版を確認してください。</p>}
     </section>
     <section className="grid gap-3 border-t pt-4" aria-label="反証と独立Review">
       <h3 className="text-sm font-semibold">反証と独立Review</h3>
