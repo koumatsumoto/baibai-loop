@@ -222,4 +222,3 @@ AssessmentとReviewのUUIDは各scaffoldで発行する。Assessmentの同一素
 Caseのassessment-draft.yaml、assessment-review.yamlとassessment-publication.yamlを使う。最後のfileはscaffoldで固定する公開IDとsupersedes参照だけを持ち、企業評価本文の第二正本ではない。--forceだけでは公開IDを変えず、素材のprior参照とsupersedes先が同じなら再生成・再試行でも維持する。素材または置換先の最新評価が変わった場合は新しい公開IDを発行する。公開状態はexact document/Reviewとの一致で決まり、自由なchecklistを第二gateにしない。
 
 scaffoldの--outは任意FILEへの追加exportを指定でき、同じpayloadをworkspaceのcanonical draftにも生成する。公開はworkspace側の本文と固定IDを使う。別exportを編集した場合はworkspace側へ明示的にコピーするかworkspace側を直接編集し、exportの変更を黙って採用しない。出力衝突は--forceの明示なしに上書きしない。作成・独立Review・公開・提案への順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。
-
