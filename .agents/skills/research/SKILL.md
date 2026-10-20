@@ -48,7 +48,7 @@ uv run baibai-engine research prepare \
   --workspace .cache/research/<ASOF> --sqlite-path stores/market/market.sqlite
 ```
 
-Operation内の一つのsnapshotが固定入力の正本であり、`domain-inputs.yaml`は削除・再生成可能なAI読取投影である。選択済み対象だけの機械値・市場・外部評価と、scope/summary/選定理由/問い/リスクを読む。保有子は `domain_inputs_ref` で親入力を共有する。観測・機械anchor・保存判断・今回の仮定を分け、materialな環境変化だけ企業評価と提案へ接続する。[固定入力と時点](../../../docs/reference/analysis-operations.md#固定入力と時点)に従い、Readingの`read_semantics`も読む。snapshot固定を全入力の過去時点再現と扱わず、`known_at`非適用や後日改定を含む入力を当時の判断品質の証明に使わない。
+Operation内の一つのsnapshotが固定入力の正本であり、`domain-inputs.yaml`は削除・再生成可能なAI読取投影である。選択済み対象だけの機械値・市場・外部評価と、scope/summary/選定理由/問い/リスクを読む。保有子は `domain_inputs_ref` で親入力を共有する。観測・機械anchor・保存判断・今回の仮定を分け、materialな環境状態・変化を企業評価と提案へ接続する。[固定入力と時点](../../../docs/reference/analysis-operations.md#固定入力と時点)に従い、Readingの`read_semantics`も読む。snapshot固定を全入力の過去時点再現と扱わず、`known_at`非適用や後日改定を含む入力を当時の判断品質の証明に使わない。
 
 `domain-inputs.yaml`の`analysis_source`で固定runの日付・rules hash・E[r] modelを確認する。保存済みE[r]較正文脈を参照する場合だけ、`research calibration-context --operation-id <OPERATION_ID> --db stores/application/baibai.sqlite`を明示実行する。結果は固定runのmethod identityと照合した読取専用の歴史分布であり、欠損・期限切れ・不一致は理由付き利用不能とする。候補順、Selection、Research進行、案件ごとの要求率や購入採否へ自動接続しない。分母、未評価、formal evidenceの限界を合わせて読み、今の企業見積りや現在の市場判断へ読み替えない。
 
@@ -86,7 +86,7 @@ uv run baibai-engine research prepare \
    利益の1株換算には直近の自己株控除株数を起点とし、重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。資料・単位・期間を確認し、比較表の数値は行だけでなく年度見出しと当期・前期の列を一組で読む。重要な事実の欠落と合理的な見積りの幅を分ける。利益・倍率・要求率で同じリスクを重複控除せず、経済経路が違う影響は区別する。
    ratioとProjectionは[Draft算術](../../../docs/reference/stock-assessment.md#draft-calculation)の`research calculate <INPUTS>`を使えるが、企業見積りと算式は一次資料から別途確認する。
 3. `research assessment-evaluate <DRAFT>`で公開内容と原価格の計算資料を確認する。Review未添付だけのreview_requiredもexit 2であり、公開前にはReviewが必要である。他のerrorを無視する許可ではない。
-4. `research assessment-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`で現在coreに束縛するReview draftを作り、作者と別の作業者がsource・算術・反証を確認する。Review側も原本の年度見出し・当期/前期列と算術期間を自分で照合し、終期の権利落ち後株価・未入金配当権利・期間内現金受取を分けた独立入力でcalculateを呼び、recalculated_projectionsへ渡す。作者の抽出値・入力・出力をコピーして独立検算としない。要求率の経済的根拠と、重要なマクロ経路と外部相違について、原典が個社仮定を支える範囲、比較不能な条件、結論を覆す反例を独立に見る。review_scopeに再確認した範囲と保存済み根拠を読み直した範囲・限界を書く。`assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、core変更時はReviewを取り直す。
+4. `research assessment-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`で現在coreに束縛するReview draftを作り、作者と別の作業者がsource・算術・反証を確認する。resolved valuationのReviewでは、原本の年度見出し・当期/前期列と算術期間を自分で照合し、終期の権利落ち後株価・未入金配当権利・期間内現金受取を分けた独立入力でcalculateを呼び、recalculated_projectionsへ渡す。unresolved valuationでは不足と所見・結論を独立確認し、[Reviewの契約](../../../docs/reference/stock-assessment.md#independent-second-pass)どおり数値検算を捏造しない。作者の抽出値・入力・出力をコピーして独立検算としない。要求率の経済的根拠と、重要なマクロ経路と外部相違について、原典が個社仮定を支える範囲、比較不能な条件、結論を覆す反例を独立に見る。review_scopeに再確認した範囲と保存済み根拠を読み直した範囲・限界を書く。`assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、core変更時はReviewを取り直す。
 5. supported/uncertain/unsupportedを確定し、`research assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で評価とReviewを原子的に公開する。supportedは購入採用ではなく、cash不足や現在価格だけで評価結論を書き換えない。valuation unresolvedでも所見と理由を独立検証した評価は完成できる。調査そのものの根拠不足は未完了として記録する。
 
 同日には同じimmutable pairを提案が参照できる。翌日以降に当日算術を使う場合は`assessment-scaffold --from-assessment-id <ID>`で差分draftを作り、価値・残る期間・今後分配・株式単位を確認する。旧source/fact日付は不変で、horizonと今後分配・refresh理由は未入力から記す。旧期間を毎日延長せず、受取済み分配を今後分へ持ち越さない。以前の根拠を再利用できるが、今回の全coreへ新しい独立Reviewを取る。

@@ -32,6 +32,12 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
 | artifact・指標の意味を調べる | [Reference index](./reference/README.md) |
 
+## 調査から本番表示までの読み順
+
+[Research skill](../.agents/skills/research/SKILL.md)を入口に、固定入力と再開は[Analysis operations](./reference/analysis-operations.md)、企業評価と独立反証は[Stock Assessment](./reference/stock-assessment.md)、比較・行動と発行は[Investment Proposal](./reference/investment-proposal.md)へ進む。共通の市場判断を新規作成する場合の入口は[Market Context skill](../.agents/skills/market-context-assessment/SKILL.md)である。
+
+作業コピーへの正式保存後、本番反映が必要なら[Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md)から[application反映](../batch/OPERATIONS.md#application-db-を反映する)へ進む。R2正本、表示用生成物、画面の確認をそこで行い、提案から台帳へ自動的には進まない。人間の取引報告を受けた場合だけ[Ledger Record](../.agents/skills/ledger-record/SKILL.md)へ進む。各入口の条件・commandをこの索引へ複写しない。
+
 ## 判断条件の見取り図
 
 [取得・観測の利用可能性](./reference/data-sources.md)は銘柄の価値判断と分ける。計算できるか、候補として調べるか、購入するか、保有するかも別の問いである。各条件の数値・判定式は対応する実装とmethodが所有し、下表は理由と責務への入口だけを示す。閾値の採否・未測定事項の進捗は[Issue #1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)に残し、テスト成功を経済的な最適性とは扱わない。
@@ -57,7 +63,8 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | [reference](./reference/README.md) | artifact・指標・判断入力の意味と解釈上の制約 |
 | model・DB schema・public `--help` | field、type、enum、option、機械検証の厳密な形 |
 | [anti-patterns](./anti-patterns.md) | 過去に取り違えた論点から正本へ辿る索引 |
-| [method](../method/README.md)・[reports](../reports/README.md) | 採用methodと、当時の測定・判断の記録 |
+| [method](../method/README.md) | 採用した計算規則・playbookのdated revision。activeの選択は各loader・索引が所有する |
+| [reports](../reports/README.md) | 当時の測定・操作・判断の証拠。historical本文を現在の操作手順にしない |
 
 <a id="document-writing-contract"></a>
 

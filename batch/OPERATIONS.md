@@ -12,7 +12,14 @@
 | 経済原本・L2系列を直す | [原本と系列定義の修正](#指標観測とregistryの修正) |
 | EDINET metricsの抽出意味を変更する | [意味revision更新](#edinet-metrics-revision) |
 | EDINET原典のResearch factsを揃える | [EDINET Research facts](#edinet-research-facts) |
+| remote拡張なしで固定releaseを読む | [完全mirrorからのhydrate](#local-release-hydrate) |
+| applicationの過去snapshotへ戻す | [復元](#application-db-を復元する) |
+| machineの途中公開・世代競合から復旧する | [部分push](#部分-push-からの復旧)・[R2安全境界](#r2-transferの安全境界) |
+| 公開brokerページの観測を取得・再開する | [限定取得](#external-assessment-acquisition)・[日次cohort](#日次取得と固定コホートの再開) |
+| TradingViewを取得・認証復旧する | [観測と運用](#tradingview-expectations)・[障害診断](#tradingview-expectationsの障害診断) |
+| 画面code・共有readを設定する | [Worker配信](#workerをdeployする)・[共有read](#shared-read-setup) |
 | 初回の構成を確認する | [Cloudflare / GitHub Actions構成](#cloudflare--github-actions-構成) |
+| 過去の切替と現在の修正を区別する | [保存名切替後の運用](#store-identity-recovery)・[schema修正](#schema-cutoverを修正するとき) |
 
 
 <a id="actions-write-boundary"></a>
