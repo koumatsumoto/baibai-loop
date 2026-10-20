@@ -102,7 +102,14 @@
         "annualized_return_pct": "-14.27872300905600161278297059",
         "pmax_yen": "1474.974286580231362043923885"
       }
-    ]
+    ],
+    "no_profit_growth_12m_control": {
+      "total_distribution_yen": "120",
+      "total_value_yen": "2515.850633581858417010427280",
+      "annualized_return_pct": "0.313023667538214394355154700",
+      "pmax_at_6_pct_yen": "2373.443993945149450009837057"
+    },
+    "three_billion_op_pmax_at_9_pct_yen": "2348.939964414629954417667804"
   },
   "zeria": {
     "price_yen": "2008",
@@ -134,5 +141,36 @@
       "lease_principal_yen": "445090000",
       "after_these_items_yen": "6614795000"
     }
+  },
+  "nippon_shindo_multiple_basis": {
+    "status": "illustrative_36_month_model_contrast_not_forecast",
+    "price_yen": "2539",
+    "shares_assumed_constant": "2137002",
+    "starting_book_equity_proxy_yen": "13032000000",
+    "book_proxy_date": "2026-06-30",
+    "assumed_annual_net_income_yen": "1050000000",
+    "annual_dividend_assumption_yen": "15",
+    "cash_distribution_in_horizon_yen": "40",
+    "terminal_dividend_receivable_yen": "5",
+    "other_equity_changes_assumption": "0",
+    "ending_book_equity_yen": "16085834910",
+    "cases": [
+      {
+        "model": "constant_forward_pe",
+        "ex_rights_terminal_price_yen": "2539",
+        "terminal_value_per_share_yen": "2544",
+        "annualized_return_pct": "0.587327484046716439879997900",
+        "implied_terminal_pe": "5.167474360000000000000000000",
+        "pmax_at_6_pct_yen": "2169.576227355467936618819562"
+      },
+      {
+        "model": "constant_pb",
+        "ex_rights_terminal_price_yen": "3133.972900283149171270718232",
+        "terminal_value_per_share_yen": "3138.972900283149171270718232",
+        "annualized_return_pct": "7.780793084579648795074678700",
+        "implied_terminal_pe": "6.378387005572276519337016574",
+        "pmax_at_6_pct_yen": "2669.126947314854856081461737"
+      }
+    ]
   }
 }
