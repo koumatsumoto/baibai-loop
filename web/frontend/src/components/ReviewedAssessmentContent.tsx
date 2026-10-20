@@ -52,7 +52,7 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
       <h3 className="text-sm font-semibold">条件付き価値と時間</h3>
       <Field label="価値実現の道筋"><p>{text(realization.mechanism)}</p><p>時期 {text(realization.timing)} · {text(realization.timing_reason)}</p><p>長期化のリスク: {text(realization.delay_risk)}</p></Field>
       {valuation.status === 'unresolved' && <Field label="価値見積り未解決の理由"><p>{text(valuation.unresolved_reason)}</p></Field>}
-      <p className="text-sm">評価起点 {text(snapshot.as_of)} / 原評価の観測価格 {text(projection.original_price_yen)} 円 / 日時 {text(projection.original_quote_at)} / basis {text(projection.original_price_basis)}</p>
+      <p className="text-sm">評価起点 {text(snapshot.as_of)} / 原評価の観測価格 {text(projection.original_price_yen)} 円 / 価格基準日 {text(projection.original_price_as_of)}{projection.original_quote_at != null && <> / 観測時刻 {text(projection.original_quote_at)}</>} / basis {text(projection.original_price_basis)}</p>
       {valuation.status === 'resolved' && <><p className="text-sm">期間 {text(valuation.horizon_months)} か月 / 要求年率 {text(valuation.required_annual_return_pct)}%</p>
       <div className="grid gap-4 sm:grid-cols-2">{['base', 'downside'].map(name => {
         const arithmetic = record(projections[name])

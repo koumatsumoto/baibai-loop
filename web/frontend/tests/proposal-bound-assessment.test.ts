@@ -95,6 +95,26 @@ describe('保存した提案と評価', () => {
     expect(html).not.toContain('分配後の価値')
     expect(html).not.toContain('要求年率 未確認')
   })
+  it.each([
+    { name: '日次終値', price: 1100, date: '2026-10-13', time: null, basis: 'last_close_unadjusted' },
+    { name: '時刻付きquote', price: 1100, date: '2026-10-14', time: '2026-10-14T10:05:00+09:00', basis: 'realtime' },
+    { name: '価格欠測', price: null, date: null, time: null, basis: null },
+  ])('$nameの価格基準日と実観測時刻を区別する', ({ price, date, time, basis }) => {
+    const raw = price === null ? { ...document, valuation: { status: 'unresolved', unresolved_reason: '価格未取得', market_price_fact_id: null, horizon_months: null, required_annual_return_pct: null, base: null, downside: null } } : document
+    const html = render(ProposalAssessmentDetails, { ...item, assessment_projection: { ...item.assessment_projection, raw, original_price_yen: price, original_price_as_of: date, original_quote_at: time, original_price_basis: basis, projections: price === null ? {} : item.assessment_projection?.projections } })
+    // Inspect the main display, independently of the raw document disclosure.
+    const priceLine = html.match(/<p[^>]*>評価起点 .*?<\/p>/)?.[0] ?? ''
+    expect(priceLine).toContain('評価起点 2026-10-14')
+    expect(priceLine).toContain(`価格基準日 ${date ?? '未確認'}`)
+    expect(priceLine).toContain(`原評価の観測価格 ${price ?? '未確認'} 円`)
+    if (time) expect(priceLine).toContain(`観測時刻 ${time}`)
+    else expect(priceLine).not.toContain('観測時刻')
+    if (price === null) {
+      expect(html).toContain('価格未取得')
+      expect(html).not.toContain('分配後の価値')
+      expect(priceLine).not.toContain('価格基準日 2026-10-14')
+    }
+  })
   it('保存limit/quantity/target_session/warningsを示し、注文や約定と区別する', () => {
     const html = render(ProposalItemContent)
     for (const text of ['保存した提案条件', '提案条件確定', '1,000円', '300株', '300,000円', '2026-10-15', '指定の指値で待つ提案', '買付後の現金余力が警告水準を下回ります', '注文受理・約定の保証ではありません']) expect(html).toContain(text)
