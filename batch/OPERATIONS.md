@@ -605,7 +605,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 ## 日次機械工程 — baibai-batch daily
 
-GitHubの日次jobは開始時にprocess内の取得期限を設定し、job上限の最後の15分を公開・lease解放用に残す。J-Quants、EDINET、JPXと対応する経済HTTPのread/retryは残時間を確認し、Retry-Afterが収まらなければ短縮せず終了する。初回＋最大5retryを単一GETのtransportで所有し、EDINETのHTTP/body 429も同じ予算を使う。成功済みL1は既存保存経路に残す。期限・retry回数を次runのDB/R2へ持ち越さず、公開・通知・認証にはこのretryを適用しない。これは公開完了時間の保証や全source共通のrate設定ではない。
+GitHubの日次jobは開始時にprocess内の取得期限を設定し、90分のjob上限のうち後半55分を生成・公開・lease解放用に残す。取得期限はsetup/hydrateを含む開始35分後で、2026-10-20の実runでは取得後の生成・公開に約48分かかったことを根拠とする。J-Quants、EDINET、JPXと対応する経済HTTPのread/retryは残時間を確認し、Retry-Afterが収まらなければ短縮せず終了する。初回＋最大5retryを単一GETのtransportで所有し、EDINETのHTTP/body 429も同じ予算を使う。成功済みL1は既存保存経路に残す。期限・retry回数を次runのDB/R2へ持ち越さず、公開・通知・認証にはこのretryを適用しない。これは公開完了時間の保証や全source共通のrate設定ではない。
 
 Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、全Stock Analysisと候補文脈のrunの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。個別値の欠測を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
 

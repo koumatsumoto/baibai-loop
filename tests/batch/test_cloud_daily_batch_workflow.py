@@ -30,7 +30,7 @@ def test_acquisition_cutoff_is_set_before_work_and_reserves_publication_time() -
     cutoff = job["steps"][0]["run"]
     assert "BAIBAI_ACQUISITION_DEADLINE" in cutoff
     assert "date +%s" in cutoff
-    assert "75 * 60" in cutoff
+    assert "35 * 60" in cutoff
     assert '"$GITHUB_ENV"' in cutoff
 
 

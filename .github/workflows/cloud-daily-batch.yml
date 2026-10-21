@@ -36,10 +36,11 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      # Reserve the last 15 minutes for publication and lease release. The cutoff
-      # covers setup/hydration time too and is inherited by acquisition CLIs.
+      # The 2026-10-20 run needed ~48 minutes after acquisition for export/publish.
+      # Reserve 55 of the 90 minutes; this is headroom, not a completion guarantee.
+      # Setup/hydration time counts toward the acquisition cutoff too.
       - name: Set acquisition cutoff for this job
-        run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 75 * 60 ))" >> "$GITHUB_ENV"
+        run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 35 * 60 ))" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
