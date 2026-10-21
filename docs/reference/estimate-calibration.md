@@ -35,7 +35,7 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 ## データ完全性
 
-panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
+panel は cohort as-of 以下の最新 `eq_master` snapshot を優先する。それがない場合、reader は最初の保存断面を `future_snapshot` と明示して診断用に読む。`exact_date` 以外の断面を当時の母集団と同一視せず、prior / future / unavailable の状態を diagnostics に残す。正式な較正文脈の生成では同日断面と母集団・入力の完全性を要求し、未来断面による診断を現行methodの実証へ昇格させない。
 
 `evidence_readiness`は、現在のsnapshotが保持するpanel / forward / diagnosticsの
 integrity、3y/5y coverage、subject必須metric、追加guardrail、measurement policyだけで決める。過去入力の
