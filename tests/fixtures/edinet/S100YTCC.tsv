@@ -107,4 +107,5 @@ jpigp_cor:OperatingProfitLossIFRS	営業利益（△損失）（IFRS）	InterimD
 jpigp_cor:OperatingProfitLossIFRS	営業利益（△損失）（IFRS）	InterimDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember	当中間期	その他	期間	JPY	円	-25360000000
 jpigp_cor:OperatingProfitLossIFRS	営業利益（△損失）（IFRS）	InterimDuration_ReconcilingItemsMember	当中間期	その他	期間	JPY	円	18000000
 jpigp_cor:OperatingProfitLossIFRS	営業利益（△損失）（IFRS）	InterimDuration	当中間期	その他	期間	JPY	円	644940000000
+jpdei_cor:AccountingStandardsDEI	会計基準、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	IFRS
 jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI	連結決算の有無、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	true

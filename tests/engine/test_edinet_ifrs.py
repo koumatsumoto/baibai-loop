@@ -82,6 +82,34 @@ def test_native_ifrs_facts_keep_scope_and_period(
     assert record.source_period_end == date(year, 12, 31)
 
 
+@pytest.mark.parametrize(
+    ("doc_id", "ticker", "ocf", "assets", "equity", "operating_profit", "depreciation"),
+    [
+        ("S100YRSR", "436A", 1718237000, 7154218000, 4244058000, 1500178000, 357693000),
+        ("S100Y6VZ", "4494", 615028000, 7791276000, 6270144000, 561509000, 204281000),
+    ],
+)
+def test_native_mixed_standard_filing_uses_declared_ifrs_not_japanese_gaap(
+    doc_id, ticker, ocf, assets, equity, operating_profit, depreciation
+):
+    fixture = Path(__file__).parents[1] / "fixtures" / "edinet" / f"{doc_id}.tsv"
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("facts.csv", fixture.read_text().encode("utf-16-le"))
+    record = parse_csv_zip_metric_record(
+        ticker=ticker, doc_id=doc_id, doc_type_code="120", content=buffer.getvalue()
+    )
+    assert record.consolidation_basis == "non_consolidated"
+    assert record.ocf_ttm == ocf
+    assert record.total_assets == assets
+    assert record.equity == equity
+    assert record.operating_profit_ttm == operating_profit
+    assert record.depreciation_and_amortization_ttm == depreciation
+    assert record.ebitda_ttm == operating_profit + depreciation
+    assert record.debt is None
+    assert record.net_cash is None
+
+
 @pytest.mark.parametrize("namespace", ["issuer", "other", "JPIGP_COR"])
 def test_ifrs_aliases_do_not_guess_issuer_or_other_namespace(namespace):
     text = (

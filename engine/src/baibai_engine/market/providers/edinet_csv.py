@@ -45,12 +45,18 @@ def parse_csv_zip_metric_record(
 
     quality = _flow_period_quality(doc_type_code, period_start, period_end, submit_datetime)
     consolidation_dei = _consolidation_dei_status(rows)
+    rows, accounting_failure = _accounting_standard_rows(rows)
     rows, basis = _select_statement_rows(
         rows,
         doc_type_code,
         allow_non_consolidated=consolidation_dei in {"false", "missing"},
     )
-    failures: list[str] = []
+    if any(_row_element(row) in _IFRS_ALIASES for row in rows) and any(
+        _row_element(row) not in _IFRS_ALIASES for row in rows
+    ):
+        rows, basis = [], None
+        accounting_failure = "accounting_standard_dei_missing_for_mixed_facts"
+    failures: list[str] = [accounting_failure] if accounting_failure is not None else []
     if consolidation_dei == "true" and basis is None:
         failures.append("consolidated_dei_no_supported_current_facts")
     elif consolidation_dei in {"conflict", "invalid"}:
@@ -137,6 +143,7 @@ def parse_csv_zip_metric_record(
 # financial debt, and other financial assets are not investment securities.
 _IFRS_ALIASES = {
     "jpigp_cor:RevenueIFRS": "netsales",
+    "jpigp_cor:NetSalesIFRS": "netsales",
     "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS": (
         "netcashprovidedbyusedinoperatingactivities"
     ),
@@ -299,6 +306,36 @@ def _select_statement_rows(
     individual_contexts = {f"{context}_NonConsolidatedMember" for context in contexts}
     individual = [row for row in financial if _row_context(row) in individual_contexts]
     return individual, "non_consolidated" if individual else None
+
+
+def _accounting_standard_rows(
+    rows: Sequence[Mapping[str, str]],
+) -> tuple[Sequence[Mapping[str, str]], str | None]:
+    """A filing may show IFRS and Japanese GAAP in the very same context.
+
+    Select the filing's declared standard before choosing consolidated/individual
+    contexts. Otherwise identical metric aliases falsely conflict, or amounts
+    from different accounting standards get combined into one balance/flow.
+    """
+    facts = [
+        row
+        for row in rows
+        if _row_element(row) == "jpdei_cor:AccountingStandardsDEI"
+        and _row_context(row) == "FilingDateInstant"
+    ]
+    if not facts:
+        return rows, None
+    if any(row.get("ユニットID") != "－" or not row.get("値") for row in facts):
+        return [], "accounting_standard_dei_invalid"
+    standards = {row["値"] for row in facts}
+    if len(standards) != 1:
+        return [], "accounting_standard_dei_conflict"
+    standard = next(iter(standards))
+    if standard == "IFRS":
+        return [row for row in rows if _row_element(row) in _IFRS_ALIASES], None
+    if standard == "Japan GAAP":
+        return [row for row in rows if not _row_element(row).startswith("jpigp_cor:")], None
+    return [], "accounting_standard_dei_unsupported"
 
 
 def _metric_values(

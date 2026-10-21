@@ -151,6 +151,37 @@ def test_supported_ifrs_assets_do_not_allow_individual_revenue_fallback():
     assert "non_consolidated_fallback" not in record.failure_reasons
 
 
+@pytest.mark.parametrize(
+    ("standards", "expected", "reason"),
+    [
+        (["IFRS"], 200, None),
+        (["Japan GAAP"], 100, None),
+        (["IFRS", "IFRS"], 200, None),
+        (["IFRS", "Japan GAAP"], None, "accounting_standard_dei_conflict"),
+        ([""], None, "accounting_standard_dei_invalid"),
+        (["unsupported"], None, "accounting_standard_dei_unsupported"),
+        ([], None, "accounting_standard_dei_missing_for_mixed_facts"),
+    ],
+)
+def test_accounting_standard_is_selected_before_aliases_or_amounts_are_combined(
+    standards, expected, reason
+):
+    record = _parse(
+        "120",
+        [
+            ("jppfs_cor:Assets", "CurrentYearInstant", "連結", "100"),
+            ("jpigp_cor:AssetsIFRS", "CurrentYearInstant", "連結", "200"),
+        ],
+        dei_rows=[
+            ("jpdei_cor:AccountingStandardsDEI", "FilingDateInstant", "－", value)
+            for value in standards
+        ],
+    )
+    assert record.total_assets == expected
+    if reason is not None:
+        assert reason in record.failure_reasons
+
+
 def test_consolidated_dei_uses_supported_consolidated_facts():
     record = _parse(
         "120",
