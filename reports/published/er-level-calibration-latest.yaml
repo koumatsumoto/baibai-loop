@@ -24,11 +24,12 @@ required_asofs:
 evidence_complete: false
 evidence_blocking_reasons:
 - integrity_blocked
+- unpriced_exit_flips_direction
 - entry_price_gap
-generated_at: '2026-10-14T15:16:35+09:00'
-valid_through: '2026-11-28'
+generated_at: '2026-10-21T21:21:57+09:00'
+valid_through: '2026-12-05'
 reference_horizon: 3y
-screening_rules_hash: aa922907ebc421a0
+screening_rules_hash: 16a1c1441ac44f8b
 er_model_version: expected-return-v1
 primary_realized_basis: fy_actual_dividend_total_return
 secondary_realized_basis: price_return_only
@@ -49,322 +50,334 @@ common_window:
     - band_id: q1
       quintile: 1
       lower_er_annual: null
-      upper_er_annual: -0.036881
-      median_predicted_er_annual: -0.049383
+      upper_er_annual: -0.036708
+      median_predicted_er_annual: -0.04995
       cohort_count: 19
-      median_n: 702
+      median_n: 690
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 13073
-          observed_n: 11005
-          missing_n: 2068
+          declared_n: 12727
+          observed_n: 9148
+          missing_n: 3579
           missing_reason_counts:
-            unresolved_dividend_split_basis: 419
-            unresolved_missing_dividend: 1000
-            unresolved_no_fy_observation: 16
-            unresolved_stale_exit: 633
+            unresolved_dividend_period_gap: 756
+            unresolved_dividend_split_basis: 1745
+            unresolved_missing_dividend: 391
+            unresolved_no_fy_observation: 13
+            unresolved_rights_issue: 49
+            unresolved_stale_exit: 625
         observed_cohort_count: 19
-        median_n: 588
+        median_n: 488
         ticker_equal:
-          median: -0.055598
-          q25: -0.174156
-          q10: -0.282445
-          trap_rate: 0.62826
-          n: 11005
+          median: -0.071386
+          q25: -0.190185
+          q10: -0.294391
+          trap_rate: 0.62735
+          n: 9148
         cohort_equal:
-          median: -0.073807
-          q25: -0.181641
-          q10: -0.282445
-          trap_rate: 0.639159
-          n: 588
+          median: -0.079617
+          q25: -0.201074
+          q10: -0.296214
+          trap_rate: 0.648352
+          n: 488
       - basis: price_return_only
         coverage:
-          declared_n: 13073
-          observed_n: 12440
-          missing_n: 633
+          declared_n: 12727
+          observed_n: 12102
+          missing_n: 625
           missing_reason_counts:
-            unresolved_stale_exit: 633
+            unresolved_stale_exit: 625
         observed_cohort_count: 19
-        median_n: 670
+        median_n: 659
         ticker_equal:
-          median: -0.058896
-          q25: -0.177894
-          q10: -0.286278
-          trap_rate: 0.588183
-          n: 12440
+          median: -0.05823
+          q25: -0.178642
+          q10: -0.286978
+          trap_rate: 0.588085
+          n: 12102
         cohort_equal:
-          median: -0.074808
-          q25: -0.184879
-          q10: -0.28496
-          trap_rate: 0.61194
-          n: 670
+          median: -0.073064
+          q25: -0.184929
+          q10: -0.284672
+          trap_rate: 0.611533
+          n: 659
     - band_id: q2
       quintile: 2
-      lower_er_annual: -0.036881
-      upper_er_annual: -0.008871
-      median_predicted_er_annual: -0.022289
+      lower_er_annual: -0.036708
+      upper_er_annual: -0.008408
+      median_predicted_er_annual: -0.021924
       cohort_count: 19
-      median_n: 667
+      median_n: 661
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 12386
-          observed_n: 10227
-          missing_n: 2159
+          declared_n: 12255
+          observed_n: 7953
+          missing_n: 4302
           missing_reason_counts:
-            unresolved_dividend_split_basis: 439
-            unresolved_missing_dividend: 968
+            unresolved_dividend_period_gap: 816
+            unresolved_dividend_split_basis: 2249
+            unresolved_missing_dividend: 445
             unresolved_missing_entry: 1
             unresolved_no_fy_observation: 1
-            unresolved_stale_exit: 750
+            unresolved_rights_issue: 29
+            unresolved_stale_exit: 761
         observed_cohort_count: 19
-        median_n: 547
+        median_n: 462
         ticker_equal:
-          median: 0.025793
-          q25: -0.053649
-          q10: -0.127342
-          trap_rate: 0.423096
-          n: 10227
+          median: 0.008814
+          q25: -0.065504
+          q10: -0.140982
+          trap_rate: 0.416195
+          n: 7953
         cohort_equal:
-          median: 0.025659
-          q25: -0.054837
-          q10: -0.124263
-          trap_rate: 0.432916
-          n: 547
+          median: 0.007287
+          q25: -0.067471
+          q10: -0.139328
+          trap_rate: 0.418033
+          n: 462
       - basis: price_return_only
         coverage:
-          declared_n: 12386
-          observed_n: 11635
-          missing_n: 751
+          declared_n: 12255
+          observed_n: 11493
+          missing_n: 762
           missing_reason_counts:
             unresolved_missing_entry: 1
-            unresolved_stale_exit: 750
+            unresolved_stale_exit: 761
         observed_cohort_count: 19
         median_n: 623
         ticker_equal:
-          median: 0.01321
-          q25: -0.067581
-          q10: -0.137666
-          trap_rate: 0.394156
-          n: 11635
+          median: 0.013169
+          q25: -0.067575
+          q10: -0.137865
+          trap_rate: 0.397807
+          n: 11493
         cohort_equal:
-          median: 0.01321
-          q25: -0.068895
-          q10: -0.1358
-          trap_rate: 0.401284
+          median: 0.013345
+          q25: -0.068304
+          q10: -0.137115
+          trap_rate: 0.40931
           n: 623
     - band_id: q3
       quintile: 3
-      lower_er_annual: -0.008871
-      upper_er_annual: 0.014241
-      median_predicted_er_annual: 0.00347
+      lower_er_annual: -0.008408
+      upper_er_annual: 0.01464
+      median_predicted_er_annual: 0.003794
       cohort_count: 19
-      median_n: 736
+      median_n: 728
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 13914
-          observed_n: 11886
-          missing_n: 2028
+          declared_n: 13643
+          observed_n: 9095
+          missing_n: 4548
           missing_reason_counts:
-            unresolved_dividend_split_basis: 534
-            unresolved_missing_dividend: 726
-            unresolved_no_fy_observation: 3
-            unresolved_stale_exit: 765
+            unresolved_dividend_period_gap: 1021
+            unresolved_dividend_split_basis: 2509
+            unresolved_missing_dividend: 243
+            unresolved_no_fy_observation: 4
+            unresolved_rights_issue: 16
+            unresolved_stale_exit: 755
         observed_cohort_count: 19
-        median_n: 633
+        median_n: 499
         ticker_equal:
-          median: 0.064046
-          q25: -0.006867
-          q10: -0.06698
-          trap_rate: 0.280498
-          n: 11886
+          median: 0.050735
+          q25: -0.016187
+          q10: -0.077241
+          trap_rate: 0.252776
+          n: 9095
         cohort_equal:
-          median: 0.066414
-          q25: -0.005965
-          q10: -0.065125
-          trap_rate: 0.274691
-          n: 633
+          median: 0.055573
+          q25: -0.011811
+          q10: -0.073244
+          trap_rate: 0.256842
+          n: 499
       - basis: price_return_only
         coverage:
-          declared_n: 13914
-          observed_n: 13149
-          missing_n: 765
+          declared_n: 13643
+          observed_n: 12888
+          missing_n: 755
           missing_reason_counts:
-            unresolved_stale_exit: 765
+            unresolved_stale_exit: 755
         observed_cohort_count: 19
-        median_n: 700
+        median_n: 693
         ticker_equal:
-          median: 0.04626
-          q25: -0.025512
-          q10: -0.083671
-          trap_rate: 0.264583
-          n: 13149
+          median: 0.046726
+          q25: -0.024604
+          q10: -0.081455
+          trap_rate: 0.263268
+          n: 12888
         cohort_equal:
-          median: 0.048856
-          q25: -0.022361
-          q10: -0.077125
-          trap_rate: 0.259352
-          n: 700
+          median: 0.050656
+          q25: -0.020915
+          q10: -0.07649
+          trap_rate: 0.25966
+          n: 693
     - band_id: q4
       quintile: 4
-      lower_er_annual: 0.014241
-      upper_er_annual: 0.03563
-      median_predicted_er_annual: 0.024455
+      lower_er_annual: 0.01464
+      upper_er_annual: 0.036161
+      median_predicted_er_annual: 0.024851
       cohort_count: 19
-      median_n: 687
+      median_n: 683
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 13080
-          observed_n: 11284
-          missing_n: 1796
+          declared_n: 12986
+          observed_n: 8620
+          missing_n: 4366
           missing_reason_counts:
-            unresolved_dividend_split_basis: 306
-            unresolved_missing_dividend: 789
+            unresolved_dividend_period_gap: 946
+            unresolved_dividend_split_basis: 2406
+            unresolved_missing_dividend: 307
             unresolved_no_fy_observation: 1
-            unresolved_stale_exit: 700
+            unresolved_rights_issue: 7
+            unresolved_stale_exit: 699
         observed_cohort_count: 19
-        median_n: 585
+        median_n: 470
         ticker_equal:
-          median: 0.095227
-          q25: 0.027023
-          q10: -0.026992
-          trap_rate: 0.17095
-          n: 11284
+          median: 0.084378
+          q25: 0.020042
+          q10: -0.032434
+          trap_rate: 0.139327
+          n: 8620
         cohort_equal:
-          median: 0.098844
-          q25: 0.034228
-          q10: -0.022562
-          trap_rate: 0.160247
-          n: 585
+          median: 0.086482
+          q25: 0.02729
+          q10: -0.024031
+          trap_rate: 0.137168
+          n: 470
       - basis: price_return_only
         coverage:
-          declared_n: 13080
-          observed_n: 12380
-          missing_n: 700
+          declared_n: 12986
+          observed_n: 12287
+          missing_n: 699
           missing_reason_counts:
-            unresolved_stale_exit: 700
+            unresolved_stale_exit: 699
         observed_cohort_count: 19
-        median_n: 641
+        median_n: 635
         ticker_equal:
-          median: 0.072786
-          q25: 0.004358
-          q10: -0.050277
-          trap_rate: 0.17084
-          n: 12380
+          median: 0.072476
+          q25: 0.004464
+          q10: -0.049971
+          trap_rate: 0.171401
+          n: 12287
         cohort_equal:
-          median: 0.07644
-          q25: 0.010667
-          q10: -0.042665
-          trap_rate: 0.15461
-          n: 641
+          median: 0.072513
+          q25: 0.012031
+          q10: -0.041663
+          trap_rate: 0.15767
+          n: 635
     - band_id: q5
       quintile: 5
-      lower_er_annual: 0.03563
+      lower_er_annual: 0.036161
       upper_er_annual: null
-      median_predicted_er_annual: 0.05247
+      median_predicted_er_annual: 0.053103
       cohort_count: 19
-      median_n: 703
+      median_n: 696
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 14352
-          observed_n: 12712
-          missing_n: 1640
+          declared_n: 14063
+          observed_n: 9579
+          missing_n: 4484
           missing_reason_counts:
-            unresolved_dividend_split_basis: 186
-            unresolved_missing_dividend: 707
+            unresolved_dividend_period_gap: 1140
+            unresolved_dividend_split_basis: 2388
+            unresolved_missing_dividend: 188
             unresolved_no_fy_observation: 1
-            unresolved_stale_exit: 746
+            unresolved_rights_issue: 36
+            unresolved_stale_exit: 731
         observed_cohort_count: 19
-        median_n: 626
+        median_n: 465
         ticker_equal:
-          median: 0.142119
-          q25: 0.05904
-          q10: -0.007771
-          trap_rate: 0.12736
-          n: 12712
+          median: 0.133095
+          q25: 0.048773
+          q10: -0.020157
+          trap_rate: 0.11473
+          n: 9579
         cohort_equal:
-          median: 0.155321
-          q25: 0.069255
-          q10: 0.001153
-          trap_rate: 0.1
-          n: 626
+          median: 0.146027
+          q25: 0.06119
+          q10: -0.004859
+          trap_rate: 0.092896
+          n: 465
       - basis: price_return_only
         coverage:
-          declared_n: 14352
-          observed_n: 13606
-          missing_n: 746
+          declared_n: 14063
+          observed_n: 13332
+          missing_n: 731
           missing_reason_counts:
-            unresolved_stale_exit: 746
+            unresolved_stale_exit: 731
         observed_cohort_count: 19
-        median_n: 665
+        median_n: 662
         ticker_equal:
-          median: 0.114457
-          q25: 0.031027
-          q10: -0.03557
-          trap_rate: 0.134573
-          n: 13606
+          median: 0.115755
+          q25: 0.031546
+          q10: -0.03513
+          trap_rate: 0.134563
+          n: 13332
         cohort_equal:
-          median: 0.126985
-          q25: 0.042393
-          q10: -0.022905
-          trap_rate: 0.116279
-          n: 665
+          median: 0.127614
+          q25: 0.043781
+          q10: -0.023428
+          trap_rate: 0.116667
+          n: 662
     - band_id: er_gte_8_5pct
       quintile: null
       lower_er_annual: 0.085
       upper_er_annual: null
-      median_predicted_er_annual: 0.09616
+      median_predicted_er_annual: 0.096483
       cohort_count: 19
-      median_n: 75
+      median_n: 76
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 1602
-          observed_n: 1436
-          missing_n: 166
+          declared_n: 1667
+          observed_n: 1145
+          missing_n: 522
           missing_reason_counts:
-            unresolved_dividend_split_basis: 22
-            unresolved_missing_dividend: 73
-            unresolved_stale_exit: 71
+            unresolved_dividend_period_gap: 177
+            unresolved_dividend_split_basis: 238
+            unresolved_missing_dividend: 25
+            unresolved_rights_issue: 7
+            unresolved_stale_exit: 75
         observed_cohort_count: 19
-        median_n: 70
+        median_n: 60
         ticker_equal:
-          median: 0.195396
-          q25: 0.104083
-          q10: 0.024729
-          trap_rate: 0.08078
-          n: 1436
+          median: 0.185308
+          q25: 0.093842
+          q10: 0.016465
+          trap_rate: 0.073362
+          n: 1145
         cohort_equal:
-          median: 0.201157
-          q25: 0.109228
-          q10: 0.028
-          trap_rate: 0.073446
-          n: 70
+          median: 0.202571
+          q25: 0.108443
+          q10: 0.022825
+          trap_rate: 0.054054
+          n: 60
       - basis: price_return_only
         coverage:
-          declared_n: 1602
-          observed_n: 1531
-          missing_n: 71
+          declared_n: 1667
+          observed_n: 1592
+          missing_n: 75
           missing_reason_counts:
-            unresolved_stale_exit: 71
+            unresolved_stale_exit: 75
         observed_cohort_count: 19
-        median_n: 72
+        median_n: 73
         ticker_equal:
-          median: 0.160322
-          q25: 0.070488
-          q10: -0.005102
-          trap_rate: 0.09275
-          n: 1531
+          median: 0.162518
+          q25: 0.071756
+          q10: -0.003998
+          trap_rate: 0.092337
+          n: 1592
         cohort_equal:
-          median: 0.170366
-          q25: 0.079083
-          q10: 0.010833
+          median: 0.165089
+          q25: 0.087954
+          q10: 0.005236
           trap_rate: 0.083333
-          n: 72
+          n: 73
   - horizon: 5y
     asof_start: '2020-01-31'
     asof_end: '2021-07-30'
@@ -373,320 +386,332 @@ common_window:
     - band_id: q1
       quintile: 1
       lower_er_annual: null
-      upper_er_annual: -0.036881
-      median_predicted_er_annual: -0.049383
+      upper_er_annual: -0.036708
+      median_predicted_er_annual: -0.04995
       cohort_count: 19
-      median_n: 702
+      median_n: 690
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 13073
-          observed_n: 10114
-          missing_n: 2959
+          declared_n: 12727
+          observed_n: 8774
+          missing_n: 3953
           missing_reason_counts:
-            unresolved_dividend_split_basis: 667
-            unresolved_missing_dividend: 1470
-            unresolved_no_fy_observation: 16
-            unresolved_stale_exit: 806
+            unresolved_dividend_period_gap: 724
+            unresolved_dividend_split_basis: 1597
+            unresolved_missing_dividend: 744
+            unresolved_no_fy_observation: 13
+            unresolved_rights_issue: 82
+            unresolved_stale_exit: 793
         observed_cohort_count: 19
-        median_n: 546
+        median_n: 467
         ticker_equal:
-          median: -0.03505
-          q25: -0.124554
-          q10: -0.226396
-          trap_rate: 0.726122
-          n: 10114
+          median: -0.044942
+          q25: -0.136471
+          q10: -0.234799
+          trap_rate: 0.73091
+          n: 8774
         cohort_equal:
-          median: -0.034014
-          q25: -0.126767
-          q10: -0.225561
-          trap_rate: 0.727858
-          n: 546
+          median: -0.045422
+          q25: -0.137599
+          q10: -0.233081
+          trap_rate: 0.736726
+          n: 467
       - basis: price_return_only
         coverage:
-          declared_n: 13073
-          observed_n: 12267
-          missing_n: 806
+          declared_n: 12727
+          observed_n: 11934
+          missing_n: 793
           missing_reason_counts:
-            unresolved_stale_exit: 806
+            unresolved_stale_exit: 793
         observed_cohort_count: 19
-        median_n: 662
+        median_n: 650
         ticker_equal:
-          median: -0.037846
-          q25: -0.126659
-          q10: -0.226841
-          trap_rate: 0.692345
-          n: 12267
+          median: -0.036504
+          q25: -0.126466
+          q10: -0.227152
+          trap_rate: 0.693146
+          n: 11934
         cohort_equal:
-          median: -0.040311
-          q25: -0.128449
+          median: -0.037575
+          q25: -0.127077
           q10: -0.225271
-          trap_rate: 0.703533
-          n: 662
+          trap_rate: 0.701131
+          n: 650
     - band_id: q2
       quintile: 2
-      lower_er_annual: -0.036881
-      upper_er_annual: -0.008871
-      median_predicted_er_annual: -0.022289
+      lower_er_annual: -0.036708
+      upper_er_annual: -0.008408
+      median_predicted_er_annual: -0.021924
       cohort_count: 19
-      median_n: 667
+      median_n: 661
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 12386
-          observed_n: 8943
-          missing_n: 3443
+          declared_n: 12255
+          observed_n: 7591
+          missing_n: 4664
           missing_reason_counts:
-            unresolved_dividend_split_basis: 838
-            unresolved_missing_dividend: 1589
+            unresolved_dividend_period_gap: 771
+            unresolved_dividend_split_basis: 1916
+            unresolved_missing_dividend: 919
             unresolved_missing_entry: 1
             unresolved_no_fy_observation: 1
-            unresolved_stale_exit: 1014
+            unresolved_rights_issue: 32
+            unresolved_stale_exit: 1024
+        observed_cohort_count: 19
+        median_n: 442
+        ticker_equal:
+          median: 0.034958
+          q25: -0.026899
+          q10: -0.089543
+          trap_rate: 0.498222
+          n: 7591
+        cohort_equal:
+          median: 0.038152
+          q25: -0.025783
+          q10: -0.086846
+          trap_rate: 0.491597
+          n: 442
+      - basis: price_return_only
+        coverage:
+          declared_n: 12255
+          observed_n: 11230
+          missing_n: 1025
+          missing_reason_counts:
+            unresolved_missing_entry: 1
+            unresolved_stale_exit: 1024
+        observed_cohort_count: 19
+        median_n: 606
+        ticker_equal:
+          median: 0.035973
+          q25: -0.031135
+          q10: -0.093246
+          trap_rate: 0.481923
+          n: 11230
+        cohort_equal:
+          median: 0.039032
+          q25: -0.026993
+          q10: -0.091118
+          trap_rate: 0.477165
+          n: 606
+    - band_id: q3
+      quintile: 3
+      lower_er_annual: -0.008408
+      upper_er_annual: 0.01464
+      median_predicted_er_annual: 0.003794
+      cohort_count: 19
+      median_n: 728
+      bases:
+      - basis: fy_actual_dividend_total_return
+        coverage:
+          declared_n: 13643
+          observed_n: 8827
+          missing_n: 4816
+          missing_reason_counts:
+            unresolved_dividend_period_gap: 954
+            unresolved_dividend_split_basis: 2175
+            unresolved_missing_dividend: 692
+            unresolved_no_fy_observation: 4
+            unresolved_rights_issue: 16
+            unresolved_stale_exit: 975
         observed_cohort_count: 19
         median_n: 485
         ticker_equal:
-          median: 0.043348
-          q25: -0.020016
-          q10: -0.084047
-          trap_rate: 0.506653
-          n: 8943
+          median: 0.072717
+          q25: 0.015005
+          q10: -0.038189
+          trap_rate: 0.330123
+          n: 8827
         cohort_equal:
-          median: 0.046822
-          q25: -0.01992
-          q10: -0.084875
-          trap_rate: 0.503067
+          median: 0.07459
+          q25: 0.018049
+          q10: -0.034255
+          trap_rate: 0.334081
           n: 485
       - basis: price_return_only
         coverage:
-          declared_n: 12386
-          observed_n: 11371
-          missing_n: 1015
+          declared_n: 13643
+          observed_n: 12668
+          missing_n: 975
           missing_reason_counts:
-            unresolved_missing_entry: 1
-            unresolved_stale_exit: 1014
+            unresolved_stale_exit: 975
         observed_cohort_count: 19
-        median_n: 610
+        median_n: 683
         ticker_equal:
-          median: 0.03574
-          q25: -0.031831
-          q10: -0.094464
-          trap_rate: 0.480521
-          n: 11371
+          median: 0.070223
+          q25: 0.006107
+          q10: -0.046178
+          trap_rate: 0.345595
+          n: 12668
         cohort_equal:
-          median: 0.038962
-          q25: -0.030207
-          q10: -0.09201
-          trap_rate: 0.481032
-          n: 610
-    - band_id: q3
-      quintile: 3
-      lower_er_annual: -0.008871
-      upper_er_annual: 0.014241
-      median_predicted_er_annual: 0.00347
-      cohort_count: 19
-      median_n: 736
-      bases:
-      - basis: fy_actual_dividend_total_return
-        coverage:
-          declared_n: 13914
-          observed_n: 10543
-          missing_n: 3371
-          missing_reason_counts:
-            unresolved_dividend_split_basis: 1033
-            unresolved_missing_dividend: 1352
-            unresolved_no_fy_observation: 3
-            unresolved_stale_exit: 983
-        observed_cohort_count: 19
-        median_n: 574
-        ticker_equal:
-          median: 0.082255
-          q25: 0.020628
-          q10: -0.031786
-          trap_rate: 0.34696
-          n: 10543
-        cohort_equal:
-          median: 0.084638
-          q25: 0.022855
-          q10: -0.031963
-          trap_rate: 0.360558
-          n: 574
-      - basis: price_return_only
-        coverage:
-          declared_n: 13914
-          observed_n: 12931
-          missing_n: 983
-          missing_reason_counts:
-            unresolved_stale_exit: 983
-        observed_cohort_count: 19
-        median_n: 694
-        ticker_equal:
-          median: 0.06961
-          q25: 0.00565
-          q10: -0.047209
-          trap_rate: 0.344676
-          n: 12931
-        cohort_equal:
-          median: 0.072374
-          q25: 0.00842
-          q10: -0.045035
-          trap_rate: 0.351585
-          n: 694
+          median: 0.07292
+          q25: 0.008422
+          q10: -0.043279
+          trap_rate: 0.346434
+          n: 683
     - band_id: q4
       quintile: 4
-      lower_er_annual: 0.014241
-      upper_er_annual: 0.03563
-      median_predicted_er_annual: 0.024455
+      lower_er_annual: 0.01464
+      upper_er_annual: 0.036161
+      median_predicted_er_annual: 0.024851
       cohort_count: 19
-      median_n: 687
+      median_n: 683
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 13080
-          observed_n: 9919
-          missing_n: 3161
+          declared_n: 12986
+          observed_n: 8389
+          missing_n: 4597
           missing_reason_counts:
-            unresolved_dividend_split_basis: 784
-            unresolved_missing_dividend: 1486
+            unresolved_dividend_period_gap: 883
+            unresolved_dividend_split_basis: 1963
+            unresolved_missing_dividend: 854
             unresolved_no_fy_observation: 1
-            unresolved_stale_exit: 890
+            unresolved_rights_issue: 10
+            unresolved_stale_exit: 886
         observed_cohort_count: 19
-        median_n: 513
+        median_n: 459
         ticker_equal:
-          median: 0.108339
-          q25: 0.046359
-          q10: 0.000476
-          trap_rate: 0.246497
-          n: 9919
+          median: 0.099402
+          q25: 0.041897
+          q10: -0.003145
+          trap_rate: 0.219096
+          n: 8389
         cohort_equal:
-          median: 0.112619
-          q25: 0.048718
-          q10: 0.002767
-          trap_rate: 0.241517
-          n: 513
+          median: 0.10678
+          q25: 0.045069
+          q10: 0.0
+          trap_rate: 0.214149
+          n: 459
       - basis: price_return_only
         coverage:
-          declared_n: 13080
-          observed_n: 12190
-          missing_n: 890
+          declared_n: 12986
+          observed_n: 12100
+          missing_n: 886
           missing_reason_counts:
-            unresolved_stale_exit: 890
+            unresolved_stale_exit: 886
         observed_cohort_count: 19
-        median_n: 636
+        median_n: 630
         ticker_equal:
-          median: 0.093912
-          q25: 0.029496
-          q10: -0.02225
-          trap_rate: 0.252174
-          n: 12190
+          median: 0.092551
+          q25: 0.02927
+          q10: -0.021653
+          trap_rate: 0.253719
+          n: 12100
         cohort_equal:
-          median: 0.099691
-          q25: 0.032609
-          q10: -0.019683
-          trap_rate: 0.252542
-          n: 636
+          median: 0.097553
+          q25: 0.034028
+          q10: -0.019094
+          trap_rate: 0.246622
+          n: 630
     - band_id: q5
       quintile: 5
-      lower_er_annual: 0.03563
+      lower_er_annual: 0.036161
       upper_er_annual: null
-      median_predicted_er_annual: 0.05247
+      median_predicted_er_annual: 0.053103
       cohort_count: 19
-      median_n: 703
+      median_n: 696
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 14352
-          observed_n: 11360
-          missing_n: 2992
+          declared_n: 14063
+          observed_n: 9304
+          missing_n: 4759
           missing_reason_counts:
-            unresolved_dividend_split_basis: 635
-            unresolved_missing_dividend: 1417
+            unresolved_dividend_period_gap: 1077
+            unresolved_dividend_split_basis: 1974
+            unresolved_missing_dividend: 745
             unresolved_no_fy_observation: 1
-            unresolved_stale_exit: 939
+            unresolved_rights_issue: 44
+            unresolved_stale_exit: 918
         observed_cohort_count: 19
-        median_n: 561
+        median_n: 452
         ticker_equal:
-          median: 0.140476
-          q25: 0.070132
-          q10: 0.006159
-          trap_rate: 0.182658
-          n: 11360
+          median: 0.129911
+          q25: 0.061678
+          q10: -0.003597
+          trap_rate: 0.171324
+          n: 9304
         cohort_equal:
-          median: 0.14739
-          q25: 0.074414
-          q10: 0.016242
-          trap_rate: 0.171875
-          n: 561
+          median: 0.141195
+          q25: 0.067838
+          q10: 0.00305
+          trap_rate: 0.154728
+          n: 452
       - basis: price_return_only
         coverage:
-          declared_n: 14352
-          observed_n: 13413
-          missing_n: 939
+          declared_n: 14063
+          observed_n: 13145
+          missing_n: 918
           missing_reason_counts:
-            unresolved_stale_exit: 939
+            unresolved_stale_exit: 918
         observed_cohort_count: 19
-        median_n: 656
+        median_n: 654
         ticker_equal:
-          median: 0.118883
-          q25: 0.045772
-          q10: -0.017165
-          trap_rate: 0.206516
-          n: 13413
+          median: 0.120126
+          q25: 0.046372
+          q10: -0.017088
+          trap_rate: 0.206086
+          n: 13145
         cohort_equal:
-          median: 0.127182
-          q25: 0.051547
-          q10: -0.0104
-          trap_rate: 0.204327
-          n: 656
+          median: 0.131161
+          q25: 0.051137
+          q10: -0.009309
+          trap_rate: 0.204938
+          n: 654
     - band_id: er_gte_8_5pct
       quintile: null
       lower_er_annual: 0.085
       upper_er_annual: null
-      median_predicted_er_annual: 0.09616
+      median_predicted_er_annual: 0.096483
       cohort_count: 19
-      median_n: 75
+      median_n: 76
       bases:
       - basis: fy_actual_dividend_total_return
         coverage:
-          declared_n: 1602
-          observed_n: 1302
-          missing_n: 300
+          declared_n: 1667
+          observed_n: 1100
+          missing_n: 567
           missing_reason_counts:
-            unresolved_dividend_split_basis: 64
-            unresolved_missing_dividend: 143
-            unresolved_stale_exit: 93
+            unresolved_dividend_period_gap: 177
+            unresolved_dividend_split_basis: 208
+            unresolved_missing_dividend: 74
+            unresolved_rights_issue: 10
+            unresolved_stale_exit: 98
         observed_cohort_count: 19
-        median_n: 64
+        median_n: 58
         ticker_equal:
-          median: 0.174122
-          q25: 0.088638
-          q10: 0.021183
-          trap_rate: 0.145161
-          n: 1302
+          median: 0.156113
+          q25: 0.079522
+          q10: -0.004012
+          trap_rate: 0.145455
+          n: 1100
         cohort_equal:
-          median: 0.185155
-          q25: 0.098784
-          q10: 0.02423
-          trap_rate: 0.133758
-          n: 64
+          median: 0.168687
+          q25: 0.07664
+          q10: -0.001218
+          trap_rate: 0.14
+          n: 58
       - basis: price_return_only
         coverage:
-          declared_n: 1602
-          observed_n: 1509
-          missing_n: 93
+          declared_n: 1667
+          observed_n: 1569
+          missing_n: 98
           missing_reason_counts:
-            unresolved_stale_exit: 93
+            unresolved_stale_exit: 98
         observed_cohort_count: 19
-        median_n: 72
+        median_n: 73
         ticker_equal:
-          median: 0.149319
-          q25: 0.062405
-          q10: -0.013704
-          trap_rate: 0.180915
-          n: 1509
+          median: 0.149434
+          q25: 0.064176
+          q10: -0.010443
+          trap_rate: 0.175271
+          n: 1569
         cohort_equal:
           median: 0.149875
-          q25: 0.072867
-          q10: -0.006431
-          trap_rate: 0.171875
-          n: 72
+          q25: 0.078054
+          q10: -0.002742
+          trap_rate: 0.173913
+          n: 73
 horizons: *id001

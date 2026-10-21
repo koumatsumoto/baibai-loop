@@ -9,7 +9,7 @@ status: active
 
 # estimate-calibration — 見積り較正
 
-本書は、screeningの機械見積りと選定順位を過去as-ofで再構成し、実現した価格リターンと突き合わせるローカル専用の較正契約を所有する。portfolio outcomeやJPX total-return benchmarkとは別の横断的な見積り診断である。
+本書は、screeningの機械見積りと選定順位を過去as-ofで再構成し、実現した価格リターンと突き合わせる本番storeから隔離して実行する較正契約を所有する。portfolio outcomeやJPX total-return benchmarkとは別の横断的な見積り診断である。
 
 評価の実装は[evaluation](../../engine/src/baibai_engine/screening/calibration/evaluation/)に集約する。`cohorts`が評価を組み立て、`axes`は軸とquality、`discovery`は候補再現、`sensitivity`は欠落によるbias、`aggregate`はcohort横断の集計を所有する。採用済みの評価条件は`policy`、共通統計は`statistics`を参照する。
 
@@ -165,7 +165,7 @@ Researchでは固定Operation IDを指定し、`research calibration-context --o
 
 配当予想の鮮度など計算入力の意味を変える場合は、既存の`VALUATION_CALCULATION_REVISION`を更新する。productionのrules hash、panelのrules hash、派生cache contractへ同じrevisionを伝え、旧panelの再利用と旧contextの新runへの適用を拒否する。ER算式が同じなら`expected-return-v1`は維持する。保持artifactの旧計算revision・scope・入力窓はprovenance検証だけで認識し、元bytes/hashを変更しない。複数の変更を統合する場合、panel・contextの再生成は承認済みの最終methodでまとめて行う。
 
-rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schemaはidentityが一致しても`invalid_artifact`として非表示にする。CIは保持する旧schema 2の原bytesと凍結rulesへのprovenanceを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。最新schema4への更新結果と元bytesの旧artifactは[v26固定19月の受入記録](../../reports/studies/2026-10-14-er-context-v26/report.md)を参照する。旧統計のhash/schemaだけを新定義へ差し替えず、保存済みの整合したpanel/forwardと明示required scopeから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
+rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schemaはidentityが一致しても`invalid_artifact`として非表示にする。CIは保持する旧schema 2の原bytesと凍結rulesへのprovenanceを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。現行methodの再生成結果と旧schema4の元bytesは[2026-10-21の受入記録](../../reports/studies/2026-10-21-current-calibration-context/report.md)を参照する。v26当時のschema移行は[v26固定19月の受入記録](../../reports/studies/2026-10-14-er-context-v26/report.md)に残す。旧統計のhash/schemaだけを新定義へ差し替えず、保存済みの整合したpanel/forwardと明示required scopeから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
 
 `er_gte_8_5pct`は機械E[r]が8.5%以上の固定較正帯で、thresholdは`HURDLE_ER_ANNUAL=0.085`。これは[通常購入の要求年率](../portfolio-management.md#required-return-policy)へ連動する帯ではなく、policy変更時もband identityと過去分布を維持する。
 

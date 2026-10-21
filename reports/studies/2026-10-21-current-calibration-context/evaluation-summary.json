@@ -1,0 +1,456 @@
+{
+  "cohort_integrity": [
+    {
+      "asof": "2020-01-31",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-02-28",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-03-31",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-04-30",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-05-29",
+      "horizon": "3y",
+      "integrity_status": "blocked",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": [
+        "unpriced_exit_flips_direction"
+      ]
+    },
+    {
+      "asof": "2020-06-30",
+      "horizon": "3y",
+      "integrity_status": "blocked",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": [
+        "entry_price_gap"
+      ]
+    },
+    {
+      "asof": "2020-07-31",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-08-31",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-09-30",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-10-30",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-11-30",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-12-30",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-01-29",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-02-26",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-03-31",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-04-30",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-05-31",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-06-30",
+      "horizon": "3y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-07-30",
+      "horizon": "3y",
+      "integrity_status": "blocked",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": [
+        "unpriced_exit_flips_direction"
+      ]
+    },
+    {
+      "asof": "2020-01-31",
+      "horizon": "5y",
+      "integrity_status": "blocked",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": [
+        "unpriced_exit_flips_direction"
+      ]
+    },
+    {
+      "asof": "2020-02-28",
+      "horizon": "5y",
+      "integrity_status": "blocked",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": [
+        "unpriced_exit_flips_direction"
+      ]
+    },
+    {
+      "asof": "2020-03-31",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-04-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-05-29",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-06-30",
+      "horizon": "5y",
+      "integrity_status": "blocked",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": [
+        "entry_price_gap"
+      ]
+    },
+    {
+      "asof": "2020-07-31",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-08-31",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-09-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-10-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-11-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2020-12-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-01-29",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-02-26",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-03-31",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-04-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-05-31",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-06-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    },
+    {
+      "asof": "2021-07-30",
+      "horizon": "5y",
+      "integrity_status": "eligible",
+      "metric_statuses": {
+        "er_calibration": "eligible",
+        "er_level_calibration": "eligible"
+      },
+      "blocking_reasons": []
+    }
+  ],
+  "evidence_readiness": {
+    "evidence_status": "blocked",
+    "evidence_complete": false,
+    "blocking_reasons": [
+      "integrity_blocked",
+      "unpriced_exit_flips_direction",
+      "entry_price_gap"
+    ],
+    "missing_cohorts": []
+  },
+  "evidence_coverage": {
+    "required_cohort_count": 38,
+    "eligible_metric_cohort_count": 32,
+    "blocked_or_unresolved_count": 6,
+    "reason_counts": {
+      "unpriced_exit_flips_direction": 4,
+      "integrity_blocked": 6,
+      "entry_price_gap": 2
+    }
+  },
+  "scope": {
+    "run_purpose": "empirical_change_evidence",
+    "requested_horizons": [
+      "3y",
+      "5y"
+    ],
+    "cohort_window": {
+      "start": "2020-01-01",
+      "end": "2021-07-31"
+    },
+    "required_asofs": [
+      "2020-01-31",
+      "2020-02-28",
+      "2020-03-31",
+      "2020-04-30",
+      "2020-05-29",
+      "2020-06-30",
+      "2020-07-31",
+      "2020-08-31",
+      "2020-09-30",
+      "2020-10-30",
+      "2020-11-30",
+      "2020-12-30",
+      "2021-01-29",
+      "2021-02-26",
+      "2021-03-31",
+      "2021-04-30",
+      "2021-05-31",
+      "2021-06-30",
+      "2021-07-30"
+    ],
+    "required_metrics": [
+      "er_level_calibration"
+    ],
+    "mandatory_metrics": [
+      "er_calibration"
+    ],
+    "decision_subject": "estimator_policy",
+    "candidate_discovery_approaches": []
+  }
+}
