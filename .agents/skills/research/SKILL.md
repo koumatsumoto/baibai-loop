@@ -68,7 +68,7 @@ uv run baibai-engine research prepare \
 
 保存済み年次のセグメント・負債満期は[固定releaseのResearch query](../../../docs/reference/market-lake.md#edinet-research-query)から参照できる。欠測・書類状態未確認の場合は原典確認へ戻る。
 
-選択済み入力の`cash_flow`と3FY平均EPSベースの機械倍率は、[Valuationの意味とCF文脈](../../../docs/reference/valuation-metrics.md#researchへ渡すcf文脈)に従って読む。
+選択済み入力の`cash_flow`・`balance_sheet`と3FY平均EPSベースの機械倍率は、[Valuationの意味と財務文脈](../../../docs/reference/valuation-metrics.md#researchへ渡すcf文脈)に従って読む。
 機械snapshotの実績・予想年間DPSと採用`dividend_basis`が食い違う場合は、対象期、普通・特別／記念配当の内訳、還元方針を原典で確認する。これらは計算用の株式basisへ正規化した値であり、予想の持続性や上限適用理由を値だけから決めない。
 
 小型であることやFCFが0・負であることだけで経済的見送りにしない。サイズ・ADVは執行の制約、負FCFは維持投資/成長投資・運転資金・回収・資金余力の問いへ接続する。CFのsourceと品質・期間を保ち、半期の`approximated`値を通年実績と読み替えず、資料で確認すべき重大な不足を免除しない。

@@ -23,6 +23,17 @@ def test_schedule_runs_at_1643_jst_on_weekdays() -> None:
     assert workflow["on"]["schedule"] == [{"cron": "43 7 * * 1-5"}]
 
 
+def test_acquisition_cutoff_is_set_before_work_and_reserves_publication_time() -> None:
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["daily"]
+    assert job["timeout-minutes"] == 90
+    cutoff = job["steps"][0]["run"]
+    assert "BAIBAI_ACQUISITION_DEADLINE" in cutoff
+    assert "date +%s" in cutoff
+    assert "35 * 60" in cutoff
+    assert '"$GITHUB_ENV"' in cutoff
+
+
 def _daily_batch_env() -> dict[str, str]:
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     batch = next(step for step in workflow["jobs"]["daily"]["steps"] if step.get("id") == "batch")

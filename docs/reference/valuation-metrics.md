@@ -67,6 +67,12 @@ ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成�
 
 Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrunの保存値を引用し、EDINETの書類ID・種類・提出日時・書類metadata期間・capex出所を残す。書類metadata期間はCF実測期間ではなく、最新財務開示日もOCF合成期間ではない。必要なら原典のCF計算書で期間・連結範囲・単位を確認する。欠測はnullのまま、明示0と負値は保持し、後日の資料で補完しない。Researchの合成入口と入力確定時刻は[Research進行](./analysis-operations.md#明示開始と固定対象)に従う。
 
+### Researchへ渡すBS文脈
+
+`valuation.query.balance_sheet_from_analysis`は同じ保存runから`balance_sheet`を作り、J-Quantsの現金同等物・総資産・同一開示行からの自己資本額と、EDINETの現金・金融債務・net cash・投資有価証券を分ける。金額は円、`equity_ratio`は無次元の比率。候補外の保存済みStock Analysisも同じ入口で読み、取得・再計算・選抜変更はしない。
+
+現在のStock Analysisは個々のBS factの測定日・債務内訳を保存しないため、測定日と`debt_scope`はnull、未保存の理由を併記する。最新財務開示日やEDINET書類metadata期末を測定日へ転記しない。carry-forward対象と最大lagをそのまま残し、最大lagから各金額の日付を逆算しない。EDINET debtは抽出済み金融債務であり負債総額ではなく、保存されたnet cash品質だけで債務範囲の完全性を保証しない。重要な範囲・時点は当該書類と原典内訳で確認し、年度の異なる金額を混ぜない。
+
 ## 2. Forward PER の取得方針（重要）
 
 ### 2.1 採用ソース
@@ -182,13 +188,13 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。金額は nati
 
 財務本表の当期contextを先に一つの期間・連結範囲へ絞る。年次は `CurrentYearInstant/Duration`、半期は `InterimInstant/Duration`、旧四半期報告は `CurrentQuarterInstant` と累計の `CurrentYTDDuration` を使い、四半期単独期間を累計値へ混ぜない。個別は対応する `_NonConsolidatedMember` で区別する。セグメント等の追加次元・前期・翌期を当期全社値の穴埋めに使わず、辞書順によるcontext選択を行わない。CSVの「連結・個別」が「その他」でも財務本表のcontextで範囲を判断し、非財務の記述箇所へこの規則を一般化しない。根拠は[現行インスタンスガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140112.pdf#page=49)と[旧四半期のcontext定義](https://www.fsa.go.jp/search/20170228/2b.pdf#page=51)。
 
-原本の `jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI`（`FilingDateInstant`）が `true` なら、連結の当期対応タグだけを使う。対応タグがなければ単体値へ戻さず算出不能とし、`consolidated_dei_no_supported_current_facts` を残す。`false` の単体書類は従来の単体context採用を維持する。DEIが欠ける旧fixtureは従来の選択を保つが、単体を採用した場合は `consolidation_dei_missing` を残して作成有無を推定しない。DEIが矛盾・不正値なら単体へ移行しない。これらは未検証のIFRS科目を同義タグとして追加する根拠にはならない。
+原本の `jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI`（`FilingDateInstant`）が `true` なら、連結の当期対応タグだけを使う。対応タグがなければ単体値へ戻さず算出不能とし、`consolidated_dei_no_supported_current_facts` を残す。`false` の単体書類は従来の単体context採用を維持する。DEIが欠ける旧fixtureは従来の選択を保つが、単体を採用した場合は `consolidation_dei_missing` を残して作成有無を推定しない。DEIが矛盾・不正値なら単体へ移行しない。これらは未検証のIFRS科目を同義タグとして追加する根拠にはならない。 `AccountingStandardsDEI`が示す会計基準を先に選び、同一contextに併記された日本基準とIFRSを混合しない。宣言の矛盾・不正・未対応基準、宣言なしで同一範囲の両基準が混在する場合は未解決として残す。標準IFRSは`jpigp_cor`の検証済みRevenue/NetSales、営業CF、営業利益、現金同等物、純資産、総資産、減価償却・償却、有形/無形固定資産取得の明示対応だけを使う（[原本fixture](../../tests/fixtures/edinet/README.md)）。会社独自科目、別namespace、類似名、債券・借入金だけからの金融債務全体、その他金融資産からの投資有価証券は推定しない。
 
 - `cash`: 現金及び預金を優先し、該当科目がない場合に現金及び現金同等物を使う。両者をCSV行順で選ばない
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算。意味を確認した標準科目の合算であり、名称だけが似た提出者独自の総額・別名を加えない。開示の全債務を網羅したことを保証する値ではない
 - `investment_securities`: 上記のDEI・当期context選択で確定した範囲の、BS の `InvestmentSecurities` exact local nameだけを抽出する帳簿価額。項目単独で別の連結範囲へfallbackしない。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。CSV仕様で定義された ASCII `-` または数値ゼロだけを 0 とし、空欄や似た横棒を補完しない
 - `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー
-- 減価償却加算は `DepreciationAndAmortizationOpeCF` と `AmortizationOfGoodwillOpeCF` の観測値を使う。両者は標準間接法CFの別の加算子であり、同義名として片方を落とさない。のれん償却だけで減価償却費を代用せず、減価償却費が不明ならEBITDAを算出しない。根拠のない短縮名・提出者独自名をさらに足さない。[標準タクソノミ](https://disclosure2.edinet-fsa.go.jp/weee0020.aspx) の2016・2026年版を照合した範囲の対応であり、IFRSの異なる要素名を自動的な別名としない。
+- 減価償却加算は `DepreciationAndAmortizationOpeCF` と `AmortizationOfGoodwillOpeCF` の観測値を使う。両者は標準間接法CFの別の加算子であり、同義名として片方を落とさない。のれん償却だけで減価償却費を代用せず、減価償却費が不明ならEBITDAを算出しない。根拠のない短縮名・提出者独自名をさらに足さない。[標準タクソノミ](https://disclosure2.edinet-fsa.go.jp/weee0020.aspx) の2016・2026年版を照合した範囲の対応であり、IFRSの標準`DepreciationAndAmortizationOpeCFIFRS`は検証済みの明示対応を使い、それ以外の異なる要素名を自動的な別名としない。
 - `capex_ttm`: 有形固定資産・無形固定資産の取得支出。CFOと同じcontext・連結/単体の合算科目を優先し、合算がない場合は有形・無形の両科目が揃うときだけ足す。合算と内訳は二重計上せず、欠測をゼロにしない。符号は取得支出額の絶対値へ一度だけ正規化する
 - `net_cash = cash - debt`
 - `asset_backed_ratio = (net_cash + investment_securities) / market_cap`

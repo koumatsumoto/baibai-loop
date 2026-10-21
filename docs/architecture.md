@@ -125,7 +125,7 @@ EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配�
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する数値・fieldの意味・dated pathを保持し、名前切替のための移設・複製・revision変更を行わない。計算を変えない説明訂正は可能とし、変更前のbytesはgit履歴で確認する。
 
-実装・移行と通常運用の受入は区別する。現行の層・配置整理の進捗、未完了の受入と確認証拠は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)で追い、現行仕様は本書とreferenceで管理する。
+実装・移行と通常運用の受入は区別する。完了した層・配置整理と本番切替の確認証拠は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)に残し、現行仕様は本書とreference、後続の変更は対応するIssueで管理する。
 
 <a id="cloud-serving-layer"></a>
 
