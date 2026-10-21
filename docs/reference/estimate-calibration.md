@@ -9,7 +9,7 @@ status: active
 
 # estimate-calibration — 見積り較正
 
-本書は、screeningの機械見積りと選定順位を過去as-ofで再構成し、実現した価格リターンと突き合わせるローカル専用の較正契約を所有する。portfolio outcomeやJPX total-return benchmarkとは別の横断的な見積り診断である。
+本書は、screeningの機械見積りと選定順位を過去as-ofで再構成し、実現した価格リターンと突き合わせる本番storeから隔離して実行する較正契約を所有する。portfolio outcomeやJPX total-return benchmarkとは別の横断的な見積り診断である。
 
 評価の実装は[evaluation](../../engine/src/baibai_engine/screening/calibration/evaluation/)に集約する。`cohorts`が評価を組み立て、`axes`は軸とquality、`discovery`は候補再現、`sensitivity`は欠落によるbias、`aggregate`はcohort横断の集計を所有する。採用済みの評価条件は`policy`、共通統計は`statistics`を参照する。
 
@@ -35,7 +35,7 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 ## データ完全性
 
-panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
+panel は cohort as-of 以下の最新 `eq_master` snapshot を優先する。それがない場合、reader は最初の保存断面を `future_snapshot` と明示して診断用に読む。`exact_date` 以外の断面を当時の母集団と同一視せず、prior / future / unavailable の状態を diagnostics に残す。正式な較正文脈の生成では同日断面と母集団・入力の完全性を要求し、未来断面による診断を現行methodの実証へ昇格させない。
 
 `evidence_readiness`は、現在のsnapshotが保持するpanel / forward / diagnosticsの
 integrity、3y/5y coverage、subject必須metric、追加guardrail、measurement policyだけで決める。過去入力の
@@ -165,7 +165,7 @@ Researchでは固定Operation IDを指定し、`research calibration-context --o
 
 配当予想の鮮度など計算入力の意味を変える場合は、既存の`VALUATION_CALCULATION_REVISION`を更新する。productionのrules hash、panelのrules hash、派生cache contractへ同じrevisionを伝え、旧panelの再利用と旧contextの新runへの適用を拒否する。ER算式が同じなら`expected-return-v1`は維持する。保持artifactの旧計算revision・scope・入力窓はprovenance検証だけで認識し、元bytes/hashを変更しない。複数の変更を統合する場合、panel・contextの再生成は承認済みの最終methodでまとめて行う。
 
-rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schemaはidentityが一致しても`invalid_artifact`として非表示にする。CIは保持する旧schema 2の原bytesと凍結rulesへのprovenanceを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。最新schema4への更新結果と元bytesの旧artifactは[v26固定19月の受入記録](../../reports/studies/2026-10-14-er-context-v26/report.md)を参照する。旧統計のhash/schemaだけを新定義へ差し替えず、保存済みの整合したpanel/forwardと明示required scopeから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
+rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schemaはidentityが一致しても`invalid_artifact`として非表示にする。CIは保持する旧schema 2の原bytesと凍結rulesへのprovenanceを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。現行methodの再生成結果と旧schema4の元bytesは[2026-10-21の受入記録](../../reports/studies/2026-10-21-current-calibration-context/report.md)を参照する。v26当時のschema移行は[v26固定19月の受入記録](../../reports/studies/2026-10-14-er-context-v26/report.md)に残す。旧統計のhash/schemaだけを新定義へ差し替えず、保存済みの整合したpanel/forwardと明示required scopeから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
 
 `er_gte_8_5pct`は機械E[r]が8.5%以上の固定較正帯で、thresholdは`HURDLE_ER_ANNUAL=0.085`。これは[通常購入の要求年率](../portfolio-management.md#required-return-policy)へ連動する帯ではなく、policy変更時もband identityと過去分布を維持する。
 
@@ -174,6 +174,14 @@ artifact は生成日から45日だけ有効とし、月次の calibration 更�
 `calibration-evaluate` の artifact は、operative runと照合する`screening_rules_hash`と、panelのCandidate Discovery replay contractまで含む`calibration_method_hash`を分ける。各 `(asof, horizon)` の `integrity_status`、required metric別 status、blocking reasonを `cohort_integrity` に持つ。Candidate Discovery については、approachごとの nomination / resolved nomination、同日JPX規制入力の状態、候補一覧とexact Nomination unionの一致を `candidate_discovery_fidelity` に持つ。各 horizon は満期済みcohort数だけでなく、entry year別件数と重複しないforward window数を `observation_dependence` に開示する。月次cohort数を独立標本数とは読まない。study はこの評価結果を読み、独自の辞書リテラルで eligibility を作らない。
 
 forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
+
+### 再生成前の入力確認
+
+現行methodの再生成は、まず既存snapshotのcontractと対象cohortを確認し、再評価だけで足りるか、原入力からのbuildが必要かを分ける。異なる計算revision・母集団・forward規約のsnapshotへ現在のidentityを付け替えない。
+
+buildには価格や財務の行だけでなく、対応する取得範囲の記録が必要である。固定releaseを空のSQLiteへhydrateすると、lake対象の行は復元されても、store-localな `source_coverage` は空のままである。行のmin/maxやmanifestの件数から取得成功記録を創作しない。通常のmarket-only取得と[固定releaseの復元](./market-lake.md#store-hydration)を使い、取得したmarketのoriginと対象releaseを照合してcoverageを保持する。別世代のseedとreleaseを混ぜない。
+
+原入力が揃った後も、主入力窓、補助履歴、同日master、過去EDINET軸、退出値・配当の観測範囲を区別する。buildが完了したことを正式evidenceの成立と扱わず、対象月を固定したevaluateで結果を確認する。隔離コピーとsealed snapshotには保存容量が必要で、通常の容量guardを緩めない。原入力の不足や容量不足は再実行だけでは解消しないため、原因と必要な範囲を先に確定する。
 
 ## Methodとcacheの互換性
 
