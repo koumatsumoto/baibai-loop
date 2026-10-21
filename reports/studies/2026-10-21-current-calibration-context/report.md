@@ -51,4 +51,6 @@ refs [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)。本件�
 
 ## 実行・受入状況
 
-固定releaseの隔離読取を準備中。現行methodでのbuild/evaluate、artifact採用、公開後読戻しは未実施。旧published artifactは変更していない。
+固定releaseを空starterへhydrateする処理は成功したが、追加確認でstore-localな `source_coverage` が0行と判明した。価格/財務の行数が一致してもbuild可能とは判定しない。対応するmarket seedを通常のmarket-only経路で取得し、origin一致を確認してから固定releaseを復元する準備を進めている。取得記録を手作業で作成せず、異なる世代の入力を混ぜない。
+
+現行methodでのbuild/evaluate、artifact採用、公開後読戻しは未実施。旧published artifactは変更していない。

@@ -175,6 +175,14 @@ artifact は生成日から45日だけ有効とし、月次の calibration 更�
 
 forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
 
+### 再生成前の入力確認
+
+現行methodの再生成は、まず既存snapshotのcontractと対象cohortを確認し、再評価だけで足りるか、原入力からのbuildが必要かを分ける。異なる計算revision・母集団・forward規約のsnapshotへ現在のidentityを付け替えない。
+
+buildには価格や財務の行だけでなく、対応する取得範囲の記録が必要である。固定releaseを空のSQLiteへhydrateすると、lake対象の行は復元されても、store-localな `source_coverage` は空のままである。行のmin/maxやmanifestの件数から取得成功記録を創作しない。通常のmarket-only取得と[固定releaseの復元](./market-lake.md#store-hydration)を使い、取得したmarketのoriginと対象releaseを照合してcoverageを保持する。別世代のseedとreleaseを混ぜない。
+
+原入力が揃った後も、主入力窓、補助履歴、同日master、過去EDINET軸、退出値・配当の観測範囲を区別する。buildが完了したことを正式evidenceの成立と扱わず、対象月を固定したevaluateで結果を確認する。隔離コピーとsealed snapshotには保存容量が必要で、通常の容量guardを緩めない。原入力の不足や容量不足は再実行だけでは解消しないため、原因と必要な範囲を先に確定する。
+
 ## Methodとcacheの互換性
 
 `er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy`はsubject必須metricではなくoptionalな既知metricである。事前登録固有の追加guardrailにする場合だけ`--required-metric`へ明示する。
