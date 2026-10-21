@@ -16,16 +16,15 @@ from baibai_engine.screening.calibration.evaluation.statistics import (
     _context_from_returns,
     _resolved_price_returns,
 )
+from baibai_engine.screening.calibration.evidence import (
+    KNOWN_METRICS,
+)
 from baibai_engine.screening.calibration.forward import (
     ForwardReturnRow,
 )
 from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import PanelRow
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
-
-from baibai_engine.screening.calibration.evidence import (
-    KNOWN_METRICS,
-)
 
 # Observed-return statistics exclude unresolved exits and report their count apart.
 # Recompute the conclusions under total loss and the resolved population's median

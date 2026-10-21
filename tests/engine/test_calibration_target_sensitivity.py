@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from baibai_engine.screening.rule_config import load_screening_rules
 from tests.helpers.calibration_store import forward_row, panel_row
 
 from baibai_engine.screening.calibration.evaluation.cohorts import evaluate_cohorts
@@ -12,6 +11,7 @@ from baibai_engine.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     required_sensitivity_blockers,
 )
+from baibai_engine.screening.rule_config import load_screening_rules
 
 
 def _coverage(**stability: bool) -> dict[str, object]:

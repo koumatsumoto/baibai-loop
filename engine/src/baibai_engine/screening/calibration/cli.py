@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from typing import TextIO, cast
 
 import yaml
+
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.storage.lake.retention import lake_writer_lock
 from baibai_engine.storage.lake.writer import (
