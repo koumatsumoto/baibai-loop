@@ -2,7 +2,7 @@
 title: "現行methodへの較正文脈再生成の適用可否"
 summary: "固定19月と保存済み市場入力から、現行methodの記述分布を再生成できる範囲と不足を確認する。"
 doc_type: measurement-record
-status: in-review
+status: complete
 date: 2026-10-21
 ---
 
@@ -73,6 +73,21 @@ refs [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)。本件�
 
 `evidence_complete: false`、`missing_cohorts: []`。失敗月を除外せず、欠測returnを0で埋めない。旧v26の36/38を現行の結果として扱わない。entry鮮度の解釈は [#1491](https://github.com/koumatsumoto/baibai-loop/issues/1491)、subjectごとの頑健性は [#1492](https://github.com/koumatsumoto/baibai-loop/issues/1492)へ残す。この再生成の結果を見てgateを緩めない。
 
+追加照合では、全38ペアが同日master、survivorship complete、adjustment-factor complete、入力clampなし、candidate partition completeを報告した。未知未解決statusとpriced-master未評価は0。過去EDINET軸は全19月で0であり、現行本番の全入力面を再現したという意味ではない。
+
+退出感度でblockedとなった4ペアは、いずれも `nomination_union_all` の符号が一致しない一方、`er_calibration` の価格ベースQ5−Q1 spreadは報告・全損・中立で正だった。現行sensitivityのglobal `direction_stable` は両者のANDであり、CLIはestimator_policyにもこの判定を使う。この責務結合が現在も存在することを実データで確認した。
+
+| 対象 | Nomination union excess（報告 / 全損 / 中立） | ER spread（報告 / 全損 / 中立） |
+| --- | --- | --- |
+| 2020-05-29 × 3y | 0.247064 / -0.043484 / 0 | 0.334335 / 0.337454 / 0.276146 |
+| 2021-07-30 × 3y | 0.042727 / 0.012194 / 0 | 0.463297 / 0.451080 / 0.414225 |
+| 2020-01-31 × 5y | 0.075574 / -0.047402 / 0 | 0.429816 / 0.434954 / 0.345897 |
+| 2020-02-28 × 5y | 0.124831 / -0.099248 / 0 | 0.505419 / 0.496983 / 0.370895 |
+
+上表は累積価格returnのexcessとspreadで、年率配当込み水準ではない。中立ケースは各cohortのresolved common eligible母集団中央値を代入し、比較中央値も再計算する。中立return自体を0とする計算ではない。全損・中立は固定の感度シナリオであり、可能な退出値すべてを囲む上下限でもない。
+
+[#1492](https://github.com/koumatsumoto/baibai-loop/issues/1492)ではsubject固有の必要条件を比較できるが、今回の32/38を事後的に36/38へ差し替えない。とくに価格順位のspread安定だけから、配当込みの絶対水準・分位・尾部や未観測配当の頑健性が成立したとはいえない。
+
 ### 観測分布と欠測
 
 有限E[r]の宣言母数は両horizonとも **65,674 ticker-asof観測**。同じ銘柄を月ごとに含むため独立銘柄数ではない。以下はQ1〜Q5のみの合計で、重複する8.5%以上帯を足さない。
@@ -88,7 +103,7 @@ refs [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)。本件�
 
 固定五分位境界は -3.6708%、-0.8408%、1.4640%、3.6161%。両horizon・basisで同じ予測母数と境界を使う。8.5%以上帯は従来の較正座標であり、L3の要求率を8.5%へ変えない。
 
-観測済み対象では高E[r]帯ほど実現年率中央値が高い。ただしQ5の3y配当込みは中央値13.3095%に対しq10は-2.0157%、5yは中央値12.9911%に対しq10は-0.3597%。Q5でも未評価は3yで4,484 / 14,063、5yで4,759 / 14,063ある。上位帯を安全な買いと認定せず、観測対象の選択偏り・欠測・相場期間を併記する。trap rateは同cohortの観測母集団中央値に対する累積returnの20ポイント以上の劣後であり、絶対損失確率ではない。
+観測済み対象のticker-asof等重み集計では、高E[r]帯ほど実現年率中央値が高い。各月や将来相場すべてでの単調性を主張するものではない。ただしQ5の3y配当込みは中央値13.3095%に対しq10は-2.0157%、5yは中央値12.9911%に対しq10は-0.3597%。Q5でも未評価は3yで4,484 / 14,063、5yで4,759 / 14,063ある。上位帯を安全な買いと認定せず、観測対象の選択偏り・欠測・相場期間を併記する。trap rateは同cohortの観測母集団中央値に対する累積returnの20ポイント以上の劣後であり、絶対損失確率ではない。
 
 旧v26は有限E[r]66,805、配当込み観測率3y85.49% / 5y76.16%、価格のみ94.62% / 93.06%だった。今回の配当込み観測率低下は、不明な株式単位・会計期間を推定で実績化しない現行規約の下で現れた差である。ただし入力releaseも変わるので、差の全量を特定修正の因果効果とは断定しない。未評価増を運用品質悪化と即断するのも、保守的になったから正しいと免責するのも不適切である。
 
@@ -112,4 +127,4 @@ buildは上記code/rulesと隔離marketを使い、`screening calibration-build 
 
 主担当がproducer、shared contract、reader、Research照会、Web reader、sensitivity、CLIの適用条件を直接照合した。記述文脈の受入とformal evidence、価格と配当込み、観測数と独立標本数、生成日とrun分析日を分離する。既存Stock Assessment / Investment Proposalのrun identityは変更しない。
 
-現時点はPRレビュー中。最終HEADのGitHub CI、main反映、公開read modelの同一artifact読戻しは未実施。親 #1481 の残る政策比較や #1411 の通常日次受入はこの再生成だけで完了扱いにしない。
+測定・記述文脈としての受入は完了した。artifact更新HEAD `bba6fc72b1475f920a44a4667e613f5d083b0921` の [CI](https://github.com/koumatsumoto/baibai-loop/actions/runs/39601452838) は成功。以後の変更は本記録と既存出力の抽出追加だけで、生成contextの元bytesは変えない。最終HEADのCI、main反映、公開read modelの同一artifact読戻しは [PR #1561](https://github.com/koumatsumoto/baibai-loop/pull/1561) の受入履歴で追う。本記録の完了は本番反映済みという意味ではない。親 #1481 の残る政策比較や #1411 の通常日次受入はこの再生成だけで完了扱いにしない。
