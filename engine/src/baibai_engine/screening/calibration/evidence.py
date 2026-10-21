@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 
 from ..discovery.contracts import APPROACH_IDS
@@ -123,6 +124,49 @@ def subject_mandatory_metrics(scope: EvaluationScope) -> tuple[str, ...]:
 def effective_required_metrics(scope: EvaluationScope) -> tuple[str, ...]:
     """Combine subject-mandatory evidence with optional preregistered guardrails."""
     return tuple(dict.fromkeys((*subject_mandatory_metrics(scope), *scope.required_metrics)))
+
+
+def required_sensitivity_blockers(
+    coverage: Mapping[str, object], required_metrics: Sequence[str]
+) -> tuple[str, ...]:
+    """Check only declared outcome questions; fidelity has its own metric status.
+
+    The combined global sign summary remains diagnostic. It cannot stand in for an
+    unrelated estimand, especially absolute FY-dividend return calibration.
+    """
+    reasons: list[str] = []
+    fidelity_metrics = {
+        CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
+        *(candidate_discovery_approach_fidelity_metric(item) for item in APPROACH_IDS),
+    }
+    for metric in dict.fromkeys(required_metrics):
+        if metric in fidelity_metrics:
+            continue
+        if metric == "er_level_calibration":
+            outcome = coverage.get("er_level_outcomes")
+            if (
+                not isinstance(outcome, dict)
+                or outcome.get("missing_count") != 0
+                or coverage.get("priced_master_without_universe_count") not in (None, 0)
+            ):
+                reasons.append("total_return_missingness_unmeasured:er_level_calibration")
+            continue
+        for key, prefix in (
+            ("delisting_exclusion", "unpriced_exit"),
+            ("priced_master_without_universe", "priced_master_without_universe"),
+        ):
+            sensitivity = coverage.get(key)
+            stability = (
+                sensitivity.get("metric_direction_stable")
+                if isinstance(sensitivity, dict)
+                else None
+            )
+            value = stability.get(metric) if isinstance(stability, dict) else None
+            if value is False:
+                reasons.append(f"{prefix}_flips:{metric}")
+            elif value is not True:
+                reasons.append(f"{prefix}_sensitivity_unmeasured:{metric}")
+    return tuple(reasons)
 
 
 def evaluate_evidence_readiness(

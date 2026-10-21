@@ -10,7 +10,6 @@ from tempfile import TemporaryDirectory
 from typing import TextIO, cast
 
 import yaml
-
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.storage.lake.retention import lake_writer_lock
 from baibai_engine.storage.lake.writer import (
@@ -25,7 +24,7 @@ from ..discovery.contracts import APPROACH_IDS
 from ..rule_config import ScreeningRules
 from ..rules_identity import production_rules_contract_hash
 from .context import CalibrationContextError, build_er_distribution_context
-from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
+from .evaluation import evaluate_cohorts
 from .evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     DECISION_SUBJECTS,
@@ -35,6 +34,7 @@ from .evidence import (
     EvaluationScope,
     effective_required_metrics,
     evaluate_evidence_readiness,
+    required_sensitivity_blockers,
     subject_mandatory_metrics,
 )
 from .forward import (
@@ -491,8 +491,6 @@ def calibration_evaluate_command(
                     or unevaluated_sensitivity.get("excluded_count") != unevaluated
                 ):
                     blockers.append("priced_master_without_universe_unmeasured")
-                elif not unevaluated_sensitivity.get("direction_stable"):
-                    blockers.append("priced_master_without_universe_flips_direction")
                 # Each unresolved class blocks for its own reason, and a name the
                 # panel could not price at asof blocks for none of them. The
                 # residual keeps an unenumerated status from passing silently.
@@ -504,35 +502,10 @@ def calibration_evaluate_command(
                     count = coverage.get(field)
                     if isinstance(count, int) and count:
                         blockers.append(label)
-                # A name that left the market carries no exit value, and delistings
-                # happen in every cohort, so blocking on their presence blocks
-                # forever. What matters is whether they could have produced the
-                # conclusions: the cohort blocks when the sign of a conclusion moves
-                # between giving those names a total loss and giving them what the
-                # rest of the cohort returned. Pre-registered in
-                # reports/studies/2026-07-31-delisting-exclusion/preregistration.md.
-                sensitivity = coverage.get("delisting_exclusion")
-                if isinstance(sensitivity, dict) and not sensitivity.get("direction_stable"):
-                    blockers.append("unpriced_exit_flips_direction")
-                optional_required = set(scope.required_metrics).intersection(
-                    OPTIONAL_SENSITIVITY_METRICS
-                )
-                for coverage_key, reason_prefix in (
-                    ("delisting_exclusion", "unpriced_exit_flips"),
-                    ("priced_master_without_universe", "priced_master_without_universe_flips"),
-                ):
-                    sensitivity = coverage.get(coverage_key)
-                    metric_stability = (
-                        sensitivity.get("metric_direction_stable")
-                        if isinstance(sensitivity, dict)
-                        else None
-                    )
-                    for metric in sorted(optional_required):
-                        if (
-                            not isinstance(metric_stability, dict)
-                            or metric_stability.get(metric) is not True
-                        ):
-                            blockers.append(f"{reason_prefix}:{metric}")
+                # Missing-exit effects are metric-specific. Unrelated outcomes
+                # cannot veto this decision, and price signs cannot certify total
+                # return levels. Shared input-integrity blockers above still apply.
+                blockers.extend(required_sensitivity_blockers(coverage, effective_metrics))
             metric_status = (
                 "eligible" if cohort["metric_calculation_status"] == "resolved" else "unresolved"
             )

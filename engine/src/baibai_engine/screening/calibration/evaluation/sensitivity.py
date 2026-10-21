@@ -23,6 +23,10 @@ from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import PanelRow
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
+from baibai_engine.screening.calibration.evidence import (
+    KNOWN_METRICS,
+)
+
 # Observed-return statistics exclude unresolved exits and report their count apart.
 # Recompute the conclusions under total loss and the resolved population's median
 # return. These are sensitivity scenarios, not bounds on every possible missing exit.
@@ -42,7 +46,18 @@ OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
     "normalized_per_3fy",
 )
 
-_ALL_SENSITIVITY_METRICS = (*_SENSITIVITY_METRICS, *OPTIONAL_SENSITIVITY_METRICS)
+_DISCOVERY_SENSITIVITY_METRICS = tuple(
+    sorted(
+        metric
+        for metric in KNOWN_METRICS
+        if metric == "nomination_union_all" or metric.startswith(("approach_", "pure_er_top"))
+    )
+)
+_ALL_SENSITIVITY_METRICS = (
+    *_DISCOVERY_SENSITIVITY_METRICS,
+    "er_calibration",
+    *OPTIONAL_SENSITIVITY_METRICS,
+)
 
 
 def _margin_short_to_adv_adoption_sign(value: object) -> float | None:
@@ -69,17 +84,18 @@ def _margin_short_to_adv_adoption_sign(value: object) -> float | None:
 def _direction_signs(
     context: _CohortExcessContext,
     *,
+    panel: Sequence[PanelRow],
     horizon: str,
     candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, float | None]:
     """The sign-bearing quantity of each conclusion the evidence readiness reads."""
     candidate_discovery = _evaluate_candidate_discovery(
-        context.population,
+        panel,
         context.excess,
         candidate_discovery_rules=candidate_discovery_rules,
     )
     signs: dict[str, float | None] = {}
-    for key in ("nomination_union_all",):
+    for key in _DISCOVERY_SENSITIVITY_METRICS:
         group = candidate_discovery.get(key)
         value = group.get("median_excess") if isinstance(group, dict) else None
         signs[key] = value if isinstance(value, int | float) else None
@@ -131,6 +147,7 @@ def _signs_for_returns(
         return dict.fromkeys(_ALL_SENSITIVITY_METRICS)
     return _direction_signs(
         context,
+        panel=panel,
         horizon=horizon,
         candidate_discovery_rules=candidate_discovery_rules,
     )
