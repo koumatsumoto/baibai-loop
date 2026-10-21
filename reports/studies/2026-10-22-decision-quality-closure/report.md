@@ -64,7 +64,7 @@ status: historical
 - #1464: 保存済み3ケースの企業評価・提案を確認。価格待ち2件、重要入力未確定1件を区別し、要求率の感応度と反証を直接再計算した。一律要求率低下やDownside gateは採用しない。[完了判断](https://github.com/koumatsumoto/baibai-loop/issues/1464#issuecomment-6319012090)。全将来判断の正確性や実buy事例は未実証。
 - #1468: 10月20日の同一現行method断面では4×20枠のunion78、単独所属76、2重所属2。深さ5/10/15/20のunionは20/39/58/78。固有件数はalphaではない。4種類の問いと有限容量を維持し、rank21以降の収益効果や20の最適性は未測定。[完了判断](https://github.com/koumatsumoto/baibai-loop/issues/1468#issuecomment-6319068185)。外部比較の10月21日断面とは区別する。
 - #1521: 同10月20日断面の予想DPSが実績の2倍超の19件を確認し、一時分配と恒常方針変更の一次例を比較。現行4 ApproachはDPS/ERを順位へ使わない。反復carryを一律予想へ変更せず、生予想を使うL3の期間内分配評価と分離する。[完了判断](https://github.com/koumatsumoto/baibai-loop/issues/1521#issuecomment-6319201926)。全19件の配当分類や新variantの将来成績は未評価。
-- #1491: 固定cacheの2020-06-30、7531の3y/5y entry gapを原barへ照合。6月10日の価格から20暦日が経過し、その後の営業日rowにはclose/volume/turnoverが無い。取得row欠落と同一視せず、15日を通過させるために広げない。nullの原因を取引所の無約定・停止と断定しない。[分類と採否](https://github.com/koumatsumoto/baibai-loop/issues/1491#issuecomment-6319556550)。新schemaを作らず、観測範囲の文書を修正する。
+- #1491: 固定cacheの2020-06-30、7531の3y/5y entry gapを原barへ照合。6月10日の価格から20暦日が経過し、その後の営業日rowにはclose/volume/turnoverが無い。取得row欠落と同一視せず、15日を通過させるために広げない。nullの原因を取引所の無約定・停止と断定しない。[分類と採否](https://github.com/koumatsumoto/baibai-loop/issues/1491#issuecomment-6319556550)。新schemaを作らず、観測範囲の文書を修正する。営業日閾値の別variantや15日の経済的最適性は測定していない。
 
 ### その他の資本・運用方針
 
@@ -80,4 +80,30 @@ status: historical
 
 相対price spreadでは絶対FY配当込み水準の欠測biasを測れないため、絶対水準に未観測結果が残る場合は未計測と記す。成功件数を増やすための変更ではない。全損・中立は感度caseであり上下界でも実現値でもない。保存forwardの再build・methodの閾値変更・過去結果の上書きは行わない。
 
-同じ固定19月cacheを使う実測結果と最終CIは、検証完了後に本節へ追記する。現時点では実行中であり、数値を先取りしない。
+### 同じ保存cacheでの再評価
+
+評価codeは `8f431c29c90d0d8387e9025c029800bc6b169bc5`。元cacheは509,591,552 bytes、SHA256 `8c9ca47dbb35f8264a3b5e918680e24aff8b002fd9d81c927d64fa7101645149`。評価前後で不変を確認した。2020-01-31から2021-07-30の全19月、3y/5yの38組を省略せず、3scopeを各1回evaluateした。3件ともexit 0、stderrなし。
+
+| 評価scope | 必須metricまで満たすcohort / 38 | 全scopeのevidence_complete | 読み方 |
+| --- | --- | --- | --- |
+| 改訂前の合成gate（保存済み基準） | 32 | false | 相対ERとunionの合成判定。旧記録を保持 |
+| 改訂後estimator既定 | 36 | false | 相対ERの方向は全38で安定。2組のentry gapは残る |
+| 改訂後estimator＋絶対ER水準 | 0 | false | 全38に未観測total returnがあり、絶対水準の欠測感度は未計測 |
+| 改訂後nomination union | 0 | false | union方向の反転と候補再現fidelityを独自に判定。相対ERの安定で代替しない |
+
+相対ERの4組の増加は別の対象量の反転を切り離した結果であり、将来利益の改善ではない。絶対水準は逆に、これまでprice spreadの合成診断では測れていなかった不足を明示した。全38組の絶対水準を棄却したのでも、正常な記述分布を捨てたのでもない。欠測感度の新しい推定基盤を今回のために作らず、未計測のまま方法変更の根拠には使わない。
+
+宣言予測数は各horizonで65,674。配当込み観測は3yで44,395、5yで42,885、未観測は21,279 / 22,789で、既存文脈と一致する。新contextは19,857 bytes、SHA256 `ed6444d3536f4b60d2ac355fd901e29ee4dd50ec1e0ca77e0cce058bc6efd40c`。旧contextと異なるのはblocking reasons・生成時刻・有効期限だけで、分位境界、n、観測率、全horizonの統計は一致した。新contextは正式evaluateの出力であり、失敗月や未観測値を消していない。旧32/38の測定は[前回の記録](../2026-10-21-current-calibration-context/report.md)と固定commitに保持する。
+
+全38組の対象metric別感度と3scopeのreadiness集計は[評価要約](./evaluation-summary.json)を参照する。unionでは入力・分類と方向の条件だけなら32/38だが、全38で必要な候補再現fidelityが未解決のため、必須metricまで満たすのは0/38である。
+
+評価YAMLのSHA256:
+- estimator既定: `685189a5a8ddf938b02188a2a731773581b54d5b274094e1efd57eeada47507f`
+- estimator＋絶対水準: `1e7af675314a973196c984ed6deeb6f907fe8ba0bab26192913204c384c76260`
+- nomination union: `cd5eb4bae5bba147a59f6a9956f5b14ce1924045409fbfa41fec87a6234d009a`
+
+### 検証状況
+
+code HEADの[CI 39625949064](https://github.com/koumatsumoto/baibai-loop/actions/runs/39625949064)は5,766 passed・8 skipped、coverage 89.91%。format/lint、型、import、drift、securityを通過し、TradingView OAuth smokeはskipped。最初のCIのimport整形失敗は修正し、失敗を成功へ読み替えていない。repository testsはCIで実行した。文書を加えた `6cd5d5512f451acb20495b08c632478c1217d6ca` の[CI 39627004696](https://github.com/koumatsumoto/baibai-loop/actions/runs/39627004696)も成功。
+
+最終HEADのCI・main反映・公開contextの読戻しは、PRの受入記録へ残す。以上の較正結果だけでは、投資戦略の収益優位、完全な過去時点再現、現在企業の将来収益は証明されない。
