@@ -1,0 +1,745 @@
+{
+  "code_sha": "8f431c29c90d0d8387e9025c029800bc6b169bc5",
+  "cache_sha256": "8c9ca47dbb35f8264a3b5e918680e24aff8b002fd9d81c927d64fa7101645149",
+  "required_asofs": [
+    "2020-01-31",
+    "2020-02-28",
+    "2020-03-31",
+    "2020-04-30",
+    "2020-05-29",
+    "2020-06-30",
+    "2020-07-31",
+    "2020-08-31",
+    "2020-09-30",
+    "2020-10-30",
+    "2020-11-30",
+    "2020-12-30",
+    "2021-01-29",
+    "2021-02-26",
+    "2021-03-31",
+    "2021-04-30",
+    "2021-05-31",
+    "2021-06-30",
+    "2021-07-30"
+  ],
+  "horizons": [
+    "3y",
+    "5y"
+  ],
+  "runs": [
+    {
+      "code_sha": "8f431c29c90d0d8387e9025c029800bc6b169bc5",
+      "cache_sha256_before": "8c9ca47dbb35f8264a3b5e918680e24aff8b002fd9d81c927d64fa7101645149",
+      "cache_sha256_after": "8c9ca47dbb35f8264a3b5e918680e24aff8b002fd9d81c927d64fa7101645149",
+      "run_name": "estimator-default",
+      "exit_code": 0,
+      "evaluation_file": {
+        "bytes": 3339558,
+        "sha256": "685189a5a8ddf938b02188a2a731773581b54d5b274094e1efd57eeada47507f"
+      },
+      "evidence_coverage": {
+        "required_cohort_count": 38,
+        "eligible_metric_cohort_count": 36,
+        "blocked_or_unresolved_count": 2,
+        "reason_counts": {
+          "entry_price_gap": 2,
+          "integrity_blocked": 2
+        }
+      },
+      "evidence_readiness": {
+        "evidence_status": "blocked",
+        "evidence_complete": false,
+        "blocking_reasons": [
+          "integrity_blocked",
+          "entry_price_gap"
+        ],
+        "missing_cohorts": []
+      }
+    },
+    {
+      "run_name": "estimator-er-level",
+      "exit_code": 0,
+      "evaluation_file": {
+        "bytes": 3343211,
+        "sha256": "1e7af675314a973196c984ed6deeb6f907fe8ba0bab26192913204c384c76260"
+      },
+      "evidence_coverage": {
+        "required_cohort_count": 38,
+        "eligible_metric_cohort_count": 0,
+        "blocked_or_unresolved_count": 38,
+        "reason_counts": {
+          "total_return_missingness_unmeasured:er_level_calibration": 38,
+          "integrity_blocked": 38,
+          "entry_price_gap": 2
+        }
+      },
+      "evidence_readiness": {
+        "evidence_status": "blocked",
+        "evidence_complete": false,
+        "blocking_reasons": [
+          "integrity_blocked",
+          "total_return_missingness_unmeasured:er_level_calibration",
+          "entry_price_gap"
+        ],
+        "missing_cohorts": []
+      },
+      "integrity_summary": {
+        "rows": 38,
+        "status_counts": {
+          "blocked": 38
+        },
+        "profiles": [
+          {
+            "integrity_status": "blocked",
+            "metric_statuses": {
+              "er_calibration": "eligible",
+              "er_level_calibration": "eligible"
+            },
+            "blocking_reasons": [
+              "total_return_missingness_unmeasured:er_level_calibration"
+            ],
+            "count": 36
+          },
+          {
+            "integrity_status": "blocked",
+            "metric_statuses": {
+              "er_calibration": "eligible",
+              "er_level_calibration": "eligible"
+            },
+            "blocking_reasons": [
+              "entry_price_gap",
+              "total_return_missingness_unmeasured:er_level_calibration"
+            ],
+            "count": 2
+          }
+        ],
+        "blocking_reason_row_counts": {
+          "total_return_missingness_unmeasured:er_level_calibration": 38,
+          "entry_price_gap": 2
+        }
+      }
+    },
+    {
+      "run_name": "nomination-union",
+      "exit_code": 0,
+      "evaluation_file": {
+        "bytes": 3354767,
+        "sha256": "cd5eb4bae5bba147a59f6a9956f5b14ce1924045409fbfa41fec87a6234d009a"
+      },
+      "evidence_coverage": {
+        "required_cohort_count": 38,
+        "eligible_metric_cohort_count": 0,
+        "blocked_or_unresolved_count": 38,
+        "reason_counts": {
+          "metric_unresolved:candidate_discovery_nomination_union_fidelity": 38,
+          "metric_unresolved:candidate_discovery_approach_current_earnings_power_fidelity": 38,
+          "metric_unresolved:candidate_discovery_approach_normalized_earnings_power_fidelity": 38,
+          "metric_unresolved:candidate_discovery_approach_asset_value_fidelity": 38,
+          "metric_unresolved:candidate_discovery_approach_reinvestment_value_fidelity": 38,
+          "unpriced_exit_flips:nomination_union_all": 4,
+          "integrity_blocked": 6,
+          "entry_price_gap": 2
+        }
+      },
+      "evidence_readiness": {
+        "evidence_status": "blocked",
+        "evidence_complete": false,
+        "blocking_reasons": [
+          "metric_unresolved:candidate_discovery_nomination_union_fidelity",
+          "metric_unresolved:candidate_discovery_approach_current_earnings_power_fidelity",
+          "metric_unresolved:candidate_discovery_approach_normalized_earnings_power_fidelity",
+          "metric_unresolved:candidate_discovery_approach_asset_value_fidelity",
+          "metric_unresolved:candidate_discovery_approach_reinvestment_value_fidelity",
+          "integrity_blocked",
+          "unpriced_exit_flips:nomination_union_all",
+          "entry_price_gap"
+        ],
+        "missing_cohorts": []
+      },
+      "integrity_summary": {
+        "rows": 38,
+        "status_counts": {
+          "eligible": 32,
+          "blocked": 6
+        },
+        "common_metric_statuses": {
+          "nomination_union_all": "eligible",
+          "candidate_discovery_nomination_union_fidelity": "unresolved",
+          "candidate_discovery_approach_current_earnings_power_fidelity": "unresolved",
+          "candidate_discovery_approach_normalized_earnings_power_fidelity": "unresolved",
+          "candidate_discovery_approach_asset_value_fidelity": "unresolved",
+          "candidate_discovery_approach_reinvestment_value_fidelity": "unresolved"
+        },
+        "profiles": [
+          {
+            "integrity_status": "eligible",
+            "blocking_reasons": [],
+            "count": 32
+          },
+          {
+            "integrity_status": "blocked",
+            "blocking_reasons": [
+              "unpriced_exit_flips:nomination_union_all"
+            ],
+            "count": 4
+          },
+          {
+            "integrity_status": "blocked",
+            "blocking_reasons": [
+              "entry_price_gap"
+            ],
+            "count": 2
+          }
+        ],
+        "blocking_reason_row_counts": {
+          "unpriced_exit_flips:nomination_union_all": 4,
+          "entry_price_gap": 2
+        }
+      }
+    }
+  ],
+  "coverage": [
+    {
+      "asof": "2020-01-31",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3406,
+        "observed_count": 2419,
+        "missing_count": 987,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-02-28",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3457,
+        "observed_count": 2481,
+        "missing_count": 976,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-03-31",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3428,
+        "observed_count": 928,
+        "missing_count": 2500,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-04-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3318,
+        "observed_count": 2388,
+        "missing_count": 930,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-05-29",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20",
+        "nomination_union_all"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3475,
+        "observed_count": 2513,
+        "missing_count": 962,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-06-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3463,
+        "observed_count": 2434,
+        "missing_count": 1029,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-07-31",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3459,
+        "observed_count": 2488,
+        "missing_count": 971,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-08-31",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3480,
+        "observed_count": 2479,
+        "missing_count": 1001,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-09-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3459,
+        "observed_count": 2424,
+        "missing_count": 1035,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-10-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3460,
+        "observed_count": 2532,
+        "missing_count": 928,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-11-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3473,
+        "observed_count": 2493,
+        "missing_count": 980,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-12-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3462,
+        "observed_count": 2533,
+        "missing_count": 929,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-01-29",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "pure_er_top5"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3445,
+        "observed_count": 2523,
+        "missing_count": 922,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-02-26",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "pure_er_top10"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3501,
+        "observed_count": 2558,
+        "missing_count": 943,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-03-31",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "margin_short_to_adv"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3458,
+        "observed_count": 1004,
+        "missing_count": 2454,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-04-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3435,
+        "observed_count": 2525,
+        "missing_count": 910,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-05-31",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3515,
+        "observed_count": 2553,
+        "missing_count": 962,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-06-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3497,
+        "observed_count": 2518,
+        "missing_count": 979,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-07-30",
+      "horizon": "3y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20",
+        "nomination_union_all"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3483,
+        "observed_count": 2602,
+        "missing_count": 881,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-01-31",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [
+        "approach_normalized_earnings_power_nominations",
+        "approach_normalized_earnings_power_top20",
+        "nomination_union_all"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3406,
+        "observed_count": 2324,
+        "missing_count": 1082,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-02-28",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20",
+        "approach_normalized_earnings_power_nominations",
+        "approach_normalized_earnings_power_top20",
+        "nomination_union_all"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3457,
+        "observed_count": 2388,
+        "missing_count": 1069,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-03-31",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3428,
+        "observed_count": 900,
+        "missing_count": 2528,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-04-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [
+        "pure_er_top5"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3318,
+        "observed_count": 2302,
+        "missing_count": 1016,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-05-29",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3475,
+        "observed_count": 2421,
+        "missing_count": 1054,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-06-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3463,
+        "observed_count": 2348,
+        "missing_count": 1115,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-07-31",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3459,
+        "observed_count": 2405,
+        "missing_count": 1054,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-08-31",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3480,
+        "observed_count": 2394,
+        "missing_count": 1086,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-09-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3459,
+        "observed_count": 2340,
+        "missing_count": 1119,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-10-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3460,
+        "observed_count": 2448,
+        "missing_count": 1012,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-11-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3473,
+        "observed_count": 2412,
+        "missing_count": 1061,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2020-12-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3462,
+        "observed_count": 2452,
+        "missing_count": 1010,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-01-29",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [
+        "pure_er_top5"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3445,
+        "observed_count": 2443,
+        "missing_count": 1002,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-02-26",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3501,
+        "observed_count": 2477,
+        "missing_count": 1024,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-03-31",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3458,
+        "observed_count": 977,
+        "missing_count": 2481,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-04-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3435,
+        "observed_count": 2443,
+        "missing_count": 992,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-05-31",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3515,
+        "observed_count": 2468,
+        "missing_count": 1047,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-06-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [
+        "approach_current_earnings_power_nominations",
+        "approach_current_earnings_power_top20",
+        "pure_er_top5"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3497,
+        "observed_count": 2432,
+        "missing_count": 1065,
+        "missingness_sensitivity": "not_measured"
+      }
+    },
+    {
+      "asof": "2021-07-30",
+      "horizon": "5y",
+      "delisting_unstable_metrics": [
+        "pure_er_top5"
+      ],
+      "priced_master_unstable_metrics": [],
+      "er_level_outcomes": {
+        "prediction_count": 3483,
+        "observed_count": 2511,
+        "missing_count": 972,
+        "missingness_sensitivity": "not_measured"
+      }
+    }
+  ],
+  "context_comparison": {
+    "old_sha256": "68c5347aa7eb896a4e66230e3596c76a14dd25084b6d9b37fb7fe0aad53d6571",
+    "old_bytes": 19830,
+    "new_sha256": "ed6444d3536f4b60d2ac355fd901e29ee4dd50ec1e0ca77e0cce058bc6efd40c",
+    "new_bytes": 19857,
+    "changed_top_level_fields": {
+      "evidence_blocking_reasons": [
+        "integrity_blocked",
+        "total_return_missingness_unmeasured:er_level_calibration",
+        "entry_price_gap"
+      ],
+      "generated_at": "2026-10-22T00:28:09+09:00",
+      "valid_through": "2026-12-06"
+    },
+    "large_changed_fields": [],
+    "replace_only_these_raw_blocks_reconstructs_exact_new_bytes": true,
+    "reconstructed_sha256": "ed6444d3536f4b60d2ac355fd901e29ee4dd50ec1e0ca77e0cce058bc6efd40c"
+  },
+  "measured_price_metrics": [
+    "approach_asset_value_nominations",
+    "approach_asset_value_top20",
+    "approach_current_earnings_power_nominations",
+    "approach_current_earnings_power_top20",
+    "approach_normalized_earnings_power_nominations",
+    "approach_normalized_earnings_power_top20",
+    "approach_reinvestment_value_nominations",
+    "approach_reinvestment_value_top20",
+    "nomination_union_all",
+    "pure_er_top10",
+    "pure_er_top20",
+    "pure_er_top5",
+    "er_calibration",
+    "margin_short_to_adv",
+    "normalized_per_3fy"
+  ],
+  "coverage_verified_canonical_sha256": "50b64366a570207b6ee4be1f05bef6c5c10bec4d5b2b3ac102f367b3373af2ba",
+  "coverage_encoding": "All measured_price_metrics are true except the listed unstable metrics; no unmeasured metric is inferred."
+}

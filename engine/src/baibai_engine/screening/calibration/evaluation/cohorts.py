@@ -238,7 +238,30 @@ def _evaluate_cohort(
     er_calibration = _evaluate_er_calibration(
         population, excess, years=require_horizon(horizon).months / 12
     )
-    er_level_calibration = _evaluate_er_level_calibration(population, forward_rows, horizon=horizon)
+    er_level_calibration = _evaluate_er_level_calibration(
+        population_expected, forward_rows, horizon=horizon
+    )
+    # Compare the declared prediction population, not only price-resolved rows.
+    # A price-excess direction sensitivity does not measure selection bias in
+    # absolute FY-dividend outcomes. Keep descriptive statistics, but disclose
+    # that empirical level changes lack a missing-outcome sensitivity analysis.
+    level_prediction_count = sum(
+        row.er_annual is not None
+        and row.er_reversion_annual is not None
+        and row.er_carry_annual is not None
+        for row in population_expected
+    )
+    level_observed_count = er_level_calibration.get("n")
+    coverage["er_level_outcomes"] = {
+        "prediction_count": level_prediction_count,
+        "observed_count": level_observed_count,
+        "missing_count": (
+            level_prediction_count - level_observed_count
+            if isinstance(level_observed_count, int)
+            else None
+        ),
+        "missingness_sensitivity": "not_measured",
+    }
     metric_statuses = {
         key: ("eligible" if isinstance(value, dict) and value.get("n", 0) else "unresolved")
         for key, value in candidate_discovery.items()
