@@ -14,12 +14,12 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_engine.collection.jquants import http as jquants_http
 from baibai_engine.collection.jquants.http import (
     JQuantsAcquisitionError,
     JQuantsHTTP,
     page_records,
 )
+from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded
 
 RECEIVED_AT = datetime(2026, 10, 17, 12, tzinfo=UTC)
 
@@ -231,13 +231,27 @@ def wire(monkeypatch):
             pool, connection, method, url, **kwargs
         ),
     )
-    monkeypatch.setattr(jquants_http.time, "sleep", value.waits.append)
+    monkeypatch.setattr("time.sleep", value.waits.append)
 
     def no_socket(*args, **kwargs):
         pytest.fail("offline transport must never connect")
 
     monkeypatch.setattr("socket.socket.connect", no_socket)
     return value
+
+
+def test_job_cutoff_refuses_retry_after_without_another_request(wire, monkeypatch):
+    monkeypatch.setattr("time.time", lambda: 100.0)
+    monkeypatch.setenv("BAIBAI_ACQUISITION_DEADLINE", "110")
+    wire.reply = lambda url: (429, {"Retry-After": "20"}, b"{}")
+    client = JQuantsHTTP("synthetic-test-key")
+    try:
+        with pytest.raises(AcquisitionDeadlineExceeded):
+            list(client.pages("master", {}))
+    finally:
+        client.close()
+    assert len(wire.calls) == 1
+    assert wire.waits == []
 
 
 def test_each_get_retries_independently_with_backoff_and_retry_after(wire):
@@ -284,7 +298,7 @@ def test_retry_after_override_and_invalid_header_fallback(wire, retry_after, wai
 
 def test_http_date_retry_after_precedes_default_backoff(wire, monkeypatch):
     base = datetime(2026, 10, 17, 12, tzinfo=UTC)
-    monkeypatch.setattr(jquants_http.time, "time", lambda: base.timestamp())
+    monkeypatch.setattr("time.time", lambda: base.timestamp())
     header = format_datetime(base + timedelta(seconds=60), usegmt=True)
     wire.reply = lambda url: (
         (429, {"Retry-After": header}, b"{}") if len(wire.calls) == 1 else (200, {}, payload([]))

@@ -11,6 +11,7 @@ from tests.helpers.http_doubles import FakeResponse, response
 
 from baibai_engine.collection.edinet import http
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded
 from baibai_engine.market.edinet_refresh import EDINETRefresh
 
 KEY = "secret+/key"
@@ -60,6 +61,16 @@ def limited(*, body: bool = False, retry_after: str | None = None) -> FakeRespon
     if retry_after is not None:
         reply.headers["Retry-After"] = retry_after
     return reply
+
+
+def test_job_cutoff_stops_body_429_before_waiting_or_retrying(clock, monkeypatch):
+    monkeypatch.setattr("time.time", lambda: NOW.timestamp())
+    monkeypatch.setenv("BAIBAI_ACQUISITION_DEADLINE", str(NOW.timestamp() + 10))
+    session = Session(limited(body=True, retry_after="20"))
+    with pytest.raises(AcquisitionDeadlineExceeded):
+        http.EDINETHTTP(KEY, session=session).fetch_list(DAY)
+    assert len(session.calls) == 1
+    assert clock == []
 
 
 def test_list_and_archive_requests_keep_exact_query_and_raw_body(clock):
