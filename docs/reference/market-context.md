@@ -143,7 +143,7 @@ CFTCは要求contractのAPI record全項目、ECB FXはCSVの全通貨列を、s
 
 Collectionの取得処理が1回再試行するのは、停止を表す`ProviderFetchStoppedError`以外の`IndicatorsProviderError`に限る。再試行前に取得contextのbytes cacheを破棄し、再失敗は`economic_source_runs`へfailedとして記録する。GET transportの再試行終了・deadline・providerが確定した停止は`ProviderFetchStoppedError`で伝わり、このCollectionの取得処理再試行へ戻さない。
 
-各providerの最初のGETから20分のdeadlineを同じ`FetchContext`の取得passで共有する。通信時間・本文受信・SDK内待機を数え、新しいGETや収まらない待機を開始しない。待機を短縮して再送せず、次passは新しい予算で始める。SDK/HTTPの通信timeoutは30秒のままで、進行中の通信を強制取消するものではない。日次job全体は90分上限だが、job残時間はcallerから渡されておらず、複数providerと他工程の総時間をこの局所予算だけで保証しない。job残時間の伝達は別の残件とし、永続cooldownや次passへの期限引継ぎは持たない。
+各providerの最初のGETから20分のdeadlineを同じ`FetchContext`の取得passで共有する。通信時間・本文受信・SDK内待機を数え、新しいGETや収まらない待機を開始しない。待機を短縮して再送せず、次passは新しい予算で始める。SDK/HTTPの通信timeoutは30秒のままで、進行中の通信を強制取消するものではない。日次jobから`BAIBAI_ACQUISITION_DEADLINE`が渡された場合は、このproviderごとの予算に加えてjob側の取得期限も確認する。設定・公開工程の余白は[日次運用](../../batch/OPERATIONS.md)を正本とし、複数providerと他工程の総時間や公開完了を保証するものではない。未設定のlocal実行では既存のprovider予算を使う。永続cooldownや次passへの期限引継ぎは持たない。
 
 <a id="jquants-options-provider"></a>
 
