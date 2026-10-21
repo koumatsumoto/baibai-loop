@@ -3,34 +3,47 @@ from __future__ import annotations
 import asyncio
 import copy
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from mcp.types import CallToolResult
+from tests.helpers.master import insert_master_rows
 
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.tradingview.collector import (
+from baibai_engine.external_assessment.tradingview.collector import (
     SourceDataError,
     collect,
     preflight_snapshot,
     universe,
 )
-from baibai_engine.market.tradingview.observations import COLUMNS, FetchError, normalize_batch
-from baibai_engine.market.universe import UniverseSourceDriftError
+from baibai_engine.external_assessment.tradingview.observations import (
+    COLUMNS,
+    FIELDS,
+    FetchError,
+    normalize_batch,
+)
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.storage.observations.schema import open_connection
 
 DAY = date(2026, 9, 18)
 NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
 
 
+def _sdk(body: dict) -> CallToolResult:
+    return CallToolResult(isError=False, structuredContent=body, content=[])
+
+
 def store(path: Path, count: int = 51) -> Path:
-    conn = open_connection(path)
-    with conn:
+    with closing(open_connection(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
-            [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(count)],
+        insert_master_rows(
+            conn,
+            [
+                (DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011")
+                for i in range(count)
+            ],
         )
-    conn.close()
     return path
 
 
@@ -48,7 +61,7 @@ def payload(symbols: list[str], *, missing: list[str] | None = None) -> dict:
 
 
 def stored(path: Path) -> list:
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         return conn.execute(
             "SELECT * FROM tradingview_forecast_snapshots ORDER BY ticker"
         ).fetchall()
@@ -59,9 +72,9 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     calls = []
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols, missing=symbols[1:2] if len(symbols) == 50 else [])
+        return _sdk(payload(symbols, missing=symbols[1:2] if len(symbols) == 50 else []))
 
     async def sleep(interval):
         pauses.append(interval)
@@ -102,7 +115,7 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     assert state["requests_attempted"] == 0
     assert state["unresolved"] == 1
     assert state["first_fetched_at_utc"] == NOW.isoformat()
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         assert conn.execute(
             "SELECT fetch_status, eps_forecast_next_fy, fetched_at_utc, estimate_currency "
             "FROM tradingview_forecast_snapshots WHERE ticker='1000'"
@@ -120,51 +133,49 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
     assert not missing.exists()
     path = store(tmp_path / "market.sqlite", 2)
     assert preflight_snapshot(path, DAY)["needs_master"] is False
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "DELETE FROM jquants_master_snapshots WHERE snapshot_date=?", (DAY.isoformat(),)
         )
     assert preflight_snapshot(path, DAY)["needs_master"] is True
-    with sqlite3.connect(path) as conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
-            [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(2)],
+    with closing(sqlite3.connect(path)) as conn, conn:
+        insert_master_rows(
+            conn,
+            [(DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011") for i in range(2)],
         )
 
-    async def healthy(symbols):
-        return payload(symbols)
+    async def healthy(symbols, _columns):
+        return _sdk(payload(symbols))
 
     asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("DELETE FROM tradingview_forecast_snapshots WHERE ticker='1001'")
     assert preflight_snapshot(path, DAY)["remaining"] == 1
 
     calls = []
 
-    async def resume(symbols):
+    async def resume(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     assert asyncio.run(collect(path, DAY, resume, clock=lambda: NOW))["rows_added"] == 1
     assert calls == [["TSE:1001"]]
 
 
-@pytest.mark.parametrize("failure", ["429", "all_missing", "malformed", "crash"])
+@pytest.mark.parametrize("failure", ["429", "malformed", "crash"])
 def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -> None:
     path = store(tmp_path / "market.sqlite")
     calls = 0
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         nonlocal calls
         calls += 1
         if calls == 1:
-            return payload(symbols)
-        if failure == "all_missing":
-            return payload(symbols, missing=symbols)
+            return _sdk(payload(symbols))
         if failure == "malformed":
-            return {"success": True}
+            return _sdk({"success": True})
         if failure == "429":
-            from baibai_engine.market.tradingview.observations import ProviderHTTPError
+            from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
 
             raise ProviderHTTPError(429)
         raise RuntimeError(failure)
@@ -181,7 +192,6 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
             result["stop_reason"]
             == {
                 "429": "provider_rate_limit",
-                "all_missing": "provider_all_missing",
                 "malformed": "provider_response",
             }[failure]
         )
@@ -189,8 +199,8 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
     assert len(original) == 50
 
     # A same-day whole-run retry can still succeed.
-    async def healthy(symbols):
-        return payload(symbols)
+    async def healthy(symbols, _columns):
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
     assert result["rows"] == 51
@@ -203,9 +213,9 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
     calls = []
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols, missing=symbols if symbols == ["TSE:1001"] else [])
+        return _sdk({"success": True} if symbols == ["TSE:1001"] else payload(symbols))
 
     async def sleep(seconds):
         pauses.append(seconds)
@@ -220,9 +230,9 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
     assert pauses == [2, 2]
     original = stored(path)
 
-    async def resume(symbols):
+    async def resume(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, resume, batch_size=1, clock=lambda: NOW))
     assert result["status"] == "saved"
@@ -232,14 +242,14 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
 
 
 def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
-    from baibai_engine.market.tradingview.collector import CollectionFailure
+    from baibai_engine.external_assessment.tradingview.collector import CollectionFailure
 
     path = store(tmp_path / "market.sqlite", 5)
     calls = []
 
-    async def bad(symbols):
+    async def bad(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols, missing=symbols)
+        return _sdk({"success": True})
 
     with pytest.raises(CollectionFailure):
         asyncio.run(collect(path, DAY, bad, batch_size=1, interval=0, clock=lambda: NOW))
@@ -248,20 +258,20 @@ def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
 
 
 def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) -> None:
-    from baibai_engine.market.tradingview.collector import CollectionFailure
-    from baibai_engine.market.tradingview.observations import ProviderHTTPError
+    from baibai_engine.external_assessment.tradingview.collector import CollectionFailure
+    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
 
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def first(symbols):
+    async def first(symbols, _columns):
         if symbols == ["TSE:1001"]:
             raise ProviderHTTPError(429)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, first, batch_size=1, interval=0, clock=lambda: NOW))
     assert result["rows_added"] == 1
 
-    async def blocked(symbols):
+    async def blocked(symbols, _columns):
         assert symbols == ["TSE:1001"]
         raise ProviderHTTPError(429)
 
@@ -273,16 +283,16 @@ def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) ->
 def test_unknown_stored_ticker_blocks_preflight_and_provider(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def healthy(symbols):
-        return payload(symbols)
+    async def healthy(symbols, _columns):
+        return _sdk(payload(symbols))
 
     asyncio.run(collect(path, DAY, healthy, clock=lambda: NOW))
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("UPDATE tradingview_forecast_snapshots SET ticker='9999' WHERE ticker='1001'")
     with pytest.raises(SourceDataError, match="outside"):
         preflight_snapshot(path, DAY)
 
-    async def forbidden(_symbols):
+    async def forbidden(_symbols, _columns):
         pytest.fail("inconsistent source must not reach provider")
 
     with pytest.raises(SourceDataError, match="outside"):
@@ -294,10 +304,10 @@ def test_soft_budget_keeps_first_batch_without_next_request(tmp_path: Path) -> N
     timer = Timer()
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         timer.value = 25 * 60
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def no_sleep(_seconds):
         pass
@@ -328,10 +338,10 @@ def test_soft_budget_stops_before_interval_that_exceeds_remaining_time(tmp_path:
     calls = []
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         timer.value = 20 * 60
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def sleep(seconds):
         pauses.append(seconds)
@@ -363,11 +373,11 @@ def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 6)
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         if symbols[0] in {"TSE:1000", "TSE:1001", "TSE:1003", "TSE:1004"}:
-            return payload(symbols, missing=symbols)
-        return payload(symbols)
+            return _sdk({"success": True})
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
     assert result["status"] == "partial"
@@ -381,7 +391,7 @@ def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
 def test_no_backfill_or_preclose_collection(tmp_path: Path, observed: datetime) -> None:
     path = store(tmp_path / "market.sqlite", 1)
 
-    async def forbidden(symbols):
+    async def forbidden(symbols, _columns):
         pytest.fail("provider must not be called")
 
     with pytest.raises(FetchError, match="backfill"):
@@ -393,8 +403,8 @@ def test_midnight_crossing_aborts_the_run(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
     times = iter([NOW, NOW, NOW + timedelta(days=1)])
 
-    async def fetch(symbols):
-        return payload(symbols)
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols))
 
     with pytest.raises(FetchError):
         asyncio.run(collect(path, DAY, fetch, clock=lambda: next(times)))
@@ -405,28 +415,30 @@ def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: P
     path = store(tmp_path / "market.sqlite", 1)
     conn = open_connection(path)
     with conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?, ?,?,1)",
+        insert_master_rows(
+            conn,
             [
-                (DAY.isoformat(), "2000", "fund", "プライム", "その他"),
-                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械"),
-                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械"),
+                (DAY.isoformat(), "2000", "fund", "プライム", "その他", "014"),
+                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械", "011"),
+                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械", "011"),
             ],
         )
     assert universe(conn, DAY) == ["TSE:1000"]
     with conn:
-        conn.execute("UPDATE jquants_master_snapshots SET sector_33='unknown' WHERE ticker='1000'")
-    with pytest.raises(UniverseSourceDriftError):
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'"
+        )
+    with pytest.raises(JQuantsProviderError, match="product category"):
         universe(conn, DAY)
     conn.close()
 
 
 def test_exact_date_master_and_calendar_are_required(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("DELETE FROM jquants_master_snapshots")
 
-    async def forbidden(symbols):
+    async def forbidden(symbols, _columns):
         pytest.fail("provider must not be called")
 
     with pytest.raises(FetchError, match="Exact-date"):
@@ -461,14 +473,14 @@ def test_response_accounting_refuses_invalid_payload(case: str) -> None:
         normalize_batch(p, symbols, NOW)
 
 
-@pytest.mark.parametrize("common", [0, None])
-def test_universe_uses_canonical_sectors_without_common_stock_flag(tmp_path, common):
+def test_native_product_category_does_not_depend_on_sector_spelling(tmp_path):
     path = store(tmp_path / "market.sqlite", 1)
-    conn = open_connection(path)
-    with conn:
-        conn.execute("UPDATE jquants_master_snapshots SET is_common_stock=?", (common,))
-    assert universe(conn, DAY) == ["TSE:1000"]
-    conn.close()
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute(
+            "UPDATE jquants_master_snapshots "
+            "SET record_json=json_set(record_json,'$.S33Nm','新業種')"
+        )
+        assert universe(conn, DAY) == ["TSE:1000"]
 
 
 class Timer:
@@ -478,19 +490,17 @@ class Timer:
         return self.value
 
 
-@pytest.mark.parametrize(
-    "failure", [None, "429", "all_missing", "malformed", "store", "time_guard"]
-)
+@pytest.mark.parametrize("failure", [None, "429", "malformed", "store", "time_guard"])
 def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
 
-    from baibai_engine.market.tradingview.cli import failure_category
-    from baibai_engine.market.tradingview.collector import CollectionFailure
-    from baibai_engine.market.tradingview.observations import ProviderHTTPError
+    from baibai_engine.external_assessment.tradingview.cli import failure_category
+    from baibai_engine.external_assessment.tradingview.collector import CollectionFailure
+    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
 
     path = store(tmp_path / "market.sqlite")
     if failure == "store":
-        with sqlite3.connect(path) as conn:
+        with closing(sqlite3.connect(path)) as conn, conn:
             conn.execute(
                 "CREATE TRIGGER fail_insert BEFORE INSERT ON tradingview_forecast_snapshots "
                 "WHEN NEW.ticker='1050' BEGIN SELECT RAISE(ABORT, 'private-token'); END"
@@ -500,18 +510,16 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     calls = 0
     pauses = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         nonlocal calls
         calls += 1
         timer.value += calls * 1.23456
         if calls == 2:
             if failure == "429":
                 raise ProviderHTTPError(429)
-            if failure == "all_missing":
-                return payload(symbols, missing=symbols)
             if failure == "malformed":
-                return {"success": True}
-        return payload(symbols)
+                return _sdk({"success": True})
+        return _sdk(payload(symbols))
 
     async def sleep(interval):
         pauses.append(interval)
@@ -568,7 +576,10 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     ],
 )
 def test_payload_diagnostics_use_canonical_field(field, value, reason):
-    from baibai_engine.market.tradingview.observations import FIELDS, ProviderPayloadError
+    from baibai_engine.external_assessment.tradingview.observations import (
+        FIELDS,
+        ProviderPayloadError,
+    )
 
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"][FIELDS[field]] = value
@@ -578,7 +589,7 @@ def test_payload_diagnostics_use_canonical_field(field, value, reason):
 
 
 def test_missing_fields_uses_first_requested_canonical_field():
-    from baibai_engine.market.tradingview.observations import ProviderPayloadError
+    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
 
     data = payload(["TSE:1000"])
     del data["data"]["TSE:1000"]["earnings_per_share_forecast_next_fy"]
@@ -590,8 +601,8 @@ def test_missing_fields_uses_first_requested_canonical_field():
 
 @pytest.mark.parametrize("raw", [None, [], "private-body", 42])
 def test_non_dict_row_does_not_blame_a_field(raw):
-    from baibai_engine.market.tradingview.cli import failure_line
-    from baibai_engine.market.tradingview.observations import ProviderPayloadError
+    from baibai_engine.external_assessment.tradingview.cli import failure_line
+    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
 
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"] = raw
@@ -609,7 +620,7 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
     path = store(tmp_path / "market.sqlite", 2)
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         if len(calls) == 2:
             response = httpx2.Response(
@@ -618,7 +629,7 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
                 request=httpx2.Request("GET", "https://example.com"),
             )
             raise httpx2.HTTPStatusError("private", request=response.request, response=response)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
     assert result["status"] == "partial"
@@ -628,3 +639,58 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
     assert "mcp_http_status=429" in result["last_failure"]
     assert "retry_not_before_utc=2026-10-11T18:00:00+00:00" in result["last_failure"]
     assert "private" not in str(result)
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_explicit_missing_receipt_does_not_depend_on_batch_composition(batch_size):
+    symbols = ["TSE:1000", "TSE:1001"]
+    rows = []
+    for offset in range(0, len(symbols), batch_size):
+        chunk = symbols[offset : offset + batch_size]
+        response = payload(chunk, missing=[s for s in chunk if s == symbols[1]])
+        rows.extend(normalize_batch(response, chunk, NOW))
+    assert rows == normalize_batch(payload(symbols, missing=[symbols[1]]), symbols, NOW)
+    assert rows[1]["fetch_status"] == "unresolved"
+    assert all(rows[1][field] is None for field in FIELDS)
+
+
+def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tmp_path):
+    path = store(tmp_path / "market.sqlite", 51)
+    calls = []
+
+    async def fetch(symbols, _columns):
+        calls.append(symbols)
+        return _sdk(payload(symbols, missing=[s for s in symbols if s == "TSE:1050"]))
+
+    async def no_sleep(_seconds):
+        pass
+
+    result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW, sleep=no_sleep))
+    assert (result["status"], result["rows"], result["remaining"], result["unresolved"]) == (
+        "saved",
+        51,
+        0,
+        1,
+    )
+    assert [len(call) for call in calls] == [50, 1]
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute(
+            "SELECT fetch_status, quote_close, recommendation_total "
+            "FROM tradingview_forecast_snapshots WHERE ticker='1050'"
+        ).fetchone() == ("unresolved", None, None)
+    again = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
+    assert again["status"] == "already_saved"
+    assert len(calls) == 2
+
+
+def test_successful_all_missing_day_is_accounted_but_not_normal_null_data(tmp_path):
+    path = store(tmp_path / "market.sqlite", 2)
+
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols, missing=symbols))
+
+    result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
+    assert (result["status"], result["rows"], result["unresolved"]) == ("saved", 2, 2)
+    assert all(count == 0 for count in result["normal_nulls"].values())
+    state = preflight_snapshot(path, DAY)
+    assert (state["status"], state["unresolved"]) == ("already_saved", 2)

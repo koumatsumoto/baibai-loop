@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, fetchJson } from '../src/api/client'
-import { CapitalAllocationAssessmentPage } from '../src/pages/CapitalAllocationAssessmentPage'
-import { MacroReportPage } from '../src/pages/MacroReportPage'
+import { InvestmentProposalPage } from '../src/pages/InvestmentProposalPage'
+import { StockAssessmentPage } from '../src/pages/StockAssessmentPage'
+import { AssessmentPage } from '../src/pages/AssessmentPage'
 import { SecurityDetailPage } from '../src/pages/SecurityDetailPage'
 
 const hooks = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ vi.mock('react', async (importOriginal) => ({
 vi.mock('react-router', async (importOriginal) => ({
   ...await importOriginal<typeof import('react-router')>(),
   useParams: () => hooks.params,
+  useLocation: () => ({ state: null }),
 }))
 vi.mock('../src/api/client', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/api/client')>(),
@@ -53,8 +55,9 @@ afterEach(() => {
 
 const pages = [
   { name: 'security', render: SecurityDetailPage, param: 'ticker', path: '/api/securities/', states: [null, false, null] },
-  { name: 'macro', render: MacroReportPage, param: 'contextId', path: '/api/macro/context/', states: [null, null] },
-  { name: 'CAA', render: CapitalAllocationAssessmentPage, param: 'capitalAllocationAssessmentId', path: '/api/capital-allocation-assessments/', states: [null, null] },
+  { name: 'market-context', render: AssessmentPage, param: 'contextId', path: '/api/market-context/assessments/', states: [null, null] },
+  { name: 'proposal', render: InvestmentProposalPage, param: 'proposalId', path: '/api/investment-proposals/', states: [null, null] },
+  { name: 'stock-assessment', render: StockAssessmentPage, param: 'assessmentId', path: '/api/stock-assessments/', states: [null, null] },
 ]
 
 for (const page of pages) {
@@ -63,7 +66,7 @@ for (const page of pages) {
       hooks.params = { [page.param]: id }
       hooks.setters = []
       page.render()
-      const effect = hooks.effects.at(-1)!
+      const effect = hooks.effects.findLast(({ dependencies }) => dependencies.length === 1 && dependencies[0] === id)!
       expect(effect.dependencies).toEqual([id])
       const cleanup = effect.setup()
       const setters = hooks.setters

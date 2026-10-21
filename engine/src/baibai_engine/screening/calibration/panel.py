@@ -1,11 +1,11 @@
-"""Point-in-time panel for Security Analysis and Review Set replay.
+"""Point-in-time panel for Stock Analysis and candidate replay.
 
-本番 run と同じ部品 (`build_metrics` / `security_analysis_payload` /
-`build_nomination_ranks` / `build_review_set`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
+本番 run と同じ部品 (`build_metrics` / `stock_analysis_payload` /
+`build_candidate_contexts`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
 実装の単一性で担保する。相違点は入力の中立化だけ:
 
-- macro_context=None (macro は annotation であり順位に使わない)
-- 過去のReview Setや判断を過去cohortの順位へ混入させない
+- 市場環境判断は候補順位の入力にしない
+- 過去の候補集合や判断を過去cohortの順位へ混入させない
 - JPX 規制 flag は保存済みの同日snapshotだけを使い、source不足はdiagnosticsへ残す
 """
 
@@ -18,46 +18,46 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.market.sqlite.reader import (
-    fin_summaries_readable_from,
-    read_edinet_metrics,
-    read_eq_master_asof,
-    read_fin_summaries,
-    read_jpx_regulations,
-    read_reported_short_metrics,
-)
+from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
+from baibai_engine.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
-
-from ..discovery.review_set import (
-    build_nomination_ranks,
-    build_review_set,
-    candidate_discovery_method_hash,
-)
-from ..estimates import estimate_expected_return
-from ..metrics import (
+from baibai_engine.screening.metrics.snapshot import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
-    VALUATION_CALCULATION_REVISION,
-    VALUATION_HISTORY_SESSIONS,
-    VALUATION_METRICS,
     build_metrics,
-    build_normalized_profit_signals,
-    build_profitability_level_signals,
-    build_shareholder_return_change_signals,
-    build_shares_outstanding_index,
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
+from baibai_engine.storage.observations.reader import (
+    fin_summaries_readable_from,
+    read_eq_master_asof,
+    read_fin_summaries,
+    read_jpx_regulations,
+)
+from baibai_engine.valuation.estimates import estimate_expected_return
+from baibai_engine.valuation.metrics.capital import build_shares_outstanding_index
+from baibai_engine.valuation.metrics.dividends import build_shareholder_return_change_signals
+from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
+from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
+from baibai_engine.valuation.metrics.profit import (
+    build_normalized_profit_signals,
+    build_profitability_level_signals,
+)
+from baibai_engine.valuation.metrics.relative import SECTOR_MEDIAN_BASIS_MARKET, VALUATION_METRICS
+
+from ..discovery.candidates import build_candidate_contexts, candidate_discovery_method_hash
 from ..rule_config import ScreeningRules
-from ..schema import SECTOR_MEDIAN_BASIS_MARKET, SecurityAnalysis, TTMQuality
-from ..screening_run_serializer import security_analysis_payload
-from ..security_analysis_builder import build_security_analysis
+from ..schema import StockAnalysis
+from ..screening_run_serializer import stock_analysis_payload
+from ..stock_analysis_builder import build_stock_analysis, expected_return_inputs
 from ..universe import (
     POLICY_EXCLUSION_REASONS,
+    UNIVERSE_SCOPE_REVISION,
     build_universe,
     candidate_comparison_population,
 )
@@ -112,7 +112,9 @@ def rules_content_hash(
             rules.candidate_discovery,
             required_jpx_flags=rules.universe.required_jpx_flags,
         ),
+        universe_scope_revision=UNIVERSE_SCOPE_REVISION,
         valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+        market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
         variant=policy.variant,
         valuation_history_sessions=policy.valuation_history_sessions,
         bars_input_window_days=policy.bars_input_window_days,
@@ -128,7 +130,7 @@ class PanelRow:
     in_population: bool
     market_cap_oku: float | None
     avg_turnover_oku: float | None
-    listing_span_days: int | None
+    price_history_span_days: int | None
     close: float | None
     per_forward: float | None
     per_trailing: float | None
@@ -170,15 +172,9 @@ class PanelRow:
     er_reversion_annual: float | None
     er_carry_annual: float | None
     er_upside_capped: float | None
-    # Investor-level short positions reported at or above the statutory 0.5%
-    # threshold. Zero means the full source window is covered and no reporter is
-    # active; None means the window is not provably covered.
-    reported_short_ratio: float | None
-    reported_short_breadth: int | None
-    reported_short_latest_disclosed_at: str | None
     # Supply/demand from the exchange's published all-issues margin balances, joined
     # at the publication lag of whichever series published the balance date (see
-    # `sqlite_reader.published_margin_balance_dates`). Axes that use the daily
+    # `storage.observations.reader.published_margin_balance_dates`). Axes that use the daily
     # series' frequency rather than its balances must use separately named
     # calibration fields. Carried on the panel so the axes can be measured against
     # forward returns before any of them is allowed to change a rule.
@@ -186,12 +182,13 @@ class PanelRow:
     # old its positioning read is: the balance is published days later, and a store
     # with a gap would otherwise show plausible axes with no trace of which balance
     # date they came from.
-    margin_week_end: str | None
+    margin_balance_date: str | None
     margin_long_to_adv: float | None
     margin_long_share: float | None
     margin_long_delta_26w: float | None
     margin_std_long_share: float | None
-    in_review_set: bool
+    # 保存済み較正panelのwire名。意味はCandidate Discoveryのnomination union所属。
+    in_nomination_union: bool
     valuation_approaches: str
     valuation_approach_ranks: str
     population_coverage_status: PopulationCoverageStatus = "evaluated"
@@ -212,9 +209,10 @@ class PanelRow:
     asset_turnover: float | None = None
     # `smg_*` のうち、業種の母数が足りず市場中央値から作られた軸を `|` で並べる。
     # 薄い業種は市場より低倍率へ寄るので、この素性が無いと gap の符号を業種の割安と
-    # 読むか業種構成と読むかを分けられない。metric 名は `metrics.VALUATION_METRICS`
-    # と同じ語彙。空文字は「自業種から答えた」と「そもそも軸を評価していない」の
-    # 両方を取るので、素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
+    # 読むか業種構成と読むかを分けられない。metric 名は
+    # `valuation.metrics.relative.VALUATION_METRICS` と同じ語彙。
+    # 空文字は「自業種から答えた」と「そもそも軸を評価していない」の両方を取る。
+    # 素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
     smg_market_fallback: str = ""
 
 
@@ -227,6 +225,7 @@ class PanelDiagnostics:
     rules_hash: str
     universe_size: int
     population_size: int
+    # 保存済みdiagnosticsのwire名。現行Stock Analysisの件数。
     security_analyses: int
     nominated_candidates: int
     bars_tickers_not_in_master: int
@@ -255,18 +254,17 @@ class PanelDiagnostics:
     # observation, so it is measured here. The bar store keeps rows for every
     # ticker that traded, including ones that have since left the market, so the
     # set priced on ``asof`` is observable independently of the master snapshot
-    # and can be compared against it. Only the ``asof`` session counts: a name
-    # whose last trade was earlier had already left the market, and an exact-date
-    # master is right to omit it. Widening this to the entry tolerance would
-    # count correctly-omitted names as coverage holes, which no master could
-    # then satisfy.
+    # and can be compared against it. This diagnostic deliberately counts only names
+    # priced on the ``asof`` session. An earlier last trade does not prove delisting:
+    # suspension, illiquidity and missing data can also explain it. This count alone
+    # therefore does not establish coverage of every listed security.
     #
     # ``asof_population_mismatch_count`` counts tickers priced on ``asof`` that
     # the master read does not contain. A later master misses names that were
     # listed then and have since delisted (the survivorship hole); an earlier one
     # misses names listed after it. Either way the panel cross-section is not the
-    # investable universe of ``asof``. An exact-date master drives the count to
-    # zero, because a name that traded that session was listed that session.
+    # investable universe of ``asof``. Zero is expected for aligned exact-date sources,
+    # but does not prove source completeness or explain every mismatch.
     #
     # ``priced_master_without_universe_count`` counts the opposite direction: a
     # name priced on ``asof`` and present in the master that the panel still
@@ -381,7 +379,6 @@ def build_panel(
     }
     median_population = candidate_comparison_population(universe_result.snapshots, rules)
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(sqlite_path, asof_date)
-    reported_short = read_reported_short_metrics(sqlite_path, asof_date)
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -402,13 +399,14 @@ def build_panel(
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=metric_result.financials[ticker].market_price_yen,
+            ttm_rules=rules.ttm,
         )
         for ticker in universe_result.snapshots
     }
-    candidates: list[SecurityAnalysis] = []
+    candidates: list[StockAnalysis] = []
     for ticker in sorted(universe_result.snapshots):
         candidates.append(
-            build_security_analysis(
+            build_stock_analysis(
                 ticker=ticker,
                 security=securities_by_ticker[ticker],
                 financial=metric_result.financials[ticker],
@@ -418,35 +416,19 @@ def build_panel(
             )
         )
 
-    analysis_payloads = [security_analysis_payload(candidate) for candidate in candidates]
-    nomination_ranks = build_nomination_ranks(
+    analysis_payloads = [stock_analysis_payload(candidate) for candidate in candidates]
+    discovery = build_candidate_contexts(
         analysis_payloads,
         rules=rules.candidate_discovery,
         required_jpx_flags=rules.universe.required_jpx_flags,
     )
-    review_set = build_review_set(
-        analysis_payloads,
-        rules=rules.candidate_discovery,
-        required_jpx_flags=rules.universe.required_jpx_flags,
-    )
-    entries = review_set["entries"]
-    assert isinstance(entries, list)
-    review_set_tickers = {str(entry["ticker"]) for entry in entries if isinstance(entry, dict)}
-
-    latest_close_by_ticker = {
-        ticker: financial.market_price_yen
-        for ticker, financial in metric_result.financials.items()
-        if financial.market_price_yen is not None
-    }
 
     rows: list[PanelRow] = []
     for ticker in sorted(universe_result.snapshots):
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         snapshot = universe_result.snapshots[ticker]
-        estimate = estimate_expected_return(
-            financial, derived, close=latest_close_by_ticker.get(ticker)
-        )
+        estimate = estimate_expected_return(expected_return_inputs(financial, derived))
         return_change = build_shareholder_return_change_signals(
             history_summaries_by_ticker.get(ticker, ()),
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
@@ -455,10 +437,6 @@ def build_panel(
         normalized_profit = normalized_profit_by_ticker[ticker]
         profitability = build_profitability_level_signals(
             summaries_by_ticker.get(ticker, ()), asof_date, rules.ttm
-        )
-        short_metric = reported_short.get(ticker) if reported_short is not None else None
-        short_metric_ambiguous = (
-            reported_short is not None and ticker in reported_short and short_metric is None
         )
         rows.append(
             PanelRow(
@@ -470,8 +448,8 @@ def build_panel(
                     float(snapshot.market_cap_oku) if snapshot.market_cap_oku is not None else None
                 ),
                 avg_turnover_oku=snapshot.avg_turnover_oku,
-                listing_span_days=snapshot.listing_span_days,
-                close=latest_close_by_ticker.get(ticker),
+                price_history_span_days=snapshot.price_history_span_days,
+                close=financial.market_price_yen,
                 per_forward=financial.per_forward,
                 per_trailing=financial.per_trailing,
                 pbr=financial.pbr,
@@ -503,38 +481,17 @@ def build_panel(
                 smg_pbr=derived.sector_median_gap.get("pbr"),
                 smg_ev_ebitda=derived.sector_median_gap.get("ev_ebitda"),
                 smg_p_s=derived.sector_median_gap.get("p_s"),
-                srp_per_forward=derived.self_range_percentile.get("per_forward"),
-                srp_per_trailing=derived.self_range_percentile.get("per_trailing"),
-                srp_pbr=derived.self_range_percentile.get("pbr"),
-                srp_ev_ebitda=derived.self_range_percentile.get("ev_ebitda"),
-                srp_p_s=derived.self_range_percentile.get("p_s"),
+                srp_per_forward=derived.self_range_position.get("per_forward"),
+                srp_per_trailing=derived.self_range_position.get("per_trailing"),
+                srp_pbr=derived.self_range_position.get("pbr"),
+                srp_ev_ebitda=derived.self_range_position.get("ev_ebitda"),
+                srp_p_s=derived.self_range_position.get("p_s"),
                 er_annual=estimate.er_annual if estimate else None,
                 er_reversion_annual=estimate.reversion_annual if estimate else None,
                 er_carry_annual=estimate.carry_annual if estimate else None,
                 er_upside_capped=estimate.upside_capped if estimate else None,
-                reported_short_ratio=(
-                    short_metric.ratio
-                    if short_metric is not None
-                    else None
-                    if short_metric_ambiguous
-                    else (0.0 if reported_short is not None else None)
-                ),
-                reported_short_breadth=(
-                    short_metric.breadth
-                    if short_metric is not None
-                    else None
-                    if short_metric_ambiguous
-                    else (0 if reported_short is not None else None)
-                ),
-                reported_short_latest_disclosed_at=(
-                    short_metric.latest_disclosed_at.isoformat()
-                    if short_metric is not None
-                    else None
-                    if short_metric_ambiguous
-                    else (asof_date.isoformat() if reported_short is not None else None)
-                ),
-                margin_week_end=(
-                    derived.margin_week_end.isoformat() if derived.margin_week_end else None
+                margin_balance_date=(
+                    derived.margin_balance_date.isoformat() if derived.margin_balance_date else None
                 ),
                 margin_long_to_adv=derived.margin_long_to_adv,
                 margin_short_to_adv=derived.margin_short_to_adv,
@@ -550,13 +507,13 @@ def build_panel(
                 operating_profit_to_assets=profitability.operating_profit_to_assets,
                 operating_margin=profitability.operating_margin,
                 asset_turnover=profitability.asset_turnover,
-                in_review_set=ticker in review_set_tickers,
+                in_nomination_union=bool(discovery.contexts[ticker].reasons),
                 valuation_approaches="|".join(
-                    item.valuation_approach_id for item in nomination_ranks.get(ticker, ())
+                    item.valuation_approach_id for item in discovery.contexts[ticker].reasons
                 ),
                 valuation_approach_ranks="|".join(
                     f"{item.valuation_approach_id}:{item.rank}"
-                    for item in nomination_ranks.get(ticker, ())
+                    for item in discovery.contexts[ticker].reasons
                 ),
                 smg_market_fallback="|".join(
                     metric
@@ -619,9 +576,9 @@ def build_panel(
         universe_size=len(universe_result.snapshots),
         population_size=len(median_population),
         security_analyses=len(candidates),
-        nominated_candidates=len(nomination_ranks),
+        nominated_candidates=discovery.candidate_count,
         bars_tickers_not_in_master=sum(
-            1 for ticker in bars_by_ticker if ticker not in securities_by_ticker
+            1 for ticker in bars_by_ticker if ticker not in master_tickers
         ),
         effective_bars_start=bars_start.isoformat(),
         effective_fin_start=fin_start.isoformat(),
@@ -681,7 +638,7 @@ def _unresolved_master_member_row(
         in_population=True,
         market_cap_oku=None,
         avg_turnover_oku=None,
-        listing_span_days=None,
+        price_history_span_days=None,
         close=None,
         per_forward=None,
         per_trailing=None,
@@ -723,17 +680,14 @@ def _unresolved_master_member_row(
         er_reversion_annual=None,
         er_carry_annual=None,
         er_upside_capped=None,
-        reported_short_ratio=None,
-        reported_short_breadth=None,
-        reported_short_latest_disclosed_at=None,
-        margin_week_end=None,
+        margin_balance_date=None,
         margin_long_to_adv=None,
         margin_short_to_adv=None,
         margin_long_share=None,
         margin_long_delta_26w=None,
         margin_std_long_share=None,
         realized_volatility_60d=None,
-        in_review_set=False,
+        in_nomination_union=False,
         valuation_approaches="",
         valuation_approach_ranks="",
         population_coverage_status=(
@@ -794,7 +748,7 @@ def _coverage_floors(sqlite_path: Path, asof_date: date) -> tuple[date, date]:
     the rows it leaves behind stay unread rather than entering a cohort through a
     window the store no longer stands behind.
     """
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         bars_min = conn.execute("SELECT MIN(traded_at) FROM jquants_daily_bars").fetchone()[0]
         fin_min = conn.execute("SELECT MIN(disclosed_at) FROM jquants_fin_summaries").fetchone()[0]

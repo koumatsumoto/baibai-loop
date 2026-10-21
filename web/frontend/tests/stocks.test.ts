@@ -1,19 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SecurityAnalysisRowView } from '../src/api/types'
+import type { StockAnalysisRowView } from '../src/api/types'
+import { stockAnalysisRow } from './helpers/stock-analysis'
 import {
   filterSecurityRows,
   parseOptionalNumber,
   projectSecurityRows,
   sortSecurityRows,
+  valuationApproachLabel,
   type SecurityFilters,
 } from '../src/lib/stocks'
 
 function row(
   ticker: string,
-  overrides: Partial<SecurityAnalysisRowView> = {},
-): SecurityAnalysisRowView {
-  return {
+  overrides: Partial<StockAnalysisRowView> = {},
+): StockAnalysisRowView {
+  return stockAnalysisRow({
     ticker,
     name: `会社${ticker}`,
     sector_33: '情報・通信業',
@@ -42,21 +44,21 @@ function row(
     price_change_20d: 0.02,
     gap_from_52w_low: 0.25,
     next_earnings_date: '2026-09-10',
-    margin_week_end: '2026-08-28',
+    margin_balance_date: '2026-08-28',
     margin_long_to_adv: 2,
     margin_short_to_adv: 0.4,
     margin_long_share: 0.1,
     margin_long_delta_26w: 0.01,
     margin_std_long_share: 0.08,
     data_quality_flags: [],
-    portfolio_state: 'none',
+    portfolio_state: 'unheld',
     has_research: false,
     fair_value_anchor_yen: 1200,
     fair_value_gap_pct: 20,
     er_level_quintile: null,
     er_meets_8_5pct_band: false,
     ...overrides,
-  }
+  })
 }
 
 const noFilters: SecurityFilters = {
@@ -109,6 +111,10 @@ describe('Security Analysis filters', () => {
 })
 
 describe('Security Analysis sorting and pagination', () => {
+  it('labels the existing normalized approach as average EPS and preserves its rank', () => {
+    expect(valuationApproachLabel('normalized-earnings-power', 7)).toBe('3FY平均EPS #7')
+  })
+
   it('defaults cleanly to ticker ascending and keeps nulls last in both directions', () => {
     const rows = [row('3', { pbr: null }), row('2', { pbr: 2 }), row('1', { pbr: 1 })]
     expect(sortSecurityRows(rows, { key: 'ticker', direction: 'asc' }).map((item) => item.ticker)).toEqual(['1', '2', '3'])
@@ -116,11 +122,11 @@ describe('Security Analysis sorting and pagination', () => {
     expect(sortSecurityRows(rows, { key: 'pbr', direction: 'desc' }).map((item) => item.ticker)).toEqual(['2', '1', '3'])
   })
 
-  it('returns no more than 100 rows and clamps a stale page after filtering', () => {
+  it('returns no more than 12 rows and clamps a stale page after filtering', () => {
     const rows = Array.from({ length: 205 }, (_, index) => row(String(index).padStart(4, '0')))
     const second = projectSecurityRows(rows, noFilters, { key: 'ticker', direction: 'asc' }, 2)
-    expect(second.rows).toHaveLength(100)
-    expect(second.rows[0].ticker).toBe('0100')
+    expect(second.rows).toHaveLength(12)
+    expect(second.rows[0].ticker).toBe('0012')
 
     const filtered = projectSecurityRows(
       rows,

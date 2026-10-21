@@ -29,7 +29,7 @@ class DomainModule(Protocol):
 class Domain:
     """One domain of the CLI, resolved on demand.
 
-    module を遅延 import するのは、1 domain の起動に 8 domain 分の import closure を
+    module を遅延 import するのは、1 domain の起動に他 domain の import closure を
     読ませないためである。`--help` の一覧は summary だけで書けるので、一覧を出すために
     provider や pydantic model まで load する必要はない。
     """
@@ -44,21 +44,29 @@ class Domain:
 # 各 domain が「何を読んで何を書くか」。`--help` は AGENTS.md の停止条件なので、
 # domain の役割はここから 1 行で読める必要がある。
 DOMAINS: Mapping[str, Domain] = {
+    "external-assessment": Domain(
+        module="baibai_engine.external_assessment.cli",
+        summary="saved external assessments, bounded acquisition and explicit local stage import",
+    ),
     "tradingview": Domain(
-        module="baibai_engine.market.tradingview.cli",
+        module="baibai_engine.external_assessment.tradingview.cli",
         summary="TradingView OAuth and analyst expectation snapshot acquisition",
     ),
     "lake": Domain(
-        module="baibai_engine.market.lake.cli",
+        module="baibai_engine.storage.lake.cli",
         summary="immutable market-data manifests, object keys, and read-only inventory",
     ),
     "screening": Domain(
         module="baibai_engine.screening.cli.app",
-        summary="machine screening: analyze securities and publish a Review Set",
+        summary="machine screening: publish Stock Analyses and candidate discovery",
     ),
-    "macro": Domain(
-        module="baibai_engine.macro.indicators.cli",
-        summary="macro indicator series and the macro context reports built on them",
+    "market-context": Domain(
+        module="baibai_engine.market_context.cli",
+        summary="economic observations and mechanical market readings",
+    ),
+    "collection": Domain(
+        module="baibai_engine.collection.cli",
+        summary="external source collection",
     ),
     "operation": Domain(
         module="baibai_engine.research.operation.cli",
@@ -66,12 +74,12 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "position": Domain(
         module="baibai_engine.position.cli",
-        summary="portfolio ledger, Position Reviews, and the drafts that record their results",
+        summary="portfolio ledger, human-reported broker fact drafts, and portfolio outcomes",
     ),
     "research": Domain(
         module="baibai_engine.research.workspace_cli",
         summary=(
-            "research workspaces: thesis, Thesis Review, promotion, Capital Allocation Assessment"
+            "explicit market judgments and research: Stock Assessment, Review, Investment Proposal"
         ),
     ),
     "task": Domain(
@@ -79,7 +87,7 @@ DOMAINS: Mapping[str, Domain] = {
         summary="dated operation tasks — the canonical record of what is waiting on a date",
     ),
     "db": Domain(
-        module="baibai_engine.appdb.cli",
+        module="baibai_engine.storage.application.cli",
         summary="application database maintenance: init, backup, and schema/row inspection",
     ),
 }

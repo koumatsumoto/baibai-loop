@@ -10,7 +10,7 @@ from baibai_engine.foundation.time import JST
 
 from .shared import CacheCoverageIssue
 
-_JPX_MAX_FETCH_AGE_BUSINESS_DAYS = 7
+_JPX_MAX_FETCH_AGE_WEEKDAYS = 7
 
 
 def _jpx_source_names(conn: sqlite3.Connection, asof_date: date) -> set[str]:
@@ -28,8 +28,6 @@ def _append_jpx_freshness_issues(
     asof_date: date,
     allow_stale_jpx: bool,
 ) -> None:
-    if allow_stale_jpx:
-        return
     rows = conn.execute(
         "SELECT source_name, fetched_at_utc FROM jpx_regulation_sources WHERE asof_date = ?",
         (asof_date.isoformat(),),
@@ -52,11 +50,16 @@ def _append_jpx_freshness_issues(
             continue
         try:
             fetched_at = datetime.fromisoformat(str(fetched_at_text).replace("Z", "+00:00"))
+            if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+                raise ValueError("fetch timestamp must include a UTC offset")
         except ValueError:
             invalid_values.append(str(fetched_at_text))
             continue
         fetched_date = fetched_at.astimezone(JST).date()
-        if weekday_distance(asof_date, fetched_date) > _JPX_MAX_FETCH_AGE_BUSINESS_DAYS:
+        if (
+            not allow_stale_jpx
+            and weekday_distance(asof_date, fetched_date) > _JPX_MAX_FETCH_AGE_WEEKDAYS
+        ):
             stale_values.append(str(fetched_at_text))
     if missing_values:
         issues.append(
@@ -145,7 +148,7 @@ def _append_jpx_earnings_calendar_issues(
                 source=source,
                 requirement=requirement,
                 reason=(
-                    f"compatibility table row count ({table_count}) does not match "
+                    f"stored calendar row count ({table_count}) does not match "
                     f"snapshot record_count ({int(record_count or 0)})"
                 ),
             )
@@ -179,10 +182,10 @@ def _append_jpx_earnings_calendar_issues(
                 reason="JPX earnings calendar snapshot contains only past known dates",
             )
         )
-    if allow_stale_jpx:
-        return
     try:
         fetched_at = datetime.fromisoformat(str(fetched_at_text).replace("Z", "+00:00"))
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("fetch timestamp must include a UTC offset")
     except ValueError:
         issues.append(
             CacheCoverageIssue(
@@ -192,7 +195,7 @@ def _append_jpx_earnings_calendar_issues(
             )
         )
         return
-    if weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
+    if not allow_stale_jpx and weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
         issues.append(
             CacheCoverageIssue(
                 source=source,

@@ -32,9 +32,7 @@ _SCAN_DIRECTORIES = (".agents/skills",)
 _SCAN_FILES = (
     "docs/reference/market-lake.md",
     "batch/OPERATIONS.md",
-    "tools/owner_mcp/OPERATIONS.md",
     "docs/reference/analysis-operations.md",
-    "docs/reference/macro-handoff.md",
 )
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")
@@ -166,10 +164,10 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")
         module = DOMAINS[rest[1]].module
         if rest[1] == "lake":
-            from baibai_engine.market.lake.write_cli import WRITE_COMMANDS
+            from baibai_engine.storage.lake.write_cli import WRITE_COMMANDS
 
             if len(rest) > 2 and rest[2] in WRITE_COMMANDS:
-                module = "baibai_engine.market.lake.write_cli"
+                module = "baibai_engine.storage.lake.write_cli"
         return build_parser(module), f"baibai-engine {rest[1]}", rest[2:]
     if rest[:1] == ["baibai-web"]:
         return _tool_parser("baibai_web.cli", "baibai-web", rest[1:])

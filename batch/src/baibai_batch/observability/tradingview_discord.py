@@ -33,10 +33,10 @@ STEPS = (
     "hydrate",
     "preflight",
     "cooldown-check",
-    "cooldown-save",
     "master",
     "tradingview",
     "publish-lake",
+    "cooldown-save",
     "lease-release",
 )
 FAILED_STEPS = tuple(step for step in STEPS if step != "tradingview")
@@ -52,7 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
             "saved",
             "partial",
             "already_saved",
-            "non_trading_day",
             "skipped_historical_asof",
             "failure",
             "unknown",
@@ -64,7 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=(
             "needs_fetch",
             "already_saved",
-            "non_trading_day",
             "before_close",
             "before_observation",
             "unknown",
@@ -106,13 +104,18 @@ def main(
         )
     elif (args.snapshot_status == "saved" and outcomes["publish-lake"] == "success") or (
         (args.eligible == "false" and outcomes["target"] == "success")
-        or args.preflight_status
-        in {"already_saved", "non_trading_day", "before_close", "before_observation"}
-        or args.snapshot_status in {"already_saved", "non_trading_day", "skipped_historical_asof"}
+        or args.preflight_status in {"already_saved", "before_close", "before_observation"}
+        or args.snapshot_status in {"already_saved", "skipped_historical_asof"}
     ):
         return 0
     else:
         label, detail = OUTCOME_FAILED, " — failed step: workflow"
+    if outcomes["publish-lake"] == "success" and label in {OUTCOME_FAILED, OUTCOME_CANCELLED}:
+        detail += (
+            f" — TradingView snapshot published; status={args.snapshot_status}; "
+            f"added={args.rows_added}; stored={args.rows}/{args.expected_universe}; "
+            f"remaining={args.remaining}"
+        )
     message = (
         f"{OUTCOME_LABELS[label]} as-of {sanitize_one_line(args.asof)}{detail}"
         f"\nexecutor: {executor_label(os.environ)}"

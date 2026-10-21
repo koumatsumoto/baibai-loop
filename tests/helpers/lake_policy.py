@@ -1,11 +1,7 @@
-"""Narrow the release profile to the datasets a fixture actually builds.
+"""合成fixtureが作るdatasetだけへrelease policyを限定する。
 
-The shipping profile requires every dataset the registry declares, because a release
-that silently omits one would send a reader to the legacy store for the rest. A fixture
-that builds two tables is not that situation: it is a test of the code around the
-release, not of the store's completeness. Narrowing the profile keeps those tests
-failing for their own reasons rather than for the fixture's shape, and keeps the real
-completeness rule un-relaxed where it matters.
+本番releaseはprofileの必須datasetと、含めた任意datasetの条件を満たす。個別境界のテストは
+対象datasetだけを作り、coverage・原本の意味・世代一致はそのまま検証する。
 """
 
 from __future__ import annotations
@@ -14,7 +10,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from baibai_engine.market.lake import models as lake_models
+from baibai_engine.storage.lake import models as lake_models
 
 FIXTURE_DATASETS = ("jquants.daily_bars", "jquants.short_sale_reports")
 
@@ -28,34 +24,19 @@ def narrow_release_policy(
     monkeypatch: pytest.MonkeyPatch,
     *,
     datasets: Iterable[str] = FIXTURE_DATASETS,
-    minimum_rows: int = 1,
-    minimum_population_count: int = 1,
-    carries_history: bool = False,
-    relax_floors: bool = True,
+    carries_history: bool | None = False,
 ) -> None:
-    """Keep only `datasets` in the profile, optionally lowering their floors.
-
-    A test about the floors themselves needs the shipping values, so it narrows the set
-    without relaxing them; relaxing there would move the boundary the test is asserting.
-    ``relax_floors=False`` keeps every floor.
-    """
-
+    """Limit the fixture's datasets; None keeps their normal history behavior."""
     wanted = set(datasets)
     policy = _FULL_RELEASE_POLICY
-    relaxation: dict[str, object] = {}
-    if relax_floors:
-        relaxation = {
-            "carries_history": carries_history,
-            "minimum_rows": minimum_rows,
-            "minimum_population_count": minimum_population_count,
-        }
+    overrides = {} if carries_history is None else {"carries_history": carries_history}
     monkeypatch.setattr(
         lake_models,
         "PRODUCTION_RELEASE_POLICY",
         policy.model_copy(
             update={
                 "datasets": tuple(
-                    item.model_copy(update=relaxation)
+                    item.model_copy(update=overrides)
                     for item in policy.datasets
                     if item.dataset in wanted
                 )

@@ -10,6 +10,7 @@ import yaml
 from baibai_batch.jobs.schedule import BATCH_SCHEDULED_FIRE_TIME, batch_target_date
 from baibai_batch.jobs.watchdog import (
     DEFAULT_WINDOW_HOURS,
+    RESULT_STEP_PREFIX,
     RUN_NAME_PREFIX,
     STATE_HEALTHY,
     STATE_IN_FLIGHT,
@@ -19,6 +20,7 @@ from baibai_batch.jobs.watchdog import (
     main,
     parse_runs,
     render_alert,
+    resolve_run_results,
     resolve_window_end,
 )
 from baibai_batch.validation.workflow_inputs import WorkflowInputError, validate_watchdog_input
@@ -49,6 +51,9 @@ def _run(
     conclusion: str = "success",
     event: str = "schedule",
     display_title: str | None = None,
+    batch_asof: str | None = "2026-08-03",
+    updated_at: datetime | None = None,
+    attempt: int = 1,
 ) -> dict[str, object]:
     entry: dict[str, object] = {
         "run_number": number,
@@ -56,7 +61,12 @@ def _run(
         "status": status,
         "conclusion": conclusion,
         "created_at": created_at.isoformat(),
+        "updated_at": (updated_at or created_at).isoformat(),
+        "id": number,
+        "run_attempt": attempt,
     }
+    if status == "completed" and batch_asof is not None:
+        entry["batch_asof"] = batch_asof
     if display_title is not None:
         entry["display_title"] = display_title
     return entry
@@ -92,6 +102,7 @@ def _run_main(
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", webhook)
     monkeypatch.setenv("GITHUB_REPOSITORY", "koumatsumoto/baibai-loop")
     monkeypatch.setenv("GITHUB_RUN_ID", "42")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     used = transport if transport is not None else FakeTransport()
     runs_json = _write_listing(tmp_path, payload)
     exit_code = main(
@@ -131,8 +142,8 @@ def test_a_batch_still_running_when_the_watchdog_fires_is_not_a_gap() -> None:
     """A late start is not a missing run, and alerting on it would be the false alarm.
 
     The schedule queue can push the 07:43 UTC batch past the watchdog's 12:00 UTC
-    firing. That run still reports its own outcome when it finishes — including
-    `[CANCELLED]` if it hits the job timeout — so the watchdog has nothing to add.
+    firing. This watchdog defers to the in-flight run; this test does not prove
+    that a later timeout or cancellation notification will be delivered.
     """
     runs = parse_runs(
         _listing(
@@ -166,6 +177,168 @@ def test_a_queued_run_is_also_treated_as_in_flight() -> None:
     assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).alerting is False
 
 
+def _jobs(asof: str) -> dict[str, object]:
+    return {
+        "jobs": [
+            {
+                "steps": [
+                    {
+                        "name": RESULT_STEP_PREFIX + asof,
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ]
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize("actual", ["2026-08-03", "2026-08-04"])
+def test_rerun_uses_the_latest_attempt_result_and_completion_window(actual: str) -> None:
+    check = FIRED_AT + timedelta(days=1)
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(days=2),
+                updated_at=check - timedelta(hours=1),
+                attempt=2,
+                batch_asof=None,
+            )
+        )
+    )
+    calls = []
+
+    def read_jobs(repository, run_id, attempt):
+        calls.append((repository, run_id, attempt))
+        return _jobs(actual)
+
+    resolved = resolve_run_results(
+        runs, repository="owner/repo", window_end=check, window_hours=20, read_jobs=read_jobs
+    )
+    assert calls == [("owner/repo", 1, 2)]
+    assert resolved[0].target_date == date.fromisoformat(actual)
+    assert evaluate(resolved, window_end=check, window_hours=20).state == (
+        STATE_HEALTHY if actual == "2026-08-04" else STATE_MISSING
+    )
+    # A later rerun is never retrospective proof of the original day's success.
+    assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == STATE_MISSING
+
+
+def test_manual_default_before_cron_counts_the_reported_jst_day() -> None:
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT.replace(hour=6),
+                event="workflow_dispatch",
+                display_title="daily",
+                batch_asof=None,
+            )
+        )
+    )
+    resolved = resolve_run_results(
+        runs,
+        repository="owner/repo",
+        window_end=FIRED_AT,
+        window_hours=20,
+        read_jobs=lambda *_: _jobs("2026-08-03"),
+    )
+    assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == STATE_HEALTHY
+
+
+@pytest.mark.parametrize("jobs", [{"jobs": []}, _jobs("unknown"), _jobs("2026-13-40")])
+def test_unverifiable_success_is_not_assigned_a_day_from_metadata(jobs) -> None:
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=2),
+                display_title="daily 2026-08-03",
+                batch_asof=None,
+            )
+        )
+    )
+    assert runs[0].target_date is None
+    with pytest.raises(WatchdogInputError, match="reported as-of"):
+        resolve_run_results(
+            runs,
+            repository="owner/repo",
+            window_end=FIRED_AT,
+            window_hours=20,
+            read_jobs=lambda *_: jobs,
+        )
+
+
+def test_in_flight_and_failed_attempts_do_not_fetch_success_results() -> None:
+    runs = parse_runs(
+        _listing(
+            _run(
+                number=1,
+                created_at=FIRED_AT - timedelta(hours=2),
+                status="in_progress",
+                conclusion="",
+                batch_asof=None,
+            ),
+            _run(
+                number=2,
+                created_at=FIRED_AT - timedelta(hours=1),
+                conclusion="failure",
+                batch_asof=None,
+            ),
+        )
+    )
+    resolved = resolve_run_results(
+        runs,
+        repository="owner/repo",
+        window_end=FIRED_AT,
+        window_hours=20,
+        read_jobs=lambda *_: pytest.fail("no completed success to resolve"),
+    )
+    assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == STATE_IN_FLIGHT
+
+
+def test_result_read_failure_is_a_watchdog_failure_without_a_missing_alert(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    path = _write_listing(
+        tmp_path, _listing(_run(created_at=FIRED_AT - timedelta(hours=1), batch_asof=None))
+    )
+    transport = FakeTransport()
+
+    def read_jobs(*_):
+        raise WatchdogInputError("fixture result API unavailable")
+
+    assert (
+        main(
+            ["--runs-json", str(path), "--check-date", "2026-08-03", "--read-run-results"],
+            transport=transport,
+            read_jobs=read_jobs,
+        )
+        == 1
+    )
+    assert transport.calls == []
+    assert "result API unavailable" in capsys.readouterr().err
+
+
+def test_api_reader_selects_the_listed_attempt(monkeypatch) -> None:
+    import subprocess
+
+    from baibai_batch.jobs.watchdog import _read_attempt_jobs
+
+    calls = []
+
+    def command(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0, json.dumps(_jobs("2026-08-03")), "")
+
+    monkeypatch.setattr(subprocess, "run", command)
+    assert _read_attempt_jobs("owner/repo", 123, 2) == _jobs("2026-08-03")
+    assert calls[0][0] == [
+        "gh",
+        "api",
+        "repos/owner/repo/actions/runs/123/attempts/2/jobs?per_page=100",
+    ]
+
+
 def test_yesterdays_successful_run_falls_outside_the_window() -> None:
     """The back edge is what stops yesterday's success from masking today's gap.
 
@@ -184,8 +357,8 @@ def test_yesterdays_successful_run_falls_outside_the_window() -> None:
 def test_a_late_watchdog_firing_still_sees_the_days_batch() -> None:
     """The front edge absorbs the watchdog's own schedule delay.
 
-    GitHub's schedule queue adds about two hours at the median; the window has to
-    hold the day's 07:43 UTC batch even when the watchdog fires far later than due,
+    The schedule queue can delay execution; the window has to hold the day's
+    07:43 UTC batch even when the watchdog fires far later than due,
     otherwise the delay itself becomes the false alarm.
     """
     batch = FIRED_AT.replace(hour=7, minute=43)
@@ -227,6 +400,7 @@ def test_a_recovery_dispatch_for_an_earlier_day_does_not_cover_this_one() -> Non
                 created_at=FIRED_AT - timedelta(hours=4),
                 event="workflow_dispatch",
                 display_title="daily 2026-08-02",
+                batch_asof="2026-08-02",
             ),
         )
     )
@@ -256,17 +430,22 @@ def test_a_recovery_dispatch_for_an_earlier_day_is_not_in_flight_cover_either() 
     )
 
 
-def test_runs_created_before_the_workflow_carried_a_run_name_still_count_when_scheduled() -> None:
-    """The transition costs nothing on the schedule side: a schedule event supplies no
-    `asof`, so a scheduled run answers for its own day whatever its title says."""
+def test_a_success_without_a_reported_target_cannot_be_assigned_to_its_creation_day() -> None:
 
     runs = parse_runs(
         _listing(
-            _run(created_at=FIRED_AT - timedelta(hours=3), display_title="Merge pull request #1"),
+            _run(
+                created_at=FIRED_AT - timedelta(hours=3),
+                display_title="Merge pull request #1",
+                batch_asof=None,
+            ),
         )
     )
 
-    assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).alerting is False
+    assert (
+        evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).state
+        == STATE_MISSING
+    )
 
 
 def test_a_dispatch_whose_run_name_cannot_be_read_answers_for_no_day() -> None:
@@ -277,6 +456,7 @@ def test_a_dispatch_whose_run_name_cannot_be_read_answers_for_no_day() -> None:
                     created_at=FIRED_AT - timedelta(hours=1),
                     event="workflow_dispatch",
                     display_title=title,
+                    batch_asof=None,
                 ),
             )
         )
@@ -288,8 +468,9 @@ def test_a_dispatch_whose_run_name_cannot_be_read_answers_for_no_day() -> None:
 
 
 def test_the_day_a_run_answers_for_is_anchored_on_the_batch_cron_not_on_midnight() -> None:
-    """Both this watchdog and the batch are fired late by GitHub's queue — about two
-    hours at the median. A firing that slips past midnight JST must keep asking about
+    """Both workflows can be delayed by GitHub's queue.
+
+    A firing that slips past midnight JST must keep asking about
     the same day rather than about one whose batch is not due yet."""
 
     # 15:30 UTC on 2026-08-03 is 00:30 JST on 08-04, past JST midnight.
@@ -354,7 +535,19 @@ def test_a_listing_that_is_not_the_expected_shape_is_rejected(payload: object) -
 
 
 def test_a_run_timestamp_without_a_zone_is_read_as_utc() -> None:
-    runs = parse_runs({"workflow_runs": [{"run_number": 1, "created_at": "2026-08-03T10:00:00"}]})
+    runs = parse_runs(
+        {
+            "workflow_runs": [
+                {
+                    "id": 1,
+                    "run_attempt": 1,
+                    "run_number": 1,
+                    "created_at": "2026-08-03T10:00:00",
+                    "updated_at": "2026-08-03T10:00:00",
+                }
+            ]
+        }
+    )
 
     assert runs[0].created_at == datetime(2026, 8, 3, 10, 0, tzinfo=UTC)
 
@@ -394,13 +587,14 @@ def test_a_non_positive_window_is_rejected() -> None:
 # --- message ---------------------------------------------------------------
 
 
-def test_the_alert_names_the_empty_window_when_the_schedule_never_fired() -> None:
+def test_the_alert_names_the_empty_window_without_guessing_why() -> None:
     verdict = evaluate((), window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
 
     message = render_alert(verdict, repository="owner/repo", watchdog_run_url="https://run")
 
     assert "[MISSING]" in message
     assert "runs in window: none" in message
+    assert "schedule did not fire" not in message
     assert "https://run" in message
 
 
@@ -469,7 +663,9 @@ def test_main_alerts_once_when_no_run_succeeded_in_the_window(
     )
 
     assert exit_code == 0
-    assert "[MISSING]" in _delivered_message(transport)
+    message = _delivered_message(transport)
+    assert "[MISSING]" in message
+    assert "https://github.com/koumatsumoto/baibai-loop/actions/runs/42/attempts/2" in message
     assert "alert delivered" in capsys.readouterr().out
 
 
@@ -533,7 +729,7 @@ def test_the_watchdog_stays_out_of_the_publish_queue_it_watches() -> None:
     assert workflow["concurrency"]["group"] == "cloud-batch-watchdog"
 
 
-def test_the_watchdog_installs_nothing_so_an_alert_never_waits_on_a_toolchain() -> None:
+def test_the_watchdog_uses_only_checkout_as_an_external_action() -> None:
     steps = _watchdog_job()["steps"]
     assert isinstance(steps, list)
 

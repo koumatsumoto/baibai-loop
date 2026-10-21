@@ -4,11 +4,15 @@ from datetime import datetime
 import httpx2
 import pytest
 from mcp.client.auth.exceptions import OAuthTokenError
+from mcp.shared.exceptions import MCPError
 
-from baibai_engine.market.tradingview import cli, diagnostics
-from baibai_engine.market.tradingview.auth import AuthenticationError, SecretPersistenceError
-from baibai_engine.market.tradingview.collector import SourceDataError, TimeGuardError
-from baibai_engine.market.tradingview.observations import AllMissingError, FetchError
+from baibai_engine.collection.tradingview.auth import (
+    AuthenticationError,
+    SecretPersistenceError,
+)
+from baibai_engine.external_assessment.tradingview import cli, diagnostics
+from baibai_engine.external_assessment.tradingview.collector import SourceDataError, TimeGuardError
+from baibai_engine.external_assessment.tradingview.observations import FetchError
 
 
 @pytest.mark.parametrize(
@@ -20,7 +24,6 @@ from baibai_engine.market.tradingview.observations import AllMissingError, Fetch
         (TimeGuardError("private"), "time_guard"),
         (SourceDataError("private"), "storage"),
         (sqlite3.OperationalError("private"), "storage"),
-        (AllMissingError("private"), "provider_all_missing"),
         (FetchError("private"), "provider_response"),
         (httpx2.ReadTimeout("private"), "provider_transport"),
         (RuntimeError("private"), "internal"),
@@ -31,6 +34,34 @@ def test_safe_category_through_nested_sdk_groups(error, category):
         "private", [RuntimeError("private"), ExceptionGroup("private", [error])]
     )
     assert cli.failure_category(wrapped) == category
+
+
+@pytest.mark.parametrize(
+    ("error", "detail"),
+    [
+        (RuntimeError("private-token https://private-response"), "exception_type=RuntimeError"),
+        (
+            MCPError(-32000, "private-token", {"access_token": "private-token"}),
+            "exception_type=MCPError; mcp_error_code=-32000",
+        ),
+    ],
+)
+def test_internal_diagnostics_identify_leaf_without_exposing_payload(error, detail):
+    from baibai_engine.external_assessment.tradingview.diagnostics import (
+        CollectionFailure,
+        CollectionProgress,
+    )
+
+    wrapped = ExceptionGroup(
+        "private-group",
+        [CollectionFailure(error, CollectionProgress("2026-10-13", "fetch", 150, 3, 2, 3, 50))],
+    )
+    line = cli.failure_line(wrapped)
+    assert cli.failure_category(wrapped) == "internal"
+    assert "chunks_completed=2" in line
+    assert line.endswith(detail)
+    for forbidden in ("private", "https://", "access_token", "Traceback"):
+        assert forbidden not in line
 
 
 @pytest.mark.parametrize(
@@ -78,7 +109,7 @@ def test_historical_refresh_skips_before_credentials_or_connection(monkeypatch, 
     assert "category=time_guard" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("state", ["already_saved", "non_trading_day"])
+@pytest.mark.parametrize("state", ["already_saved"])
 def test_refresh_noop_preflight_avoids_oauth_and_connection(monkeypatch, capsys, state):
     class Clock:
         @staticmethod
@@ -148,8 +179,11 @@ def test_unsaved_business_day_reaches_oauth_and_snapshot(monkeypatch, capsys):
     [(401, "auth"), (403, "auth"), (429, "provider_rate_limit"), (503, "provider_response")],
 )
 def test_provider_http_category_through_collection_and_groups(status, category):
-    from baibai_engine.market.tradingview.collector import CollectionFailure, CollectionProgress
-    from baibai_engine.market.tradingview.observations import ProviderHTTPError
+    from baibai_engine.external_assessment.tradingview.collector import (
+        CollectionFailure,
+        CollectionProgress,
+    )
+    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
 
     error = ProviderHTTPError(status)
     error.__cause__ = RuntimeError("private-token private-body")
@@ -166,8 +200,11 @@ def test_provider_http_category_through_collection_and_groups(status, category):
 
 
 def test_cli_collection_error_prints_only_safe_diagnostics(monkeypatch, capsys):
-    from baibai_engine.market.tradingview.collector import CollectionFailure, CollectionProgress
-    from baibai_engine.market.tradingview.observations import ProviderPayloadError
+    from baibai_engine.external_assessment.tradingview.collector import (
+        CollectionFailure,
+        CollectionProgress,
+    )
+    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
 
     def fail(*args, **kwargs):
         error = ProviderPayloadError("invalid_numeric", "quote_close")
@@ -255,7 +292,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
 
     from mcp.shared.auth import OAuthToken
     from tests.engine.test_tradingview_auth import state
-    from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
+    from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
     path = store(tmp_path / "market.sqlite")
     progress_path = tmp_path / "progress.json"
@@ -272,7 +309,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
         await storage_ref[0].set_tokens(
             OAuthToken(access_token="private-token", token_type="Bearer")
         )
-        return payload(args[1])
+        return _sdk(payload(args[1]))
 
     def write(path, value):
         writes.append(value)

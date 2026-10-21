@@ -1,4 +1,4 @@
-"""Read-only original-valuation price watch for tickers with promoted research theses."""
+"""Read-only original-valuation price watch for tickers with published Stock Assessments."""
 
 from __future__ import annotations
 
@@ -9,24 +9,17 @@ import sys
 from collections import defaultdict
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, DecimalException
 from pathlib import Path
 from typing import cast
 
 import yaml
 
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     StoreLayoutError,
     reject_noncanonical_store_paths,
-)
-from baibai_engine.market.sqlite import (
-    SQLiteSchemaError,
-    optional_float,
-    range_covered,
-    validate_current_schema,
 )
 from baibai_engine.position.ledger import (
     PortfolioLedgerError,
@@ -39,18 +32,19 @@ from baibai_engine.position.ledger_read import (
     LedgerSchemaError,
     load_ledger_in_transaction,
 )
-from baibai_engine.read_api import (
-    list_thesis_publications,
+from baibai_engine.research.assessment import (
+    AssessmentError,
+    StockAssessmentDocument,
 )
-from baibai_engine.research.thesis import (
-    ThesisDocument,
-    ThesisError,
-    ThesisReview,
-)
+from baibai_engine.research.assessment_store import ResearchValidationError
+from baibai_engine.research.decimal_number import decimal_to_number
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.observations.convert import optional_float
+from baibai_engine.storage.observations.coverage import range_covered
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 _GAP_QUANTUM = Decimal("0.000001")
 _ADJUSTMENT_FACTOR_ABS_TOLERANCE = 1e-12
-_MIN_UTC = datetime.min.replace(tzinfo=UTC)
 
 
 class ResearchPriceWatchError(ValueError):
@@ -58,19 +52,13 @@ class ResearchPriceWatchError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class _ThesisPublication:
-    thesis_id: str | Path
-    document: ThesisDocument
-    # The identity the thesis was published with. This tool only reads the store, so
-    # every publication has one and the field carries no draft default.
-    core_sha256: str
-    published_at: datetime = _MIN_UTC
-    review: ThesisReview | None = None
+class _AssessmentPublication:
+    assessment_id: str
+    document: StockAssessmentDocument
 
 
 @dataclass(frozen=True, slots=True)
 class _RawBar:
-    traded_at: date
     close: float | None
     adjustment_factor: float | None
 
@@ -93,8 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m baibai_engine.research_watch",
         description=(
-            "Emit a read-only YAML watch for the latest promoted research thesis of every "
-            "ticker, with candidate, defer, or reject disposition. "
+            "Emit a read-only YAML watch for the latest published research assessment of every "
+            "ticker, with supported, uncertain, or unsupported stance. "
             "This command never "
             "proposes an order or updates canonical records."
         ),
@@ -124,8 +112,9 @@ def main(argv: list[str] | None = None) -> int:
         LedgerSchemaError,
         ResearchPriceWatchError,
         SQLiteSchemaError,
-        # A published thesis without a recorded identity refuses through this one.
-        ThesisError,
+        # A published assessment without a recorded identity refuses through this one.
+        AssessmentError,
+        ResearchValidationError,
         OSError,
         sqlite3.Error,
     ) as error:
@@ -141,11 +130,9 @@ def build_watch(
     sqlite_path: Path,
     asof: date,
 ) -> dict[str, object]:
-    latest = _load_latest_promoted_theses(app_db_path, asof=asof)
-    watched = dict(latest)
-
     with closing(connect_read_only(app_db_path)) as connection:
         connection.execute("BEGIN")
+        latest, raw_latest = _load_latest_assessments(connection, asof=asof)
         ledger, _ = load_ledger_in_transaction(connection)
     state = replay_events_through(ledger.events, ledger.as_of)
     held_tickers = {
@@ -156,19 +143,20 @@ def build_watch(
 
     observations = _read_market_observations(
         sqlite_path,
-        theses=watched,
+        assessments=latest,
         asof=asof,
     )
     rows = [
         _watch_row(
             ticker=ticker,
-            thesis=publication.document,
+            assessment_id=publication.assessment_id,
+            assessment=publication.document,
             observation=observations[ticker],
             held=ticker in held_tickers,
             reserved=ticker in reserved_tickers,
             history=reservation_history.get(ticker, []),
         )
-        for ticker, publication in watched.items()
+        for ticker, publication in latest.items()
     ]
     resolved = sorted(
         (row for row in rows if row["status"] == "resolved"),
@@ -178,9 +166,6 @@ def build_watch(
         (row for row in rows if row["status"] == "unresolved"),
         key=lambda row: str(row["ticker"]),
     )
-    raw_latest: dict[str, dict[str, object]] = {}
-    for publication in list_thesis_publications(app_db_path):
-        raw_latest.setdefault(str(publication["ticker"]), publication)
     for ticker, publication in raw_latest.items():
         if ticker not in latest:
             unresolved.append(
@@ -188,22 +173,22 @@ def build_watch(
                     "ticker": ticker,
                     "status": "unresolved",
                     "unresolved_reason": "requires_reassessment",
-                    "thesis_id": publication["thesis_id"],
-                    "thesis_as_of": publication["as_of"],
+                    "assessment_id": publication["assessment_id"],
+                    "assessment_as_of": publication["as_of"],
                     "current_decision_status": "not_evaluated",
                 }
             )
-    all_thesis_tickers = set(raw_latest)
+    all_assessment_tickers = set(raw_latest)
     reservation_tickers = set(reservation_history)
     return {
         "market_asof": asof.isoformat(),
         "ledger_as_of": ledger.as_of.isoformat(),
         "rows": resolved + unresolved,
         "coverage": {
-            "thesis_tickers": sorted(all_thesis_tickers),
-            "watched_tickers": sorted(watched),
+            "assessment_tickers": sorted(all_assessment_tickers),
+            "watched_tickers": sorted(latest),
             "reservation_history_tickers": sorted(reservation_tickers),
-            "ledger_only_tickers": sorted(reservation_tickers - all_thesis_tickers),
+            "ledger_only_tickers": sorted(reservation_tickers - all_assessment_tickers),
             "resolved_count": len(resolved),
             "unresolved_count": len(unresolved),
         },
@@ -216,32 +201,35 @@ def build_watch(
     }
 
 
-def _load_latest_promoted_theses(app_db_path: Path, *, asof: date) -> dict[str, _ThesisPublication]:
-    from contextlib import closing
-
-    from baibai_engine.appdb.read import connect_read_only
-    from baibai_engine.research.thesis_store import (
-        ResearchValidationError,
-        load_latest_reviewed_thesis,
+def _load_latest_assessments(
+    connection: sqlite3.Connection, *, asof: date
+) -> tuple[dict[str, _AssessmentPublication], dict[str, dict[str, object]]]:
+    from baibai_engine.research.assessment_store import (
+        latest_assessment_id,
+        load_reviewed_assessment,
     )
 
-    latest: dict[str, _ThesisPublication] = {}
-    with closing(connect_read_only(app_db_path)) as connection:
-        for row in connection.execute("SELECT DISTINCT ticker FROM thesis").fetchall():
-            ticker = str(row[0])
-            try:
-                pair = load_latest_reviewed_thesis(connection, ticker)
-            except ResearchValidationError:
-                continue
-            if pair.document.input_snapshot.as_of > asof:
-                raise ResearchPriceWatchError("future thesis cannot be used in watch")
-            latest[ticker] = _ThesisPublication(
-                thesis_id=pair.thesis_id,
-                document=pair.document,
-                review=pair.review,
-                core_sha256=pair.core_sha256,
-            )
-    return latest
+    latest: dict[str, _AssessmentPublication] = {}
+    headers: dict[str, dict[str, object]] = {}
+    for row in connection.execute("SELECT DISTINCT ticker FROM stock_assessment").fetchall():
+        ticker = str(row[0])
+        identity = latest_assessment_id(connection, ticker)
+        assert identity is not None
+        header = connection.execute(
+            "SELECT as_of FROM stock_assessment WHERE assessment_id=?", (identity,)
+        ).fetchone()
+        if date.fromisoformat(str(header[0])) > asof:
+            raise ResearchPriceWatchError("future assessment cannot be used in watch")
+        headers[ticker] = {"assessment_id": identity, "as_of": str(header[0])}
+        try:
+            pair = load_reviewed_assessment(connection, identity)
+        except ResearchValidationError:
+            continue
+        latest[ticker] = _AssessmentPublication(
+            assessment_id=pair.assessment_id,
+            document=pair.document,
+        )
+    return latest, headers
 
 
 def _reservation_history(
@@ -256,10 +244,13 @@ def _reservation_history(
         history[event.ticker].append(
             {
                 "reservation_id": event.reservation_id,
-                "occurred_at": event.occurred_at.isoformat(),
+                "occurred_on": None if event.occurred_on is None else event.occurred_on.isoformat(),
+                "occurred_at": event.occurred_at.isoformat() if event.occurred_on is None else None,
                 "quantity": event.quantity,
-                "price_guard_yen": _decimal_number(event.price_guard_yen),
-                "expires_at": event.expires_at.isoformat(),
+                "price_guard_yen": decimal_to_number(event.price_guard_yen),
+                "expires_at": event.expires_at.isoformat()
+                if event.expires_at is not None
+                else None,
             }
         )
     return history
@@ -268,9 +259,11 @@ def _reservation_history(
 def _read_market_observations(
     sqlite_path: Path,
     *,
-    theses: dict[str, _ThesisPublication],
+    assessments: dict[str, _AssessmentPublication],
     asof: date,
 ) -> dict[str, _MarketObservation]:
+    if not assessments:
+        return {}
     if not sqlite_path.is_file():
         raise ResearchPriceWatchError(f"market SQLite does not exist: {sqlite_path}")
     conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
@@ -279,7 +272,10 @@ def _read_market_observations(
         conn.execute("BEGIN")
         validate_current_schema(conn)
         start = min(
-            (_price_basis_date(publication.document) for publication in theses.values()),
+            (
+                min(asof, _price_basis_date(publication.document) + timedelta(days=1))
+                for publication in assessments.values()
+            ),
             default=asof,
         )
         if not range_covered(conn, "jquants_market_calendar", start, asof):
@@ -287,7 +283,7 @@ def _read_market_observations(
                 f"market calendar does not cover {start.isoformat()}..{asof.isoformat()}"
             )
         calendar_rows = conn.execute(
-            "SELECT day, is_business_day FROM jquants_market_calendar "
+            "SELECT day, holiday_division IN ('1', '2') FROM jquants_market_calendar "
             "WHERE day BETWEEN ? AND ? ORDER BY day",
             (start.isoformat(), asof.isoformat()),
         ).fetchall()
@@ -304,38 +300,33 @@ def _read_market_observations(
                 "market calendar has missing row: "
                 + ", ".join(day.isoformat() for day in missing_calendar_days)
             )
-        if asof not in calendar:
-            raise ResearchPriceWatchError(
-                f"market calendar has no exact row for asof {asof.isoformat()}"
-            )
         if not calendar[asof]:
             raise ResearchPriceWatchError(f"asof is not a business day: {asof.isoformat()}")
         bars_by_ticker: dict[str, dict[date, _RawBar]] = defaultdict(dict)
-        if theses:
-            placeholders = ",".join("?" for _ in theses)
+        if assessments:
+            placeholders = ",".join("?" for _ in assessments)
             # The f-string only expands "?" placeholders; every value is parameter-bound.
             bar_rows = conn.execute(
                 "SELECT ticker, traded_at, close, adjustment_factor "
                 "FROM jquants_daily_bars "
                 f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "  # nosec B608
                 "ORDER BY ticker, traded_at",
-                (*sorted(theses), start.isoformat(), asof.isoformat()),
+                (*sorted(assessments), start.isoformat(), asof.isoformat()),
             ).fetchall()
             for ticker, traded_at, close, factor in bar_rows:
                 day = date.fromisoformat(str(traded_at))
                 bars_by_ticker[str(ticker)][day] = _RawBar(
-                    traded_at=day,
                     close=optional_float(close),
                     adjustment_factor=optional_float(factor),
                 )
         return {
             ticker: _observe_ticker(
-                thesis=publication.document,
+                assessment=publication.document,
                 asof=asof,
                 calendar=calendar,
                 bars=bars_by_ticker[ticker],
             )
-            for ticker, publication in theses.items()
+            for ticker, publication in assessments.items()
         }
     except (TypeError, ValueError) as error:
         if isinstance(error, ResearchPriceWatchError):
@@ -346,41 +337,41 @@ def _read_market_observations(
         conn.close()
 
 
-def _price_basis_date(thesis: ThesisDocument) -> date:
+def _price_basis_date(assessment: StockAssessmentDocument) -> date:
     return next(
         (
             fact.as_of
-            for fact in thesis.input_snapshot.facts
-            if fact.fact_id == thesis.valuation.market_price_fact_id
+            for fact in assessment.input_snapshot.facts
+            if fact.fact_id == assessment.valuation.market_price_fact_id
         ),
-        thesis.input_snapshot.as_of,
+        assessment.input_snapshot.as_of,
     )
 
 
 def _observe_ticker(
     *,
-    thesis: ThesisDocument,
+    assessment: StockAssessmentDocument,
     asof: date,
     calendar: dict[date, bool],
     bars: dict[date, _RawBar],
 ) -> _MarketObservation:
-    expected_sessions = [
-        day
-        for day, is_business_day in calendar.items()
-        if is_business_day and _price_basis_date(thesis) <= day <= asof
-    ]
+    basis_date = _price_basis_date(assessment)
     current_bar = bars.get(asof)
-    current_close = _valid_close(current_bar.close) if current_bar is not None else None
-    close_as_of = asof if current_close is not None else None
-    for session in expected_sessions:
-        if session not in bars:
+    if current_bar is None:
+        return _MarketObservation(None, None, f"missing_raw_bar:{asof}")
+    current_close = _valid_close(current_bar.close)
+    if current_close is None:
+        reason = "missing_raw_close" if current_bar.close is None else "invalid_raw_close"
+        return _MarketObservation(None, None, f"{reason}:{asof}")
+    close_as_of = asof
+    # The original quote already uses its own day's basis. Only later sessions
+    # can change that basis; intermediate close values are not inputs to this gap.
+    for session, is_business_day in calendar.items():
+        if not is_business_day or not basis_date < session <= asof:
+            continue
+        bar = bars.get(session)
+        if bar is None:
             return _MarketObservation(current_close, close_as_of, f"missing_raw_bar:{session}")
-    for session in expected_sessions:
-        bar = bars[session]
-        if bar.close is None:
-            return _MarketObservation(current_close, close_as_of, f"missing_raw_close:{session}")
-        if _valid_close(bar.close) is None:
-            return _MarketObservation(current_close, close_as_of, f"invalid_raw_close:{session}")
         if bar.adjustment_factor is None:
             return _MarketObservation(
                 current_close,
@@ -410,15 +401,16 @@ def _valid_close(value: float | None) -> float | None:
 def _watch_row(
     *,
     ticker: str,
-    thesis: ThesisDocument,
+    assessment_id: str,
+    assessment: StockAssessmentDocument,
     observation: _MarketObservation,
     held: bool,
     reserved: bool,
     history: list[dict[str, object]],
 ) -> dict[str, object]:
-    from baibai_engine.research.valuation import maximum_entry_price
+    from baibai_engine.valuation.scenario import maximum_entry_price
 
-    valuation = thesis.valuation
+    valuation = assessment.valuation
     maximum = None
     if (
         valuation.base is not None
@@ -435,9 +427,11 @@ def _watch_row(
     )
     gap = (
         None
-        if maximum is None or observation.current_close_yen is None
+        if unresolved is not None or maximum is None or observation.current_close_yen is None
         else _calculate_gap(maximum, observation.current_close_yen)
     )
+    if unresolved is None and gap is None:
+        unresolved = "price_comparison_unavailable"
     return {
         "ticker": ticker,
         "status": "unresolved" if unresolved else "resolved",
@@ -445,12 +439,13 @@ def _watch_row(
         "close_as_of": None
         if observation.close_as_of is None
         else observation.close_as_of.isoformat(),
-        "pmax_raw_yen": None if maximum is None else _decimal_number(maximum),
+        "pmax_raw_yen": None if maximum is None else decimal_to_number(maximum),
         "pmax_gap_pct": gap,
-        "thesis_disposition": thesis.judgment.disposition,
-        "thesis_as_of": thesis.input_snapshot.as_of.isoformat(),
+        "assessment_id": assessment_id,
+        "assessment_stance": assessment.conclusion.stance,
+        "assessment_as_of": assessment.input_snapshot.as_of.isoformat(),
         "horizon_months": valuation.horizon_months,
-        "original_quote_as_of": _price_basis_date(thesis).isoformat(),
+        "original_quote_as_of": _price_basis_date(assessment).isoformat(),
         "reference_basis": "原評価の累積分配・期間。現在の残存年率ではない",
         "current_decision_status": "not_evaluated",
         "current_portfolio_status": _portfolio_status(held=held, reserved=reserved),
@@ -480,12 +475,6 @@ def _portfolio_status(*, held: bool, reserved: bool) -> str:
 
 def _resolved_sort_key(row: dict[str, object]) -> tuple[float, str]:
     return (-cast(float, row["pmax_gap_pct"]), str(row["ticker"]))
-
-
-def _decimal_number(value: Decimal) -> int | float:
-    if value == value.to_integral_value():
-        return int(value)
-    return float(value)
 
 
 if __name__ == "__main__":

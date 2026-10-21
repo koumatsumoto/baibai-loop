@@ -1,4 +1,4 @@
-"""J-Quants source facts; no Screening outputs or provider I/O."""
+"""J-Quants observations and financial projections; no provider I/O."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from datetime import date
 from pydantic import field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.market.bars import MODEL_CONFIG, validate_finite
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.market.price_models import MODEL_CONFIG, validate_finite
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
@@ -49,11 +49,15 @@ class JQuantsAllIssuesDailyMargin:
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsMarginAlert:
-    """Daily balance and regulation facts for an issue selected for daily publication."""
+    """Daily balance and regulation facts for an issue selected for daily publication.
+
+    ``applied_date`` stores provider AppDate: the balance's application date (申込日),
+    not the date when a regulation takes effect.
+    """
 
     publication_date: date
     ticker: str
-    applied_date: date | None = None
+    applied_date: date
     publication_reason: str | None = None
     short_outstanding: float | None = None
     short_change: float | None = None
@@ -88,14 +92,17 @@ class JQuantsShortSaleReport:
     short_trading_units: int | None = None
     previous_reported_at: date | None = None
     previous_short_ratio: float | None = None
-    is_cancellation: bool = False
+    short_seller_address: str | None = None
+    discretionary_investment_contractor_address: str | None = None
     notes: str | None = None
     source_ordinal: int = 0
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsFinancialSummary:
-    """短信1行。保存fieldと計算後の指標を区別する。
+    """財務文書の読取・計算用投影。保存された原本そのものではない。
+
+    実績の数値と、対象日・期間・basisを解決した会社予想を区別する。
 
     `eps_ttm`は開示期間の累計EPSであり、TTM合成済みの値ではない。
     このEPS自体を足し引きしてTTM合成しない。
@@ -137,18 +144,33 @@ class JQuantsFinancialSummary:
     # 開示された自己資本比率。`equity` は非支配株主持分を含む純資産なので、`equity / total_assets`
     # は自己資本比率にならない。導出でなく開示値を持つのは、自己資本を別途持たずに済むため。
     equity_to_asset_ratio: float | None = None
-    # 支払ごとの 1 株当たり配当と、通期に支払った配当の総額 (円)。`dps_actual_annual` は
-    # 中間・期末それぞれの基準日時点の株式基準で記載されるため、分割・併合を跨いだ年度は
-    # 株価と基準が揃わない。支払ごとに持てば各支払の基準日より後の調整だけを掛けられ、
-    # 総額は株式基準を持たないのでその換算の独立した照合になる。
+    # 原本の配当明細と年間総額 (円)。会社側の分割調整の有無はこのfieldだけでは特定できず、
+    # 四半期末を基準日と仮定して換算しない。年間総額 / 期末株数も、期中の株数変化があれば
+    # 支払別DPSと一致しない。再分析用の原値として保持する。
     dividend_q1: float | None = None
     dividend_interim: float | None = None
     dividend_q3: float | None = None
     dividend_year_end: float | None = None
     dividend_total_annual: float | None = None
-    # 期中平均株式数。提出者が EPS を出すのに使った株数で、期末発行済から自己株を引いた
-    # 株数が壊れていないかを同じ行の中で照合するのに使う。
+    # 提出者がEPS計算に用いる期中平均株式数。期末の発行済・自己株式数とは異なる観測。
     average_shares: float | None = None
+
+    # Source-document identity is independent of accounting-period identity.
+    # A combined L2 observation may have no single source record; its contributing
+    # forecast records remain in forecast_field_sources / forecast_source_documents.
+    disclosure_number: str | None = None
+    disclosed_time: str | None = None
+    document_type: str | None = None
+    document_payload: str | None = None
+    forecast_period_start: date | None = None
+    forecast_period_end: date | None = None
+    forecast_basis: str | None = None
+    forecast_target_basis: str | None = None
+    unresolved_actual_fields: tuple[str, ...] = ()
+    forecast_source_documents: tuple[str, ...] = ()
+    forecast_field_sources: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    forecast_status: str = "not_applicable"
+    dividend_forecast_status: str = "not_applicable"
 
     @field_validator("ticker", mode="before")
     @classmethod

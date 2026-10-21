@@ -67,8 +67,7 @@ function oklchToLinear(lightness: number, chroma: number, hue: number): readonly
   ]
 }
 
-// Status colors are stated perceptually, so the checks below have to reach the same pixels the
-// browser paints.
+// Approximate sRGB conversion for the declared tokens; this is not a browser rendering test.
 function oklchToRgb(lightness: number, chroma: number, hue: number): Rgb {
   const [red, green, blue] = oklchToLinear(lightness, chroma, hue)
   return { red: linearToSrgb(red), green: linearToSrgb(green), blue: linearToSrgb(blue) }
@@ -107,8 +106,7 @@ interface Oklab {
   readonly hue: number
 }
 
-// Perceptual coordinates, where equal distances look equally different. Hex arithmetic
-// does not: #9f6800 and #b64e10 differ by little in RGB and are plainly two colors.
+// Oklab distance is an approximate perceptual comparison, not a guarantee for every viewer.
 function oklab({ red, green, blue }: Rgb): Oklab {
   const r = srgbToLinear(red)
   const g = srgbToLinear(green)
@@ -193,16 +191,12 @@ function pairs<T>(items: readonly T[]): [T, T][] {
   return items.flatMap((first, index) => items.slice(index + 1).map((second): [T, T] => [first, second]))
 }
 
-// Colors measured from web/frontend/brand/logo.png, keyed by the palette entry each color belongs to.
+// Saved logo color measurements, keyed by palette token. This test does not decode the image.
 const measuredColors = JSON.parse(source('brand/measured-colors.json')) as Record<string, string>
 
 describe('brand palette', () => {
-  // The colors the mark itself owns, checked against the image rather than against values typed
-  // in twice. Compared perceptually, not byte for byte: re-rendering the same artwork moves a
-  // channel by a step whichever way the color is read out of it, and a step is at most 0.36 on
-  // this scale while the palette keeps its own colors 12 apart. A bar of 0.5 lets a re-render
-  // through and still fails a logo whose color has actually moved.
-  it.each(Object.entries(measuredColors))('takes %s from the source logo', (token, measured) => {
+  // Compare tokens with the saved measurements, allowing a small perceptual tolerance.
+  it.each(Object.entries(measuredColors))('matches %s to the saved logo measurement', (token, measured) => {
     expect(measured).toMatch(/^#[0-9a-f]{6}$/i)
     expect(perceptualDistance(tokenValue(token), measured)).toBeLessThan(0.5)
   })
@@ -306,8 +300,8 @@ describe('brand palette', () => {
   })
 
   // The four colors a bare number can wear. Two of them answer "which way did it move"
-  // and two answer "did it make money", and a reader tells which question a number is
-  // answering from its color alone — so every pair has to be far apart. Warning is absent
+  // and two answer "did it make money". Color separation supplements labels and signs;
+  // it does not replace them or verify color-vision accessibility. Warning is absent
   // on purpose: it only ever dresses a badge or a banner that states its own meaning.
   it.each(pairs(VALUE_COLORS))('separates %s from %s', (first, second) => {
     expect(perceptualDistance(tokenValue(first), tokenValue(second))).toBeGreaterThanOrEqual(12)
@@ -346,12 +340,8 @@ describe('status surfaces', () => {
     expect(ratio).toBeGreaterThanOrEqual(4.5)
   })
 
-  // A measured ratio is only the rendered one while both colors fit in sRGB. Raising chroma to
-  // force a pair apart would pass the check above and leave the browser painting a color this
-  // file never measured. The mark colors above sit a hair outside sRGB — a channel at -0.009 —
-  // and there Chrome's gamut mapping lands on the same bytes this file clamps to, so their
-  // ratios are the rendered ones. That agreement is not owed for a larger overshoot, which is
-  // what this keeps the fill and its ink away from.
+  // Keep the tested status colors inside sRGB so this approximation does not
+  // rely on a browser-specific gamut mapping. It does not verify rendered pixels.
   it.each(STATUS_FAMILIES)('states %s-surface and its ink inside sRGB', (family) => {
     expect(fitsInSrgb(tokenValue(`${family}-surface`))).toBe(true)
     expect(fitsInSrgb(tokenValue(`${family}-ink`))).toBe(true)
@@ -372,7 +362,7 @@ describe('status surfaces', () => {
     expect(themeMappings.get(`--color${family.slice(1)}-ink`)).toBe(`var(${family}-ink)`)
   })
 
-  // Every shape Tailwind accepts for "this status color, but see-through": the plain alpha,
+  // The supported spellings checked here for a translucent status fill: the plain alpha,
   // the arbitrary alpha, the variable shorthand, and an arbitrary value that names the token.
   // The opaque hover mixes are deliberately not matched — they name `-surface` and `-ink`.
   it('paints no status color as a translucent fill', () => {

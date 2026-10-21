@@ -9,17 +9,11 @@ from datetime import date, datetime
 from pathlib import Path
 
 import yaml
-from pydantic import ValidationError
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.operation.models import SESSION_KINDS, OperationPayload
-from baibai_engine.research.operation.service import (
-    OperationCompletionError,
-    OperationConflictError,
-    OperationNotFoundError,
-    OperationService,
-)
+from baibai_engine.research.operation.service import OperationService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,7 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--kind", choices=SESSION_KINDS, required=True)
     start.add_argument("--as-of", type=date.fromisoformat, required=True)
     start.add_argument("--ticker")
-    start.add_argument("--payload", type=Path, help="path to an OperationPayload YAML or JSON file")
+    start.add_argument(
+        "--payload",
+        type=Path,
+        required=True,
+        help="path to an OperationPayload YAML or JSON file",
+    )
 
     checkpoint = commands.add_parser(
         "checkpoint",
@@ -67,6 +66,23 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="path to an OperationPayload YAML or JSON file",
     )
+    assessment = commands.add_parser(
+        "record-assessment", help="bind a completed Reviewed Assessment to its fixed target"
+    )
+    assessment.add_argument("operation_id")
+    assessment.add_argument("--assessment-id", required=True)
+    proposal = commands.add_parser(
+        "record-proposal", help="bind an immutable published Investment Proposal"
+    )
+    proposal.add_argument("operation_id")
+    proposal.add_argument("--proposal-id", required=True)
+    unfinished = commands.add_parser(
+        "record-unfinished", help="record unfinished research separately from economic rejection"
+    )
+    unfinished.add_argument("operation_id")
+    unfinished.add_argument("--ticker", required=True)
+    unfinished.add_argument("--reason", required=True)
+    unfinished.add_argument("--ref", action="append", required=True)
     return parser
 
 
@@ -76,11 +92,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     current_time = now or datetime.now(JST)
     try:
         if args.command == "start":
-            payload = (
-                OperationPayload(checkpoint="started", next="record the current checkpoint")
-                if args.payload is None
-                else _load_payload(args.payload)
-            )
+            payload = _load_payload(args.payload)
             operation = service.start(
                 session_kind=args.kind,
                 as_of=args.as_of,
@@ -91,7 +103,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             _emit(operation.public(), output_format=args.format)
         elif args.command == "checkpoint":
             _emit(
-                service.checkpoint(args.operation_id, _load_payload(args.payload)).public(),
+                service.checkpoint(
+                    args.operation_id, _load_payload(args.payload), now=current_time
+                ).public(),
                 output_format=args.format,
             )
         elif args.command == "complete":
@@ -100,6 +114,31 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     args.operation_id,
                     _load_payload(args.payload),
                     completed_at=current_time,
+                ).public(),
+                output_format=args.format,
+            )
+        elif args.command == "record-assessment":
+            _emit(
+                service.record_assessment(
+                    args.operation_id, args.assessment_id, now=current_time
+                ).public(),
+                output_format=args.format,
+            )
+        elif args.command == "record-proposal":
+            _emit(
+                service.record_proposal(
+                    args.operation_id, args.proposal_id, now=current_time
+                ).public(),
+                output_format=args.format,
+            )
+        elif args.command == "record-unfinished":
+            _emit(
+                service.record_unfinished(
+                    args.operation_id,
+                    ticker=args.ticker,
+                    reason=args.reason,
+                    references=tuple(args.ref),
+                    now=current_time,
                 ).public(),
                 output_format=args.format,
             )
@@ -119,14 +158,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
         else:  # pragma: no cover
             raise AssertionError(f"unreachable operation command: {args.command}")
-    except (
-        OSError,
-        ValueError,
-        ValidationError,
-        OperationCompletionError,
-        OperationConflictError,
-        OperationNotFoundError,
-    ) as error:
+    except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0

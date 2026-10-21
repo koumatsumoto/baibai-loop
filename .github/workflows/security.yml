@@ -3,7 +3,8 @@ name: security
 # Dependency advisories are the one finding that appears without anything in the
 # repository changing, so they get a clock of their own. Every gate that reacts to
 # a change instead — Bandit, and the audits' own reaction to a lockfile edit — runs
-# on the pull request that carries the change, in ci and web.
+# on the pull request that carries the change: Python checks in ci.yml and Node
+# lockfile audits in node-audit.yml. This workflow sweeps both ecosystems weekly.
 on:
   schedule:
     - cron: "17 3 * * 1"
@@ -29,7 +30,7 @@ jobs:
           enable-cache: true
 
       - name: Sync
-        run: uv sync --frozen --all-groups
+        run: uv sync --locked --all-groups
 
       # Pull requests are where a widened credential boundary is refused, and their
       # merge ref is main only until main moves under them. This asks the question

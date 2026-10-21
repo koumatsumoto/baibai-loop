@@ -9,24 +9,21 @@ from baibai_engine.market.jquants_models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.market.sqlite.reader import (
+from baibai_engine.market_context.margin import MarginBalance
+from baibai_engine.storage.observations.reader import (
     MarginCadence,
     published_margin_balance_dates,
     read_all_issues_daily_margin,
     read_weekly_margin,
 )
-from baibai_engine.screening.margin_metrics import MarginBalance
 
-# Balance dates the delta axis reaches back over. They are weekly, so this is about
-# half a year — 26 to 28 calendar weeks in practice, because the exchange skips
-# some weeks and this counts stored dates rather than calendar distance.
+# The delta axis reaches back 26 observed ISO weeks. Daily observations are sampled
+# to one balance date per week; missing weeks can make the calendar span longer.
 MARGIN_DELTA_WEEKS = 26
 
-# How stale the newest published balance date may be before the axes decline to
-# answer. The cadence is weekly and the publication lag is two trading days, so a
-# healthy store sits inside three weeks even across a long closure. Beyond this the
-# balance describes a market the as-of no longer resembles, and a silent stale join
-# is worse than an unset axis.
+# Maximum age of the newest published balance date accepted by these axes, across
+# both the historical weekly and current daily series. This coarse upper bound is
+# not a guarantee that the latest scheduled publication has been acquired.
 MARGIN_MAX_STALE_DAYS = 35
 
 
@@ -80,8 +77,8 @@ def read_margin_supply_demand_inputs(
 
     `latest` is the newest published balance date whichever series published it, so
     the level axes keep describing the most recent balance the exchange has stated.
-    `prior` is 26 weeks back in the sampled column, so the delta axis keeps comparing
-    across half a year rather than across however many rows the cadence produced.
+    `prior` is 26 observed ISO weeks back in the sampled column. Missing weeks
+    can make the calendar interval longer; this is not a fixed half-year duration.
     """
     published = published_margin_balance_dates(sqlite_path, asof)
     if not published or (asof - published[-1][0]).days > MARGIN_MAX_STALE_DAYS:

@@ -12,16 +12,16 @@ from typing import TextIO, cast
 import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
-from baibai_engine.market.lake.retention import lake_writer_lock
-from baibai_engine.market.lake.writer import (
+from baibai_engine.storage.lake.retention import lake_writer_lock
+from baibai_engine.storage.lake.writer import (
     LakeBuildError,
-    LegacySQLiteSnapshot,
+    SealedSQLiteSnapshot,
     sealed_sqlite_snapshot,
 )
-from baibai_engine.market.sqlite.readiness import unreadable_store_reason
+from baibai_engine.storage.observations.readiness import unreadable_store_reason
+from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
-from ..discovery.review_set import APPROACH_IDS
-from ..estimates import EXPECTED_RETURN_MODEL_VERSION
+from ..discovery.contracts import APPROACH_IDS
 from ..rule_config import ScreeningRules
 from ..rules_identity import production_rules_contract_hash
 from .context import CalibrationContextError, build_er_distribution_context
@@ -143,7 +143,7 @@ def calibration_build_command(
 
 def _calibration_build_command(
     *,
-    snapshot: LegacySQLiteSnapshot,
+    snapshot: SealedSQLiteSnapshot,
     calibration_dir: Path,
     work_dir: Path,
     rules: ScreeningRules,
@@ -160,27 +160,6 @@ def _calibration_build_command(
     forward_policy = ForwardObservationPolicy(
         use_control_event_exits=use_control_event_exits, use_failure_exits=use_failure_exits
     )
-    is_default_dir = calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
-    if not policy.production_authority and is_default_dir:
-        print(
-            "calibration build: diagnostic panel variant requires a separate --calibration-dir",
-            file=sys.stderr,
-        )
-        return 1
-    if not use_control_event_exits and is_default_dir:
-        print(
-            "calibration build: --without-control-event-exits builds a comparison baseline "
-            "and requires a separate --calibration-dir",
-            file=sys.stderr,
-        )
-        return 1
-    if not use_failure_exits and is_default_dir:
-        print(
-            "calibration build: --without-failure-exits builds a comparison baseline "
-            "and requires a separate --calibration-dir",
-            file=sys.stderr,
-        )
-        return 1
     fixed_sqlite = snapshot.path
     asofs = month_end_asof_grid(fixed_sqlite, start=start, end=end)
     if not asofs:
@@ -345,9 +324,7 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
-        # The two rejections have different fixes, so they get different messages:
-        # an operator who passed the core three and one unregistered name is told to
-        # add the core three unless the unregistered name is stated.
+        # Additional metrics must name an outcome this evaluator actually reports.
         unknown_metrics = set(required_metrics or ()) - KNOWN_METRICS
         if unknown_metrics:
             print(
@@ -439,12 +416,14 @@ def calibration_evaluate_command(
             assert isinstance(cohort, dict)
             coverage = cast(dict[str, object], cohort["coverage"])
             blockers: list[str] = []
-            meta = metas[[asof.isoformat() for asof in asofs].index(str(cohort["asof"]))]
+            meta = meta_by_asof[date.fromisoformat(str(cohort["asof"]))]
             policy_reason_counts = meta.get("policy_exclusion_reason_counts")
             if not isinstance(policy_reason_counts, dict):
                 policy_reason_counts = {}
             mismatch = _optional_count(meta.get("asof_population_mismatch_count"))
             unevaluated = _optional_count(meta.get("priced_master_without_universe_count"))
+            master_count = _optional_count(meta.get("master_population_count"))
+            candidate_count = _optional_count(meta.get("candidate_population_count"))
             coverage.update(
                 {
                     "master_snapshot_date": meta.get("master_snapshot_date"),
@@ -452,10 +431,12 @@ def calibration_evaluate_command(
                     "master_population_count": meta.get("master_population_count", 0),
                     "candidate_population_count": meta.get("candidate_population_count", 0),
                     "policy_exclusion_reason_counts": policy_reason_counts,
-                    "policy_excluded_count": sum(
-                        int(value)
-                        for value in policy_reason_counts.values()
-                        if isinstance(value, int)
+                    # One security can have several policy reasons. Count members,
+                    # not reason occurrences; unmeasured populations remain unknown.
+                    "policy_excluded_count": (
+                        master_count - candidate_count
+                        if master_count is not None and candidate_count is not None
+                        else None
                     ),
                     "input_range_clamped": bool(
                         meta.get("bars_window_clamped") or meta.get("fin_window_clamped")
@@ -566,8 +547,6 @@ def calibration_evaluate_command(
                     blocking_reasons=tuple(blockers),
                 )
             )
-            for reason in blockers:
-                integrity_reason_counts[reason] = integrity_reason_counts.get(reason, 0) + 1
     readiness = (
         evaluate_evidence_readiness(scope, tuple(integrity))
         if scope.run_purpose == "empirical_change_evidence"
@@ -584,6 +563,8 @@ def calibration_evaluate_command(
     # The histogram answers "how many required cohorts show this", so the per-cohort
     # verdicts are counted here rather than taken from the decision's deduped classes.
     for item in required_integrity:
+        for reason in item.blocking_reasons:
+            integrity_reason_counts[reason] = integrity_reason_counts.get(reason, 0) + 1
         if item.integrity_status != "eligible":
             key = f"integrity_{item.integrity_status}"
             integrity_reason_counts[key] = integrity_reason_counts.get(key, 0) + 1

@@ -1,4 +1,4 @@
-"""Measure L1 estimate quality in one atomically replaceable current snapshot."""
+"""Persist derived calibration panels in one atomically replaceable current snapshot."""
 
 from __future__ import annotations
 
@@ -14,14 +14,16 @@ from hashlib import sha256
 from math import isfinite
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import cast
+from typing import Literal, cast
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
+from baibai_engine.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
 
-from ..metrics import VALUATION_CALCULATION_REVISION
 from .forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,
+    FORWARD_CALCULATION_REVISION,
     FORWARD_FIELD_NAMES,
     RESOLVED_STATUSES,
     TOTAL_RETURN_BASIS,
@@ -39,7 +41,6 @@ from .panel import (
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
 CURRENT_SNAPSHOT_NAME = "current.sqlite"
-RELAXED: tuple[()] = ()
 
 
 def _digest(*parts: str) -> str:
@@ -52,7 +53,8 @@ def _derive_cache_schema_version() -> str:
         ",".join(DIAGNOSTIC_FIELD_NAMES),
         ",".join(FORWARD_FIELD_NAMES),
         VALUATION_CALCULATION_REVISION,
-        repr(RELAXED),
+        MARKET_CONTEXT_CALCULATION_REVISION,
+        FORWARD_CALCULATION_REVISION,
     )
 
 
@@ -100,33 +102,36 @@ def _path(root: Path) -> Path:
     return root / CURRENT_SNAPSHOT_NAME
 
 
-def _connect(root: Path, *, create: bool) -> sqlite3.Connection:
+def _connect(root: Path, *, mode: Literal["ro", "rw", "rwc"] = "ro") -> sqlite3.Connection:
     path = _path(root)
-    if not path.exists() and not create:
+    if not path.exists() and mode != "rwc":
         raise CalibrationCacheError(f"calibration snapshot is missing: {path}")
-    root.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    tables = connection.execute(
-        "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'snapshot_meta'"
-    ).fetchone()[0]
-    if not tables:
-        if not create:
-            connection.close()
-            raise CalibrationCacheError("calibration snapshot has an obsolete schema")
-        connection.executescript(_SCHEMA_SQL)
-        connection.execute(
-            "INSERT INTO snapshot_meta (singleton, contract_version) VALUES (1, ?)",
-            (CACHE_SCHEMA_VERSION,),
-        )
-        connection.commit()
-    version = connection.execute(
-        "SELECT contract_version FROM snapshot_meta WHERE singleton = 1"
-    ).fetchone()
-    if version is None or version[0] != CACHE_SCHEMA_VERSION:
+    if mode == "rwc":
+        root.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode={mode}", uri=True)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        tables = connection.execute(
+            "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'snapshot_meta'"
+        ).fetchone()[0]
+        if not tables:
+            if mode != "rwc":
+                raise CalibrationCacheError("calibration snapshot has an obsolete schema")
+            connection.executescript(_SCHEMA_SQL)
+            connection.execute(
+                "INSERT INTO snapshot_meta (singleton, contract_version) VALUES (1, ?)",
+                (CACHE_SCHEMA_VERSION,),
+            )
+            connection.commit()
+        version = connection.execute(
+            "SELECT contract_version FROM snapshot_meta WHERE singleton = 1"
+        ).fetchone()
+        if version is None or version[0] != CACHE_SCHEMA_VERSION:
+            raise CalibrationCacheError("calibration snapshot contract changed; rebuild it")
+    except BaseException:
         connection.close()
-        raise CalibrationCacheError("calibration snapshot contract changed; rebuild it")
+        raise
     return connection
 
 
@@ -152,7 +157,7 @@ def fixed_current_snapshot(root: Path) -> Iterator[Path]:
         copy_current_snapshot(root, fixed)
         if not _path(fixed).exists():
             raise CalibrationCacheError(f"calibration snapshot is missing: {_path(root)}")
-        with closing(_connect(fixed, create=False)) as connection:
+        with closing(_connect(fixed)) as connection:
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise CalibrationCacheError("calibration snapshot integrity_check failed")
         yield fixed
@@ -161,7 +166,7 @@ def fixed_current_snapshot(root: Path) -> Iterator[Path]:
 def publish_current_snapshot(root: Path, built_root: Path) -> None:
     """Validate one coherent build and atomically replace current.sqlite."""
     built = _path(built_root)
-    with closing(_connect(built_root, create=False)) as connection:
+    with closing(_connect(built_root)) as connection:
         if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise CalibrationCacheError("calibration snapshot integrity_check failed")
         rows = connection.execute("SELECT diagnostics FROM cohort ORDER BY asof").fetchall()
@@ -172,8 +177,11 @@ def publish_current_snapshot(root: Path, built_root: Path) -> None:
             raise CalibrationCacheError("calibration snapshot mixes measurement methods")
     root.mkdir(parents=True, exist_ok=True)
     temporary = root / f".{CURRENT_SNAPSHOT_NAME}.{uuid.uuid4().hex}.tmp"
-    shutil.copy2(built, temporary)
-    temporary.replace(_path(root))
+    try:
+        shutil.copy2(built, temporary)
+        temporary.replace(_path(root))
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def write_panel(
@@ -188,7 +196,7 @@ def write_panel(
         raise CalibrationCacheError("panel cohort as-of differs from its rows")
     for row in rows:
         panel_row_from_mapping(asdict(row))
-    with closing(_connect(root, create=True)) as connection:
+    with closing(_connect(root, mode="rwc")) as connection:
         existing_rules = {
             json.loads(item[0]).get("rules_hash")
             for item in connection.execute(
@@ -230,7 +238,7 @@ def write_forward(
         if row.asof != asof.isoformat():
             raise CalibrationCacheError("forward cohort as-of differs from its rows")
         forward_row_from_mapping(asdict(row))
-    with closing(_connect(root, create=False)) as connection:
+    with closing(_connect(root, mode="rw")) as connection:
         cohort = connection.execute(
             "SELECT forward_policy FROM cohort WHERE asof = ?", (asof.isoformat(),)
         ).fetchone()
@@ -260,7 +268,7 @@ def write_forward(
 def has_cohort(root: Path, asof: date) -> bool:
     if not _path(root).exists():
         return False
-    with closing(_connect(root, create=False)) as connection:
+    with closing(_connect(root)) as connection:
         return (
             connection.execute(
                 "SELECT 1 FROM cohort WHERE asof = ?", (asof.isoformat(),)
@@ -272,7 +280,7 @@ def has_cohort(root: Path, asof: date) -> bool:
 def published_cohorts(root: Path) -> list[date]:
     if not _path(root).exists():
         return []
-    with closing(_connect(root, create=False)) as connection:
+    with closing(_connect(root)) as connection:
         return [
             date.fromisoformat(row[0])
             for row in connection.execute("SELECT asof FROM cohort ORDER BY asof")
@@ -280,7 +288,7 @@ def published_cohorts(root: Path) -> list[date]:
 
 
 def read_panel(root: Path, asof: date) -> list[PanelRow]:
-    with closing(_connect(root, create=False)) as connection:
+    with closing(_connect(root)) as connection:
         rows = connection.execute(
             "SELECT payload FROM panel_row WHERE asof = ? ORDER BY ticker", (asof.isoformat(),)
         ).fetchall()
@@ -293,7 +301,7 @@ def read_panel(root: Path, asof: date) -> list[PanelRow]:
 
 
 def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
-    with closing(_connect(root, create=False)) as connection:
+    with closing(_connect(root)) as connection:
         row = connection.execute(
             "SELECT diagnostics FROM cohort WHERE asof = ?", (asof.isoformat(),)
         ).fetchone()
@@ -316,7 +324,7 @@ def validate_panel_meta(payload: object) -> dict[str, object]:
 
 
 def read_forward(root: Path, asof: date) -> list[ForwardReturnRow]:
-    with closing(_connect(root, create=False)) as connection:
+    with closing(_connect(root)) as connection:
         cohort = connection.execute(
             "SELECT forward_ready FROM cohort WHERE asof = ?", (asof.isoformat(),)
         ).fetchone()
@@ -349,6 +357,8 @@ def forward_row_from_mapping(raw: Mapping[str, object]) -> ForwardReturnRow:
 
 
 def _validate_total_return_contract(row: ForwardReturnRow) -> None:
+    if row.price_return is not None and not isfinite(row.price_return):
+        raise ValueError("price return must be finite when present")
     if row.resolved is not (row.status in RESOLVED_STATUSES):
         raise ValueError(f"resolved flag disagrees with status: {row.status!r}")
     if row.total_return_basis != TOTAL_RETURN_BASIS:
@@ -431,7 +441,7 @@ def _validate_margin_supply_demand(row: PanelRow) -> None:
     if row.margin_short_to_adv is not None and (
         not isfinite(row.margin_short_to_adv)
         or row.margin_short_to_adv < 0
-        or row.margin_week_end is None
+        or row.margin_balance_date is None
     ):
         raise ValueError("margin short to ADV requires a dated non-negative value")
     if row.realized_volatility_60d is not None and (

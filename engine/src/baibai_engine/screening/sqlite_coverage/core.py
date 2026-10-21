@@ -7,19 +7,18 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.market.sqlite import (
-    SQLITE_SCHEMA_VERSION,
-    SQLiteSchemaError,
-    daily_bars_covered_by_data,
-    range_covered,
-    validate_current_schema,
-)
-
-from ..metrics import (
+from baibai_engine.screening.metrics.snapshot import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
+from baibai_engine.storage.observations.coverage import range_covered
+from baibai_engine.storage.observations.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    validate_current_schema,
+)
+
 from .edinet import _append_edinet_metrics_coverage_issues
 from .jpx import (
     _append_jpx_earnings_calendar_issues,
@@ -33,12 +32,12 @@ from .jquants import (
     _append_master_snapshot_issues,
     _append_recent_bar_density_issue,
 )
-from .required_fields import append_required_field_coverage_issues
 from .shared import CacheCoverageIssue
 from .sources import (
+    _append_jpx_regulation_count_issue,
     _append_required_date_rows_issue,
     _append_source_coverage_quality_issues,
-    _append_table_consistency_issues,
+    _append_window_consistency_issues,
     _source_coverage_covers_date,
 )
 
@@ -80,9 +79,8 @@ def verify_screening_sqlite_coverage(
             # twice (once before `bootstrap-cache`, once on the recheck). What the
             # deep check adds over the quick one is index-content cross-checking,
             # and a store arriving from R2 has already passed `quick_check` on
-            # download. Index damage that survives both still surfaces here, as a
-            # read result: the density checks below count usable rows through the
-            # same indexes the screen reads.
+            # download. The density checks below detect some missing-data cases;
+            # they do not replace integrity_check's index-content verification.
             integrity_row = conn.execute("PRAGMA quick_check").fetchone()
             if integrity_row is None or integrity_row[0] != "ok":
                 reason = integrity_row[0] if integrity_row else "<no result>"
@@ -100,16 +98,15 @@ def verify_screening_sqlite_coverage(
             if schema_shape_issue is not None:
                 return (schema_shape_issue,)
             _append_master_snapshot_issues(conn, issues, asof_date=asof_date)
-            # daily_bars completeness is derived from the actual rows. The
-            # quality / density checks below run regardless of the coverage gate
-            # so a grossly incomplete cache reports both the missing window and
-            # the specific density problem, rather than only the first failure.
-            bars_window_covered = daily_bars_covered_by_data(conn, bars_start, asof_date)
+            # Acquisition coverage and analytical density are separate. Quality /
+            # density checks run regardless so a sparse accepted response still
+            # reports the specific input problem.
+            bars_window_covered = range_covered(conn, "jquants_daily_bars", bars_start, asof_date)
             _append_source_coverage_quality_issues(
                 conn,
                 issues,
                 source="jquants_daily_bars",
-                start=bars_start,
+                start=normalized_start,
                 end=asof_date,
             )
             if not bars_window_covered:
@@ -141,23 +138,21 @@ def verify_screening_sqlite_coverage(
                 start=normalized_start,
                 end=asof_date,
             )
-            _append_table_consistency_issues(
+            _append_window_consistency_issues(
                 conn,
                 issues,
                 source="jquants_daily_bars",
-                table="jquants_daily_bars",
-                requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
-                require_rows=True,
-                enforce_record_count=True,
+                start=normalized_start,
+                end=asof_date,
+            )
+            _append_source_coverage_quality_issues(
+                conn,
+                issues,
+                source="jquants_fin_summaries",
+                start=normalized_start,
+                end=asof_date,
             )
             if not range_covered(conn, "jquants_fin_summaries", fin_start, asof_date):
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_fin_summaries",
-                    start=fin_start,
-                    end=asof_date,
-                )
                 issues.append(
                     CacheCoverageIssue(
                         source="jquants_fin_summaries",
@@ -166,13 +161,6 @@ def verify_screening_sqlite_coverage(
                     )
                 )
             else:
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_fin_summaries",
-                    start=fin_start,
-                    end=asof_date,
-                )
                 _append_required_date_rows_issue(
                     conn,
                     issues,
@@ -183,14 +171,12 @@ def verify_screening_sqlite_coverage(
                     end=asof_date,
                     requirement=f"{fin_start.isoformat()}..{asof_date.isoformat()}",
                 )
-                _append_table_consistency_issues(
+                _append_window_consistency_issues(
                     conn,
                     issues,
                     source="jquants_fin_summaries",
-                    table="jquants_fin_summaries",
-                    requirement=f"{fin_start.isoformat()}..{asof_date.isoformat()}",
-                    require_rows=True,
-                    enforce_record_count=True,
+                    start=normalized_start,
+                    end=asof_date,
                 )
                 _append_fin_summary_density_issue(
                     conn,
@@ -198,13 +184,7 @@ def verify_screening_sqlite_coverage(
                     start=fin_start,
                     end=asof_date,
                 )
-            append_required_field_coverage_issues(
-                conn,
-                issues,
-                start=fin_start,
-                asof=asof_date,
-            )
-            if not daily_bars_covered_by_data(conn, normalized_start, asof_date):
+            if not range_covered(conn, "jquants_daily_bars", normalized_start, asof_date):
                 issues.append(
                     CacheCoverageIssue(
                         source="jquants_daily_bars",
@@ -265,15 +245,6 @@ def verify_screening_sqlite_coverage(
                     end=asof_date,
                     requirement=asof_date.isoformat(),
                 )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jquants_market_calendar",
-                    table="jquants_market_calendar",
-                    requirement=asof_date.isoformat(),
-                    require_rows=True,
-                    enforce_record_count=False,
-                )
             jpx_source_coverage_covers_asof = _source_coverage_covers_date(
                 conn, "jpx_regulation_flags", asof_date
             )
@@ -291,15 +262,7 @@ def verify_screening_sqlite_coverage(
                     asof_date=asof_date,
                     allow_stale_jpx=allow_stale_jpx,
                 )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jpx_regulation_flags",
-                    table="jpx_regulation_flags",
-                    requirement=asof_date.isoformat(),
-                    require_rows=False,
-                    enforce_record_count=True,
-                )
+                _append_jpx_regulation_count_issue(conn, issues, asof_date=asof_date)
                 jpx_source_names = _jpx_source_names(conn, asof_date)
             _append_source_coverage_quality_issues(
                 conn,
@@ -353,7 +316,7 @@ def verify_screening_sqlite_coverage(
 
 
 def _connect_readonly(sqlite_path: Path) -> sqlite3.Connection:
-    uri = f"file:{sqlite_path.as_posix()}?mode=ro"
+    uri = f"{sqlite_path.resolve().as_uri()}?mode=ro"
     return sqlite3.connect(uri, uri=True)
 
 

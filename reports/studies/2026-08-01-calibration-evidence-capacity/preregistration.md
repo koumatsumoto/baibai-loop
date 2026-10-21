@@ -2,7 +2,7 @@
 title: "較正 evidence 容量拡張の事前登録"
 summary: "priced master 欠損の有界バイアス判定と、375-session self-range を使う pre-2019 診断 panel の規則・評価量・採否条件を計測前に固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # 較正 evidence 容量拡張 — 事前登録
@@ -14,6 +14,8 @@ status: active
 既存 report から、3y は満期済み 44 cohort 中 5、5y は 20 中 4 だけが全 blocker を通る。`priced_master_without_universe` は 3y 38 / 5y 16 cohort を block し、cohort ごとの該当数は 1〜31、流動性母集団比は概ね 3% 以下である。この件数と blocker 内訳は既知であり、本事前登録は盲検ではない。
 
 本書を commit するまで、変更後の coverage 判定も pre-2019 変種 panel も計測しない。実装上の契約確認と既存 report の数値確認だけを行う。
+
+以下の全損・中立代入は限定された感度シナリオである。中立値は未知 return の上限ではなく、3 case の一致で連続範囲全体や銘柄別の任意の代入への頑健性を保証しない。これは当時の規則であり、現行の適格性条件は現在の契約文書を参照する。
 
 ## 1. WS-1: `priced_master_without_universe` の有界バイアス判定
 

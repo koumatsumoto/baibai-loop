@@ -11,7 +11,7 @@ backendのread modelとUIの型を同じ正本から生成するための、chec
 | 変更先 | route mappingは`routes.json`、read model変更はbackend modelを直してschemaとTypeScriptを再生成 |
 | 正本・test | [web README](../README.md)、`tools/quality/drift/check_readmodel_contract.py`、`npm run build` |
 
-`routes.json`はmaterializerの対応表であり、すべてのHTTP routeの台帳ではない。healthやraw L1 gatewayは対応する実装・edge testで確認する。
+`routes.json`はmaterializerの対応表であり、すべてのHTTP routeの台帳ではない。healthやmarket lake gatewayは対応する実装・edge testで確認する。
 
 ## 生成と確認
 

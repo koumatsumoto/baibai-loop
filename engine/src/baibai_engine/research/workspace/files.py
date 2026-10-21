@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
@@ -31,18 +30,13 @@ class ResearchWorkspaceConflictError(ResearchWorkspaceError):
     exit_code = 4
 
 
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
 def _dump_yaml(payload: object) -> str:
     return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
-def _write_workspace_file(path: Path, payload: object) -> str:
+def _write_workspace_file(path: Path, payload: object) -> None:
     text = _dump_yaml(payload)
     write_text_atomic(path, text)
-    return _sha256_text(text)
 
 
 def _load_mapping(path: Path, *, label: str) -> dict[str, object]:
@@ -58,12 +52,6 @@ def _nonempty_string(value: object, *, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ResearchWorkspaceDataError(f"{label} must be a non-empty string")
     return value
-
-
-def _dict_list(value: object) -> list[dict[str, object]]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [dict(item) for item in value if isinstance(item, Mapping)]
 
 
 def _string_or_none(value: object) -> str | None:

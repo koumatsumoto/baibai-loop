@@ -1,8 +1,10 @@
 # H7 rules variant と screen gate 選抜価値の後続検証（#301）
 
-#291 プログラム WU4 で「不確定 / プログラム外」と記録した 2 点（issue #301）の検証記録。計測は [`../../../docs/operations/improvement-loop.md`](../../../docs/reference/estimate-calibration.md#改善サイクルの運用契約) のサイクルに従う。
+これは 2026 年 7 月の旧 playbook / select 方式に対する測定・採用記録である。「現行」「本番」、廃止済み CLI・field・保存先、後続計画は当時を指す。数値と採否の来歴は保持するが、現在の Candidate Discovery の仕様・有効性や新しい運用指示には読み替えない。両期間の点推定の一致は、統計的な優越性・非劣性や因果効果の証明ではない。
 
-**着手条件からの逸脱（正直な記録）**: #301 は着手条件を「新ランキングの月次成績を 2–3 cohort 観測してから」としていたが、基盤改善プログラムの再開指示により観測を待たず着手する。design/confirm の事前登録判定は維持するため採否の誠実性は保たれるが、「新ランキングの実運用挙動を確認してから」という運用上の慎重さは放棄している。月次監視（top-5 逆転 #307）は継続する。
+#291 プログラム WU4 で「不確定 / プログラム外」と記録した 2 点（issue #301）の検証記録。計測は [改善サイクルの運用契約](../../../docs/reference/estimate-calibration.md#改善サイクルの運用契約) のサイクルに従う。
+
+**着手条件からの逸脱（正直な記録）**: #301 は着手条件を「新ランキングの月次成績を 2–3 cohort 観測してから」としていたが、基盤改善プログラムの再開指示により観測を待たず着手する。判定基準は維持したが、この逸脱を事前登録どおりの検証とは扱わず、「新ランキングの実運用挙動を確認してから」という運用上の慎重さは放棄している。月次監視（top-5 逆転 #307）は継続する。
 
 ## 0. 採否基準（検証実行前に固定・本節を先に commit）
 
@@ -42,7 +44,7 @@ variant rules = 現行 rules との差分は `price_change_60d_max` の実質無
 - **採用**: 条件 B から 60 日下落要件を撤廃（条件 B = σギャップ × 悪化ゲートのみに単純化）。採用の主根拠は「計測既知の高トラップ軸（price_change_60d、D10 trap 26–38% で全軸最悪）への構造依存を、成績を害さずに外せる」こと。
 - 付記 1（分布の開示）: confirm 6m の per-cohort 差分は 18 cohort 中 6 で非ゼロ・符号混在（−2.79〜+14.10pt）、mean +0.87pt。改善は 2025-08 cohort に集中しており、「変種が優越する」ではなく「非劣性での単純化」が正直な結論。
 - 付記 2: top-5 は改善が相対的に大きい（er_ranked_top5 confirm +1.71%→+4.61%・trap 18.89%→17.78%、recommended_top5 confirm +3.20%→+4.69%）。#307（top-5 < top-10 逆転）の緩和に寄与する方向で、月次監視を継続する。
-- 実装: `price_change_60d_max` field を削除し、`price_change_60d` は evidence hit の事実記録のみに残す（欠損は None）。最終 rules での store 再構築後の一致検証: 最終実装で store を全再構築（46 panel・rules_hash 統一）した design/confirm 評価は variant 計測と byte-identical（er_ranked / recommended_rank × top10 / top5 × 6m / 12m の全 32 セルで差 0.0000pt）。sentinel 無効化（999.0）と field 削除で pass 集合が完全一致するのは、較正 46 panel に「price_change_60d null × σギャップ充足」の該当が 0 件のため（null 除外の有無が結果に影響しない）。
+- 実装: `price_change_60d_max` field を削除し、`price_change_60d` は evidence hit の事実記録のみに残す（欠損は None）。最終 rules での store 再構築後の一致検証: 最終実装で store を全再構築（46 panel・rules_hash 統一）した design/confirm 評価は variant 計測の比較対象値と一致（er_ranked / recommended_rank × top10 / top5 × 6m / 12m の全 32 セルで報告差 0.0000pt。artifact 全体の bytes 一致をこの表から主張するものではない）。sentinel 無効化（999.0）と field 削除で pass 集合が完全一致するのは、較正 46 panel に「price_change_60d null × σギャップ充足」の該当が 0 件のため（null 除外の有無が結果に影響しない）。
 - 運用テスト（asof 2026-07-01・run/select 新旧比較。旧側は撤廃前実装 + 旧 rules で実行）: 推奨 select 出力（emit 上限内の top-5）は集合・順位とも一致、新規参入・脱落なし。差分は候補 pool のみ（input 1625→1698・evidence filter 後 488→519）。新型ケース: 556A 犬猫生活（上場 69 日で price_change_60d null・condition_b_sigma_gap −1.21）が条件 B hit（撤廃前実装では null 除外）— top-5 圏外。candidates schema は null price_change_60d を許容し validation 0 error。
 
 | rank | ticker | name | E[r] | playbook | price_change_60d | 新旧 |

@@ -95,20 +95,27 @@ describe('view routing', () => {
     ['/api/screening/latest', 'views/screening_latest.json'],
     ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
     ['/api/operations', 'views/operations.json'],
+    ['/api/stock-assessments', 'views/stock-assessments.json'],
+    ['/api/investment-proposals', 'views/investment-proposals.json'],
     ['/api/meta', 'views/meta.json'],
-    ['/api/macro', 'views/macro.json'],
-    ['/api/macro/series/us.10y', 'views/macro-series--us.10y.json'],
+    ['/api/market-context', 'views/market-context.json'],
+    ['/api/market-context/indicators/us.10y', 'views/indicator-series--us.10y.json'],
     [
-      '/api/macro/context/macro-context-2026-07-01-example',
-      'views/macro-context--macro-context-2026-07-01-example.json',
+      '/api/market-context/assessments/macro-context-2026-07-01-example',
+      'views/market-context-assessment--macro-context-2026-07-01-example.json',
+    ],
+    [
+      '/api/market-context/assessments/market-context-assessment-2026-07-01-current',
+      'views/market-context-assessment--market-context-assessment-2026-07-01-current.json',
     ],
     ['/api/securities/7203', 'views/security--7203.json'],
     [
-      '/api/capital-allocation-assessments/capital-allocation-assessment-20260728-example',
-      'views/capital-allocation-assessment--capital-allocation-assessment-20260728-example.json',
+      '/api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000001',
+      'views/investment-proposal--investment-proposal-00000000-0000-4000-8000-000000000001.json',
     ],
   ])('maps %s to the fixed key %s', async (path, expectedKey) => {
-    const get = vi.fn().mockResolvedValue(objectBody())
+    const body = path === '/api/stock-assessments' ? '{"assessments":[]}' : path === '/api/investment-proposals' ? '{"proposals":[]}' : '{"ok":true}'
+    const get = vi.fn().mockResolvedValue(objectBody(body))
     const response = await handleRequest(request(path), environment(get))
 
     expect(response.status).toBe(200)
@@ -120,12 +127,19 @@ describe('view routing', () => {
     '/api/securities/%2e%2e%2fhistory',
     '/api/screening/history/2026-07-23/extra',
     '/api/screening/history/not-a-date',
-    '/api/macro/context/bad!id',
-    '/api/macro/context/nested/id',
-    '/api/macro/series/bad!id',
-    '/api/macro/series/nested/id',
-    '/api/capital-allocation-assessments/bad!id',
-    '/api/capital-allocation-assessments/nested/id',
+    '/api/market-context/assessments/bad!id',
+    '/api/market-context/assessments/nested/id',
+    '/api/market-context/indicators/bad!id',
+    '/api/market-context/indicators/nested/id',
+    '/api/stock-assessments/bad!id',
+    '/api/investment-proposals/bad!id',
+    '/api/stock-assessments/nested/id',
+    '/api/investment-proposals/nested/id',
+    '/api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000001/current-preview/extra',
+    '/api/capital-allocation-assessments',
+    '/api/capital-allocation-assessments/retired',
+    '/api/research-triages/bad!id',
+    '/api/research-triages/nested/id',
     '/api/unknown',
     '/api',
   ])('does not let request input escape the view-key whitelist: %s', async (path) => {
@@ -142,6 +156,8 @@ describe('view routing', () => {
       objects: [
         { key: 'history/candidate-views/2026-07-22.json' },
         { key: 'history/candidate-views/not-a-date.json' },
+        { key: 'history/candidate-views/2026-07-24.yaml' },
+        { key: 'history/candidate-views/2026-07-25.json.bak' },
         { key: 'history/candidate-views/2026-07-23.json' },
       ],
       delimitedPrefixes: [],
@@ -302,7 +318,7 @@ describe('shared read authentication', () => {
   })
 })
 
-describe('raw L1 gateway', () => {
+describe('market lake gateway', () => {
   function lakeEnv() {
     return {
       ...environment(vi.fn()),
@@ -314,11 +330,12 @@ describe('raw L1 gateway', () => {
   }
 
   it.each([
-    ['/api/lake/current', 'lake/pointers/l1/current.json'],
-    ['/api/lake/object?key=lake/manifests/releases/l1/r.json', 'lake/manifests/releases/l1/r.json'],
+    ['/api/lake/current', 'lake/pointers/market/current.json'],
+    ['/api/lake/object?key=lake/manifests/releases/market/r.json', 'lake/manifests/releases/market/r.json'],
     ['/api/lake/object?key=lake/manifests/datasets/new/grain/d.json', 'lake/manifests/datasets/new/grain/d.json'],
-    ['/api/lake/object?key=lake/l1/canonical/new/grain/p.parquet', 'lake/l1/canonical/new/grain/p.parquet'],
-    ['/api/lake/object?key=lake%2Fl1%2Fcanonical%2Fd%2Fp%252Fname.parquet', 'lake/l1/canonical/d/p%252Fname.parquet'],
+    ['/api/lake/object?key=lake/l1/source/new/grain/p.parquet', 'lake/l1/source/new/grain/p.parquet'],
+    ['/api/lake/object?key=lake/l2/processed/new/grain/p.parquet', 'lake/l2/processed/new/grain/p.parquet'],
+    ['/api/lake/object?key=lake%2Fl2%2Fprocessed%2Fd%2Fp%252Fname.parquet', 'lake/l2/processed/d/p%252Fname.parquet'],
   ])('streams %s via a fresh signed GET', async (path, key) => {
     const upstream = new Response('raw bytes')
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(upstream)
@@ -350,13 +367,27 @@ describe('raw L1 gateway', () => {
   })
 
   it.each([
-    '', '/lake/l1/canonical/p.parquet', 'market.sqlite', 'application/baibai.sqlite',
-    'lake/staging/p.parquet', 'lake/pointers/l1/current.json', 'lake/l1/canonical/p.json',
-    'https://other.test/lake/l1/canonical/p.parquet', 'lake/manifests/releases/other/r.json',
-    'lake/l1/canonical/../../../application/x.parquet', 'lake/l1/canonical/./p.parquet',
-    'lake/l1/canonical/a\\b.parquet', 'lake/l1/canonical/a\u0000.parquet',
-    'lake/l1/canonical/a\u007f.parquet', 'lake/l1/canonical//p.parquet',
+    '', '/lake/l1/source/p.parquet', 'market.sqlite', 'application/baibai.sqlite',
+    'lake/staging/p.parquet', 'lake/pointers/market/current.json', 'lake/l1/source/p.json',
+    'https://other.test/lake/l2/processed/p.parquet', 'lake/manifests/releases/other/r.json',
+    'lake/l1/source/../../../application/x.parquet', 'lake/l2/processed/./p.parquet',
+    'lake/l1/source/a\\b.parquet', 'lake/l2/processed/a\u0000.parquet',
+    'lake/l1/source/a\u007f.parquet', 'lake/l2/processed//p.parquet',
   ])('rejects key %s before fetching', async (key) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    try {
+      const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), lakeEnv())
+      expect(response.status).toBe(400)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { fetchMock.mockRestore() }
+  })
+
+  it.each([
+    'lake/l1/canonical/old.parquet',
+    'lake/l2/canonical/old.parquet',
+    'lake/manifests/releases/l1/r.json',
+    'lake/pointers/l1/current.json',
+  ])('rejects retired lake prefix %s', async (key) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
     try {
       const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), lakeEnv())
@@ -421,15 +452,60 @@ describe('Parquet download identity', () => {
       }
       for (const digest of ['a'.repeat(64), 'b'.repeat(64)]) {
         const filename = `part-${digest}.parquet`
-        const key = `lake/l1/canonical/daily-bars/2026-09/${filename}`
+        const key = `lake/l2/processed/daily-bars/2026-09/${filename}`
         const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
         expect(response.headers.get('Content-Disposition')).toBe(`attachment; filename="${filename}"`)
         expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([80, 65, 82, 49]))
       }
-      const key = 'lake/l1/canonical/d/悪い";name.parquet'
+      const key = 'lake/l1/source/d/悪い";name.parquet'
       const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
       expect(response.status).toBe(200)
       expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="____name.parquet"')
     } finally { fetchMock.mockRestore() }
+  })
+})
+
+describe('immutable research views and paginated indexes', () => {
+  const proposalId = 'investment-proposal-00000000-0000-4000-8000-000000000001'
+  const assessmentId = 'stock-assessment-00000000-0000-4000-8000-000000000001'
+
+  it.each([
+    [`/api/stock-assessments/${assessmentId}`, `views/stock-assessment--${assessmentId}.json`],
+    [`/api/investment-proposals/${proposalId}/current-preview`, `views/investment-proposal-preview--${proposalId}.json`],
+  ])('routes %s without replacing a saved view', async (path, key) => {
+    const get = vi.fn().mockResolvedValue(objectBody())
+    expect((await handleRequest(request(path), environment(get))).status).toBe(200)
+    expect(get).toHaveBeenCalledWith(key)
+  })
+
+  it('filters ticker/scope before paging and validates the cursor in that result', async () => {
+    const rows = [
+      { proposal_id: 'p3', tickers: ['2331'], request_scope: 'specified_stocks' },
+      { proposal_id: 'p2', tickers: ['7203'], request_scope: 'specified_stocks' },
+      { proposal_id: 'p1', tickers: ['2331'], request_scope: 'specified_stocks' },
+      { proposal_id: 'p0', tickers: ['2331'], request_scope: 'review_positions' },
+    ]
+    const get = vi.fn().mockImplementation(async () => objectBody(JSON.stringify({ proposals: rows, next_cursor: null })))
+    const env = environment(get)
+    const first = await handleRequest(request('/api/investment-proposals?ticker=2331&scope=specified_stocks&limit=1'), env)
+    expect(await first.json()).toEqual({ proposals: [rows[0]], next_cursor: 'p3' })
+    const last = await handleRequest(request('/api/investment-proposals?ticker=2331&scope=specified_stocks&limit=1&cursor=p3'), env)
+    expect(await last.json()).toEqual({ proposals: [rows[2]], next_cursor: null })
+    expect((await handleRequest(request('/api/investment-proposals?ticker=2331&cursor=p2'), env)).status).toBe(400)
+    expect(rows).toHaveLength(4)
+  })
+
+  it('applies the same ticker and default maximum page to assessments', async () => {
+    const rows = Array.from({ length: 101 }, (_, index) => ({ assessment_id: `a${index}`, ticker: '2331' }))
+    const get = vi.fn().mockImplementation(async () => objectBody(JSON.stringify({ assessments: rows })))
+    const response = await handleRequest(request('/api/stock-assessments?ticker=2331'), environment(get))
+    const payload = await response.json() as { assessments: unknown[]; next_cursor: string }
+    expect(payload.assessments).toHaveLength(100)
+    expect(payload.next_cursor).toBe('a99')
+  })
+
+  it.each(['0', '101', '-1', 'nan'])('rejects invalid limit %s', async limit => {
+    const get = vi.fn().mockImplementation(async () => objectBody('{"assessments":[]}'))
+    expect((await handleRequest(request(`/api/stock-assessments?limit=${limit}`), environment(get))).status).toBe(422)
   })
 })

@@ -1,9 +1,8 @@
-"""Build a minimal but real L1 release inside a mirror, closure and all.
+"""Build synthetic market release graphs and SQLite-backed export fixtures.
 
-Resolving an `L1ReleaseSourceRef` walks what it roots — dataset manifests and every
-Parquet object they name — so a stand-in payload no longer stands in. Tests that need
-a resolvable release build one here rather than each inventing a shape production
-never produces.
+`stored_release_source` supplies checksum-consistent placeholder object bytes for
+reference/retention tests, not readable Parquet. The `lake` fixture instead exports
+actual Parquet from a small SQLite store for row-level reader tests.
 """
 
 from __future__ import annotations
@@ -13,12 +12,20 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.market.lake.datasets import LAKE_DATASETS
-from baibai_engine.market.lake.keys import dataset_manifest_key, release_manifest_key
-from baibai_engine.market.lake.models import (
+import pytest
+
+from baibai_engine.storage.lake import models
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.lake.keys import (
+    canonical_object_key,
+    current_release_pointer_key,
+    dataset_manifest_key,
+    release_manifest_key,
+)
+from baibai_engine.storage.lake.models import (
     DatasetManifest,
-    L1ReleaseSourceRef,
     LakeObject,
+    LakeReleaseSourceRef,
     ManifestTotals,
     PartitionManifest,
     ReleaseDataset,
@@ -26,22 +33,25 @@ from baibai_engine.market.lake.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from tests.helpers.lake_policy import narrow_release_policy
 
 
-def release_source(release_id: str = "20260130T000000Z-release") -> L1ReleaseSourceRef:
-    return L1ReleaseSourceRef(
-        kind="l1_release",
+def release_source(release_id: str = "20260130T000000Z-release") -> LakeReleaseSourceRef:
+    return LakeReleaseSourceRef(
+        kind="lake_release",
         source_id=release_id,
         key=release_manifest_key(release_id=release_id),
         sha256="b" * 64,
-        manifest_version=1,
+        manifest_version=2,
     )
 
 
 def _snapshot_source() -> SQLiteSnapshotSourceRef:
-    digest = hashlib.sha256(b"synthetic L1 test input\n").hexdigest()
+    digest = hashlib.sha256(b"synthetic lake test input\n").hexdigest()
     return SQLiteSnapshotSourceRef(
         kind="sqlite_snapshot",
         source_id=f"market-v{SQLITE_SCHEMA_VERSION}-{digest[:24]}",
@@ -51,21 +61,23 @@ def _snapshot_source() -> SQLiteSnapshotSourceRef:
     )
 
 
-def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
-    """A retained source whose whole closure is on disk, and the manifest file it names.
+def stored_release_source(root: Path) -> tuple[Path, LakeReleaseSourceRef]:
+    """A checksum-consistent retained graph, with placeholder rather than Parquet bytes.
 
-    A stand-in payload was enough while resolving one meant hashing one file. Resolving
-    an L1 release now walks what it roots — dataset manifests and every Parquet object
-    they name — so the fixture has to be a release the mirror actually holds, or the
-    test would be asserting against a shape production never sees.
+    This exercises reference closure and retention. It does not establish Parquet
+    schema validity, row content, or production release-policy eligibility.
     """
 
     reference = release_source()
     dataset = LAKE_DATASETS["jquants.daily_bars"]
     body = b"parquet-bytes-for-test"
-    object_key = (
-        f"lake/l1/canonical/{dataset.name}/contract=v{dataset.contract_version}"
-        f"/year=2026/month=1/part-{hashlib.sha256(body).hexdigest()}.parquet"
+    object_key = canonical_object_key(
+        layer=dataset.layer,
+        dataset=dataset.name,
+        contract_version=dataset.contract_version,
+        partition_values={"year": 2026, "month": 1},
+        content_sha256=hashlib.sha256(body).hexdigest(),
+        partition_by=dataset.partition_by,
     )
     object_path = root / object_key
     object_path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,9 +96,9 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
         sources=(_snapshot_source(),),
     )
     dataset_manifest = DatasetManifest(
-        manifest_version=1,
+        manifest_version=2,
         dataset=dataset.name,
-        layer="l1_canonical",
+        layer=dataset.layer,
         contract_version=dataset.contract_version,
         build_id="20260130T000000Z-legacy-abcdef01-0123456789ab",
         created_at=datetime(2026, 1, 30, tzinfo=UTC),
@@ -107,7 +119,7 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
     dataset_path.parent.mkdir(parents=True, exist_ok=True)
     dataset_path.write_bytes(dataset_bytes)
     release = ReleaseManifest(
-        manifest_version=1,
+        manifest_version=2,
         release_id=reference.source_id,
         profile="production",
         created_at=datetime(2026, 1, 30, tzinfo=UTC),
@@ -115,6 +127,7 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
         datasets={
             dataset.name: ReleaseDataset(
                 build_id=dataset_manifest.build_id,
+                layer=dataset.layer,
                 contract_version=dataset.contract_version,
                 manifest_sha256=hashlib.sha256(dataset_bytes).hexdigest(),
                 data_as_of=dataset_manifest.data_as_of,
@@ -137,10 +150,10 @@ _DEFAULT_DAILY_BARS: tuple[tuple[str, str, float, float], ...] = (
     ("1301", "2026-02-02", 110.0, 1200.0),
 )
 _DEFAULT_SHORT_SALE_REPORTS: tuple[
-    tuple[str, int, str, str, str, float | None, int | None, int | None, int], ...
+    tuple[str, int, str, str, str, float | None, int | None, int | None], ...
 ] = (
-    ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6, 0),
-    ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None, 1),
+    ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6),
+    ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None),
 )
 
 
@@ -149,7 +162,7 @@ def market_store(
     *,
     daily_bars: Sequence[tuple[str, str, float, float]] = _DEFAULT_DAILY_BARS,
     short_sale_reports: Sequence[
-        tuple[str, int, str, str, str, float | None, int | None, int | None, int]
+        tuple[str, int, str, str, str, float | None, int | None, int | None]
     ] = _DEFAULT_SHORT_SALE_REPORTS,
     short_sale_coverage: tuple[str, str, str, str, int] = (
         "test:pilot",
@@ -171,12 +184,26 @@ def market_store(
         "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) VALUES (?, ?, ?, ?)",
         list(daily_bars),
     )
+    # This synthetic fixture represents a completed fetch across the supplied span.
+    # Production coverage is recorded by acquisition, never inferred from rows.
+    if daily_bars:
+        record_range_source_coverage(
+            connection,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=date.fromisoformat(min(row[1] for row in daily_bars)),
+            requested_end=date.fromisoformat(max(row[1] for row in daily_bars)),
+            status="ok",
+            error=None,
+        )
     connection.executemany(
         """INSERT INTO jquants_short_sale_reports(
              disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
              discretionary_investment_contractor_name, investment_fund_name,
-             short_ratio, short_shares, short_trading_units, is_cancellation
-           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)""",
+             short_ratio, short_shares, short_trading_units
+           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?)""",
         list(short_sale_reports),
     )
     connection.execute(
@@ -189,3 +216,68 @@ def market_store(
     connection.commit()
     connection.close()
     return path
+
+
+@pytest.fixture
+def lake(tmp_path, monkeypatch):
+    datasets = ("jquants.daily_bars", "jquants.short_sale_reports", "jquants.market_calendar")
+    narrow_release_policy(monkeypatch, datasets=datasets)
+    # A narrow fixture permits partial calendar coverage to exercise consumer reporting.
+    policy = models.PRODUCTION_RELEASE_POLICY
+    monkeypatch.setattr(
+        models,
+        "PRODUCTION_RELEASE_POLICY",
+        policy.model_copy(
+            update={
+                "datasets": tuple(
+                    item.model_copy(
+                        update={
+                            "require_complete_coverage": False,
+                        }
+                    )
+                    if item.dataset == "jquants.market_calendar"
+                    else item
+                    for item in policy.datasets
+                ),
+            }
+        ),
+    )
+    database = market_store(tmp_path / "market.sqlite")
+    connection = open_connection(database)
+    connection.executemany(
+        "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
+        [("2025-01-05", 0), ("2026-01-05", 1), ("2026-01-20", 1)],
+    )
+    connection.commit()
+    connection.close()
+    mirror = tmp_path / "mirror"
+    built = datetime(2026, 3, 1, tzinfo=UTC)
+    with sealed_sqlite_snapshot(
+        sqlite_path=database, mirror_root=mirror, snapshot_id="g0-test"
+    ) as snapshot:
+        manifests = [
+            export_dataset_snapshot(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit="a" * 40,
+                source_snapshot=snapshot,
+                build_id="test-" + name.replace(".", "-"),
+                created_at=built,
+            ).manifest_path
+            for name in datasets
+        ]
+    path, release = create_release(
+        dataset_manifest_paths=manifests,
+        mirror_root=mirror,
+        release_id="test-release",
+        created_at=built,
+    )
+    pointer = LakeReleasePointer(
+        release_id=release.release_id,
+        manifest_key=path.relative_to(mirror).as_posix(),
+        manifest_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
+    current = mirror / current_release_pointer_key()
+    current.parent.mkdir(parents=True)
+    current.write_bytes(canonical_lake_model_bytes(pointer))
+    return mirror, pointer

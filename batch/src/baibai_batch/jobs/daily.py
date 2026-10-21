@@ -1,21 +1,12 @@
 """Run the local daily machine batch as one command.
 
-Order: business-day gate -> screening cache coverage (bootstrap on demand) ->
-``screening run`` -> ``screening review-set publish`` -> macro series refresh ->
-read-model export -> run-store prune. Every heavy step goes
-through the public ``baibai-engine`` CLI (or the Web materializer module) as a subprocess,
-so the stable CLI contract carries the business logic. The only in-process reads
-use the ``baibai_engine.read_api`` query-only business-day gate before
-building CLI commands. Each step prints its command line and an
-``exit <code> (<seconds>s)`` line to stdout so a scheduled workflow log is
-readable as-is.
-
-Failure policy: the screening chain is fatal (without a publishable run there
-is nothing new to export), while macro series refresh failures are deferred —
-the export still publishes the fresh screening result and the batch exits with
-code 3 afterwards so a scheduled workflow still reports the failure while the
-publish stands. ``screening run`` exit 2 is a published run with partial-quality
-warnings and the chain continues.
+Screening cache acquisition and its single Stock Analysis run publication are
+independent of Market Context indicator refresh. A Japan holiday skips only
+Screening. Validated L1 chunks remain committed after a later source failure.
+The complete serving image is materialized once; unchanged Screening history
+is retained. Domain failures are reported with exit 3 after the export, while an
+unsafe/unreadable store or failed export remains fatal. Screening CLI exit 2 means a
+published run with partial-quality warnings; the daily chain continues.
 """
 
 from __future__ import annotations
@@ -30,6 +21,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Sequence
+from contextlib import closing, nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -45,6 +37,7 @@ from baibai_engine.batch_api import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     repository_root_error,
+    validate_candidate_run,
 )
 from baibai_engine.read_api import market_calendar_business_day
 
@@ -54,11 +47,8 @@ _MARKET_DB_RELPATH = MARKET_DB_PATH
 _RUNS_DB_RELPATH = RUNS_DB_PATH
 _EXPORT_MODULE = "baibai_web.materialize"
 _STDERR_SUMMARY_LINES = 20
-# `verify-cache-coverage` prints this marker on stdout for a genuine cache gap;
-# an exit 1 without it (broken rules, unreadable store) is a crash, not a gap.
-_COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
-# Exit 3 means the screening result was published and exported, but a deferred
-# (macro / prune) step failed afterwards.
+# Exit 3 means a complete serving image was exported with a domain failure.
+# Screening may remain on its retained publication while indicators advance.
 _EXIT_DEFERRED_FAILURE = 3
 _EDINET_QUARANTINE_RE = re.compile(
     r"\bquarantined_events=(?P<events>\d+)\s+"
@@ -137,9 +127,11 @@ class DailyBatchResult:
     asof: str
     exit_code: int
     run_revision_id: str | None = None
-    review_set_id: str | None = None
+    candidate_count: int | None = None
     deferred_failure_count: int = 0
     steps: tuple[StepResult, ...] = ()
+    screening_status: str = "published"
+    market_updated: bool | None = None
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -148,9 +140,11 @@ class DailyBatchResult:
             "asof": self.asof,
             "exit_code": self.exit_code,
             "run_revision_id": self.run_revision_id,
-            "review_set_id": self.review_set_id,
+            "candidate_count": self.candidate_count,
             "deferred_failure_count": self.deferred_failure_count,
             "steps": [step.to_json() for step in self.steps],
+            "screening_status": self.screening_status,
+            "market_updated": self.market_updated,
         }
 
 
@@ -172,19 +166,19 @@ def _require_business_day(market_db: Path, day: date) -> bool:
 
     The calendar read lives in ``baibai_engine.read_api`` so it is drift-guarded
     with the store schema. A missing file, an uncovered date, and a corrupt store
-    each stop the batch with a distinct message instead of silently continuing.
+    each stop Screening with a distinct message; independent indicators continue.
     """
 
     if not market_db.is_file():
-        # failure policy: 1 — the business-day decision has no required calendar store.
+        # failure policy: 3 — Screening has no required calendar store.
         raise CalendarCoverageError(f"market SQLite does not exist: {market_db}")
     try:
         result = market_calendar_business_day(market_db, day)
     except sqlite3.Error as exc:
-        # failure policy: 1 — an unreadable calendar cannot supply the required row.
+        # failure policy: 3 — an unreadable calendar cannot supply the required row.
         raise CalendarCoverageError(f"market calendar is unreadable in {market_db}: {exc}") from exc
     if result is None:
-        # failure policy: 1 — the calendar has no row for the target date.
+        # failure policy: 3 — the calendar has no row for the target date.
         raise CalendarCoverageError(
             f"market calendar does not cover {day.isoformat()}; "
             "refresh the calendar cache before running the daily batch",
@@ -254,7 +248,11 @@ def _finite_number(value: object) -> float | None:
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value) if math.isfinite(value) else None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _delta_ticker_labels(rows: object) -> list[str]:
@@ -287,7 +285,7 @@ def _delta_ticker_labels(rows: object) -> list[str]:
 
 
 def _read_daily_delta(path: Path, notice: _Notice) -> None:
-    """Carry the day's review-set entries and exits into the notice.
+    """Carry the day's candidate entries and exits into the notice.
 
     The notification is the only channel that reaches a reader without being
     opened, so the names that moved belong in it. ``delta_measured`` separates a
@@ -298,7 +296,7 @@ def _read_daily_delta(path: Path, notice: _Notice) -> None:
 
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return
     if not isinstance(payload, dict):
         return
@@ -309,17 +307,21 @@ def _read_daily_delta(path: Path, notice: _Notice) -> None:
     unavailable = payload.get("unavailable")
     if not isinstance(unavailable, list):
         return
-    for section in ("screening_run", "previous_screening_run", "review_set"):
+    for section in ("screening_run", "previous_screening_run", "candidates"):
         if section in unavailable:
             notice.delta_unmeasured_reason = section
             return
     if payload.get("method_changed") is True:
         notice.delta_unmeasured_reason = "手法変更"
         return
+    entered_labels = _delta_ticker_labels(entered)
+    exited_labels = _delta_ticker_labels(exited)
+    if len(entered_labels) != len(entered) or len(exited_labels) != len(exited):
+        return  # Unidentifiable rows are not evidence of an empty or complete delta.
     notice.delta_measured = True
     notice.delta_unmeasured_reason = ""
-    notice.entered = _delta_ticker_labels(entered)
-    notice.exited = _delta_ticker_labels(exited)
+    notice.entered = entered_labels
+    notice.exited = exited_labels
 
 
 def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:
@@ -337,8 +339,8 @@ def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:
             )
         break
     raise BatchStepError(
-        "extract-edinet-metrics succeeded without quarantine counters",
-        stage="extract-edinet-metrics",
+        "refresh-edinet-metrics succeeded without quarantine counters",
+        stage="refresh-edinet-metrics",
     )
 
 
@@ -353,127 +355,78 @@ def _stderr_summary(stderr: str) -> str:
 class _RunView:
     run_revision_id: str
     universe_size: int
-    analyzed_security_count: int
+    analyzed_count: int
+    candidate_count: int
 
 
 def _read_run_view(run_yaml: Path) -> _RunView:
-    """Read run identity and Security Analysis counts from the run YAML view.
-
-    ``screening run --output-path`` writes ``universe_size`` and ``security_analyses``
-    alongside ``run_revision_id``; the counts default to 0 when a view omits them
-    so a minimal view still surfaces the stable ``run_revision_id`` contract.
-    """
-
-    if not run_yaml.is_file():
-        # failure policy: 2 — review-set publish cannot bind to a run without its publication ID.
-        raise BatchStepError(
-            "screening run did not write the --output-path YAML view",
-            stage="screening-run",
-        )
+    """Read identity/counts from the committed run export; invalid is not empty."""
     try:
         payload = yaml.safe_load(run_yaml.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        # failure policy: 2 — unreadable input cannot identify the Review Set source run.
+        if not isinstance(payload, dict):
+            raise ValueError("stock analysis run export must be an object")
+        revision = payload.get("run_revision_id")
+        if not isinstance(revision, str) or not revision:
+            raise ValueError("run_revision_id must be a non-empty string")
+        universe = payload.get("universe_size")
+        if type(universe) is not int or universe < 0:
+            raise ValueError("universe_size must be a non-negative integer")
+        analyses = payload.get("stock_analyses")
+        if not isinstance(analyses, list) or any(not isinstance(row, dict) for row in analyses):
+            raise ValueError("stock_analyses must be an array of objects")
+        validate_candidate_run(payload, analyses)
+        count = payload["candidate_discovery"]["diagnostics"]["candidate_count"]
+        return _RunView(revision, universe, len(analyses), count)
+    except (OSError, yaml.YAMLError, ValueError) as error:
         raise BatchStepError(
-            f"screening run YAML view is unreadable: {exc}",
+            f"screening run YAML view is invalid or unreadable: {error}",
             stage="screening-run",
-        ) from exc
-    if isinstance(payload, dict):
-        run_revision_id = payload.get("run_revision_id")
-        if isinstance(run_revision_id, str) and run_revision_id:
-            universe = payload.get("universe_size")
-            analyses = payload.get("security_analyses")
-            universe_size = (
-                universe if isinstance(universe, int) and not isinstance(universe, bool) else 0
-            )
-            analyzed_security_count = len(analyses) if isinstance(analyses, list) else 0
-            return _RunView(run_revision_id, universe_size, analyzed_security_count)
-    # failure policy: 2 — review-set publish would otherwise point at an unknown run publication.
-    raise BatchStepError(
-        "screening run YAML view does not contain run_revision_id",
-        stage="screening-run",
-    )
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)
-class _ReviewSetView:
-    review_set_id: str
-
-
-def _parse_review_set_view(stdout: str) -> _ReviewSetView:
-    """Read the Review Set identity from the public JSON output contract."""
-
-    try:
-        payload = json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        # failure policy: 2 — an unreadable Review Set cannot identify the publish.
-        raise BatchStepError(
-            f"screening review-set --format json output is not parseable JSON: {exc}",
-            stage="screening-review-set",
-        ) from exc
-    if isinstance(payload, dict):
-        review_set_id = payload.get("review_set_id")
-        if isinstance(review_set_id, str) and review_set_id:
-            return _ReviewSetView(review_set_id)
-    # failure policy: 2 — continuing would export a result with no Review Set identity.
-    raise BatchStepError(
-        "screening review-set output does not contain review_set_id",
-        stage="screening-review-set",
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _MacroSeries:
-    series_id: str
+class _EconomicSource:
+    source_id: str
     frequency: str
-    provider: str
-    kind: str
 
 
-def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
+def _parse_economic_sources(stdout: str) -> list[_EconomicSource]:
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise BatchStepError(
-            f"macro list --format json output is not parseable JSON: {exc}"
+            f"collection economic list --format json output is not parseable JSON: {exc}"
         ) from exc
     if not isinstance(payload, list):
-        raise BatchStepError("macro list --format json output is not a list")
-    series: list[_MacroSeries] = []
+        raise BatchStepError("collection economic list --format json output is not a list")
+    sources: list[_EconomicSource] = []
     for entry in payload:
         if not isinstance(entry, dict):
-            raise BatchStepError("macro list --format json row is not an object")
+            raise BatchStepError("collection economic list --format json row is not an object")
         try:
-            series.append(
-                _MacroSeries(
-                    series_id=str(entry["series_id"]),
+            sources.append(
+                _EconomicSource(
+                    source_id=str(entry["source_id"]),
                     frequency=str(entry["frequency"]),
-                    provider=str(entry["provider"]),
-                    kind=str(entry["kind"]),
                 )
             )
         except KeyError as exc:
-            raise BatchStepError(f"macro list --format json row missing field {exc}") from exc
-    return series
+            raise BatchStepError(
+                f"collection economic list --format json row missing field {exc}"
+            ) from exc
+    return sources
 
 
-def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, list[str]]]:
-    """Group series by frequency window, refreshing base (http) before derived (local).
-
-    A derived series reads other series from the store, so every ``http`` series
-    is refreshed before any ``local`` one; within each kind, series are grouped by
-    their frequency refresh window.
-    """
-
-    groups: dict[tuple[int, int], list[str]] = {}
-    for item in series:
+def _economic_refresh_groups(sources: Sequence[_EconomicSource]) -> list[tuple[int, list[str]]]:
+    """Group external source acquisitions by the required lookback window."""
+    groups: dict[int, list[str]] = {}
+    for item in sources:
         window = LATEST_FETCH_LOOKBACK_DAYS.get(
             item.frequency,
             DEFAULT_LATEST_LOOKBACK_DAYS,
         )
-        kind_order = 1 if item.kind == "local" else 0
-        groups.setdefault((kind_order, window), []).append(item.series_id)
-    return [(window, series_ids) for (_kind_order, window), series_ids in sorted(groups.items())]
+        groups.setdefault(window, []).append(item.source_id)
+    return sorted(groups.items())
 
 
 def _run_screening_run(
@@ -525,13 +478,14 @@ def _run_screening_run(
 class _Notice:
     """What the batch leaves for the Discord notifier on every terminal path.
 
-    The as-of it ran for, whether the business-day gate skipped it, the first
+    The as-of it ran for, whether Screening was updated, the first
     fatal or deferred failure stage, and the names that entered or left the
-    Review Set. The exit code carries the outcome itself.
+    candidate list. The exit code carries the outcome itself.
     """
 
     asof: str = ""
-    skipped: bool = False
+    screening_status: str = "pending"
+    market_updated: bool | None = None
     failed_stage: str | None = None
     delta_measured: bool = False
     delta_unmeasured_reason: str = "view_unreadable"
@@ -541,7 +495,8 @@ class _Notice:
     def to_json(self) -> dict[str, object]:
         return {
             "asof": self.asof,
-            "skipped": self.skipped,
+            "screening_status": self.screening_status,
+            "market_updated": self.market_updated,
             "failed_stage": self.failed_stage,
             "delta_measured": self.delta_measured,
             "delta_unmeasured_reason": self.delta_unmeasured_reason,
@@ -601,31 +556,56 @@ def run_daily_batch_structured(
         if step_sink is not None:
             step_sink(step, command)
 
-    try:
-        result = _execute_daily_batch(
-            root=root,
-            output_dir=output_dir,
-            asof=asof,
-            scheduled=scheduled,
-            runner=runner,
-            notice=notice,
-            quiet=quiet,
-            step_sink=record,
-            gate_explicit_asof=gate_explicit_asof,
-        )
-    except (BatchStepError, CalendarCoverageError) as exc:
-        notice.failed_stage = exc.stage or "batch"
-        _write_notice(notice_output, notice)
-        raise
+    # Observe commits without opening a read transaction, copying the store or
+    # inventing a source recovery ledger. This reader never writes to the store.
+    # Unknown stays null, so the workflow cannot mistake an unreadable comparison
+    # for an explicit no-change result and skip publication.
+    market_path = (root / _MARKET_DB_RELPATH).resolve()
+    connection = None
+    if market_path.is_file():
+        with suppress(sqlite3.Error):
+            connection = sqlite3.connect(
+                f"{market_path.as_uri()}?mode=ro", uri=True, isolation_level=None
+            )
+    with closing(connection) if connection is not None else nullcontext():
+        version = None
+        if connection is not None:
+            # The gate/export report an unreadable store; this diagnostic
+            # must not prevent the independent indicator refresh.
+            with suppress(sqlite3.Error):
+                version = connection.execute("PRAGMA data_version").fetchone()[0]
+        try:
+            result = _execute_daily_batch(
+                root=root,
+                output_dir=output_dir,
+                asof=asof,
+                scheduled=scheduled,
+                runner=runner,
+                notice=notice,
+                quiet=quiet,
+                step_sink=record,
+                gate_explicit_asof=gate_explicit_asof,
+            )
+        except (BatchStepError, CalendarCoverageError) as exc:
+            notice.failed_stage = exc.stage or "batch"
+            _write_notice(notice_output, notice)
+            raise
+        if connection is not None and version is not None:
+            with suppress(sqlite3.Error):
+                notice.market_updated = (
+                    connection.execute("PRAGMA data_version").fetchone()[0] != version
+                )
     _write_notice(notice_output, notice)
     return DailyBatchResult(
         status=result.status,
         asof=result.asof,
         exit_code=result.exit_code,
         run_revision_id=result.run_revision_id,
-        review_set_id=result.review_set_id,
+        candidate_count=result.candidate_count,
         deferred_failure_count=result.deferred_failure_count,
         steps=tuple(steps),
+        screening_status=notice.screening_status,
+        market_updated=notice.market_updated,
     )
 
 
@@ -641,141 +621,72 @@ def _execute_daily_batch(
     step_sink: StepSink | None = None,
     gate_explicit_asof: bool = False,
 ) -> DailyBatchResult:
-    if asof is None:
-        target = batch_target_date(datetime.now(UTC)) if scheduled else datetime.now(_JST).date()
-        notice.asof = target.isoformat()
-        if not _require_business_day(root / _MARKET_DB_RELPATH, target):
-            if not quiet:
-                print(f"skip: {target.isoformat()} は非営業日", flush=True)
-            notice.skipped = True
-            return DailyBatchResult("skipped_non_business_day", target.isoformat(), 0)
-        mode = "scheduled cron" if scheduled else "business day"
-        if not quiet:
-            print(f"daily batch start: asof={target.isoformat()} ({mode})", flush=True)
-    else:
-        target = asof
-        notice.asof = target.isoformat()
-        if gate_explicit_asof and not _require_business_day(root / _MARKET_DB_RELPATH, target):
-            if not quiet:
-                print(f"skip: {target.isoformat()} は非営業日", flush=True)
-            notice.skipped = True
-            return DailyBatchResult("skipped_non_business_day", target.isoformat(), 0)
-        if not quiet:
-            mode = "business day" if gate_explicit_asof else "business-day gate skipped by --asof"
-            print(f"daily batch start: asof={target.isoformat()} ({mode})", flush=True)
+    target = asof or (
+        batch_target_date(datetime.now(UTC)) if scheduled else datetime.now(_JST).date()
+    )
     asof_arg = target.isoformat()
-
-    verify_argv = (_ENGINE, "screening", "verify-cache-coverage", "--asof", asof_arg)
-    _run_step(
-        runner,
-        name="refresh-edinet-documents",
-        argv=(_ENGINE, "screening", "refresh-edinet-documents", "--asof", asof_arg),
-        cwd=root,
-        quiet=quiet,
-        step_sink=step_sink,
-    )
-    verify = _run_step(
-        runner,
-        name="verify-cache-coverage",
-        argv=verify_argv,
-        cwd=root,
-        allowed_exit_codes=(0, 1),
-        quiet=quiet,
-        step_sink=step_sink,
-    )
-    if verify.returncode != 0 and _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
-        # failure policy: 2 — an unclassified verifier crash cannot prove safe input.
-        raise BatchStepError(
-            "verify-cache-coverage exited 1 without the coverage-incomplete marker; "
-            "treating it as a crash (broken rules / unreadable store), not a cache gap\n"
-            f"stderr (last {_STDERR_SUMMARY_LINES} lines):\n{_stderr_summary(verify.stderr)}",
-            stage="verify-cache-coverage",
-            returncode=verify.returncode,
-        )
-    # Coverage proves that a date was requested, not that a provider had already
-    # published every filing for that date. Bootstrap always re-reads its bounded
-    # financial-summary overlap so a later run can pick up delayed disclosures.
-    _run_step(
-        runner,
-        name="bootstrap-cache",
-        argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
-        cwd=root,
-        quiet=quiet,
-        step_sink=step_sink,
-    )
-    # Document events are mutable throughout the day. Re-extract even when the
-    # target-day snapshot already exists so a retry reports and stores the same
-    # current quarantine state instead of publishing synthetic zero counters.
-    extract_result = _run_step(
-        runner,
-        name="extract-edinet-metrics",
-        argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
-        cwd=root,
-        echo_stdout_prefixes=("EDINET extraction summary: ",),
-        quiet=quiet,
-        step_sink=step_sink,
-    )
-    _parse_edinet_quarantine_metrics(extract_result.stdout)
-    _run_step(
-        runner,
-        name="verify-cache-coverage(recheck)",
-        argv=verify_argv,
-        cwd=root,
-        quiet=quiet,
-        step_sink=step_sink,
-    )
-
-    run_view = _run_screening_run(
-        runner,
-        root=root,
-        asof_arg=asof_arg,
-        quiet=quiet,
-        step_sink=step_sink,
-    )
-
-    review_set_argv: list[str] = [
-        _ENGINE,
-        "screening",
-        "review-set",
-        "publish",
-        "--asof",
-        asof_arg,
-        "--run-revision-id",
-        run_view.run_revision_id,
-        "--format",
-        "json",
-    ]
-    review_set_result = _run_step(
-        runner,
-        name="screening-review-set",
-        argv=review_set_argv,
-        cwd=root,
-        echo_stdout=False,
-        quiet=quiet,
-        step_sink=step_sink,
-    )
-    review_set_view = _parse_review_set_view(review_set_result.stdout)
-    if not quiet:
-        print(f"review_set_id={review_set_view.review_set_id}", flush=True)
-
-    # Macro series refresh must not block publishing the fresh screening result:
-    # failures here are deferred to the final exit code after the export step.
+    notice.asof = asof_arg
     deferred_failures: list[str] = []
 
-    def _record_deferred(exc: BatchStepError) -> None:
-        # Surface the failure detail immediately so it is not lost if a later
-        # step floods the log.
+    def _record_deferred(exc: BatchStepError | CalendarCoverageError) -> None:
         if not quiet:
             print(f"deferred failure: {exc}", file=sys.stderr, flush=True)
         if notice.failed_stage is None:
             notice.failed_stage = exc.stage or "batch"
         deferred_failures.append(str(exc))
 
+    screening_enabled = True
+    if asof is None or gate_explicit_asof:
+        try:
+            screening_enabled = _require_business_day(root / _MARKET_DB_RELPATH, target)
+            if not screening_enabled:
+                notice.screening_status = "skipped_non_business_day"
+                if not quiet:
+                    print(f"skip Screening: {asof_arg} は非営業日; indicators continue", flush=True)
+        except CalendarCoverageError as exc:
+            screening_enabled = False
+            notice.screening_status = "failed"
+            _record_deferred(exc)
+    if not quiet:
+        print(f"daily batch start: asof={asof_arg}", flush=True)
+
+    run_view: _RunView | None = None
+    if screening_enabled:
+        # Keep the acquisition groups independent. Their existing writers own
+        # validation and chunk transactions; a later failure cannot undo a commit.
+        for name, command in (
+            ("refresh-edinet-documents", "refresh-edinet-documents"),
+            ("bootstrap-cache", "bootstrap-cache"),
+            ("refresh-edinet-metrics", "refresh-edinet-metrics"),
+            ("verify-cache-coverage", "verify-cache-coverage"),
+        ):
+            try:
+                command_result = _run_step(
+                    runner,
+                    name=name,
+                    argv=(_ENGINE, "screening", command, "--asof", asof_arg),
+                    cwd=root,
+                    quiet=quiet,
+                    step_sink=step_sink,
+                )
+                if command == "refresh-edinet-metrics":
+                    _parse_edinet_quarantine_metrics(command_result.stdout)
+            except BatchStepError as exc:
+                _record_deferred(exc)
+        if not deferred_failures:
+            try:
+                run_view = _run_screening_run(
+                    runner, root=root, asof_arg=asof_arg, quiet=quiet, step_sink=step_sink
+                )
+            except BatchStepError as exc:
+                _record_deferred(exc)
+        notice.screening_status = "published" if run_view is not None else "failed"
+
     try:
         _run_step(
             runner,
             name="edinet-research-facts",
-            argv=(_ENGINE, "screening", "extract-edinet-facts", "--asof", asof_arg),
+            argv=(_ENGINE, "screening", "refresh-edinet-facts", "--asof", asof_arg),
             cwd=root,
             quiet=quiet,
             step_sink=step_sink,
@@ -785,29 +696,30 @@ def _execute_daily_batch(
 
     refresh_groups: list[tuple[int, list[str]]] = []
     try:
-        macro_list = _run_step(
+        source_list = _run_step(
             runner,
-            name="macro-list",
-            argv=(_ENGINE, "macro", "list", "--format", "json"),
+            name="economic-source-list",
+            argv=(_ENGINE, "collection", "economic", "list", "--format", "json"),
             cwd=root,
             echo_stdout=False,
             quiet=quiet,
             step_sink=step_sink,
         )
-        refresh_groups = _macro_refresh_groups(_parse_macro_series(macro_list.stdout))
+        refresh_groups = _economic_refresh_groups(_parse_economic_sources(source_list.stdout))
     except BatchStepError as exc:
         _record_deferred(exc)
-    for window_days, series_ids in refresh_groups:
+    for window_days, source_ids in refresh_groups:
         start = target - timedelta(days=window_days)
         try:
             _run_step(
                 runner,
-                name=f"macro-refresh-{window_days}d",
+                name=f"economic-source-refresh-{window_days}d",
                 argv=(
                     _ENGINE,
-                    "macro",
+                    "collection",
+                    "economic",
                     "refresh",
-                    *series_ids,
+                    *source_ids,
                     "--start",
                     start.isoformat(),
                     "--end",
@@ -815,51 +727,54 @@ def _execute_daily_batch(
                 ),
                 cwd=root,
                 echo_stdout=False,
-                echo_stdout_prefixes=("registry-prune\t",),
                 quiet=quiet,
                 step_sink=step_sink,
             )
         except BatchStepError as exc:
             _record_deferred(exc)
 
+    export_argv = [
+        sys.executable,
+        "-m",
+        _EXPORT_MODULE,
+        "--output-dir",
+        str(output_dir),
+        "--batch",
+        "daily",
+        "--repo-root",
+        str(root),
+    ]
+    if run_view is None:
+        export_argv.append("--skip-history")
     _run_step(
         runner,
         name="export-read-models",
-        argv=(
-            sys.executable,
-            "-m",
-            _EXPORT_MODULE,
-            "--output-dir",
-            str(output_dir),
-            "--batch",
-            "daily",
-            "--repo-root",
-            str(root),
-        ),
+        argv=export_argv,
         cwd=root,
         quiet=quiet,
         step_sink=step_sink,
     )
-    _read_daily_delta(output_dir / "views" / "daily-delta.json", notice)
-
-    # Prune old run generations last so a prune hiccup never blocks the publish.
-    try:
-        _run_step(
-            runner,
-            name="screening-prune",
-            argv=(_ENGINE, "screening", "prune"),
-            cwd=root,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-    except BatchStepError as exc:
-        _record_deferred(exc)
+    if run_view is not None:
+        _read_daily_delta(output_dir / "views" / "daily-delta.json", notice)
+        try:
+            _run_step(
+                runner,
+                name="screening-prune",
+                argv=(_ENGINE, "screening", "prune"),
+                cwd=root,
+                quiet=quiet,
+                step_sink=step_sink,
+            )
+        except BatchStepError as exc:
+            _record_deferred(exc)
+    else:
+        notice.delta_unmeasured_reason = notice.screening_status
 
     # The exchange publishes its schedule only weeks ahead, so a follow-up task
     # created a quarter out carries an estimate until the real date enters that
     # window. Comparing daily is what surfaces the day it becomes knowable. It
-    # reads nothing the publish produced and writes nothing, so it runs after the
-    # publish and a failure degrades rather than blocking it.
+    # reads nothing the local export produced and writes nothing, so it runs after
+    # export and a failure degrades rather than blocking it.
     try:
         _run_step(
             runner,
@@ -880,13 +795,15 @@ def _execute_daily_batch(
     if not quiet:
         print(
             "daily batch done: "
-            f"asof={asof_arg}; run_revision_id={run_view.run_revision_id}; "
-            f"review_set_id={review_set_view.review_set_id}",
+            f"asof={asof_arg}; screening={notice.screening_status}; "
+            f"run_revision_id={None if run_view is None else run_view.run_revision_id}; "
+            f"candidate_count={None if run_view is None else run_view.candidate_count}",
             flush=True,
         )
     if deferred_failures:
         print(
-            f"error: export published, but {len(deferred_failures)} deferred step(s) failed:",
+            "error: read models exported locally, "
+            f"but {len(deferred_failures)} deferred step(s) failed:",
             file=sys.stderr,
         )
         for failure in deferred_failures:
@@ -895,16 +812,16 @@ def _execute_daily_batch(
             "deferred",
             asof_arg,
             _EXIT_DEFERRED_FAILURE,
-            run_view.run_revision_id,
-            review_set_view.review_set_id,
+            None if run_view is None else run_view.run_revision_id,
+            None if run_view is None else run_view.candidate_count,
             len(deferred_failures),
         )
     return DailyBatchResult(
         "machine_complete",
         asof_arg,
         0,
-        run_view.run_revision_id,
-        review_set_view.review_set_id,
+        None if run_view is None else run_view.run_revision_id,
+        None if run_view is None else run_view.candidate_count,
     )
 
 
@@ -916,9 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="daily_batch",
         description=(
-            "run the daily machine batch in one command: business-day gate -> "
-            "screening cache coverage/run/review-set -> macro refresh -> "
-            "read-model export"
+            "run independent Screening and indicator machine updates -> read-model export"
         ),
     )
     target_group = parser.add_mutually_exclusive_group()

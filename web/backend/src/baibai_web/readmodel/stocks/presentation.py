@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from baibai_engine.read_api import PortfolioLedgerError, PortfolioSnapshot
+from baibai_engine.read_api import PortfolioSnapshot
 from baibai_web.readmodel.models import (
     PortfolioState,
 )
@@ -23,17 +23,13 @@ def _mapping_items(value: object) -> list[Mapping[str, object]]:
     return [item for item in value if isinstance(item, Mapping)]
 
 
-def _safe_snapshot(ledger: LedgerSource) -> PortfolioSnapshot | None:
-    if not ledger.exists():
-        return None
-    try:
-        return ledger.snapshot()
-    except PortfolioLedgerError:
-        return None
+def _optional_ledger_snapshot(ledger: LedgerSource) -> PortfolioSnapshot | None:
+    """An uninitialized ledger is absent; an invalid ledger is not an empty portfolio."""
+    return ledger.snapshot() if ledger.exists() else None
 
 
 def _held_and_reserved_tickers(ledger: LedgerSource) -> tuple[set[str], set[str]]:
-    snapshot = _safe_snapshot(ledger)
+    snapshot = _optional_ledger_snapshot(ledger)
     if snapshot is None:
         return set(), set()
     held = {item.ticker for item in snapshot.holdings}

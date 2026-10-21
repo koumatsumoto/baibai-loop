@@ -6,24 +6,22 @@ from collections.abc import Iterable
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.position.store import (
     LedgerStoreService,
     _event_values,
 )
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 from baibai_engine.tasks.models import Task
 
 
 def seed_ledger(path: Path, document: PortfolioLedgerDocument) -> None:
-    if any(price.source_kind == "test_fixture" for price in document.market_prices):
-        raise LedgerConflictError("canonical application DB cannot use test_fixture prices")
     initialize_database(path)
     if not document.events:
         raise LedgerConflictError("test ledger requires an opening event")
-    initial = document.model_copy(update={"events": (document.events[0],), "market_prices": ()})
+    initial = document.model_copy(update={"events": (document.events[0],)})
     payload = canonical_json(initial.model_dump(mode="json"))
     with closing(connect_rw(path)) as connection:
         if connection.execute("SELECT 1 FROM ledger_meta WHERE singleton = 1").fetchone():

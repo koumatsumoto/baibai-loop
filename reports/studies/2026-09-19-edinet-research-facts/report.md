@@ -1,5 +1,7 @@
 # EDINET Research factの採否と受入確認（2026-09-19）
 
+これは 2026-09-19 の schema 25→26 と当時の Research 入力・L1 Adapter に対する履歴である。全件未取得・クラウド未反映などは各計測時点の状態で、現行の残作業や運用手順ではない。
+
 Issue #1308の実装時評価。目的は事業別採算・負債満期の反復転記を減らすことであり、投資成果やResearch全体の自動化は評価していない。
 
 ## 対象と取得
@@ -38,7 +40,7 @@ localの固定releaseで既存L1 MCP Adapterを通し、書類選択・segment�
 
 両datasetをoptionalなResearch補助として採用する価値がある。セグメント8件と負債15件の具体的な部分用途が成立し、未知形式のための会社別例外・generic表抽出器を足す必要はない。負債表では見出し未対応7書類、結合セル未対応5書類があり、対応済みbucketだけを返す。coverageを上げる目的だけの追加仕様は採用しない。
 
-このPRはcode・契約・local検証まで。全inventoryの初期取得、main反映と整合するL1/storeのクラウド反映は同一deliveryとして残す。Issueはcloseしない。schema cutoverは旧25のSQLite backupを別fileへ作り、新2 tableとuser_version 26だけを加えるtemporary one-shot手順で検証した。旧EDINET metrics/document/listの行差分は0、integrity_checkはok。既存metric extractor revisionは `f21551a5ba6fc079ca02f0b469a4c68eb96f5e57c4e76aba61d9cf4628b0ac81` で変更なし。
+この報告時点のPR検証はcode・契約・local検証までで、全inventoryの初期取得とL1/storeのクラウド反映は未確認だった。Issueをcloseしないという記述も当時の受入判断を示す。schema cutoverは旧25のSQLite backupを別fileへ作り、新2 tableとuser_version 26だけを加えるtemporary one-shot手順で検証した。旧EDINET metrics/document/listの行差分は0、integrity_checkはok。既存metric extractor revisionは `f21551a5ba6fc079ca02f0b469a4c68eb96f5e57c4e76aba61d9cf4628b0ac81` で変更なし。
 
 ## 全questionの手作業判定
 

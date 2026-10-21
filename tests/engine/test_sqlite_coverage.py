@@ -6,36 +6,27 @@ import sqlite3
 import tempfile
 import unittest
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.helpers.master import insert_master_rows
+from tests.helpers.screening_sqlite import (
+    add_source_coverage as _add_source_coverage,
+)
+from tests.helpers.screening_sqlite import insert_financial_record
 
-from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
-
-from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.screening.cli.cache import verify_cache_coverage_command
 from baibai_engine.screening.sqlite_coverage import core as coverage_core
+from baibai_engine.screening.sqlite_coverage import jquants as jquants_coverage
 from baibai_engine.screening.sqlite_coverage import (
-    plan_required_field_repair,
-    read_required_field_coverage,
     verify_screening_sqlite_coverage,
 )
-
-_DATA_TABLES = (
-    "jquants_daily_bars",
-    "jquants_fin_summaries",
-    "jquants_master_snapshots",
-    "jpx_earnings_calendar",
-    "jquants_market_calendar",
-    "edinet_documents",
-    "edinet_metrics",
-    "jpx_regulation_flags",
-    "jpx_regulation_sources",
-)
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
+from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _verify_screening_sqlite_coverage(*args, **kwargs):
@@ -68,12 +59,10 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     fin_start = asof - timedelta(days=2200)
     earnings_date = asof + timedelta(days=7)
     tickers = tuple(f"{1301 + index:04d}" for index in range(100))
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_master_snapshots("
-        "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-        ") VALUES (?, ?, ?, ?, ?, ?)",
+    insert_master_rows(
+        conn,
         [
-            (asof.isoformat(), ticker, f"Name {ticker}", "Prime", "水産・農林業", 1)
+            (asof.isoformat(), ticker, f"Name {ticker}", "Prime", "水産・農林業", "011")
             for ticker in tickers
         ],
     )
@@ -101,29 +90,28 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     _add_source_coverage(
         conn,
         source="jquants_daily_bars",
-        coverage_key=(
-            "jquants:"
-            f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
-            f"start_dt-{bars_start.isoformat()}.json"
-        ),
+        coverage_key=f"get_eq_bars_daily_range:{bars_start.isoformat()}..{asof.isoformat()}",
         record_count=len(bar_rows),
         min_date=bars_start.isoformat(),
         max_date=asof.isoformat(),
     )
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_fin_summaries("
-        "ticker, disclosed_at, eps_ttm, shares_outstanding, treasury_shares, "
-        "equity_to_asset_ratio) VALUES (?, ?, ?, ?, ?, ?)",
-        [(ticker, asof.isoformat(), 100.0, 10_000_000.0, 1_000_000.0, 0.5) for ticker in tickers],
-    )
+    for ticker in tickers:
+        insert_financial_record(
+            conn,
+            {
+                "Code": str(ticker) + "0",
+                "DiscDate": asof.isoformat(),
+                "EPS": 100.0,
+                "ShOutFY": 10000000.0,
+                "TrShFY": 1000000.0,
+                "EqAR": 0.5,
+                "DiscNo": asof.isoformat(),
+            },
+        )
     _add_source_coverage(
         conn,
         source="jquants_fin_summaries",
-        coverage_key=(
-            "jquants:"
-            f"get_fin_summary_range-end_dt-{asof.isoformat()}-"
-            f"start_dt-{fin_start.isoformat()}.json"
-        ),
+        coverage_key=f"get_fin_summary_range:{fin_start.isoformat()}..{asof.isoformat()}",
         record_count=len(tickers),
         min_date=fin_start.isoformat(),
         max_date=asof.isoformat(),
@@ -148,15 +136,13 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         (f"{asof.isoformat()}T00:00:00+09:00", "jpx_earnings_calendar"),
     )
     conn.execute(
-        "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
+        "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
         (asof.isoformat(), 1),
     )
     _add_source_coverage(
         conn,
         source="jquants_market_calendar",
-        coverage_key=(
-            f"jquants:get_mkt_calendar-from_yyyymmdd-{asof:%Y%m%d}-to_yyyymmdd-{asof:%Y%m%d}.json"
-        ),
+        coverage_key=(f"get_mkt_calendar:{asof.isoformat()}..{asof.isoformat()}"),
         record_count=1,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -197,10 +183,9 @@ def _complete_coverage_template_path() -> Path:
     if _COMPLETE_COVERAGE_TEMPLATE_PATH is None:
         template_dir = tempfile.TemporaryDirectory()
         template_path = Path(template_dir.name) / "market.sqlite"
-        conn = open_connection(template_path)
-        _seed_complete_coverage(conn, _COMMON_COVERAGE_ASOF)
-        conn.commit()
-        conn.close()
+        with closing(open_connection(template_path)) as conn, conn:
+            _seed_complete_coverage(conn, _COMMON_COVERAGE_ASOF)
+            conn.commit()
         _COMPLETE_COVERAGE_TEMPLATE_DIR = template_dir
         _COMPLETE_COVERAGE_TEMPLATE_PATH = template_path
     return _COMPLETE_COVERAGE_TEMPLATE_PATH
@@ -229,26 +214,25 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
     def _store_with_a_stale_balance(self, tmp: str) -> Path:
         sqlite_path = Path(tmp) / "market.sqlite"
         shutil.copyfile(_complete_coverage_template_path(), sqlite_path)
-        conn = open_connection(sqlite_path)
-        conn.execute("DELETE FROM jquants_weekly_margin")
-        conn.execute("DELETE FROM source_coverage WHERE source = 'jquants_weekly_margin'")
-        stale = (_COMMON_COVERAGE_ASOF - timedelta(days=self._STALE_DAYS)).isoformat()
-        conn.execute(
-            "INSERT INTO jquants_weekly_margin("
-            "week_end, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
-            "short_std_vol, short_neg_vol, issue_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (stale, "1301", 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, "2"),
-        )
-        _add_source_coverage(
-            conn,
-            source="jquants_weekly_margin",
-            coverage_key=f"get_mkt_margin_interest:{stale}..{stale}",
-            record_count=1,
-            min_date=stale,
-            max_date=stale,
-        )
-        conn.commit()
-        conn.close()
+        with closing(open_connection(sqlite_path)) as conn, conn:
+            conn.execute("DELETE FROM jquants_weekly_margin")
+            conn.execute("DELETE FROM source_coverage WHERE source = 'jquants_weekly_margin'")
+            stale = (_COMMON_COVERAGE_ASOF - timedelta(days=self._STALE_DAYS)).isoformat()
+            conn.execute(
+                "INSERT INTO jquants_weekly_margin("
+                "week_end, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
+                "short_std_vol, short_neg_vol, issue_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (stale, "1301", 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, "2"),
+            )
+            _add_source_coverage(
+                conn,
+                source="jquants_weekly_margin",
+                coverage_key=f"get_mkt_margin_interest:{stale}..{stale}",
+                record_count=1,
+                min_date=stale,
+                max_date=stale,
+            )
+            conn.commit()
         return sqlite_path
 
     def test_verify_completes_without_naming_the_stale_balance(self) -> None:
@@ -288,9 +272,9 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
                 patch.object(ScreeningConfig, "from_env", staticmethod(lambda: config)),
                 patch.object(app_module, "load_screening_rules", lambda _path: rules),
                 patch.object(app_module, "run_command", fake_run),
-                patch.object(app_module, "JQuantsProvider"),
-                patch.object(app_module, "EDINETProvider"),
-                patch.object(app_module, "JPXProvider"),
+                patch.object(app_module, "JQuantsReader"),
+                patch.object(app_module, "EDINETRefresh"),
+                patch.object(app_module, "JPXRefresh"),
                 patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100),
             ):
                 code = app_module.main(["run", "--asof", _COMMON_COVERAGE_ASOF.isoformat()])
@@ -309,21 +293,22 @@ def tearDownModule() -> None:
 
 class SQLiteCoverageTests(unittest.TestCase):
     def test_complete_coverage_clones_are_isolated(self) -> None:
-        with _complete_coverage_database() as first_path:
-            first = sqlite3.connect(first_path)
+        with (
+            _complete_coverage_database() as first_path,
+            closing(sqlite3.connect(first_path)) as first,
+            first,
+        ):
             first.execute("DELETE FROM jquants_master_snapshots")
             first.commit()
             first_count = int(
                 first.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0]
             )
-            first.close()
 
         with _complete_coverage_database() as second_path:
-            second = sqlite3.connect(second_path)
-            second_count = int(
-                second.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0]
-            )
-            second.close()
+            with closing(sqlite3.connect(second_path)) as second, second:
+                second_count = int(
+                    second.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0]
+                )
 
             self.assertEqual(first_count, 0)
             self.assertEqual(second_count, 100)
@@ -333,56 +318,60 @@ class SQLiteCoverageTests(unittest.TestCase):
         second = date(2026, 5, 15)
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _seed_complete_coverage(conn, first)
-            _seed_complete_coverage(conn, second)
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                _seed_complete_coverage(conn, first)
+                _seed_complete_coverage(conn, second)
 
-            bars_start = first - timedelta(days=2200)
-            fin_start = first - timedelta(days=2200)
-            conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",))
-            bars_count = int(conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0])
-            _add_source_coverage(
-                conn,
-                source="jquants_daily_bars",
-                coverage_key=f"get_eq_bars_daily_range:{bars_start}..{second}",
-                record_count=bars_count,
-                min_date=bars_start.isoformat(),
-                max_date=second.isoformat(),
-            )
-            conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jquants_fin_summaries",))
-            fin_count = int(
-                conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0]
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_fin_summaries",
-                coverage_key=f"get_fin_summary_range:{fin_start}..{second}",
-                record_count=fin_count,
-                min_date=fin_start.isoformat(),
-                max_date=second.isoformat(),
-            )
-            earnings_range = conn.execute(
-                "SELECT MIN(announcement_date), MAX(announcement_date), COUNT(*) "
-                "FROM jpx_earnings_calendar"
-            ).fetchone()
-            conn.execute(
-                "UPDATE source_coverage SET coverage_start = ?, coverage_end = ?, "
-                "record_count = ? WHERE source = ?",
-                (*earnings_range, "jpx_earnings_calendar"),
-            )
-            conn.commit()
-            conn.close()
+                bars_start = first - timedelta(days=2200)
+                fin_start = first - timedelta(days=2200)
+                conn.execute(
+                    "DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",)
+                )
+                bars_count = int(
+                    conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
+                )
+                _add_source_coverage(
+                    conn,
+                    source="jquants_daily_bars",
+                    coverage_key=f"get_eq_bars_daily_range:{bars_start}..{second}",
+                    record_count=bars_count,
+                    min_date=bars_start.isoformat(),
+                    max_date=second.isoformat(),
+                )
+                conn.execute(
+                    "DELETE FROM source_coverage WHERE source = ?", ("jquants_fin_summaries",)
+                )
+                fin_count = int(
+                    conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0]
+                )
+                _add_source_coverage(
+                    conn,
+                    source="jquants_fin_summaries",
+                    coverage_key=f"get_fin_summary_range:{fin_start}..{second}",
+                    record_count=fin_count,
+                    min_date=fin_start.isoformat(),
+                    max_date=second.isoformat(),
+                )
+                earnings_range = conn.execute(
+                    "SELECT MIN(announcement_date), MAX(announcement_date), COUNT(*) "
+                    "FROM jpx_earnings_calendar"
+                ).fetchone()
+                conn.execute(
+                    "UPDATE source_coverage SET coverage_start = ?, coverage_end = ?, "
+                    "record_count = ? WHERE source = ?",
+                    (*earnings_range, "jpx_earnings_calendar"),
+                )
+                conn.commit()
 
             self.assertEqual(_verify_screening_sqlite_coverage(sqlite_path, first), ())
             self.assertEqual(_verify_screening_sqlite_coverage(sqlite_path, second), ())
 
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "DELETE FROM jquants_master_snapshots WHERE snapshot_date = ? AND ticker = ?",
-                (first.isoformat(), "1301"),
-            )
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM jquants_master_snapshots WHERE snapshot_date = ? AND security_code = ?",
+                    (first.isoformat(), "13010"),
+                )
+                conn.commit()
 
             first_issues = _verify_screening_sqlite_coverage(sqlite_path, first)
             second_issues = _verify_screening_sqlite_coverage(sqlite_path, second)
@@ -391,22 +380,18 @@ class SQLiteCoverageTests(unittest.TestCase):
             )
             self.assertEqual(second_issues, ())
 
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                (first.isoformat(), "1301", "name-1301", "Prime", "Sector", 1),
-            )
-            conn.execute(
-                "DELETE FROM source_coverage WHERE source = ? AND coverage_key = ?",
-                (
-                    "jquants_master_snapshots",
-                    f"get_eq_master:{second.isoformat()}..{second.isoformat()}",
-                ),
-            )
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                insert_master_rows(
+                    conn, [(first.isoformat(), "1301", "name-1301", "Prime", "水産・農林業", "011")]
+                )
+                conn.execute(
+                    "DELETE FROM source_coverage WHERE source = ? AND coverage_key = ?",
+                    (
+                        "jquants_master_snapshots",
+                        f"get_eq_master:{second.isoformat()}..{second.isoformat()}",
+                    ),
+                )
+                conn.commit()
 
             first_issues = _verify_screening_sqlite_coverage(sqlite_path, first)
             second_issues = _verify_screening_sqlite_coverage(sqlite_path, second)
@@ -469,7 +454,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             )
 
     def test_store_completeness_is_checked_with_quick_check_only(self) -> None:
-        """The deep check costs ~11s on the production store and runs twice a batch.
+        """Pin the less expensive quick check rather than relying on identical results.
 
         Reading the emitted SQL is what pins the choice: both pragmas answer 'ok'
         on a healthy store, so an assertion on the result would pass either way.
@@ -498,276 +483,36 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_complete_required_windows_has_no_issues(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.commit()
-            conn.close()
-
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertEqual(issues, ())
 
-    def test_issue_866_null_fields_block_before_market_cap_candidate_wipeout(self) -> None:
-        """A migrated column is not usable merely because the old rows still cover the date."""
-        asof = _COMMON_COVERAGE_ASOF
+    def test_reported_missing_values_are_not_acquisition_gaps(self) -> None:
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                "treasury_shares = NULL, equity_to_asset_ratio = NULL"
-            )
-            conn.commit()
-            conn.close()
-
-            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
-            coverage = read_required_field_coverage(
-                sqlite_path,
-                start=asof - timedelta(days=730),
-                asof=asof,
-            )
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.summary_tickers, 100)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 0)
-            self.assertIn("market_cap_required_fields=0", coverage.summary_line())
-            self.assertIn("valuation_required_fields=0", coverage.summary_line())
-            requirements = {issue.requirement for issue in issues}
-            self.assertIn(f"required-field:shares_outstanding@{asof.isoformat()}", requirements)
-            self.assertIn(f"required-field:treasury_shares@{asof.isoformat()}", requirements)
-            self.assertIn(f"required-field:equity_to_asset_ratio@{asof.isoformat()}", requirements)
-            self.assertIn(
-                f"required-field:market_cap_required_fields@{asof.isoformat()}", requirements
-            )
-            self.assertIn(
-                f"required-field:valuation_required_fields@{asof.isoformat()}", requirements
-            )
-
-    def test_required_field_population_threshold_blocks_74_percent_and_accepts_75(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                "treasury_shares = NULL, equity_to_asset_ratio = NULL"
-            )
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                "treasury_shares = 1000000, equity_to_asset_ratio = 0.5 "
-                "WHERE ticker IN (SELECT ticker FROM jquants_fin_summaries ORDER BY ticker LIMIT 74)"
-            )
-            conn.commit()
-            conn.close()
-
-            below = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(below)
-            assert below is not None
-            self.assertEqual(below.minimum_tickers, 75)
-            self.assertIn("market_cap_required_fields", below.blocking_fields)
-            self.assertIn("valuation_required_fields", below.blocking_fields)
-
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                "treasury_shares = 1000000, equity_to_asset_ratio = 0.5 "
-                "WHERE ticker = (SELECT ticker FROM jquants_fin_summaries "
-                "ORDER BY ticker LIMIT 1 OFFSET 74)"
-            )
-            conn.commit()
-            conn.close()
-
-            at_threshold = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(at_threshold)
-            assert at_threshold is not None
-            self.assertEqual(at_threshold.blocking_fields, ())
-
-    def test_valuation_field_intersection_is_checked_not_only_each_column(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                "treasury_shares = NULL, equity_to_asset_ratio = NULL"
-            )
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                "treasury_shares = 1000000 WHERE ticker IN "
-                "(SELECT ticker FROM jquants_fin_summaries ORDER BY ticker LIMIT 80)"
-            )
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET equity_to_asset_ratio = 0.5 WHERE ticker IN "
-                "(SELECT ticker FROM jquants_fin_summaries ORDER BY ticker LIMIT 80 OFFSET 20)"
-            )
-            conn.commit()
-            conn.close()
-
-            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.shares_outstanding_tickers, 80)
-            self.assertEqual(coverage.treasury_shares_tickers, 80)
-            self.assertEqual(coverage.equity_to_asset_ratio_tickers, 80)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 80)
-            self.assertEqual(coverage.valuation_required_fields_tickers, 60)
-            self.assertEqual(coverage.blocking_fields, ("valuation_required_fields",))
-
-    def test_non_null_share_fields_that_produce_no_market_cap_are_blocked(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = 1000000, "
-                "treasury_shares = 1000000"
-            )
-            conn.commit()
-            conn.close()
-
-            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            plan = plan_required_field_repair(sqlite_path, start=start, asof=asof)
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.shares_outstanding_tickers, 100)
-            self.assertEqual(coverage.treasury_shares_tickers, 100)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 0)
-            self.assertEqual(coverage.valuation_required_fields_tickers, 0)
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jquants_fin_summaries SET document_payload = json_set("
+                    "document_payload, '$.ShOutFY', NULL, '$.TrShFY', NULL, '$.EqAR', NULL)"
+                )
             self.assertEqual(
-                coverage.blocking_fields,
-                ("market_cap_required_fields", "valuation_required_fields"),
+                _verify_screening_sqlite_coverage(sqlite_path, _COMMON_COVERAGE_ASOF), ()
             )
-            self.assertIsNotNone(plan)
-            assert plan is not None
-            self.assertEqual(plan.ranges, ((asof, asof),))
-
-    def test_cross_date_share_fields_use_the_same_split_basis_as_market_cap(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        prior = asof - timedelta(days=30)
-        with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            tickers = [
-                str(row[0])
-                for row in conn.execute(
-                    "SELECT ticker FROM jquants_fin_summaries ORDER BY ticker"
-                ).fetchall()
-            ]
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                "treasury_shares = 1500000"
-            )
-            conn.executemany(
-                "INSERT INTO jquants_fin_summaries("
-                "ticker, disclosed_at, shares_outstanding, treasury_shares) "
-                "VALUES (?, ?, ?, ?)",
-                [(ticker, prior.isoformat(), 1_000_000.0, None) for ticker in tickers],
-            )
-            conn.commit()
-            conn.close()
-
-            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.shares_outstanding_tickers, 100)
-            self.assertEqual(coverage.treasury_shares_tickers, 100)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 0)
-            self.assertIn("market_cap_required_fields", coverage.blocking_fields)
-
-            split_day = prior + timedelta(days=1)
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_daily_bars SET adjustment_factor = 0.5 WHERE traded_at = ?",
-                (split_day.isoformat(),),
-            )
-            conn.commit()
-            conn.close()
-
-            split_adjusted = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(split_adjusted)
-            assert split_adjusted is not None
-            # Split normalization can align the numbers, but the later treasury row
-            # has no issued basis of its own. The production resolver fails this state
-            # closed, so the coverage gate must not certify it as usable.
-            self.assertEqual(split_adjusted.market_cap_required_fields_tickers, 0)
-            self.assertEqual(
-                split_adjusted.blocking_fields,
-                ("market_cap_required_fields", "valuation_required_fields"),
-            )
-
-    def test_old_cross_section_repair_resumes_at_only_the_unfinished_disclosure_date(
-        self,
-    ) -> None:
-        """Completed repair dates are inferred from rows, without erasing broad coverage."""
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        first_date = asof - timedelta(days=400)
-        second_date = asof - timedelta(days=200)
-        with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET disclosed_at = ?, shares_outstanding = NULL, "
-                "treasury_shares = NULL, equity_to_asset_ratio = NULL "
-                "WHERE ticker >= '1321' AND ticker <= '1360'",
-                (first_date.isoformat(),),
-            )
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET disclosed_at = ?, shares_outstanding = NULL, "
-                "treasury_shares = NULL, equity_to_asset_ratio = NULL "
-                "WHERE ticker >= '1361'",
-                (second_date.isoformat(),),
-            )
-            original_coverage = conn.execute(
-                "SELECT coverage_key, coverage_start, coverage_end FROM source_coverage "
-                "WHERE source = 'jquants_fin_summaries'"
-            ).fetchall()
-            conn.commit()
-            conn.close()
-
-            initial = plan_required_field_repair(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(initial)
-            assert initial is not None
-            self.assertEqual(
-                initial.ranges,
-                ((first_date, first_date), (second_date, second_date)),
-            )
-
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                "treasury_shares = 1000000, equity_to_asset_ratio = 0.5 "
-                "WHERE disclosed_at = ?",
-                (first_date.isoformat(),),
-            )
-            conn.commit()
-            conn.close()
-
-            resumed = plan_required_field_repair(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(resumed)
-            assert resumed is not None
-            self.assertEqual(resumed.ranges, ((second_date, second_date),))
-
-            conn = sqlite3.connect(sqlite_path)
-            preserved_coverage = conn.execute(
-                "SELECT coverage_key, coverage_start, coverage_end FROM source_coverage "
-                "WHERE source = 'jquants_fin_summaries'"
-            ).fetchall()
-            conn.close()
-            self.assertEqual(preserved_coverage, original_coverage)
 
     def test_current_bar_window_cannot_satisfy_normalized_split_basis(self) -> None:
         asof = date(2026, 5, 8)
         current_start = asof - timedelta(days=1200)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
-                (current_start.isoformat(),),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
+                    (current_start.isoformat(),),
+                )
+                conn.execute(
+                    "UPDATE source_coverage SET coverage_start = ? "
+                    "WHERE source = 'jquants_daily_bars'",
+                    (current_start.isoformat(),),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -789,20 +534,20 @@ class SQLiteCoverageTests(unittest.TestCase):
         normalized_start = asof - timedelta(days=2200)
         current_start = asof - timedelta(days=1200)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "DELETE FROM jquants_daily_bars WHERE traded_at < ? AND ticker != '1301'",
-                (current_start.isoformat(),),
-            )
-            actual_count = int(
-                conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
-            )
-            conn.execute(
-                "UPDATE source_coverage SET record_count = ? WHERE source = 'jquants_daily_bars'",
-                (actual_count,),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM jquants_daily_bars WHERE traded_at < ? AND ticker != '1301'",
+                    (current_start.isoformat(),),
+                )
+                actual_count = int(
+                    conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
+                )
+                conn.execute(
+                    "UPDATE source_coverage SET record_count = ? "
+                    "WHERE source = 'jquants_daily_bars'",
+                    (actual_count,),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -824,14 +569,13 @@ class SQLiteCoverageTests(unittest.TestCase):
         asof = date(2026, 5, 8)
         current_start = asof - timedelta(days=730)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE source_coverage SET coverage_start = ? "
-                "WHERE source = 'jquants_fin_summaries'",
-                (current_start.isoformat(),),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE source_coverage SET coverage_start = ? "
+                    "WHERE source = 'jquants_fin_summaries'",
+                    (current_start.isoformat(),),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -852,10 +596,9 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_missing_required_table_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DROP TABLE edinet_documents")
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute("DROP TABLE edinet_documents")
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -866,10 +609,9 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_missing_required_column_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("ALTER TABLE edinet_documents DROP COLUMN doc_description")
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute("ALTER TABLE edinet_documents DROP COLUMN doc_description")
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -880,32 +622,15 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_required_table_without_primary_key_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DROP TABLE jquants_daily_bars")
-            conn.execute(
-                """
-                CREATE TABLE jquants_daily_bars(
-                  ticker TEXT NOT NULL,
-                  traded_at TEXT NOT NULL,
-                  open REAL,
-                  high REAL,
-                  low REAL,
-                  close REAL,
-                  volume REAL,
-                  turnover_value REAL,
-                  adjustment_open REAL,
-                  adjustment_high REAL,
-                  adjustment_low REAL,
-                  adjustment_close REAL,
-                  adjustment_volume REAL,
-                  adjustment_factor REAL,
-                  upper_limit TEXT,
-                  lower_limit TEXT
-                )
-                """
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                source_sql = conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE name = 'jquants_daily_bars'"
+                ).fetchone()[0]
+                without_primary_key = source_sql.replace(",\n  PRIMARY KEY (ticker, traded_at)", "")
+                self.assertNotEqual(source_sql, without_primary_key)
+                conn.execute("DROP TABLE jquants_daily_bars")
+                conn.execute(without_primary_key)
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -916,10 +641,9 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_missing_required_index_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DROP INDEX idx_jquants_daily_bars_traded_at")
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute("DROP INDEX idx_jquants_daily_bars_traded_at")
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -932,10 +656,9 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_daily_bar_table_count_below_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DELETE FROM jquants_daily_bars WHERE ticker >= ?", ("1351",))
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute("DELETE FROM jquants_daily_bars WHERE ticker >= ?", ("1351",))
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -950,13 +673,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_daily_bar_table_count_above_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE source_coverage SET record_count = ? WHERE source = ?",
-                (1, "jquants_daily_bars"),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE source_coverage SET record_count = ? WHERE source = ?",
+                    (1, "jquants_daily_bars"),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -973,14 +695,13 @@ class SQLiteCoverageTests(unittest.TestCase):
     ) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
-                "VALUES (?, ?, ?, ?)",
-                ("1301", (asof + timedelta(days=1)).isoformat(), 1000.0, 200_000_000.0),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("1301", (asof + timedelta(days=1)).isoformat(), 1000.0, 200_000_000.0),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -993,21 +714,66 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
+    def test_unrelated_receipt_windows_do_not_block_the_requested_run(self) -> None:
+        asof = date(2026, 5, 8)
+        with _complete_coverage_database() as sqlite_path:
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                for source in ("jquants_daily_bars", "jquants_fin_summaries"):
+                    for day in (asof - timedelta(days=2300), asof + timedelta(days=30)):
+                        _add_source_coverage(
+                            conn,
+                            source=source,
+                            coverage_key=f"outside:{day}",
+                            record_count=999,
+                            min_date=day.isoformat(),
+                            max_date=day.isoformat(),
+                        )
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+        self.assertFalse(
+            any(
+                issue.requirement.startswith("outside:") and "row count" in issue.reason
+                for issue in issues
+            )
+        )
+
+    def test_normalization_history_receipts_remain_in_scope(self) -> None:
+        asof = date(2026, 5, 8)
+        older_input = asof - timedelta(days=2000)
+        with _complete_coverage_database() as sqlite_path:
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                for source in ("jquants_daily_bars", "jquants_fin_summaries"):
+                    _add_source_coverage(
+                        conn,
+                        source=source,
+                        coverage_key="normalization-input",
+                        record_count=999999,
+                        min_date=older_input.isoformat(),
+                        max_date=older_input.isoformat(),
+                    )
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+        self.assertEqual(
+            {
+                issue.source
+                for issue in issues
+                if issue.requirement == "normalization-input" and "row count" in issue.reason
+            },
+            {"jquants_daily_bars", "jquants_fin_summaries"},
+        )
+
     def test_daily_bar_required_window_count_mismatch_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "DELETE FROM jquants_daily_bars WHERE ticker = ? AND traded_at = ?",
-                ("1301", asof.isoformat()),
-            )
-            conn.execute(
-                "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
-                "VALUES (?, ?, ?, ?)",
-                ("9999", (asof + timedelta(days=1)).isoformat(), 1000.0, 200_000_000.0),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM jquants_daily_bars WHERE ticker = ? AND traded_at = ?",
+                    ("1301", asof.isoformat()),
+                )
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("9999", (asof + timedelta(days=1)).isoformat(), 1000.0, 200_000_000.0),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1024,25 +790,24 @@ class SQLiteCoverageTests(unittest.TestCase):
         asof = date(2026, 5, 8)
         previous_day = asof - timedelta(days=1)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            _add_source_coverage(
-                conn,
-                source="jquants_daily_bars",
-                coverage_key="window-a",
-                record_count=999,
-                min_date=previous_day.isoformat(),
-                max_date=previous_day.isoformat(),
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_daily_bars",
-                coverage_key="window-b",
-                record_count=999,
-                min_date=asof.isoformat(),
-                max_date=asof.isoformat(),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                _add_source_coverage(
+                    conn,
+                    source="jquants_daily_bars",
+                    coverage_key="window-a",
+                    record_count=999,
+                    min_date=previous_day.isoformat(),
+                    max_date=previous_day.isoformat(),
+                )
+                _add_source_coverage(
+                    conn,
+                    source="jquants_daily_bars",
+                    coverage_key="window-b",
+                    record_count=999,
+                    min_date=asof.isoformat(),
+                    max_date=asof.isoformat(),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1057,10 +822,9 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_fin_summary_table_count_below_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DELETE FROM jquants_fin_summaries WHERE ticker >= ?", ("1351",))
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute("DELETE FROM jquants_fin_summaries WHERE ticker >= ?", ("1351",))
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1075,13 +839,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_fin_summary_table_count_above_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE source_coverage SET record_count = ? WHERE source = ?",
-                (1, "jquants_fin_summaries"),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE source_coverage SET record_count = ? WHERE source = ?",
+                    (1, "jquants_fin_summaries"),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1096,17 +859,21 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_fin_summary_required_window_count_mismatch_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "DELETE FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at = ?",
-                ("1301", asof.isoformat()),
-            )
-            conn.execute(
-                "INSERT INTO jquants_fin_summaries(ticker, disclosed_at, eps_ttm) VALUES (?, ?, ?)",
-                ("9999", (asof + timedelta(days=1)).isoformat(), 100.0),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at = ?",
+                    ("1301", asof.isoformat()),
+                )
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "99990",
+                        "DiscDate": (asof + timedelta(days=1)).isoformat(),
+                        "EPS": 100.0,
+                        "DiscNo": (asof + timedelta(days=1)).isoformat(),
+                    },
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1122,33 +889,63 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_missing_daily_bars_reports_required_window(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",))
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",)
+                )
+                # Missing fetch bookkeeping alone is not missing market data.
+                conn.execute("DELETE FROM jquants_daily_bars")
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
-            self.assertIn("jquants_daily_bars", {issue.source for issue in issues})
+            required_start = asof - timedelta(days=coverage_core.BARS_INPUT_WINDOW_DAYS)
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_daily_bars"
+                    and issue.requirement == f"{required_start.isoformat()}..{asof.isoformat()}"
+                    and issue.reason == "daily bars request window is not fully covered in SQLite"
+                    for issue in issues
+                )
+            )
+
+    def test_daily_bars_without_fetch_coverage_are_not_acquired(self) -> None:
+        asof = date(2026, 5, 8)
+        with _complete_coverage_database() as sqlite_path:
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",)
+                )
+                conn.commit()
+
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_daily_bars"
+                    and issue.reason == "daily bars request window is not fully covered in SQLite"
+                    for issue in issues
+                )
+            )
 
     def test_all_past_earnings_calendar_snapshot_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jpx_earnings_calendar SET announcement_date = ?",
-                ((asof - timedelta(days=1)).isoformat(),),
-            )
-            conn.execute(
-                "UPDATE source_coverage SET coverage_start = ?, coverage_end = ? WHERE source = ?",
-                (
-                    (asof - timedelta(days=1)).isoformat(),
-                    (asof - timedelta(days=1)).isoformat(),
-                    "jpx_earnings_calendar",
-                ),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jpx_earnings_calendar SET announcement_date = ?",
+                    ((asof - timedelta(days=1)).isoformat(),),
+                )
+                conn.execute(
+                    "UPDATE source_coverage SET coverage_start = ?, coverage_end = ? "
+                    "WHERE source = ?",
+                    (
+                        (asof - timedelta(days=1)).isoformat(),
+                        (asof - timedelta(days=1)).isoformat(),
+                        "jpx_earnings_calendar",
+                    ),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1163,14 +960,13 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_zero_row_earnings_calendar_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DELETE FROM jpx_earnings_calendar")
-            conn.execute(
-                "UPDATE source_coverage SET record_count = ? WHERE source = ?",
-                (0, "jpx_earnings_calendar"),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute("DELETE FROM jpx_earnings_calendar")
+                conn.execute(
+                    "UPDATE source_coverage SET record_count = ? WHERE source = ?",
+                    (0, "jpx_earnings_calendar"),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1184,16 +980,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_source_coverage_status_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.commit()
-            conn.close()
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "UPDATE source_coverage SET status = ? WHERE source = ?",
-                ("failed", "jquants_daily_bars"),
-            )
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE source_coverage SET status = ? WHERE source = ?",
+                    ("failed", "jquants_daily_bars"),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1207,25 +999,25 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_old_non_ok_source_coverage_outside_required_window_does_not_block(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            old_start = asof - timedelta(days=1300)
-            old_end = asof - timedelta(days=1270)
-            conn.execute(
-                "INSERT INTO source_coverage("
-                "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "jquants_daily_bars",
-                    "old-failed",
-                    old_start.isoformat(),
-                    old_end.isoformat(),
-                    datetime.now(UTC).isoformat(),
-                    0,
-                    "failed",
-                ),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                old_start = asof - timedelta(days=2300)
+                old_end = asof - timedelta(days=2270)
+                conn.execute(
+                    "INSERT INTO source_coverage("
+                    "source, coverage_key, coverage_start, coverage_end, "
+                    "fetched_at_utc, record_count, status"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        "jquants_daily_bars",
+                        "old-failed",
+                        old_start.isoformat(),
+                        old_end.isoformat(),
+                        datetime.now(UTC).isoformat(),
+                        0,
+                        "failed",
+                    ),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1237,24 +1029,66 @@ class SQLiteCoverageTests(unittest.TestCase):
                 issues,
             )
 
+    def test_unrepaired_quality_failure_in_normalization_history_remains_in_scope(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        older_input = asof - timedelta(days=1400)
+        for source, store, date_field, value_field in (
+            ("jquants_daily_bars", store_jquants_daily_bars, "Date", "C"),
+            ("jquants_fin_summaries", store_jquants_fin_summaries, "DiscDate", "Sales"),
+        ):
+            with self.subTest(source=source), _complete_coverage_database() as sqlite_path:
+                clean = [
+                    {
+                        "Code": f"{1301 + index}0",
+                        date_field: older_input.isoformat(),
+                        value_field: 1000,
+                    }
+                    for index in range(100)
+                ]
+                if source == "jquants_fin_summaries":
+                    for record in clean:
+                        record["DiscNo"] = f"synthetic-{record['Code']}-{older_input.isoformat()}"
+                store(
+                    sqlite_path,
+                    [*clean, {"Code": "invalid", date_field: older_input.isoformat()}],
+                    requested_start=older_input,
+                    requested_end=older_input,
+                )
+                issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+                self.assertTrue(
+                    any(
+                        issue.source == source and "status is not ok: partial" in issue.reason
+                        for issue in issues
+                    ),
+                    issues,
+                )
+                store(sqlite_path, clean, requested_start=older_input, requested_end=older_input)
+                repaired = _verify_screening_sqlite_coverage(sqlite_path, asof)
+                self.assertFalse(
+                    any(
+                        issue.source == source and "status is not ok" in issue.reason
+                        for issue in repaired
+                    ),
+                    repaired,
+                )
+
     def test_zero_row_master_import_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "DELETE FROM source_coverage WHERE source = ?", ("jquants_master_snapshots",)
-            )
-            conn.execute("DELETE FROM jquants_master_snapshots")
-            _add_source_coverage(
-                conn,
-                source="jquants_master_snapshots",
-                coverage_key=f"get_eq_master:{asof.isoformat()}..{asof.isoformat()}",
-                record_count=0,
-                min_date=asof.isoformat(),
-                max_date=asof.isoformat(),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM source_coverage WHERE source = ?", ("jquants_master_snapshots",)
+                )
+                conn.execute("DELETE FROM jquants_master_snapshots")
+                _add_source_coverage(
+                    conn,
+                    source="jquants_master_snapshots",
+                    coverage_key=f"get_eq_master:{asof.isoformat()}..{asof.isoformat()}",
+                    record_count=0,
+                    min_date=asof.isoformat(),
+                    max_date=asof.isoformat(),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1266,13 +1100,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_tiny_common_stock_master_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_master_snapshots SET is_common_stock = 0 WHERE ticker != ?",
-                ("1301",),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat','014') WHERE substr(security_code,1,4) != ?",
+                    ("1301",),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1284,38 +1117,126 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
+    def test_missing_native_product_category_is_reported_without_sector_inference(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        with _complete_coverage_database() as sqlite_path:
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jquants_master_snapshots "
+                    "SET record_json=json_set(record_json,'$.ProdCat',NULL) "
+                    "WHERE security_code='13010'"
+                )
+                issues: list[jquants_coverage.CacheCoverageIssue] = []
+                jquants_coverage._append_master_snapshot_issues(conn, issues, asof_date=asof)
+            self.assertTrue(
+                any("1 row(s) with invalid required data" in issue.reason for issue in issues)
+            )
+
+    def test_non_common_bars_and_financials_cannot_mask_common_density(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        with _complete_coverage_database() as sqlite_path:
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                insert_master_rows(
+                    conn,
+                    [
+                        (asof.isoformat(), f"9{index:03d}", "Fund", "Prime", "その他", "014")
+                        for index in range(60)
+                    ],
+                )
+                conn.execute(
+                    "DELETE FROM jquants_daily_bars WHERE traded_at = ? AND ticker >= '1341'",
+                    (asof.isoformat(),),
+                )
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+                    [(f"9{index:03d}", asof.isoformat(), 100.0) for index in range(60)],
+                )
+                conn.execute("DELETE FROM jquants_fin_summaries WHERE ticker >= '1341'")
+                for index in range(60):
+                    insert_financial_record(
+                        conn,
+                        {
+                            "Code": str(f"9{index:03d}") + "0",
+                            "DiscDate": asof.isoformat(),
+                            "DiscNo": asof.isoformat(),
+                        },
+                    )
+                conn.commit()
+                issues: list[jquants_coverage.CacheCoverageIssue] = []
+                with patch(
+                    "baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
+                ):
+                    jquants_coverage._append_asof_bar_density_issue(conn, issues, asof_date=asof)
+                    jquants_coverage._append_recent_bar_density_issue(conn, issues, asof_date=asof)
+                    jquants_coverage._append_fin_summary_density_issue(
+                        conn, issues, start=asof - timedelta(days=730), end=asof
+                    )
+
+            self.assertEqual(
+                {issue.source for issue in issues}, {"jquants_daily_bars", "jquants_fin_summaries"}
+            )
+            self.assertTrue(any("recent usable ticker count" in issue.reason for issue in issues))
+
+    def test_non_common_bars_cannot_mask_history_bucket_density(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        start = asof - timedelta(days=19)
+        with tempfile.TemporaryDirectory() as tmp:
+            with closing(open_connection(Path(tmp) / "market.sqlite")) as conn, conn:
+                insert_master_rows(
+                    conn,
+                    [
+                        (asof.isoformat(), f"{1301 + index:04d}", "Stock", "Prime", "機械", "011")
+                        for index in range(100)
+                    ]
+                    + [
+                        (asof.isoformat(), f"9{index:03d}", "Fund", "Prime", "その他", "014")
+                        for index in range(60)
+                    ],
+                )
+                tickers = [f"{1301 + index:04d}" for index in range(40)] + [
+                    f"9{index:03d}" for index in range(60)
+                ]
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+                    [
+                        (ticker, (start + timedelta(days=day)).isoformat(), 100.0)
+                        for day in range(5)
+                        for ticker in tickers
+                    ],
+                )
+                issues: list[jquants_coverage.CacheCoverageIssue] = []
+                with patch(
+                    "baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
+                ):
+                    jquants_coverage._append_daily_history_density_issue(
+                        conn, issues, start=start, end=asof
+                    )
+
+            self.assertEqual(len(issues), 1)
+            self.assertIn("(0/5 usable dates)", issues[0].reason)
+
     def test_master_below_production_floor_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            tickers = tuple(f"{1301 + index:04d}" for index in range(2499))
-            conn.executemany(
-                "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        asof.isoformat(),
-                        ticker,
-                        f"Name {ticker}",
-                        "Prime",
-                        "水産・農林業",
-                        1,
-                    )
-                    for ticker in tickers
-                ],
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_master_snapshots",
-                coverage_key=f"get_eq_master:{asof.isoformat()}..{asof.isoformat()}",
-                record_count=len(tickers),
-                min_date=asof.isoformat(),
-                max_date=asof.isoformat(),
-            )
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                tickers = tuple(f"{1301 + index:04d}" for index in range(2499))
+                insert_master_rows(
+                    conn,
+                    [
+                        (asof.isoformat(), ticker, f"Name {ticker}", "Prime", "水産・農林業", "011")
+                        for ticker in tickers
+                    ],
+                )
+                _add_source_coverage(
+                    conn,
+                    source="jquants_master_snapshots",
+                    coverage_key=f"get_eq_master:{asof.isoformat()}..{asof.isoformat()}",
+                    record_count=len(tickers),
+                    min_date=asof.isoformat(),
+                    max_date=asof.isoformat(),
+                )
+                conn.commit()
 
             issues = verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1333,51 +1254,37 @@ class SQLiteCoverageTests(unittest.TestCase):
         bars_start = asof - timedelta(days=1200)
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            tickers = tuple(f"{1301 + index:04d}" for index in range(2500))
-            conn.executemany(
-                "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        asof.isoformat(),
-                        ticker,
-                        f"Name {ticker}",
-                        "Prime",
-                        "水産・農林業",
-                        1,
-                    )
-                    for ticker in tickers
-                ],
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_master_snapshots",
-                coverage_key=f"get_eq_master:{asof.isoformat()}..{asof.isoformat()}",
-                record_count=len(tickers),
-                min_date=asof.isoformat(),
-                max_date=asof.isoformat(),
-            )
-            conn.executemany(
-                "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
-                "VALUES (?, ?, ?, ?)",
-                [(ticker, asof.isoformat(), 1000.0, 200_000_000.0) for ticker in tickers[:100]],
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_daily_bars",
-                coverage_key=(
-                    "jquants:"
-                    f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
-                    f"start_dt-{bars_start.isoformat()}.json"
-                ),
-                record_count=100,
-                min_date=bars_start.isoformat(),
-                max_date=asof.isoformat(),
-            )
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                tickers = tuple(f"{1301 + index:04d}" for index in range(2500))
+                insert_master_rows(
+                    conn,
+                    [
+                        (asof.isoformat(), ticker, f"Name {ticker}", "Prime", "水産・農林業", "011")
+                        for ticker in tickers
+                    ],
+                )
+                _add_source_coverage(
+                    conn,
+                    source="jquants_master_snapshots",
+                    coverage_key=f"get_eq_master:{asof.isoformat()}..{asof.isoformat()}",
+                    record_count=len(tickers),
+                    min_date=asof.isoformat(),
+                    max_date=asof.isoformat(),
+                )
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
+                    "VALUES (?, ?, ?, ?)",
+                    [(ticker, asof.isoformat(), 1000.0, 200_000_000.0) for ticker in tickers[:100]],
+                )
+                _add_source_coverage(
+                    conn,
+                    source="jquants_daily_bars",
+                    coverage_key=f"get_eq_bars_daily_range:{bars_start.isoformat()}..{asof.isoformat()}",
+                    record_count=100,
+                    min_date=bars_start.isoformat(),
+                    max_date=asof.isoformat(),
+                )
+                conn.commit()
 
             issues = verify_screening_sqlite_coverage(
                 sqlite_path,
@@ -1403,10 +1310,9 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_required_table_without_rows_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DELETE FROM jquants_daily_bars")
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute("DELETE FROM jquants_daily_bars")
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1424,13 +1330,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_recent_daily_bars_sparse_history_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
-                (asof.isoformat(),),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
+                    (asof.isoformat(),),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1444,15 +1349,14 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_old_daily_bars_sparse_history_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            weak_start = (asof - timedelta(days=1200)) + timedelta(days=240)
-            weak_end = weak_start + timedelta(days=119)
-            conn.execute(
-                "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
-                (weak_start.isoformat(), weak_end.isoformat()),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                weak_start = (asof - timedelta(days=1200)) + timedelta(days=240)
+                weak_end = weak_start + timedelta(days=119)
+                conn.execute(
+                    "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
+                    (weak_start.isoformat(), weak_end.isoformat()),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1466,13 +1370,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_fin_summary_sparse_ticker_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "DELETE FROM jquants_fin_summaries WHERE ticker >= ?",
-                ("1350",),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM jquants_fin_summaries WHERE ticker >= ?",
+                    ("1350",),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1487,21 +1390,16 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_overlapping_daily_source_coverage_reports_count_mismatch(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            _add_source_coverage(
-                conn,
-                source="jquants_daily_bars",
-                coverage_key=(
-                    "jquants:"
-                    f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
-                    f"start_dt-{(asof - timedelta(days=1)).isoformat()}.json"
-                ),
-                record_count=1,
-                min_date=asof.isoformat(),
-                max_date=asof.isoformat(),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                _add_source_coverage(
+                    conn,
+                    source="jquants_daily_bars",
+                    coverage_key="overlapping-receipt",
+                    record_count=1,
+                    min_date=asof.isoformat(),
+                    max_date=asof.isoformat(),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1515,13 +1413,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_market_calendar_requires_actual_asof_row(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jquants_market_calendar SET day = ? WHERE day = ?",
-                ((asof - timedelta(days=1)).isoformat(), asof.isoformat()),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jquants_market_calendar SET day = ? WHERE day = ?",
+                    ((asof - timedelta(days=1)).isoformat(), asof.isoformat()),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1536,10 +1433,6 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_required_jpx_sources_must_be_present_in_snapshot(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.commit()
-            conn.close()
-
             issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
@@ -1557,13 +1450,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_stale_jpx_snapshot_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
-                ("2026-04-01T00:00:00+00:00", asof.isoformat()),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
+                    ("2026-04-01T00:00:00+00:00", asof.isoformat()),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1578,13 +1470,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_jpx_source_row_without_fetched_at_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jpx_regulation_sources SET fetched_at_utc = NULL WHERE asof_date = ?",
-                (asof.isoformat(),),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jpx_regulation_sources SET fetched_at_utc = NULL WHERE asof_date = ?",
+                    (asof.isoformat(),),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1599,13 +1490,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_allow_stale_jpx_suppresses_freshness_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
-                ("2026-04-01T00:00:00+00:00", asof.isoformat()),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
+                    ("2026-04-01T00:00:00+00:00", asof.isoformat()),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
@@ -1624,15 +1514,16 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_orphaned_jpx_source_rows_do_not_satisfy_source_coverage(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jpx_regulation_flags",))
-            conn.execute(
-                "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
-                "VALUES (?, ?, ?)",
-                (asof.isoformat(), "取引停止", None),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "DELETE FROM source_coverage WHERE source = ?", ("jpx_regulation_flags",)
+                )
+                conn.execute(
+                    "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
+                    "VALUES (?, ?, ?)",
+                    (asof.isoformat(), "取引停止", None),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
@@ -1651,13 +1542,12 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_required_edinet_corruption_reports_issue_without_traceback(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "UPDATE edinet_metrics SET failure_reasons = ? WHERE asof_date = ?",
-                ("not-json", asof.isoformat()),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "UPDATE edinet_metrics SET failure_reasons = ? WHERE asof_date = ?",
+                    ("not-json", asof.isoformat()),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1671,25 +1561,25 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_required_edinet_failed_status_reports_diagnostic_error(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                "INSERT OR REPLACE INTO source_coverage("
-                "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, "
-                "status, error"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "edinet_metrics",
-                    asof.isoformat(),
-                    asof.isoformat(),
-                    asof.isoformat(),
-                    datetime.now(UTC).isoformat(),
-                    1,
-                    "failed",
-                    "1 EDINET CSV hard failures",
-                ),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO source_coverage("
+                    "source, coverage_key, coverage_start, coverage_end, "
+                    "fetched_at_utc, record_count, "
+                    "status, error"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        "edinet_metrics",
+                        asof.isoformat(),
+                        asof.isoformat(),
+                        asof.isoformat(),
+                        datetime.now(UTC).isoformat(),
+                        1,
+                        "failed",
+                        "1 EDINET CSV hard failures",
+                    ),
+                )
+                conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
@@ -1704,3 +1594,24 @@ class SQLiteCoverageTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+def test_fetched_empty_financial_history_is_not_sufficient_for_screening() -> None:
+    from baibai_engine.storage.observations.coverage import range_covered
+
+    asof = _COMMON_COVERAGE_ASOF
+    with _complete_coverage_database() as database:
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute("DELETE FROM jquants_fin_summaries")
+            connection.execute(
+                "UPDATE source_coverage SET record_count = 0 WHERE source = 'jquants_fin_summaries'"
+            )
+            assert range_covered(
+                connection, "jquants_fin_summaries", asof - timedelta(days=2200), asof
+            )
+        issues = _verify_screening_sqlite_coverage(database, asof)
+        assert any(
+            issue.source == "jquants_fin_summaries"
+            and "has no rows in the required date window" in issue.reason
+            for issue in issues
+        )

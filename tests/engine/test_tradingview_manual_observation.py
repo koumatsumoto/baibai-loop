@@ -3,16 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import httpx2
 import pytest
-from tests.engine.test_tradingview_collector import Timer, payload, store, stored
+from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
 
-from baibai_engine.market.tradingview import cli
-from baibai_engine.market.tradingview.collector import collect, preflight_snapshot
-from baibai_engine.market.tradingview.diagnostics import SourceDataError, TimeGuardError
-from baibai_engine.market.tradingview.observations import FetchError
+from baibai_engine.external_assessment.tradingview import cli
+from baibai_engine.external_assessment.tradingview.collector import collect, preflight_snapshot
+from baibai_engine.external_assessment.tradingview.diagnostics import (
+    SourceDataError,
+    TimeGuardError,
+)
+from baibai_engine.external_assessment.tradingview.observations import FetchError
 
 DAY = date(2026, 10, 11)
 MASTER = date(2026, 10, 9)
@@ -21,8 +25,11 @@ NOW = datetime(2026, 10, 11, 1, tzinfo=UTC)
 
 def manual_store(tmp_path, count=153):
     path = store(tmp_path / "market.sqlite", count)
-    with sqlite3.connect(path) as conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (MASTER.isoformat(),))
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date=?, record_json=json_set(record_json, '$.Date', ?)",
+            (MASTER.isoformat(), MASTER.isoformat()),
+        )
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,0)", (DAY.isoformat(),))
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-10',0)")
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (MASTER.isoformat(),))
@@ -48,12 +55,12 @@ def test_weekend_observation_resumes_only_missing_and_preserves_nulls_times_and_
     starts, ends = [], []
     requests = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         requests.append(symbols)
         starts.append(timer.value)
         timer.value += 5
         ends.append(timer.value)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def sleep(seconds):
         assert seconds >= 15
@@ -79,7 +86,7 @@ def test_weekend_observation_resumes_only_missing_and_preserves_nulls_times_and_
     assert result["snapshot_date"] == DAY.isoformat()
     assert stored(path)[:100] == prior
     assert result["normal_nulls"]["analyst_rating"] == 153
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         assert conn.execute(
             "SELECT DISTINCT snapshot_date FROM jquants_master_snapshots"
         ).fetchall() == [(MASTER.isoformat(),)]
@@ -100,7 +107,7 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
     timer = Timer()
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
         if failure == "soft_budget":
             timer.value = 1490
@@ -111,7 +118,7 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
                 request=httpx2.Request("GET", "https://example.com"),
             )
             raise httpx2.HTTPStatusError("private", request=response.request, response=response)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     async def sleep(_seconds):
         pass
@@ -138,9 +145,9 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
     assert first[:100] == prior
     requests = []
 
-    async def resume(symbols):
+    async def resume(symbols, _columns):
         requests.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, DAY, resume, master_asof=MASTER, clock=lambda: NOW))
     assert (result["rows_added"], result["remaining"]) == (2, 0)
@@ -156,7 +163,6 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
         "future_master",
         "missing_master",
         "short_interval",
-        "small_batch",
     ],
 )
 def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, capsys, case):
@@ -182,8 +188,6 @@ def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, cap
         args[-1] = "2026-10-08"
     if case == "short_interval":
         args += ["--interval", "14"]
-    if case == "small_batch":
-        args += ["--batch-size", "49"]
     before = path.read_bytes()
     assert cli.main(args) == 1
     output = capsys.readouterr()
@@ -210,8 +214,8 @@ def test_manual_cli_passes_today_and_saved_master_and_completed_noop_avoids_oaut
         assert options["master_asof"] == MASTER
         assert interval == 15
 
-        async def fetch(symbols):
-            return payload(symbols)
+        async def fetch(symbols, _columns):
+            return _sdk(payload(symbols))
 
         return await collect(path, DAY, fetch, master_asof=MASTER, clock=lambda: NOW)
 
@@ -236,10 +240,10 @@ def test_weekend_response_after_midnight_is_rejected(tmp_path):
     before = stored(path)
     count = 0
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         nonlocal count
         count += 1
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     with pytest.raises(FetchError):
         asyncio.run(
@@ -253,7 +257,7 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
     tmp_path, observation_day
 ):
     path = manual_store(tmp_path, 101)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         if observation_day != DAY:
             conn.execute(
                 "INSERT INTO jquants_market_calendar VALUES (?,0)", (observation_day.isoformat(),)
@@ -270,9 +274,9 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
     )
     calls = []
 
-    async def fetch(symbols):
+    async def fetch(symbols, _columns):
         calls.append(symbols)
-        return payload(symbols)
+        return _sdk(payload(symbols))
 
     result = asyncio.run(collect(path, observation_day, fetch, clock=lambda: morning))
     assert (result["status"], result["master_asof"], result["rows_added"]) == (
@@ -289,8 +293,10 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
 
 def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_path):
     path = manual_store(tmp_path, 101)
-    with sqlite3.connect(path) as conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18'")
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18', record_json=json_set(record_json,'$.Date','2026-09-18')"
+        )
     before = path.read_bytes()
     with pytest.raises(SourceDataError, match="calendar-required exact-date master"):
         preflight_snapshot(path, DAY, now=NOW)
@@ -302,9 +308,11 @@ def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_pa
 @pytest.mark.parametrize("missing_day", ["2026-10-09", "2026-10-10"])
 def test_calendar_gap_cannot_select_an_older_master_or_collect(tmp_path, missing_day):
     path = manual_store(tmp_path, 101)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-08',1)")
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08'")
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08', record_json=json_set(record_json,'$.Date','2026-10-08')"
+        )
         conn.execute("DELETE FROM jquants_market_calendar WHERE day=?", (missing_day,))
     before = path.read_bytes()
     with pytest.raises(SourceDataError, match="Continuous trading calendar coverage"):
@@ -321,7 +329,7 @@ def test_calendar_gap_cannot_select_an_older_master_or_collect(tmp_path, missing
 def test_partial_preflight_keeps_quality_when_cooldown_prevents_fetch(tmp_path):
     path = manual_store(tmp_path, 101)
     last_received = (NOW + timedelta(seconds=1)).isoformat()
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "UPDATE tradingview_forecast_snapshots SET fetch_status='unresolved' WHERE ticker='1000'"
         )
@@ -360,8 +368,8 @@ def test_business_day_manual_morning_does_not_block_post_close_collection(
     assert json.loads(capsys.readouterr().out)["status"] == "before_close"
     assert stored(path) == []
 
-    async def fetch(symbols):
-        return payload(symbols)
+    async def fetch(symbols, _columns):
+        return _sdk(payload(symbols))
 
     with pytest.raises(TimeGuardError):
         asyncio.run(collect(path, day, fetch, master_asof=day, clock=lambda: morning))
@@ -369,3 +377,10 @@ def test_business_day_manual_morning_does_not_block_post_close_collection(
         collect(path, day, fetch, master_asof=day, clock=lambda: morning + timedelta(hours=6))
     )
     assert result["status"] == "saved"
+
+
+def test_batch_size_option_is_removed_before_any_credential_access(monkeypatch):
+    monkeypatch.setattr(cli, "credential_storage", lambda *_: pytest.fail("must not read OAuth"))
+    with pytest.raises(SystemExit) as error:
+        cli.main(["refresh", "--batch-size", "50"])
+    assert error.value.code == 2

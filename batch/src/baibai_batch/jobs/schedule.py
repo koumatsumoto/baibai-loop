@@ -9,6 +9,7 @@ _JST = timezone(timedelta(hours=9))
 # `cloud-daily-batch`'s cron in UTC (16:43 JST). A contract test pins this
 # constant against the workflow so both execution and observation use one clock.
 BATCH_SCHEDULED_FIRE_TIME = time(7, 43, tzinfo=UTC)
+EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME = time(10, 13, tzinfo=UTC)
 
 
 def batch_target_date(instant: datetime) -> date:
@@ -18,6 +19,20 @@ def batch_target_date(instant: datetime) -> date:
     if fired > instant:
         fired -= timedelta(days=1)
     return fired.astimezone(_JST).date()
+
+
+def external_assessment_target_date(created_at: datetime, now: datetime) -> tuple[date, bool]:
+    """Pin a daily run to its original GitHub creation clock, including reruns."""
+    if any(clock.tzinfo is None or clock.utcoffset() is None for clock in (created_at, now)):
+        raise ValueError("timezone-aware external assessment run clocks required")
+    if created_at > now:
+        raise ValueError("external assessment run creation clock is in the future")
+    fired = datetime.combine(
+        created_at.astimezone(UTC).date(), EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME
+    )
+    if fired > created_at:
+        fired -= timedelta(days=1)
+    return fired.astimezone(_JST).date(), now.astimezone(_JST).time() >= time(15, 30)
 
 
 def resolve_tradingview_target(

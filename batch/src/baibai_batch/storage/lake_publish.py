@@ -11,10 +11,9 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Never, Protocol
 
@@ -27,12 +26,12 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 
 from baibai_engine.batch_api import (
-    L1ReleasePointer,
     LakeDatasetManifest,
     LakeReleaseManifest,
+    LakeReleasePointer,
     LakeSQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
-    lake_current_l1_pointer_key,
+    lake_current_release_pointer_key,
     lake_dataset_manifest_key,
     lake_release_manifest_key,
     load_lake_model_json,
@@ -41,7 +40,6 @@ from baibai_engine.batch_api import (
 
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_POINTER_BYTES = 64 * 1024
-_MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
 # A per-attempt read timeout that is shorter than the transfer it guards turns a
 # slow object into an avoidable retry. The floor covers control-plane latency; the
 # transfer term is derived from the object's own size at a throughput well below
@@ -77,7 +75,7 @@ class PointerPrecondition:
 
 @dataclass(frozen=True, slots=True)
 class PointerSnapshot:
-    pointer: L1ReleasePointer | None
+    pointer: LakeReleasePointer | None
     precondition: PointerPrecondition
 
 
@@ -105,12 +103,12 @@ def read_pointer_snapshot(store: ObjectStore) -> PointerSnapshot:
     """Read and validate the exact mutable-pointer generation visible now."""
 
     publication = _RemotePublication(store=store)
-    key = lake_current_l1_pointer_key()
+    key = lake_current_release_pointer_key()
     remote = publication.head(key)
     if remote is None:
         return PointerSnapshot(pointer=None, precondition=PointerPrecondition(etag=None))
     try:
-        pointer = load_lake_model_json(publication.read_pointer(key, remote), L1ReleasePointer)
+        pointer = load_lake_model_json(publication.read_pointer(key, remote), LakeReleasePointer)
     except ValueError:
         raise LakePublishError("serving pointer is invalid") from None
     return PointerSnapshot(pointer=pointer, precondition=PointerPrecondition(etag=remote.etag))
@@ -177,8 +175,8 @@ class _RemotePublication:
     """
 
     store: ObjectStore
+    verified_readback_root: Path | None = None
     verified: dict[str, tuple[str, int, str]] = field(default_factory=dict)
-    manifest_payloads: dict[str, bytes] = field(default_factory=dict)
     uploaded_objects: int = 0
     reused_objects: int = 0
     uploaded_bytes: int = 0
@@ -309,36 +307,6 @@ class _RemotePublication:
         self.head_requests += 1
         return result
 
-    def require_small_object(self, *, key: str, expected_sha256: str, content_type: str) -> bytes:
-        """Read one manifest-sized object once, proving its identity from its bytes.
-
-        Manifests and pointers are read for their content anyway, so their identity is
-        proved from the bytes that were read rather than from a second stream.
-        """
-
-        cached = self.manifest_payloads.get(key)
-        if cached is not None:
-            if hashlib.sha256(cached).hexdigest() != expected_sha256:
-                raise LakePublishError(f"remote graph has conflicting identities: {key}")
-            return cached
-        remote = self.head(key)
-        if remote is None:
-            raise LakePublishError(f"remote object is missing: {key}")
-        if remote.size > _MAX_SMALL_OBJECT_BYTES:
-            raise LakePublishError(f"remote graph node exceeds its size limit: {key}")
-        payload = self.get_bytes(key)
-        if len(payload) != remote.size or hashlib.sha256(payload).hexdigest() != expected_sha256:
-            raise LakePublishError(f"remote object bytes postcondition failed: {key}")
-        self.accept_existing(
-            remote,
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=len(payload),
-            content_type=content_type,
-        )
-        self.manifest_payloads[key] = payload
-        return payload
-
     def read_pointer(self, key: str, remote: RemoteObject) -> bytes:
         """Read the one mutable object, proving its bytes against its own identity."""
 
@@ -364,32 +332,20 @@ class _RemotePublication:
         if self.read_pointer(key, remote) != expected:
             raise LakePublishError(f"remote pointer bytes postcondition failed: {key}")
 
-    def require_present_identity(
-        self, *, key: str, expected_sha256: str, content_type: str
-    ) -> None:
-        """Prove one object whose size the manifest does not fix still holds its digest."""
-
-        stored = self.verified.get(key)
-        if stored is not None:
-            if (stored[0], stored[2]) != (expected_sha256, content_type):
-                raise LakePublishError(f"remote graph has conflicting identities: {key}")
-            return
-        remote = self.head(key)
-        if remote is None:
-            raise LakePublishError(f"remote object is missing: {key}")
-        self.accept_existing(
-            remote,
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=remote.size,
-            content_type=content_type,
-        )
-
     def _require_bytes(self, *, key: str, expected_sha256: str, expected_size: int) -> None:
+        destination = (
+            _mirror_path(self.verified_readback_root, key)
+            if self.verified_readback_root is not None
+            else None
+        )
+        if destination is not None:
+            destination.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
-                prefix="baibai-lake-readback-", delete=False
+                prefix="baibai-lake-readback-",
+                dir=None if destination is None else destination.parent,
+                delete=False,
             ) as target:
                 temporary_path = Path(target.name)
             self.store.download_file(key, temporary_path, expect_bytes=expected_size)
@@ -400,28 +356,32 @@ class _RemotePublication:
                 or _sha256(temporary_path) != expected_sha256
             ):
                 raise LakePublishError(f"remote object bytes postcondition failed: {key}")
+            if destination is not None:
+                temporary_path.replace(destination)
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
 
-def publish_l1_release(
+def publish_release(
     *,
     mirror_root: Path,
     release_manifest_path: Path,
     store: ObjectStore,
     pointer_precondition: PointerPrecondition | None = None,
     expected_release_sha256: str | None = None,
+    before_pointer_switch: Callable[[], None] | None = None,
+    verified_readback_root: Path | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
-    publication = _RemotePublication(store=store)
-    pointer_key = lake_current_l1_pointer_key()
+    publication = _RemotePublication(store=store, verified_readback_root=verified_readback_root)
+    pointer_key = lake_current_release_pointer_key()
     if pointer_precondition is None:
         initial = publication.head(pointer_key)
         if initial is not None:
             try:
                 load_lake_model_json(
-                    publication.read_pointer(pointer_key, initial), L1ReleasePointer
+                    publication.read_pointer(pointer_key, initial), LakeReleasePointer
                 )
             except ValueError:
                 raise LakePublishError("serving pointer is invalid") from None
@@ -453,6 +413,7 @@ def publish_l1_release(
         manifest = load_lake_model_json(manifest_payload, LakeDatasetManifest)
         if (
             manifest.dataset != dataset_name
+            or manifest.layer != release_dataset.layer
             or manifest.build_id != release_dataset.build_id
             or manifest.contract_version != release_dataset.contract_version
             or hashlib.sha256(manifest_payload).hexdigest() != release_dataset.manifest_sha256
@@ -521,7 +482,7 @@ def publish_l1_release(
     current = publication.head(pointer_key)
     if current is not None:
         serving = load_lake_model_json(
-            publication.read_pointer(pointer_key, current), L1ReleasePointer
+            publication.read_pointer(pointer_key, current), LakeReleasePointer
         )
         # Republishing the same release is the retry of an interrupted publication, and
         # it has to be exactly the same release rather than the same name.
@@ -539,7 +500,7 @@ def publish_l1_release(
                 remote_closure_seconds=pointer_started - remote_closure_started,
                 pointer_seconds=time.perf_counter() - pointer_started,
             )
-    pointer = L1ReleasePointer(
+    pointer = LakeReleasePointer(
         release_id=release.release_id,
         manifest_key=expected_release_key,
         manifest_sha256=release_sha256,
@@ -548,6 +509,12 @@ def publish_l1_release(
         temporary.write(canonical_lake_model_bytes(pointer))
         temporary.flush()
         pointer_payload = Path(temporary.name).read_bytes()
+        # A long export/upload can outlive the caller's publication lease. The
+        # pointer ETag protects its generation, while this checks the caller's
+        # authority immediately before the conditional write. A failed guard is
+        # not an ambiguous attempted switch and must never enter reconciliation.
+        if before_pointer_switch is not None:
+            before_pointer_switch()
         try:
             result = publication.put(
                 pointer_key,
@@ -642,25 +609,33 @@ def _ensure_immutable(
             )
         except LakeCASConflict:
             uploaded = False
-        publication.require_identity(
-            key=key,
-            expected_sha256=digest,
-            expected_size=size,
-            content_type=content_type,
-            read_back=uploaded,
-        )
-        if uploaded:
-            publication.uploaded_objects += 1
-            publication.uploaded_bytes += size
-        else:
-            publication.reused_objects += 1
-        return uploaded
+    # The PUT has consumed the sealed upload. Release those bytes before the full
+    # remote readback; large first-publication objects otherwise need two copies.
+    publication.require_identity(
+        key=key,
+        expected_sha256=digest,
+        expected_size=size,
+        content_type=content_type,
+        read_back=uploaded,
+    )
+    if uploaded:
+        publication.uploaded_objects += 1
+        publication.uploaded_bytes += size
+    else:
+        publication.reused_objects += 1
+    return uploaded
 
 
 class Boto3R2Store:
     """S3-compatible R2 adapter with reusable in-process connections."""
 
-    def __init__(self, *, bucket: str, env: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        env: Mapping[str, str] | None = None,
+        verify_put_with_head: bool = True,
+    ) -> None:
         source = dict(os.environ if env is None else env)
         account_id = _required(source, "R2_ACCOUNT_ID")
         if _R2_ACCOUNT_ID.fullmatch(account_id) is None:
@@ -670,6 +645,7 @@ class Boto3R2Store:
         self.access_key_id = _required(source, "R2_ACCESS_KEY_ID")
         self.secret_access_key = _required(source, "R2_SECRET_ACCESS_KEY")
         self._clients: dict[int, S3Client] = {}
+        self.verify_put_with_head = verify_put_with_head
 
     def _client(self, payload_bytes: int | None = None) -> S3Client:
         timeout = _operation_timeout(payload_bytes)
@@ -710,6 +686,21 @@ class Boto3R2Store:
             metadata={str(k): str(v) for k, v in value.get("Metadata", {}).items()},
             content_type=str(value.get("ContentType", "application/octet-stream")),
         )
+
+    def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]:
+        """List keys and sizes under one prefix without downloading object bodies."""
+        try:
+            for page in (
+                self._client()
+                .get_paginator("list_objects_v2")
+                .paginate(Bucket=self.bucket, Prefix=prefix)
+            ):
+                for item in page.get("Contents", []):
+                    yield item["Key"], item["Size"]
+        except ClientError as exc:
+            _raise_r2_error("list-objects", exc)
+        except BotoCoreError as exc:
+            raise LakePublishError("R2 list-objects failed") from exc
 
     def get_bytes(self, key: str) -> bytes:
         try:
@@ -792,13 +783,26 @@ class Boto3R2Store:
         try:
             with path.open("rb") as body:
                 request["Body"] = body
-                self._client(path.stat().st_size).put_object(**request)
+                response = self._client(path.stat().st_size).put_object(**request)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise LakePublishError("R2 put-object timed out") from exc
         except ClientError as exc:
             _raise_r2_error("put-object", exc)
         except BotoCoreError as exc:
             raise LakePublishError("R2 put-object failed") from exc
+        if not self.verify_put_with_head:
+            # Private acquisition uses the acknowledged conditional PUT generation.
+            # Content-MD5 verifies the submitted bytes; metadata is part of that PUT.
+            # An absent acknowledgement must stop, never be repaired by guessing.
+            etag = response.get("ETag", "").strip('"')
+            if not etag:
+                raise LakePublishError("R2 put-object acknowledgement lacks a generation")
+            return RemoteObject(
+                etag=etag,
+                size=path.stat().st_size,
+                metadata=request["Metadata"],
+                content_type=content_type,
+            )
         result = self.head(key)
         if result is None:
             raise LakePublishError(f"R2 object missing after successful put: {key}")
@@ -822,7 +826,7 @@ def _raise_r2_error(operation: str, error: ClientError) -> Never:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mirror", type=Path)
+    parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--release-manifest", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
 
@@ -832,10 +836,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.mirror is None:
-        parser.error("--mirror is required for publication")
-    store = Boto3R2Store(bucket=args.bucket)
     try:
+        store = Boto3R2Store(bucket=args.bucket)
         payload = args.release_manifest.read_bytes()
         release = load_lake_model_json(payload, LakeReleaseManifest)
         release_sha256 = hashlib.sha256(payload).hexdigest()
@@ -848,7 +850,7 @@ def main(argv: list[str] | None = None) -> int:
                 "low-level publication cannot replace current; use "
                 "batch/scripts/r2_transfer.sh publish-lake for a forward publication"
             )
-        release_report = publish_l1_release(
+        release_report = publish_release(
             mirror_root=args.mirror,
             release_manifest_path=args.release_manifest,
             expected_release_sha256=release_sha256,
@@ -885,10 +887,6 @@ def _required(env: Mapping[str, str], name: str) -> str:
     return value
 
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
 def _mirror_path(mirror_root: Path, key: str) -> Path:
     root = mirror_root.resolve()
     path = (root / key).resolve()
@@ -903,7 +901,7 @@ def _mirror_path(mirror_root: Path, key: str) -> Path:
 def _sealed_upload(path: Path) -> Iterator[tuple[Path, str, str, int]]:
     """Capture one stable local byte sequence for hash, upload, and verification."""
     digest = hashlib.sha256()
-    transport_digest = hashlib.md5(usedforsecurity=False)  # nosec B324
+    transport_digest = hashlib.md5(usedforsecurity=False)
     size = 0
     temporary_path: Path | None = None
     try:
@@ -948,7 +946,8 @@ def _sha256(path: Path) -> str:
 
 def _content_md5(path: Path) -> str:
     """Return base64 Content-MD5 for R2 transport validation, not logical identity."""
-    digest = hashlib.md5(usedforsecurity=False)  # nosec B324 - transport checksum only.
+    # transport checksum only.
+    digest = hashlib.md5(usedforsecurity=False)
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
             digest.update(chunk)

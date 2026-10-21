@@ -2,11 +2,15 @@
 title: "未解決 priced-master return の有界 bracket 拡張"
 summary: "未解決対象を全損・中立で挟む方向安定契約を採用し、eligibleを3y 30→39、5y 12→18へ増やした。margin_short_to_advはadoption candidate、還元2成分はnegativeと再判定した。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 未解決 priced-master return の有界 bracket 拡張
+
+## 解釈の限定
+
+以下は当時の事前登録・判定記録である。全損と母集団中央値は指定した感度シナリオであり、中立値は未知の株式リターンの上限ではない。3 case の符号一致は、その間のあらゆる値・銘柄別の異なる代入や範囲外でも結論が不変である保証ではない。未解決データが結論へ影響しないことの証明として使わない。
 
 価値tier: T2 — 長期較正で未解決 return が結論を作っていない cohort を有界感度で識別し、最も強い既存 T1 evidence の production 判断を恒久的な data gap から解放する。
 
@@ -21,7 +25,7 @@ date: 2026-08-02
 - `margin_short_to_adv`: **`adoption_candidate`**。raw annotationのproduction配線は別issueで扱う
 - `share_count_reduction_streak` / `dps_guidance_up`: authorityは解消したが効果条件のfailが残るため、両方とも **`negative`**
 
-事前登録は [`2026-08-02-unresolved-priced-master-bracket-preregistration.md`](.../2026-08-02-unresolved-priced-master-bracket/preregistration/report.md) で固定した。特定axisの結果を見て規則、cohort、metric、control、採否条件を変更していない。
+事前登録は [`2026-08-02-unresolved-priced-master-bracket-preregistration.md`](../2026-08-02-unresolved-priced-master-bracket/preregistration.md) で固定した。特定axisの結果を見て規則、cohort、metric、control、採否条件を変更していない。
 
 ## 1. 契約検証
 
@@ -133,4 +137,4 @@ authorityは `baibai-engine screening calibration-evaluate` で、全 cohort、�
 
 ## 6. この結果が意味しないこと
 
-両側代入は未解決returnを観測・推定せず、効果量の正確さも保証しない。結論の向きが `-100%` と中立値の範囲で変わらないことだけを答える。eligible増加はscreening methodの有効性、統計的有意性、独立track recordを示さない。`margin_short_to_adv`も空売り主体や因果を識別せず、還元2成分のnegativeは将来の全買戻し・増配施策が無効だという主張ではない。
+両側代入は未解決returnを観測・推定せず、効果量の正確さも保証しない。結論の向きが報告値・全対象への `-100%` 代入・全対象への中立値代入という 3 case で一致したことだけを答える。eligible増加はscreening methodの有効性、統計的有意性、独立track recordを示さない。`margin_short_to_adv`も空売り主体や因果を識別せず、還元2成分のnegativeは将来の全買戻し・増配施策が無効だという主張ではない。

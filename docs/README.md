@@ -7,6 +7,8 @@ status: active
 
 # Baibai Loop docs
 
+Valuation・Market Context・External Assessmentの意味は[domain-language](./domain-language.md#analysis-domains)、現行実装の責務は[architecture](./architecture.md#repository-map)、完了した情報層の切替・受入記録は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)が所有する。
+
 ## 初めて読むとき
 
 [doctrine](./doctrine.md)で目的と判断原則を確認し、[domain-languageのDecision flow](./domain-language.md#decision-flow)で観測・候補・判断・確認済み取引の関係を掴む。構成や変更箇所を調べるときは[architecture](./architecture.md#repository-map)へ進む。実際の操作は下表の入口から始め、必要なreferenceだけを参照する。
@@ -15,17 +17,38 @@ status: active
 
 | 目的 | 入口 |
 | --- | --- |
-| 買い候補を探す | [Research Triage](../.agents/skills/research-triage/SKILL.md) |
-| 選んだ企業を調査して配分を判断する | [Research](../.agents/skills/research/SKILL.md) |
+| 明示開始から有限調査・新規/保有提案を進める | [Research](../.agents/skills/research/SKILL.md) |
 | 注文結果・入出金を記録する | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
-| 保有銘柄を見直す | [Position Review](../.agents/skills/position-review/SKILL.md) |
-| Macro Contextを書く | [Macro Context](../.agents/skills/macro-context/SKILL.md) |
-| 外部ChatのMacro draftを受け渡す | [Macro handoff](./reference/macro-handoff.md) |
+| 保有銘柄を見直す | [Researchの保有見直し](../.agents/skills/research/SKILL.md) |
+| 保存済み外部参考評価を読む | [External Assessmentの意味](./reference/data-sources.md#external-assessment)・[保存済み照会](./reference/market-lake.md#external-assessment-query) |
+| 保存済み市場・業種・個別相対を読む | [Market Context読取](./reference/market-context.md#market-context-reads) |
+| 市場環境判断を作る | [Market Context assessment](../.agents/skills/market-context-assessment/SKILL.md) |
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |
-| 保存済み情報を表示・照会する | [Web](../web/README.md)・[Owner MCP](../tools/owner_mcp/README.md) |
-| 見積り方法を改善する | [Estimate calibration](./reference/estimate-calibration.md) |
+| 保存済み情報を表示・照会する | [Web](../web/README.md)・[固定lake release読取](./reference/market-lake.md#fixed-release-read) |
+| 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Stock Assessment](./reference/stock-assessment.md#scenario-arithmetic) |
+| 見積り方法・保存済みER較正文脈を確認する | [Estimate calibration](./reference/estimate-calibration.md) |
+| 条件・閾値の目的と根拠を確認する | [判断条件の見取り図](#判断条件の見取り図)から各責務の正本へ辿る |
+| 仕様の採否・簡素化、設計・レビューの基準を確認する | [開発・設計・レビューの原則](./doctrine.md#development-investment-policy) |
 | PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
 | artifact・指標の意味を調べる | [Reference index](./reference/README.md) |
+
+## 調査から本番表示までの読み順
+
+[Research skill](../.agents/skills/research/SKILL.md)を入口に、固定入力と再開は[Analysis operations](./reference/analysis-operations.md)、企業評価と独立反証は[Stock Assessment](./reference/stock-assessment.md)、比較・行動と発行は[Investment Proposal](./reference/investment-proposal.md)へ進む。共通の市場判断を新規作成する場合の入口は[Market Context skill](../.agents/skills/market-context-assessment/SKILL.md)である。
+
+作業コピーへの正式保存後、本番反映が必要なら[Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md)から[application反映](../batch/OPERATIONS.md#application-db-を反映する)へ進む。R2正本、表示用生成物、画面の確認をそこで行い、提案から台帳へ自動的には進まない。人間の取引報告を受けた場合だけ[Ledger Record](../.agents/skills/ledger-record/SKILL.md)へ進む。各入口の条件・commandをこの索引へ複写しない。
+
+## 判断条件の見取り図
+
+[取得・観測の利用可能性](./reference/data-sources.md)は銘柄の価値判断と分ける。計算できるか、候補として調べるか、購入するか、保有するかも別の問いである。各条件の数値・判定式は対応する実装とmethodが所有し、下表は理由と責務への入口だけを示す。閾値の採否・未測定事項の進捗は[Issue #1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)に残し、テスト成功を経済的な最適性とは扱わない。
+
+| 判断の段階 | 理由・意味の正本 | 実装と代表的な回帰 |
+| --- | --- | --- |
+| 計算入力から候補集合・候補一覧まで | [指標と欠測](./reference/valuation-metrics.md)、[Screeningの資格・順位・品質](./reference/screening-runtime.md#rule-purpose) | [`CommonEligibilityRules.matches`](../engine/src/baibai_engine/screening/rule_config.py)、[候補文脈](../engine/src/baibai_engine/screening/discovery/candidates.py)、[回帰](../tests/engine/test_candidate_discovery.py) |
+| 機械E[r]の参考値と較正 | [機械見積り](./reference/valuation-metrics.md#machine-valuation)、[較正文脈](./reference/estimate-calibration.md#estimator-vs-decision) | [文脈読取](../engine/src/baibai_engine/valuation/calibration/query.py)、[回帰](../tests/engine/test_er_calibration_context_contract.py) |
+| 明示Researchと企業固有の評価 | [有限対象と進行](./reference/analysis-operations.md)、[Stock Assessmentと独立Review](./reference/stock-assessment.md) | [対象と進捗](../engine/src/baibai_engine/research/operation/progress.py)、[回帰](../tests/engine/test_research_progression.py) |
+| 候補比較と新規購入 | [Investment Proposal](./reference/investment-proposal.md)、[資本方針](./portfolio-management.md) | [`evaluate_buy_terms`](../engine/src/baibai_engine/research/entry_policy.py)、[回帰](../tests/engine/test_conditional_buy_terms.py) |
+| 保有継続・回収と確認済み取引 | [保有提案](./reference/investment-proposal.md#holding)、[Portfolio Ledger](./reference/portfolio-ledger.md) | [保有判断](../engine/src/baibai_engine/research/holding_policy.py)、[台帳回帰](../tests/engine/test_portfolio_ledger.py) |
 
 ## 文書の役割
 
@@ -40,7 +63,8 @@ status: active
 | [reference](./reference/README.md) | artifact・指標・判断入力の意味と解釈上の制約 |
 | model・DB schema・public `--help` | field、type、enum、option、機械検証の厳密な形 |
 | [anti-patterns](./anti-patterns.md) | 過去に取り違えた論点から正本へ辿る索引 |
-| [method](../method/README.md)・[reports](../reports/README.md) | 採用methodと、当時の測定・判断の記録 |
+| [method](../method/README.md) | 採用した計算規則・playbookのdated revision。activeの選択は各loader・索引が所有する |
+| [reports](../reports/README.md) | 当時の測定・操作・判断の証拠。historical本文を現在の操作手順にしない |
 
 <a id="document-writing-contract"></a>
 

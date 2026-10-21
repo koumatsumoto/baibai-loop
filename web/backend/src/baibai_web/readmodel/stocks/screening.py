@@ -1,4 +1,4 @@
-"""ScreeningとReview Setを保存済み判断に束縛して表示する。"""
+"""Stock Analysisと同runの候補文脈を表示する。"""
 
 from __future__ import annotations
 
@@ -6,43 +6,46 @@ from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from baibai_engine.read_api import (
+    anchor_gap_pct,
+    interpreted_next_earnings_status,
+    machine_valuation_from_analysis,
+    reinvestment_coordinates,
+)
+from baibai_engine.read_api.er_calibration_context import (
+    ErCalibrationContextArtifact,
+    candidate_er_bands,
+)
 from baibai_web.readmodel.builders.presentation import number, text
 from baibai_web.readmodel.models import (
-    CapitalAllocationAssessmentSummaryView,
+    CandidateDiscoverySummaryView,
     ErLevelCalibrationBandView,
     ErLevelCalibrationBasisView,
     ErLevelCalibrationContextView,
+    ErLevelCalibrationCoverageView,
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
-    ResearchTriageEntryView,
-    ResearchTriageView,
-    ReviewSetAnalysisView,
-    ReviewSetEntrySnapshotView,
-    ReviewSetEntryView,
-    ReviewSetNominationView,
-    ReviewSetView,
+    ExternalAssessmentSecurityView,
     ScreeningHistoryRunView,
     ScreeningRunView,
     ScreeningView,
-    SecurityAnalysisRowView,
+    StockAnalysisRowView,
+    StockCandidateContextView,
 )
 from baibai_web.readmodel.stocks.presentation import (
     _held_and_reserved_tickers,
-    _mapping_items,
-    _mapping_items_optional,
     _portfolio_state,
 )
-from baibai_web.readmodel.stocks.research import _assessment_summary_view
+from baibai_web.readmodel.stocks.research import _proposal_summary_view
 from baibai_web.sources.db_sources import DbScreeningSource
 from baibai_web.sources.protocols import (
+    ExternalAssessmentSource,
     LedgerSource,
+    MarketPriceSource,
     ResearchSource,
     ScreeningSource,
 )
-from baibai_web.sources.types import (
-    ErLevelCalibrationContext,
-    ScreeningRunRecord,
-)
+from baibai_web.sources.types import ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
 
@@ -89,85 +92,81 @@ def build_screening(
     screening: ScreeningSource,
     ledger: LedgerSource,
     research: ResearchSource,
-    er_level_calibration: ErLevelCalibrationContext | None = None,
+    er_level_calibration: ErCalibrationContextArtifact | None = None,
+    *,
+    external_assessment: ExternalAssessmentSource | None = None,
+    market: MarketPriceSource | None = None,
+    external_cutoff: datetime | None = None,
 ) -> ScreeningView:
-    """Build the latest Security Analysis view with portfolio/research annotations."""
+    """Build the latest Stock Analysis view with portfolio/research annotations."""
 
-    run, review_sets = _operative_run(screening)
-    applicable_calibration = _calibration_for_run(run, er_level_calibration)
-    research_triages: list[ResearchTriageView] = []
-    assessments: list[CapitalAllocationAssessmentSummaryView] = []
-    research_triages, assessments = _current_screening_judgments(
-        research,
-        review_sets=review_sets,
+    run = screening.latest_run()
+    cutoff = external_cutoff or datetime.now(_JST)
+    held, reserved = _held_and_reserved_tickers(ledger)
+    revisions = research.revisions()
+    researched = {item.ticker for item in revisions}
+    latest_revisions = {item.ticker: item for item in reversed(revisions)}
+    analyzed = set() if run is None else {str(row["ticker"]) for row in run.rows}
+    external_tickers = (
+        [] if external_assessment is None else external_assessment.observed_tickers(cutoff=cutoff)
     )
+    identities = (
+        {}
+        if market is None or not external_tickers
+        else market.security_identities(as_of=cutoff.astimezone(_JST).date())
+    )
+    external_securities = [
+        ExternalAssessmentSecurityView(
+            ticker=ticker,
+            name=latest_revisions[ticker].company_name
+            if ticker in latest_revisions
+            else text(identities.get(ticker, {}).get("name")) or None,
+            sector_33=latest_revisions[ticker].sector
+            if ticker in latest_revisions
+            else text(identities.get(ticker, {}).get("sector_33")),
+            portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
+            has_research=ticker in researched,
+        )
+        for ticker in external_tickers
+        if ticker not in analyzed
+    ]
+    applicable_calibration = _calibration_for_run(run, er_level_calibration)
+    proposals = [_proposal_summary_view(item) for item in research.proposals()]
     if run is None:
         return ScreeningView(
             run=None,
-            security_analyses=[],
-            review_sets=review_sets,
-            research_triages=research_triages,
-            capital_allocation_assessments=assessments,
+            stock_analyses=[],
+            candidate_discovery=None,
+            investment_proposals=proposals,
             er_level_calibration=None,
+            external_assessment_securities=external_securities,
+            external_assessment_cutoff=cutoff if external_securities else None,
         )
-    held, reserved = _held_and_reserved_tickers(ledger)
-    researched = {item.ticker for item in research.revisions()}
-    fair_value = _fair_value_by_ticker(review_sets)
     today = datetime.now(_JST).date()
     return ScreeningView(
         run=_screening_run_view(run, today=today),
-        security_analyses=[
-            _security_analysis_row_view(
+        stock_analyses=[
+            _stock_analysis_row_view(
                 row,
                 held=held,
                 reserved=reserved,
                 researched=researched,
-                fair_value=fair_value,
                 er_level_calibration=applicable_calibration,
             )
             for row in run.rows
         ],
-        review_sets=review_sets,
-        research_triages=research_triages,
-        capital_allocation_assessments=assessments,
+        candidate_discovery=_candidate_summary(run),
+        investment_proposals=proposals,
         er_level_calibration=_er_level_calibration_view(applicable_calibration),
-    )
-
-
-def _current_screening_judgments(
-    research: ResearchSource,
-    *,
-    review_sets: list[ReviewSetView],
-) -> tuple[list[ResearchTriageView], list[CapitalAllocationAssessmentSummaryView]]:
-    """Show only the Research Triage -> allocation judgments for the displayed Review Set."""
-
-    review_set_sources = {
-        (review_set.review_set_id, review_set.run_revision_id) for review_set in review_sets
-    }
-    current_triages = [
-        item
-        for item in research.research_triages(
-            review_set_ids=[review_set.review_set_id for review_set in review_sets]
-        )
-        if (str(item.get("review_set_id")), str(item.get("run_revision_id"))) in review_set_sources
-    ]
-    triage_ids = {str(item["research_triage_id"]) for item in current_triages}
-    triage_views = [_research_triage_view(item) for item in current_triages]
-    if not triage_ids:
-        return triage_views, []
-    current_assessments = [
-        item for item in research.assessments() if str(item.get("research_triage_id")) in triage_ids
-    ]
-    return (
-        triage_views,
-        [_assessment_summary_view(item) for item in current_assessments],
+        external_assessment_securities=external_securities,
+        external_assessment_cutoff=cutoff if external_securities else None,
     )
 
 
 def _calibration_for_run(
     run: ScreeningRunRecord | None,
-    context: ErLevelCalibrationContext | None,
-) -> ErLevelCalibrationContext | None:
+    context: ErCalibrationContextArtifact | None,
+) -> ErCalibrationContextArtifact | None:
     """Bind historical E[r] bands to the exact method of the displayed run."""
 
     if run is None or context is None:
@@ -180,62 +179,14 @@ def _calibration_for_run(
     return context
 
 
-def _operative_run(
-    screening: ScreeningSource,
-) -> tuple[ScreeningRunRecord | None, list[ReviewSetView]]:
-    """Resolve the run every screening surface reads, with its own review_sets.
-
-    The L2 machine Review Set binds to a specific run revision; the L3 Research
-    Triage refers to that published set.
-    A newer revision of the same as-of — a determinism re-run, say — carries no
-    review_set of its own, so presenting it would blank the machine-review_set view
-    and the FV anchors that hang off it. Falling back to the newest review_set's run
-    keeps Security Analyses, their review_sets, and the research_triage join on one run.
-
-    Every surface that shows a candidate resolves the run here, so the list and the
-    security page cannot end up describing the same ticker from different runs.
-    """
-
-    run = screening.latest_run()
-    if run is None:
-        return None, []
-    # Ask for this run's review_sets first: the whole published history is only needed to
-    # find a fallback, which is the uncommon case, and a security page reads this on
-    # every request.
-    run_review_sets = screening.review_sets(run_revision_id=run.run_revision_id)
-    if not run_review_sets and (all_review_sets := screening.review_sets()):
-        newest = all_review_sets[0]
-        fallback_run = screening.run(str(newest["run_revision_id"]))
-        if fallback_run is not None:
-            run = fallback_run
-            run_review_sets = [
-                item
-                for item in all_review_sets
-                if str(item["run_revision_id"]) == run.run_revision_id
-            ]
-    return run, [_machine_review_set_view(item) for item in run_review_sets]
-
-
-def _fair_value_by_ticker(
-    review_sets: list[ReviewSetView],
-) -> Mapping[str, ReviewSetEntryView]:
-    """FV アンカーを持つのは entries だけなので、その範囲を ticker で引けるようにする。
-
-    複数 review_set が同じ run に束縛される場合は最新の review_set を採る。entries の
-    外にいる候補は FV を持たないまま残る。
-    """
-    if not review_sets:
-        return {}
-    newest = review_sets[0]
-    return {entry.ticker: entry for entry in newest.entries}
-
-
-def _review_entry_fair_value(entry: ReviewSetEntryView | None) -> float | None:
-    """Project the existing sector-median FV estimate without giving it membership authority."""
-
-    if entry is None:
-        return None
-    return entry.analysis.expected_return.fv_sector_median_yen
+def _candidate_summary(run: ScreeningRunRecord) -> CandidateDiscoverySummaryView:
+    summary = run.candidate_discovery
+    diagnostics = summary["diagnostics"]
+    if not isinstance(diagnostics, Mapping):
+        raise ValueError("candidate diagnostics must be an object")
+    return CandidateDiscoverySummaryView.model_validate(
+        {"method": summary["method"], **diagnostics}
+    )
 
 
 def build_screening_history_run(
@@ -252,102 +203,17 @@ def build_screening_history_run(
         return None
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
-    fair_value = _fair_value_by_ticker(
-        [
-            _machine_review_set_view(item)
-            for item in screening.review_sets(run_revision_id=run.run_revision_id)
-        ]
-    )
     return ScreeningHistoryRunView(
         run=_screening_run_view(run, today=datetime.now(_JST).date()),
         rows=[
-            _security_analysis_row_view(
+            _stock_analysis_row_view(
                 row,
                 held=held,
                 reserved=reserved,
                 researched=researched,
-                fair_value=fair_value,
             )
             for row in run.rows
         ],
-    )
-
-
-def _machine_review_set_view(raw: Mapping[str, object]) -> ReviewSetView:
-    payload = raw.get("payload")
-    if not isinstance(payload, Mapping):
-        raise ValueError("machine review_set payload must be an object")
-    return ReviewSetView(
-        review_set_id=str(raw["review_set_id"]),
-        run_revision_id=str(raw["run_revision_id"]),
-        created_at=datetime.fromisoformat(str(raw["created_at"])),
-        entries=[
-            _review_set_entries_entry_view(item)
-            for item in _mapping_items_optional(payload.get("entries"))
-        ],
-    )
-
-
-def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryView:
-    nominations = _mapping_items_optional(raw.get("nominations"))
-    analysis = raw.get("analysis")
-    if not isinstance(analysis, Mapping):
-        raise ValueError("Review Set entry analysis must be an object")
-    context = analysis.get("context")
-    if not isinstance(context, Mapping):
-        raise ValueError("Review Set entry context must be an object")
-    normalized_context = {
-        **context,
-        "large_holding_filing_within_lookback": context.get("large_holding_event_recent"),
-        "tender_offer_filing_within_lookback": context.get("tender_offer_event_recent"),
-    }
-    normalized_analysis = {**analysis, "context": normalized_context}
-    return ReviewSetEntryView(
-        ticker=str(raw.get("ticker", "")),
-        name=text(raw.get("name")),
-        sector_33=text(raw.get("sector_33")),
-        nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
-        analysis=ReviewSetAnalysisView.model_validate(normalized_analysis),
-    )
-
-
-def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | None:
-    """FV アンカーと screening 参考価格の乖離率。導出は read model 側で 1 回だけ行う。"""
-    if anchor is None or price is None or price == 0:
-        return None
-    return round((anchor / price - 1) * 100, 4)
-
-
-def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
-    """Project one current Research Triage entry and its judgment-time snapshot."""
-
-    snapshot = raw.get("candidate_snapshot")
-    if not isinstance(snapshot, Mapping):
-        raise ValueError("Research Triage candidate_snapshot must be an object")
-    analysis = snapshot.get("analysis")
-    if not isinstance(analysis, Mapping):
-        raise ValueError("Research Triage Review Set Entry analysis must be an object")
-    normalized = {
-        "name": snapshot.get("name"),
-        "sector_33": snapshot.get("sector_33"),
-        "nominations": snapshot.get("nominations"),
-        "expected_return": analysis.get("expected_return"),
-        "data_quality": analysis.get("data_quality"),
-    }
-    return ResearchTriageEntryView.model_validate(
-        {**raw, "review_set_entry_snapshot": ReviewSetEntrySnapshotView.model_validate(normalized)}
-    )
-
-
-def _research_triage_view(raw: Mapping[str, object]) -> ResearchTriageView:
-    entries = [_research_triage_entry_view(item) for item in _mapping_items(raw.get("entries"))]
-    return ResearchTriageView(
-        research_triage_id=str(raw["research_triage_id"]),
-        review_set_id=str(raw["review_set_id"]),
-        run_revision_id=str(raw["run_revision_id"]),
-        as_of=date.fromisoformat(str(raw["as_of"])),
-        published_at=datetime.fromisoformat(str(raw["published_at"])),
-        entries=entries,
     )
 
 
@@ -365,12 +231,10 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("BS前期繰越")
     if row.get("freshness_warnings"):
         flags.append("鮮度warning")
-    if row.get("split_adjustment_flag") is True:
-        flags.append("分割補正")
     if metrics.get("forecast_special_gain_flag") is True:
-        flags.append("一時益予想")
+        flags.append("予想純利益＞予想経常利益")
     if metrics.get("stale_fin_flag") is True:
-        flags.append("stale_fin")
+        flags.append("予定日到来・財務未照合")
     dividend_basis = metrics.get("dividend_basis")
     if isinstance(dividend_basis, str) and (
         dividend_basis.startswith("unresolved_") or dividend_basis == "unavailable"
@@ -391,15 +255,18 @@ def _screening_run_view(run: ScreeningRunRecord, *, today: date) -> ScreeningRun
     )
 
 
-def _security_analysis_row_view(
+def _stock_analysis_row_view(
     row: Mapping[str, object],
     *,
     held: set[str],
     reserved: set[str],
     researched: set[str],
-    fair_value: Mapping[str, ReviewSetEntryView] | None = None,
-    er_level_calibration: ErLevelCalibrationContext | None = None,
-) -> SecurityAnalysisRowView:
+    er_level_calibration: ErCalibrationContextArtifact | None = None,
+) -> StockAnalysisRowView:
+    flags_raw = row.get("jpx_flags")
+    coordinates = reinvestment_coordinates(row)
+    quality_raw = row.get("ttm_quality")
+    quality = quality_raw if isinstance(quality_raw, Mapping) else {}
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
     metrics = metrics_raw if isinstance(metrics_raw, Mapping) else {}
@@ -407,70 +274,94 @@ def _security_analysis_row_view(
     values.update({name: number(metrics.get(name)) for name in _METRIC_FIELDS})
     # 文字列の annotation は `number` を通すと必ず None になるので別に詰める。
     # `dividend_basis` は「配当利回りが空である理由」を持つ唯一の field で、
-    # unresolved_split_basis を無配と読み違えないために Security Analysis 一覧まで届ける必要がある。
+    # unresolved_split_basis を無配と読み違えないために Stock Analysis 一覧まで届ける必要がある。
     text_values = {name: text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
-    review_entry = (fair_value or {}).get(ticker)
-    anchor = _review_entry_fair_value(review_entry)
-    market_price = number(metrics.get("market_price_yen"))
-    return SecurityAnalysisRowView(
+    valuation = machine_valuation_from_analysis(row)
+    quintile: int | None = None
+    meets_hurdle = False
+    er_annual = values.get("er_annual")
+    if er_annual is not None and er_level_calibration is not None:
+        horizon = next(
+            item
+            for item in er_level_calibration.horizons
+            if item.horizon == er_level_calibration.reference_horizon
+        )
+        bands = candidate_er_bands(horizon, er_annual)
+        quintile = bands[0].quintile
+        meets_hurdle = len(bands) > 1
+    return StockAnalysisRowView(
+        candidate=StockCandidateContextView.model_validate(row.get("candidate")),
+        price_history_span_days=number(row.get("price_history_span_days")),
+        jpx_flags=list(flags_raw) if isinstance(flags_raw, list | tuple) else None,
+        forecast_special_gain_flag=_optional_bool(metrics.get("forecast_special_gain_flag")),
+        forecast_full_year_loss_flag=_optional_bool(metrics.get("forecast_full_year_loss_flag")),
+        investment_securities=number(metrics.get("investment_securities")),
+        asset_backed_ratio=number(metrics.get("asset_backed_ratio")),
+        p_s_sector_gap=coordinates["p_s_sector_gap"],
+        operating_return_on_capital_proxy=coordinates["operating_return_on_capital_proxy"],
+        operating_margin=coordinates["operating_margin"],
+        bs_carry_forward_fields=_optional_text(metrics.get("bs_carry_forward_fields")),
+        bs_carry_forward_lag_days=number(metrics.get("bs_carry_forward_lag_days")),
+        edinet_failure_reasons=_optional_text(metrics.get("edinet_failure_reasons")),
+        stale_fin_flag=_optional_bool(metrics.get("stale_fin_flag")),
+        ttm_quality_ev_ebitda=quality.get("ev_ebitda"),
+        ttm_quality_fcf=quality.get("fcf_yield"),
+        next_earnings_status=interpreted_next_earnings_status(
+            _optional_text(metrics.get("next_earnings_status"))
+        ),
+        next_earnings_estimated_date=_optional_text(metrics.get("next_earnings_estimated_date")),
+        tse_capital_policy_status=_optional_text(metrics.get("tse_capital_policy_status")),
+        large_holding_filing_within_lookback=_optional_bool(
+            metrics.get("large_holding_event_recent")
+        ),
+        tender_offer_filing_within_lookback=_optional_bool(
+            metrics.get("tender_offer_event_recent")
+        ),
+        fv_sector_median_yen=number(metrics.get("fv_sector_median_yen")),
+        fv_self_range_yen=number(metrics.get("fv_self_range_yen")),
+        er_origin=_optional_text(metrics.get("er_origin")),
         ticker=ticker,
         name=text(row.get("name")),
         sector_33=text(row.get("sector_33")),
         next_earnings_date=text(row.get("next_earnings_date")),
-        margin_week_end=text(metrics.get("margin_week_end")),
+        margin_balance_date=text(metrics.get("margin_balance_date")),
         data_quality_flags=flags,
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
-        fair_value_anchor_yen=anchor,
-        fair_value_gap_pct=_fair_value_gap_pct(anchor, market_price),
-        er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
-        er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
+        fair_value_anchor_yen=valuation.sector_median_anchor_yen,
+        fair_value_gap_pct=anchor_gap_pct(valuation),
+        net_share_change_yoy=valuation.net_share_change_yoy,
+        carry_missing_assumption=valuation.carry_missing_assumption,
+        er_model_version=valuation.model_version,
+        er_unit=valuation.unit,
+        er_anchor_metrics=valuation.anchor_metrics,
+        er_assumptions=valuation.assumptions,
+        er_level_quintile=quintile,
+        er_meets_8_5pct_band=meets_hurdle,
         **values,
         **text_values,
     )
 
 
-def _er_level_quintile(
-    er_annual: float | None, context: ErLevelCalibrationContext | None
-) -> int | None:
-    if er_annual is None or context is None:
-        return None
-    horizon = next(
-        (item for item in context.horizons if item.horizon == context.reference_horizon), None
-    )
-    if horizon is None:
-        return None
-    for band in horizon.bands:
-        if band.quintile is not None and (
-            band.upper_er_annual is None or er_annual <= band.upper_er_annual
-        ):
-            return band.quintile
-    return None
+def _optional_bool(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
 
 
-def _er_meets_hurdle(er_annual: float | None, context: ErLevelCalibrationContext | None) -> bool:
-    if er_annual is None or context is None:
-        return False
-    horizon = next(
-        (item for item in context.horizons if item.horizon == context.reference_horizon), None
-    )
-    if horizon is None:
-        return False
-    hurdle = next((item for item in horizon.bands if item.band_id == "er_gte_8_5pct"), None)
-    return bool(
-        hurdle is not None
-        and hurdle.lower_er_annual is not None
-        and er_annual >= hurdle.lower_er_annual
-    )
+def _optional_text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _er_level_calibration_view(
-    context: ErLevelCalibrationContext | None,
+    context: ErCalibrationContextArtifact | None,
 ) -> ErLevelCalibrationContextView | None:
     if context is None:
         return None
     return ErLevelCalibrationContextView(
+        interpretation=context.interpretation,
+        required_asofs=context.required_asofs,
+        evidence_complete=context.evidence_complete,
+        evidence_blocking_reasons=context.evidence_blocking_reasons,
         generated_at=context.generated_at,
         valid_through=context.valid_through,
         reference_horizon=context.reference_horizon,
@@ -482,8 +373,8 @@ def _er_level_calibration_view(
         horizons=[
             ErLevelCalibrationHorizonView(
                 horizon=item.horizon,
-                as_of_start=item.as_of_start,
-                as_of_end=item.as_of_end,
+                as_of_start=item.asof_start,
+                as_of_end=item.asof_end,
                 cohort_count=item.cohort_count,
                 bands=[
                     ErLevelCalibrationBandView(
@@ -497,20 +388,29 @@ def _er_level_calibration_view(
                         bases=[
                             ErLevelCalibrationBasisView(
                                 basis=basis.basis,
+                                coverage=ErLevelCalibrationCoverageView(
+                                    **basis.coverage.model_dump()
+                                ),
+                                observed_cohort_count=basis.observed_cohort_count,
+                                median_n=basis.median_n,
                                 ticker_equal=ErLevelCalibrationStatsView(
                                     median=basis.ticker_equal.median,
                                     q25=basis.ticker_equal.q25,
                                     q10=basis.ticker_equal.q10,
                                     trap_rate=basis.ticker_equal.trap_rate,
                                     n=basis.ticker_equal.n,
-                                ),
+                                )
+                                if basis.ticker_equal is not None
+                                else None,
                                 cohort_equal=ErLevelCalibrationStatsView(
                                     median=basis.cohort_equal.median,
                                     q25=basis.cohort_equal.q25,
                                     q10=basis.cohort_equal.q10,
                                     trap_rate=basis.cohort_equal.trap_rate,
                                     n=basis.cohort_equal.n,
-                                ),
+                                )
+                                if basis.cohort_equal is not None
+                                else None,
                             )
                             for basis in band.bases
                         ],

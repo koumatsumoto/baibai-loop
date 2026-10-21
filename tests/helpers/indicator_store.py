@@ -1,80 +1,23 @@
-"""Builders for the indicator store: series, observations, readers, and seeds."""
+"""Builders for indicator series, temporary L2 observations, and source fixtures."""
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable, Iterable, Sequence
-from datetime import date, datetime, timedelta
-from pathlib import Path
+from datetime import UTC, date, datetime, timedelta
 
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-    initialize_database,
-    insert_observations,
-)
-from baibai_engine.macro.indicators.definitions import SeriesDefinition
+from baibai_engine.collection.economic.records import store_snapshot
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 SOURCE_URL = "https://example.com/data.csv"
-
-_CONTRACT_TRIGGERS = (
-    "validate_observation_plausibility_before_insert",
-    "validate_observation_plausibility_before_update",
-    "validate_series_contract_before_update",
-)
-
-
-def downgrade_to_previous_schema(database: Path) -> None:
-    """Rebuild `observations` under the fetch_status domain that preceded 'retracted'.
-
-    Both the merge rollout tests and the store tests need a store one version behind, and
-    a copy in each would have to be edited in step with every schema move.
-    """
-
-    with sqlite3.connect(database) as connection:
-        trigger_sql = tuple(
-            str(row[0])
-            for row in connection.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name IN "
-                f"({', '.join('?' for _ in _CONTRACT_TRIGGERS)}) ORDER BY name",
-                _CONTRACT_TRIGGERS,
-            )
-        )
-        connection.executescript(
-            """
-            DROP TRIGGER validate_observation_plausibility_before_insert;
-            DROP TRIGGER validate_observation_plausibility_before_update;
-            DROP TRIGGER validate_series_contract_before_update;
-            CREATE TABLE observations_previous(
-              series_id TEXT NOT NULL REFERENCES series(series_id),
-              observed_at TEXT NOT NULL,
-              period_start TEXT,
-              period_end TEXT,
-              value REAL NOT NULL,
-              unit TEXT NOT NULL,
-              vintage_at TEXT NOT NULL,
-              fetch_status TEXT NOT NULL,
-              source_url TEXT NOT NULL,
-              PRIMARY KEY(series_id, observed_at, vintage_at),
-              CHECK(fetch_status IN ('ok', 'failed', 'unreleased'))
-            );
-            INSERT INTO observations_previous SELECT * FROM observations;
-            DROP TABLE observations;
-            ALTER TABLE observations_previous RENAME TO observations;
-            CREATE INDEX idx_observations_series_date ON observations(series_id, observed_at);
-            CREATE INDEX idx_observations_series_status_date_vintage
-              ON observations(series_id, fetch_status, observed_at, vintage_at);
-            """
-        )
-        for statement in trigger_sql:
-            connection.execute(statement)
-        connection.execute("PRAGMA user_version = 5")
 
 
 def series_definition(
     series_id: str = "test.series",
     *,
-    provider: str = "fred_csv",
-    provider_series_id: str = "TEST",
+    provider: str = "mof_jgb",
+    reading_key: str = "TEST",
     name: str = "Test Series",
     category: str = "rates",
     geography: str = "world",
@@ -99,7 +42,7 @@ def series_definition(
         frequency=frequency,
         unit=unit,
         provider=provider,
-        provider_series_id=provider_series_id,
+        reading_key=reading_key,
         source_id=source_id,
         source_url=source_url,
         plausible_min=plausible_min,
@@ -120,12 +63,11 @@ def observation(
     period_end: date | None = None,
     fetch_status: str = "ok",
 ) -> ObservationRecord:
-    """One stored observation.
+    """One temporary L2 calculation value used by a reader fixture.
 
-    Passing a `SeriesDefinition` takes its unit and source URL, because a record whose
-    unit disagrees with its series is one the store's own triggers refuse — a fixture
-    that builds it is testing a shape production never writes. ``period_days`` spells
-    the flow case: a window of that many days ending at ``observed_at``.
+    Passing a `SeriesDefinition` takes its unit and source URL. This record is not
+    retained source input. ``period_days`` is the start-to-end date offset, not an
+    inclusive day count (4 means Monday to Friday).
     """
 
     if period_days is not None:
@@ -186,23 +128,80 @@ def store_reader(
     return read
 
 
-def seed_store(path: Path, *records: ObservationRecord) -> None:
-    """Create an indicator store at `path` holding exactly `records`."""
+def store_h15_observations(
+    connection: sqlite3.Connection, records: Sequence[ObservationRecord]
+) -> None:
+    """Seed synthetic complete native H.15 rows from explicit yield fixture values.
 
-    connection = initialize_database(path)
-    try:
-        if records:
-            insert_observations(connection, list(records))
-    finally:
-        connection.close()
+    The fixture includes every registered maturity, with empty cells for yields the
+    test does not supply. It is not an original CSV response or a production adapter.
+    """
+    registry = load_definitions().by_id()
+    definitions = {item.series_id: item for item in registry.values() if item.provider == "frb_h15"}
+    grouped: dict[tuple[date, datetime], dict[str, str]] = {}
+    for record in records:
+        definition = definitions[record.series_id]
+        if record.fetch_status != "ok":
+            raise ValueError("H.15 fixture expects a successful source value")
+        fetched_at = record.vintage_at or datetime.combine(
+            record.observed_at, datetime.min.time(), tzinfo=UTC
+        )
+        key = (record.observed_at, fetched_at)
+        row = grouped.setdefault(
+            key,
+            {"Time Period": record.observed_at.isoformat()}
+            | {item.reading_key: "" for item in definitions.values()},
+        )
+        row[definition.reading_key] = str(record.value)
+    for (observed_at, fetched_at), row in grouped.items():
+        store_snapshot(
+            connection,
+            source_id=definitions[records[0].series_id].source_id,
+            observed_at=observed_at,
+            fetched_at=fetched_at,
+            records=[{"row": row, "preamble": []}],
+        )
+
+
+def store_mof_observations(
+    connection: sqlite3.Connection, records: Sequence[ObservationRecord]
+) -> None:
+    """Seed synthetic MOF rows; not a conversion of historical production data."""
+    registry = load_definitions().by_id()
+    definitions = {key: value for key, value in registry.items() if value.provider == "mof_jgb"}
+    grouped: dict[tuple[date, datetime], dict[str, str]] = {}
+    for record in records:
+        definition = definitions[record.series_id]
+        if record.fetch_status != "ok":
+            raise ValueError("MOF fixture expects a successful source value")
+        fetched_at = record.vintage_at or datetime.combine(
+            record.observed_at, datetime.min.time(), tzinfo=UTC
+        )
+        row = grouped.setdefault(
+            (record.observed_at, fetched_at),
+            {
+                "基準日": f"R{record.observed_at.year - 2018}.{record.observed_at.month}.{record.observed_at.day}",
+                **{item.reading_key: "" for item in definitions.values()},
+            },
+        )
+        row[definition.reading_key] = str(record.value)
+    for (observed_at, fetched_at), row in grouped.items():
+        definition = definitions[records[0].series_id]
+        store_snapshot(
+            connection,
+            source_id=definition.source_id,
+            observed_at=observed_at,
+            fetched_at=fetched_at,
+            records=[{"row": row, "preamble": [], "source_url": definition.source_url}],
+        )
 
 
 __all__ = [
     "SOURCE_URL",
-    "downgrade_to_previous_schema",
     "observation",
     "observations",
-    "seed_store",
     "series_definition",
+    "store_h15_observations",
+    "store_mof_observations",
     "store_reader",
 ]

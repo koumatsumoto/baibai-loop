@@ -28,7 +28,7 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "in_population": True,
     "market_cap_oku": None,
     "avg_turnover_oku": None,
-    "listing_span_days": None,
+    "price_history_span_days": None,
     "close": None,
     "per_forward": None,
     "per_trailing": None,
@@ -70,15 +70,12 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "er_reversion_annual": None,
     "er_carry_annual": None,
     "er_upside_capped": None,
-    "reported_short_ratio": None,
-    "reported_short_breadth": None,
-    "reported_short_latest_disclosed_at": None,
-    "margin_week_end": None,
+    "margin_balance_date": None,
     "margin_long_to_adv": None,
     "margin_long_share": None,
     "margin_long_delta_26w": None,
     "margin_std_long_share": None,
-    "in_review_set": False,
+    "in_nomination_union": False,
     "valuation_approaches": "",
     "valuation_approach_ranks": "",
     "smg_market_fallback": "",
@@ -134,7 +131,7 @@ def _hints(model: type) -> Mapping[str, Any]:
 def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
     """One panel row, with the fields a fixture never varies filled in.
 
-    `in_review_set` is independent from any E[r] ordering: membership is the exact
+    `in_nomination_union` is independent from any E[r] ordering: membership is the exact
     valuation-approach nomination union.
     """
 
@@ -162,8 +159,9 @@ def panel_diagnostics(asof: str, **overrides: Any) -> PanelDiagnostics:
 def forward_row(asof: str, ticker: str, horizon: str, **overrides: Any) -> ForwardReturnRow:
     """One forward observation whose resolved flags follow its status.
 
-    ``resolved`` and the total-return fields are derived rather than accepted, so a
-    fixture cannot describe a row the store would refuse to read back.
+    ``resolved`` and the total-return fields follow the requested statuses.
+    Resolved-total fixtures assume an entry price of one yen when constructing
+    dividend cash from the return difference; they are not source dividend evidence.
     """
 
     hints = _hints(ForwardReturnRow)
@@ -185,7 +183,8 @@ def forward_row(asof: str, ticker: str, horizon: str, **overrides: Any) -> Forwa
     }
     if total_status == "resolved":
         price = float(payload["price_return"] or 0.0)
-        total = float(overrides.get("total_return") or price)
+        raw_total = overrides.get("total_return")
+        total = price if raw_total is None else float(raw_total)
         payload["realized_dividend_sum"] = max(0.0, total - price)
         payload["realized_dividend_fy_count"] = 1
         payload["total_return"] = total
@@ -211,11 +210,10 @@ def calibration_root(tmp_path: Path) -> Path:
 
 
 def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]:
-    """A panel row that clears every liquidity floor a measurement applies.
+    """A fixture dictionary with typical liquid-security metrics.
 
-    Measurement tools drop illiquid names before they group anything, so a fixture row
-    that means "included" has to state all four of those fields. What a test varies is
-    what it passes.
+    Publication fills in_population=True unless overridden. Measurement readers use
+    that stored membership rather than applying liquidity thresholds again.
     """
 
     row: dict[str, Any] = {
@@ -223,7 +221,7 @@ def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]
         "ticker": ticker,
         "market_cap_oku": 500,
         "avg_turnover_oku": 5,
-        "listing_span_days": 900,
+        "price_history_span_days": 900,
         "per_forward": 10,
         "per_trailing": 11,
         "dividend_yield": 0.03,
@@ -235,32 +233,6 @@ def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]
     }
     row.update(overrides)
     return row
-
-
-def store_panel(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
-    """`write_panel` with the source and cutoff every fixture cohort declares.
-
-    A cohort that names no source is one the store refuses to read back, so the two
-    arguments no test varies are filled here rather than at each call.
-    """
-
-    write_panel(
-        root,
-        asof,
-        *args,
-        **kwargs,
-    )
-
-
-def store_forward(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
-    """`write_forward` with the source and cutoff every fixture cohort declares."""
-
-    write_forward(
-        root,
-        asof,
-        *args,
-        **kwargs,
-    )
 
 
 def publish_panel(

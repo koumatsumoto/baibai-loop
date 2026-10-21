@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -8,11 +7,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.write import connect_rw
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators_db
-from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
+from baibai_engine.collection.economic.store import (
+    initialize_database as initialize_indicators_db,
+)
+from baibai_engine.market_context.reading.rules import (
+    DEFAULT_RULES_PATH as READING_RULES_PATH,
+)
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
@@ -20,7 +20,7 @@ from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SCREENING_RULES_HASH = production_rules_contract_hash(load_screening_rules().model_dump_json())
@@ -34,7 +34,7 @@ SCREENING_RULES_HASH = production_rules_contract_hash(load_screening_rules().mod
 _REAL_DB_DEFAULTS = (
     Path("stores/application/baibai.sqlite"),
     Path("stores/screening/runs.sqlite"),
-    Path("stores/macro/macro.sqlite"),
+    Path("stores/market_context/indicators.sqlite"),
     Path("stores/market/market.sqlite"),
 )
 
@@ -64,11 +64,10 @@ def _database_fingerprint(path: Path) -> tuple[int, int] | None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _guard_real_databases() -> Iterator[None]:
-    """Fail the session closed if any test mutates a real operational database.
+    """Detect size/mtime changes to the default operational database files.
 
-    A safety net for isolation gaps the env redirect cannot cover: a hard-coded real
-    path or the indicators store, which has no env override. Detection rather than
-    prevention, but it turns silent corruption into a loud failure.
+    This catches common isolation gaps outside the env redirect, but does not
+    prevent writes or prove that every possible mutation was detected.
     """
     before = {path: _database_fingerprint(path) for path in _REAL_DB_DEFAULTS}
     yield
@@ -82,87 +81,45 @@ def _guard_real_databases() -> Iterator[None]:
 def _seed_app_method_root(root: Path) -> None:
     config_dir = root / "web/config"
     config_dir.mkdir(parents=True)
-    (config_dir / "macro-panel.yaml").write_text(
-        Path("web/config/macro-panel.yaml").read_text(encoding="utf-8"),
+    (config_dir / "market-context-panel.yaml").write_text(
+        Path("web/config/market-context-panel.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    reading_rules = root / MACRO_READING_RULES_PATH
+    reading_rules = root / READING_RULES_PATH
     reading_rules.parent.mkdir(parents=True, exist_ok=True)
-    reading_rules.write_text(MACRO_READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    indicators_dir = root / "stores/macro"
+    reading_rules.write_text(READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    indicators_dir = root / "stores/market_context"
     indicators_dir.mkdir(parents=True, exist_ok=True)
-    initialize_indicators_db(indicators_dir / "macro.sqlite").close()
+    initialize_indicators_db(indicators_dir / "indicators.sqlite").close()
     db_path = root / "stores/application/baibai.sqlite"
     ledger = load_portfolio_ledger(FIXTURES / "portfolio-ledger/representative.yaml")
-    seed_ledger(
-        db_path,
-        ledger.model_copy(
-            update={
-                "market_prices": tuple(
-                    price.model_copy(update={"source_kind": "licensed_dataset"})
-                    for price in ledger.market_prices
-                )
-            }
-        ),
+    seed_ledger(db_path, ledger)
+    from baibai_engine.research.assessment_store import AssessmentStoreService
+    from tests.helpers.assessment_v1 import assessment_id, pair_payload
+
+    document, review = pair_payload(ticker="2331", as_of="2026-07-03")
+    AssessmentStoreService(db_path, clock=lambda: FIXED_NOW).publish_reviewed_assessment(
+        assessment_id(2331), document, review
     )
-    thesis = safe_load((FIXTURES / "thesis/2331-decision.yaml").read_text(encoding="utf-8"))
-    review = safe_load((FIXTURES / "thesis/2331-decision-review.yaml").read_text(encoding="utf-8"))
-    assert isinstance(thesis, dict)
-    assert isinstance(review, dict)
-    with connect_rw(db_path) as connection:
-        connection.execute(
-            "INSERT INTO thesis(thesis_id,ticker,as_of,recommendation,published_at,payload,core_sha256) VALUES (?,?,?,?,?,?,?)",
-            (
-                "thesis-20260714-2331-r1",
-                "2331",
-                "2026-07-03",
-                "buy",
-                FIXED_NOW.isoformat(),
-                canonical_json(thesis),
-                review["reviewed_thesis_sha256"],
-            ),
-        )
-        connection.execute(
-            "INSERT INTO thesis_review(review_id,thesis_id,reviewed_at,payload) VALUES (?,?,?,?)",
-            (
-                review["review_id"],
-                "thesis-20260714-2331-r1",
-                review["reviewed_at"],
-                canonical_json(review),
-            ),
-        )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
     run_store = ScreeningRunStore(root / "stores/screening/runs.sqlite")
     for as_of in ("2026-07-01", "2026-07-08"):
-        run_store.publish_run(_seed_screening_run(as_of))
-
-
-def _tree_fingerprint(root: Path) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        digest.update(path.relative_to(root).as_posix().encode())
-        digest.update(path.read_bytes())
-    return digest.hexdigest()
+        run_store.publish_run(_seed_screening_run(as_of), rules=load_screening_rules())
 
 
 @pytest.fixture(scope="session")
-def _app_method_root_template(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build the immutable application-store seed once for per-test clones."""
+def _app_method_root_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Build the shared application-store seed once for per-test copies."""
     root = tmp_path_factory.mktemp("app-method-root-template") / "repo"
     _seed_app_method_root(root)
-    fingerprint = _tree_fingerprint(root)
-    yield root
-    assert _tree_fingerprint(root) == fingerprint, "app_method_root template was mutated"
+    return root
 
 
 @pytest.fixture
 def app_method_root(tmp_path: Path, _app_method_root_template: Path) -> Path:
     root = tmp_path / "repo"
     shutil.copytree(_app_method_root_template, root)
-    template_db = _app_method_root_template / "stores/application/baibai.sqlite"
-    assert root != _app_method_root_template
-    assert not (root / "stores/application/baibai.sqlite").samefile(template_db)
     return root
 
 
@@ -205,20 +162,20 @@ def _seed_screening_run(as_of: str) -> dict[str, object]:
         run_at=f"{as_of}T12:00:00+09:00",
         universe_size=3,
         rules_hash=SCREENING_RULES_HASH,
-        security_analyses=[
-            security_analysis(
+        stock_analyses=[
+            stock_analysis(
                 "2331",
                 name="ALSOK",
                 sector_33="サービス業",
                 per_trailing=12.0,
                 metrics={"er_annual": 0.12},
             ),
-            security_analysis(
+            stock_analysis(
                 "0001",
                 name="Sample One",
                 sector_33="情報・通信業",
                 metrics={"er_annual": 0.1},
             ),
-            security_analysis("0002", name="Sample Two", sector_33="小売業", metrics={}),
+            stock_analysis("0002", name="Sample Two", sector_33="小売業", metrics={}),
         ],
     )

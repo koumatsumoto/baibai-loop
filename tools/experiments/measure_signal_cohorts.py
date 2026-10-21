@@ -1,12 +1,13 @@
 """Compare realized forward returns across machine-estimate cohorts.
 
-較正 store の point-in-time panel と forward return を突き合わせ、「機械が上位と見た
-群」「historical share-count contribution が clip に貼り付いた群」「PBR 単独 anchor で
+較正 store に保存された as-of panel と forward return を突き合わせ、「機械が上位と見た
+群」「historical share-count contribution が clip に貼り付いた群」「正の PER が観測されず
 reversion が cap に当たった群」が母集団に対してどう実現したかを as-of cohort 単位で出す。
 
 E[r] policy parameter の変更を提案する artifact ではない。screening rules も E[r] も
 変えず、判断の前提が実データで支持されるかだけを測る。窓は重複するので有意性は
-主張せず、効果量と cohort 勝率で読む。
+主張せず、群間の観測差と cohort ごとの差の向きで読む。過去時点での情報利用可能性は
+元データの vintage に依存し、この集計だけでは保証しない。
 """
 
 from __future__ import annotations
@@ -31,23 +32,19 @@ from baibai_engine.screening.calibration.store import (
     read_panel,
     read_panel_meta,
 )
+from baibai_engine.valuation.estimates import SHARE_COUNT_CLIP, UPSIDE_CAP
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_HORIZONS = ("1y", "3y", "5y")
 HORIZON_YEARS: Mapping[str, int] = {"1y": 1, "3y": 3, "5y": 5}
-SHARE_COUNT_YIELD_CLIP = 0.05
-UPSIDE_CAP = 0.50
 DEFAULT_ER_THRESHOLD = 0.085
-# `price` は終値だけ、`total` は窓内に実現した配当を足したもの。carry は配当と自己株買いで
-# できているので、その効果量を price だけで測ると払われた現金の分だけ小さく出る。
+# `price` は終値だけ、`total` は窓内に実現した配当を足したもの。
+# 株数変化の寄与は自己株買いの実行額や配当収入そのものではない。
 type MetricBasis = Literal["price", "total"]
 _METRIC_BASIS_LABEL: Mapping[MetricBasis, str] = {
     "price": "price_return_only",
     "total": "total_return_realized_dividends",
 }
-# total は窓内に FY 配当の観測が要る。窓が短いほど届かず、3m / 6m では price 側の半分にも
-# 満たない。母数比がこの水準を割る horizon は、両 basis の中央値を並べて読ませない。
-MIN_TOTAL_BASIS_COVERAGE = 0.75
 # cohort 内の群比較は、両群がこの件数を満たすときだけ数える。
 MIN_GROUP_ROWS = 10
 MIN_POPULATION_ROWS = 100
@@ -61,25 +58,12 @@ class SignalCohortMeasurementError(ValueError):
 class PanelRow:
     asof: str
     ticker: str
-    er_annual: float
-    reversion_annual: float
-    carry_annual: float
-    dividend_yield: float
+    er_annual: float | None
     share_count_yield: float | None
     upside_capped: float | None
-    earnings_anchor_available: bool
+    positive_per_observed: bool
     reduction_streak: int | None
     forward: Mapping[str, float]
-
-
-def _optional_float(value: str | None) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        parsed = float(value)
-    except ValueError:
-        return None
-    return parsed
 
 
 def _annualized(cumulative_return: float, years: int) -> float:
@@ -92,16 +76,21 @@ def _load_forward_returns(
     horizons: Sequence[str],
     *,
     basis: MetricBasis,
-) -> tuple[Mapping[tuple[str, str], Mapping[str, float]], Mapping[str, Mapping[str, int]]]:
+) -> tuple[
+    Mapping[tuple[str, str], Mapping[str, float]],
+    Mapping[str, Mapping[str, set[tuple[str, str]]]],
+]:
     """Resolved forward returns on the requested basis, plus what each basis resolves.
 
     The two bases do not cover the same rows: `total` additionally needs realized
-    dividends over the window, so it resolves fewer. Returning both counts is what
+    dividends over the window, so it resolves fewer. Returning both row sets is what
     keeps a `total` median from being read as the same sample measured differently.
     """
     wanted = set(horizons)
     resolved: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
-    counts: dict[str, dict[str, int]] = {horizon: {"price": 0, "total": 0} for horizon in horizons}
+    counts: dict[str, dict[str, set[tuple[str, str]]]] = {
+        horizon: {"price": set(), "total": set()} for horizon in horizons
+    }
     asofs = published_cohorts(snapshot)
     if not asofs:
         raise SignalCohortMeasurementError(f"no forward rows under {snapshot}")
@@ -112,9 +101,9 @@ def _load_forward_returns(
             price = row.price_return if row.resolved else None
             total = row.total_return if row.total_return_status == "resolved" else None
             if price is not None:
-                counts[row.horizon]["price"] += 1
+                counts[row.horizon]["price"].add((row.asof, row.ticker))
             if total is not None:
-                counts[row.horizon]["total"] += 1
+                counts[row.horizon]["total"].add((row.asof, row.ticker))
             value = price if basis == "price" else total
             if value is None:
                 continue
@@ -123,13 +112,7 @@ def _load_forward_returns(
 
 
 def require_single_rules_hash(snapshot: Path) -> str:
-    """この世代が名乗る screening rules の identity。
-
-    rules を動かした後に一部だけ再構築すると、別の母集団定義で作られた月が混ざる。混ぜて
-    平均しても値は出てしまい、しかも権威ありげな percentile として報告へ載る。混在の拒否は
-    snapshot の組み立てが持つので、ここは manifest が名乗る identity をそのまま読む — 各 cohort
-    の行を開き直して数え直すと、authority ではない側で同じ判断をやり直すことになる。
-    """
+    """公開 cohort のメタデータを読み、単一の rules identity を確認する。"""
 
     hashes = {
         str(read_panel_meta(snapshot, asof)["rules_hash"]) for asof in published_cohorts(snapshot)
@@ -167,8 +150,6 @@ def _panel_row(
 ) -> PanelRow | None:
     if not stored.in_population:
         return None
-    if stored.er_annual is None:
-        return None
     share_change = stored.net_share_change_yoy
     # 欠測を 0 と読むと「株数が動かなかった」と「株数変化が分からない」が control 群へ
     # 一緒に入る。株数変化の比較では欠測を None のまま持ち、どちらの群にも入れない。
@@ -176,20 +157,17 @@ def _panel_row(
         None
         if share_change is None
         else max(
-            -SHARE_COUNT_YIELD_CLIP,
-            min(SHARE_COUNT_YIELD_CLIP, -share_change),
+            -SHARE_COUNT_CLIP,
+            min(SHARE_COUNT_CLIP, -share_change),
         )
     )
     return PanelRow(
         asof=stored.asof,
         ticker=stored.ticker,
         er_annual=stored.er_annual,
-        reversion_annual=stored.er_reversion_annual or 0.0,
-        carry_annual=stored.er_carry_annual or 0.0,
-        dividend_yield=stored.dividend_yield or 0.0,
         share_count_yield=share_count_yield,
         upside_capped=stored.er_upside_capped,
-        earnings_anchor_available=bool(
+        positive_per_observed=bool(
             (stored.per_forward is not None and stored.per_forward > 0)
             or (stored.per_trailing is not None and stored.per_trailing > 0)
         ),
@@ -254,13 +232,13 @@ def _group_summary(rows: Sequence[PanelRow], horizon: str, *, label: str) -> Map
 def _high_estimate_comparison(
     rows: Sequence[PanelRow], horizon: str, *, er_threshold: float
 ) -> Mapping[str, object]:
-    treatment = [row for row in rows if row.er_annual >= er_threshold]
+    treatment = [row for row in rows if row.er_annual is not None and row.er_annual >= er_threshold]
     return {
         "horizon": horizon,
         "er_threshold": er_threshold,
         "groups": [
             _group_summary(treatment, horizon, label=f"er_annual>={er_threshold}"),
-            _group_summary(rows, horizon, label="liquidity_passing_population"),
+            _group_summary(rows, horizon, label="stored_comparison_population"),
         ],
         "cohort_agreement": _cohort_win_rate(
             treatment, rows, horizon, min_control_rows=MIN_POPULATION_ROWS
@@ -270,11 +248,9 @@ def _high_estimate_comparison(
 
 def _share_count_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
     known = [row for row in rows if row.share_count_yield is not None]
-    clipped = [
-        row for row in known if (row.share_count_yield or 0.0) >= SHARE_COUNT_YIELD_CLIP - 1e-9
-    ]
+    clipped = [row for row in known if (row.share_count_yield or 0.0) >= SHARE_COUNT_CLIP - 1e-9]
     partial = [
-        row for row in known if 0.0 < (row.share_count_yield or 0.0) < SHARE_COUNT_YIELD_CLIP - 1e-9
+        row for row in known if 0.0 < (row.share_count_yield or 0.0) < SHARE_COUNT_CLIP - 1e-9
     ]
     non_positive = [row for row in known if (row.share_count_yield or 0.0) <= 0.0]
     unknown = [row for row in rows if row.share_count_yield is None]
@@ -292,25 +268,31 @@ def _share_count_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[s
     }
 
 
-def _anchor_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
+def _earnings_multiple_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
     def capped(row: PanelRow) -> bool:
         return row.upside_capped is not None and row.upside_capped >= UPSIDE_CAP - 1e-9
 
-    equity_only_capped = [row for row in rows if not row.earnings_anchor_available and capped(row)]
-    equity_only_uncapped = [
-        row for row in rows if not row.earnings_anchor_available and not capped(row)
+    without_positive_per_capped = [
+        row for row in rows if not row.positive_per_observed and capped(row)
     ]
-    earnings_capped = [row for row in rows if row.earnings_anchor_available and capped(row)]
+    without_positive_per_uncapped = [
+        row
+        for row in rows
+        if not row.positive_per_observed and row.upside_capped is not None and not capped(row)
+    ]
+    positive_per_capped = [row for row in rows if row.positive_per_observed and capped(row)]
     return {
         "horizon": horizon,
         "groups": [
-            _group_summary(equity_only_capped, horizon, label="equity_anchor_only_at_cap"),
-            _group_summary(equity_only_uncapped, horizon, label="equity_anchor_only_below_cap"),
-            _group_summary(earnings_capped, horizon, label="earnings_anchor_at_cap"),
-            _group_summary(rows, horizon, label="liquidity_passing_population"),
+            _group_summary(without_positive_per_capped, horizon, label="no_positive_per_at_cap"),
+            _group_summary(
+                without_positive_per_uncapped, horizon, label="no_positive_per_below_cap"
+            ),
+            _group_summary(positive_per_capped, horizon, label="positive_per_at_cap"),
+            _group_summary(rows, horizon, label="stored_comparison_population"),
         ],
         "cohort_agreement": _cohort_win_rate(
-            equity_only_capped, rows, horizon, min_control_rows=MIN_POPULATION_ROWS
+            without_positive_per_capped, rows, horizon, min_control_rows=MIN_POPULATION_ROWS
         ),
     }
 
@@ -320,8 +302,7 @@ def _share_count_continuity_comparison(
 ) -> Mapping[str, object]:
     """株数減少が単発か継続かで forward が変わるかを見る。
 
-    EDINET の取得枠状態は 2025-08 以降しか観測できないので、連続 FY 数を代理変数にして
-    80 か月へ広げる。単発 = 枠を消化し終えた状態に近い。
+    連続 FY 数は保存された株数減少の履歴であり、取得枠の残高や消化完了を表さない。
     """
     reducing = [row for row in rows if (row.share_count_yield or 0.0) > 0.005]
     single = [row for row in reducing if row.reduction_streak == 1]
@@ -335,17 +316,12 @@ def _share_count_continuity_comparison(
             _group_summary(single, horizon, label="reduction_streak_single_year"),
             _group_summary(repeated, horizon, label="reduction_streak_repeated"),
             _group_summary(unknown, horizon, label="reduction_streak_unknown"),
-            _group_summary(rows, horizon, label="liquidity_passing_population"),
+            _group_summary(rows, horizon, label="stored_comparison_population"),
         ],
         "cohort_agreement": _cohort_win_rate(
             repeated, single, horizon, min_control_rows=MIN_GROUP_ROWS
         ),
     }
-
-
-ComparisonName = Literal[
-    "high_estimate", "share_count_component", "share_count_continuity", "equity_anchor"
-]
 
 
 def _resolved_asof_range(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
@@ -362,19 +338,23 @@ def _resolved_asof_range(rows: Sequence[PanelRow], horizon: str) -> Mapping[str,
 
 
 def _basis_coverage(
-    counts: Mapping[str, Mapping[str, int]], horizons: Sequence[str]
+    counts: Mapping[str, Mapping[str, set[tuple[str, str]]]],
+    horizons: Sequence[str],
+    panel_keys: set[tuple[str, str]],
 ) -> Mapping[str, Mapping[str, object]]:
     coverage: dict[str, Mapping[str, object]] = {}
     for horizon in horizons:
-        price = counts[horizon]["price"]
-        total = counts[horizon]["total"]
+        price_keys = counts[horizon]["price"] & panel_keys
+        total_keys = counts[horizon]["total"] & panel_keys
+        price = len(price_keys)
+        total = len(total_keys)
         ratio = None if price == 0 else round(total / price, 3)
         coverage[horizon] = {
             "price_resolved_rows": price,
             "total_resolved_rows": total,
             "total_to_price_ratio": ratio,
-            # 両 basis の中央値を「同じ群の別 basis」として並べてよいかの表明。
-            "bases_comparable": ratio is not None and ratio >= MIN_TOTAL_BASIS_COVERAGE,
+            # 件数比が近いだけでは同じ標本ではない。行の identity まで一致を要する。
+            "bases_comparable": bool(price_keys) and price_keys == total_keys,
         }
     return coverage
 
@@ -410,7 +390,9 @@ def build_measurement(
         "calibration_dir": str(calibration_dir),
         "calibration_snapshot": "current",
         "metric_basis": _METRIC_BASIS_LABEL[basis],
-        "basis_coverage": _basis_coverage(basis_counts, horizons),
+        "basis_coverage": _basis_coverage(
+            basis_counts, horizons, {(row.asof, row.ticker) for row in rows}
+        ),
         "population": "stored_in_population_panel_rows",
         "rules_hash": rules_hash,
         # cohort 比較は両群がこの件数を満たす as-of だけを数える。候補が薄い月は
@@ -435,21 +417,25 @@ def build_measurement(
             "share_count_continuity": [
                 _share_count_continuity_comparison(rows, horizon) for horizon in horizons
             ],
-            "equity_anchor": [_anchor_comparison(rows, horizon) for horizon in horizons],
+            "earnings_multiple": [
+                _earnings_multiple_comparison(rows, horizon) for horizon in horizons
+            ],
         },
         "integrity": [
             "forward 窓は重なるので独立でない。有意性と track record を主張しない。",
             (
-                "price basis は配当を含まない。carry は配当と自己株買いでできているので、"
-                "その効果量は price basis では払われた現金の分だけ小さく出る。"
+                "price basis は配当を含まない。株数変化の寄与は自己株買いの実行額ではなく、"
+                "この群比較から carry の因果効果は測定できない。"
             ),
             (
                 "total basis は窓内の実現配当だけを足し、端 FY の月割りをしない。母数は "
                 "price basis より小さく、その比は basis_coverage に出る。"
-                "bases_comparable が false の horizon で両 basis の中央値を並べない。"
+                "bases_comparable は選択された panel 内で行 identity が一致するときだけ true。"
+                "異なる標本の中央値差を配当の寄与と解釈しない。"
             ),
-            "解決した forward だけを数える。廃止で系列が切れた銘柄は母集団から落ちる。",
-            "cohort の実現値は当時の市況を含む。母集団との差だけが regime 統制された量である。",
+            "解決した forward だけを数える。廃止等で未解決の行は損益集計から外れる。",
+            "PER群は正の倍率の観測有無であり、推計に実際に採用したanchorの復元ではない。",
+            "同じ as-of の比較でも業種・規模・リスク構成は揃っておらず、因果効果ではない。",
             (
                 "cohort 一致は min_group_rows に依存する。treatment が痩せる月ほど落ちるので、"
                 "閾値を変えた値も見てから読む。"

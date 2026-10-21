@@ -2,11 +2,13 @@
 title: "株数減少・予想増配の長期evidence事前登録"
 summary: "既知のintegrity blockerをGate 0に置き、2成分の長期診断と一次IR固定標本を分離する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 株数減少・予想増配の長期evidence事前登録
+
+これは当時の事前登録であり、現行の計算 revision・採否基準ではない。§2 は Gate 0 未達なら効果方向を問わず insufficient と定める一方、§3 末尾の negative 規定は優先順位が曖昧だった。後続 report の negative は診断上の方向不一致として読み、Gate 0 を通過した正式な否定結果へ読み替えない。
 
 価値tier: T1 — 低valuation候補のバリュートラップ率を下げる還元変化のうち、再現可能で一次情報に裏付けられた成分だけを判断面へ進める。
 

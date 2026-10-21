@@ -12,14 +12,16 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 | machine storeの取得 | [クラウド正本の取得](../../../batch/OPERATIONS.md#クラウド正本をローカルへ取得する) |
 | machine storeの反映 | [ローカルからクラウドを更新する](../../../batch/OPERATIONS.md#ローカルからクラウドを更新する) |
 | application DB・viewの公開 / application DBの復元 | [application反映](../../../batch/OPERATIONS.md#application-db-を反映する) / [復元](../../../batch/OPERATIONS.md#application-db-を復元する) |
-| credential rotation | [Password rotation](../../../batch/OPERATIONS.md#password-rotation) |
-| local Triageの失敗・再実行 | [Research Triage](../research-triage/SKILL.md) |
+| owner閲覧password / 共有readの設定・rotation | [Password rotation](../../../batch/OPERATIONS.md#password-rotation) / [共有read](../../../batch/OPERATIONS.md#shared-read-setup) |
+| TradingView取得・認証復旧 | [TradingView運用](../../../batch/OPERATIONS.md#tradingview-expectations)・[初期設定と認証復旧](../../../batch/OPERATIONS.md#初期設定と認証の復旧) |
+| Worker配信・表示確認 | [Web配信](../../../batch/OPERATIONS.md#workerをdeployする) |
+| 外部参考評価の取得停止・部分再開・公開 | [cohort stageと再開](../../../batch/OPERATIONS.md#cohort-stageの確定と再開) / [公開・成功確認・停止後の運用](../../../batch/OPERATIONS.md#公開成功確認停止後の運用) |
 | batchの失敗・欠測 | [batch OPERATIONS](../../../batch/OPERATIONS.md)の結果確認・復旧・watchdog |
-| 保有の再評価 | [Position Review](../position-review/SKILL.md) |
+| 保有の再評価 | [Researchの保有見直し](../research/SKILL.md) |
 | 人間からの注文・資金報告 | [Ledger Record](../ledger-record/SKILL.md) |
 | 手法の計測・採否 | [Estimate calibration](../../../docs/reference/estimate-calibration.md) |
 
-正本・依存は[architecture](../../../docs/architecture.md#store-authority)、操作する環境は[batch運用の実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)に従う。ここに転送command、失敗調査、no-loss条件を複写しない。`research_watch`の原評価比較は保有の売却判断ではなく、必要なら対象holdingのPosition Reviewへ進む。
+正本・依存は[architecture](../../../docs/architecture.md#store-authority)、操作する環境は[batch運用の実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)に従う。ここに転送command、失敗調査、no-loss条件を複写しない。依頼された変更内容・本番保存先・実行環境を確かめ、作業コピーの保存、正本反映、serving生成、表示確認のどこまで終わったかを区別する。`research_watch`の原評価比較は保有の売却判断ではなく、必要ならResearchの`review_positions`入口へ進む。
 
 ## 定期maintenance
 
@@ -30,7 +32,7 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 - TSE capital policy・JPX delistingは翌月15日以降に既存のrefresh/build commandで更新し、[batch運用](../../../batch/OPERATIONS.md)のlake公開・store反映へ進む。
 - lake全履歴監査を定例作業に追加しない。不要になった既存の監査taskは終了し、通常の公開・利用時検証だけを維持する。
 
-注文報告だけを理由に全体計測を起動しない。注文結果の計測が依頼された場合は`tools.experiments.measure_limit_outcomes`の契約を参照する。
+注文報告だけを理由に全体計測を起動しない。注文結果の計測が依頼された場合は`tools.experiments.measure_limit_outcomes`の契約を参照する。対象は報告済みの買付予約で、価格差を逸失利益や指値規律の因果効果と扱わず、件数だけで方針変更の適格性を判定しない。
 
 ## 運用task
 

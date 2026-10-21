@@ -11,12 +11,12 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_tasks
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.write import connect_rw
 from baibai_engine.read_api.sqlite import connect_read_only
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.tasks.cli import main as task_main
 from baibai_engine.tasks.models import Task
-from baibai_engine.tasks.service import TaskService
+from baibai_engine.tasks.service import TaskNotFoundError, TaskService
 
 ROOT = Path(__file__).parents[2]
 TASK_FIXTURE = ROOT / "tests/fixtures/task-list/valid.yaml"
@@ -27,8 +27,9 @@ def _seed_tasks(db: Path) -> None:
     seed_tasks(db, (Task.model_validate(item) for item in raw["tasks"]))
 
 
+@pytest.mark.parametrize(("ticker", "edited_ticker"), [("9715", "285A"), ("285A", "9715")])
 def test_cli_add_list_done_and_edit_use_current_state_only(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], ticker: str, edited_ticker: str
 ) -> None:
     db = tmp_path / "app.sqlite"
     today = date(2026, 7, 19)
@@ -45,17 +46,27 @@ def test_cli_add_list_done_and_edit_use_current_state_only(
                 "--due",
                 "2026-07-31",
                 "--ticker",
-                "9715",
+                ticker,
             ],
             today=today,
         )
         == 0
     )
     created = yaml.safe_load(capsys.readouterr().out)
-    assert created["task_id"] == "task-20260719-9715"
+    assert created["task_id"] == f"task-20260719-{ticker.lower()}"
+    assert created["ticker"] == ticker
     assert (
         task_main(
-            ["--db", str(db), "edit", created["task_id"], "--due", "2026-08-01"],
+            [
+                "--db",
+                str(db),
+                "edit",
+                created["task_id"],
+                "--due",
+                "2026-08-01",
+                "--ticker",
+                edited_ticker,
+            ],
             today=today,
         )
         == 0
@@ -63,6 +74,7 @@ def test_cli_add_list_done_and_edit_use_current_state_only(
     edited = yaml.safe_load(capsys.readouterr().out)
     assert edited["task_id"] == created["task_id"]
     assert edited["due_date"] == "2026-08-01"
+    assert edited["ticker"] == edited_ticker
     assert task_main(["--db", str(db), "done", created["task_id"]], today=today) == 0
     done = yaml.safe_load(capsys.readouterr().out)
     assert done["status"] == "done"
@@ -73,7 +85,7 @@ def test_cli_add_list_done_and_edit_use_current_state_only(
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("status", "invalid"), ("due_date", "2026-02-30"), ("unknown", "x")],
+    [("status", "invalid"), ("due_date", "2026-02-30"), ("unknown", "x"), ("ticker", "72030")],
 )
 def test_task_model_rejects_invalid_fields(field: str, value: str) -> None:
     raw = yaml.safe_load(TASK_FIXTURE.read_text())["tasks"][0]
@@ -123,3 +135,29 @@ def test_task_columns_and_payload_are_updated_together(tmp_path: Path) -> None:
     finally:
         connection.close()
     assert tuple(row) == ("2027-01-01", "2027-01-01")
+
+
+@pytest.mark.parametrize("empty_file", [False, True])
+def test_task_reads_do_not_initialize_an_unwritten_database(tmp_path, empty_file):
+    path = tmp_path / "unwritten.sqlite"
+    if empty_file:
+        path.touch()
+    service = TaskService(path)
+    assert service.list() == []
+    assert service.list(status="open") == []
+    with pytest.raises(TaskNotFoundError, match="unknown task_id"):
+        service.get("task-20260719-absent")
+    assert path.exists() == empty_file
+    if empty_file:
+        assert path.read_bytes() == b""
+
+
+def test_task_reads_preserve_existing_database_bytes(tmp_path):
+    path = tmp_path / "app.sqlite"
+    _seed_tasks(path)
+    before = path.read_bytes()
+    service = TaskService(path)
+    tasks = service.list()
+    assert len(tasks) == 1
+    assert service.get(tasks[0].task_id) == tasks[0]
+    assert path.read_bytes() == before

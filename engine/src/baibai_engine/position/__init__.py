@@ -1,1 +1,1 @@
-"""Human-confirmed portfolio ledger, Position Review, and outcome."""
+"""Human-confirmed portfolio ledger, broker fact drafts, and portfolio outcome."""

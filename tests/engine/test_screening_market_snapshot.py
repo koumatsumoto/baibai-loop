@@ -7,12 +7,14 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.sqlite.ingest import open_connection
-from baibai_engine.screening.cli import build_parser, market_snapshot_command
-from baibai_engine.screening.market_snapshot import build_market_snapshot
+from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.screening.cli.app import build_parser
+from baibai_engine.screening.cli.query import market_snapshot_command
+from baibai_engine.storage.observations.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 
@@ -24,11 +26,8 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
 def _insert_sector(sqlite_path: Path, ticker: str, sector: str) -> None:
     conn = open_connection(sqlite_path)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', ?, ?, 'プライム', ?, 1)",
-            (ticker, f"name-{ticker}", sector),
+        insert_master_rows(
+            conn, [("2026-05-28", ticker, f"name-{ticker}", "プライム", sector, "011")]
         )
         conn.commit()
     finally:
@@ -90,7 +89,7 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             assert isinstance(last["benchmark_return_20d"], float)
             self.assertGreater(last["benchmark_return_20d"], 0.03)
             self.assertEqual(last["benchmark_trend"], "uptrend")
-            self.assertEqual(last["breadth_sample_size"], 3)
+            self.assertEqual(last["breadth_sample_size"], 2)
             assert isinstance(last["breadth_pct_above_ma20"], float)
 
             sectors = payload["sectors"]
@@ -127,14 +126,12 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             _insert_bars(sqlite_path, "LIVE", [100 * 1.01**i for i in range(30)], end=_ASOF)
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots"
-                    "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-                    " VALUES (?, ?, ?, 'プライム', ?, 1)",
-                    (
-                        ("2026-05-28", "OLD1", "旧構成銘柄", "旧構成セクター"),
-                        ("2026-05-29", "LIVE", "現構成銘柄", "機械"),
-                    ),
+                insert_master_rows(
+                    conn,
+                    [
+                        ("2026-05-28", "OLD1", "旧構成銘柄", "プライム", "旧構成セクター", "011"),
+                        ("2026-05-29", "LIVE", "現構成銘柄", "プライム", "機械", "011"),
+                    ],
                 )
                 conn.commit()
             finally:
@@ -201,10 +198,6 @@ class MarketSnapshotCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SectorObservationDateTests(unittest.TestCase):
     def test_only_current_members_enter_returns_and_breadth_with_or_without_benchmark(self):
         for benchmark in (True, False):
@@ -249,3 +242,38 @@ class SectorObservationDateTests(unittest.TestCase):
             )
             self.assertEqual(payload["sectors"][0]["ticker_count"], 1)
             self.assertEqual(payload["sectors"][0]["median_return_20d"], 0.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+def test_breadth_uses_each_points_common_stock_membership(tmp_path):
+    path = tmp_path / "market.sqlite"
+    for ticker, prices in (
+        ("1321", [100 * 1.003**i for i in range(70)]),
+        ("FUND", [100 * 1.01**i for i in range(70)]),
+        ("OLD1", [100 * 1.01**i for i in range(70)]),
+        ("LIVE", [100.0] * 70),
+    ):
+        _insert_bars(path, ticker, prices, end=_ASOF)
+    conn = open_connection(path)
+    try:
+        insert_master_rows(
+            conn,
+            [
+                ("2026-05-15", "OLD1", "old member", "PRIME", "機械", "011"),
+                ("2026-05-15", "FUND", "fund", "PRIME", "その他", "014"),
+                ("2026-05-29", "LIVE", "current member", "PRIME", "小売業", "011"),
+                ("2026-05-29", "FUND", "fund", "PRIME", "その他", "014"),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    result = build_market_snapshot(
+        sqlite_path=path, asof_date=_ASOF, history_weeks=2, min_breadth_sample=1
+    )
+    assert [point["breadth_sample_size"] for point in result["points"]] == [1, 1]
+    assert [point["breadth_pct_above_ma20"] for point in result["points"]] == [1.0, 0.0]
+    assert [sector["sector_33"] for sector in result["sectors"]] == ["小売業"]

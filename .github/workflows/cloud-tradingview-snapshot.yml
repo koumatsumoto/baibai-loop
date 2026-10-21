@@ -7,24 +7,12 @@ on:
     - cron: "37 0,4,8 * * 0,6"
   workflow_dispatch:
     inputs:
-      batch_size:
-        description: "Symbols per request (must be 50)"
-        type: number
-        default: 50
       interval:
-        description: "Seconds between requests"
+        description: "Seconds between requests (15 to 3600)"
         type: number
         default: 15
       observation_master_asof:
         description: "Optional calendar-required saved master date assertion YYYY-MM-DD; never bypasses observation hours"
-        type: string
-        default: ""
-      observations_json:
-        description: "Explicit saved-response acceptance JSON; empty runs normal live collection"
-        type: string
-        default: ""
-      observations_sha256:
-        description: "SHA256 of the exact acceptance JSON bytes"
         type: string
         default: ""
 
@@ -37,58 +25,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  accept-observations:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.observations_json != '' || inputs.observations_sha256 != '') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    environment: tradingview-runtime
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: true
-      - name: Sync Python environment
-        run: uv sync --locked
-      - name: Validate saved response input
-        run: uv run python -m baibai_batch.jobs.tradingview_observations stage --event "$GITHUB_EVENT_PATH" --directory "$RUNNER_TEMP/accepted-observations"
-      - name: Provision DuckDB httpfs extension
-        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
-      - name: Acquire publication lease
-        id: lease-acquire
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose tradingview --handle "$RUNNER_TEMP/publication-lease-handle.json"
-      - name: Pull and hydrate the current market store
-        id: pull
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          batch/scripts/r2_transfer.sh pull-market
-          batch/scripts/r2_transfer.sh hydrate-market
-      - name: Accept saved observations and publish with fixed-release readback
-        id: publish-lake
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.jobs.tradingview_observations publish --directory "$RUNNER_TEMP/accepted-observations"
-      - name: Release publication lease
-        id: lease-release
-        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
   snapshot:
-    if: ${{ (github.event_name != 'workflow_dispatch' || (inputs.observations_json == '' && inputs.observations_sha256 == '')) && (inputs.observation_master_asof == '' || github.ref == 'refs/heads/main') }}
+    if: ${{ inputs.observation_master_asof == '' || github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: tradingview-runtime
@@ -107,7 +45,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           OBSERVATION_MASTER_ASOF: ${{ inputs.observation_master_asof }}
-          BATCH_SIZE: ${{ inputs.batch_size }}
           INTERVAL: ${{ inputs.interval }}
         run: |
           python3 - <<'PYTARGET'
@@ -125,8 +62,8 @@ jobs:
               master_asof = date.fromisoformat(master_asof).isoformat()
               if date.fromisoformat(master_asof) > day:
                   raise ValueError("observation master must not be in the future")
-          if int(os.environ.get("BATCH_SIZE") or "50") != 50 or not 15 <= float(os.environ.get("INTERVAL") or "15") <= 3600:
-              raise ValueError("observations require 50 symbols and interval >=15")
+          if not 15 <= float(os.environ.get("INTERVAL") or "15") <= 3600:
+              raise ValueError("observation interval must be between 15 and 3600 seconds")
           jst = now.astimezone(timezone(timedelta(hours=9)))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               for key, value in {
@@ -194,8 +131,8 @@ jobs:
           from pathlib import Path
           from datetime import UTC, date, datetime
           from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-          from baibai_engine.market.tradingview.diagnostics import failure_line
-          from baibai_engine.market.tradingview.collector import preflight_snapshot
+          from baibai_engine.external_assessment.tradingview.diagnostics import failure_line
+          from baibai_engine.external_assessment.tradingview.collector import preflight_snapshot
 
           try:
               basis = os.environ.get("MASTER_ASOF", "")
@@ -238,31 +175,39 @@ jobs:
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
           MASTER_ASOF: ${{ steps.preflight.outputs.needs_master == 'false' && steps.preflight.outputs.master_asof || '' }}
-          BATCH_SIZE: ${{ inputs.batch_size }}
           INTERVAL: ${{ inputs.interval }}
         run: |
           set -o pipefail
           progress="$RUNNER_TEMP/tradingview-progress.json"
           result="$RUNNER_TEMP/tradingview-result.json"
           stderr="$RUNNER_TEMP/tradingview-stderr.log"
-          batch_size="${BATCH_SIZE:-50}"
           interval="${INTERVAL:-15}"
           observation_options=()
           if [[ -n "${MASTER_ASOF:-}" ]]; then
             observation_options+=(--master-asof "$MASTER_ASOF")
           fi
+          counts_before="$(uv run python -m baibai_batch.jobs.tradingview_receipts --asof "$TARGET_DATE")"
+          read -r receipts_before rows_before <<< "$counts_before"
           set +e
           timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh \
-            --asof "$TARGET_DATE" --batch-size "$batch_size" --interval "$interval" \
+            --asof "$TARGET_DATE" --interval "$interval" \
             "${observation_options[@]}" \
-            --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
+            --progress-output "$progress" > "$result" 2> "$stderr"
           status=$?
+          cat "$stderr" >&2
+          counts_after="$(uv run python -m baibai_batch.jobs.tradingview_receipts --asof "$TARGET_DATE")"
+          count_status=$?
+          if [[ "$count_status" != 0 ]]; then
+            counts_after='-1 -1'
+            if [[ "$status" == 0 ]]; then status=1; fi
+          fi
+          read -r receipts_after rows_after <<< "$counts_after"
           set -e
           if [[ "$status" == 124 || "$status" == 137 ]]; then
             echo 'TradingView acquisition failed; category=timeout' | tee -a "$stderr" >&2
           fi
           set +e
-          python - "$progress" "$result" "$stderr" "$status" <<'PYRESULT'
+          python - "$progress" "$result" "$stderr" "$status" "$receipts_before" "$receipts_after" "$rows_before" "$rows_after" <<'PYRESULT'
           import json
           import os
           import re
@@ -271,6 +216,8 @@ jobs:
 
           progress, result, stderr = map(Path, sys.argv[1:4])
           status = int(sys.argv[4])
+          receipts_before, receipts_after = map(int, sys.argv[5:7])
+          rows_before, rows_after = map(int, sys.argv[7:9])
           fields = (
               "snapshot_date", "master_asof", "phase", "expected_universe", "chunks_total", "chunks_completed",
               "requests_attempted", "symbols_requested",
@@ -295,7 +242,7 @@ jobs:
                   report = json.loads(lines[-1])
                   value = report.get("status") if isinstance(report, dict) else None
                   if type(value) is not str or value not in {
-                      "saved", "partial", "already_saved", "non_trading_day", "skipped_historical_asof"
+                      "saved", "partial", "already_saved", "skipped_historical_asof"
                   }:
                       raise ValueError("invalid TradingView status")
                   if value in {"saved", "partial"}:
@@ -312,7 +259,7 @@ jobs:
                               or (value == "saved") != (report["remaining"] == 0)):
                           raise ValueError("inconsistent TradingView counts")
                       reason = report.get("stop_reason")
-                      if reason not in {None, "provider_all_missing", "provider_rate_limit",
+                      if reason not in {None, "provider_rate_limit",
                                         "provider_response", "provider_transport", "auth",
                                         "secret_persistence", "time_guard", "soft_budget"}:
                           raise ValueError("invalid TradingView stop_reason")
@@ -326,16 +273,24 @@ jobs:
                   safe_stderr = stderr.read_text(encoding="utf-8")
               except (OSError, UnicodeError):
                   safe_stderr = ""
-              match = re.search(r"TradingView acquisition failed; category=([a-z_]+)", safe_stderr)
+              matches = re.findall(r"TradingView acquisition failed; category=([a-z_]+)", safe_stderr)
               categories = {
-                  "secret_persistence", "auth", "time_guard", "storage", "provider_all_missing",
+                  "secret_persistence", "auth", "time_guard", "storage",
                   "provider_rate_limit", "provider_response", "provider_transport", "internal", "timeout",
               }
               category = (
                   "timeout" if status in (124, 137) else
-                  match.group(1) if match and match.group(1) in categories else "internal"
+                  matches[-1] if matches and matches[-1] in categories else "internal"
               )
               outputs.extend(("status=failure", "failure_category=" + category))
+              outputs.append(
+                  "publish_failed_receipts=" + str(
+                      category in {"provider_rate_limit", "provider_response", "provider_transport",
+                                   "auth", "secret_persistence", "time_guard", "timeout"}
+                      and receipts_before >= 0 and receipts_after > receipts_before
+                      and rows_before >= 0 and rows_after == rows_before
+                  ).lower()
+              )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print("\n".join(outputs), file=output)
           if int(sys.argv[4]) == 0 and status != 0:
@@ -347,6 +302,24 @@ jobs:
             status=$parser_status
           fi
           exit "$status"
+      - name: Publish the L1 release
+        id: publish-lake
+        if: >-
+          ${{ always() && !cancelled() && steps.lease-acquire.outputs.acquired == 'true'
+          && steps.pull.outcome == 'success' && steps.hydrate.outcome == 'success'
+          && steps.tradingview.outcome != 'skipped'
+          && (((steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial')
+          && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0)
+          || (steps.tradingview.outcome == 'failure'
+          && steps.tradingview.outputs.publish_failed_receipts == 'true')) }}
+        env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -o pipefail
+          batch/scripts/r2_transfer.sh publish-lake | tee "$RUNNER_TEMP/tradingview-lake-publish.log"
       - name: Persist provider cooldown
         id: cooldown-save
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' && steps.tradingview.outcome != 'skipped' }}
@@ -355,16 +328,6 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_batch.storage.tradingview_cooldown record --directory "$RUNNER_TEMP"
-      - name: Publish the L1 release
-        id: publish-lake
-        if: (steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial') && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          set -o pipefail
-          batch/scripts/r2_transfer.sh publish-lake | tee "$RUNNER_TEMP/tradingview-lake-publish.log"
       - name: Release publication lease
         id: lease-release
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
@@ -441,7 +404,7 @@ jobs:
           retry_times = re.findall(r"(?:^|; )retry_not_before_utc=([0-9T:+.Z-]+)(?:;|$)", safe_errors, re.MULTILINE)
           release = report("tradingview-lake-publish.log")
           no_fetch = os.environ.get("ACQUISITION_OUTCOME") == "skipped" or os.environ.get("TRADINGVIEW") in {
-              "already_saved", "non_trading_day", "skipped_historical_asof"
+              "already_saved", "skipped_historical_asof"
           }
           values = {
               "target_date": os.environ.get("TARGET_DATE"), "slot": os.environ.get("SLOT"),

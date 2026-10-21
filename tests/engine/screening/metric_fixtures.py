@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import unittest
 from datetime import date, timedelta
-from pathlib import Path
 
-from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.providers.edinet import EdinetMetricRecord
-from baibai_engine.screening.schema import TTMQuality
-
-ROOT = Path(__file__).resolve().parents[2]
+from baibai_engine.market.price_models import JQuantsDailyBar
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
+    """Synthetic daily observations, including weekends; not an exchange calendar."""
     start = end - timedelta(days=total_days - 1)
     return [
         JQuantsDailyBar(
@@ -58,15 +55,18 @@ def _summary(
     total_assets: float | None = None,
     equity_to_asset_ratio: float | None = None,
 ) -> JQuantsFinancialSummary:
-    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。trailing 倍率も
-    # accruals もこの行から出るので、既定値は行の中でその恒等式を満たす値にする。恒等式を
-    # 破った行を試す test だけが `profit` を明示的に渡す。
+    # fixture では株数一定の簡略条件として EPS x 期末自己株控除後株数で利益を作る。
+    # 実開示の EPS 分母は期中平均株数などであり、一般の恒等式ではない。
+    # 別の利益値を試す test は `profit` を明示する。
     if profit is None and eps_ttm is not None:
         profit = eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
+    # Calculation-ready fixture; native document/period resolution has separate tests.
     return JQuantsFinancialSummary(
         ticker=code,
         disclosed_at=disclosed_at,
         forecast_eps=forecast_eps,
+        forecast_status="confirmed",
+        dividend_forecast_status="confirmed" if dps_forecast_annual is not None else "missing",
         eps_ttm=eps_ttm,
         bps=120.0,
         shares_outstanding=shares_outstanding,
@@ -151,8 +151,5 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
         close=100.0,
         turnover_value=300_000_000.0,
         adjustment_factor=factor,
+        ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
     )
-
-
-if __name__ == "__main__":
-    unittest.main()

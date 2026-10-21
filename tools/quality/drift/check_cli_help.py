@@ -1,9 +1,7 @@
 """Reject public subcommands that `--help` cannot describe.
 
-AGENTS.md makes public `--help` a stopping condition: an operation whose command the
-help text does not explain must halt and ask a human. A subcommand without a help line
-therefore does not merely read poorly — it stops the session that follows the rule, or
-pushes it into guessing.
+Public subcommands need a help description so their purpose is discoverable.
+This check does not validate the correctness of the description or the operation.
 
 argparse exposes no public API for walking a parser tree, so this gate reads the
 `_SubParsersAction` internals. The alternative — running `--help` once per command path
@@ -24,9 +22,14 @@ from typing import cast
 # させると配下の subcommand が丸ごと未検査になるので、未登録の stub は error にする。
 # 表を更新し忘れた delegation は gate をすり抜けない。
 DELEGATED_GROUPS: Mapping[str, str] = {
-    "baibai-engine macro context": "baibai_engine.macro.context.cli",
-    "baibai-engine macro reading": "baibai_engine.macro.reading.cli",
-    "baibai-engine research evaluate": "baibai_engine.research.thesis_evaluation_cli",
+    "baibai-engine collection economic": "baibai_engine.collection.economic.cli",
+    "baibai-engine market-context indicators": "baibai_engine.market_context.indicator_cli",
+    "baibai-engine market-context reading": "baibai_engine.market_context.reading.cli",
+    "baibai-engine research market-context": "baibai_engine.research.market_context.cli",
+    "baibai-engine research assessment-evaluate": (
+        "baibai_engine.research.assessment_evaluation_cli"
+    ),
+    "baibai-engine research calculate": "baibai_engine.research.calculation_cli",
 }
 
 

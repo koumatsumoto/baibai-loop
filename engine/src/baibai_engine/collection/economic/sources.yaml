@@ -1,0 +1,506 @@
+sources:
+  boj-bank-lending-yoy:
+    frequency: monthly
+    provider: boj_timeseries
+    provider_series_id: MD13:FAAPOBAL1@
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+  boj-cai:
+    frequency: monthly
+    provider: boj
+    provider_series_id: ''
+    source_url: https://www.boj.or.jp/research/research_data/cai/cai.xlsx
+  boj-cgpi:
+    frequency: monthly
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2200000000
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+  boj-export-price:
+    frequency: monthly
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2400000000
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+  boj-import-price:
+    frequency: monthly
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2600000000
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+  boj-mblong:
+    frequency: monthly
+    provider: boj
+    provider_series_id: ''
+    source_url: https://www.boj.or.jp/statistics/boj/other/mb/mblong.xlsx
+  boj-reri:
+    frequency: monthly
+    provider: boj
+    provider_series_id: ''
+    source_url: https://www.boj.or.jp/research/research_data/reri/rs_reri.xlsx
+  boj-tankan-lmfg:
+    frequency: quarterly
+    provider: boj_timeseries
+    provider_series_id: CO:TK99F1000601GCQ01000
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+  boj-tankan-lnonmfg:
+    frequency: quarterly
+    provider: boj_timeseries
+    provider_series_id: CO:TK99F2000601GCQ01000
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+  boj-timeseries-strdclucon:
+    frequency: daily
+    provider: boj_timeseries
+    provider_series_id: FM01:STRDCLUCON
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+  cftc-cot-jpy:
+    frequency: weekly
+    provider: cftc
+    provider_series_id: 097741
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+  cftc-cot-sp500:
+    frequency: weekly
+    provider: cftc
+    provider_series_id: 13874A
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+  cftc-cot-ust10y:
+    frequency: weekly
+    provider: cftc
+    provider_series_id: '043602'
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+  ecb-fx:
+    frequency: daily
+    provider: ecb_fx
+    provider_series_id: ''
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+  estat-consumer-confidence-ci:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0003446462?cdCat01=1060&cdTab=200
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-cpi:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0004052037?cdCat01=0001&cdArea=00000&cdTab=1
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-cpi-core:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0004052037?cdCat01=0161&cdArea=00000&cdTab=1
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-cpi-core-yoy:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0004052037?cdCat01=0161&cdArea=00000&cdTab=3
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-cpi-services:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0004052037?cdCat01=0220&cdArea=00000&cdTab=1
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-dashboard-nominal-wage-index:
+    frequency: monthly
+    provider: estat_dashboard
+    provider_series_id: 0302030202010090010
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030202010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
+  estat-dashboard-real-wage-index:
+    frequency: monthly
+    provider: estat_dashboard
+    provider_series_id: 0302030201010090010
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030201010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
+  estat-dashboard-unemployment-sa:
+    frequency: monthly
+    provider: estat_dashboard
+    provider_series_id: '0301010000020020010'
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0301010000020020010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
+  estat-iip-ci:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0003446462?cdCat01=2010&cdTab=200
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-job-openings-ci:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0003446462?cdCat01=2090&cdTab=200
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-machinery-orders-core:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0003355222?cdCat01=160&cdCat02=100&cdTab=100
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  estat-watcher-current-di:
+    frequency: monthly
+    provider: estat
+    provider_series_id: 0003348423?cdCat01=100&cdCat02=100&cdTab=140
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+  fed-h15:
+    frequency: daily
+    provider: frb_h15
+    provider_series_id: ''
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+  fred-a191rl1q225sbea:
+    frequency: quarterly
+    provider: fred_csv
+    provider_series_id: A191RL1Q225SBEA
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=A191RL1Q225SBEA
+  fred-bamlc0a0cm:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: BAMLC0A0CM
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLC0A0CM
+  fred-bamlh0a0hym2:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: BAMLH0A0HYM2
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2
+  fred-bamlh0a3hyc:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: BAMLH0A3HYC
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A3HYC
+  fred-cbbtcusd:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: CBBTCUSD
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CBBTCUSD
+  fred-ces0500000003:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: CES0500000003
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CES0500000003
+  fred-cpiaucsl:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: CPIAUCSL
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL
+  fred-cpilfesl:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: CPILFESL
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPILFESL
+  fred-dcoilbrenteu:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DCOILBRENTEU
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
+  fred-dcoilwtico:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DCOILWTICO
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO
+  fred-dexchus:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DEXCHUS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCHUS
+  fred-dfedtarl:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DFEDTARL
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARL
+  fred-dfedtaru:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DFEDTARU
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU
+  fred-dfii10:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DFII10
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10
+  fred-dhhngsp:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DHHNGSP
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DHHNGSP
+  fred-djia:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DJIA
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DJIA
+  fred-drtscilm:
+    frequency: quarterly
+    provider: fred_csv
+    provider_series_id: DRTSCILM
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DRTSCILM
+  fred-dtwexbgs:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: DTWEXBGS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTWEXBGS
+  fred-ecbassetsw:
+    frequency: weekly
+    provider: fred_csv
+    provider_series_id: ECBASSETSW
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBASSETSW
+  fred-ecbdfr:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: ECBDFR
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBDFR
+  fred-gacdfsa066msfrbphi:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: GACDFSA066MSFRBPHI
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=GACDFSA066MSFRBPHI
+  fred-gacdisa066msfrbny:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: GACDISA066MSFRBNY
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=GACDISA066MSFRBNY
+  fred-houst:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: HOUST
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=HOUST
+  fred-ic4wsa:
+    frequency: weekly
+    provider: fred_csv
+    provider_series_id: IC4WSA
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IC4WSA
+  fred-icsa:
+    frequency: weekly
+    provider: fred_csv
+    provider_series_id: ICSA
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ICSA
+  fred-indpro:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: INDPRO
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=INDPRO
+  fred-irltlt01dem156n:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: IRLTLT01DEM156N
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01DEM156N
+  fred-jtsjol:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: JTSJOL
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=JTSJOL
+  fred-m2sl:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: M2SL
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=M2SL
+  fred-mtsds133fms:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: MTSDS133FMS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=MTSDS133FMS
+  fred-nasdaqcom:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: NASDAQCOM
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NASDAQCOM
+  fred-neworder:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: NEWORDER
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NEWORDER
+  fred-nfci:
+    frequency: weekly
+    provider: fred_csv
+    provider_series_id: NFCI
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NFCI
+  fred-nikkei225:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: NIKKEI225
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
+  fred-payems:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: PAYEMS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PAYEMS
+  fred-pcepilfe:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: PCEPILFE
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PCEPILFE
+  fred-permit:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: PERMIT
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PERMIT
+  fred-ppifis:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: PPIFIS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PPIFIS
+  fred-rbjpbis:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: RBJPBIS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RBJPBIS
+  fred-rrpontsyd:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: RRPONTSYD
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RRPONTSYD
+  fred-rsafs:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: RSAFS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RSAFS
+  fred-sp500:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: SP500
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500
+  fred-t10y3m:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: T10Y3M
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10Y3M
+  fred-t10yie:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: T10YIE
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10YIE
+  fred-t5yifr:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: T5YIFR
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=T5YIFR
+  fred-unrate:
+    frequency: monthly
+    provider: fred_csv
+    provider_series_id: UNRATE
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=UNRATE
+  fred-vixcls:
+    frequency: daily
+    provider: fred_csv
+    provider_series_id: VIXCLS
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+  fred-walcl:
+    frequency: weekly
+    provider: fred_csv
+    provider_series_id: WALCL
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=WALCL
+  fred-wtregen:
+    frequency: weekly
+    provider: fred_csv
+    provider_series_id: WTREGEN
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=WTREGEN
+  jquants-indices-topix:
+    frequency: daily
+    provider: jquants_indices
+    provider_series_id: topix
+    source_url: https://jpx-jquants.com/
+  jquants-options-n225:
+    frequency: daily
+    provider: jquants_options
+    provider_series_id: ''
+    source_url: https://jpx-jquants.com/
+  jquants-trades-spec:
+    frequency: weekly
+    provider: jquants_flows
+    provider_series_id: ''
+    source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
+  mof-jgbcm-all:
+    frequency: daily
+    provider: mof_jgb
+    provider_series_id: ''
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+  multpl-shiller-pe:
+    frequency: daily
+    provider: multpl
+    provider_series_id: shiller-pe
+    source_url: https://www.multpl.com/shiller-pe/table/by-month
+  multpl-sp500-ey:
+    frequency: daily
+    provider: multpl
+    provider_series_id: s-p-500-earnings-yield
+    source_url: https://www.multpl.com/s-p-500-earnings-yield/table/by-month
+  multpl-sp500-pe:
+    frequency: daily
+    provider: multpl
+    provider_series_id: s-p-500-pe-ratio
+    source_url: https://www.multpl.com/s-p-500-pe-ratio/table/by-month
+  nikkei-pbr:
+    frequency: daily
+    provider: nikkei_indexes
+    provider_series_id: pbr
+    source_url: https://indexes.nikkei.co.jp/nkave/statistics/dataload
+  nikkei-per:
+    frequency: daily
+    provider: nikkei_indexes
+    provider_series_id: per
+    source_url: https://indexes.nikkei.co.jp/nkave/statistics/dataload
+  spglobal-jp-pmi-mfg:
+    frequency: monthly
+    provider: spglobal_pmi
+    provider_series_id: jp_manufacturing
+    source_url: https://www.pmi.spglobal.com/
+  spglobal-jp-pmi-svc:
+    frequency: monthly
+    provider: spglobal_pmi
+    provider_series_id: jp_services
+    source_url: https://www.pmi.spglobal.com/
+  spglobal-us-pmi-mfg:
+    frequency: monthly
+    provider: spglobal_pmi
+    provider_series_id: us_manufacturing
+    source_url: https://www.pmi.spglobal.com/
+  spglobal-us-pmi-svc:
+    frequency: monthly
+    provider: spglobal_pmi
+    provider_series_id: us_services
+    source_url: https://www.pmi.spglobal.com/
+  tsr-bankruptcies:
+    frequency: monthly
+    provider: tsr_bankruptcies
+    provider_series_id: jp_bankruptcies_tsr
+    source_url: https://www.tsr-net.co.jp/news/status/json/search.json
+  umich-sca-ics:
+    frequency: monthly
+    provider: umich_sca
+    provider_series_id: ''
+    source_url: https://www.sca.isr.umich.edu/files/tbmics.csv
+  yahoo-2516t:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: 2516.T
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/2516.T
+  yahoo-acwx:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: ACWX
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/ACWX
+  yahoo-eem:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: EEM
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/EEM
+  yahoo-gc-f:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: GC=F
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/GC=F
+  yahoo-hg-f:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: HG=F
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/HG=F
+  yahoo-move:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: ^MOVE
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5EMOVE
+  yahoo-rut:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: ^RUT
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5ERUT
+  yahoo-si-f:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: SI=F
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/SI=F
+  yahoo-sox:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: ^SOX
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5ESOX
+  yahoo-stoxx600:
+    frequency: daily
+    provider: yahoo
+    provider_series_id: ^STOXX
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/^STOXX

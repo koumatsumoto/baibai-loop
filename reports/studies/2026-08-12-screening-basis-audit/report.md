@@ -2,11 +2,13 @@
 title: "screening基盤の反証監査"
 summary: "株式・期間・時点・合成basisを実データとproduction entrypointで反証し、5つの実データ欠陥と2つの境界契約を修正した。"
 doc_type: measurement-record
-status: complete
+status: historical
 date: 2026-08-13
 ---
 
 # screening基盤の反証監査
+
+この監査は 2026-08-12〜13 の旧 schema 23・旧 playbook / ranking・旧較正 authority の履歴である。「現行」、採用・不採用、保存できない provenance、残課題は当時の状態を指す。後続の財務 document / revision 保存・期間解決や Candidate Discovery の仕様を否定する根拠にはしない。30/30 eligible も当時固定した入力・metric・as-of に限る結果であり、現在の変更や本番切替の承認ではない。下記の cloud push 等は当時の計画で、現行の運用指示ではない。
 
 価値tier: T2 — 資本状態、corporate action、会計期間のbasis不整合が時価総額・倍率・E[r]・順位へ入る経路を止め、一次researchへ渡す候補の正確性を守る。
 
@@ -73,6 +75,8 @@ current断面では20銘柄がこのreasonで停止し、全件がpopulation外�
 6184と7049は、空欄の意味を0株と断定せず「旧自己株が継続するか判定不能」という契約の実例として扱う。4889は一次資料上は自己株10株の継続が確認できるが、保存済みNULL入力だけでは証明できないため停止する既知のavailability costである。したがって989件をすべて実際の自己株処分と数えない。
 
 ### 3.2 `AvgSh`とgross issued
+
+現在の解釈（2026-10-15）: 以下の数値パターンは当時の除外規則と集計の記録であり、誤保存の証明ではない。再取得した提供元原本との照合では、対象期間内の138行すべてに同じ3株数の文書が存在した。例示した4167も、[発行体の当該決算短信第2ページ](https://contents.xj-storage.jp/xcontents/AS09509/45c08ca4/a03a/4f04/87ad/8d62f82d775a/140120240813570713.pdf#page=2)に同じ当1Q値が記載され、7,916,230株は前期末比較列だった。現在の原本との一致から当時の保存経路や発行体の報告値の正しさまでは断定しない。現行規則は[valuation metrics](../../../docs/reference/valuation-metrics.md)を正本とし、数値の一致からAvgShの誤転記を推測して除外しない。
 
 全182,314 summaryで`shares_outstanding == average_shares`は2,743行、さらに正の自己株があるものは137行だった。等値だけでは発行済が動かなかった正常1Qも止めるため、既存cacheでは`issued == average`、正の自己株、`issued + treasury == 過去gross issued`の隣接恒等式が揃う場合だけfail closedにする。direct / SQLite writerから`AvgSh` fallbackを除き、将来行はgross issuedへ期中平均を保存しない。
 
@@ -205,4 +209,4 @@ PBRは24銘柄、E[r]は60銘柄、evidence membershipは19銘柄で変わり、
 - period-wide snapshot / TTM / forecast recoveryは固定3y / 5y authorityを通らず不採用である。
 - S8は全fieldのsemantic mutation対応表まで証明していない。
 
-この監査は、観測可能なsourceとproduction functionに対するbasis整合を証明する。欠けたraw provenanceを推測で復元せず、値を安全に決められない場合はreason付きでavailabilityを閉じる。current top 5不変は修正不要の根拠ではなく、履歴return改善も採用理由にしていない。
+この監査は、列挙した source・ケース・production function の範囲で basis 整合を確認した。全入力や全 field の整合を証明したものではない。欠けたraw provenanceを推測で復元せず、値を安全に決められない場合はreason付きでavailabilityを閉じる。current top 5不変は修正不要の根拠ではなく、履歴return改善も採用理由にしていない。

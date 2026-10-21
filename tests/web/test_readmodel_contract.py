@@ -71,7 +71,19 @@ def _check_value(
                 if isinstance(option, Mapping)
             ]
             return [] if any(not item for item in failures) else min(failures, key=len)
-    if node.get("type") == "array" and isinstance(value, list):
+    kind = node.get("type")
+    shape_matches = {
+        "null": value is None,
+        "array": isinstance(value, list),
+        "object": isinstance(value, Mapping),
+        "string": isinstance(value, str),
+        "boolean": isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+    }
+    if isinstance(kind, str) and kind in shape_matches and not shape_matches[kind]:
+        return [f"{path}: schema describes {kind}, payload holds {type(value).__name__}"]
+    if kind == "array" and isinstance(value, list):
         items = node.get("items")
         if not isinstance(items, Mapping):
             return []
@@ -131,7 +143,7 @@ def test_every_exported_view_carries_exactly_the_keys_the_schema_requires(
         failures.extend(_check_value(schema, _definition(schema, reference), payload, relative))
 
     assert failures == []
-    # The fixture publishes a run, a thesis and a ledger, so the export is not one file.
+    # The fixture publishes a run, a Stock Assessment and a ledger, so the export is not one file.
     assert checked > 10
 
 
@@ -176,26 +188,32 @@ def test_the_renderer_emits_a_declaration_for_each_supported_definition(
 
 @pytest.mark.parametrize("count", [0, 5, 10, 11, 200])
 @pytest.mark.parametrize("er", [None, -0.2, 0.4])
-def test_review_set_delta_retains_every_entry_in_ticker_order(count, er):
+def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
     from datetime import date
 
     from baibai_batch.jobs.daily import _delta_ticker_labels, _Notice
     from baibai_batch.observability.discord import render_delta
-    from baibai_web.readmodel.builders.daily_delta import _review_set_deltas
+    from baibai_web.readmodel.builders.daily_delta import _candidate_deltas
 
     current = {
-        str(1000 + i): {"ticker": str(1000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        str(1000 + i): {"ticker": str(1000 + i), "metrics": {"er_annual": er}}
         for i in reversed(range(count))
     }
     earlier = {
-        str(4000 + i): {"ticker": str(4000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        str(4000 + i): {"ticker": str(4000 + i), "metrics": {"er_annual": er}}
         for i in reversed(range(count))
     }
-    entered, exited, moves, total = _review_set_deltas(
-        current, earlier, market=None, previous_as_of=date(2026, 9, 1)
+    entered, exited, moves, total = _candidate_deltas(
+        current,
+        earlier,
+        market=None,
+        previous_as_of=date(2026, 9, 1),
+        current_as_of=date(2026, 9, 2),
     )
     assert [entry.ticker for entry in entered] == sorted(current)
     assert [entry.ticker for entry in exited] == sorted(earlier)
+    expected_er_pct = None if er is None else er * 100
+    assert all(entry.er_annual_pct == expected_er_pct for entry in [*entered, *exited])
     assert moves == []
     assert total == 0
     notice = _Notice(
@@ -204,9 +222,40 @@ def test_review_set_delta_retains_every_entry_in_ticker_order(count, er):
         exited=_delta_ticker_labels([entry.model_dump() for entry in exited]),
     )
     lines = render_delta(notice.to_json())
+    if er is None or count == 0:
+        assert all("E[r]" not in line for line in lines)
+    else:
+        assert all(line.count(f"E[r]{expected_er_pct:+.1f}%") == min(count, 5) for line in lines)
     if count > 5:
         assert all(f"全{count}件" in line and f"他{count - 5}件" in line for line in lines)
         assert "1004" in lines[0]
         assert "1005" not in lines[0]
     elif count == 0:
         assert all("なし" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        (None, True),
+        ({"name": "fixed"}, True),
+        ({}, False),
+        ({"name": "fixed", "unexpected": 1}, False),
+        ({"name": None}, False),
+        ([], False),
+        ("not-an-object", False),
+    ],
+)
+def test_nullable_contract_check_does_not_accept_broken_objects_as_null(value, valid):
+    schema = {
+        "$defs": {
+            "Nullable": {"anyOf": [{"$ref": "#/$defs/Detail"}, {"type": "null"}]},
+            "Detail": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        }
+    }
+    failures = _check_value(schema, schema["$defs"]["Nullable"], value, "detail")
+    assert bool(failures) is not valid

@@ -1,5 +1,10 @@
 # actual DPS の asof-basis 補正設計 — 事前登録（#319）
 
+## 履歴の読み方
+
+以下は当時の仮説・採否基準・測定結果であり、現行の CLI、保存先、配当計算や運用手順ではない。実績配当利回りを固定して期間配賦した accrual は、実際の配当受取を再現した total return ではない。入力の株式基準に誤りがある場合、過去 replay の成績が高いことだけでその入力を正当化できない。数値と当時の不採用判断は履歴として保持する。
+
+
 本レポートは #319 の actual DPS asof-basis 補正について、計測前に仮説・採否基準・再現手順を固定する。git history 上の本節 commit を事前登録の正本とし、design / confirm 検証と採用可否は後続節へ追記する。
 
 ## 0. 盲検性の限定
@@ -98,8 +103,6 @@ uv run baibai-loop-screening calibration-evaluate --calibration-dir stores/scree
 uv run baibai-loop-screening run --asof 2026-07-08 --output-path .cache/candidates-2026-07-08-dps-asof.yaml --force
 uv run baibai-loop-screening select --asof 2026-07-08 --candidates .cache/candidates-2026-07-08-dps-asof.yaml --top 20 --detail full > .cache/select-2026-07-08-dps-asof.yaml
 ```
-
-## 5. 判定記録
 
 ## 5. 検証結果
 

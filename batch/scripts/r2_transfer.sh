@@ -22,17 +22,17 @@ copy_read_timeout=300
 # The application store is the one object here nothing regenerates: it holds the
 # judgments and the ledger. A single `.bak` is a single undo, and a store damaged before
 # anyone looked at it has already spent that undo by the second push, so this key keeps
-# one generation per day instead. Two weeks is the window in which a wrong number is
-# still noticed by reading the portfolio rather than by auditing it.
+# one dated backup key per day instead, retaining the latest 14 distinct dates.
+# Further pushes on the same date replace that day's backup; this is not an archive
+# of every application update.
 app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
-machine_bundle_keys=(market.sqlite runs.sqlite macro.sqlite)
+machine_bundle_keys=(market.sqlite runs.sqlite indicators.sqlite)
 transfer_staging=""
 transfer_config=""
-# The serving prefix is thousands of small objects, so its wall clock is request
-# latency and not bytes: 54MB across 3,740 objects took 282s, which is 13 requests
-# a second against the CLI's default of 10 in flight. The in-flight count is
-# therefore the only lever on that number.
+# The serving prefix contains many small objects. Allow transfer concurrency to be
+# tuned without changing the caller's AWS configuration; measure its effect from
+# the per-stage counts and elapsed time rather than assuming a fixed throughput.
 serving_upload_concurrency_default=32
 
 cleanup_staging() {
@@ -110,21 +110,27 @@ count_files() {
 }
 
 remote_object_exists() {
-  # Exact-key existence, so a sibling object (a `.bak`) never reads as the key
-  # itself the way a prefix listing would. `aws s3 ls` is not usable here: it
-  # rejects the transfer flags `aws_s3` passes and would fail for every key.
-  aws s3api head-object \
+  # Only an explicit missing object means absence. Authentication, network and server
+  # failures must stop the script even when this function is called inside an `if`.
+  local error
+  if error="$(aws s3api head-object \
     --bucket "${stores_bucket}" \
     --key "$1" \
-    --endpoint-url "${endpoint}" \
-    >/dev/null 2>&1
+    --endpoint-url "${endpoint}" 2>&1 >/dev/null)"; then
+    return 0
+  fi
+  if [[ "${error}" == *"(404) when calling the HeadObject operation"* ]]; then
+    return 1
+  fi
+  printf 'cannot determine whether R2 object %s exists: %s\n' "$1" "${error}" >&2
+  exit 2
 }
 
 store_path() {
   case "$1" in
     market.sqlite) printf '%s/stores/market/market.sqlite\n' "${repo_root}" ;;
     runs.sqlite) printf '%s/stores/screening/runs.sqlite\n' "${repo_root}" ;;
-    macro.sqlite) printf '%s/stores/macro/macro.sqlite\n' "${repo_root}" ;;
+    indicators.sqlite) printf '%s/stores/market_context/indicators.sqlite\n' "${repo_root}" ;;
     baibai.sqlite) printf '%s/stores/application/baibai.sqlite\n' "${repo_root}" ;;
     *) printf 'unknown store key: %s\n' "$1" >&2; return 2 ;;
   esac
@@ -160,22 +166,8 @@ merge_store() {
   )
 }
 
-merge_indicator_store() {
-  merge_store baibai_batch.storage.merge_indicator_store "$1" "$2"
-}
-
-# Move the downloaded copy to the schema this code writes, so the merge's source and
-# target agree. Without it a store published before a migration landed can only be
-# moved forward by the daily batch, and every schema change would block publishing
-# from a developer machine until the cloud had run. The copy lives in the transfer
-# staging directory, so the object in R2 is untouched.
-migrate_downloaded_store() {
-  local store="$1" path="$2"
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_batch.storage.migrate_store --store "${store}" --path "${path}"
-  )
+merge_economic_store() {
+  merge_store baibai_batch.storage.merge_economic_store "$1" "$2"
 }
 
 merge_market_store() {
@@ -207,14 +199,15 @@ publish_lake() {
       uv run python -m baibai_batch.storage.publish_market_lake \
         --sqlite "$(store_path market.sqlite)" \
         --mirror "${lake_mirror}" \
-        --bucket "${stores_bucket}"
+        --bucket "${stores_bucket}" \
+        --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
   )
 }
 
 dehydrate_market_snapshot() {
-  # Runs on the copy about to be uploaded, never on the working store. It refuses unless
-  # the release embedded in that same SQLite generation accounts for every row it drops,
-  # so no detached identity file can authorize the object to shrink.
+  # Runs on the upload copy, never on the working store. Origin and row counts must
+  # match the release; values are not compared. Publish local changes first and do not
+  # edit lake-owned rows between publication and snapshotting.
   local path="$1"
   (
     cd "${repo_root}" || exit 1
@@ -297,7 +290,8 @@ write_machine_manifest() {
   # it merely stale — which the next bundle pull refuses. Values carried forward from
   # the pushes would instead let it claim a generation nobody ever observed together.
   local key version file first=1
-  file="$(mktemp "${TMPDIR:-/tmp}/baibai-machine-manifest.XXXXXX")"
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  file="${transfer_staging}/machine-manifest.json"
   {
     printf '{\n'
     printf '  "schema_version": 1,\n'
@@ -319,21 +313,27 @@ write_machine_manifest() {
     --body "${file}" \
     --endpoint-url "${endpoint}" \
     >/dev/null
-  rm -f -- "${file}"
+  cleanup_staging
+  transfer_staging=""
   printf 'machine bundle receipt written: %s\n' "${machine_manifest_key}"
 }
 
 manifest_recorded_version() {
-  # This script is the receipt's only writer, so its shape is fixed. Anything that does
-  # not read back as one ETag is reported as no record at all, which refuses the pull
-  # instead of comparing against a value nobody can account for.
-  local file="$1" key="$2" value
-  value="$(sed -n "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
-    "${file}" | head -n 1)"
-  if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
-    value=""
-  fi
-  printf '%s\n' "${value}"
+  # Read the JSON contract, not the writer's whitespace or line layout.
+  python3 - "$1" "$2" <<'PYTHON'
+import json
+import re
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        receipt = json.load(source)
+except (OSError, ValueError):
+    receipt = None
+keys = receipt.get("keys") if isinstance(receipt, dict) else None
+value = keys.get(sys.argv[2]) if isinstance(keys, dict) else None
+print(value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]+", value) else "")
+PYTHON
 }
 
 require_machine_manifest() {
@@ -348,8 +348,8 @@ require_machine_manifest() {
   # Absence is decided by the existence check, not by the download failing: a download
   # that fails for any other reason must refuse the pull rather than read as "no receipt
   # was ever written", which is the shape a hole in this check would take. The existence
-  # check is the same head-object this pull has already run once per key, so a broken
-  # credential or a dead endpoint has stopped it well before here.
+  # check distinguishes a missing object from authentication, network or server errors;
+  # success for another key does not establish that this request succeeded.
   if ! remote_object_exists "${machine_manifest_key}"; then
     printf 'no machine bundle receipt in s3://%s yet; taking the store set unverified. ' \
       "${stores_bucket}" >&2
@@ -440,9 +440,9 @@ pull_keys() {
 }
 
 backup_key_for() {
-  # Dated for the application store and fixed for the rest. The machine stores are
-  # rewritten every business day and rebuildable from their sources, so a generation
-  # each would only hold copies of a store the next batch replaces anyway.
+  # Dated for the application store and one fixed backup for each machine store.
+  # Machine data is derived/acquired, but expired upstream history may not be
+  # recoverable; this backup is recovery protection, not proof of rebuildability.
   case "$1" in
     baibai.sqlite) printf '%s.bak-%s\n' "$1" "$(TZ=Asia/Tokyo date +%Y%m%d)" ;;
     *) printf '%s.bak\n' "$1" ;;
@@ -544,12 +544,12 @@ _push_keys() {
     started="${SECONDS}"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
-    # once the lake holds anything. A serving pointer is where that authority is
+    # once the lake holds anything. An L1 release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an
     # empty bucket being seeded) the store is still the only copy of those rows, and
     # after it the emptying is mandatory rather than best-effort.
     if [[ "${key}" == "market.sqlite" ]] \
-      && remote_object_exists "lake/pointers/l1/current.json"; then
+      && remote_object_exists "lake/pointers/market/current.json"; then
       dehydrate_market_snapshot "${transfer_staging}/${key}"
     fi
     snapshot_seconds+=("$((SECONDS - started))")
@@ -557,7 +557,9 @@ _push_keys() {
   local index=0
   for key in "$@"; do
     started="${SECONDS}"
-    backup_remote_key "${key}" "${expected_version}"
+    if [[ -n "${expected_version}" ]]; then
+      backup_remote_key "${key}" "${expected_version}"
+    fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
     if [[ -n "${expected_version}" ]]; then
@@ -582,7 +584,14 @@ _push_keys() {
         record_pulled_version "${key}" "${uploaded_version}"
       fi
     else
-      aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
+      # Seed is create-only even if another writer appears after the existence check.
+      aws s3api put-object \
+        --bucket "${stores_bucket}" \
+        --key "${key}" \
+        --body "${transfer_staging}/${key}" \
+        --if-none-match '*' \
+        --endpoint-url "${endpoint}" \
+        >/dev/null
     fi
     printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss\n' \
       "${key}" \
@@ -594,10 +603,6 @@ _push_keys() {
   done
   cleanup_staging
   transfer_staging=""
-}
-
-push_keys() {
-  _push_keys "" "$@"
 }
 
 push_key_if_version() {
@@ -647,7 +652,7 @@ seed_keys() {
       return 2
     fi
   done
-  push_keys "$@"
+  _push_keys "" "$@"
 }
 
 require_complete_export() {
@@ -661,8 +666,7 @@ require_complete_export() {
 upload_serving_views() {
   # The mutable image of the current run: every view except the freshness claim,
   # which is nearly all of what a run publishes. All of it is rewritten each
-  # business day, so this is the part worth overlapping with the store push and
-  # the part a failed run can leave behind without lasting harm.
+  # business day. The workflow uploads it only after the machine-store push succeeds.
   local output_dir="$1"
   require_complete_export "${output_dir}"
   use_serving_transfer_settings
@@ -712,7 +716,7 @@ pull_app() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -743,7 +747,7 @@ case "${1:-}" in
     pull_keys runs.sqlite
     ;;
   seed-all)
-    seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
+    seed_keys market.sqlite runs.sqlite indicators.sqlite baibai.sqlite
     ;;
   push-machine)
     push_pulled_keys "${machine_bundle_keys[@]}"
@@ -765,35 +769,42 @@ case "${1:-}" in
     push_key_if_version market.sqlite "${market_version}"
     write_machine_manifest
     ;;
-  push-macro)
-    # Deep history is fetched locally with `macro refresh --all-history`, which the
+  push-indicators)
+    # Deep history is fetched locally with `collection economic refresh --all-history`, which the
     # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
     # recent observations the local store has never seen. So the local store is only
     # publishable once it contains the cloud copy: pull it, merge it in, and let the
     # merge refuse the upload if any cloud row would be left behind.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-    macro_version="$(remote_version macro.sqlite)"
-    aws_s3 cp "s3://${stores_bucket}/macro.sqlite" "${transfer_staging}/macro.sqlite"
-    check_sqlite "${transfer_staging}/macro.sqlite"
-    migrate_downloaded_store macro "${transfer_staging}/macro.sqlite"
-    merge_indicator_store "${transfer_staging}/macro.sqlite" "$(store_path macro.sqlite)"
+    indicator_version="$(remote_version indicators.sqlite)"
+    aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
+    check_sqlite "${transfer_staging}/indicators.sqlite"
+    merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
     cleanup_staging
     transfer_staging=""
-    push_key_if_version macro.sqlite "${macro_version}"
+    push_key_if_version indicators.sqlite "${indicator_version}"
     write_machine_manifest
     ;;
   push-app)
+    case "${R2_APP_BACKUP_PRUNE:-retain}" in
+      retain|skip) ;;
+      *) printf 'R2_APP_BACKUP_PRUNE must be retain or skip\n' >&2; exit 2 ;;
+    esac
     app_version="$(pulled_version baibai.sqlite)"
     push_key_if_version baibai.sqlite "${app_version}"
-    prune_app_backups
+    if [[ "${R2_APP_BACKUP_PRUNE:-retain}" == "skip" ]]; then
+      printf 'application backup pruning skipped\n'
+    else
+      prune_app_backups
+    fi
     ;;
   # The serving bucket has one writer: the batch that produces a complete export.
   # The views mirror runs with `--delete`, so a partial local export would remove
   # production views, and the local credential carries write permission because R2
   # grants it per token rather than per bucket. The boundary lives here instead.
   #
-  # The publish is two stages so the mutable image can overlap the store push while
-  # the durable record cannot: see the two functions for which is which.
+  # The publish is two stages so freshness advances only after all view uploads
+  # succeed; both stages follow the successful store push.
   upload-serving-views)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then

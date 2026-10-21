@@ -21,7 +21,7 @@ source_paths:
 
 ## 2. Dependency policy
 
-依存は`pyproject.toml`と`uv.lock`で管理する。開発環境は`uv sync --frozen --all-groups`で揃える。MCP SDKはOwner MCPとTradingView collectorで共用するruntime依存とする。
+依存は`pyproject.toml`と`uv.lock`で管理する。開発環境は`uv sync --locked --all-groups`で揃える。MCP SDKはTradingView collectorのruntime依存とする。
 
 <a id="cloud-development-boundary"></a>
 
@@ -29,17 +29,18 @@ source_paths:
 
 | 実行環境 | 担当する作業 |
 | --- | --- |
-| ユーザーのローカルPC | 開発・検証・provider取得・本番DB更新・公開・復旧を含む全作業。既存の`publish.sh`とlocalのmachine / lake発行経路を使う |
+| ユーザーのローカルPC | 対応OS・依存・認可が揃う開発と運用。既存のapplication / machine / lake手順を使う |
 | GitHub Actions | 主にバッチの外部データ書込。daily、TradingView snapshot、materialize、Worker deployとPRのCIを既存workflowで実行する |
-| ChatGPTクラウド | 本番データは基本read-only。コード・文書編集、依存導入、build、fixture・検証コピーへの書込、commit・push・PR作成、認可された実データ・provider読取を行う。外部データの更新・公開は原則として許可されたActionsへ委譲する。ユーザーが明示的に依頼したtask更新は、既存engineで作業コピーを編集し、取得世代への条件付きPUTでR2正本へ直接反映できる |
+| ChatGPTクラウド | 通常開発はコード・文書・検証コピーの編集、commit・push・PRと認可済み読取。本番処理は既存Actionsを優先し、個別に承認されたapplication更新は対応する運用環境から正規CLIと条件付き反映を使える |
 
 データ状態の正本と作業コピーは[architecture](../architecture.md#store-authority)に従い、この表の実行場所とは区別する。
 操作はユーザーの依頼・接続の権限・利用枠の範囲で行う。providerから取得した応答の検証用保存は
 クラウド内の書込であり、本番storeや外部serviceへの書込とは区別する。
-本番操作の入口とcredential配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
+本番操作の入口とcredential配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。ローカルPCであること自体を保存の必須条件にせず、実行環境の承認とOS・依存・接続・競合検知を確認する。文書変更や環境接続だけでは、本番書込やcredentialの新設・拡張は許可されない。
 
-開発は、実際のcheckoutとAGENTS.md・対象skillを確認 → 保存済み環境で依存を準備 → branchで修正 →
-[完全gate](#9-ci-and-local-parity)と必要な認可済み読取検証 → draft PR → 対象headのCI確認の順で行う。
+開発は、対象revisionとAGENTS.md・対象skillを確認 → branchで修正 → draft PR →
+[対象headのCI](#9-ci-and-local-parity)確認の順で行う。ローカル検証が必要な場合だけcheckoutと依存を準備する。
+実データ依存の検証は認可された環境で別途行う。
 実行済み・失敗・未実行をPRへ記し、fixture成功を実データや本番反映の成功に読み替えない。
 
 公開repositoryのstandard GitHub-hosted runnerの実行時間は無料である。
@@ -64,7 +65,7 @@ frontendとedgeのlockfile依存、frontend buildを準備する。再実行時�
 checkout、lockfile、`.env`、storeは変更しない。生成したenv.shには非secretのpath設定だけを置き、
 shellごとにsourceする。checkoutを移動した場合はsetupを再実行する。
 基本setupには秘密情報も実データも不要で、lint・型検査・fixture testと空データのUIが使える。
-品質検証は[完全gate](#9-ci-and-local-parity)、UIの操作は[Web](../../web/README.md)を参照する。
+品質検証は[完全gate](#9-ci-and-local-parity)、UIの操作は[Web](../../web/README.md)を参照する。Windows hostで編集や依存導入ができても、Linux/POSIX用の運用scriptが動くことの確認にはならない。WSL・cloud Linux等の対応環境と、Windows上の準備だけを終えた状態を区別する。
 
 追加downloadは必要な場合だけ明示する。失敗時は非zeroで終了し、基本setup成功と追加機能の導入成功を区別する。
 
@@ -76,6 +77,7 @@ ChromiumはPlaywright指定版、httpfsは既存provision toolを使う。OSのb
 DuckDB既定extension cacheの書込権限は環境側で用意する。403なら実際の配布hostを環境管理側で確認し、
 proxy解除・TLS検証無効化で回避しない。書込可能な別directoryへのDuckDB接続設定は新規connectionへ継承されず、
 現在のlake readerにはそのpathを渡す環境変数が無い。任意pathへの配置だけで導入完了にしない。
+remote httpfsを使えない場合でも、[固定releaseのローカルhydrate](../../batch/OPERATIONS.md#local-release-hydrate)が適するかを確認できる。これは本番書込や検証の省略ではない。
 既存ChromiumをUI smokeだけに使う場合は実行pathとversionを確認し、Playwrightの
 `chromium.launch(executable_path=..., headless=True)`で明示する。指定版の導入・互換性検証とは区別する。
 
@@ -113,8 +115,7 @@ VaultのKeyとTypeを揃え、Applies toに対象環境を含める。保存・�
 | 基本開発・fixture・空データUI | secret不要。任意の検証コピーpathは`BAIBAI_DB` / `BAIBAI_RUNS_DB`（非secret） |
 | 実データの読取 | 許可されたSQLite snapshotと固定lake releaseが必要。データがなければ未検証 |
 | lakeの直接R2読取 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`。対象bucket専用のObject Read only credentialとhttpfsが必要 |
-| Owner MCPのL1 gateway読取 | `READ_ACCESS_TOKEN`。[Owner MCP](../../tools/owner_mcp/README.md)参照 |
-| Workerの開発用認証・L1接続検証 | `VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、L1はObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
+| Workerの開発用認証・market lake接続検証 | `VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、market lakeはObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
 | provider読取 | `JQUANTS_API_KEY`, `EDINET_API_KEY`, `ESTAT_APP_ID`。認可された接続と利用枠で必要な読取を行い、保存先は検証コピーにする。[sample](../../.env.sample)参照 |
 | JPXの公開source（非secret） | [JPX source設定](../../engine/src/baibai_engine/market/jpx_sources.py)の固定値を使う。環境変数の設定は不要 |
 | TradingViewの認証・取得 | [batch運用](../../batch/OPERATIONS.md#tradingview-expectations)を参照。独立stateのrotationはローカル保存を伴う。本番stateをコピーせず、GitHub Secretへの書戻しを通常のクラウド読取に含めない |
@@ -125,7 +126,7 @@ Personal Vaultの値は接続先をnetwork allowlistへ自動追加しない。�
 403等はscope・endpoint・network設定を確認する。秘密値の表示やproxy・TLS検証の解除で診断しない。
 
 writer用R2 credential、GitHub Secret writer token、Cloudflare deploy tokenは通常のクラウド開発へ渡さない。
-明示依頼されたtaskの直接更新では、既存runtime credentialの権限内で操作し、認証失敗を権限拡大や別経路で回避しない。
+承認済みapplication更新は、専用の運用環境に既に許可されたruntime credentialの範囲で行う。認証失敗を権限拡大や別経路で回避せず、新規設定・共有は別の承認として扱う。
 外部書込用の配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
 [R2 acceptance](../../tests/integration/test_lake_r2_acceptance.py)は外部に書込・削除する試験であり、通常のクラウドgateでは実行しない。
 ローカルPCで明示依頼された場合だけ、専用の空bucketと専用credentialを用意し、
@@ -136,7 +137,7 @@ provider読取、実store validation、OAuth smoke、R2 acceptanceをfixture gat
 
 Ruffを使う。runtimeはPython 3.14だが、formatter targetは`py313`である。複数例外捕捉を`except (T1, T2):`に揃え、PEP 758の括弧なし構文へ自動変換させないための選択である。
 
-Markdownのhard breakを壊さないよう、trailing whitespace hookは`.md`を対象外とする。その他の設定値は`pyproject.toml`とpre-commit設定を参照する。
+任意のpre-commit hookは変更ファイルの基本整形・lintだけを行う。型・契約・全体テストをcommit/pushの必須前提にせず、対象HEADのCIで確認する。Markdownのhard breakを壊さないよう、trailing whitespace hookは`.md`を対象外とする。設定値は`pyproject.toml`とpre-commit設定を参照する。
 
 ## 4. Type checking
 
@@ -144,7 +145,7 @@ CIの型検査はmypy strictに統一し、runtime packageとtoolsを対象に�
 
 ## 5. Validation boundary
 
-外部入力と保存境界をdomain model・DB constraint・serviceで検証する。providerの正規化、文書内部の整合、現在のsourceとの整合はそれぞれのownerが担う。内部計算に同じvalidationを重ねない。過去の保存物の読取と、新しい判断の適格性を区別する。
+外部入力と保存境界をdomain model・DB constraint・serviceで検証する。providerの正規化、文書内部の整合、現在のsourceとの整合はそれぞれのownerが担う。内部計算に同じvalidationを重ねない。過去の保存物の読取と、新しい判断の適格性を区別する。生成JSON Schemaの構造検査はruntime modelやserviceの意味検証を代行しない。ID形式、時刻順、参照、canonical hash、現在入力との整合は正規CLIで確認し、schema validatorの成功だけで公開readyとしない。
 
 ## 6. I/O and adapters
 
@@ -166,12 +167,14 @@ CodeQLは現行構成では採用しない。scanner追加は既存検査との�
 
 ## 9. CI and local parity
 
-各blockはrepository rootから独立して実行し、非zeroなら原因を直してから次へ進む。実際のtrigger/stepは`.github/workflows/`を参照する。
+作業中はCI結果の確認・待機で作業を止めず、マージ前に最終HEADの整形・lint・型・契約・テスト・依存検査を確認する。完全local gateをpush前に重複実行することは必須としない。最終確認で失敗があれば原因を修正し、新しいHEADのCI成功を待つ。前のcommitの成功を流用しない。
+
+以下は原因調査や必要な事前確認で使うローカル相当commandである。各blockはrepository rootから独立して実行し、非zeroなら原因を直す。実際のtrigger/stepは`.github/workflows/`を参照する。
 
 ```bash
 (
   set -e
-  uv sync --frozen --all-groups
+  uv sync --locked --all-groups
   uv run ruff format --check .
   uv run ruff check .
   uv run mypy
@@ -214,10 +217,10 @@ Web UI と Worker:
 )
 ```
 
-macroの計算・取得・registry・reading methodを変更した場合は、localの対象storeも検証する。
+指標の計算・取得・registry・reading methodを変更した場合は、localの対象storeも検証する。
 
 ```bash
-uv run baibai-batch validate-macro-stores
+uv run baibai-batch validate-market-context-stores
 ```
 
 storeがなければ未実行と報告する。CIにはapplication storeがなく、通常gateは代用にならない。文書だけの変更でlive取得・本番再発行を行わない。

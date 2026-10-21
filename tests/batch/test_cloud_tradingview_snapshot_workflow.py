@@ -1,7 +1,11 @@
+import asyncio
 import datetime as datetime_module
 import json
 import os
+import shlex
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,12 +25,10 @@ def test_metadata_order_and_exclusive_writer():
         "37 0,4,8 * * 0,6",
     ]
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
-        "batch_size",
         "interval",
         "observation_master_asof",
-        "observations_json",
-        "observations_sha256",
     }
+    assert set(data["jobs"]) == {"snapshot"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
         "group": "cloud-publish",
@@ -56,8 +58,8 @@ def test_metadata_order_and_exclusive_writer():
         "cooldown-check",
         "master",
         "tradingview",
-        "cooldown-save",
         "publish-lake",
+        "cooldown-save",
         "lease-release",
         "cancellation",
         "summary",
@@ -79,6 +81,112 @@ def test_metadata_order_and_exclusive_writer():
         "actual_start_jst",
     ):
         assert f'"{field}"' in target["run"]
+
+
+@pytest.mark.parametrize(
+    ("basis", "ref", "runs"),
+    [
+        ("", "refs/heads/main", True),
+        ("", "refs/heads/other", True),
+        ("2026-10-09", "refs/heads/main", True),
+        ("2026-10-09", "refs/heads/other", False),
+    ],
+)
+def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref, runs):
+    data = workflow()
+    assert set(data["jobs"]) == {"snapshot"}
+    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
+        "interval",
+        "observation_master_asof",
+    }
+    condition = data["jobs"]["snapshot"]["if"]
+    assert (
+        condition
+        == "${{ inputs.observation_master_asof == '' || github.ref == 'refs/heads/main' }}"
+    )
+    expression = (
+        condition.removeprefix("${{")
+        .removesuffix("}}")
+        .replace("inputs.observation_master_asof", repr(basis))
+        .replace("github.ref", repr(ref))
+        .replace("||", " or ")
+    )
+    assert eval(expression, {"__builtins__": {}}, {}) is runs
+    source = PATH.read_text(encoding="utf-8")
+    for obsolete in ("accept-observations", "observations_json", "observations_sha256"):
+        assert obsolete not in source
+
+
+def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pull(tmp_path):
+    from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
+
+    from baibai_engine.external_assessment.tradingview.collector import collect
+    from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
+
+    local = store(tmp_path / "local.sqlite", 51)
+    published = tmp_path / "published.sqlite"
+    requests = []
+
+    async def fetch(symbols, columns):
+        assert columns == COLUMNS
+        requests.append(symbols)
+        if len(requests) == 2:
+            raise FetchError("fixture provider failure after one valid chunk")
+        return _sdk(payload(symbols))
+
+    async def sleep(_interval):
+        pass
+
+    report = asyncio.run(collect(local, DAY, fetch, clock=lambda: NOW, sleep=sleep))
+    assert report["status"] == "partial"
+    assert report["rows_added"] == 50
+    expected = stored(local)
+    transfer = tmp_path / "batch/scripts/r2_transfer.sh"
+    transfer.parent.mkdir(parents=True)
+    transfer.write_text(
+        '#!/usr/bin/env bash\nprintf "publish-lake\\n" >> "$CALLS"\ncp "$LOCAL" "$PUBLISHED"\nprintf "{}\\n"\n'
+    )
+    transfer.chmod(0o755)
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/usr/bin/env bash\nif [[ "$*" == *tradingview_cooldown* ]]; then\n  printf "cooldown-save\\n" >> "$CALLS"\n  echo "TradingView cooldown failed; type=CooldownError" >&2\n  exit 1\nfi\nprintf "lease-release\\n" >> "$CALLS"\n'
+    )
+    uv.chmod(0o755)
+    calls = tmp_path / "calls"
+    env = {
+        **os.environ,
+        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+        "RUNNER_TEMP": str(tmp_path),
+        "LOCAL": str(local),
+        "PUBLISHED": str(published),
+        "CALLS": str(calls),
+    }
+    outcomes = {}
+    failed = False
+    # Execute the workflow scripts and order; publication, cooldown and lease are stubbed.
+    # A condition without a status function has GitHub's implicit success() gate.
+    for step in workflow()["jobs"]["snapshot"]["steps"]:
+        if step.get("id") not in {"publish-lake", "cooldown-save", "lease-release"}:
+            continue
+        if failed and "always()" not in step["if"]:
+            outcomes[step["id"]] = "skipped"
+            continue
+        result = subprocess.run(
+            ["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        )
+        outcomes[step["id"]] = "failure" if result.returncode else "success"
+        failed = failed or result.returncode != 0
+        if step["id"] == "cooldown-save":
+            assert "CooldownError" in result.stderr
+    assert outcomes == {
+        "publish-lake": "success",
+        "cooldown-save": "failure",
+        "lease-release": "success",
+    }
+    assert calls.read_text().splitlines() == ["publish-lake", "cooldown-save", "lease-release"]
+    # A simulated next pull retains every originally committed column/time.
+    shutil.copyfile(published, local)
+    assert stored(local) == expected
 
 
 def test_gates_secret_scopes_and_durability():
@@ -125,7 +233,9 @@ def test_gates_secret_scopes_and_durability():
     ):
         assert forbidden not in source.lower()
     assert "timeout --kill-after=30s 30m" in steps["tradingview"]["run"]
-    assert '2> >(tee "$stderr" >&2)' in steps["tradingview"]["run"]
+    assert '> "$result" 2> "$stderr"' in steps["tradingview"]["run"]
+    assert 'status=$?\ncat "$stderr" >&2' in steps["tradingview"]["run"]
+    assert '2> >(tee "$stderr" >&2)' not in steps["tradingview"]["run"]
     assert '--asof "$TARGET_DATE"' in steps["tradingview"]["run"]
     assert '--asof "$TARGET_DATE"' in steps["master"]["run"]
     assert "DISCORD_WEBHOOK_URL" in str(steps["notify"].get("env"))
@@ -161,19 +271,18 @@ def test_gates_secret_scopes_and_durability():
 
 
 @pytest.mark.parametrize(
-    ("basis", "event", "batch", "interval", "valid", "eligible"),
+    ("basis", "event", "interval", "valid", "eligible"),
     [
-        ("", "workflow_dispatch", "50", "15", True, "true"),
-        ("", "schedule", "", "", True, "true"),
-        ("2026-10-09", "workflow_dispatch", "50", "15", True, "true"),
-        ("2026-10-12", "workflow_dispatch", "50", "15", False, None),
-        ("2026-10-09", "schedule", "50", "15", False, None),
-        ("2026-10-09", "workflow_dispatch", "49", "15", False, None),
-        ("2026-10-09", "workflow_dispatch", "50", "14", False, None),
+        ("", "workflow_dispatch", "15", True, "true"),
+        ("", "schedule", "", True, "true"),
+        ("2026-10-09", "workflow_dispatch", "15", True, "true"),
+        ("2026-10-12", "workflow_dispatch", "15", False, None),
+        ("2026-10-09", "schedule", "15", False, None),
+        ("2026-10-09", "workflow_dispatch", "14", False, None),
     ],
 )
 def test_actual_target_script_keeps_normal_guard_and_validates_manual_observation_before_lease(
-    tmp_path, monkeypatch, basis, event, batch, interval, valid, eligible
+    tmp_path, monkeypatch, basis, event, interval, valid, eligible
 ):
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "target")
     code = step["run"].split("<<'PYTARGET'\n", 1)[1].rsplit("\nPYTARGET", 1)[0]
@@ -190,7 +299,6 @@ def test_actual_target_script_keeps_normal_guard_and_validates_manual_observatio
         "EVENT_NAME": event,
         "EVENT_SCHEDULE": "37 6,8,10,12,14 * * 1-5",
         "OBSERVATION_MASTER_ASOF": basis,
-        "BATCH_SIZE": batch,
         "INTERVAL": interval,
     }.items():
         monkeypatch.setenv(key, value)
@@ -217,7 +325,7 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
     uv = tmp_path / "uv"
     uv.write_text(
-        '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$RUNNER_TEMP/arguments"\nprintf \'%s\\n\' \'{"status":"already_saved"}\'\n'
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then printf "0 0\\n"; exit 0; fi\nprintf \'%s\\n\' "$@" > "$RUNNER_TEMP/arguments"\nprintf \'%s\\n\' \'{"status":"already_saved"}\'\n'
     )
     uv.chmod(0o755)
     result = subprocess.run(
@@ -237,18 +345,16 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
     args = (tmp_path / "arguments").read_text().splitlines()
     assert args[args.index("--asof") + 1] == "2026-10-11"
     assert args[args.index("--master-asof") + 1] == "2026-10-09"
-    assert args[args.index("--batch-size") + 1] == "50"
+    assert "--batch-size" not in args
     assert args[args.index("--interval") + 1] == "15"
 
 
-@pytest.mark.parametrize(
-    "status", ["saved", "partial", "already_saved", "non_trading_day", "skipped_historical_asof"]
-)
+@pytest.mark.parametrize("status", ["saved", "partial", "already_saved", "skipped_historical_asof"])
 def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
-        "#!/bin/sh\nprintf '%s\\n' '"
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
         + json.dumps(
             {
                 "status": status,
@@ -289,12 +395,17 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
         '{"status":"unknown"}',
         '{"status":[]}',
         '{"status":"partial","rows_added":0,"rows":50,"expected_universe":51,"remaining":1,"unresolved":0}',
+        '{"status":"partial","rows_added":1,"rows":50,"expected_universe":49,"remaining":-1,"unresolved":0}',
     ],
 )
 def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"
-    uv.write_text("#!/bin/sh\nprintf '%s\\n' '" + body + "'\n")
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
+        + body
+        + "'\n"
+    )
     uv.chmod(0o755)
     output = tmp_path / "output"
     result = subprocess.run(
@@ -320,7 +431,8 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
-        f"#!/bin/sh\necho 'TradingView acquisition failed; category=provider_rate_limit' >&2\nexit {exit_code}\n"
+        f'#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\n'
+        f"echo 'TradingView acquisition failed; category=provider_rate_limit' >&2\nexit {exit_code}\n"
     )
     uv.chmod(0o755)
     (tmp_path / "tradingview-progress.json").write_text("private-token")
@@ -341,6 +453,193 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
     assert f"failure_category={category}" in output.read_text()
     assert "TradingView progress: unavailable" in result.stdout
     assert "private-token" not in result.stdout + result.stderr
+
+
+def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_path):
+    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "1 0"; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        "echo 'TradingView acquisition failed; category=provider_response' >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", steps["tradingview"]["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "failure_category=provider_response" in output.read_text()
+    assert "publish_failed_receipts=true" in output.read_text()
+    gate = steps["publish-lake"]["if"]
+    assert "always()" in gate
+    assert "!cancelled()" in gate
+    for guard in ("lease-acquire", "pull.outcome", "hydrate.outcome", "tradingview.outcome"):
+        assert guard in gate
+    assert "publish_failed_receipts == 'true'" in gate
+    assert "always()" in steps["cooldown-save"]["if"]
+    assert "always()" in steps["lease-release"]["if"]
+
+
+def test_delayed_stderr_consumer_does_not_hide_raw_only_provider_failure(tmp_path):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "1 0"; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        "echo 'TradingView acquisition failed; category=provider_response' >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    python = tmp_path / "python"
+    python.write_text(
+        f'#!/bin/sh\n{shlex.quote(sys.executable)} "$@"\n'
+        'status=$?\ntouch "$RUNNER_TEMP/parser-finished"\nexit "$status"\n'
+    )
+    python.chmod(0o755)
+    system_tee = shutil.which("tee")
+    assert system_tee is not None
+    tee = tmp_path / "tee"
+    tee.write_text(
+        "#!/bin/sh\n"
+        "attempt=0\n"
+        'while [ ! -f "$RUNNER_TEMP/parser-finished" ] && [ "$attempt" -lt 500 ]; do\n'
+        "  sleep 0.01\n  attempt=$((attempt + 1))\ndone\n"
+        'if [ ! -f "$RUNNER_TEMP/parser-finished" ]; then exit 99; fi\n'
+        f'exec {shlex.quote(system_tee)} "$@"\n'
+    )
+    tee.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert (tmp_path / "parser-finished").exists()
+    assert result.returncode == 1
+    assert "failure_category=provider_response" in output.read_text()
+    assert "publish_failed_receipts=true" in output.read_text()
+    assert (
+        "TradingView acquisition failed; category=provider_response"
+        in (tmp_path / "tradingview-stderr.log").read_text()
+    )
+
+
+@pytest.mark.parametrize(
+    "stderr_text",
+    ["", "unexpected failure\n", "TradingView acquisition failed; category=unknown\n"],
+)
+def test_raw_receipt_delta_with_empty_or_unknown_stderr_stays_internal(tmp_path, stderr_text):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "1 0"; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        f"printf %s {shlex.quote(stderr_text)} >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "failure_category=internal" in output.read_text()
+    assert "publish_failed_receipts=false" in output.read_text()
+    assert (tmp_path / "tradingview-stderr.log").read_text() == stderr_text
+
+
+@pytest.mark.parametrize(
+    ("category", "after", "count_fails"),
+    [
+        ("internal", "1 0", False),
+        ("storage", "1 0", False),
+        ("unknown", "1 0", False),
+        ("provider_response", "0 0", False),
+        ("provider_response", "1 1", False),
+        ("provider_response", "1 0", True),
+    ],
+)
+def test_failed_acquisition_without_publishable_raw_only_delta(
+    tmp_path, category, after, count_fails
+):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    second = "exit 1" if count_fails else f"echo '{after}'"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then '
+        f'if [ -f "$RUNNER_TEMP/count-seen" ]; then {second}; '
+        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        f"echo 'TradingView acquisition failed; category={category}' >&2\nexit 1\n"
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "publish_failed_receipts=false" in output.read_text()
+
+
+def test_failed_initial_count_does_not_start_acquisition(tmp_path):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nif [ "$3" = "-m" ]; then exit 1; fi\ntouch "$RUNNER_TEMP/refresh-started"\n'
+    )
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "TARGET_DATE": "2026-09-28",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert not (tmp_path / "refresh-started").exists()
+    assert not output.exists()
 
 
 def test_summary_preserves_partial_failure_and_null_counts(tmp_path):

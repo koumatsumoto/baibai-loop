@@ -4,21 +4,22 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
-from datetime import date, timedelta
+from contextlib import closing
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
+from itertools import count, permutations
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
 import requests
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import (
     ExplodingSession,
     FakeResponse,
     FakeSession,
-    always,
-    by_url,
-    html_response,
     json_response,
     response,
     sequence,
@@ -26,43 +27,45 @@ from tests.helpers.http_doubles import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.market.providers.edinet import (
-    EDINETProvider,
-    EDINETProviderError,
-    EDINETRateLimitError,
-    normalize_metric_record,
-    parse_doc_id,
-    parse_sec_code,
-    select_document_candidates,
+from baibai_engine.collection.edinet import http as edinet_http
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.market import edinet_refresh as edinet_refresh_module
+from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
+from baibai_engine.market.edinet_document_events import parse_doc_id
+from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_engine.market.edinet_selection import select_document_candidates
+from baibai_engine.market.financial_documents import (
+    normalize_financial_summary,
+    project_financial_documents,
 )
-from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_engine.market.providers.jpx import (
+from baibai_engine.market.jpx_decode import (
+    _decode_html_text,
+    _EarningsCalendarFile,
+    _parse_special_attention_html_rows,
+    build_earnings_calendar_snapshot,
+    build_regulation_snapshot,
+    parse_earnings_calendar_excel,
+    parse_regulation_rows,
+)
+from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
-    JPXProvider,
     JPXProviderError,
-    _EarningsCalendarFile,
 )
-from baibai_engine.market.providers.jquants import (
-    JQuantsProvider,
+from baibai_engine.market.jquants_decode import (
+    JQuantsProviderError,
     normalize_adjustment_factor_event,
     normalize_daily_bar,
-    normalize_financial_summary,
     normalize_market_calendar,
     parse_jquants_code,
 )
-from baibai_engine.market.sqlite.ingest import (
-    store_edinet_documents,
+from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
+from baibai_engine.storage.observations.ingest.edinet import (
     store_edinet_metrics,
-    store_jpx_regulations,
 )
-from baibai_engine.screening.schema import TTMQuality
-
-
-def _FixedHtmlSession(content: bytes) -> FakeSession:
-    """Every request answers with the same HTML page."""
-
-    return always(html_response(content))
 
 
 def _SequenceBytesSession(contents: list[bytes]) -> FakeSession:
@@ -112,18 +115,33 @@ class _DateJsonSession(FakeSession):
         self._payloads = payloads
         self._failing_dates = failing_dates or set()
 
-    def get(self, url: str, timeout: int | None = None) -> FakeResponse:
-        del timeout
+    def get(
+        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+    ) -> FakeResponse:
+        del timeout, allow_redirects
         requested_date = parse_qs(urlsplit(url).query)["date"][0]
         self.calls.append(requested_date)
         if requested_date in self._failing_dates:
             return json_response({}, status_code=400)
+        if requested_date == "2026-07-11" and requested_date not in self._payloads:
+            return json_response({"metadata": {"resultset": {"count": 0}}, "results": []})
         return json_response(self._payloads[requested_date])
 
 
+_HISTORICAL_TICKS = count()
+
+
+class _HistoricalClock:
+    @staticmethod
+    def now(zone):
+        return (
+            datetime(2026, 7, 11, 12, tzinfo=UTC) + timedelta(microseconds=next(_HISTORICAL_TICKS))
+        ).astimezone(zone)
+
+
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
-    csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
-        f"{element}\t{context}\t{value}" for element, context, value in rows
+    csv_text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -318,40 +336,47 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertNotIn("\n", str(ctx.exception))
         self.assertIn("'S100?BAD'", str(ctx.exception))
 
-    def test_download_csv_zip_rejects_invalid_doc_id_before_cache_path(self) -> None:
+    def test_download_csv_zip_rejects_invalid_doc_id_before_acquisition(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            provider = EDINETProvider(
-                "key", Path(tmp), session=ExplodingSession("request should not be attempted")
+            provider = EDINETRefresh(
+                "key",
+                sqlite_path=Path(tmp) / "market.sqlite",
+                session=ExplodingSession("request should not be attempted"),
             )
 
             with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
                 provider.download_csv_zip("../../etc/passwd")
 
-    def test_download_csv_zip_discards_cached_non_zip_and_refetches(self) -> None:
+    def test_download_csv_zip_ignores_old_local_non_zip_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             cached = cache / "edinet/csv_zips/S100TEST.zip"
             cached.parent.mkdir(parents=True)
             cached.write_text('{"StatusCode":"429","message":"Too Many Requests"}')
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
+            provider = EDINETRefresh(
+                "key",
+                sqlite_path=Path(tmp) / "market.sqlite",
+                session=_SequenceBytesSession([expected]),
             )
-            provider = EDINETProvider("key", cache, session=_SequenceBytesSession([expected]))
 
             content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
-            self.assertEqual(cached.read_bytes(), expected)
+            self.assertEqual(
+                cached.read_text(), '{"StatusCode":"429","message":"Too Many Requests"}'
+            )
+            self.assertEqual(
+                EDINETReader(Path(tmp) / "market.sqlite").read_csv_zip("S100TEST"), expected
+            )
 
-    def test_download_csv_zip_retries_json_rate_limit_without_caching_it(self) -> None:
+    def test_download_csv_zip_retries_json_rate_limit_without_local_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
-            )
-            provider = EDINETProvider(
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
+            provider = EDINETRefresh(
                 "key",
-                cache,
+                sqlite_path=Path(tmp) / "market.sqlite",
                 session=_SequenceBytesSession(
                     [
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
@@ -360,41 +385,51 @@ class ScreeningProviderTests(unittest.TestCase):
                 ),
             )
 
-            with patch("baibai_engine.market.providers.edinet.time.sleep"):
+            with patch("baibai_engine.collection.edinet.http.time.sleep"):
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
-            self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+            self.assertEqual(
+                EDINETReader(cache / "market.sqlite").read_csv_zip("S100TEST"), expected
+            )
+            self.assertFalse((cache / "edinet/csv_zips/S100TEST.zip").exists())
 
     def test_download_csv_zip_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
-            )
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             session = _TransientThenBytesSession(content=expected)
-            provider = EDINETProvider("key", cache, session=session)
+            provider = EDINETRefresh(
+                "key", sqlite_path=Path(tmp) / "market.sqlite", session=session
+            )
 
-            with patch("baibai_engine.market.providers.edinet.time.sleep") as sleep:
+            with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
             self.assertEqual(len(session.calls), 2)
             sleep.assert_called_once_with(3)
-            self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+            self.assertEqual(
+                EDINETReader(cache / "market.sqlite").read_csv_zip("S100TEST"), expected
+            )
+            self.assertFalse((cache / "edinet/csv_zips/S100TEST.zip").exists())
 
     def test_list_documents_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = _TransientThenJsonSession()
-            provider = EDINETProvider("key", Path(tmp), session=session)
+            provider = EDINETRefresh(
+                "key", session=session, sqlite_path=Path(tmp) / "market.sqlite"
+            )
 
-            with patch("baibai_engine.market.providers.edinet.time.sleep") as sleep:
+            with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
                 documents = provider.list_documents(date(2026, 7, 10))
 
             self.assertEqual(documents, [])
             self.assertEqual(len(session.calls), 2)
             sleep.assert_called_once_with(3)
 
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_fetches_target_then_all_unresolved_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -408,7 +443,6 @@ class ScreeningProviderTests(unittest.TestCase):
                     sqlite_path,
                     unresolved,
                     [{"seqNumber": index, "docID": f"S100OLD{index}"}],
-                    is_final=False,
                 )
             target = date(2026, 7, 10)
             payloads = {
@@ -422,9 +456,8 @@ class ScreeningProviderTests(unittest.TestCase):
                 for value in (*unresolved_dates, target)
             }
             session = _DateJsonSession(payloads)
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=session,
                 sqlite_path=sqlite_path,
             )
@@ -432,21 +465,29 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(provider.refresh_document_state(target), {"documents": 0})
             self.assertEqual(
                 session.calls,
-                [target.isoformat(), *(value.isoformat() for value in unresolved_dates)],
+                [
+                    "2026-07-11",
+                    target.isoformat(),
+                    *(value.isoformat() for value in unresolved_dates),
+                ],
             )
             conn = sqlite3.connect(sqlite_path)
             try:
-                finality = dict(
+                rechecks = dict(
                     conn.execute(
-                        "SELECT doc_date, is_final FROM edinet_document_lists ORDER BY doc_date"
+                        "SELECT doc_date, rechecked_asof FROM edinet_document_lists ORDER BY doc_date"
                     ).fetchall()
                 )
             finally:
                 conn.close()
-            self.assertEqual(finality[target.isoformat()], 0)
-            self.assertTrue(all(finality[value.isoformat()] == 1 for value in unresolved_dates))
+            self.assertEqual(rechecks[target.isoformat()], "2026-07-11")
+            self.assertTrue(
+                all(rechecks[value.isoformat()] == "2026-07-11" for value in unresolved_dates)
+            )
 
-    def test_refresh_document_state_target_failure_does_not_finalize_prior_dates(self) -> None:
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
+    def test_refresh_document_state_target_failure_does_not_recheck_prior_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             prior = date(2026, 7, 8)
@@ -455,30 +496,30 @@ class ScreeningProviderTests(unittest.TestCase):
                 sqlite_path,
                 prior,
                 [{"seqNumber": 1, "docID": "S100PRIOR"}],
-                is_final=False,
             )
             session = _DateJsonSession({}, failing_dates={target.isoformat()})
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=session,
                 sqlite_path=sqlite_path,
             )
 
-            with self.assertRaisesRegex(EDINETProviderError, "status 400"):
+            with self.assertRaisesRegex(EdinetAcquisitionError, "status 400"):
                 provider.refresh_document_state(target)
-            self.assertEqual(session.calls, [target.isoformat()])
+            self.assertEqual(session.calls, ["2026-07-11", target.isoformat()])
             conn = sqlite3.connect(sqlite_path)
             try:
-                finality = conn.execute(
-                    "SELECT is_final FROM edinet_document_lists WHERE doc_date = ?",
+                recheck = conn.execute(
+                    "SELECT rechecked_asof FROM edinet_document_lists WHERE doc_date = ?",
                     (prior.isoformat(),),
                 ).fetchone()
             finally:
                 conn.close()
-            self.assertEqual(finality, (0,))
+            self.assertEqual(recheck, (None,))
 
-    def test_refresh_document_state_count_mismatch_preserves_target_snapshot(self) -> None:
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
+    def test_refresh_document_state_count_mismatch_blocks_target_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             target = date(2026, 7, 10)
@@ -486,7 +527,6 @@ class ScreeningProviderTests(unittest.TestCase):
                 sqlite_path,
                 target,
                 [{"seqNumber": 1, "docID": "S100KEPT"}],
-                is_final=False,
             )
             session = _DateJsonSession(
                 {
@@ -499,14 +539,13 @@ class ScreeningProviderTests(unittest.TestCase):
                     }
                 }
             )
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=session,
                 sqlite_path=sqlite_path,
             )
 
-            with self.assertRaisesRegex(EDINETProviderError, "count mismatch"):
+            with self.assertRaisesRegex(EDINETProviderError, "does not match"):
                 provider.refresh_document_state(target)
             conn = sqlite3.connect(sqlite_path)
             try:
@@ -516,8 +555,10 @@ class ScreeningProviderTests(unittest.TestCase):
                 ).fetchall()
             finally:
                 conn.close()
-            self.assertEqual(rows, [("S100KEPT",)])
+            self.assertEqual(rows, [])
 
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
     def test_refresh_document_state_retry_only_keeps_unfinished_prior_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -529,7 +570,6 @@ class ScreeningProviderTests(unittest.TestCase):
                     sqlite_path,
                     unresolved,
                     [{"seqNumber": index, "docID": f"S100PENDING{index}"}],
-                    is_final=False,
                 )
 
             def empty_payload(value: date) -> dict[str, object]:
@@ -548,17 +588,16 @@ class ScreeningProviderTests(unittest.TestCase):
                 },
                 failing_dates={unfinished.isoformat()},
             )
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=first_session,
                 sqlite_path=sqlite_path,
             )
-            with self.assertRaisesRegex(EDINETProviderError, "status 400"):
+            with self.assertRaisesRegex(EdinetAcquisitionError, "status 400"):
                 provider.refresh_document_state(target)
             self.assertEqual(
                 first_session.calls,
-                [target.isoformat(), completed.isoformat(), unfinished.isoformat()],
+                ["2026-07-11", target.isoformat(), completed.isoformat(), unfinished.isoformat()],
             )
 
             retry_session = _DateJsonSession(
@@ -567,44 +606,102 @@ class ScreeningProviderTests(unittest.TestCase):
                     unfinished.isoformat(): empty_payload(unfinished),
                 }
             )
-            retry_provider = EDINETProvider(
+            retry_provider = EDINETRefresh(
                 "key",
-                Path(tmp),
                 session=retry_session,
                 sqlite_path=sqlite_path,
             )
             retry_provider.refresh_document_state(target)
             self.assertEqual(
                 retry_session.calls,
-                [target.isoformat(), unfinished.isoformat()],
+                ["2026-07-11", target.isoformat(), unfinished.isoformat()],
             )
+
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
+    def test_bootstrap_and_backfill_fetch_today_proof_before_historical_days(self) -> None:
+        today = date(2026, 7, 11)
+        start = date(2026, 7, 8)
+        end = date(2026, 7, 10)
+        proof = {
+            "metadata": {"resultset": {"count": 1}},
+            "results": [{"seqNumber": 1, "docID": "S100PROOF"}],
+        }
+        empty = {"metadata": {"resultset": {"count": 0}}, "results": []}
+        payloads = {today.isoformat(): proof}
+        payloads.update(
+            {value.isoformat(): empty for value in (start, start + timedelta(days=1), end)}
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "market.sqlite"
+            bootstrap_session = _DateJsonSession(payloads)
+            bootstrap = EDINETRefresh("key", session=bootstrap_session, sqlite_path=path)
+            self.assertEqual(bootstrap.bootstrap_cache(start, end), {"documents": 0})
+            self.assertEqual(
+                bootstrap_session.calls,
+                [today.isoformat(), end.isoformat(), start.isoformat(), "2026-07-09"],
+            )
+            backfill_session = _DateJsonSession(payloads)
+            backfill = EDINETRefresh("key", session=backfill_session, sqlite_path=path)
+            self.assertEqual(
+                backfill.backfill_document_identity(start, end), {"days": 3, "documents": 0}
+            )
+            self.assertEqual(
+                backfill_session.calls,
+                [today.isoformat(), start.isoformat(), "2026-07-09", end.isoformat()],
+            )
+
+    @patch.object(edinet_refresh_module, "datetime", _HistoricalClock)
+    @patch.object(edinet_http, "datetime", _HistoricalClock)
+    def test_current_day_refresh_does_not_claim_a_later_recheck(self) -> None:
+        today = date(2026, 7, 11)
+        payload = {today.isoformat(): {"metadata": {"resultset": {"count": 0}}, "results": []}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "market.sqlite"
+            session = _DateJsonSession(payload)
+            provider = EDINETRefresh("key", session=session, sqlite_path=path)
+            self.assertEqual(provider.refresh_document_state(today), {"documents": 0})
+            self.assertEqual(session.calls, [today.isoformat()])
+            with closing(sqlite3.connect(path)) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT rechecked_asof FROM edinet_document_lists WHERE doc_date = ?",
+                        (today.isoformat(),),
+                    ).fetchone(),
+                    (None,),
+                )
 
     def test_download_csv_zip_final_connection_error_is_redacted_without_final_sleep(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = FakeSession(default=requests.ConnectionError("temporary failure secret-key"))
-            provider = EDINETProvider("secret-key", Path(tmp), session=session)
+            provider = EDINETRefresh(
+                "secret-key", sqlite_path=Path(tmp) / "market.sqlite", session=session
+            )
 
             with (
-                patch("baibai_engine.market.providers.edinet.time.sleep") as sleep,
-                self.assertRaises(EDINETProviderError) as caught,
+                patch("baibai_engine.collection.edinet.http.time.sleep") as sleep,
+                self.assertRaises(EdinetAcquisitionError) as caught,
             ):
                 provider.download_csv_zip("S100TEST")
 
-            self.assertEqual(len(session.calls), 3)
-            self.assertEqual(sleep.call_count, 2)
+            self.assertEqual(len(session.calls), 6)
+            self.assertEqual(sleep.call_count, 5)
             self.assertNotIn("secret-key", str(caught.exception))
-            self.assertIn("<redacted>", str(caught.exception))
+            self.assertIn("transport failed", str(caught.exception))
 
     def test_download_csv_zip_raises_rate_limit_after_json_retries_without_caching_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            provider = EDINETProvider(
+            provider = EDINETRefresh(
                 "key",
-                cache,
+                sqlite_path=Path(tmp) / "market.sqlite",
                 session=_SequenceBytesSession(
                     [
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
@@ -613,8 +710,8 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
             with (
-                patch("baibai_engine.market.providers.edinet.time.sleep"),
-                self.assertRaisesRegex(EDINETRateLimitError, "rate limited"),
+                patch("baibai_engine.collection.edinet.http.time.sleep"),
+                self.assertRaisesRegex(EdinetRateLimitError, "rate limited"),
             ):
                 provider.download_csv_zip("S100TEST")
 
@@ -1072,26 +1169,26 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_extracts_net_cash_and_fcf(self) -> None:
         rows = [
-            ("jpcrp_cor:NetSales", "CurrentYearConsolidatedDuration", "1000"),
+            ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
             (
-                "jpcrp_cor:CashFlowsFromOperatingActivities",
-                "CurrentYearConsolidatedDuration",
+                "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
+                "CurrentYearDuration",
                 "150",
             ),
-            ("jpcrp_cor:OperatingProfit", "CurrentYearConsolidatedDuration", "90"),
-            ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearConsolidatedDuration", "30"),
+            ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "90"),
+            ("jppfs_cor:DepreciationAndAmortizationOpeCF", "CurrentYearDuration", "30"),
             (
-                "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
-                "CurrentYearConsolidatedDuration",
+                "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
+                "CurrentYearDuration",
                 "-40",
             ),
-            ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearConsolidatedDuration", "0"),
-            ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
-            ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
-            ("jpcrp_cor:LongTermBorrowings", "CurrentYearConsolidatedInstant", "50"),
-            ("jpcrp_cor:Equity", "CurrentYearConsolidatedInstant", "800"),
-            ("jpcrp_cor:TotalAssets", "CurrentYearConsolidatedInstant", "1400"),
+            ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
+            ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
+            ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),
+            ("jppfs_cor:NetAssets", "CurrentYearInstant", "800"),
+            ("jppfs_cor:Assets", "CurrentYearInstant", "1400"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1119,21 +1216,21 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_investment_securities_uses_exact_tag_and_consolidated_basis(self) -> None:
         rows = [
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearNonConsolidatedInstant", "900"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant_NonConsolidatedMember", "900"),
             (
                 "jppfs_cor:SharesOfSubsidiariesAndAssociates",
-                "CurrentYearConsolidatedInstant",
+                "CurrentYearInstant",
                 "700",
             ),
             (
                 "jpcrp_cor:OperationalInvestmentSecurities",
-                "CurrentYearConsolidatedInstant",
+                "CurrentYearInstant",
                 "800",
             ),
             (
                 "jppfs_cor:GainOnSaleOfInvestmentSecurities",
-                "CurrentYearConsolidatedDuration",
+                "CurrentYearDuration",
                 "1000",
             ),
         ]
@@ -1146,7 +1243,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         self.assertEqual(record.investment_securities, 250.0)
-        self.assertNotIn("tag_not_found:investment_securities", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:investment_securities", record.failure_reasons)
 
     def test_investment_securities_excludes_similar_tags_and_accepts_reported_zero(self) -> None:
         excluded = parse_csv_zip_metric_record(
@@ -1157,12 +1254,12 @@ class ScreeningProviderTests(unittest.TestCase):
                 [
                     (
                         "jpcrp_cor:OperationalInvestmentSecurities",
-                        "CurrentYearConsolidatedInstant",
+                        "CurrentYearInstant",
                         "800",
                     ),
                     (
                         "jppfs_cor:ProceedsFromSaleOfInvestmentSecurities",
-                        "CurrentYearConsolidatedDuration",
+                        "CurrentYearDuration",
                         "900",
                     ),
                 ]
@@ -1173,12 +1270,12 @@ class ScreeningProviderTests(unittest.TestCase):
             doc_id="S100ZERO",
             doc_type_code="120",
             content=_edinet_csv_zip(
-                [("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "－")]
+                [("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "-")]
             ),
         )
 
         self.assertIsNone(excluded.investment_securities)
-        self.assertIn("tag_not_found:investment_securities", excluded.failure_reasons)
+        self.assertIn("metric_unavailable:investment_securities", excluded.failure_reasons)
         self.assertEqual(zero.investment_securities, 0.0)
 
     def test_investment_securities_rejects_negative_value(self) -> None:
@@ -1192,7 +1289,7 @@ class ScreeningProviderTests(unittest.TestCase):
                         [
                             (
                                 "jppfs_cor:InvestmentSecurities",
-                                "CurrentYearConsolidatedInstant",
+                                "CurrentYearInstant",
                                 value,
                             )
                         ]
@@ -1201,11 +1298,11 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_extracts_loan_payable_and_lease_debt(self) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "120"),
-            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "30"),
-            ("jppfs_cor:LeaseAssetsPPE", "CurrentYearInstant_ConsolidatedMember", "999"),
-            ("jppfs_cor:LongTermLoansReceivable", "CurrentYearInstant_ConsolidatedMember", "888"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "120"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant", "30"),
+            ("jppfs_cor:LeaseAssetsPPE", "CurrentYearInstant", "999"),
+            ("jppfs_cor:LongTermLoansReceivable", "CurrentYearInstant", "888"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1216,13 +1313,13 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(record.debt, 150.0)
         self.assertEqual(record.net_cash, 850.0)
-        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
-    def test_parse_csv_zip_metric_record_does_not_strict_quality_assumed_zero_debt(
+    def test_parse_csv_zip_metric_record_keeps_missing_debt_unavailable(
         self,
     ) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1234,13 +1331,13 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNone(record.debt)
         self.assertIsNone(record.net_cash)
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.UNAVAILABLE)
-        self.assertIn("debt_assumed_zero", record.failure_reasons)
+        self.assertIn("metric_unavailable:debt", record.failure_reasons)
 
     def test_parse_csv_zip_metric_record_allows_reported_zero_debt(self) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "－"),
-            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "－"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "-"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant", "-"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1252,11 +1349,10 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.debt, 0.0)
         self.assertEqual(record.net_cash, 1000.0)
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.EXACT)
-        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
-    def test_edinet_provider_reads_cached_metrics_without_api_key(self) -> None:
+    def test_edinet_reader_reads_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = Path(tmpdir) / ".cache" / "screening"
             sqlite_path = Path(tmpdir) / "data" / "screening" / "market.sqlite"
             store_edinet_metrics(
                 sqlite_path,
@@ -1271,28 +1367,28 @@ class ScreeningProviderTests(unittest.TestCase):
                 ],
             )
 
-            provider = EDINETProvider(None, cache_dir, sqlite_path=sqlite_path)
-            records = provider.load_metric_records(date(2026, 5, 1))
+            reader = EDINETReader(sqlite_path)
+            records = reader.load_metric_records(date(2026, 5, 1))
 
         self.assertEqual(records["7203"].cash, 100.0)
         self.assertEqual(records["7203"].debt, 10.0)
 
-    def test_edinet_provider_requires_api_key_for_download_without_cache(self) -> None:
+    def test_edinet_refresh_requires_api_key_for_unretained_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            provider = EDINETProvider(None, Path(tmpdir))
-            with self.assertRaisesRegex(EDINETProviderError, "EDINET_API_KEY"):
+            provider = EDINETRefresh(None, sqlite_path=Path(tmpdir) / "market.sqlite")
+            with self.assertRaisesRegex(EdinetAcquisitionError, "EDINET_API_KEY"):
                 provider.download_csv_zip("S100TEST")
 
     def test_normalize_market_calendar_business_day(self) -> None:
-        calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolidayDivision": "1"})
+        calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolDiv": "1"})
         self.assertTrue(calendar_day.is_business_day)
 
-    def test_normalize_market_calendar_supports_client_v2_short_key(self) -> None:
+    def test_normalize_market_calendar_reads_native_timestamp(self) -> None:
         calendar_day = normalize_market_calendar({"Date": "2026-04-24T00:00:00", "HolDiv": "1"})
         self.assertTrue(calendar_day.is_business_day)
 
     def test_normalize_market_calendar_treats_half_day_as_business(self) -> None:
-        # HolidayDivision="2" は半日営業 (大納会など取引あり) で、business_day 扱いすべき。
+        # HolDiv="2" は半日営業 (大納会など取引あり) で、business_day 扱いすべき。
         calendar_day = normalize_market_calendar({"Date": "2026-12-30", "HolDiv": "2"})
         self.assertTrue(calendar_day.is_business_day)
 
@@ -1314,6 +1410,7 @@ class ScreeningProviderTests(unittest.TestCase):
         # EPS=0 / OP=0 / Sales=0 が None に潰れないこと (損益分岐点ちょうど、赤字転換など)。
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "10.0",
@@ -1330,7 +1427,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.sales, 0.0)
         self.assertEqual(summary.operating_profit, 0.0)
 
-    def test_normalize_daily_bar_supports_client_v2_short_keys(self) -> None:
+    def test_normalize_daily_bar_reads_native_fields(self) -> None:
         bar = normalize_daily_bar(
             {
                 "Code": "13010",
@@ -1355,36 +1452,58 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNone(bar)
 
-    def test_normalize_daily_bar_preserves_adjustment_close(self) -> None:
+    def test_normalize_daily_bar_keeps_raw_close_despite_provider_adjustment(self) -> None:
         bar = normalize_daily_bar(
             {
                 "Code": "13010",
                 "Date": "2026-04-24T00:00:00",
-                "Close": 200.0,
-                "AdjustmentClose": 100.0,
-                "AdjustmentFactor": 0.5,
+                "C": 200.0,
+                "AdjC": 100.0,
+                "AdjFactor": 0.5,
                 "Va": 526318500.0,
             }
         )
         self.assertIsNotNone(bar)
         assert bar is not None
         self.assertEqual(bar.close, 200.0)
-        self.assertEqual(bar.adjustment_close, 100.0)
         self.assertEqual(bar.adjustment_factor, 0.5)
 
-    def test_normalize_daily_bar_leaves_adjustment_close_none_when_missing(self) -> None:
-        bar = normalize_daily_bar(
-            {
-                "Code": "13010",
-                "Date": "2026-04-24T00:00:00",
-                "C": 100.0,
-                "Va": 526318500.0,
-            }
+    def test_adjusted_only_record_does_not_invent_raw_close_or_lose_split_event(self) -> None:
+        record = {
+            "Code": "67310",
+            "Date": "2023-12-27",
+            "C": None,
+            "AdjC": 500.0,
+            "AdjFactor": 100.0,
+        }
+        self.assertIsNone(normalize_daily_bar(record))
+        event = normalize_adjustment_factor_event(record)
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.adjustment_factor, 100.0)
+
+    def test_reported_action_without_factor_is_not_silently_discarded(self) -> None:
+        for kind in ("1", "2", "3", "unknown-future-kind"):
+            with (
+                self.subTest(kind=kind),
+                self.assertRaisesRegex(
+                    JQuantsProviderError, "corporate action has no usable adjustment factor"
+                ),
+            ):
+                normalize_adjustment_factor_event(
+                    {
+                        "Code": "13010",
+                        "Date": "2026-10-01",
+                        "C": None,
+                        "AdjFactor": None,
+                        "ExRT": kind,
+                    }
+                )
+        self.assertIsNone(
+            normalize_adjustment_factor_event(
+                {"Code": "13010", "Date": "2026-10-01", "C": None, "AdjFactor": None}
+            )
         )
-        self.assertIsNotNone(bar)
-        assert bar is not None
-        self.assertEqual(bar.close, 100.0)
-        self.assertIsNone(bar.adjustment_close)
 
     def test_normalize_adjustment_event_does_not_require_close(self) -> None:
         event = normalize_adjustment_factor_event(
@@ -1392,7 +1511,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "Code": "67310",
                 "Date": "2023-12-27T00:00:00",
                 "C": None,
-                "AdjustmentFactor": 100.0,
+                "AdjFactor": 100.0,
             }
         )
 
@@ -1401,9 +1520,10 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(event.ticker, "6731")
         self.assertEqual(event.adjustment_factor, 100.0)
 
-    def test_normalize_financial_summary_supports_client_v2_short_keys(self) -> None:
+    def test_normalize_financial_summary_preserves_native_fields(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "377.75",
@@ -1423,7 +1543,8 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertEqual(summary.ticker, "8891")
-        self.assertEqual(summary.forecast_eps, 377.75)
+        self.assertIsNone(summary.forecast_eps)
+        self.assertIn('"FEPS": "377.75"', summary.document_payload or "")
         self.assertEqual(summary.eps_ttm, 300.50)
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
@@ -1432,12 +1553,14 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.period_start, date(2026, 4, 1))
         self.assertEqual(summary.period_end, date(2026, 6, 30))
 
-    def test_normalize_financial_summary_falls_back_to_next_year_forecast(self) -> None:
-        # Full-year (FY) disclosures leave the current-period FEPS empty and carry the
-        # new-year guidance in NxFEPS; forecast_eps (the basis for per_forward) must
-        # still populate from the next-year forecast.
+    def test_projection_selects_next_fiscal_year_by_dates(self) -> None:
         fy = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": "",
@@ -1446,12 +1569,19 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert fy is not None
+        self.assertIsNone(fy.forecast_eps)
+        fy = project_financial_documents([fy], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(fy.forecast_eps, 360.26)
         self.assertEqual(fy.eps_ttm, 349.18)
 
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": float("nan"),
@@ -1473,6 +1603,8 @@ class ScreeningProviderTests(unittest.TestCase):
 
         assert summary is not None
         self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
+        self.assertIsNone(summary.forecast_eps)
         self.assertIsNone(summary.forecast_profit)
         self.assertIsNone(summary.forecast_ordinary_profit)
         self.assertIsNone(summary.dps_forecast_annual)
@@ -1486,6 +1618,11 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": pd.NA,
@@ -1501,13 +1638,20 @@ class ScreeningProviderTests(unittest.TestCase):
 
         assert summary is not None
         self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
+        self.assertIsNone(summary.forecast_eps)
         self.assertIsNone(summary.forecast_profit)
         self.assertIsNone(summary.forecast_ordinary_profit)
         self.assertIsNone(summary.dps_forecast_annual)
 
-    def test_normalize_financial_summary_keeps_zero_current_forecasts(self) -> None:
+    def test_projection_keeps_zero_current_forecasts(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": 0,
@@ -1522,6 +1666,8 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(summary.forecast_eps, 0.0)
         self.assertEqual(summary.forecast_profit, 1_000_000_000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 900_000_000.0)
@@ -1530,6 +1676,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_keeps_average_shares_separate(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-41670-2024-08-14",
                 "Code": "41670",
                 "DiscDate": "2024-08-14T00:00:00",
                 "AvgSh": "7563857",
@@ -1543,11 +1690,14 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.average_shares, 7_563_857.0)
         self.assertEqual(summary.treasury_shares, 352_373.0)
 
-    def test_normalize_financial_summary_prefers_current_forecast_over_next_year(self) -> None:
-        # Mid-year (Q1-Q3) disclosures carry the current-FY forecast in FEPS; it takes
-        # priority over NxFEPS so forecast_eps stays the nearest forecast.
+    def test_projection_selects_current_fiscal_year_by_dates(self) -> None:
         q3 = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-02-13",
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-02-13T00:00:00",
                 "FEPS": "300.0",
@@ -1555,13 +1705,18 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert q3 is not None
+        self.assertIsNone(q3.forecast_eps)
+        q3 = project_financial_documents([q3], date.fromisoformat("2026-02-13"))[0]
         self.assertEqual(q3.forecast_eps, 300.0)
 
-    def test_normalize_financial_summary_reads_current_forecast_profit_pair(self) -> None:
-        # 当期予想 EPS(FEPS)が埋まる四半期開示では当期予想の純利益/経常(FNP/FOdP)を採る。
-        # 翌期キー(NxFNp/NxFOdP)が併存しても当期側を採り、期をまたがない。
+    def test_projection_keeps_current_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-48490-2026-05-13",
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "48490",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": "138.72",
@@ -1573,15 +1728,19 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(summary.forecast_profit, 5464000000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 3406000000.0)
 
-    def test_normalize_financial_summary_pairs_forecast_profit_with_next_year_on_fy(self) -> None:
-        # 本決算開示で FEPS が空なら forecast_eps は NxFEPS に落ちる。純利益/経常も
-        # 同じ翌期ペア(NxFNp/NxFOdP)を採り、当期の FNP/FOdP と期をまたいで比較しない
-        # (期ズレ比較は一時益 flag の誤検出になる)。
+    def test_projection_keeps_next_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-48490-2026-04-01",
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "48490",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "",
@@ -1593,6 +1752,8 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-04-01"))[0]
         self.assertEqual(summary.forecast_eps, 120.0)
         self.assertEqual(summary.forecast_profit, 2000000000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 2500000000.0)
@@ -1600,13 +1761,14 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_preserves_fiscal_period_fields(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
-                "DisclosedDate": "2026-04-01",
-                "TypeOfCurrentPeriod": "1Q",
-                "CurrentFiscalYearEndDate": "2027-03-31",
-                "CurrentPeriodStartDate": "2026-04-01",
-                "CurrentPeriodEndDate": "2026-06-30",
-                "EarningsPerShare": "300.50",
+                "DiscDate": "2026-04-01",
+                "CurPerType": "1Q",
+                "CurFYEn": "2027-03-31",
+                "CurPerSt": "2026-04-01",
+                "CurPerEn": "2026-06-30",
+                "EPS": "300.50",
             }
         )
         self.assertIsNotNone(summary)
@@ -1619,6 +1781,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_skips_non_common_suffix(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-25935-2026-04-24",
                 "Code": "25935",
                 "DiscDate": "2026-04-24T00:00:00",
                 "EPS": "10.0",
@@ -1626,148 +1789,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNone(summary)
 
-    def test_get_eq_bars_daily_range_chunks_long_windows(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str]] = []
-
-            def get_eq_bars_daily_range(
-                self, start_dt: str, end_dt: str
-            ) -> list[dict[str, object]]:
-                self.calls.append((start_dt, end_dt))
-                # Dense bars per day so a fetched chunk satisfies the
-                # data-derived coverage check on read-back.
-                current = date.fromisoformat(start_dt)
-                stop = date.fromisoformat(end_dt)
-                rows: list[dict[str, object]] = []
-                while current <= stop:
-                    rows.append(
-                        {
-                            "Code": "13010",
-                            "Date": f"{current.isoformat()}T00:00:00",
-                            "C": 100.0,
-                            "Va": 1000.0,
-                        }
-                    )
-                    current += timedelta(days=1)
-                return rows
-
-        client = FakeClient()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
-            with patch("baibai_engine.market.providers.jquants.time.sleep", return_value=None):
-                bars = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-
-        self.assertEqual(len(client.calls), 2)
-        self.assertEqual(client.calls[0], ("2026-01-01", "2026-01-31"))
-        self.assertEqual(client.calls[1], ("2026-02-01", "2026-02-15"))
-        self.assertGreater(len(bars), 2)
-
-    def test_get_eq_bars_daily_range_skips_sleep_on_cache_hit(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str]] = []
-
-            def get_eq_bars_daily_range(
-                self, start_dt: str, end_dt: str
-            ) -> list[dict[str, object]]:
-                self.calls.append((start_dt, end_dt))
-                # Dense bars per day so a fetched chunk satisfies the
-                # data-derived coverage check on read-back.
-                current = date.fromisoformat(start_dt)
-                stop = date.fromisoformat(end_dt)
-                rows: list[dict[str, object]] = []
-                while current <= stop:
-                    rows.append(
-                        {
-                            "Code": "13010",
-                            "Date": f"{current.isoformat()}T00:00:00",
-                            "C": 100.0,
-                            "Va": 1000.0,
-                        }
-                    )
-                    current += timedelta(days=1)
-                return rows
-
-        client = FakeClient()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
-            with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_first:
-                first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-            self.assertEqual(len(client.calls), 2)
-            self.assertEqual(sleep_first.call_count, 1)
-
-            with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_second:
-                second = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-            self.assertEqual(len(client.calls), 2)
-            self.assertEqual(sleep_second.call_count, 0)
-            self.assertEqual(len(second), len(first))
-
-    def test_get_eq_bars_daily_range_retries_429(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls = 0
-
-            def get_eq_bars_daily_range(
-                self, start_dt: str, end_dt: str
-            ) -> list[dict[str, object]]:
-                del start_dt, end_dt
-                self.calls += 1
-                if self.calls < 3:
-                    raise RuntimeError("too many 429 error responses")
-                return [{"Code": "13010", "Date": "2026-04-24T00:00:00", "C": 100.0, "Va": 1000.0}]
-
-        client = FakeClient()
-        with tempfile.TemporaryDirectory() as tmp:
-            provider = JQuantsProvider("token", Path(tmp), client=client)
-            with patch("baibai_engine.market.providers.jquants.time.sleep", return_value=None):
-                bars = provider.get_eq_bars_daily_range(date(2026, 4, 24), date(2026, 4, 24))
-
-        self.assertEqual(client.calls, 3)
-        self.assertEqual(len(bars), 1)
-
-    def test_short_sale_refresh_rechecks_covered_disclosure_dates(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls = 0
-
-            def get_mkt_short_sale_report(self, disclosed_date: str) -> list[dict[str, object]]:
-                self.calls += 1
-                return [
-                    {
-                        "DiscDate": disclosed_date,
-                        "CalcDate": disclosed_date,
-                        "Code": "72030",
-                        "SSName": "Reporter A",
-                        "DICName": "",
-                        "FundName": "",
-                        "ShrtPosToSO": 0.006 if self.calls == 1 else 0.007,
-                    }
-                ]
-
-        client = FakeClient()
-        target = date(2026, 4, 24)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
-            first = provider.get_mkt_short_sale_report_range(target, target)
-            refreshed = provider.refresh_mkt_short_sale_report_range(target, target)
-
-        self.assertEqual(client.calls, 2)
-        self.assertEqual(first[0].short_ratio, 0.006)
-        self.assertEqual(refreshed[0].short_ratio, 0.007)
-
-    def test_jpx_parse_csv_rows_supports_cp932(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
-        rows = provider._parse_csv_rows(
-            "コード,規制区分\n3856,整理銘柄\n".encode("cp932"), "https://example.com/sample.csv"
-        )
-        self.assertEqual(rows, [{"コード": "3856", "規制区分": "整理銘柄"}])
-
     def test_jpx_earnings_parser_detects_header_and_normalizes_rows(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
         content = self._earnings_xlsx(
             [
                 ["決算発表予定", "", ""],
@@ -1783,66 +1805,56 @@ class ScreeningProviderTests(unittest.TestCase):
             ]
         )
 
-        parsed = provider._parse_earnings_calendar_excel(
+        parsed = parse_earnings_calendar_excel(
             content,
             "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx",
         )
 
         self.assertEqual(
             [(entry.ticker, entry.announcement_date) for entry in parsed.entries],
-            [("130A", date(2026, 7, 15)), ("7203", date(2026, 7, 16))],
+            [("130A", date(2026, 7, 15))],
         )
         self.assertEqual(parsed.raw_record_count, 3)
-        self.assertEqual(parsed.excluded_record_count, 1)
+        self.assertEqual(parsed.excluded_record_count, 2)
+        self.assertEqual(parsed.undated_tickers, ("7203",))
         self.assertIsNone(parsed.published_on)
 
     def test_jpx_earnings_parser_fails_on_layout_and_invalid_code(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
         with self.assertRaisesRegex(JPXProviderError, "header layout"):
-            provider._parse_earnings_calendar_excel(
+            parse_earnings_calendar_excel(
                 self._earnings_xlsx([["Date", "Code"], ["2026-07-15", "130A"]]), url
             )
         with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-            provider._parse_earnings_calendar_excel(
+            parse_earnings_calendar_excel(
                 self._earnings_xlsx([["決算発表日", "コード"], ["2026-07-15", "INVALID"]]),
                 url,
             )
 
     def test_jpx_earnings_snapshot_fails_when_every_date_is_past(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan.xlsx"
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(url,)),
-            patch.object(
-                provider,
-                "_download_earnings_calendar",
-                return_value=self._earnings_file(url, None, {"130A": date(2026, 7, 13)}),
-            ),
-            self.assertRaisesRegex(JPXProviderError, "only past dates"),
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+        with self.assertRaisesRegex(JPXProviderError, "only past dates"):
+            build_earnings_calendar_snapshot(
+                (self._earnings_file(url, None, {"130A": date(2026, 7, 13)}),),
+                asof_date=date(2026, 7, 14),
+                source_urls=(url,),
+            )
 
     def _merge_earnings_files(
         self, files: tuple[_EarningsCalendarFile, ...], asof_date: date
     ) -> JPXEarningsCalendarSnapshot:
-        """Merge the given cohort files under every index ordering.
-
-        The index order is JPX's to choose, so a snapshot that depends on it is
-        a defect. This asserts the invariant and returns the one snapshot.
-        """
         by_url = {source.url: source for source in files}
-        snapshots: list[JPXEarningsCalendarSnapshot] = []
-        for urls in (tuple(by_url), tuple(reversed(tuple(by_url)))):
-            provider = JPXProvider(Path("/tmp"))
-            with (
-                patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
-                patch.object(
-                    provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
-                ),
-            ):
-                snapshots.append(provider.get_earnings_calendar_snapshot(asof_date))
-        self.assertEqual(snapshots[0].entries, snapshots[1].entries)
+        snapshots = [
+            build_earnings_calendar_snapshot(
+                tuple(by_url[url] for url in urls), asof_date=asof_date, source_urls=urls
+            )
+            for urls in permutations(by_url)
+        ]
+        canonical = replace(snapshots[0], source_urls=tuple(sorted(snapshots[0].source_urls)))
+        for snapshot in snapshots[1:]:
+            self.assertEqual(
+                canonical, replace(snapshot, source_urls=tuple(sorted(snapshot.source_urls)))
+            )
         return snapshots[0]
 
     def test_jpx_earnings_snapshot_keeps_the_freshest_publication_on_conflict(self) -> None:
@@ -1924,25 +1936,26 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
 
-    def test_jpx_earnings_snapshot_resolves_files_it_cannot_rank_the_same_way(self) -> None:
-        # Two archives stamped the same day cannot be separated by publication,
-        # so the snapshot must still not depend on the index listing order.
+    def test_jpx_earnings_snapshot_keeps_equal_priority_conflicts_unknown(self) -> None:
         snapshot = self._merge_earnings_files(
             (
                 self._earnings_file(
                     self._earnings_url("06_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 20)}
                 ),
                 self._earnings_file(
-                    self._earnings_url("07_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 25)}
+                    self._earnings_url("07_0715"),
+                    date(2026, 7, 15),
+                    {"130A": date(2026, 7, 25), "7203": date(2026, 7, 26)},
                 ),
             ),
             date(2026, 7, 14),
         )
+        self.assertEqual(
+            [(entry.ticker, entry.announcement_date) for entry in snapshot.entries],
+            [("7203", date(2026, 7, 26))],
+        )
 
-        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
-
-    def test_jpx_earnings_snapshot_warns_when_the_index_layout_breaks_precedence(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+    def test_jpx_earnings_snapshot_warns_when_archive_publication_stamp_is_missing(self) -> None:
         files = (
             self._earnings_file(
                 self._earnings_url("06_0731"), None, {"130A": date(2026, 7, 20)}, prefix="att"
@@ -1951,22 +1964,23 @@ class ScreeningProviderTests(unittest.TestCase):
                 self._earnings_url("06_0731"), None, {"7203": date(2026, 7, 21)}, prefix="att2"
             ),
         )
-        by_url = {source.url: source for source in files}
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=tuple(by_url)),
-            patch.object(
-                provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
-            ),
-            self.assertLogs("baibai_engine.market.providers.jpx", level="WARNING") as logs,
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+        with self.assertLogs("baibai_engine.market.jpx_decode", level="WARNING") as logs:
+            build_earnings_calendar_snapshot(
+                files, asof_date=date(2026, 7, 14), source_urls=tuple(f.url for f in files)
+            )
+        self.assertIn("no readable publication stamp", "\n".join(logs.output))
 
-        messages = "\n".join(logs.output)
-        self.assertIn("no rolling `kessan` file", messages)
-        self.assertIn("no readable publication stamp", messages)
+    def test_jpx_earnings_snapshot_without_daily_file_is_not_a_layout_warning(self) -> None:
+        files = (
+            self._earnings_file(
+                self._earnings_url("09_1009"), date(2026, 10, 8), {"130A": date(2026, 10, 20)}
+            ),
+        )
+        with self.assertNoLogs("baibai_engine.market.jpx_decode", level="WARNING"):
+            snapshot = self._merge_earnings_files(files, date(2026, 10, 15))
+        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 10, 20))
 
     def test_jpx_earnings_snapshot_warns_when_several_rolling_files_are_listed(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
         files = (
             self._earnings_file(
                 self._earnings_url(), None, {"130A": date(2026, 7, 20)}, prefix="att"
@@ -1975,24 +1989,17 @@ class ScreeningProviderTests(unittest.TestCase):
                 self._earnings_url(), None, {"7203": date(2026, 7, 21)}, prefix="att2"
             ),
         )
-        by_url = {source.url: source for source in files}
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=tuple(by_url)),
-            patch.object(
-                provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
-            ),
-            self.assertLogs("baibai_engine.market.providers.jpx", level="WARNING") as logs,
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
-
+        with self.assertLogs("baibai_engine.market.jpx_decode", level="WARNING") as logs:
+            build_earnings_calendar_snapshot(
+                files, asof_date=date(2026, 7, 14), source_urls=tuple(f.url for f in files)
+            )
         self.assertIn("several rolling `kessan` files", "\n".join(logs.output))
 
     def test_jpx_earnings_parser_reads_publication_stamp_but_not_cohort_titles(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
         header = ["決算発表予定日", "コード"]
 
-        stamped = provider._parse_earnings_calendar_excel(
+        stamped = parse_earnings_calendar_excel(
             self._earnings_xlsx(
                 [
                     ["2027年3月期第1四半期決算（2026年8月6日開示予定分）", ""],
@@ -2005,13 +2012,13 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertEqual(stamped.published_on, date(2026, 7, 30))
 
-        english_only = provider._parse_earnings_calendar_excel(
+        english_only = parse_earnings_calendar_excel(
             self._earnings_xlsx([["As of 2026/7/2", ""], header, ["2026-08-07", "130A"]]),
             url,
         )
         self.assertEqual(english_only.published_on, date(2026, 7, 2))
 
-        untitled = provider._parse_earnings_calendar_excel(
+        untitled = parse_earnings_calendar_excel(
             self._earnings_xlsx(
                 [
                     ["６月に四半期末を迎えた決算発表予定会社の一覧", ""],
@@ -2024,7 +2031,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNone(untitled.published_on)
 
         # An impossible date in one cell must not hide a readable stamp beside it.
-        beside_a_bad_cell = provider._parse_earnings_calendar_excel(
+        beside_a_bad_cell = parse_earnings_calendar_excel(
             self._earnings_xlsx(
                 [["2026年13月40日 現在", "As of 2026/7/2"], header, ["2026-08-07", "130A"]]
             ),
@@ -2040,9 +2047,8 @@ class ScreeningProviderTests(unittest.TestCase):
         all takes the same exit.
         """
 
-        provider = JPXProvider(Path("/tmp"))
-        with self.assertLogs("baibai_engine.market.providers.jpx", level="WARNING") as logs:
-            parsed = provider._parse_earnings_calendar_excel(
+        with self.assertLogs("baibai_engine.market.jpx_decode", level="WARNING") as logs:
+            parsed = parse_earnings_calendar_excel(
                 self._earnings_xlsx(
                     [
                         ["決算発表予定日", "コード"],
@@ -2064,45 +2070,21 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(parsed.excluded_record_count, 4)
         self.assertIn("conflicting=1 unparsable=1", logs.output[0])
         self.assertIn("1305: '8月上旬'", logs.output[0])
-        self.assertIn("130A: 2026-08-06 and 2026-08-07", logs.output[0])
-
-    def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
-        html = b"""
-        <a href="./files/kessan-1.xlsx">one</a>
-        <a href="/listing/event-schedules/financial-announcement/files/kessan-2.xls">two</a>
-        <a href="https://example.com/listing/event-schedules/financial-announcement/kessan-3.xlsx">external</a>
-        <a href="/listing/event-schedules/other/kessan-4.xlsx">other</a>
-        <a href="./files/notes.xlsx">notes</a>
-        """
-        provider = JPXProvider(Path("/tmp"), session=_FixedHtmlSession(html))
-
-        self.assertEqual(
-            provider._resolve_earnings_calendar_urls(),
-            (
-                (
-                    "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
-                    "files/kessan-1.xlsx"
-                ),
-                (
-                    "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
-                    "files/kessan-2.xls"
-                ),
-            ),
-        )
+        self.assertIn("130A: 2026-08-06 and 2026-08-07 and 2026-08-08", logs.output[0])
 
     def test_jpx_special_attention_current_sections(self) -> None:
         html = self._read_jpx_fixture("special_caution.html")
-        provider = JPXProvider(
-            Path("/tmp"),
-            regulation_urls={
-                "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html"
-            },
-            session=_FixedHtmlSession(html),
+        snapshot = build_regulation_snapshot(
+            {
+                "特別注意銘柄": parse_regulation_rows(
+                    "特別注意銘柄",
+                    html,
+                    "https://www.jpx.co.jp/listing/measures/alert/index.html",
+                )
+            }
         )
-        snapshot = provider.get_regulation_snapshot(date(2026, 9, 29))
         self.assertEqual(
-            snapshot.flags_by_ticker,
-            {"130A": ("特別注意銘柄",), "2901": ("特別注意銘柄",)},
+            snapshot.flags_by_ticker, {"130A": ("特別注意銘柄",), "2901": ("特別注意銘柄",)}
         )
         self.assertEqual(snapshot.source_names, ("特別注意銘柄",))
 
@@ -2113,7 +2095,7 @@ class ScreeningProviderTests(unittest.TestCase):
             "<table><tr><th>銘柄名</th><th>コード</th></tr>"
             "<tr><td>A</td><td>29010</td></tr><tr><td>C</td><td>6548</td></tr></table>",
         )
-        rows = JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(html, "fixture")
+        rows = _parse_special_attention_html_rows(html, "fixture")
         self.assertEqual(
             rows,
             [{"code": code, "flag": "特別注意銘柄"} for code in ("2901", "130A", "6548")],
@@ -2121,9 +2103,7 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_jpx_special_attention_all_sections_empty(self) -> None:
         html = "<h2>現在の指定状況</h2><p>現在、該当する情報はありません。</p>"
-        self.assertEqual(
-            JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(html, "fixture"), []
-        )
+        self.assertEqual(_parse_special_attention_html_rows(html, "fixture"), [])
 
     def test_jpx_special_attention_rejects_layout_drift(self) -> None:
         html = self._read_jpx_fixture("special_caution.html").decode()
@@ -2144,28 +2124,15 @@ class ScreeningProviderTests(unittest.TestCase):
         }
         for label, changed in cases.items():
             with self.subTest(label=label), self.assertRaises(JPXProviderError):
-                JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(changed, "fixture")
-
-    def test_jpx_download_rows_rejects_non_jpx_origin(self) -> None:
-        session = ExplodingSession("request should not be attempted")
-        provider = JPXProvider(Path("/tmp"), session=session)
-
-        with self.assertRaisesRegex(JPXProviderError, "https://www\\.jpx\\.co\\.jp"):
-            provider._download_rows(
-                "整理銘柄", "https://example.com/listing/market-alerts/supervision/"
-            )
-
-        self.assertEqual(session.calls, [])
+                _parse_special_attention_html_rows(changed, "fixture")
 
     def test_jpx_parse_reorganization_html_rows_from_content_type(self) -> None:
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=always(html_response(self._read_jpx_fixture("reorganization.html"))),
+        rows = parse_regulation_rows(
+            "整理銘柄",
+            self._read_jpx_fixture("reorganization.html"),
+            "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+            "text/html; charset=UTF-8",
         )
-        rows = provider._download_rows(
-            "整理銘柄", "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-        )
-
         self.assertEqual(
             rows,
             [
@@ -2175,9 +2142,8 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
     def test_jpx_parse_trading_halt_html_rows_extracts_codes(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
 
-        rows = provider._parse_html_rows(
+        rows = parse_regulation_rows(
             "取引停止",
             self._read_jpx_fixture("trading_halt.html"),
             "https://www.jpx.co.jp/markets/equities/suspended/",
@@ -2186,9 +2152,8 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(rows, [{"code": "9941", "flag": "取引停止"}])
 
     def test_jpx_parse_delisting_warning_html_rows_extracts_codes(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
 
-        rows = provider._parse_html_rows(
+        rows = parse_regulation_rows(
             "上場廃止警告",
             self._read_jpx_fixture("delisting_warning.html"),
             "https://www.jpx.co.jp/listing/stocks/delisted/",
@@ -2203,7 +2168,6 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
     def test_jpx_parse_html_rows_fail_fast_on_layout_change(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
         broken_html = (
             self._read_jpx_fixture("reorganization.html")
             .decode("utf-8")
@@ -2211,33 +2175,30 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(JPXProviderError, "failed to locate JPX HTML table"):
-            provider._parse_html_rows(
+            parse_regulation_rows(
                 "整理銘柄",
                 broken_html.encode("utf-8"),
                 "https://www.jpx.co.jp/listing/market-alerts/supervision/",
             )
 
     def test_jpx_get_regulation_snapshot_fails_on_invalid_html_code(self) -> None:
-        url = "https://www.jpx.co.jp/markets/equities/suspended/"
         broken_html = (
             self._read_jpx_fixture("trading_halt.html")
             .decode("utf-8")
             .replace("9941", "99411", 1)
             .encode("utf-8")
         )
-
-        with tempfile.TemporaryDirectory() as tmp:
-            provider = JPXProvider(
-                Path(tmp),
-                regulation_urls={"取引停止": url},
-                session=by_url({url: html_response(broken_html)}),
+        with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+            build_regulation_snapshot(
+                {
+                    "取引停止": parse_regulation_rows(
+                        "取引停止", broken_html, "https://www.jpx.co.jp/markets/equities/suspended/"
+                    )
+                }
             )
-            with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-                provider.get_regulation_snapshot(date(2026, 4, 24))
 
     def test_jpx_trading_halt_empty_marker_returns_no_rows(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
-        rows = provider._parse_html_rows(
+        rows = parse_regulation_rows(
             "取引停止",
             self._read_jpx_fixture("trading_halt_empty.html"),
             "https://www.jpx.co.jp/markets/equities/suspended/",
@@ -2248,9 +2209,8 @@ class ScreeningProviderTests(unittest.TestCase):
         # ヘッダが 1 段になった場合、header_rows=2 を要求しているので 2 行目 (data) が
         # `<th>` 全列ではなく fail-fast に落ちる。これにより JPX が rowspan を外して
         # 出してきても列ズレで silently 1 件欠損する事故を防げる。
-        provider = JPXProvider(Path("/tmp"))
         with self.assertRaisesRegex(JPXProviderError, "unexpected JPX HTML header layout"):
-            provider._parse_html_rows(
+            parse_regulation_rows(
                 "取引停止",
                 self._read_jpx_fixture("trading_halt_flat_header.html"),
                 "https://www.jpx.co.jp/markets/equities/suspended/",
@@ -2261,98 +2221,18 @@ class ScreeningProviderTests(unittest.TestCase):
         # HTMLParser の stack で外側のみ index される設計が壊れたら、内側の行が
         # 外側 row として混入し header check で raise されるか、コード列に
         # 別の値が入って test 期待値と不一致になる。
-        provider = JPXProvider(Path("/tmp"))
-        rows = provider._parse_html_rows(
+        rows = parse_regulation_rows(
             "整理銘柄",
             self._read_jpx_fixture("reorganization_nested.html"),
             "https://www.jpx.co.jp/listing/market-alerts/supervision/",
         )
         self.assertEqual(rows, [{"code": "4917", "flag": "整理銘柄"}])
 
-    def test_jpx_download_rows_rejects_unsupported_format(self) -> None:
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=always(response(b"<plain>", content_type="text/plain; charset=UTF-8")),
-        )
-        with self.assertRaisesRegex(JPXProviderError, "unsupported JPX regulation source format"):
-            provider._download_rows(
-                "整理銘柄",
-                "https://www.jpx.co.jp/listing/market-alerts/supervision/notes",
-            )
-
-    def test_jpx_download_rows_raises_on_http_error_status(self) -> None:
-        provider = JPXProvider(Path("/tmp"), session=always(response(status_code=503)))
-        with self.assertRaisesRegex(JPXProviderError, "status=503"):
-            provider._download_rows(
-                "整理銘柄",
-                "https://www.jpx.co.jp/listing/market-alerts/supervision/",
-            )
-
-    def test_jpx_get_regulation_snapshot_uses_cache_without_calling_session(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            store_jpx_regulations(
-                sqlite_path,
-                date(2026, 4, 24),
-                flags_by_ticker={"4917": ("整理銘柄",)},
-                source_names=("整理銘柄",),
-            )
-
-            provider = JPXProvider(
-                cache_dir,
-                regulation_urls={"整理銘柄": url},
-                session=ExplodingSession("session.get must not be called when cache is present"),
-                sqlite_path=sqlite_path,
-            )
-            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
-
-        self.assertEqual(snapshot.source_names, ("整理銘柄",))
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
-
-    def test_jpx_get_regulation_snapshot_records_fetched_at_utc_on_fetch(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JPXProvider(
-                cache_dir,
-                regulation_urls={"整理銘柄": url},
-                session=always(response(b"code\n49170\n", content_type="text/csv")),
-                sqlite_path=sqlite_path,
-            )
-            provider.get_regulation_snapshot(date(2026, 4, 24))
-            rows = (
-                sqlite3.connect(sqlite_path)
-                .execute(
-                    "SELECT fetched_at_utc FROM jpx_regulation_sources WHERE asof_date = ?",
-                    ("2026-04-24",),
-                )
-                .fetchall()
-            )
-
-        self.assertEqual(len(rows), 1)
-        self.assertIsNotNone(rows[0][0])
-
-    def test_jpx_get_regulation_snapshot_rejects_rows_without_code_column(self) -> None:
-        provider = JPXProvider(
-            Path("/tmp"),
-            regulation_urls={
-                "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
-            },
-            session=always(response(b"unexpected\n49170\n", content_type="text/csv")),
-        )
-
-        with self.assertRaisesRegex(JPXProviderError, "missing JPX code column"):
-            provider.get_regulation_snapshot(date(2026, 4, 24))
-
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
         # が偶然成功して文字化けが残るリスクを避けるため、charset を最優先で試行する。
-        provider = JPXProvider(Path("/tmp"))
         cp932_payload = "整理銘柄".encode("cp932")
-        decoded = provider._decode_html_text(
+        decoded = _decode_html_text(
             cp932_payload,
             "https://www.jpx.co.jp/listing/market-alerts/supervision/",
             "text/html; charset=Shift_JIS",
@@ -2360,53 +2240,45 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(decoded, "整理銘柄")
 
     def test_jpx_decode_html_text_raises_when_all_encodings_fail(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
-        # 0xFF は cp932 / utf-8 / utf-8-sig いずれでも lead byte として無効なので、
-        # フォールバック 3 段すべて UnicodeDecodeError で落ちる。LookupError 経路の
+        # 0x81 に続く 0x00 は cp932 の有効なバイト列ではなく、utf-8 / utf-8-sig
+        # でも decode できない。LookupError 経路の
         # 確認も兼ねて、Content-Type には未知の encoding 名を載せる。
         with self.assertRaises(JPXProviderError):
-            provider._decode_html_text(
+            _decode_html_text(
                 b"\x81\x00\x81\x00",
                 "https://www.jpx.co.jp/listing/market-alerts/supervision/",
                 "text/html; charset=jpx-unknown",
             )
 
     def test_jpx_refuses_an_invalid_code_in_every_regulation_page(self) -> None:
-        # Each page has its own table layout, so a code the parser cannot normalise has
-        # to stop each of them rather than reach the store as a ticker nobody trades.
-        cases: tuple[tuple[str, str, str, str, str], ...] = (
+        cases = (
             (
                 "整理銘柄",
                 "reorganization.html",
-                "4917",
-                "49171",
+                b"4917",
+                b"49171",
                 "https://www.jpx.co.jp/listing/market-alerts/supervision/",
             ),
             (
                 "上場廃止警告",
                 "delisting_warning.html",
-                "7709",
-                "77091",
+                b"7709",
+                b"77091",
                 "https://www.jpx.co.jp/listing/stocks/delisted/",
             ),
         )
-
-        for source_name, fixture, code, broken_code, url in cases:
-            with self.subTest(case=source_name):
-                broken_html = (
-                    self._read_jpx_fixture(fixture)
-                    .decode("utf-8")
-                    .replace(code, broken_code, 1)
-                    .encode("utf-8")
+        for name, fixture, code, broken, url in cases:
+            with (
+                self.subTest(case=name),
+                self.assertRaisesRegex(JPXProviderError, "invalid JPX code"),
+            ):
+                build_regulation_snapshot(
+                    {
+                        name: parse_regulation_rows(
+                            name, self._read_jpx_fixture(fixture).replace(code, broken, 1), url
+                        )
+                    }
                 )
-                with tempfile.TemporaryDirectory() as tmp:
-                    provider = JPXProvider(
-                        Path(tmp),
-                        regulation_urls={source_name: url},
-                        session=_FixedHtmlSession(broken_html),
-                    )
-                    with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-                        provider.get_regulation_snapshot(date(2026, 4, 24))
 
 
 def test_capex_original_edinet_rows():
@@ -2414,7 +2286,7 @@ def test_capex_original_edinet_rows():
     # S100YU8C InterimDurationは2026-01-01..06-30 (会社半期報告書id=500)。
     cases = [
         ("5946", "S100YU8C", "160", 4_857_000_000, 1_136_000_000, 3_721_000_000, "approximated"),
-        ("7122", "S100YI50", "120", 15_630_000_000, 1_831_000_000, 13_799_000_000, "exact"),
+        ("7122", "S100YI50", "120", 15_630_000_000, 1_831_000_000, 13_799_000_000, "approximated"),
         ("8127", "S100XXXU", "160", 871_844_000, 100_902_000, 770_942_000, "approximated"),
     ]
     for ticker, doc, kind, ocf, capex, fcf, quality in cases:
@@ -2434,7 +2306,7 @@ def test_capex_original_edinet_rows():
         assert (record.ocf_ttm, record.capex_ttm, record.fcf_ttm) == (ocf, capex, fcf)
         assert record.ttm_quality_fcf == quality
         assert record.capex_source == "purchase_of_fixed_assets"
-        assert "tag_not_found:capex" not in record.failure_reasons
+        assert "metric_unavailable:capex" not in record.failure_reasons
 
 
 def test_annual_cash_flow_details_from_original_edinet_rows():
@@ -2541,8 +2413,8 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
     total = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF"
     tangible = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
     intangible = "jppfs_cor:PurchaseOfIntangibleAssetsInvCF"
-    current = "CurrentYearConsolidatedDuration"
-    prior = "Prior1YearConsolidatedDuration"
+    current = "InterimDuration"
+    prior = "Prior1InterimDuration"
     rows = [("jppfs_cor:NetCashProvidedByUsedInOperatingActivities", current, "4857")]
     cases = [
         ("total", [(total, current, "-1136")], 1136),
@@ -2556,6 +2428,26 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             ],
             1136,
         ),
+        (
+            "blank-total-does-not-fall-back",
+            [(total, current, ""), (tangible, current, "-1000"), (intangible, current, "-136")],
+            None,
+        ),
+        (
+            "conflicting-total-does-not-fall-back",
+            [
+                (total, current, "-1136"),
+                (total, current, "-2000"),
+                (tangible, current, "-1000"),
+                (intangible, current, "-136"),
+            ],
+            None,
+        ),
+        (
+            "explicit-zero-total-precedes-components",
+            [(total, current, "-"), (tangible, current, "-1000"), (intangible, current, "-136")],
+            0,
+        ),
         ("missing-intangible", [(tangible, current, "-1000")], None),
         ("missing-tangible", [(intangible, current, "-136")], None),
         ("prior-component", [(tangible, current, "-1000"), (intangible, prior, "-136")], None),
@@ -2564,7 +2456,7 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             [(total, prior, "-769"), (tangible, current, "-1000"), (intangible, current, "-136")],
             1136,
         ),
-        ("nonconsolidated-total", [(total, "CurrentYearNonConsolidatedDuration", "-999")], None),
+        ("nonconsolidated-total", [(total, "InterimDuration_NonConsolidatedMember", "-999")], None),
         ("missing", [], None),
         ("explicit-zero", [(total, current, "0")], 0),
     ]
@@ -2582,8 +2474,8 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             )
             assert record.capex_ttm == expected
             assert record.fcf_ttm == (None if expected is None else 4857 - expected)
-            assert ("tag_not_found:capex" in record.failure_reasons) == (expected is None)
-            assert "tag_not_found:cash" in record.failure_reasons
+            assert ("metric_unavailable:capex" in record.failure_reasons) == (expected is None)
+            assert "metric_unavailable:cash" in record.failure_reasons
 
 
 def test_missing_edinet_quality_is_unknown():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -16,14 +17,14 @@ def test_snapshot_includes_uncheckpointed_wal_rows(tmp_path: Path) -> None:
     source = tmp_path / "source.sqlite"
     output = tmp_path / "snapshot.sqlite"
     output.write_bytes(b"old snapshot")
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("CREATE TABLE values_for_test (value TEXT NOT NULL)")
         connection.execute("INSERT INTO values_for_test VALUES ('visible')")
         connection.commit()
         create_snapshot(source, output)
 
-    with sqlite3.connect(output) as snapshot:
+    with closing(sqlite3.connect(output)) as snapshot, snapshot:
         assert snapshot.execute("SELECT value FROM values_for_test").fetchone() == ("visible",)
 
 
@@ -35,11 +36,12 @@ def test_validate_database_rejects_non_sqlite_file(tmp_path: Path) -> None:
         validate_database(invalid)
 
 
-def test_v13_rollback_snapshot_preserves_edinet_rows_and_schema(tmp_path: Path) -> None:
-    source = tmp_path / "market-v13.sqlite"
+@pytest.mark.parametrize("schema_version", [0, 13, 32])
+def test_snapshot_preserves_source_schema_and_rows(tmp_path: Path, schema_version: int) -> None:
+    source = tmp_path / "source.sqlite"
     restored = tmp_path / "restored.sqlite"
-    with sqlite3.connect(source) as connection:
-        connection.execute("PRAGMA user_version = 13")
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute(f"PRAGMA user_version = {schema_version}")
         connection.execute(
             "CREATE TABLE edinet_documents (doc_date TEXT NOT NULL, doc_id TEXT NOT NULL)"
         )
@@ -48,8 +50,8 @@ def test_v13_rollback_snapshot_preserves_edinet_rows_and_schema(tmp_path: Path) 
 
     create_snapshot(source, restored)
 
-    assert database_schema_version(restored) == 13
-    with sqlite3.connect(restored) as connection:
+    assert database_schema_version(restored) == schema_version
+    with closing(sqlite3.connect(restored)) as connection, connection:
         assert connection.execute("SELECT doc_date, doc_id FROM edinet_documents").fetchall() == [
             ("2026-07-10", "S100KEPT")
         ]
@@ -58,7 +60,7 @@ def test_v13_rollback_snapshot_preserves_edinet_rows_and_schema(tmp_path: Path) 
 @pytest.mark.parametrize("alias", ["same", "symlink", "hardlink"])
 def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias):
     source = tmp_path / "source.sqlite"
-    with sqlite3.connect(source) as db:
+    with closing(sqlite3.connect(source)) as db, db:
         db.execute("CREATE TABLE kept (value)")
     output = source
     if alias != "same":
@@ -76,18 +78,18 @@ def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias):
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("failure", ["missing", "invalid", "backup", "validation"])
 def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, failure):
-    from baibai_engine.market.sqlite import snapshot
+    from baibai_engine.storage.observations import snapshot
 
     source = tmp_path / "source.sqlite"
     output = tmp_path / "output.sqlite"
     if existing:
-        with sqlite3.connect(output) as db:
+        with closing(sqlite3.connect(output)) as db, db:
             db.execute("CREATE TABLE kept (value)")
     before = output.read_bytes() if existing else None
     if failure == "invalid":
         source.write_text("not SQLite")
     elif failure != "missing":
-        with sqlite3.connect(source) as db:
+        with closing(sqlite3.connect(source)) as db, db:
             db.execute("CREATE TABLE source_values (value)")
     if failure == "backup":
 
@@ -113,12 +115,11 @@ def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, fail
 
 @pytest.mark.parametrize("failure", [False, True])
 def test_snapshot_closes_owned_connections(tmp_path, monkeypatch, failure):
-    from baibai_engine.market.sqlite import snapshot
+    from baibai_engine.storage.observations import snapshot
 
     source = tmp_path / "source.sqlite"
-    with sqlite3.connect(source) as db:
+    with closing(sqlite3.connect(source)) as db, db:
         db.execute("CREATE TABLE source_values (value)")
-    db.close()
     connect = sqlite3.connect
     opened = []
 
@@ -142,3 +143,21 @@ def test_snapshot_closes_owned_connections(tmp_path, monkeypatch, failure):
     for connection in opened:
         with pytest.raises(sqlite3.ProgrammingError, match="closed"):
             connection.execute("SELECT 1")
+
+
+@pytest.mark.parametrize(
+    "filename", ["store?copy.sqlite", "store#copy.sqlite", "store%20copy.sqlite"]
+)
+def test_validation_reads_the_exact_path_with_uri_characters(tmp_path: Path, filename: str) -> None:
+    path = tmp_path / filename
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("PRAGMA user_version = 42")
+        connection.execute("CREATE TABLE kept (value TEXT)")
+        connection.execute("INSERT INTO kept VALUES ('retained')")
+    before = path.read_bytes()
+    paths_before = set(tmp_path.iterdir())
+
+    validate_database(path)
+    assert database_schema_version(path) == 42
+    assert path.read_bytes() == before
+    assert set(tmp_path.iterdir()) == paths_before

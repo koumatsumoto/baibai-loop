@@ -6,27 +6,28 @@ import sqlite3
 import tempfile
 import unittest
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, closing
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+from tests.helpers.master import insert_master_rows
+
 ROOT = Path(__file__).resolve().parents[2]
 
-from tests.helpers.calibration_store import store_forward, store_panel
 from tests.helpers.screening_sqlite import (
     CALIBRATION_FIXTURE_ASOF,
     add_source_coverage,
     build_calibration_fixture_sqlite,
     insert_daily_bars_from_closes,
+    insert_financial_record,
 )
 
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.sqlite.ingest import open_connection
-from baibai_engine.market.sqlite.reader import ReportedShortMetric
-from baibai_engine.market.sqlite.readiness import unreadable_store_reason
+from baibai_engine.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -49,14 +50,19 @@ from baibai_engine.screening.calibration.store import (
     panel_row_from_mapping,
     read_forward,
     read_panel,
+    write_forward,
+    write_panel,
 )
-from baibai_engine.screening.metrics import (
-    BARS_INPUT_WINDOW_DAYS,
-    VALUATION_CALCULATION_REVISION,
-    VALUATION_HISTORY_SESSIONS,
-    build_profitability_level_signals,
-)
+from baibai_engine.screening.discovery.candidates import candidate_discovery_method_hash
+from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
+from baibai_engine.storage.observations.readiness import unreadable_store_reason
+from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
+from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
+from baibai_engine.valuation.metrics.profit import build_profitability_level_signals
 
 ASOF = CALIBRATION_FIXTURE_ASOF
 
@@ -75,11 +81,15 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, eps_ttm, fiscal_period"
-                    ") VALUES (?, ?, ?, ?)",
-                    ("9001", "2016-08-01", 1.0, "FY"),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "90010",
+                        "DiscDate": "2016-08-01",
+                        "EPS": 1.0,
+                        "CurPerType": "FY",
+                        "DiscNo": "2016-08-01",
+                    },
                 )
                 conn.commit()
             finally:
@@ -105,11 +115,8 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    ("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", 1),
+                insert_master_rows(
+                    conn, [("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", "014")]
                 )
                 conn.commit()
             finally:
@@ -118,11 +125,48 @@ class CalibrationPanelTest(unittest.TestCase):
             built = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
 
             counts = built.diagnostics.policy_exclusion_reason_counts or {}
-            self.assertEqual(counts.get("sector_out_of_classification"), 1)
+            self.assertEqual(counts.get("non_common_stock"), 1)
             self.assertEqual(counts.get("market_out_of_scope"), 1)
             # Data-shortage reasons stay on the other side of the pair.
             self.assertNotIn("insufficient_bar_history", counts)
             self.assertNotIn("1306", {row.ticker for row in built.rows})
+
+    def test_policy_excluded_master_member_is_not_a_missing_master(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            build_calibration_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                insert_master_rows(
+                    conn, [("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", "014")]
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            insert_daily_bars_from_closes(
+                sqlite_path, "1306", [100.0] * 200, end_date=ASOF, turnover_value=2e8
+            )
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            self.assertEqual(result.diagnostics.bars_tickers_not_in_master, 0)
+            self.assertEqual(result.diagnostics.policy_excluded_priced_count, 1)
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
+            output = io.StringIO()
+            self.assertEqual(
+                calibration_evaluate_command(
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    horizons=["6m"],
+                    stdout=output,
+                ),
+                0,
+            )
+            evaluation = yaml.safe_load(output.getvalue())
+            coverage = evaluation["results"]["6m"]["cohorts"][0]["coverage"]
+            self.assertEqual(coverage["policy_excluded_count"], 1)
+            self.assertEqual(coverage["policy_exclusion_reason_counts"]["non_common_stock"], 1)
+            self.assertEqual(coverage["policy_exclusion_reason_counts"]["market_out_of_scope"], 1)
 
     def test_the_panel_counts_how_many_names_carry_an_edinet_axis(self) -> None:
         """A cohort with no EDINET source replays a screen production does not run.
@@ -155,45 +199,6 @@ class CalibrationPanelTest(unittest.TestCase):
                 without_edinet.diagnostics.population_size,
                 with_edinet.diagnostics.population_size,
             )
-
-    def test_panel_distinguishes_covered_no_report_from_source_gap(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            build_calibration_fixture_sqlite(sqlite_path)
-            with patch(
-                "baibai_engine.screening.calibration.panel.read_reported_short_metrics",
-                return_value={
-                    "9001": ReportedShortMetric(
-                        ratio=0.012,
-                        breadth=2,
-                        latest_disclosed_at=date(2026, 6, 25),
-                    )
-                },
-            ):
-                covered = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            covered_by_ticker = {row.ticker: row for row in covered.rows}
-            self.assertEqual(covered_by_ticker["9001"].reported_short_ratio, 0.012)
-            self.assertEqual(covered_by_ticker["9001"].reported_short_breadth, 2)
-            self.assertEqual(
-                covered_by_ticker["9001"].reported_short_latest_disclosed_at,
-                "2026-06-25",
-            )
-            self.assertEqual(covered_by_ticker["9002"].reported_short_ratio, 0.0)
-            self.assertEqual(covered_by_ticker["9002"].reported_short_breadth, 0)
-            self.assertEqual(
-                covered_by_ticker["9002"].reported_short_latest_disclosed_at,
-                ASOF.isoformat(),
-            )
-
-            with patch(
-                "baibai_engine.screening.calibration.panel.read_reported_short_metrics",
-                return_value=None,
-            ):
-                uncovered = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            for row in uncovered.rows:
-                self.assertIsNone(row.reported_short_ratio)
-                self.assertIsNone(row.reported_short_breadth)
-                self.assertIsNone(row.reported_short_latest_disclosed_at)
 
     def test_profitability_levels_use_pit_ttm_without_profit_fallback(self) -> None:
         summaries = (
@@ -258,7 +263,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertAlmostEqual(by_ticker["9001"].asset_turnover or 0.0, 5e9 / 3e10)
 
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             restored = {row.ticker: row for row in read_panel(store_dir, ASOF)}
             self.assertEqual(
                 restored["9001"].operating_profit_to_assets,
@@ -273,7 +278,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 operating_margin=-0.10,
                 asset_turnover=-0.50,
             )
-            store_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
+            write_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
             self.assertEqual(read_panel(store_dir, ASOF), [negative_sales_row])
 
     def test_valuation_calculation_revision_is_part_of_method_identity(self) -> None:
@@ -281,6 +286,7 @@ class CalibrationPanelTest(unittest.TestCase):
         previous_identity = rules_contract_hash(
             rules.model_dump_json(),
             valuation_calculation_revision="gross-shares-capital-v0",
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
@@ -288,6 +294,27 @@ class CalibrationPanelTest(unittest.TestCase):
         )
 
         self.assertNotEqual(rules_content_hash(rules), previous_identity)
+
+    def test_dividend_revision_separates_production_and_panel_identity(self) -> None:
+        rules = load_screening_rules()
+        with (
+            patch(
+                "baibai_engine.valuation.metrics.financial_snapshot.VALUATION_CALCULATION_REVISION",
+                "same-profit-basis-yoy-v25",
+            ),
+            patch(
+                "baibai_engine.screening.calibration.panel.VALUATION_CALCULATION_REVISION",
+                "same-profit-basis-yoy-v25",
+            ),
+        ):
+            previous_production = production_rules_contract_hash(rules.model_dump_json())
+            previous_panel = rules_content_hash(rules)
+
+        # 同じrules・one-bar scopeでも、配当の意味変更を両方のidentityが識別する。
+        self.assertNotEqual(
+            production_rules_contract_hash(rules.model_dump_json()), previous_production
+        )
+        self.assertNotEqual(rules_content_hash(rules), previous_panel)
 
     def test_candidate_discovery_method_hash_is_part_of_panel_identity(self) -> None:
         rules = load_screening_rules()
@@ -310,12 +337,14 @@ class CalibrationPanelTest(unittest.TestCase):
         rules_json = rules.model_dump_json()
         expected_contract = (
             f"{rules_json}|{VALUATION_CALCULATION_REVISION}|production|"
-            f"{VALUATION_HISTORY_SESSIONS}|{BARS_INPUT_WINDOW_DAYS}|True"
+            f"{VALUATION_HISTORY_SESSIONS}|{BARS_INPUT_WINDOW_DAYS}|True|"
+            f"{MARKET_CONTEXT_CALCULATION_REVISION}"
         )
 
         actual = rules_contract_hash(
             rules_json,
             valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
@@ -323,6 +352,35 @@ class CalibrationPanelTest(unittest.TestCase):
         )
 
         self.assertEqual(actual, sha256(expected_contract.encode("utf-8")).hexdigest()[:16])
+
+    def test_price_scope_revision_separates_saved_run_and_panel_identity(self) -> None:
+        rules = load_screening_rules()
+        rules_json = rules.model_dump_json()
+        old_run_hash = rules_contract_hash(
+            rules_json,
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+        unrevisioned_panel_hash = rules_contract_hash(
+            rules_json,
+            candidate_discovery_method_hash=candidate_discovery_method_hash(
+                rules.candidate_discovery,
+                required_jpx_flags=rules.universe.required_jpx_flags,
+            ),
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+        self.assertTrue(UNIVERSE_SCOPE_REVISION)
+        self.assertNotEqual(production_rules_contract_hash(rules_json), old_run_hash)
+        self.assertNotEqual(rules_content_hash(rules), unrevisioned_panel_hash)
 
     def test_panel_records_complete_and_incomplete_jpx_method_inputs(self) -> None:
         rules = load_screening_rules()
@@ -397,7 +455,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
             cheap = rows_by_ticker["9001"]
             self.assertTrue(cheap.in_population)
-            self.assertTrue(cheap.in_review_set)
+            self.assertTrue(cheap.in_nomination_union)
             self.assertEqual(cheap.valuation_approaches, "current-earnings-power|asset-value")
             assert cheap.per_trailing is not None
             self.assertAlmostEqual(cheap.per_trailing, 10.0)
@@ -415,7 +473,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
             expensive = rows_by_ticker["9002"]
             self.assertTrue(expensive.in_population)
-            self.assertTrue(expensive.in_review_set)
+            self.assertTrue(expensive.in_nomination_union)
 
             diagnostics = result.diagnostics
             self.assertEqual(diagnostics.universe_size, 2)
@@ -430,36 +488,33 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, shares_outstanding, fiscal_period, fiscal_year_end, "
-                    "period_start, period_end, dps_actual_annual, dps_forecast_annual"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            "9001",
-                            "2024-05-10",
-                            102_000_000.0,
-                            "FY",
-                            "2024-03-31",
-                            "2023-04-01",
-                            "2024-03-31",
-                            3.0,
-                            3.0,
-                        ),
-                        (
-                            "9001",
-                            "2025-05-10",
-                            101_000_000.0,
-                            "FY",
-                            "2025-03-31",
-                            "2024-04-01",
-                            "2025-03-31",
-                            3.5,
-                            3.5,
-                        ),
-                    ],
-                )
+                for record in [
+                    {
+                        "Code": "90010",
+                        "DiscDate": "2024-05-10",
+                        "ShOutFY": 102000000.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2024-03-31",
+                        "CurPerSt": "2023-04-01",
+                        "CurPerEn": "2024-03-31",
+                        "DivAnn": 3.0,
+                        "FDivAnn": 3.0,
+                        "DiscNo": "2024-05-10",
+                    },
+                    {
+                        "Code": "90010",
+                        "DiscDate": "2025-05-10",
+                        "ShOutFY": 101000000.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2025-03-31",
+                        "CurPerSt": "2024-04-01",
+                        "CurPerEn": "2025-03-31",
+                        "DivAnn": 3.5,
+                        "FDivAnn": 3.5,
+                        "DiscNo": "2025-05-10",
+                    },
+                ]:
+                    insert_financial_record(conn, record)
                 add_source_coverage(
                     conn,
                     source="jquants_fin_summaries",
@@ -501,50 +556,45 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    ("2026-06-01", "9003", "併合銘柄", "スタンダード", "サービス業", 1),
+                insert_master_rows(
+                    conn, [("2026-06-01", "9003", "併合銘柄", "スタンダード", "サービス業", "011")]
                 )
-                conn.executemany(
-                    "INSERT OR REPLACE INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, shares_outstanding, treasury_shares, fiscal_period, "
-                    "fiscal_year_end, period_start, period_end"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            "9003",
-                            "2024-05-10",
-                            100_000_000.0,
-                            0.0,
-                            "FY",
-                            "2024-03-31",
-                            "2023-04-01",
-                            "2024-03-31",
-                        ),
-                        (
-                            "9003",
-                            "2025-05-10",
-                            100_000_000.0,
-                            0.0,
-                            "FY",
-                            "2025-03-31",
-                            "2024-04-01",
-                            "2025-03-31",
-                        ),
-                        (
-                            "9003",
-                            "2026-05-10",
-                            1_000_000.0,
-                            0.0,
-                            "FY",
-                            "2026-03-31",
-                            "2025-04-01",
-                            "2026-03-31",
-                        ),
-                    ],
-                )
+                for record in [
+                    {
+                        "Code": "90030",
+                        "DiscDate": "2024-05-10",
+                        "ShOutFY": 100000000.0,
+                        "TrShFY": 0.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2024-03-31",
+                        "CurPerSt": "2023-04-01",
+                        "CurPerEn": "2024-03-31",
+                        "DiscNo": "2024-05-10",
+                    },
+                    {
+                        "Code": "90030",
+                        "DiscDate": "2025-05-10",
+                        "ShOutFY": 100000000.0,
+                        "TrShFY": 0.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2025-03-31",
+                        "CurPerSt": "2024-04-01",
+                        "CurPerEn": "2025-03-31",
+                        "DiscNo": "2025-05-10",
+                    },
+                    {
+                        "Code": "90030",
+                        "DiscDate": "2026-05-10",
+                        "ShOutFY": 1000000.0,
+                        "TrShFY": 0.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2026-03-31",
+                        "CurPerSt": "2025-04-01",
+                        "CurPerEn": "2026-03-31",
+                        "DiscNo": "2026-05-10",
+                    },
+                ]:
+                    insert_financial_record(conn, record)
                 add_source_coverage(
                     conn,
                     source="jquants_fin_summaries",
@@ -567,9 +617,9 @@ class CalibrationPanelTest(unittest.TestCase):
             try:
                 conn.execute(
                     "INSERT OR REPLACE INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
-                    ("9003", "2025-06-02", None, 100.0),
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    ("9003", "2025-06-02", None, 100.0, "2"),
                 )
                 conn.commit()
             finally:
@@ -581,7 +631,7 @@ class CalibrationPanelTest(unittest.TestCase):
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1, ex_right_type = NULL "
                     "WHERE ticker = ? AND traded_at = ?",
                     ("9003", "2025-06-02"),
                 )
@@ -592,7 +642,7 @@ class CalibrationPanelTest(unittest.TestCase):
             without_event_row = {item.ticker: item for item in without_event.rows}["9003"]
 
             self.assertEqual(with_event_row.share_count_reduction_streak, 0)
-            self.assertFalse(with_event_row.shareholder_return_change)
+            self.assertIsNone(with_event_row.shareholder_return_change)
             self.assertEqual(without_event_row.share_count_reduction_streak, 1)
             self.assertTrue(without_event_row.shareholder_return_change)
 
@@ -610,31 +660,28 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end, "
-                    "period_start, period_end"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            "9001",
-                            f"{year}-05-10",
-                            eps,
-                            "FY",
-                            f"{year}-03-31",
-                            f"{year - 1}-04-01",
-                            f"{year}-03-31",
-                        )
-                        for year, eps in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0))
-                    ],
-                )
+                for year, eps in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0)):
+                    insert_financial_record(
+                        conn,
+                        {
+                            "Code": "90010",
+                            "DiscDate": f"{year}-05-10",
+                            "EPS": eps,
+                            "CurPerType": "FY",
+                            "DocType": "FYFinancialStatements_Consolidated_JP",
+                            "CurFYEn": f"{year}-03-31",
+                            "CurPerSt": f"{year - 1}-04-01",
+                            "CurPerEn": f"{year}-03-31",
+                            "DiscNo": f"{year}-05-10",
+                        },
+                    )
                 conn.executemany(
                     "INSERT OR REPLACE INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_close, adjustment_factor"
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
                     ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("9001", "2022-05-10", 50.0, 50.0, 1.0),
-                        ("9001", "2022-10-03", 50.0, 100.0, 0.5),
+                        ("9001", "2022-05-10", 50.0, 1.0, None),
+                        ("9001", "2022-10-03", 50.0, 0.5, "1"),
                     ],
                 )
                 add_source_coverage(
@@ -663,7 +710,7 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=rules)
 
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             loaded = read_panel(store_dir, ASOF)
             self.assertEqual(list(result.rows), loaded)
             self.assertEqual(result.rows[0].realized_volatility_60d, 0.0)
@@ -685,7 +732,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     total_return_status="resolved",
                 )
             ]
-            store_forward(store_dir, ASOF, forward_rows)
+            write_forward(store_dir, ASOF, forward_rows)
             self.assertEqual(read_forward(store_dir, ASOF), forward_rows)
 
     def test_store_accepts_ratio_built_from_exact_market_cap_behind_rounded_oku(self) -> None:
@@ -702,7 +749,7 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             store_dir = Path(tmp) / "calibration"
 
-            store_panel(store_dir, ASOF, (rounded_row,), result.diagnostics)
+            write_panel(store_dir, ASOF, (rounded_row,), result.diagnostics)
 
             self.assertEqual(read_panel(store_dir, ASOF), [rounded_row])
 
@@ -721,16 +768,15 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             store_dir = Path(tmp) / "calibration"
 
-            store_panel(store_dir, ASOF, (excluded_row,), result.diagnostics)
+            write_panel(store_dir, ASOF, (excluded_row,), result.diagnostics)
 
             self.assertEqual(read_panel(store_dir, ASOF), [excluded_row])
 
     def _panel_row(self, **updates: object) -> dict[str, object]:
         """A stored panel row as native values, with the named fields replaced.
 
-        The invariants below are what the store enforces on every row it reads, so
-        they are exercised at the materializer rather than by editing a published
-        object — an edited object fails on its digest long before a value is parsed.
+        These cases exercise the same materializer used by read_panel to validate
+        row payloads loaded from current.sqlite.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -816,8 +862,8 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            with sqlite3.connect(store_dir / "current.sqlite") as connection:
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            with closing(sqlite3.connect(store_dir / "current.sqlite")) as connection, connection:
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("tampered",))
 
             with self.assertRaisesRegex(CalibrationCacheError, "contract changed"):
@@ -829,8 +875,8 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            with sqlite3.connect(store_dir / "current.sqlite") as connection:
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            with closing(sqlite3.connect(store_dir / "current.sqlite")) as connection, connection:
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("obsolete",))
 
             with patch(
@@ -864,13 +910,13 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             with self.assertRaisesRegex(CalibrationCacheError, "snapshot is partial"):
                 read_forward(store_dir, ASOF)
 
     def test_panel_counts_asof_priced_tickers_the_master_read_omits(self) -> None:
-        # asof 当日に価格がありながら master に居ない銘柄は、その断面が投資可能
-        # universe を再現していないことの証拠なので数える。
+        # 当日の観測価格と master の銘柄集合の不一致を数える。
+        # 価格だけで普通株資格や実際の取引可能性まで確定したとは扱わない。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -884,10 +930,9 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(diagnostics.asof_population_mismatch_count, 1)
             self.assertNotIn("9003", {row.ticker for row in result.rows})
 
-    def test_panel_does_not_count_a_name_delisted_before_asof_as_a_population_hole(self) -> None:
-        # asof 前に最終売買を終えた銘柄は as-of に投資可能でないので、master が
-        # それを持たないのは正しい。entry の staleness 許容を population の定義へ
-        # 流用すると、どの master でも mismatch を 0 にできなくなる。
+    def test_panel_does_not_count_tickers_without_asof_prices_as_population_holes(self) -> None:
+        # 当日の観測価格がある銘柄だけを数える。過去の価格だけでは上場廃止や
+        # 現在の投資可能性を判定しない。entry の価格遅延許容はこの診断へ流用しない。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -916,17 +961,14 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(diagnostics.priced_master_without_universe_count, 0)
             self.assertEqual(diagnostics.entry_resolution_lag_days, STALE_PRICE_MAX_LAG_DAYS)
 
-    def test_panel_marks_priced_master_member_that_cannot_enter_the_universe(self) -> None:
+    def test_panel_evaluates_priced_short_history_without_filling_capital(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    ("2026-06-01", "9003", "履歴不足", "プライム", "サービス業", 1),
+                insert_master_rows(
+                    conn, [("2026-06-01", "9003", "履歴不足", "プライム", "サービス業", "011")]
                 )
                 conn.execute(
                     "UPDATE source_coverage SET record_count = 3 "
@@ -942,8 +984,13 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             row = next(row for row in result.rows if row.ticker == "9003")
 
-            self.assertEqual(row.population_coverage_status, "priced_master_without_universe")
-            self.assertEqual(result.diagnostics.priced_master_without_universe_count, 1)
+            self.assertEqual(row.population_coverage_status, "evaluated")
+            self.assertEqual(row.close, 100.0)
+            self.assertIsNone(row.market_cap_oku)
+            self.assertIsNone(row.avg_turnover_oku)
+            self.assertIsNotNone(row.price_history_coverage_750d)
+            self.assertFalse(row.in_population)
+            self.assertEqual(result.diagnostics.priced_master_without_universe_count, 0)
 
     def test_pre2019_variant_is_degraded_and_has_distinct_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1023,13 +1070,13 @@ class CalibrationPanelTest(unittest.TestCase):
                 policy=PRE2019_SELF_RANGE_POLICY,
             )
             store_dir = Path(tmp) / "calibration-pre2019"
-            store_panel(
+            write_panel(
                 store_dir,
                 ASOF,
                 result.rows,
                 replace(result.diagnostics, production_authority=True),
             )
-            store_forward(store_dir, ASOF, [])
+            write_forward(store_dir, ASOF, [])
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1040,7 +1087,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="empirical_change_evidence",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "review_set_all",
+                        "nomination_union_all",
                         "er_calibration",
                     ],
                 )
@@ -1055,8 +1102,8 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             degraded_rows = (replace(result.rows[0], self_range_degraded=True), *result.rows[1:])
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, degraded_rows, result.diagnostics)
-            store_forward(store_dir, ASOF, [])
+            write_panel(store_dir, ASOF, degraded_rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1067,7 +1114,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="empirical_change_evidence",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "review_set_all",
+                        "nomination_union_all",
                         "er_calibration",
                     ],
                 )
@@ -1078,17 +1125,15 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)):
+                pass
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             self.assertEqual(result.rows, ())
             self.assertEqual(result.diagnostics.master_snapshot_status, "unavailable")
 
     def test_build_refuses_a_store_behind_the_current_schema(self) -> None:
-        # Reading such a store degrades to "nothing here", which a build would write
-        # out as a grid of empty cohorts and count as built. The operator has to be
-        # told the store is stale instead of receiving panels holding nobody.
+        # Report the schema failure before starting a build, rather than writing
+        # empty cohorts or suggesting that the data was never acquired.
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -1109,7 +1154,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 )
 
             self.assertEqual(code, 1)
-            self.assertIn("user_version 1", errors.getvalue())
+            self.assertIn("user_version=1", errors.getvalue())
             self.assertFalse((Path(tmp) / "calibration").exists())
 
     def test_a_store_at_the_current_schema_is_not_refused(self) -> None:
@@ -1133,7 +1178,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
 
 class DerivedCacheIdentityTests(unittest.TestCase):
-    """互換性を決める入力が動けば版も動く。手で進める判断を残さないための検査。"""
+    """列や宣言済み計算 revision の変更がキャッシュ版へ反映されることを確認する。"""
 
     def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
         from baibai_engine.screening.calibration import evaluation
@@ -1152,11 +1197,6 @@ class DerivedCacheIdentityTests(unittest.TestCase):
                     "PANEL_FIELD_NAMES",
                     (*calibration_store.PANEL_FIELD_NAMES, "new_axis"),
                 ),
-                True,
-            ),
-            (
-                "adding_a_replay_variant",
-                lambda: patch.object(calibration_store, "RELAXED", ("approach-top5",)),
                 True,
             ),
             (
@@ -1193,6 +1233,16 @@ class DerivedCacheIdentityTests(unittest.TestCase):
             calibration_store._derive_cache_schema_version(),
             calibration_store._derive_cache_schema_version(),
         )
+
+
+def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
+    from baibai_engine.storage.application.json import canonical_json
+
+    sqlite_path = tmp_path / "market.sqlite"
+    build_calibration_fixture_sqlite(sqlite_path)
+    result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+    golden = ROOT / "tests/fixtures/screening/calibration-panel-golden.json"
+    assert canonical_json(asdict(result)) + "\n" == golden.read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

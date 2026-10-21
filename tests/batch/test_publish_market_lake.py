@@ -8,30 +8,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_batch.storage.publish_market_lake as publish_module
 from baibai_batch.storage.lake_publish import LakePublishError
+from baibai_batch.storage.publication_lease import _save_handle, acquire
 from baibai_engine.batch_api import (
-    L1ReleasePointer,
     LakeBuildError,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-_RELEASE_ID = "20260817T085308Z-70f77913-da700a8e825e"
-
-
-def _pointer(*, release_id: str = _RELEASE_ID, manifest_sha256: str = "f" * 64) -> L1ReleasePointer:
-    return L1ReleasePointer(
-        pointer_version=1,
-        release_id=release_id,
-        manifest_key=f"lake/manifests/releases/l1/{release_id}.json",
-        manifest_sha256=manifest_sha256,
-    )
-
-
-class _UnusedStore:
-    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
-        raise AssertionError(f"the test must not download {key}")
 
 
 class _DownloadStore:
@@ -46,7 +32,7 @@ class _DownloadStore:
 
 def test_fetch_heals_a_corrupted_manifest_cache_after_digest_validation(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
-    key = "lake/manifests/releases/l1/release.json"
+    key = "lake/manifests/releases/market/release.json"
     cached = mirror / key
     cached.parent.mkdir(parents=True)
     cached.write_bytes(b"corrupted")
@@ -67,7 +53,7 @@ def test_fetch_heals_a_corrupted_manifest_cache_after_digest_validation(tmp_path
 
 def test_fetch_does_not_replace_cache_with_wrong_remote_digest(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
-    key = "lake/manifests/releases/l1/release.json"
+    key = "lake/manifests/releases/market/release.json"
     cached = mirror / key
     cached.parent.mkdir(parents=True)
     cached.write_bytes(b"existing-corruption")
@@ -87,7 +73,7 @@ def test_fetch_does_not_replace_cache_with_wrong_remote_digest(tmp_path: Path) -
 
 def test_fetch_reuses_a_cache_with_the_expected_digest(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
-    key = "lake/manifests/releases/l1/release.json"
+    key = "lake/manifests/releases/market/release.json"
     cached = mirror / key
     cached.parent.mkdir(parents=True)
     payload = b"already-valid"
@@ -130,7 +116,7 @@ def test_export_manifests_are_frozen_from_the_checked_models_inside_the_mirror(
 
 
 def test_a_build_error_is_reported_without_prescribing_an_operation(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """What is left here cannot be answered by rebuilding, so it names no recovery."""
 
@@ -138,9 +124,15 @@ def test_a_build_error_is_reported_without_prescribing_an_operation(
         raise LakeBuildError("invalid date in sealed SQLite snapshot")
 
     monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
-    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
+    store = MemoryR2Store()
+    handle, _ = acquire(store, "operator")
+    path = tmp_path / "lease.json"
+    _save_handle(path, handle)
+    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: store)
 
-    exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores"])
+    exit_code = publish_module.main(
+        ["--sqlite", "market.sqlite", "--mirror", "stores", "--lease-handle", str(path)]
+    )
 
     assert exit_code == 1
     printed = capsys.readouterr().err
@@ -157,6 +149,8 @@ def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
             "stores",
             "--bucket",
             "baibai-stores",
+            "--lease-handle",
+            "lease.json",
         ]
     )
 

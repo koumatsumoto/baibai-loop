@@ -1,35 +1,4 @@
-"""Screening CLI package.
+"""Screening command modules; the unified CLI dispatches to ``app.main``.
 
-`main` / `build_parser` and the individual command entry points are the
-public surface; submodules group the commands by responsibility.
+Import command implementations from their owning modules, not an eager package facade.
 """
-
-from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
-
-from .app import build_parser, main
-from .cache import (
-    backfill_history_command,
-    backfill_master_command,
-    bootstrap_cache_command,
-    invalidate_coverage_command,
-)
-from .providers import ProviderBundle
-from .query import (
-    market_snapshot_command,
-    ticker_profile_command,
-)
-from .run import run_command
-
-__all__ = [
-    "ProviderBundle",
-    "backfill_history_command",
-    "backfill_master_command",
-    "bootstrap_cache_command",
-    "build_parser",
-    "extract_edinet_metrics_command",
-    "invalidate_coverage_command",
-    "main",
-    "market_snapshot_command",
-    "run_command",
-    "ticker_profile_command",
-]

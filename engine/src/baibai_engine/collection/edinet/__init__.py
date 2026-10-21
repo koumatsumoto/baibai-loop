@@ -1,0 +1,1 @@
+"""Retained EDINET source responses."""

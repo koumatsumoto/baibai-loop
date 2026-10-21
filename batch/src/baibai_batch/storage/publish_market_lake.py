@@ -19,26 +19,26 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from baibai_engine.batch_api import (
-    L1ReleasePointer,
     LakeBuildError,
     LakeBuildReport,
     LakeFixedRelease,
     LakeReadError,
     LakeReleaseManifest,
+    LakeReleasePointer,
     LakeStoreOrigin,
     LakeStoreOriginError,
     LocalMirrorSource,
     advance_lake_store_origin,
     canonical_lake_model_bytes,
-    create_lake_l1_release,
-    export_lake_legacy,
+    create_lake_release,
+    export_market_store,
     lake_dataset_manifest_key,
     lake_mirror_path,
     lake_verified_git_commit,
@@ -51,9 +51,11 @@ from .lake_publish import (
     LakePublishError,
     ObjectStore,
     PointerSnapshot,
-    publish_l1_release,
+    TransferReport,
+    publish_release,
     read_pointer_snapshot,
 )
+from .publication_lease import LeaseError, _load_handle, verify_held
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +69,7 @@ class MarketLakePublishReport:
     did not hold — the partitions whose bytes moved since the previous publication."""
     uploaded_objects: int
     uploaded_bytes: int
+    transfers: TransferReport
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -77,6 +80,7 @@ class MarketLakePublishReport:
             "release_manifest_sha256": self.release_manifest_sha256,
             "uploaded_bytes": self.uploaded_bytes,
             "uploaded_objects": self.uploaded_objects,
+            "publication_transfers": self.transfers.as_dict(),
         }
 
 
@@ -86,6 +90,8 @@ def publish_market_lake(
     mirror_root: Path,
     store: ObjectStore,
     release_id: str | None = None,
+    before_pointer_switch: Callable[[], None] | None = None,
+    verified_readback_root: Path | None = None,
 ) -> MarketLakePublishReport:
     """Derive every partition from the store, seal a release, and publish it.
 
@@ -108,7 +114,7 @@ def publish_market_lake(
         }
 
     export_started = time.perf_counter()
-    export = export_lake_legacy(
+    export = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror_root,
         producer_git_commit=lake_verified_git_commit(),
@@ -116,7 +122,7 @@ def publish_market_lake(
     )
     export_finished = time.perf_counter()
     with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
-        release_path, release = create_lake_l1_release(
+        release_path, release = create_lake_release(
             published_coverage_start=published_coverage_start,
             dataset_manifest_paths=manifest_paths,
             mirror_root=mirror_root,
@@ -125,12 +131,14 @@ def publish_market_lake(
         release_payload = canonical_lake_model_bytes(release)
         release_sha256 = hashlib.sha256(release_payload).hexdigest()
         release_finished = time.perf_counter()
-        published = publish_l1_release(
+        published = publish_release(
             mirror_root=mirror_root,
             release_manifest_path=release_path,
             expected_release_sha256=release_sha256,
             store=store,
             pointer_precondition=serving.precondition,
+            before_pointer_switch=before_pointer_switch,
+            verified_readback_root=verified_readback_root,
         )
     target_origin = LakeStoreOrigin(
         release_id=published.release_id,
@@ -164,6 +172,7 @@ def publish_market_lake(
         },
         uploaded_objects=int(transfers.get("uploaded_objects", 0)),
         uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
+        transfers=published.transfers,
     )
 
 
@@ -171,7 +180,7 @@ def _serving_pointer(store: ObjectStore) -> PointerSnapshot:
     return read_pointer_snapshot(store)
 
 
-def _pointer_origin(pointer: L1ReleasePointer | None) -> LakeStoreOrigin | None:
+def _pointer_origin(pointer: LakeReleasePointer | None) -> LakeStoreOrigin | None:
     if pointer is None:
         return None
     return LakeStoreOrigin(
@@ -201,7 +210,7 @@ def _export_manifest_snapshot(
 
 
 def _resolve_serving_release(
-    store: ObjectStore, mirror_root: Path, serving: L1ReleasePointer
+    store: ObjectStore, mirror_root: Path, serving: LakeReleasePointer
 ) -> LakeFixedRelease:
     release_path = _fetch(
         store,
@@ -281,22 +290,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
     parser.add_argument("--release-id")
+    parser.add_argument("--lease-handle", type=Path, required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        handle = _load_handle(args.lease_handle)
+        store = Boto3R2Store(bucket=args.bucket)
+        verify_held(store, handle)
         report = publish_market_lake(
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
-            store=Boto3R2Store(bucket=args.bucket),
+            store=store,
             release_id=args.release_id,
+            before_pointer_switch=lambda: verify_held(store, handle),
         )
     except LakeBuildError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    except LakePublishError as error:
+    except (LakePublishError, LeaseError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     print(json.dumps(report.as_dict(), sort_keys=True))

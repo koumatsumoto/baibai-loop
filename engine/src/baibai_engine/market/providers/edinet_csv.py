@@ -1,7 +1,8 @@
 """EDINET CSV-ZIP financial statement parsing into metric records.
 
-Extracts TTM metrics from the CSV bundle attached to EDINET filings. Kept
-separate from the API provider: this is pure parsing over downloaded bytes.
+Extracts current statement balances and flows with their reported-period quality,
+without annualizing interim statements. This is pure parsing over downloaded bytes,
+separate from the API provider.
 """
 
 from __future__ import annotations
@@ -10,15 +11,14 @@ import csv
 import io
 import zipfile
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, datetime, timedelta
+from typing import Literal
 
+from baibai_engine.foundation.date_utils import add_months_clamped
+from baibai_engine.foundation.time import JST
+from baibai_engine.market.edinet_decode import to_float
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.providers.edinet import (
-    EdinetMetricRecord,
-    EDINETProviderError,
-    _coalesce,
-    _to_float,
-)
 
 
 def parse_csv_zip_metric_record(
@@ -31,7 +31,7 @@ def parse_csv_zip_metric_record(
     period_start: date | None = None,
     period_end: date | None = None,
 ) -> EdinetMetricRecord:
-    rows = _read_csv_zip_rows(content)
+    rows: Sequence[Mapping[str, str]] = _read_csv_zip_rows(content)
     if not rows:
         return EdinetMetricRecord(
             ticker=ticker,
@@ -43,31 +43,47 @@ def parse_csv_zip_metric_record(
             failure_reasons=("csv_parse_failed",),
         )
 
-    quality = TTMQuality.EXACT if doc_type_code in {"120", "130"} else TTMQuality.APPROXIMATED
-    basis = _detect_consolidation_basis(rows)
-    failures: list[str] = []
+    quality = _flow_period_quality(doc_type_code, period_start, period_end, submit_datetime)
+    consolidation_dei = _consolidation_dei_status(rows)
+    rows, accounting_failure = _accounting_standard_rows(rows)
+    rows, basis = _select_statement_rows(
+        rows,
+        doc_type_code,
+        allow_non_consolidated=consolidation_dei in {"false", "missing"},
+    )
+    if any(_row_element(row) in _IFRS_ALIASES for row in rows) and any(
+        _row_element(row) not in _IFRS_ALIASES for row in rows
+    ):
+        rows, basis = [], None
+        accounting_failure = "accounting_standard_dei_missing_for_mixed_facts"
+    failures: list[str] = [accounting_failure] if accounting_failure is not None else []
+    if consolidation_dei == "true" and basis is None:
+        failures.append("consolidated_dei_no_supported_current_facts")
+    elif consolidation_dei in {"conflict", "invalid"}:
+        failures.append(f"consolidation_dei_{consolidation_dei}")
+    elif consolidation_dei == "missing" and basis == "non_consolidated":
+        failures.append("consolidation_dei_missing")
     if basis == "non_consolidated":
         failures.append("non_consolidated_fallback")
 
-    sales = _single_metric(rows, _TAGS["sales"], basis=basis)
-    ocf = _single_metric(rows, _TAGS["ocf"], basis=basis)
-    operating_profit = _single_metric(rows, _TAGS["operating_profit"], basis=basis)
-    cash = _single_metric(rows, _TAGS["cash"], basis=basis)
-    investment_securities = _balance_sheet_metric(rows, _TAGS["investment_securities"], basis=basis)
-    equity = _single_metric(rows, _TAGS["equity"], basis=basis)
-    total_assets = _single_metric(rows, _TAGS["total_assets"], basis=basis)
-    debt = _debt_metric(rows, basis=basis)
-    depreciation = _sum_metric(rows, _TAGS["depreciation"], basis=basis)
-    capex = _capex_metric(rows, basis=basis)
+    sales = _single_metric(rows, _TAGS["sales"])
+    ocf = _single_metric(rows, _TAGS["ocf"])
+    operating_profit = _single_metric(rows, _TAGS["operating_profit"])
+    cash = _single_metric(rows, _TAGS["cash"])
+    investment_securities = _single_metric(rows, _TAGS["investment_securities"])
+    equity = _single_metric(rows, _TAGS["equity"])
+    total_assets = _single_metric(rows, _TAGS["total_assets"])
+    debt = _sum_metric(rows, _TAGS["debt_components"])
+    depreciation = _depreciation_metric(rows)
+    capex = _capex_metric(rows)
     capex_abs = abs(capex) if capex is not None else None
-    details = _cash_flow_details(rows, basis=basis) if doc_type_code in {"120", "130"} else {}
+    details = _cash_flow_details(rows) if doc_type_code in {"120", "130"} else {}
     ebitda = (
         operating_profit + depreciation
         if operating_profit is not None and depreciation is not None
         else None
     )
     fcf = ocf - capex_abs if ocf is not None and capex_abs is not None else None
-    debt_assumed_zero = debt is None and cash is not None
     net_cash = cash - debt if cash is not None and debt is not None else None
 
     for name, value in (
@@ -78,11 +94,9 @@ def parse_csv_zip_metric_record(
         ("capex", capex_abs),
     ):
         if value is None:
-            failures.append(f"tag_not_found:{name}")
-    if debt_assumed_zero:
-        failures.append("debt_assumed_zero")
-    elif debt is None:
-        failures.append("tag_not_found:debt")
+            failures.append(f"metric_unavailable:{name}")
+    if debt is None:
+        failures.append("metric_unavailable:debt")
 
     return EdinetMetricRecord(
         ticker=ticker,
@@ -112,7 +126,7 @@ def parse_csv_zip_metric_record(
         equity=equity,
         total_assets=total_assets,
         ttm_quality_fcf=quality if fcf is not None else TTMQuality.UNAVAILABLE,
-        ttm_quality_net_cash=quality if net_cash is not None else TTMQuality.UNAVAILABLE,
+        ttm_quality_net_cash=TTMQuality.EXACT if net_cash is not None else TTMQuality.UNAVAILABLE,
         source_doc_id=doc_id,
         document_type=doc_type_code,
         source_submit_datetime=submit_datetime,
@@ -123,50 +137,59 @@ def parse_csv_zip_metric_record(
     )
 
 
-_TAGS: dict[str, tuple[str, ...]] = {
-    "sales": ("netsales", "revenuesfromexternalcustomers"),
-    "ocf": ("cashflowsfromoperatingactivities", "netcashprovidedbyusedinoperatingactivities"),
-    "operating_profit": ("operatingprofit", "operatingincome"),
-    "cash": ("cashanddeposits", "cashandcashequivalents"),
-    "investment_securities": ("investmentsecurities",),
-    "equity": ("equity", "totalequity", "netassets"),
-    "total_assets": ("totalassets", "assets"),
-    "debt_total": (
-        "interestbearingdebt",
-        "interestbearingliabilities",
+# Only standard IFRS concepts whose statement meaning has been checked against
+# native CSV/XBRL are aliases. Issuer extensions and similarly named totals are
+# not inferred. In particular, bonds/borrowings alone do not establish complete
+# financial debt, and other financial assets are not investment securities.
+_IFRS_ALIASES = {
+    "jpigp_cor:RevenueIFRS": "netsales",
+    "jpigp_cor:NetSalesIFRS": "netsales",
+    "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS": (
+        "netcashprovidedbyusedinoperatingactivities"
     ),
+    "jpigp_cor:OperatingProfitLossIFRS": "operatingincome",
+    "jpigp_cor:CashAndCashEquivalentsIFRS": "cashandcashequivalents",
+    "jpigp_cor:EquityIFRS": "netassets",
+    "jpigp_cor:AssetsIFRS": "assets",
+    "jpigp_cor:DepreciationAndAmortizationOpeCFIFRS": "depreciationandamortizationopecf",
+    "jpigp_cor:PurchaseOfPropertyPlantAndEquipmentInvCFIFRS": (
+        "purchaseofpropertyplantandequipmentinvcf"
+    ),
+    "jpigp_cor:PurchaseOfIntangibleAssetsInvCFIFRS": "purchaseofintangibleassetsinvcf",
+}
+
+
+_TAGS: dict[str, tuple[str, ...]] = {
+    "sales": (
+        "netsales",
+        "revenuesfromexternalcustomers",
+    ),
+    "ocf": ("netcashprovidedbyusedinoperatingactivities",),
+    "operating_profit": ("operatingincome",),
+    "cash": (
+        "cashanddeposits",
+        "cashandcashequivalents",
+    ),
+    "investment_securities": ("investmentsecurities",),
+    "equity": ("netassets",),
+    "total_assets": ("assets",),
     "debt_components": (
-        "shorttermborrowings",
         "shorttermloanspayable",
-        "currentportionoflongtermborrowings",
         "currentportionoflongtermloanspayable",
         "currentportionofbonds",
-        "currentportionofbondspayable",
         "bondspayable",
-        "longtermborrowings",
+        "convertiblebondtypebondswithsubscriptionrightstoshares",
         "longtermloanspayable",
-        "leaseobligations",
         "leaseobligationscl",
         "leaseobligationsncl",
     ),
     "depreciation": (
-        "depreciationandamortization",
         "depreciationandamortizationopecf",
-        "depreciation",
-        "amortizationofgoodwill",
         "amortizationofgoodwillopecf",
     ),
     "capex_total": ("purchaseofpropertyplantandequipmentandintangibleassetsinvcf",),
-    "capex_tangible": (
-        "purchaseofpropertyplantandequipment",
-        "purchaseofpropertyplantandequipmentinvcf",
-        "paymentsforpurchaseofpropertyplantandequipment",
-    ),
-    "capex_intangible": (
-        "purchaseofintangibleassets",
-        "purchaseofintangibleassetsinvcf",
-        "paymentsforpurchaseofintangibleassets",
-    ),
+    "capex_tangible": ("purchaseofpropertyplantandequipmentinvcf",),
+    "capex_intangible": ("purchaseofintangibleassetsinvcf",),
     "ocf_receivables_cash_effect": ("decreaseincreaseinnotesandaccountsreceivabletradeopecf",),
     "ocf_inventories_cash_effect": ("decreaseincreaseininventoriesopecf",),
     "ocf_payables_cash_effect": ("increasedecreaseinnotesandaccountspayabletradeopecf",),
@@ -181,80 +204,191 @@ def _read_csv_zip_rows(content: bytes) -> list[dict[str, str]]:
         archive = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
         raise EDINETProviderError("zip_invalid") from exc
-    rows: list[dict[str, str]] = []
-    for name in archive.namelist():
-        if not name.lower().endswith(".csv"):
-            continue
-        with archive.open(name) as handle:
-            raw = handle.read()
-        text = _decode_csv(raw)
-        reader = csv.DictReader(io.StringIO(text), delimiter="\t")
-        rows.extend(dict(row) for row in reader if row)
+    with archive:
+        rows: list[dict[str, str]] = []
+        for name in archive.namelist():
+            if not name.lower().endswith(".csv"):
+                continue
+            with archive.open(name) as handle:
+                raw = handle.read()
+            text = _decode_csv(raw)
+            reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+            headers = ["".join(name.split()) for name in (reader.fieldnames or [])]
+            required = {"要素ID", "コンテキストID", "ユニットID", "値"}
+            if len(headers) != len(set(headers)) or not required.issubset(headers):
+                raise EDINETProviderError("csv_parse_failed: missing or duplicate native headers")
+            reader.fieldnames = headers
+            rows.extend(dict(row) for row in reader if row)
     return rows
 
 
 def _decode_csv(content: bytes) -> str:
-    for encoding in ("utf-16", "utf-16-le", "utf-8-sig", "cp932"):
+    try:
+        return content.decode("utf-16-le").lstrip("\ufeff")
+    except UnicodeDecodeError as exc:
+        raise EDINETProviderError("csv_parse_failed") from exc
+
+
+def _flow_period_quality(
+    doc_type_code: str,
+    period_start: date | None,
+    period_end: date | None,
+    submit_datetime: str | None,
+) -> TTMQuality:
+    # A short fiscal year is still an annual filing, not a twelve-month flow.
+    # Interim document metadata can describe the full fiscal year, so it never
+    # upgrades an InterimDuration fact to exact TTM.
+    if doc_type_code not in {"120", "130"} or period_start is None or period_end is None:
+        return TTMQuality.APPROXIMATED
+    if period_end <= period_start or period_end.year <= 1:
+        return TTMQuality.APPROXIMATED
+    if submit_datetime is not None:
         try:
-            return content.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    raise EDINETProviderError("csv_parse_failed")
-
-
-def _detect_consolidation_basis(rows: Sequence[Mapping[str, str]]) -> str:
-    if any(_is_consolidated_row(row) for row in rows):
-        return "consolidated"
-    return "non_consolidated"
-
-
-def _single_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> float | None:
-    values = _ranked_metric_values(rows, tags, basis=basis)
-    return max(values, key=lambda item: item[0])[1] if values else None
-
-
-def _sum_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> float | None:
-    values = _best_metric_values_by_element(rows, tags, basis=basis)
-    return sum(values) if values else None
-
-
-def _capex_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:
-    # CFOと同じ期間・範囲を使う。合算の欠如を前期の合算で補わず、
-    # 個別内訳も同じcontextの有形・無形が揃う場合だけ足す。
-    periods = _ranked_metric_values(rows, _TAGS["ocf"], basis=basis)
-    if not periods:
-        periods = _ranked_metric_values(
-            rows,
-            (*_TAGS["capex_total"], *_TAGS["capex_tangible"], *_TAGS["capex_intangible"]),
-            basis=basis,
+            submitted = datetime.fromisoformat(submit_datetime)
+        except ValueError:
+            return TTMQuality.APPROXIMATED
+        # EDINET's native timezone-free submission time is JST. Offset-bearing
+        # values are compared on that same calendar date, not their written date.
+        submitted_on = (
+            submitted.date() if submitted.tzinfo is None else submitted.astimezone(JST).date()
         )
-    if not periods:
+        if period_end > submitted_on:
+            return TTMQuality.APPROXIMATED
+    annual_start = add_months_clamped(period_end, -12) + timedelta(days=1)
+    return TTMQuality.EXACT if period_start == annual_start else TTMQuality.APPROXIMATED
+
+
+_ConsolidationDEIStatus = Literal["true", "false", "missing", "conflict", "invalid"]
+_CONSOLIDATION_DEI_ELEMENT = "jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI"
+
+
+def _consolidation_dei_status(rows: Sequence[Mapping[str, str]]) -> _ConsolidationDEIStatus:
+    facts = [
+        row
+        for row in rows
+        if _row_element(row) == _CONSOLIDATION_DEI_ELEMENT
+        and _row_context(row) == "FilingDateInstant"
+    ]
+    if not facts:
+        return "missing"
+    if any(
+        row.get("ユニットID") != "－" or row.get("値") not in {"true", "false"} for row in facts
+    ):
+        return "invalid"
+    values = {row["値"] for row in facts}
+    return "conflict" if len(values) > 1 else "true" if "true" in values else "false"
+
+
+def _select_statement_rows(
+    rows: Sequence[Mapping[str, str]],
+    doc_type_code: str,
+    *,
+    allow_non_consolidated: bool = True,
+) -> tuple[list[Mapping[str, str]], str | None]:
+    # Financial-statement contexts, not arbitrary current-looking IDs. Quarterly
+    # flow values use YTD, not the standalone quarter. Extra dimensions are not
+    # company totals; prior periods never fill missing current facts.
+    if doc_type_code in {"120", "130"}:
+        contexts = {"CurrentYearInstant", "CurrentYearDuration"}
+    elif doc_type_code in {"160", "170"}:
+        contexts = {"InterimInstant", "InterimDuration"}
+    elif doc_type_code in {"140", "150"}:
+        contexts = {"CurrentQuarterInstant", "CurrentYTDDuration"}
+    else:
+        raise EDINETProviderError(f"unsupported financial statement type: {doc_type_code}")
+    tags = tuple(tag for group in _TAGS.values() for tag in group)
+    financial = [row for row in rows if _element_matches(_row_element(row), tags)]
+    consolidated = [row for row in financial if _row_context(row) in contexts]
+    if consolidated:
+        return consolidated, "consolidated"
+    if not allow_non_consolidated:
+        return [], None
+    individual_contexts = {f"{context}_NonConsolidatedMember" for context in contexts}
+    individual = [row for row in financial if _row_context(row) in individual_contexts]
+    return individual, "non_consolidated" if individual else None
+
+
+def _accounting_standard_rows(
+    rows: Sequence[Mapping[str, str]],
+) -> tuple[Sequence[Mapping[str, str]], str | None]:
+    """A filing may show IFRS and Japanese GAAP in the very same context.
+
+    Select the filing's declared standard before choosing consolidated/individual
+    contexts. Otherwise identical metric aliases falsely conflict, or amounts
+    from different accounting standards get combined into one balance/flow.
+    """
+    facts = [
+        row
+        for row in rows
+        if _row_element(row) == "jpdei_cor:AccountingStandardsDEI"
+        and _row_context(row) == "FilingDateInstant"
+    ]
+    if not facts:
+        return rows, None
+    if any(row.get("ユニットID") != "－" or not row.get("値") for row in facts):
+        return [], "accounting_standard_dei_invalid"
+    standards = {row["値"] for row in facts}
+    if len(standards) != 1:
+        return [], "accounting_standard_dei_conflict"
+    standard = next(iter(standards))
+    if standard == "IFRS":
+        return [row for row in rows if _row_element(row) in _IFRS_ALIASES], None
+    if standard == "Japan GAAP":
+        return [row for row in rows if not _row_element(row).startswith("jpigp_cor:")], None
+    return [], "accounting_standard_dei_unsupported"
+
+
+def _metric_values(
+    rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]
+) -> dict[str, float | None]:
+    grouped: dict[str, set[float | None]] = {}
+    for row in rows:
+        name = _local_element(_row_element(row))
+        if name not in tags:
+            continue
+        values = grouped.setdefault(name, set())
+        if row.get("ユニットID") == "JPY":
+            values.add(_csv_value(row.get("値")))
+    return {
+        name: next(iter(values)) if len(values) == 1 else None for name, values in grouped.items()
+    }
+
+
+def _single_metric(rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]) -> float | None:
+    values = _metric_values(rows, tags)
+    # Alias preference is explicit, not dependent on CSV row order. A present
+    # but unusable preferred concept is not silently replaced with another one.
+    return next((values[tag] for tag in tags if tag in values), None)
+
+
+def _sum_metric(rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]) -> float | None:
+    values = _metric_values(rows, tags)
+    if not values or any(value is None for value in values.values()):
         return None
-    context = max(periods, key=lambda item: item[0])[0][2]
-    current = [row for row in rows if _row_context(row) == context]
-    total = _single_metric(current, _TAGS["capex_total"], basis=basis)
-    if total is not None:
-        return total
-    tangible = _single_metric(current, _TAGS["capex_tangible"], basis=basis)
-    intangible = _single_metric(current, _TAGS["capex_intangible"], basis=basis)
+    return sum(value for value in values.values() if value is not None)
+
+
+def _depreciation_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
+    values = _metric_values(rows, _TAGS["depreciation"])
+    depreciation = values.get("depreciationandamortizationopecf")
+    goodwill = values.get("amortizationofgoodwillopecf", 0.0)
+    # Goodwill amortization alone cannot stand in for depreciation. Add it when
+    # reported; this does not establish completeness of all amortization charges.
+    return depreciation + goodwill if depreciation is not None and goodwill is not None else None
+
+
+def _capex_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
+    totals = _metric_values(rows, _TAGS["capex_total"])
+    if totals:
+        # A reported but unresolved total is not an absent total. Do not hide
+        # conflicting, missing or non-JPY source values behind component sums.
+        return next(iter(totals.values()))
+    tangible = _single_metric(rows, _TAGS["capex_tangible"])
+    intangible = _single_metric(rows, _TAGS["capex_intangible"])
     return tangible + intangible if tangible is not None and intangible is not None else None
 
 
-def _cash_flow_details(rows: Sequence[Mapping[str, str]], *, basis: str) -> dict[str, float | None]:
-    periods = _ranked_metric_values(rows, _TAGS["ocf"], basis=basis)
-    if not periods:
-        return {}
-    context = max(periods, key=lambda item: item[0])[0][2]
+def _cash_flow_details(rows: Sequence[Mapping[str, str]]) -> dict[str, float | None]:
     fields = (
         "ocf_receivables_cash_effect",
         "ocf_inventories_cash_effect",
@@ -263,176 +397,32 @@ def _cash_flow_details(rows: Sequence[Mapping[str, str]], *, basis: str) -> dict
         "ocf_advances_received_cash_effect",
         "ocf_other_payables_cash_effect",
     )
-    details = {
-        field: _unique_jpy_metric(rows, _TAGS[field], basis=basis, context=context)
-        for field in fields
-    }
-    ppe = _unique_jpy_metric(rows, _TAGS["capex_tangible"], basis=basis, context=context)
-    intangible = _unique_jpy_metric(rows, _TAGS["capex_intangible"], basis=basis, context=context)
+    details = {field: _single_metric(rows, _TAGS[field]) for field in fields}
+    ppe = _single_metric(rows, _TAGS["capex_tangible"])
+    intangible = _single_metric(rows, _TAGS["capex_intangible"])
     details["capex_ppe_reported"] = abs(ppe) if ppe is not None else None
     details["capex_intangible_reported"] = abs(intangible) if intangible is not None else None
     return details
 
 
-def _unique_jpy_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-    context: str,
-) -> float | None:
-    values: set[float] = set()
-    for row in rows:
-        if _row_context(row) != context or not _element_matches(_row_element(row), tags):
-            continue
-        if basis == "consolidated" and not _is_consolidated_row(row):
-            continue
-        if basis == "non_consolidated" and _is_consolidated_row(row):
-            continue
-        if _row_unit(row).upper() != "JPY":
-            continue
-        raw_value = _row_value(row)
-        value = 0.0 if _is_zero_like(raw_value) else _to_float(raw_value)
-        if value is not None:
-            values.add(value)
-    return next(iter(values)) if len(values) == 1 else None
-
-
-def _debt_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:
-    total = _single_metric(rows, _TAGS["debt_total"], basis=basis)
-    if total is not None:
-        return total
-    components = _sum_metric(rows, _TAGS["debt_components"], basis=basis)
-    if components is not None:
-        return components
-    if _has_zero_like_metric(rows, (*_TAGS["debt_total"], *_TAGS["debt_components"]), basis=basis):
-        return 0.0
-    return None
-
-
-def _balance_sheet_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> float | None:
-    value = _single_metric(rows, tags, basis=basis)
-    if value is not None:
-        return value
-    if _has_zero_like_metric(rows, tags, basis=basis):
-        return 0.0
-    return None
-
-
-def _best_metric_values_by_element(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> list[float]:
-    best_by_element: dict[str, tuple[tuple[int, int, str], float]] = {}
-    for rank, value, element in _ranked_metric_values(rows, tags, basis=basis):
-        current = best_by_element.get(element)
-        if current is None or rank > current[0]:
-            best_by_element[element] = (rank, value)
-    return [value for _, value in best_by_element.values()]
-
-
-def _ranked_metric_values(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> list[tuple[tuple[int, int, str], float, str]]:
-    values: list[tuple[tuple[int, int, str], float, str]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for row in rows:
-        raw_element = _row_element(row)
-        element = _normalize_element(raw_element)
-        if not _element_matches(raw_element, tags):
-            continue
-        context = _row_context(row)
-        if basis == "consolidated" and not _is_consolidated_row(row):
-            continue
-        if basis == "non_consolidated" and _is_consolidated_row(row):
-            continue
-        value = _to_float(_row_value(row))
-        if value is None:
-            continue
-        key = (element, context, _row_basis(row))
-        if key in seen:
-            continue
-        seen.add(key)
-        values.append((_context_rank(context), value, element))
-    return values
-
-
-def _has_zero_like_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> bool:
-    found = False
-    for row in rows:
-        raw_element = _row_element(row)
-        if not _element_matches(raw_element, tags):
-            continue
-        if basis == "consolidated" and not _is_consolidated_row(row):
-            continue
-        if basis == "non_consolidated" and _is_consolidated_row(row):
-            continue
-        found = True
-        if not _is_zero_like(_row_value(row)):
-            return False
-    return found
-
-
 def _row_element(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "要素ID", "element_id", "ElementID", "elementId") or "")
+    return row.get("要素ID", "")
 
 
 def _row_context(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "コンテキストID", "context_id", "ContextID", "contextId") or "")
+    return row.get("コンテキストID", "")
 
 
-def _is_consolidated_row(row: Mapping[str, str]) -> bool:
-    return "連結" in _row_basis(row) or _is_consolidated_context(_row_context(row))
-
-
-def _is_consolidated_context(context: str) -> bool:
-    lowered = context.lower()
-    return "consolidated" in lowered and "nonconsolidated" not in lowered
-
-
-def _row_basis(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "連結・個別", "consolidation_basis", "ConsolidationBasis") or "")
-
-
-def _row_value(row: Mapping[str, str]) -> str | None:
-    value = _coalesce(row, "値", "value", "Value", "金額")
-    return str(value) if value is not None else None
-
-
-def _row_unit(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "ユニットID", "unit_id", "UnitID", "unitId") or "")
-
-
-def _normalize_element(value: str) -> str:
-    return "".join(char for char in value.lower() if char.isalnum())
+def _local_element(value: str) -> str:
+    if value in _IFRS_ALIASES:
+        return _IFRS_ALIASES[value]
+    return "".join(char for char in value.rsplit(":", 1)[-1].lower() if char.isalnum())
 
 
 def _element_matches(element: str, tags: tuple[str, ...]) -> bool:
-    local_name = _normalize_element(element.rsplit(":", 1)[-1])
-    return local_name in tags
+    return _local_element(element) in tags
 
 
-def _context_rank(context: str) -> tuple[int, int, str]:
-    lowered = context.lower()
-    current = 0 if "prior" in lowered else 1
-    primary = 0 if "_" in context or "member" in lowered else 1
-    return (current, primary, context)
-
-
-def _is_zero_like(value: str | None) -> bool:
-    return str(value or "").strip().replace(",", "") in {"0", "0.0", "-", "－", "―", "–"}
+def _csv_value(raw: str | None) -> float | None:
+    # EDINET CSV defines only the ASCII hyphen as explicit zero.
+    return 0.0 if raw is not None and raw.strip() == "-" else to_float(raw)

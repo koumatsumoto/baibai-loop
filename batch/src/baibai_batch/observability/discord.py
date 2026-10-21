@@ -3,7 +3,7 @@
 One message per terminal state of ``cloud-daily-batch``. It serves the daily
 machine loop's "見せる" role: from one message a reader learns whether the day's
 artefacts were published, which step to open when they were not, and which names
-entered or left the Review Set — the only channel that reaches the reader without
+entered or left the candidate list — the only channel that reaches the reader without
 being opened. Everything else about a run (durations, per-batch metrics, the lake
 release) lives in the workflow log the ``run:`` line points at.
 
@@ -14,9 +14,9 @@ and run it on the GitHub-hosted runner's system ``python3``.
 The webhook URL is read only from the notification step's environment, never from
 a CLI argument, and never echoed. Validation failures, timeouts and HTTP errors
 report a sanitized reason that omits the URL and any response body. A delivery
-failure is printed and the script still exits 0: a red job means the day's
-artefacts were not published (``docs/architecture.md`` §Failure policy), and a
-broken webhook is not that.
+failure is printed and the script still exits 0, so notification delivery does
+not change the batch/publication outcome. A failed workflow does not itself prove
+that publication never happened; failures can also occur after a pointer switch.
 """
 
 from __future__ import annotations
@@ -53,9 +53,9 @@ OUTCOME_LABELS = {
     OUTCOME_FAILED: "[FAILED]",
     OUTCOME_CANCELLED: "[CANCELLED]",
 }
-# The batch published the screening result but a deferred step (macro / prune)
-# failed afterwards. The job stays green; this label is how the failure reaches
-# the reader.
+# The batch exported the complete serving image with a domain failure.
+# Screening may have stayed on a retained publication. The job stays green;
+# this label is how the failure reaches the reader.
 EXIT_DEFERRED_FAILURE = "3"
 
 # Non-batch workflow steps in execution order. The first one that neither
@@ -74,8 +74,8 @@ STEP_ORDER = (
     "lease-release",
 )
 
-_ENTERED_PREFIX = "🆕 新規 Review Set 入り: "
-_EXITED_PREFIX = "👋 Review Set 退出: "
+_ENTERED_PREFIX = "🆕 新規 候補入り: "
+_EXITED_PREFIX = "👋 候補退出: "
 _DELTA_EMPTY_TEXT = "なし"
 _DELTA_UNMEASURED_TEXT = "計測なし"
 _DELTA_UNMEASURED_UNKNOWN_REASON = "理由不明"
@@ -174,7 +174,10 @@ def prepare_webhook_url(raw_url: str) -> str:
         raise DeliveryError("webhook URL is not configured")
     if _FORBIDDEN_URL_CHARS.search(url):
         raise DeliveryError("webhook URL contains a control character or space")
-    parsed = urllib.parse.urlparse(url)
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        raise DeliveryError("webhook URL is malformed") from None
     if parsed.scheme != "https":
         raise DeliveryError("webhook URL must use https")
     if parsed.hostname not in _DISCORD_HOSTS:
@@ -202,9 +205,9 @@ def run_url(env: Mapping[str, str]) -> str:
 def load_notice(path: Path | None) -> dict[str, object]:
     """Read what the batch left for the notifier; anything unreadable reads as absent.
 
-    The batch writes the notice on every terminal path it reaches. No notice means
-    the batch never reached one (it was not started, or died before its first
-    line), which the exit code and the step outcomes already say.
+    An absent result can mean no file, an unreadable file, or an invalid payload.
+    It does not establish where execution stopped. Exit code and step outcomes
+    remain available independently, and unknown notice fields stay unknown.
     """
 
     if path is None:
@@ -230,7 +233,6 @@ def decide_outcome(
     batch_exit_code: str,
     failed_step: str,
     cancelled: bool,
-    skipped: bool,
 ) -> str:
     """Map the observable workflow state to the one label the message carries."""
 
@@ -239,7 +241,7 @@ def decide_outcome(
     if failed_step:
         return OUTCOME_FAILED
     if batch_exit_code == "0":
-        return OUTCOME_SKIPPED if skipped else OUTCOME_OK
+        return OUTCOME_OK
     if batch_exit_code == EXIT_DEFERRED_FAILURE:
         return OUTCOME_DEGRADED
     return OUTCOME_FAILED
@@ -262,16 +264,21 @@ def _render_side(value: object) -> str:
 
 
 def render_delta(notice: Mapping[str, object]) -> list[str]:
-    """Render both sides of the Review Set delta, one line each, whenever a Review Set exists.
+    """Render candidate entries/exits whenever the machine run was updated.
 
     Silence would carry three different facts — nothing entered, the delta could not
     be measured, and the notification path is broken — and a reader cannot tell them
     apart. So on every run that reached the export the two lines are present and say
-    which case it is. A non-business day has no Review Set and no lines.
+    which case it is. A non-business day or failed screening reports that the
+    stored result was retained, without claiming a new candidate delta.
     """
 
-    if not notice or notice.get("skipped") is True:
+    if not notice:
         return []
+    screening_status = notice.get("screening_status")
+    if screening_status in {"skipped_non_business_day", "failed"}:
+        reason = "非営業日" if screening_status == "skipped_non_business_day" else "失敗"
+        return [f"Screening更新なし（{reason}）; 保存済み結果を保持"]
     if notice.get("delta_measured") is not True:
         reason = sanitize_one_line(
             notice.get("delta_unmeasured_reason") or _DELTA_UNMEASURED_UNKNOWN_REASON,
@@ -377,7 +384,6 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         batch_exit_code=args.batch_exit_code,
         failed_step=failed_step,
         cancelled=args.cancelled == "true",
-        skipped=notice.get("skipped") is True,
     )
     if outcome == OUTCOME_DEGRADED and not failed_step:
         failed_step = sanitize_one_line(notice.get("failed_stage") or "")

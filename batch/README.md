@@ -1,6 +1,6 @@
 # Batch
 
-requestに起因しないproduction orchestrationを所有します。
+定期machine処理のorchestrationを所有します。Researchの明示開始はengineとResearch skillが扱います。
 
 | 項目 | 内容 |
 | --- | --- |

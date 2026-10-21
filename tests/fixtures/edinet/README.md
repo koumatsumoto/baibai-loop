@@ -13,3 +13,21 @@ EDINET API v2の`documents/{doc_id}?type=5`から2026-09-17に取得したCSV-ZI
 | S100XXXU | 8127 | be3c8bcf178bc6974beea1bd968a749786dc312dd981d24048e3a6dad24f87cb |
 
 S100YU8Cの`InterimDuration`は2026-01-01〜06-30。連結・JPYのCFO4,857百万円、合算CapEx△1,136百万円は[会社半期報告書](https://www.chofu.co.jp/detail_news.php?id=500)と[短信](https://www.chofu.co.jp/detail_news.php?id=499)の当中間期CFに一致する。APIの書類期末2026-12-31をこの6か月フローの終点に使わない。
+
+## 標準IFRSの原本抜粋（#1556）
+
+S100YV6Y（INPEX半期）・S100YTCC（JT半期）のCSVは2026-10-18保存済み原本から、S100XU9L（INPEX年次）のCSVは2026-10-20 23:33 UTCにEDINET API v2で取得した原本から抜粋。元の行・context・単位・値を保ち、当期だけでなく前期・個別・セグメントcontextも含める。以下はCSV ZIPのSHA256。全文原本ではない。
+
+- S100YV6Y: `5ee8099cf5109a7ca9972fe97956c4c4182943a2c8fc7c312a5805179576b6f0`
+- S100YTCC: `35e43cfbdf31e855d6f7ecdf4435e9745540acbe42bbd3518bdd190029d7ea43`
+- S100XU9L: `886881db589ca476a39bdbe300b00c7e38ff4e9c2e934562a0d94bd2f632eac0`
+
+対応するtype=1 XBRLのcontextも確認。前二書類のInterimDurationは2026-01-01〜06-30、InterimInstantは06-30。年次は2025-01-01〜12-31と12-31。半期書類metadataの12-31は半期CFの終点ではなく、抽出値を年率化しない。JTの有形/無形取得は両方存在するが、INPEXの探鉱評価・開発生産資産取得は会社独自科目なので、標準有形取得だけから全CapEx/FCFを作らない。債券・借入金だけを完全な金融債務にしない。
+
+### 同一context内の会計基準の混在
+
+S100YRSR（436A）とS100Y6VZ（4494）は、同じ当期・単体contextに日本基準とIFRSの数値を併記し、`AccountingStandardsDEI=IFRS`、連結DEI=falseを持つ。単純な別名統合では差額を矛盾と誤認するため、宣言された会計基準を先に選ぶ。IFRSの営業CFはそれぞれ1,718,237,000円と615,028,000円で、日本基準の1,644,775,000円と517,760,000円へ戻さない。436Aの標準`NetSalesIFRS`も当期売上高として原本確認した。選んだ基準で未対応の負債は他基準から埋めない。
+
+両原本は固定L1内の保存済みCSVから抜粋し、新規provider取得は行っていない。元CSV ZIP SHA256：
+- S100YRSR: `8236f27fc5a7d178598f00ffda09fecb0b207f5ff90d94bb757dd7f281888cc0`
+- S100Y6VZ: `ed8351c1dbbdb15c3498614b328563d09a53e8d28ac1aa93349f2133f5ebbd47`

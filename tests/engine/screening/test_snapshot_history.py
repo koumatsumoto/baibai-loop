@@ -10,10 +10,8 @@ from tests.engine.screening.metric_fixtures import (
 )
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.market.bars import JQuantsDailyBar
-from baibai_engine.screening.metrics import (
-    build_metrics,
-)
+from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.screening.metrics.snapshot import build_metrics
 
 
 class ScreeningMetricsTests(SnapshotFixtures):
@@ -31,15 +29,14 @@ class ScreeningMetricsTests(SnapshotFixtures):
             )
             for index in range(20)
         ]
-        result = build_metrics(
+        inputs = dict(
             asof_date=asof,
             securities_by_ticker={"130A": security},
-            bars_by_ticker={"130A": base_bars + future_bars},
             summaries_by_ticker={
                 "130A": [
                     _summary(
                         "130A",
-                        asof - timedelta(days=30),
+                        asof - timedelta(days=20),
                         fiscal_period="FY",
                         period_start=date(2025, 4, 1),
                         period_end=date(2026, 3, 31),
@@ -48,6 +45,10 @@ class ScreeningMetricsTests(SnapshotFixtures):
             },
             edinet_by_ticker={},
         )
+        baseline = build_metrics(**inputs, bars_by_ticker={"130A": base_bars})
+        result = build_metrics(**inputs, bars_by_ticker={"130A": base_bars + future_bars})
+        self.assertEqual(result.financials, baseline.financials)
+        self.assertEqual(result.derived, baseline.derived)
         self.assertIn("130A", result.financials)
         # latest close picked from bars <= asof, not from the polluted 99999.0 future bars.
         per_trailing = result.financials["130A"].per_trailing
@@ -97,15 +98,15 @@ class ScreeningMetricsTests(SnapshotFixtures):
         financial = result.financials["130A"]
         self_median = result.derived["130A"].self_range_median
 
-        self.assertAlmostEqual(self_median["p_s"] or 0.0, financial.p_s or 0.0, places=6)
-        self.assertAlmostEqual(
-            self_median["ev_ebitda"] or 0.0,
-            financial.ev_ebitda or 0.0,
-            places=6,
-        )
+        assert self_median["p_s"] is not None
+        assert financial.p_s is not None
+        assert self_median["ev_ebitda"] is not None
+        assert financial.ev_ebitda is not None
+        self.assertAlmostEqual(self_median["p_s"], financial.p_s, places=6)
+        self.assertAlmostEqual(self_median["ev_ebitda"], financial.ev_ebitda, places=6)
 
-    def test_build_metrics_uses_bars_span_for_short_history_when_established(self) -> None:
-        """An established listing (800 days of bars) must not be flagged as short_history."""
+    def test_build_metrics_uses_observed_bars_span_for_short_history(self) -> None:
+        """An 800-day observed price span is not short; it does not establish listing age."""
         asof = date(2026, 4, 24)
         security = _security()
         bars = _daily_bars("130A", asof, 800)
@@ -119,10 +120,10 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertFalse(result.derived["130A"].short_history_flag)
 
     def test_build_metrics_records_price_history_coverage_for_gappy_ticker(self) -> None:
-        """An old listing whose recent bars resume after a long gap gets low coverage."""
+        """A long observed price span can still have low coverage relative to other tickers."""
         asof = date(2026, 4, 24)
         dense_bars = _daily_bars("1111", asof, 800)
-        # Old bars exist (listing span >= 750d) but only the last 200 days have bars.
+        # Old bars exist (observed span >= 750d) but only the last 200 days have bars.
         gappy_bars = [
             bar
             for bar in _daily_bars("130A", asof, 800)
@@ -148,14 +149,13 @@ class ScreeningMetricsTests(SnapshotFixtures):
         assert gappy.price_history_coverage_750d is not None
         self.assertLess(gappy.price_history_coverage_750d, 0.8)
 
-    def test_build_metrics_price_change_uses_adjusted_close_across_splits(self) -> None:
+    def test_build_metrics_price_change_uses_factor_adjusted_prices_across_splits(self) -> None:
         # 2-for-1 split between the 60d-prior date and today:
-        # raw close drops 100 -> 50, but adjustment_close stays 50 on both
-        # ends, so price_change_60d should not register a synthetic decline.
+        # raw close drops 100 -> 50, but the split factor normalizes both
+        # ends to 50, so price_change_60d should not register a synthetic decline.
         asof = date(2026, 4, 24)
         bars = []
-        # 分割前 70 sessions は raw=100。adjustment_close はわざと stale
-        # (raw のまま = incremental cache の未遡及 row) にして無視されることを検証。
+        # 分割前70本のraw価格100を、権利落ち日より後の価格50と比較する。
         for i in range(70):
             bars.append(
                 JQuantsDailyBar(
@@ -163,7 +163,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     asof - timedelta(days=70 - i),
                     close=100.0,
                     turnover_value=300_000_000.0,
-                    adjustment_close=100.0,
                 )
             )
         # 権利落ち日 (= asof) の bar に factor 0.5。close は分割後 50。
@@ -173,8 +172,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 asof,
                 close=50.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=50.0,
                 adjustment_factor=0.5,
+                ex_right_type="1",
             )
         )
         result = build_metrics(
@@ -199,66 +198,3 @@ class ScreeningMetricsTests(SnapshotFixtures):
         # Without adjustment-aware change calc, this would be (50-100)/100 = -0.5
         # which would falsely trip the -15% screening threshold.
         self.assertEqual(derived.price_change_60d, 0.0)
-
-    def test_build_metrics_flags_split_adjustment_within_price_change_sessions(self) -> None:
-        """split_adjustment_flag uses the same 60-session window as price_change_60d."""
-        asof = date(2026, 4, 24)
-        bars = [
-            JQuantsDailyBar(
-                ticker="130A",
-                traded_at=asof - timedelta(days=(60 - index) * 2),
-                close=100.0,
-                turnover_value=300_000_000.0,
-                adjustment_factor=0.5 if index == 20 else 1.0,
-            )
-            for index in range(61)
-        ]
-        result = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": _security()},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={
-                "130A": [_summary("130A", asof)],
-            },
-            edinet_by_ticker={},
-        )
-        self.assertTrue(result.derived["130A"].split_adjustment_flag)
-
-    def test_build_metrics_does_not_flag_split_adjustment_when_factor_is_one(self) -> None:
-        asof = date(2026, 4, 24)
-        bars = [
-            JQuantsDailyBar(
-                ticker="130A",
-                traded_at=asof - timedelta(days=60 - index),
-                close=100.0,
-                turnover_value=300_000_000.0,
-                adjustment_factor=1.0,
-            )
-            for index in range(61)
-        ]
-        result = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": _security()},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={
-                "130A": [_summary("130A", asof)],
-            },
-            edinet_by_ticker={},
-        )
-        self.assertFalse(result.derived["130A"].split_adjustment_flag)
-
-    def test_build_metrics_does_not_flag_split_adjustment_when_factor_is_missing(self) -> None:
-        asof = date(2026, 4, 24)
-        bars = _daily_bars("130A", asof, 100)
-        # all bars from _daily_bars have adjustment_factor=None by default,
-        # which should not trip the flag.
-        result = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": _security()},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={
-                "130A": [_summary("130A", asof)],
-            },
-            edinet_by_ticker={},
-        )
-        self.assertFalse(result.derived["130A"].split_adjustment_flag)

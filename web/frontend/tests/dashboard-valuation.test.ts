@@ -3,10 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import type { DashboardView, HoldingView, MetaView } from '../src/api/types'
+import type { DashboardView, HoldingView, MetaView, ReservationView } from '../src/api/types'
 import { FreshnessMeta } from '../src/components/FreshnessMeta'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { HoldingsTable, PortfolioAllocationCard } from '../src/pages/DashboardPage'
+import { HoldingsTable, OutcomeCard, PendingOrdersCard, PortfolioAllocationCard } from '../src/pages/DashboardPage'
 
 function holding(ticker: string): HoldingView {
   return {
@@ -14,8 +14,8 @@ function holding(ticker: string): HoldingView {
     deployed_cost_yen: 100_000, market_price_yen: '1100',
     market_price_as_of: '2026-09-24', market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000, unrealized_pnl_pct: 10,
-    pmax_raw_yen: null, pmax_gap_pct: null, latest_thesis_id: null,
-    disposition: null, next_earnings_date: null,
+    pmax_raw_yen: null, pmax_gap_pct: null, pmax_gap_unavailable_reason: null, latest_assessment_id: null,
+    stance: null, next_earnings_date: null,
   }
 }
 
@@ -29,7 +29,7 @@ function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
     realized_gross_pnl_yen: 136_100,
     deployed_cost_yen: 100_000, cash_pct: 47.62, reserved_pct: 0,
     deployed_pct: 52.38, holdings: [holding('8255')],
-    reservations: [], warnings: [], research_load_errors: [],
+    reservations: [], warnings: [],
     ...overrides,
   }
 }
@@ -39,6 +39,33 @@ function render(data: DashboardView): string {
 }
 
 describe('Dashboard valuation display', () => {
+  it('labels ledger cash and returns without claiming settlement or unreported costs', () => {
+    const allocation = render(dashboard())
+    const outcomes = renderToStaticMarkup(createElement(OutcomeCard, { outcomes: [] }))
+    expect(allocation).toContain('台帳の未予約現金')
+    expect(allocation).toContain('受渡未照合')
+    expect(allocation).not.toContain('購入余力')
+    expect(outcomes).toContain('記録済みの税・費用を反映')
+    expect(outcomes).toContain('未報告分は含みません')
+  })
+
+  it('shows pending buy and sell orders without treating sell proceeds as reserved cash', () => {
+    const reservations: ReservationView[] = [
+      { reservation_id: 'buy', side: 'buy', ticker: '1111', sector: '情報・通信業', remaining_quantity: 200, price_guard_yen: '1000', reserved_yen: 200000, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中', route_label: '取引所（自動振分）' },
+      { reservation_id: 'sell', side: 'sell', ticker: '2222', sector: '情報・通信業', remaining_quantity: 100, price_guard_yen: '900', reserved_yen: 0, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中', route_label: '取引所（自動振分）' },
+    ]
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(MemoryRouter, null, createElement(PendingOrdersCard, { reservations })),
+    ))
+    expect(html).toContain('未約定注文')
+    expect(html).toMatch(/買[\s\S]*1111/)
+    expect(html).toMatch(/売[\s\S]*2222/)
+    expect(html).toContain('￥200,000')
+    expect(html).not.toContain('￥90,000')
+    expect(html.match(/今週中/g)).toHaveLength(2)
+    expect(html.match(/取引所（自動振分）/g)).toHaveLength(2)
+  })
+
   it('shows complete assets, unrealized P&L, allocation, and the market basis date', () => {
     const html = render(dashboard())
     expect(html).toContain('株価基準 2026-09-24')
@@ -131,7 +158,7 @@ describe('Dashboard valuation display', () => {
     const meta: MetaView = {
       generated_at: '2026-09-24T20:42:00+09:00',
       data_updated_at: '2026-09-24T00:00:00+09:00',
-      screening_as_of: null, macro_as_of: null, app_db_updated_at: null, batch: null,
+      screening_as_of: null, indicators_as_of: null, app_db_updated_at: null, batch: null,
     }
     const html = renderToStaticMarkup(createElement(FreshnessMeta, {
       meta, deployedAt: '2026-09-24T19:00:00+09:00',
@@ -140,5 +167,18 @@ describe('Dashboard valuation display', () => {
     expect(html).toContain('09/24 20:42')
     expect(html).not.toContain('00:00')
     expect(html).not.toContain('データ更新')
+  })
+
+  it('keeps the original Pmax and explains why an unconfirmed price comparison has no gap', () => {
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        holdings: [{ ...holding('1234'), market_price_yen: '1000', pmax_raw_yen: 2000,
+          pmax_gap_pct: null, pmax_gap_unavailable_reason: '原評価と現在株価を同じ価格基準で比較できません。' }],
+        warnings: [],
+      })),
+    ))
+    expect(html).toContain('￥2,000')
+    expect(html).toContain('原評価と現在株価を同じ価格基準で比較できません。')
+    expect(html).not.toContain('+100.0%')
   })
 })

@@ -4,22 +4,26 @@ import argparse
 import io
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.engine.test_screening_run_store import _run as _stock_run_payload
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.screening_run import screening_run_payload, security_analysis
-from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
+from tests.helpers.master import insert_master_rows
+from tests.helpers.screening_run import stock_analysis as stock_analysis
+from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.sqlite.ingest import open_connection
+from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.read_api.ticker_profile import _load_bars, build_ticker_profile
-from baibai_engine.screening.cli import build_parser, ticker_profile_command
-from baibai_engine.screening.discovery import build_review_set
+from baibai_engine.read_api.ticker_profile import build_ticker_profile
+from baibai_engine.screening.cli.app import build_parser
+from baibai_engine.screening.cli.query import ticker_profile_command
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.storage.observations.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 
@@ -31,16 +35,10 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
 def _insert_reference_rows(sqlite_path: Path) -> None:
     conn = open_connection(sqlite_path)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', 'AAAA', 'テスト製作所', 'プライム', '機械', 1)"
+        insert_master_rows(
+            conn, [("2026-05-28", "AAAA", "テスト製作所", "プライム", "機械", "011")]
         )
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', 'BBBB', '同業ペア', 'プライム', '機械', 1)"
-        )
+        insert_master_rows(conn, [("2026-05-28", "BBBB", "同業ペア", "プライム", "機械", "011")])
         conn.execute(
             "INSERT OR REPLACE INTO jpx_earnings_calendar"
             "(announcement_date, ticker) VALUES ('2026-06-10', 'AAAA')"
@@ -64,33 +62,32 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
             "(asof_date, source_name, ticker, flag)"
             " VALUES ('2026-05-29', '特別注意銘柄', 'AAAA', '特別注意銘柄')"
         )
+        add_source_coverage(
+            conn,
+            source="jpx_regulation_flags",
+            coverage_key="2026-05-29",
+            min_date="2026-05-29",
+            max_date="2026-05-29",
+        )
         conn.commit()
     finally:
         conn.close()
 
 
-def _write_security_analyses(runs_db_path: Path) -> None:
+def _write_stock_analyses(runs_db_path: Path) -> None:
     ScreeningRunStore(runs_db_path).publish_run(
-        screening_run_payload(
-            as_of="2026-05-29",
-            run_at="2026-05-29T09:00:00+09:00",
-            universe_size=1,
-            security_analyses=[
-                security_analysis(
+        _stock_run_payload(
+            asof="2026-05-29",
+            at="2026-05-29T09:00:00+09:00",
+            rows=[
+                stock_analysis(
                     "AAAA",
                     name="テスト製作所",
                     metrics={"ocf_yield": 0.11},
                 )
             ],
-            filters={},
-            generated_by="test",
-            data_sources=[],
-            provider_status_lines=[],
-            universe_exclusion_lines=[],
-            ttm_quality_counts={},
-            evidence_hits_summary={},
-            fallback_lines=[],
         ),
+        rules=load_screening_rules(),
         run_revision_id="run-20260529-test",
     )
 
@@ -109,19 +106,18 @@ class BuildTickerProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) "
-                "VALUES ('2026-06-10', 'AAAA')"
-            )
-            conn.execute(
-                "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
-                "coverage_end, fetched_at_utc, record_count, status) "
-                "VALUES ('jpx_earnings_calendar', 'legacy', '2026-05-29', "
-                "'2026-08-27', '2026-05-29T00:00:00+09:00', 1, 'ok')"
-            )
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) "
+                    "VALUES ('2026-06-10', 'AAAA')"
+                )
+                conn.execute(
+                    "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
+                    "coverage_end, fetched_at_utc, record_count, status) "
+                    "VALUES ('jpx_earnings_calendar', 'legacy', '2026-05-29', "
+                    "'2026-08-27', '2026-05-29T00:00:00+09:00', 1, 'ok')"
+                )
+                conn.commit()
 
             profile = self._build(root, "AAAA")
 
@@ -138,7 +134,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_bars(sqlite_path, "1321", [200.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_security_analyses(root / "runs.sqlite")
+            _write_stock_analyses(root / "runs.sqlite")
 
             profile = self._build(root, "AAAA")
 
@@ -169,10 +165,32 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertEqual(jpx["flags"], ["特別注意銘柄"])
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            self.assertTrue(screening["has_security_analysis"])
-            security_analysis = screening["security_analysis"]
-            assert isinstance(security_analysis, dict)
-            self.assertEqual(security_analysis["metrics"], {"ocf_yield": 0.11})
+            self.assertTrue(screening["has_stock_analysis"])
+            stock_analysis = screening["stock_analysis"]
+            assert isinstance(stock_analysis, dict)
+            self.assertEqual(stock_analysis["metrics"], {"ocf_yield": 0.11})
+
+    def test_empty_regulation_snapshot_replaces_older_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sqlite_path = root / "market.sqlite"
+            _insert_reference_rows(sqlite_path)
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                add_source_coverage(
+                    conn,
+                    source="jpx_regulation_flags",
+                    coverage_key="2026-05-30",
+                    min_date="2026-05-30",
+                    max_date="2026-05-30",
+                    record_count=0,
+                )
+            profile = _dated_profile(root, date(2026, 5, 30))
+            self.assertEqual(
+                profile["events"]["jpx_regulation"],
+                {"snapshot_date": "2026-05-30", "flags": []},
+            )
+            earlier = _dated_profile(root, _ASOF)
+            self.assertEqual(earlier["events"]["jpx_regulation"]["flags"], ["特別注意銘柄"])
 
     def test_price_series_keeps_an_action_event_without_a_close(self) -> None:
         """売買停止日のfactorを落とさず、前後価格を同じ株式基準へ揃える。"""
@@ -195,7 +213,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            with_event = _load_bars(
+            with_event = read_price_bars(
                 sqlite_path,
                 tickers=("6731",),
                 start=date(2023, 12, 26),
@@ -211,7 +229,7 @@ class BuildTickerProfileTests(unittest.TestCase):
                 conn.commit()
             finally:
                 conn.close()
-            without_event = _load_bars(
+            without_event = read_price_bars(
                 sqlite_path,
                 tickers=("6731",),
                 start=date(2023, 12, 26),
@@ -233,60 +251,49 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertIsNone(profile["relative"])
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            self.assertFalse(screening["has_security_analysis"])
+            self.assertFalse(screening["has_stock_analysis"])
 
-    def test_profile_marks_ticker_missing_from_security_analyses(self) -> None:
+    def test_profile_marks_ticker_missing_from_stock_analyses(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
             _insert_bars(sqlite_path, "BBBB", [300.0] * 30, end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_security_analyses(root / "runs.sqlite")
+            _write_stock_analyses(root / "runs.sqlite")
 
             profile = self._build(root, "BBBB")
 
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            self.assertFalse(screening["has_security_analysis"])
-            self.assertIn("no Security Analysis", str(screening["note"]))
-            self.assertNotIn("security_analysis", screening)
+            self.assertFalse(screening["has_stock_analysis"])
+            self.assertIn("no Stock Analysis", str(screening["note"]))
+            self.assertNotIn("stock_analysis", screening)
 
-    def test_profile_retains_security_analysis_without_nomination(self) -> None:
+    def test_profile_retains_stock_analysis_without_nomination(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            _write_security_analyses(root / "runs.sqlite")
+            _write_stock_analyses(root / "runs.sqlite")
             profile = self._build(root, "AAAA")
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            analysis = screening["security_analysis"]
+            analysis = screening["stock_analysis"]
             assert isinstance(analysis, dict)
-            rules = load_screening_rules()
-            review_set = build_review_set(
-                [analysis],
-                rules=rules.candidate_discovery,
-                required_jpx_flags=rules.universe.required_jpx_flags,
-            )
-            self.assertEqual(review_set["entries"], [])
-            self.assertTrue(screening["has_security_analysis"])
+            self.assertEqual(analysis["candidate"]["reasons"], [])
+            self.assertTrue(screening["has_stock_analysis"])
             self.assertNotIn("note", screening)
 
     def test_screening_uses_only_latest_stored_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             runs_path = root / "runs.sqlite"
-            _write_security_analyses(runs_path)
+            _write_stock_analyses(runs_path)
             latest = ScreeningRunStore(runs_path).publish_run(
-                screening_run_payload(
-                    as_of="2026-05-30",
-                    run_at="2026-05-30T09:00:00+09:00",
-                    universe_size=1,
-                    security_analyses=[security_analysis("BBBB", name="同業ペア", metrics={})],
-                    filters={},
-                    generated_by="test",
-                    data_sources=[],
-                    provider_status_lines=[],
-                    fallback_lines=[],
-                )
+                _stock_run_payload(
+                    asof="2026-05-30",
+                    at="2026-05-30T09:00:00+09:00",
+                    rows=[stock_analysis("BBBB", name="同業ペア", metrics={})],
+                ),
+                rules=load_screening_rules(),
             )
 
             profile = build_ticker_profile(
@@ -301,7 +308,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             assert isinstance(screening, dict)
             self.assertEqual(screening["screening_run_revision_id"], latest.publication_id)
             self.assertEqual(screening["screening_run_as_of"], "2026-05-30")
-            self.assertFalse(screening["has_security_analysis"])
+            self.assertFalse(screening["has_stock_analysis"])
 
     def test_master_and_sector_peers_use_only_latest_global_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -313,14 +320,12 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots"
-                    "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-                    " VALUES ('2026-05-29', ?, ?, 'プライム', '機械', 1)",
-                    (
-                        ("AAAA", "テスト製作所"),
-                        ("CCCC", "現構成ペア"),
-                    ),
+                insert_master_rows(
+                    conn,
+                    [
+                        ("2026-05-29", "AAAA", "テスト製作所", "プライム", "機械", "011"),
+                        ("2026-05-29", "CCCC", "現構成ペア", "プライム", "機械", "011"),
+                    ],
                 )
                 conn.commit()
             finally:
@@ -388,10 +393,6 @@ class TickerProfileCliTests(unittest.TestCase):
             self.assertEqual(price["bar_count"], 30)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PortfolioBlockTests(unittest.TestCase):
     def test_portfolio_block_reports_sector_concentration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -426,7 +427,7 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
         root / "app.sqlite",
         PortfolioLedgerDocument.model_validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "portfolio_scope": "repository_only",
                 "as_of": "2026-05-29T15:30:00+09:00",
                 "estimated_exit_tax_rate_bps": None,
@@ -463,44 +464,17 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
                         "price_yen": price_yen,
                     },
                 ],
-                "market_prices": [
-                    {
-                        "ticker": ticker,
-                        "price_yen": price_yen,
-                        "observed_at": "2026-05-29T15:30:00+09:00",
-                        "source_kind": "licensed_dataset",
-                        "price_basis": "unadjusted_close",
-                        "source_ref": "test:ledger-price",
-                    }
-                ],
                 "overrides": [],
             }
         ),
     )
 
 
-@pytest.mark.parametrize("price_state", ["missing", "stale"])
-def test_portfolio_facts_survive_unavailable_ledger_valuation(tmp_path, price_state):
-    """Cost concentration uses confirmed trades, including after price transcription stops."""
-    from baibai_engine.position.store import LedgerStoreService
+def test_portfolio_facts_do_not_require_market_prices(tmp_path):
+    """Cost concentration uses confirmed trades without a market-price dependency."""
     from baibai_engine.read_api.ticker_profile import _portfolio_block
 
     _write_portfolio_ledger(tmp_path, ticker="BBBB", sector="機械", price_yen=500)
-    service = LedgerStoreService(tmp_path / "app.sqlite")
-    source, head = service.load_with_head()
-    prices = (
-        ()
-        if price_state == "missing"
-        else tuple(
-            price.model_copy(update={"observed_at": source.as_of - timedelta(days=30)})
-            for price in source.market_prices
-        )
-    )
-    service.apply_document(
-        expected_head=head,
-        expected_document=source,
-        replacement=source.model_copy(update={"market_prices": prices}),
-    )
     portfolio = _portfolio_block(app_db_path=tmp_path / "app.sqlite", ticker="BBBB", sector="機械")
     assert portfolio["holds_this_ticker"] is True
     assert portfolio["open_position_count"] == 1
@@ -593,11 +567,8 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
         _insert_dated_bars(sqlite_path, ticker, prices)
     conn = open_connection(sqlite_path)
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', ?, 'peer', 'プライム', '機械', 1)",
-            [(ticker,) for ticker in peers],
+        insert_master_rows(
+            conn, [("2026-05-28", ticker, "peer", "プライム", "機械", "011") for ticker in peers]
         )
         conn.commit()
     finally:
@@ -608,3 +579,15 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
     else:
         assert sector["peer_count"] == 2
         assert sector["peer_median_return_20d"] == pytest.approx(0.3)
+
+
+def test_profile_declares_the_independent_ledger_date(tmp_path):
+    _write_portfolio_ledger(tmp_path, ticker="BBBB", sector="機械", price_yen=500)
+    profile = _dated_profile(tmp_path, date(2026, 5, 28))
+    assert profile["asof"] == "2026-05-28"
+    assert profile["portfolio"]["ledger_as_of"] == "2026-05-29T15:30:00+09:00"
+    assert profile["portfolio"]["open_position_count"] == 1
+
+
+if __name__ == "__main__":
+    unittest.main()

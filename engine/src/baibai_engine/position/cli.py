@@ -1,6 +1,6 @@
 """Command-line entry for application-DB portfolio records.
 
-Composes ledger, position-review, and outcome inputs. This entry point owns
+Composes ledger, human-reported broker facts, and outcome inputs. This entry point owns
 SQLite composition while position core modules remain free of screening
 dependencies.
 """
@@ -8,36 +8,36 @@ dependencies.
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import sqlite3
 import sys
-from dataclasses import asdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from pathlib import Path
 
 import yaml
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 from baibai_engine.market.jpx_total_return import (
-    BenchmarkObservation,
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
+from baibai_engine.market.store import read_portfolio_market_inputs
+from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
+from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import (
     HumanEvent,
     apply_draft,
+    build_broker_fact_draft,
     build_event_draft,
     build_meta_draft,
     build_override_draft,
     build_sell_execution_draft,
+    date_only_replay_key,
+    known_broker_reference,
     load_draft,
     write_draft,
 )
@@ -57,6 +57,7 @@ from baibai_engine.position.ledger import (
     snapshot_to_payload,
 )
 from baibai_engine.position.ledger_read import LedgerConflictError
+from baibai_engine.position.market_source import market_basis_is_confirmed
 from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
 from baibai_engine.position.outcome_store import (
     PortfolioOutcomePublication,
@@ -64,12 +65,7 @@ from baibai_engine.position.outcome_store import (
 )
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
-from baibai_engine.research.broker_fact_service import build_broker_fact_draft
-from baibai_engine.research.capital_allocation_service import (
-    CapitalAllocationAssessmentService,
-)
-from baibai_engine.research.position_review import PositionReviewDocument
-from baibai_engine.research.position_review_service import PositionReviewService
+from baibai_engine.storage.observations.read import connect_read_only
 
 
 def _datetime_argument(value: str) -> datetime:
@@ -129,55 +125,27 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="write an optional outcome YAML export; existing paths are never overwritten",
     )
-    position_review_parser = subparsers.add_parser(
-        "position-review",
-        description=(
-            "Recompute a Position Review draft's hold/exit from thesis "
-            "and the remaining economic reward, and emit a YAML "
-            "summary. A broken thesis is the priority sell candidate; fair value is "
-            "a review trigger; price decline alone is never an exit reason."
-        ),
-        help="recompute hold/exit from a Position Review draft YAML",
-    )
-    position_review_parser.add_argument(
-        "--input",
-        type=Path,
-        help="Position Review draft YAML path",
-    )
-    position_review_parser.add_argument(
-        "operation",
-        nargs="?",
-        choices=("publish",),
-        help="publish a human-confirmed draft to the application DB",
-    )
-    position_review_parser.add_argument("draft", nargs="?", type=Path)
-    position_review_parser.add_argument("--root", type=Path, default=Path.cwd())
-    position_review_parser.add_argument("--db", type=Path)
-    position_review_parser.add_argument("--position-review-id")
-    position_review_parser.add_argument("--thesis-id")
-    position_review_parser.add_argument("--confirmed", action="store_true")
-    position_review_parser.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
-    holding_build_parser = subparsers.add_parser(
-        "position-review-build",
-        help="build a Position Review draft from a ready thesis, its review, and the ledger",
-    )
-    holding_build_parser.add_argument("--root", type=Path, default=Path.cwd())
-    holding_build_parser.add_argument("--db", type=Path)
-    holding_build_parser.add_argument("--thesis-id", required=True)
-    holding_build_parser.add_argument("--position-id", required=True)
-    holding_build_parser.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
-    holding_build_parser.add_argument("--out", type=Path, required=True)
     broker_fact_parser = subparsers.add_parser(
         "broker-fact-draft",
         help="turn a human-reported open/filled/cancelled/expired broker fact into a ledger draft",
     )
     broker_fact_parser.add_argument("--root", type=Path, default=Path.cwd())
     broker_fact_parser.add_argument("--db", type=Path)
-    broker_fact_parser.add_argument("--decision-reference", required=True)
+    broker_fact_parser.add_argument("--decision-reference")
+    broker_fact_parser.add_argument(
+        "--direct-fact", action="store_true", help="explicitly record a buy without a proposal"
+    )
     broker_fact_parser.add_argument(
         "--status", choices=("open", "filled", "cancelled", "expired"), required=True
     )
-    broker_fact_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    broker_fact_parser.add_argument("--side", choices=("buy", "sell"), default="buy")
+    broker_occurrence = broker_fact_parser.add_mutually_exclusive_group(required=True)
+    broker_occurrence.add_argument("--occurred-at", type=_datetime_argument)
+    broker_occurrence.add_argument(
+        "--occurred-on",
+        type=_date_argument,
+        help="reported date; no exact order or execution time is required",
+    )
     broker_fact_parser.add_argument("--ticker")
     broker_fact_parser.add_argument("--quantity", type=int)
     broker_fact_parser.add_argument("--price-yen", type=_decimal_argument)
@@ -187,11 +155,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="reservation ID; repeat for simultaneous terminal broker facts",
     )
     broker_fact_parser.add_argument("--order-id")
+    broker_fact_parser.add_argument(
+        "--execution-id",
+        help="stable broker fill ID for a filled report; required to distinguish same-day fills",
+    )
     broker_fact_parser.add_argument("--sector")
     broker_fact_parser.add_argument("--common-factor", action="append", default=[])
     broker_fact_parser.add_argument("--price-guard-yen", type=_decimal_argument)
     broker_fact_parser.add_argument("--expires-at", type=_datetime_argument)
-    broker_fact_parser.add_argument("--ordered-at", type=_datetime_argument)
+    broker_fact_parser.add_argument("--expiry-label")
+    broker_fact_parser.add_argument("--route-label")
     broker_fact_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
         "sell-execution-draft",
@@ -202,9 +175,18 @@ def build_parser() -> argparse.ArgumentParser:
     sell_parser.add_argument("--ticker", required=True)
     sell_parser.add_argument("--quantity", type=int, required=True)
     sell_parser.add_argument("--price-yen", type=_decimal_argument, required=True)
+    sell_parser.add_argument("--reservation-id")
+    sell_parser.add_argument(
+        "--execution-id",
+        help="stable broker fill ID; required to distinguish same-day fills",
+    )
     sell_occurrence = sell_parser.add_mutually_exclusive_group(required=True)
     sell_occurrence.add_argument("--occurred-at", type=_datetime_argument)
-    sell_occurrence.add_argument("--occurred-on", type=_date_argument)
+    sell_occurrence.add_argument(
+        "--occurred-on",
+        type=_date_argument,
+        help="fill date only; another same-day fill needs execution-id",
+    )
     sell_parser.add_argument("--fees-yen", type=int)
     sell_parser.add_argument("--tax-yen", type=int)
     sell_parser.add_argument("--decision-reference")
@@ -224,7 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     event_parser.add_argument("--event-id", required=True)
-    event_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    event_occurrence = event_parser.add_mutually_exclusive_group(required=True)
+    event_occurrence.add_argument("--occurred-at", type=_datetime_argument)
+    event_occurrence.add_argument("--occurred-on", type=_date_argument)
     event_parser.add_argument("--amount-yen", type=int, required=True)
     event_parser.add_argument("--ticker")
     event_parser.add_argument("--kind")
@@ -268,30 +252,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         except (LedgerConflictError, PortfolioLedgerError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
-    if args.command == "position-review":
-        if args.operation == "publish":
-            if args.draft is None or args.thesis_id is None:
-                print(
-                    "error: position-review publish requires <draft> and --thesis-id",
-                    file=sys.stderr,
-                )
-                return 2
-            return _run_position_review_publish(args, now=now)
-        if args.input is None:
-            print("error: position-review validation requires --input", file=sys.stderr)
-            return 2
-        input_path = args.input if args.input.is_absolute() else args.root / args.input
-        return _run_position_review(input_path, db_path=args.db, sqlite_path=args.sqlite, now=now)
-    if args.command == "position-review-build":
-        return _run_position_review_build_db(
-            db_path=args.db,
-            thesis_id=args.thesis_id,
-            sqlite_path=args.sqlite,
-            position_id=args.position_id,
-            root=args.root,
-            out=args.out,
-            now=now,
-        )
     if args.command == "broker-fact-draft":
         return _run_record_broker_fact(args, now=now)
     if args.command == "sell-execution-draft":
@@ -323,17 +283,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if args.command == "meta-draft":
         return _run_meta_draft(args)
     if args.command == "outcome":
-        benchmark_path = (
-            args.benchmark_observation
-            if args.benchmark_observation.is_absolute()
-            else args.root / args.benchmark_observation
-        )
-        sqlite_path = args.sqlite if args.sqlite.is_absolute() else args.root / args.sqlite
-        out_path = (
-            None
-            if args.out is None
-            else (args.out if args.out.is_absolute() else args.root / args.out)
-        )
+        benchmark_path = _root_path(args.root, args.benchmark_observation)
+        sqlite_path = _root_path(args.root, args.sqlite)
+        out_path = None if args.out is None else _root_path(args.root, args.out)
         return _run_outcome(
             benchmark_path,
             sqlite_path,
@@ -351,6 +303,10 @@ def _run_event_draft(args: argparse.Namespace) -> int:
         "amount_yen": args.amount_yen,
     }
     try:
+        service = LedgerStoreService(args.db)
+        if args.occurred_on is not None:
+            common["occurred_at"] = date_only_replay_key(service.load(), args.occurred_on, None)
+            common["occurred_on"] = args.occurred_on
         event: HumanEvent
         if args.type == "contribution":
             event = ContributionEvent.model_validate(common)
@@ -368,7 +324,7 @@ def _run_event_draft(args: argparse.Namespace) -> int:
             event = ConfirmedTaxEvent.model_validate(
                 {**common, "ticker": args.ticker, "tax_kind": args.kind}
             )
-        draft = build_event_draft(LedgerStoreService(args.db), event)
+        draft = build_event_draft(service, event)
         write_draft(args.out, draft)
     except (OSError, ValueError, LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -471,7 +427,7 @@ def _run_outcome(
     *,
     db_path: Path | None = None,
 ) -> int:
-    """Emit a source-bound TWR result without fetching market data at runtime."""
+    """Emit TWR from one market snapshot without fetching data at runtime."""
 
     try:
         benchmark = load_benchmark_observation(benchmark_path)
@@ -489,44 +445,57 @@ def _run_outcome(
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    calendar_days = read_market_calendar(
-        sqlite_path, benchmark.period_start_date, benchmark.period_end_date
+    tickers = tuple(
+        sorted(
+            {
+                event.ticker
+                for event in ledger.events
+                if isinstance(event, (ExecutionEvent, ReservationEvent))
+            }
+        )
     )
-    if calendar_days is None:
-        payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
-        market_fingerprint = None
-    else:
-        tickers = tuple(
-            sorted(
-                {
-                    event.ticker
-                    for event in ledger.events
-                    if isinstance(event, (ExecutionEvent, ReservationEvent))
-                }
-            )
-        )
-        bars = read_daily_bars_for_tickers(
-            sqlite_path, tickers, benchmark.period_start_date, benchmark.period_end_date
-        )
-        if bars is None:
-            payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
-            market_fingerprint = None
+    connection = connect_read_only(sqlite_path) if sqlite_path.exists() else None
+    try:
+        if connection is None:
+            calendar_days, bars = None, None
         else:
+            connection.execute("BEGIN")
+            calendar_days, bars = read_portfolio_market_inputs(
+                sqlite_path,
+                tickers,
+                benchmark.period_start_date,
+                benchmark.period_end_date,
+                connection=connection,
+            )
+        if calendar_days is None:
+            payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
+        elif bars is None:
+            payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
+        else:
+            assert connection is not None
             outcome = compute_portfolio_outcome(
                 ledger,
                 benchmark,
                 business_days=tuple(day.day for day in calendar_days if day.is_business_day),
                 bars=tuple(bars),
+                confirm_price_basis=lambda ticker, first, last: market_basis_is_confirmed(
+                    basis="price",
+                    sqlite_path=sqlite_path,
+                    ticker=ticker,
+                    from_date=first,
+                    through_date=last,
+                    connection=connection,
+                ),
             )
             payload = outcome_to_payload(outcome)
-            market_fingerprint = _market_data_fingerprint(bars)
+    finally:
+        if connection is not None:
+            connection.close()
     payload.update(
         benchmark_id=benchmark.benchmark_id,
         market_data_ref=str(sqlite_path),
-        market_data_sha256=_sha256(sqlite_path) if sqlite_path.is_file() else None,
         market_data_coverage_start_date=benchmark.period_start_date.isoformat(),
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
-        market_data_fingerprint=market_fingerprint,
     )
     payload["benchmark_observation"] = benchmark.model_dump(mode="json")
     outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
@@ -560,7 +529,7 @@ def _run_outcome(
 
 def _outcome_unresolved_payload(benchmark: BenchmarkObservation, reason: str) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "portfolio_outcome",
         "status": "unresolved",
         "reason": reason,
@@ -570,122 +539,65 @@ def _outcome_unresolved_payload(benchmark: BenchmarkObservation, reason: str) ->
     }
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
-    rows = [
-        (
-            bar.ticker,
-            bar.traded_at.isoformat(),
-            bar.close,
-            bar.adjustment_factor,
-        )
-        for bar in bars
-    ]
-    encoded = json.dumps(rows, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(encoded.encode()).hexdigest()
-
-
-def _run_position_review(
-    path: Path, *, db_path: Path | None, sqlite_path: Path, now: datetime | None
-) -> int:
-    try:
-        document = PositionReviewDocument.model_validate(safe_load(path.read_text()))
-        result = PositionReviewService(
-            db_path, sqlite_path=sqlite_path, clock=lambda: now or datetime.now(JST)
-        ).check(document)
-        yaml.safe_dump(asdict(result), sys.stdout, allow_unicode=True)
-        return 0
-    except (OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-
-
-def _run_position_review_publish(args: argparse.Namespace, *, now: datetime | None) -> int:
-    try:
-        path = args.draft if args.draft.is_absolute() else args.root / args.draft
-        document = PositionReviewDocument.model_validate(safe_load(path.read_text()))
-        if document.thesis_id != args.thesis_id or (
-            args.position_review_id and document.position_review_id != args.position_review_id
-        ):
-            raise ValueError("CLI identity differs from submitted draft")
-        document = PositionReviewService(
-            args.db, sqlite_path=args.sqlite, clock=lambda: now or datetime.now(JST)
-        ).publish(document, confirmed=args.confirmed)
-        yaml.safe_dump(
-            {"position_review_id": document.position_review_id, "action": document.action},
-            sys.stdout,
-        )
-        return 0
-    except (OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-
-
-def _run_position_review_build_db(
-    *,
-    db_path: Path | None,
-    thesis_id: str,
-    sqlite_path: Path,
-    position_id: str,
-    root: Path,
-    out: Path,
-    now: datetime | None,
-) -> int:
-    try:
-        path = _draft_output_path(root, out, label="Position Review")
-        service = PositionReviewService(
-            db_path, sqlite_path=sqlite_path, clock=lambda: now or datetime.now(JST)
-        )
-        document = service.build(thesis_id=thesis_id, position_id=position_id)
-        evaluation = service.check(document)
-        payload = document.model_dump(mode="json")
-        _write_yaml_exclusive(path, payload)
-        yaml.safe_dump(
-            {**payload, "current_price_projection": evaluation.current_price_projection},
-            sys.stdout,
-            allow_unicode=True,
-        )
-        return 0
-    except (OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-
-
 def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -> int:
     try:
+        ledger_service = LedgerStoreService(args.db)
         draft, event_ids = build_broker_fact_draft(
-            LedgerStoreService(args.db),
-            CapitalAllocationAssessmentService(args.db),
+            ledger_service,
+            partial(resolve_buy_reference, db_path=args.db),
             decision_reference=args.decision_reference,
             status=args.status,
+            direct_fact=args.direct_fact,
+            side=args.side,
             occurred_at=args.occurred_at,
+            occurred_on=args.occurred_on,
             ticker=args.ticker,
             quantity=args.quantity,
             price_yen=args.price_yen,
             reservation_ids=tuple(args.reservation_id or ()),
             order_id=args.order_id,
+            execution_id=args.execution_id,
             sector=args.sector,
             common_factors=tuple(sorted(set(args.common_factor))),
             price_guard_yen=args.price_guard_yen,
             expires_at=args.expires_at,
-            ordered_at=args.ordered_at,
+            expiry_label=args.expiry_label,
+            route_label=args.route_label,
             now=now,
         )
         if draft is not None:
-            output_path = _draft_output_path(args.root, args.out, label="ledger draft")
+            output_path = _root_path(args.root, args.out)
             write_draft(output_path, draft)
         else:
             output_path = None
+        reference = args.decision_reference
+        if draft is not None:
+            if draft.binding_addition is not None:
+                reference = draft.binding_addition.reference
+            elif reference is None:
+                reference = next(
+                    getattr(event, "decision_reference", None)
+                    for event in draft.replacement.events
+                    if event.event_id in event_ids
+                    and getattr(event, "decision_reference", None) is not None
+                )
+        elif reference is None:
+            known = known_broker_reference(
+                ledger_service.load(),
+                execution_id=args.execution_id,
+                order_id=args.order_id,
+                reservation_ids=tuple(args.reservation_id or ()),
+            )
+            if known is None:
+                raise ValueError("saved broker identity is unavailable; prepare again")
+            reference = known[0]
     except (OSError, PortfolioLedgerError, BrokerFactRecordingError, ValueError) as error:
         print(f"error: failed to build broker fact draft: {error}", file=sys.stderr)
         return 2
     yaml.safe_dump(
         {
             "status": "draft_created" if draft is not None else "no_change",
-            "decision_reference": args.decision_reference,
+            "decision_reference": reference,
             "output": None if output_path is None else str(output_path),
             "event_ids": list(event_ids),
         },
@@ -699,7 +611,6 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
 def _run_sell_execution_draft(args: argparse.Namespace) -> int:
     source_event_ids: set[str] = set()
     try:
-        output_path = _draft_output_path(args.root, args.out, label="sell execution ledger draft")
         draft = build_sell_execution_draft(
             LedgerStoreService(args.db),
             occurred_at=args.occurred_at,
@@ -707,24 +618,34 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
             ticker=args.ticker,
             quantity=args.quantity,
             price_yen=args.price_yen,
+            reservation_id=args.reservation_id,
             fees_yen=args.fees_yen,
             tax_yen=args.tax_yen,
             decision_reference=args.decision_reference,
+            execution_id=args.execution_id,
         )
-        source_event_ids = {event.event_id for event in draft.source.events}
-        write_draft(output_path, draft)
+        if draft is not None:
+            output_path = _root_path(args.root, args.out)
+            source_event_ids = {event.event_id for event in draft.source.events}
+            write_draft(output_path, draft)
+        else:
+            output_path = None
     except (OSError, LedgerConflictError, PortfolioLedgerError, ValueError) as error:
         print(f"error: failed to build sell execution draft: {error}", file=sys.stderr)
         return 2
-    event_ids = [
-        event.event_id
-        for event in draft.replacement.events
-        if event.event_id not in source_event_ids
-    ]
+    event_ids = (
+        [
+            event.event_id
+            for event in draft.replacement.events
+            if event.event_id not in source_event_ids
+        ]
+        if draft is not None
+        else []
+    )
     yaml.safe_dump(
         {
-            "status": "draft_created",
-            "output": str(output_path),
+            "status": "draft_created" if draft is not None else "no_change",
+            "output": None if output_path is None else str(output_path),
             "ticker": args.ticker,
             "event_ids": event_ids,
         },
@@ -735,36 +656,9 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
     return 0
 
 
-def _draft_output_path(root: Path, output: Path, *, label: str) -> Path:
-    """Resolve a new draft below root without following repository symlinks."""
-
-    if output.is_absolute() or ".." in output.parts:
-        raise ValueError(f"{label} --out must be a relative path below --root")
-    resolved_root = root.resolve()
-    if not resolved_root.is_dir():
-        raise ValueError(f"--root is not a directory: {root}")
-    candidate = resolved_root / output
-    current = resolved_root
-    for part in output.parts:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"{label} --out must not traverse a symlink: {output}")
-    resolved = candidate.resolve()
-    try:
-        resolved.relative_to(resolved_root)
-    except ValueError as error:
-        raise ValueError(f"{label} --out escapes --root: {output}") from error
-    if resolved.exists():
-        raise ValueError(f"refusing to overwrite existing {label}: {resolved}")
-    return resolved
-
-
-def _write_yaml_exclusive(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.parent.resolve() != path.parent:
-        raise OSError(f"draft parent became a symlink: {path.parent}")
-    with path.open("x", encoding="utf-8") as stream:
-        yaml.safe_dump(payload, stream, sort_keys=False, allow_unicode=True)
+def _root_path(root: Path, path: Path) -> Path:
+    """Resolve explicit CLI paths consistently; writers own overwrite protection."""
+    return path if path.is_absolute() else root / path
 
 
 if __name__ == "__main__":

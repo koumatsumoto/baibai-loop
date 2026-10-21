@@ -10,13 +10,11 @@ from tests.engine.screening.metric_fixtures import (
     _summary,
 )
 
-from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.providers.edinet import EdinetMetricRecord
-from baibai_engine.screening.metrics import (
-    build_metrics,
-)
-from baibai_engine.screening.schema import FinancialSnapshot
+from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.screening.metrics.snapshot import build_metrics
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
 class SnapshotFixtures(unittest.TestCase):
@@ -105,6 +103,8 @@ class SnapshotFixtures(unittest.TestCase):
                 treasury_shares=0.0,
                 forecast_eps=92.22,
                 dps_forecast_annual=45.0,
+                forecast_status="confirmed",
+                dividend_forecast_status="confirmed",
             )
             for disclosure, year, period, end, sales, profit in [
                 (date(2025, 7, 29), 2025, "2Q", date(2025, 6, 30), 80_239, 7_684),

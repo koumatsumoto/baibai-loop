@@ -8,8 +8,10 @@ on:
     # history, so a late firing of its own costs nothing: the evaluated window is
     # anchored to when it runs, not to when it was due.
     #
-    # No business-day calendar is needed. `cloud-daily-batch` completes a
-    # non-business day as a green skip run, which counts as success here.
+    # No separate business-day calendar is needed here. The daily workflow skips
+    # Screening on non-business days while indicators and export continue; their
+    # independent failures can still produce a degraded or failed result. The
+    # watchdog reads the workflow outcome and actual target date from its notice.
     - cron: "0 12 * * 1-5"
   workflow_dispatch:
     inputs:
@@ -65,12 +67,13 @@ jobs:
           gh api \
             --method GET \
             "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-daily-batch.yml/runs" \
-            -f per_page=100 \
+            -f per_page=100 -f branch=main \
             > "$RUNNER_TEMP/daily-batch-runs.json"
 
       - name: "Alert Discord #batch-runs when the batch is missing"
         id: watchdog
         env:
+          GH_TOKEN: ${{ github.token }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           WATCHDOG_CHECK_DATE: ${{ steps.validate-input.outputs.check_date }}
           PYTHONPATH: batch/src
@@ -78,5 +81,6 @@ jobs:
           # $WATCHDOG_CHECK_DATE carries the dispatch input safely as a variable;
           # never interpolate inputs.* into this run block (script injection).
           python3 -m baibai_batch.jobs.watchdog \
+            --read-run-results \
             --runs-json "$RUNNER_TEMP/daily-batch-runs.json" \
             --check-date "$WATCHDOG_CHECK_DATE"

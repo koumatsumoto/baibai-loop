@@ -1,9 +1,10 @@
-"""較正の評価指標: rank IC・decile・Review Set replay・trap・条件付きspread・収束実現。
+"""較正の評価指標: rank IC・decile・候補replay・trap・条件付きspread・収束実現。
 
 統計の誠実性 (docs/doctrine.md の計測経路):
 - cohort (月次 asof) は forward 窓が重複し独立でないため、有意性検定は行わず
   「効果量 (median/mean excess) と cohort 勝率」で報告する。
-- 超過リターンの一次基準はcommon eligible母集団の中央値 (選定スキルの直接計測) 。
+- 超過リターンの一次基準はcommon eligible母集団の中央値。構成差や交絡を
+  除去した選定効果の因果推定ではない。
   benchmark ETF は市況文脈の参考値。
 - 累積リターン・年率・シャープ等の track record 系は出力しない。"""
 

@@ -1,18 +1,15 @@
 name: cloud-daily-batch
-# Display metadata, never executed. It is also the only place the day a recovery
-# dispatch is for appears in the run listing, which is what lets the watchdog tell a
-# past-dated recovery from the run that answers for today. A scheduled firing leaves
-# the date empty, which reads as "for its own day".
+# Display the requested recovery day. The watchdog reads the actual notice as-of
+# from the terminal step result, including for delayed starts and reruns.
 run-name: "daily ${{ inputs.asof || '' }}"
 
 on:
   schedule:
-    # 16:43 JST. The only same-day requirement is the J-Quants daily-price update,
-    # published around 16:30 JST, which the scheduled target day depends on; the run
-    # keeps 13 minutes of margin. The JPX regulation pages are event-driven status pages the
-    # coverage gate accepts for 7 business days, and the margin balances are weekly,
-    # so neither needs the evening refresh — a designation landing after this run is
-    # picked up the next business day.
+    # 16:43 JST. The target day's J-Quants daily-price update is published around
+    # 16:30 JST, leaving 13 minutes of margin. JPX regulation pages are event-driven
+    # status pages whose coverage is accepted for 7 business days. Margin balances
+    # use the daily all-issues series from the 2026-09-25 balance; its publication
+    # dates and coverage are checked separately from the target day's price update.
     #
     # The odd minute is deliberate: GitHub concentrates scheduled work on :00 / :15 /
     # :30 / :45, and a schedule pinned there waits behind that queue.
@@ -39,6 +36,12 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      # The 2026-10-20 run needed ~48 minutes after acquisition for export/publish.
+      # Reserve 55 of the 90 minutes; this is headroom, not a completion guarantee.
+      # Setup/hydration time counts toward the acquisition cutoff too.
+      - name: Set acquisition cutoff for this job
+        run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 35 * 60 ))" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The notification script must import on the runner's system python3
@@ -102,7 +105,7 @@ jobs:
       - name: Smoke-check isolated Chromium environment
         id: browser-smoke
         run: >-
-          uv run python -c "from baibai_engine.macro.indicators.providers.browser import
+          uv run python -c "from baibai_engine.collection.economic.providers.browser import
           BrowserFetcher; fetcher=BrowserFetcher();
           content=fetcher.fetch_html('data:text/html,<p>baibai-browser-smoke</p>');
           fetcher.close(); assert 'baibai-browser-smoke' in content"
@@ -150,7 +153,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
 
-      # failure policy: 1 — a fatal batch has no publishable screening result.
+      # failure policy: 1 — an unsafe store or failed full export cannot be published.
       - name: Run daily batch
         id: batch
         shell: bash
@@ -174,10 +177,38 @@ jobs:
           # can still see the batch exit code and the local export state.
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "export_ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "export_ready=false" >> "$GITHUB_OUTPUT"
           fi
+          # Skip L1 publication only for an explicit, readable boolean false.
+          python3 - <<'PYNOTICE' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import sys
+          from datetime import date
+          from pathlib import Path
+
+          market_updated = True
+          asof = "unknown"
+          try:
+              notice = json.loads((Path(os.environ["RUNNER_TEMP"]) / "batch-notice.json").read_text())
+              if isinstance(notice, dict) and isinstance(notice.get("asof"), str):
+                  candidate = notice["asof"]
+                  try:
+                      if date.fromisoformat(candidate).isoformat() == candidate:
+                          asof = candidate
+                  except ValueError:
+                      pass
+              value = notice.get("market_updated") if isinstance(notice, dict) else None
+              if not isinstance(value, bool):
+                  raise ValueError
+              market_updated = value
+          except (OSError, ValueError):
+              print("::warning::Daily notice unavailable or invalid; continuing L1 publication.", file=sys.stderr)
+          print("market_updated=" + str(market_updated).lower())
+          print("asof=" + asof)
+          PYNOTICE
           if [[ $code -ne 0 && $code -ne 3 ]]; then
             exit "$code"
           fi
@@ -189,8 +220,9 @@ jobs:
       # failure policy: 2 — a broken release would corrupt the next hydration input.
       - name: Publish the L1 release
         id: publish-lake
-        if: steps.batch.outputs.published == 'true'
+        if: steps.batch.outputs.export_ready == 'true' && steps.batch.outputs.market_updated == 'true'
         env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -216,7 +248,7 @@ jobs:
       # failure policy: 2 — views must never describe a run absent from the remote store.
       - name: Upload machine stores and serving views
         id: upload-stores
-        if: steps.batch.outputs.published == 'true'
+        if: steps.batch.outputs.export_ready == 'true'
         shell: bash
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -320,9 +352,10 @@ jobs:
       # `!cancelled()` would skip it. A manual cancel costs one extra
       # `[CANCELLED]` message, which is far cheaper than losing every timeout.
       # The webhook secret is scoped to this step only. A delivery failure never
-      # fails the run: a red job means the day's artefacts were not published
-      # (docs/architecture.md, Failure policy), and a broken webhook is not that.
-      - name: "Notify Discord #batch-runs"
+      # fails the run: data/publication failures have their own step outcomes,
+      # and a delivery failure must not overwrite them. A red job alone does not
+      # prove publication never happened, since later steps can also fail.
+      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || 'unknown' }}"
         id: notify
         if: ${{ always() }}
         continue-on-error: true

@@ -1,5 +1,10 @@
 # forward earnings normalization 監査（#380）
 
+## 履歴の読み方
+
+以下は 2026-07 の仕様と診断である。当時の buyback yield という名称は株数変化から作る寄与項を指し、自社株買いの実行額・消却原因を識別しない。PER 軸の IC 比較だけでは、その軸を除いた戦略の成績差は測れない。また、配当利回りを含む説明軸と配当近似を含む評価対象には機械的な関連があり、外部標本での予測力の証明として使わない。
+
+
 ## 0. 目的と判定の位置づけ
 
 目的は、forward PER を優先する機械 E[r] が一時的な利益要因を恒常利益として取り込み、
@@ -19,7 +24,7 @@ report だけで production の metric、gate、E[r] policy を変更しない�
 
 ## 1. 現行 contract
 
-[`estimates.py`](../../../engine/src/baibai_engine/screening/estimates.py) は資産 anchor の PBR と収益 anchor を
+[`estimates.py`](https://github.com/koumatsumoto/baibai-loop/blob/4fe6f180/engine/src/baibai_engine/screening/estimates.py) は資産 anchor の PBR と収益 anchor を
 blend し、収益 anchor は `per_forward` を優先して欠損時だけ `per_trailing` へ fallback する。
 implied upside は ±50% で clip し、その 10% を年率 reversion とするため、reversion 寄与の上限は
 **+5.00pt / 年**である。E[r] はこれに予想 DPS 優先の dividend yield と、±5% で clip した
@@ -36,7 +41,7 @@ E[r] anchor には使わない。したがって、本監査は「earnings quali
 | `.cache/opportunity/2026-07-10-attempt-2/selection-output.yaml` | as-of 2026-07-10 | local-only / gitignore 対象 | audit pool 順位と E[r] |
 | `.cache/opportunity/2026-07-10-attempt-2/candidates.yaml` | as-of 2026-07-10 / run at 2026-07-12 20:54 JST | local-only / gitignore 対象 | PER、E[r] 成分、derived metric |
 | [`2026-07-04-preregistered-ranking-validation.md`](../2026-07-04-preregistered-ranking-validation/report.md) | design / confirm 6m | Git 管理の既存計測 | forward / trailing PER 軸比較 |
-| [`estimates.py`](../../../engine/src/baibai_engine/screening/estimates.py) | base commit `4fe6f180` | Git 管理 | 現行 E[r] contract |
+| [`estimates.py`](https://github.com/koumatsumoto/baibai-loop/blob/4fe6f180/engine/src/baibai_engine/screening/estimates.py) | base commit `4fe6f180` | Git 管理 | 現行 E[r] contract |
 
 検算時の SHA-256 は以下である。
 

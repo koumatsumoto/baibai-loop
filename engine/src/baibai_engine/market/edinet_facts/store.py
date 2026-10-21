@@ -9,10 +9,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.sqlite import connect_current, open_connection, record_source_coverage
+from baibai_engine.market.edinet_document_store import read_stored_documents
+from baibai_engine.storage.observations.coverage import record_source_coverage
+from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 from .extract import EXTRACTOR_REVISION
-from .models import DebtFact, ExtractedFacts, SegmentFact
+from .models import DebtFact, ExtractedFacts, FactIdentity, SegmentFact
 
 COVERAGE_SOURCE = "edinet_research_facts"
 
@@ -22,22 +24,7 @@ def document_inventory(path: Path, through: date) -> list[dict[str, Any]]:
     if connection is None:
         raise ValueError("EDINET document store is unavailable")
     try:
-        connection.row_factory = sqlite3.Row
-        return [
-            dict(row)
-            for row in connection.execute(
-                "SELECT doc_date, sequence_number AS seqNumber, doc_id AS docID, "
-                "sec_code AS secCode, doc_type_code AS docTypeCode, csv_flag AS csvFlag, "
-                "xbrl_flag AS xbrlFlag, legal_status AS legalStatus, "
-                "disclosure_status AS disclosureStatus, withdrawal_status AS withdrawalStatus, "
-                "doc_info_edit_status AS docInfoEditStatus, parent_doc_id AS parentDocID, "
-                "operation_datetime AS opeDateTime, submit_datetime AS submitDateTime, "
-                "doc_description AS docDescription, period_start AS periodStart, "
-                "period_end AS periodEnd "
-                "FROM edinet_documents WHERE doc_date <= ? ORDER BY doc_date, sequence_number",
-                (through.isoformat(),),
-            )
-        ]
+        return read_stored_documents(connection, through=through)
     finally:
         connection.close()
 
@@ -58,7 +45,9 @@ def extraction_status(path: Path) -> dict[str, tuple[str, str | None]]:
         connection.close()
 
 
-def store_facts(path: Path, *, doc_id: str, disclosed_on: str, facts: ExtractedFacts) -> None:
+def store_facts(path: Path, *, identity: FactIdentity, facts: ExtractedFacts) -> None:
+    doc_id = identity.source_doc_id
+    disclosed_on = identity.disclosed_on
     connection = open_connection(path)
     try:
         with connection:
@@ -75,6 +64,7 @@ def store_facts(path: Path, *, doc_id: str, disclosed_on: str, facts: ExtractedF
                 error=json.dumps(
                     {
                         "revision": EXTRACTOR_REVISION,
+                        "identity": identity.model_dump(),
                         "segment_reasons": facts.segment_reasons,
                         "debt_reasons": facts.debt_reasons,
                     },

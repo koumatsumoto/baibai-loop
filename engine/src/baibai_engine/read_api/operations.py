@@ -4,19 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from .sqlite import read_application_rows as read_rows
 
 OperationStatus = Literal["active", "completed"]
-
-
-def operation_session(path: Path, operation_id: str) -> dict[str, object] | None:
-    rows = read_rows(
-        path, "SELECT * FROM operation_session WHERE operation_id = ?", (operation_id,)
-    )
-    return _public(rows[0]) if rows else None
 
 
 def list_operation_sessions(
@@ -29,8 +23,12 @@ def list_operation_sessions(
     if status is not None:
         sql += " WHERE status = ?"
         parameters = (status,)
-    sql += " ORDER BY started_at DESC, operation_id DESC"
-    return [_public(row) for row in read_rows(path, sql, parameters)]
+    rows = sorted(
+        read_rows(path, sql, parameters),
+        key=lambda row: (datetime.fromisoformat(row["started_at"]), row["operation_id"]),
+        reverse=True,
+    )
+    return [_public(row) for row in rows]
 
 
 def _public(row: sqlite3.Row) -> dict[str, object]:
@@ -46,4 +44,4 @@ def _public(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
-__all__ = ["list_operation_sessions", "operation_session"]
+__all__ = ["list_operation_sessions"]

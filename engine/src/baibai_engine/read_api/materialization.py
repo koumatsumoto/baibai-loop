@@ -6,11 +6,13 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.appdb.read import connect_read_only as connect_application_read_only
-from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.macro.reading.rules import ReadingRulesError, load_reading_rules
-from baibai_engine.market.sqlite.read import connect_read_only as connect_market_read_only
-from baibai_engine.market.sqlite.schema import SQLiteSchemaError
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.reading.rules import ReadingRulesError, load_reading_rules
+from baibai_engine.storage.application.read import (
+    connect_read_only as connect_application_read_only,
+)
+from baibai_engine.storage.observations.read import connect_read_only as connect_market_read_only
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 from .sqlite import is_missing_table_error
 
@@ -50,16 +52,15 @@ def validate_market_store_hydration(path: Path) -> None:
     were emptied: the rows live in the L1 release and a reader fills them back before
     reading it. Emptying keeps the tables, so every query still answers — with nothing —
     and `source_coverage`, which the lake does not own, travels with the copy still
-    claiming the fetches. An export from that copy therefore writes valuations, daily
-    deltas and security views that carry no market price at all and read as complete,
-    while the ledger-observed fallbacks make them look merely a few days stale.
+    claiming the fetches. Exporting that copy would mistake an unhydrated store for
+    genuine missing market observations. Stop before writing views; ledger prices are
+    not a substitute for the current market source.
 
     The comparison is the merge's, one-directional (see `batch/OPERATIONS.md`,
     "merge が検査するもの"): a claim is only ever raised to the rows a store holds and
     never lowered, so an empty table under a positive claim is the unfilled state, while
     a table holding more than its windows claim is ordinary. Totals are deliberately not
-    compared — coverage windows overlap, and on the working store the daily-bars claim
-    exceeds the rows by 4.9M for that reason alone.
+    compared because coverage windows overlap and can count the same row repeatedly.
     """
 
     if not path.is_file():
@@ -67,7 +68,7 @@ def validate_market_store_hydration(path: Path) -> None:
     # Imported here rather than at module scope: the lake package pulls Arrow and DuckDB
     # in, and `read_api` is imported by every read-only consumer including the local API
     # server, while this validator runs once per export.
-    from baibai_engine.market.lake.datasets import LAKE_DATASETS
+    from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 
     uri = f"{path.resolve().as_uri()}?mode=ro"
     unfilled: list[str] = []
@@ -113,7 +114,7 @@ def validate_market_store_hydration(path: Path) -> None:
         )
 
 
-def validate_macro_reading_rules(path: Path) -> None:
+def validate_reading_rules(path: Path) -> None:
     """Require the trusted reading rules to resolve every registered series."""
 
     try:
@@ -127,7 +128,7 @@ def validate_macro_reading_rules(path: Path) -> None:
 __all__ = [
     "MaterializationPreconditionError",
     "validate_application_store_schema",
-    "validate_macro_reading_rules",
     "validate_market_store_hydration",
     "validate_market_store_schema",
+    "validate_reading_rules",
 ]

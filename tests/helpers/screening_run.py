@@ -10,6 +10,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
+
 
 class _Omitted:
     """Distinguishes "not asked for" from an explicit `None`."""
@@ -17,23 +20,23 @@ class _Omitted:
 
 OMIT = _Omitted()
 
-RULES_HASH = "rules-fixture"
+RULES_HASH = production_rules_contract_hash(load_screening_rules().model_dump_json())
 MODEL_ID = "expected-return-v1"
 
 
-def security_analysis(
+def stock_analysis(
     ticker: str = "1301",
     *,
     name: str = "極洋",
     sector_33: str = "水産・農林業",
     market_cap_oku: float = 1000.0,
     avg_turnover_oku: float = 10.0,
-    listing_span_days: int = 1000,
+    price_history_span_days: int = 1000,
     jpx_flags: Sequence[str] = (),
     metrics: Mapping[str, Any] | _Omitted | None = OMIT,
     **extra: Any,
 ) -> dict[str, Any]:
-    """One Security Analysis entry of a Screening Run payload.
+    """One Stock Analysis entry of a Screening Run payload.
 
     `metrics` has three states the store distinguishes and so does this: left out it
     carries the default reading, `{}` carries none, and `None` leaves the key off the
@@ -46,7 +49,7 @@ def security_analysis(
         "sector_33": sector_33,
         "market_cap_oku": market_cap_oku,
         "avg_turnover_oku": avg_turnover_oku,
-        "listing_span_days": listing_span_days,
+        "price_history_span_days": price_history_span_days,
         "jpx_flags": list(jpx_flags),
         **extra,
     }
@@ -65,12 +68,14 @@ def screening_run_payload(
     universe_size: int = 3744,
     rules_hash: str = RULES_HASH,
     model_id: str = MODEL_ID,
-    security_analyses: Sequence[Mapping[str, Any]] | None = None,
+    stock_analyses: Sequence[Mapping[str, Any]] | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """A complete run payload for `as_of`, ready to publish."""
 
     payload: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "stock_analysis_run",
         "run_id": run_id or f"screening-{as_of.replace('-', '')}",
         "run_date": as_of,
         "asof_date": as_of,
@@ -78,8 +83,9 @@ def screening_run_payload(
         "universe_size": universe_size,
         "screening_rules_hash": rules_hash,
         "er_model_version": model_id,
-        "security_analyses": [
-            dict(analysis) for analysis in (security_analyses or [security_analysis()])
+        "stock_analyses": [
+            dict(analysis)
+            for analysis in ([stock_analysis()] if stock_analyses is None else stock_analyses)
         ],
     }
     payload.update(extra)

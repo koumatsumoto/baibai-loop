@@ -1,10 +1,7 @@
-"""The instant the seeded research fixtures are judged against.
+"""時刻依存のfixtureを作成当時の固定時点で検証する。
 
-`tests/fixtures/thesis/2331-decision.yaml` carries a human evidence override with
-a hard-coded `expires_at`. Judged against the wall clock it lapses, and every test
-that publishes the fixture starts failing at that minute — the suite reports a
-clock reading as a defect. Passing this instant keeps the fixture describing the
-situation it was written for, so a failure means something changed.
+鮮度・有効期限をwall clockへ依存させず、保存されたfixtureとその検証時点の
+組合せを維持する。新しいfixtureは自身のas_ofに合う時点を明示する。
 """
 
 from __future__ import annotations

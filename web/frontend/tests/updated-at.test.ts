@@ -21,11 +21,12 @@ describe('UpdatedAtBadge', () => {
   })
 
   it.each([
-    ['MacroPage.tsx', 'data.latest_context?.published_at ?? null'],
-    ['MacroReportPage.tsx', 'data.published_at'],
-    ['StocksPage.tsx', 'data.run.generated_at'],
-    ['ResearchTriagePage.tsx', 'triage.published_at'],
-    ['CapitalAllocationAssessmentPage.tsx', 'data.published_at'],
+    ['MarketContextPage.tsx', 'context.published_at'],
+    ['AssessmentPage.tsx', 'data.published_at'],
+    ['ResearchPage.tsx', 'item.published_at'],
+    ['CandidateExplorationPage.tsx', 'data.run.generated_at'],
+    ['InvestmentProposalPage.tsx', 'data.published_at'],
+    ['StockAssessmentPage.tsx', 'data.revision.published_at'],
   ])('%s binds its primary update badge to a real publication or run timestamp', (page, value) => {
     const source = readFileSync(resolve(uiRoot, 'src/pages', page), 'utf8')
     expect(source).toContain(`<UpdatedAtBadge value={${value}}`)

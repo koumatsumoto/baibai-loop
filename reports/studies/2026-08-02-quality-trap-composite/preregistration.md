@@ -2,11 +2,13 @@
 title: "質・トラップ複合軸の事前登録"
 summary: "E[r] 上位帯を F-score 型の充足本数で層別し、1y/3y の trap と excess を計測する事前登録。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 質・トラップ複合軸の事前登録
+
+以下は当時の固定実装と panel schema による履歴であり、列の存続や現行の research 手順を保証しない。旧計測値を現在の計算 revision の結果として扱わない。
 
 価値tier: T1 — E[r] 上位帯のバリュートラップ率を下げ、深掘り research に入る候補の打率を上げる。
 
@@ -71,7 +73,7 @@ entry-to-exit の期間が design と confirm の間で重ならないよう、�
 
 ## 4. 交絡確認
 
-主検定と同じ E[r] top decile・high/low を、次の順で**すべて**独立に二分位層別する。各 control の非欠損行を cohort 内中央値で `<= median` / `> median` に分け、両質群が各5行以上ある strata だけを使う。stratum の重みは `min(high_n, low_n)` とし、high−low の stratum delta を重み付き平均する。多変量の交差 strata は top-decile の標本を空にするため作らず、各交絡候補を独立に反証する。
+主検定と同じ E[r] top decile・high/low を、次の順で**すべて**独立に二分位層別する。各 control の非欠損行を cohort 内中央値で `<= median` / `> median` に分け、両質群が各5行以上ある strata だけを使う。stratum の重みは `min(high_n, low_n)` とし、high−low の stratum delta を重み付き平均する。多変量の交差 strata は top-decile の標本を空にするため作らず、各交絡候補で別々に感度を確認する。同時調整や交絡の完全な除去は主張しない。
 
 | order | control field | 想定する交絡 |
 | --- | --- | --- |

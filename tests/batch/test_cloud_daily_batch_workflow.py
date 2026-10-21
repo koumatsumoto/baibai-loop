@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import unittest
@@ -20,6 +21,17 @@ def test_schedule_runs_at_1643_jst_on_weekdays() -> None:
     workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
     assert workflow["on"]["schedule"] == [{"cron": "43 7 * * 1-5"}]
+
+
+def test_acquisition_cutoff_is_set_before_work_and_reserves_publication_time() -> None:
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["daily"]
+    assert job["timeout-minutes"] == 90
+    cutoff = job["steps"][0]["run"]
+    assert "BAIBAI_ACQUISITION_DEADLINE" in cutoff
+    assert "date +%s" in cutoff
+    assert "35 * 60" in cutoff
+    assert '"$GITHUB_ENV"' in cutoff
 
 
 def _daily_batch_env() -> dict[str, str]:
@@ -87,7 +99,7 @@ def test_smoke_check_runs_before_setup_python_on_system_python(
     ids = [step.get("id") for step in steps]
     assert ids.index("smoke") < ids.index("setup")
     smoke_run = steps_by_id["smoke"]["run"]
-    # The import is what guarantees the stdlib-only contract.
+    # Pin the smoke import; this textual check alone does not prove stdlib-only use.
     assert "import baibai_batch.observability.discord" in smoke_run
 
 
@@ -136,52 +148,23 @@ def test_batch_step_writes_the_notice_and_finalizes_outputs_before_fatal_exit(
     assert "--notice-output" in batch_run
     # Outputs are echoed before the fatal exit so the notification step sees them.
     assert batch_run.index('echo "exit_code=$code"') < batch_run.index('exit "$code"')
-    assert 'echo "published=true"' in batch_run
-    assert 'echo "published=false"' in batch_run
+    assert 'echo "export_ready=true"' in batch_run
+    assert 'echo "export_ready=false"' in batch_run
 
 
-def test_upload_steps_run_only_when_published(steps_by_id: dict[str, dict]) -> None:
-    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.published == 'true'"
+def test_upload_steps_require_a_complete_local_export(steps_by_id: dict[str, dict]) -> None:
+    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.export_ready == 'true'"
 
 
 def test_the_durable_record_waits_for_the_store_and_the_views(
     steps_by_id: dict[str, dict],
 ) -> None:
-    """`history/` never deletes and `meta.json` is the freshness claim.
+    """Retained `history/` records past runs; `meta.json` is the freshness claim.
 
     Publishing either before the store holding this run is persisted would leave a
     permanent record of a run the store does not contain.
     """
     assert steps_by_id["publish-serving"]["if"] == "steps.upload-stores.outcome == 'success'"
-
-
-@pytest.mark.parametrize(
-    ("machine_exit", "views_exit"),
-    [(1, 0), (0, 1), (1, 1)],
-)
-def test_a_failed_upload_publishes_no_durable_record(
-    tmp_path: Path, steps_by_id: dict[str, dict], machine_exit: int, views_exit: int
-) -> None:
-    """The gating condition has to actually keep the tail stage from running.
-
-    A string comparison against the `if:` expression says nothing about what
-    reaches R2, and this is the property that keeps a run the store never received
-    from leaving a permanent record behind.
-    """
-    code, _outputs, _recorded = _run_upload_step(
-        tmp_path, steps_by_id, machine_exit=machine_exit, views_exit=views_exit
-    )
-    assert code != 0
-
-    # GitHub ANDs an implicit success() into a condition with no status function,
-    # so a non-zero step is enough to hold the tail back. Simulate that decision
-    # and confirm the tail command is the one it withholds.
-    condition = steps_by_id["publish-serving"]["if"]
-    tail_runs = condition == "steps.upload-stores.outcome == 'success'" and code == 0
-
-    assert tail_runs is False
-    assert "publish-serving-tail" in steps_by_id["publish-serving"]["run"]
-    assert "publish-serving-tail" not in steps_by_id["upload-stores"]["run"]
 
 
 def _run_upload_step(
@@ -272,7 +255,7 @@ def test_the_mirror_starts_only_after_the_store_push_finished(
         (1, 1, {"machine": "failure", "views": "skipped"}, 1),
     ],
 )
-def test_a_failed_store_push_fails_the_step_and_leaves_the_mirror_untouched(
+def test_failed_upload_reports_completed_and_skipped_stages(
     tmp_path: Path,
     steps_by_id: dict[str, dict],
     machine_exit: int,
@@ -289,6 +272,11 @@ def test_a_failed_store_push_fails_the_step_and_leaves_the_mirror_untouched(
     assert code != 0
     assert outputs == expected
     assert len(recorded) == sides_run
+    # This executes the upload shell, not GitHub's expression engine. The declared
+    # tail gate only permits a successful upload step, so these failures hold it back.
+    assert steps_by_id["publish-serving"]["if"] == "steps.upload-stores.outcome == 'success'"
+    assert "publish-serving-tail" in steps_by_id["publish-serving"]["run"]
+    assert "publish-serving-tail" not in steps_by_id["upload-stores"]["run"]
 
 
 def test_notify_is_the_single_notification_point_running_on_every_terminal_state(
@@ -325,7 +313,10 @@ def test_notify_step_name_keeps_the_channel_out_of_a_yaml_comment(
 ) -> None:
     # An unquoted ` #` starts a YAML comment, which would truncate the name to
     # "Notify Discord" in the Actions UI.
-    assert steps_by_id["notify"]["name"] == "Notify Discord #batch-runs"
+    assert (
+        steps_by_id["notify"]["name"]
+        == "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || 'unknown' }}"
+    )
 
 
 def test_webhook_secret_is_scoped_to_the_notify_step_alone(
@@ -355,10 +346,9 @@ def test_data_credentials_are_absent_from_job_and_setup_steps(
         for step in steps
         if restricted.intersection(step.get("env", {}))
     }
-    # The step digests in the drift gate can be regenerated, so they cannot on their
-    # own show that a change left the credential boundary where it was. This table
-    # is what shows it: every difference has to be a step appearing, disappearing or
-    # being renamed, never a step gaining a secret it did not hold.
+    # The generic drift gate enforces step-scoped credentials, not which step
+    # owns each credential. This exact mapping detects unintended expansion
+    # of the workflow's credential-bearing surface.
     assert holders == {
         "lease-acquire": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "pull": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
@@ -404,16 +394,121 @@ def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
     assert "${{ inputs." not in notify_run
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def test_daily_keeps_1643_schedule_without_tradingview_step_or_notice() -> None:
-    import yaml
-
-    workflow = yaml.load(WORKFLOW_PATH.read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert workflow["on"]["schedule"] == [{"cron": "43 7 * * 1-5"}]
     steps = workflow["jobs"]["daily"]["steps"]
     assert "tradingview" not in {step.get("id") for step in steps}
     notify = next(step for step in steps if step.get("id") == "notify")
     assert "--tradingview-outcome" not in notify["run"]
+
+
+def test_indicator_only_publication_keeps_the_existing_l1_release(
+    steps_by_id: dict[str, dict],
+) -> None:
+    assert steps_by_id["publish-lake"]["if"] == (
+        "steps.batch.outputs.export_ready == 'true' && steps.batch.outputs.market_updated == 'true'"
+    )
+    assert "market_updated=" in steps_by_id["batch"]["run"]
+    # The one existing complete store/view publication path also handles holidays.
+    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.export_ready == 'true'"
+
+
+@pytest.mark.parametrize(
+    ("notice_case", "expected_publish", "expected_warning"),
+    [
+        ("missing", True, True),
+        ("unreadable", True, True),
+        ("invalid_json", True, True),
+        ("invalid_field", True, True),
+        ("unknown_change", True, True),
+        ("false", False, False),
+        ("true", True, False),
+        ("invalid_asof", False, False),
+    ],
+)
+def test_daily_notice_only_explicit_false_skips_actual_lake_command(
+    tmp_path: Path,
+    steps_by_id: dict[str, dict],
+    notice_case: str,
+    expected_publish: bool,
+    expected_warning: bool,
+) -> None:
+    runner_temp = tmp_path / "runner"
+    runner_temp.mkdir()
+    notice = runner_temp / "batch-notice.json"
+    private_marker = "private-notice-content-must-not-be-printed"
+    if notice_case == "unreadable":
+        notice.mkdir()  # read_text raises OSError even when tests run as root.
+    elif notice_case == "invalid_json":
+        notice.write_text(private_marker)
+    elif notice_case == "invalid_field":
+        notice.write_text('{"market_updated":"false","private":"' + private_marker + '"}')
+    elif notice_case == "unknown_change":
+        notice.write_text(json.dumps({"market_updated": None}))
+    elif notice_case in {"false", "true"}:
+        notice.write_text(
+            json.dumps({"market_updated": notice_case == "true", "asof": "2026-10-14"})
+        )
+    elif notice_case == "invalid_asof":
+        notice.write_text(json.dumps({"market_updated": False, "asof": "2026-13-40"}))
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv = bin_dir / "uv"
+    uv.write_text(
+        '#!/usr/bin/env bash\nmkdir -p "$RUNNER_TEMP/serving/views"\n'
+        'printf "{}\\n" > "$RUNNER_TEMP/serving/views/meta.json"\n'
+    )
+    uv.chmod(0o755)
+    github_output = tmp_path / "outputs"
+    recorded = tmp_path / "lake-commands"
+    transfer = tmp_path / "batch/scripts/r2_transfer.sh"
+    transfer.parent.mkdir(parents=True)
+    transfer.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$1" >> "$RECORDED"\nprintf "{}\\n"\n')
+    transfer.chmod(0o755)
+    env = {
+        "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+        "RUNNER_TEMP": str(runner_temp),
+        "GITHUB_OUTPUT": str(github_output),
+        "GITHUB_EVENT_NAME": "schedule",
+        "MANUAL_ASOF": "",
+        "RECORDED": str(recorded),
+    }
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", steps_by_id["batch"]["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert private_marker not in result.stdout + result.stderr
+    assert result.stderr == (
+        "::warning::Daily notice unavailable or invalid; continuing L1 publication.\n"
+        if expected_warning
+        else ""
+    )
+    outputs = dict(line.split("=", 1) for line in github_output.read_text().splitlines())
+    assert outputs["exit_code"] == "0"
+    assert outputs["export_ready"] == "true"
+    assert outputs["market_updated"] == str(expected_publish).lower()
+    assert outputs["asof"] == ("2026-10-14" if notice_case in {"false", "true"} else "unknown")
+    if outputs["export_ready"] == "true" and outputs["market_updated"] == "true":
+        publish = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", steps_by_id["publish-lake"]["run"]],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert publish.returncode == 0
+    assert recorded.exists() is expected_publish
+    if expected_publish:
+        assert recorded.read_text().splitlines() == ["publish-lake"]
+
+
+if __name__ == "__main__":
+    unittest.main()

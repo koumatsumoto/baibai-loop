@@ -7,17 +7,15 @@ that as an observation it can no longer make rather than as the filing saying no
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from datetime import date
+from contextlib import closing
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from baibai_engine.market.sqlite.ingest import open_connection, store_edinet_documents
-from baibai_engine.market.sqlite.schema import (
-    EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
-    EDINET_DOCUMENT_IDENTITY_COLUMNS,
-    EDINET_DOCUMENT_LIFECYCLE_COLUMNS,
-    EDINET_DOCUMENT_RETAINED_COLUMNS,
-)
+from baibai_engine.collection.edinet.receipts import retain_list_response
+from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
+from baibai_engine.storage.observations.schema import open_connection
 
 _DAY = date(2026, 5, 1)
 
@@ -73,6 +71,25 @@ def _read(path: Path) -> dict[str, str | None]:
 def _empty_store(path: Path) -> Path:
     open_connection(path).close()
     return path
+
+
+def store_edinet_documents(path: Path, on_date: date, records: list[dict[str, object]]) -> None:
+    """Exercise historical carry from retained native responses, never prior L2."""
+    body = json.dumps(
+        {"metadata": {"resultset": {"count": len(records)}}, "results": records}
+    ).encode()
+    with closing(open_connection(path)) as conn:
+        count = conn.execute(
+            "SELECT count(*) FROM edinet_list_responses WHERE doc_date = ?",
+            (on_date.isoformat(),),
+        ).fetchone()[0]
+        retain_list_response(
+            conn,
+            doc_date=on_date,
+            received_at=datetime(2026, 6, 1, tzinfo=UTC) + timedelta(seconds=count),
+            body=body,
+        )
+    assert rebuild_edinet_document_day(path, on_date).error is None
 
 
 def test_a_relisted_day_keeps_the_description_the_expired_response_no_longer_carries(
@@ -133,7 +150,7 @@ def test_a_withdrawal_observed_on_a_later_list_replaces_the_stored_status(
 def test_a_served_response_fills_a_row_first_stored_after_its_period_ended(
     tmp_path: Path,
 ) -> None:
-    """A store that first read the day late holds nulls no fetch can fill later."""
+    """A retained served response can fill a copy that only observed expired fields."""
 
     store = _empty_store(tmp_path / "market.sqlite")
     store_edinet_documents(store, _DAY, [_EXPIRED])
@@ -238,7 +255,7 @@ def test_two_positions_sharing_a_document_id_expire_without_mixing(tmp_path: Pat
 def test_a_column_outside_the_two_classifications_takes_the_new_answer(
     tmp_path: Path,
 ) -> None:
-    """Only the five columns EDINET withdraws on expiry survive a blanking response."""
+    """Only the retained descriptive and identity columns survive a blanking response."""
 
     store = _empty_store(tmp_path / "market.sqlite")
     store_edinet_documents(store, _DAY, [{**_SERVED, "opeDateTime": "2026-05-01 15:50"}])
@@ -246,19 +263,3 @@ def test_a_column_outside_the_two_classifications_takes_the_new_answer(
     store_edinet_documents(store, _DAY, [_EXPIRED])
 
     assert _read(store)["operation_datetime"] is None
-
-
-def test_the_retained_columns_are_the_ones_the_schema_classifies(tmp_path: Path) -> None:
-    """The ingest reads a fixed column list; this pins it to the classification."""
-
-    store = _empty_store(tmp_path / "market.sqlite")
-    store_edinet_documents(store, _DAY, [_SERVED])
-    store_edinet_documents(store, _DAY, [_EXPIRED])
-
-    row = _read(store)
-    retained = {column for column in EDINET_DOCUMENT_RETAINED_COLUMNS if row[column] is not None}
-    assert retained == set(EDINET_DOCUMENT_RETAINED_COLUMNS)
-    assert set(EDINET_DOCUMENT_RETAINED_COLUMNS) == (
-        set(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS) | set(EDINET_DOCUMENT_IDENTITY_COLUMNS)
-    )
-    assert set(EDINET_DOCUMENT_RETAINED_COLUMNS) & set(EDINET_DOCUMENT_LIFECYCLE_COLUMNS) == set()

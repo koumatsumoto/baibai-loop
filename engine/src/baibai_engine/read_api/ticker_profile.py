@@ -4,51 +4,36 @@ The profile is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
 universe), benchmark- and sector-relative momentum, the market benchmark_trend at the
 evaluation date, event facts (next earnings, JPX
-regulation), the ticker's latest recorded Security Analysis, and prior research
-decisions. Every field is a deterministic transform of stored data; the profile
-contains no interpretation and no composite score.
+regulation), the ticker's latest recorded Stock Analysis, and confirmed portfolio
+holdings. Every field is a deterministic transform of stored data; the profile
+contains no interpretation and no composite score. The portfolio block retains
+its independent ledger_as_of; this is not an as-of replay of holdings.
 
 Valuation metrics are quoted from the Screening Run rather than recomputed, so
-the profile never disagrees with its Security Analysis. Absence is explicit.
+the profile never disagrees with its Stock Analysis. Absence is explicit.
 """
 
 from __future__ import annotations
 
-import math
-import sqlite3
-import statistics
-from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from baibai_engine.market.sqlite.reader import read_jpx_earnings_calendar_snapshot
+from baibai_engine.external_assessment.query import external_assessment
+from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.market_context.benchmark import NIKKEI225_ETF_PROXY
+from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.read_api.position import (
     portfolio_ledger_document,
     replay_events_through,
     summarize_portfolio,
 )
-from baibai_engine.screening.benchmark_trend import compute_benchmark_trend
-from baibai_engine.screening.metrics import VALUATION_HISTORY_SESSIONS
 from baibai_engine.screening.run_store import ScreeningRunReader
-
-_BENCHMARK_TICKER = "1321"
-# The same self-range window the metrics build uses, so the two cannot drift apart.
-_SELF_RANGE_WINDOW_BARS = VALUATION_HISTORY_SESSIONS
-_WEEK_52_WINDOW_BARS = 252
-_VOL_WINDOW_BARS = 20
-_TURNOVER_WINDOW_BARS = 20
-_RETURN_WINDOWS_BARS: tuple[int, ...] = (1, 5, 20, 60)
-_PEER_RETURN_WINDOW_BARS = 20
-
-_TICKER_LOOKBACK_CALENDAR_DAYS = 1130
-
-
-@dataclass(frozen=True, slots=True)
-class _Bar:
-    traded_at: date
-    price: float
-    turnover_value: float | None
+from baibai_engine.storage.observations.reader import (
+    read_jpx_earnings_calendar_snapshot,
+    read_jpx_regulations,
+)
+from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 
 
 def build_ticker_profile(
@@ -59,40 +44,35 @@ def build_ticker_profile(
     runs_db_path: Path,
     app_db_path: Path,
     run_revision_id: str | None = None,
-    benchmark_ticker: str = _BENCHMARK_TICKER,
+    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
 ) -> dict[str, object]:
     """Assemble the deterministic fact profile for ``ticker``."""
-    bars = _load_bars(
-        sqlite_path,
-        tickers=(ticker,),
-        start=asof_date - timedelta(days=_TICKER_LOOKBACK_CALENDAR_DAYS),
-        end=asof_date,
-    ).get(ticker, [])
-    master = _load_master_row(sqlite_path, ticker)
-    sector = master.get("sector_33") if master else None
-    benchmark_trend = compute_benchmark_trend(
-        sqlite_path, asof_date, benchmark_ticker=benchmark_ticker
+    market_context = build_security_market_context(
+        sqlite_path=sqlite_path,
+        ticker=ticker,
+        asof_date=asof_date,
+        self_range_window_bars=VALUATION_HISTORY_SESSIONS,
+        benchmark_ticker=benchmark_ticker,
     )
-    screening_context = _load_security_analysis_context(
+    master = market_context["master"]
+    sector = master.get("sector_33") if isinstance(master, dict) else None
+    screening_context = _load_stock_analysis_context(
         runs_db_path,
         ticker,
         asof_date,
         run_revision_id=run_revision_id,
     )
+    cutoff = datetime.combine(asof_date, time.max, ZoneInfo("Asia/Tokyo"))
     return {
-        "ticker": ticker,
-        "asof": asof_date.isoformat(),
-        "master": master,
-        "price": _price_block(bars),
-        "relative": _relative_block(
+        "external_assessment": external_assessment(
             sqlite_path,
             ticker=ticker,
-            bars=bars,
-            sector=sector if isinstance(sector, str) else None,
-            asof_date=asof_date,
-            benchmark_ticker=benchmark_ticker,
-        ),
-        "benchmark_trend": benchmark_trend.to_dict() if benchmark_trend is not None else None,
+            cutoff=cutoff,
+            evaluated_at=cutoff,
+        ).model_dump(mode="json"),
+        "ticker": ticker,
+        "asof": asof_date.isoformat(),
+        **market_context,
         "events": {
             "next_earnings_date": _next_earnings_date(sqlite_path, ticker, asof_date),
             "jpx_regulation": _jpx_flags(sqlite_path, ticker, asof_date),
@@ -103,117 +83,6 @@ def build_ticker_profile(
             ticker=ticker,
             sector=sector if isinstance(sector, str) else None,
         ),
-    }
-
-
-def _price_block(bars: Sequence[_Bar]) -> dict[str, object] | None:
-    if not bars:
-        return None
-    prices = [bar.price for bar in bars]
-    current = prices[-1]
-    returns = {
-        f"return_{window}d": _trailing_return(prices, window) for window in _RETURN_WINDOWS_BARS
-    }
-    window_52w = prices[-_WEEK_52_WINDOW_BARS:]
-    high_52w = max(window_52w)
-    low_52w = min(window_52w)
-    range_window = prices[-_SELF_RANGE_WINDOW_BARS:]
-    turnover = [
-        bar.turnover_value
-        for bar in bars[-_TURNOVER_WINDOW_BARS:]
-        if bar.turnover_value is not None
-    ]
-    return {
-        "resolved_date": bars[-1].traded_at.isoformat(),
-        "close": current,
-        "price_basis": "adjusted_close_preferred",
-        **returns,
-        "high_52w": high_52w,
-        "low_52w": low_52w,
-        "gap_from_52w_low": (current / low_52w - 1) if low_52w else None,
-        "gap_from_52w_high": (current / high_52w - 1) if high_52w else None,
-        "self_range_percentile": (
-            sum(1 for price in range_window if price <= current) / len(range_window)
-        ),
-        "self_range_window_bars": len(range_window),
-        "realized_vol_20d": _realized_vol(prices),
-        "avg_turnover_20d_oku": (
-            statistics.fmean(turnover) / 1e8
-            if len(turnover) >= _TURNOVER_WINDOW_BARS // 2
-            else None
-        ),
-        "bar_count": len(bars),
-    }
-
-
-def _relative_block(
-    sqlite_path: Path,
-    *,
-    ticker: str,
-    bars: Sequence[_Bar],
-    sector: str | None,
-    asof_date: date,
-    benchmark_ticker: str,
-) -> dict[str, object] | None:
-    if not bars:
-        return None
-    prices = [bar.price for bar in bars]
-    benchmark_bars = _load_bars(
-        sqlite_path,
-        tickers=(benchmark_ticker,),
-        start=bars[-min(len(bars), max(_RETURN_WINDOWS_BARS) + 1)].traded_at,
-        end=asof_date,
-    ).get(benchmark_ticker, [])
-    benchmark_prices = {bar.traded_at: bar.price for bar in benchmark_bars}
-    versus_benchmark = {}
-    for window in _RETURN_WINDOWS_BARS:
-        own = _trailing_return(prices, window)
-        bench = _endpoint_return(benchmark_prices, _window_endpoints(bars, window))
-        versus_benchmark[f"relative_{window}d"] = (
-            own - bench if own is not None and bench is not None else None
-        )
-    return {
-        "benchmark_ticker": benchmark_ticker,
-        **versus_benchmark,
-        "sector": _sector_block(
-            sqlite_path, ticker=ticker, bars=bars, sector=sector, asof_date=asof_date
-        )
-        if sector
-        else None,
-    }
-
-
-def _sector_block(
-    sqlite_path: Path,
-    *,
-    ticker: str,
-    bars: Sequence[_Bar],
-    sector: str,
-    asof_date: date,
-) -> dict[str, object] | None:
-    endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
-    if endpoints is None:
-        return None
-    peers = _sector_peers(sqlite_path, sector=sector, exclude=ticker)
-    if not peers:
-        return None
-    bars_by_ticker = _load_bars(
-        sqlite_path,
-        tickers=tuple(peers),
-        start=endpoints[0],
-        end=asof_date,
-    )
-    returns = []
-    for peer_bars in bars_by_ticker.values():
-        peer_return = _endpoint_return({bar.traded_at: bar.price for bar in peer_bars}, endpoints)
-        if peer_return is not None:
-            returns.append(peer_return)
-    if not returns:
-        return None
-    return {
-        "sector_33": sector,
-        "peer_count": len(returns),
-        "peer_median_return_20d": statistics.median(returns),
     }
 
 
@@ -249,6 +118,7 @@ def _portfolio_block(
             }
         )
     return {
+        "ledger_as_of": document.as_of.isoformat(),
         "open_position_count": len(positions),
         "holds_this_ticker": holds_this_ticker,
         "same_sector_position_count": sum(
@@ -263,6 +133,7 @@ def _portfolio_block(
 
 def _empty_portfolio_block() -> dict[str, object]:
     return {
+        "ledger_as_of": None,
         "open_position_count": 0,
         "holds_this_ticker": False,
         "same_sector_position_count": 0,
@@ -271,7 +142,7 @@ def _empty_portfolio_block() -> dict[str, object]:
     }
 
 
-def _load_security_analysis_context(
+def _load_stock_analysis_context(
     runs_db_path: Path,
     ticker: str,
     asof_date: date,
@@ -281,47 +152,37 @@ def _load_security_analysis_context(
     if not runs_db_path.is_file():
         return {
             "screening_run_revision_id": None,
-            "has_security_analysis": False,
+            "has_stock_analysis": False,
             "note": "no screening run on or before asof",
         }
     reader = ScreeningRunReader(runs_db_path)
-    if run_revision_id is not None:
-        run = reader.get_run(run_revision_id)
-        if run is not None and run.as_of_date > asof_date.isoformat():
-            raise ValueError(
-                "screening run as-of is after ticker-profile asof: "
-                f"{run.as_of_date} > {asof_date.isoformat()}"
-            )
-    else:
-        run = reader.latest_run()
-        if run is not None and run.as_of_date > asof_date.isoformat():
-            run = None
+    run = reader.valuation_run(as_of=asof_date, run_revision_id=run_revision_id)
     if run is None:
         if run_revision_id is not None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
         return {
             "screening_run_revision_id": None,
-            "has_security_analysis": False,
+            "has_stock_analysis": False,
             "note": "no screening run on or before asof",
         }
-    security_analyses = run.security_analyses
-    security_analysis = None
-    if isinstance(security_analyses, Sequence):
-        security_analysis = next(
-            (item for item in security_analyses if item.get("ticker") == ticker),
+    stock_analyses = run.stock_analyses
+    stock_analysis = None
+    if stock_analyses:
+        stock_analysis = next(
+            (item for item in stock_analyses if item.get("ticker") == ticker),
             None,
         )
     block: dict[str, object] = {
         "screening_run_revision_id": run.run_revision_id,
         "screening_run_as_of": run.as_of_date,
-        "has_security_analysis": security_analysis is not None,
+        "has_stock_analysis": stock_analysis is not None,
     }
-    if security_analysis is not None:
-        block["security_analysis"] = dict(security_analysis)
+    if stock_analysis is not None:
+        block["stock_analysis"] = dict(stock_analysis)
     else:
         block["note"] = (
-            "ticker has no Security Analysis in the recorded Screening Run "
-            "(outside the recorded run scope or no retained Security Analysis)"
+            "ticker has no Stock Analysis in the recorded Screening Run "
+            "(outside the recorded run scope or no retained Stock Analysis)"
         )
     return block
 
@@ -342,164 +203,20 @@ def _next_earnings_date(sqlite_path: Path, ticker: str, asof_date: date) -> str 
 
 
 def _jpx_flags(sqlite_path: Path, ticker: str, asof_date: date) -> dict[str, object]:
-    snapshot_row = _query_one(
+    # A successfully acquired empty snapshot supersedes older flags too.
+    snapshot_rows = read_rows(
         sqlite_path,
-        "SELECT MAX(asof_date) FROM jpx_regulation_flags WHERE asof_date <= ?",
+        "SELECT MAX(coverage_end) FROM source_coverage "
+        "WHERE source = 'jpx_regulation_flags' AND status = 'ok' AND coverage_end <= ?",
         (asof_date.isoformat(),),
     )
-    snapshot_date = snapshot_row[0] if snapshot_row and isinstance(snapshot_row[0], str) else None
+    snapshot_date = snapshot_rows[0][0] if snapshot_rows else None
     if snapshot_date is None:
         return {"snapshot_date": None, "flags": []}
-    rows = _query_all(
-        sqlite_path,
-        "SELECT DISTINCT flag FROM jpx_regulation_flags WHERE ticker = ? AND asof_date = ?",
-        (ticker, snapshot_date),
-    )
+    snapshot = read_jpx_regulations(sqlite_path, date.fromisoformat(str(snapshot_date)))
+    if snapshot is None:
+        return {"snapshot_date": None, "flags": []}
     return {
-        "snapshot_date": snapshot_date,
-        "flags": sorted(str(row[0]) for row in rows if row[0]),
+        "snapshot_date": str(snapshot_date),
+        "flags": sorted(set(snapshot.flags_by_ticker.get(ticker, ()))),
     }
-
-
-def _load_master_row(sqlite_path: Path, ticker: str) -> dict[str, object] | None:
-    row = _query_one(
-        sqlite_path,
-        "SELECT name, market, sector_33, is_common_stock FROM jquants_master_snapshots "
-        "WHERE ticker = ? AND snapshot_date = (SELECT MAX(snapshot_date) "
-        "FROM jquants_master_snapshots WHERE snapshot_date != 'unknown')",
-        (ticker,),
-    )
-    if row is None:
-        return None
-    name, market, sector_33, is_common = row
-    return {
-        "name": str(name or ""),
-        "market_segment": str(market or ""),
-        "sector_33": str(sector_33 or ""),
-        "is_common_stock": bool(is_common),
-    }
-
-
-def _sector_peers(sqlite_path: Path, *, sector: str, exclude: str) -> list[str]:
-    rows = _query_all(
-        sqlite_path,
-        "SELECT ticker FROM jquants_master_snapshots WHERE sector_33 = ? AND ticker != ? "
-        "AND snapshot_date = (SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
-        "WHERE snapshot_date != 'unknown') ORDER BY ticker",
-        (sector, exclude),
-    )
-    return [str(row[0]) for row in rows]
-
-
-def _window_endpoints(bars: Sequence[_Bar], window_bars: int) -> tuple[date, date] | None:
-    if len(bars) < window_bars + 1:
-        return None
-    return bars[-(window_bars + 1)].traded_at, bars[-1].traded_at
-
-
-def _endpoint_return(
-    prices: dict[date, float], endpoints: tuple[date, date] | None
-) -> float | None:
-    """Compare exact target dates; missing endpoints must not be filled."""
-    if endpoints is None:
-        return None
-    start, end = (prices.get(endpoint) for endpoint in endpoints)
-    if start is None or start == 0 or end is None:
-        return None
-    return end / start - 1
-
-
-def _trailing_return(prices: Sequence[float], window_bars: int) -> float | None:
-    if len(prices) < window_bars + 1:
-        return None
-    past = prices[-(window_bars + 1)]
-    if past == 0:
-        return None
-    return prices[-1] / past - 1
-
-
-def _realized_vol(prices: Sequence[float]) -> float | None:
-    window = prices[-(_VOL_WINDOW_BARS + 1) :]
-    if len(window) < _VOL_WINDOW_BARS + 1:
-        return None
-    daily_returns = [
-        window[index] / window[index - 1] - 1
-        for index in range(1, len(window))
-        if window[index - 1] != 0
-    ]
-    if len(daily_returns) < 2:
-        return None
-    return statistics.stdev(daily_returns) * math.sqrt(252)
-
-
-def _load_bars(
-    sqlite_path: Path,
-    *,
-    tickers: Sequence[str],
-    start: date,
-    end: date,
-) -> dict[str, list[_Bar]]:
-    if not tickers or not sqlite_path.exists():
-        return {}
-    # placeholders is only "?,?,..." markers; ticker values are bound parameters
-    # in conn.execute, so the f-string is not an injection vector.
-    placeholders = ",".join("?" for _ in tickers)
-    query = (
-        "SELECT ticker, traded_at, close, adjustment_factor, turnover_value "  # nosec B608
-        "FROM jquants_daily_bars "
-        f"WHERE traded_at >= ? AND traded_at <= ? AND ticker IN ({placeholders}) "
-        "ORDER BY ticker, traded_at"
-    )
-    rows = _query_all(sqlite_path, query, (start.isoformat(), end.isoformat(), *tickers))
-    # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
-    # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
-    raw: dict[str, list[tuple[date, float | None, float | None, float | None]]] = {}
-    for ticker, traded_at, close, adjustment_factor, turnover_value in rows:
-        if not isinstance(traded_at, str):
-            continue
-        raw.setdefault(str(ticker), []).append(
-            (
-                date.fromisoformat(traded_at),
-                float(close) if isinstance(close, int | float) else None,
-                float(adjustment_factor) if isinstance(adjustment_factor, int | float) else None,
-                float(turnover_value) if isinstance(turnover_value, int | float) else None,
-            )
-        )
-    bars: dict[str, list[_Bar]] = {}
-    for ticker, entries in raw.items():
-        factor = 1.0
-        normalized: list[_Bar] = []
-        for traded_at, close, adjustment_factor, turnover_value in reversed(entries):
-            if close is not None:
-                normalized.append(
-                    _Bar(traded_at=traded_at, price=close * factor, turnover_value=turnover_value)
-                )
-            if adjustment_factor not in (None, 0.0, 1.0):
-                assert adjustment_factor is not None
-                factor *= adjustment_factor
-        normalized.reverse()
-        bars[ticker] = normalized
-    return bars
-
-
-def _query_one(
-    sqlite_path: Path,
-    query: str,
-    params: tuple[object, ...],
-) -> tuple[object, ...] | None:
-    rows = _query_all(sqlite_path, query, params)
-    return rows[0] if rows else None
-
-
-def _query_all(
-    sqlite_path: Path,
-    query: str,
-    params: tuple[object, ...],
-) -> list[tuple[object, ...]]:
-    if not sqlite_path.exists():
-        return []
-    conn = sqlite3.connect(sqlite_path)
-    try:
-        return conn.execute(query, params).fetchall()
-    finally:
-        conn.close()

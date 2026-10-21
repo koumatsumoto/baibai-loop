@@ -10,7 +10,7 @@ stays reachable at its own module.
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    MACRO_DB_PATH,
+    INDICATORS_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     StoreLayoutError,
@@ -18,33 +18,17 @@ from baibai_engine.foundation.repository_layout import (
     repository_root_error,
 )
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market_context.master import read_master_snapshot as market_master_snapshot
 from baibai_engine.position.ledger import (
     HoldingSnapshot,
     PortfolioLedgerError,
     PortfolioSnapshot,
 )
 
-from .capital_allocation import (
-    capital_allocation_assessment_payload,
-    list_capital_allocation_assessment_payloads,
-)
 from .freshness import (
     application_db_updated_at,
-    macro_latest_observed_at,
+    indicator_latest_observed_at,
     screening_latest_asof,
-)
-from .macro import (
-    MACRO_CONTEXT_STALE_DAYS,
-    MACRO_READING_RULES_PATH,
-    MacroGranularity,
-    latest_macro_context_payload,
-    list_macro_context_payloads,
-    macro_context_payload,
-    macro_indicator_series,
-    macro_reading_snapshot,
-    macro_registered_series,
-    macro_series_fetch_health,
-    macro_series_names,
 )
 from .market import (
     close_change_since,
@@ -54,35 +38,49 @@ from .market import (
     market_calendar_business_day,
     next_earnings_dates,
     previous_business_day,
-    worst_close_drawdown,
+)
+from .market_context import (
+    ASSESSMENT_STALE_DAYS,
+    READING_RULES_PATH,
+    IndicatorGranularity,
+    assessment_payload,
+    indicator_fetch_health,
+    indicator_series,
+    indicator_series_names,
+    latest_assessment_payload,
+    list_assessment_payloads,
+    reading_snapshot,
+    registered_indicator,
 )
 from .materialization import (
     MaterializationPreconditionError,
     validate_application_store_schema,
-    validate_macro_reading_rules,
     validate_market_store_hydration,
     validate_market_store_schema,
+    validate_reading_rules,
 )
 from .operations import list_operation_sessions
-from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
-from .research import (
-    list_position_review_publications,
-    list_thesis_publications,
-    list_thesis_review_publications,
-    thesis_publication,
+from .position import (
+    list_portfolio_outcome_payloads,
+    portfolio_ledger_document,
+    price_comparison_basis_is_confirmed,
 )
-from .research_triage import (
-    current_research_triage,
-    latest_research_triage_payload,
-    list_research_triage_payloads,
-    research_triage_payload,
-    research_triage_payload_hash,
-    research_triage_payloads_for_review_set,
+from .proposals import (
+    investment_proposal_payload,
+    list_investment_proposal_payloads,
+    preview_current_proposal_terms,
+)
+from .research import (
+    list_assessment_review_publications,
+    list_stock_assessment_publications,
+    stock_assessment_publication,
 )
 from .screening import (
+    candidate_rows,
+    interpreted_next_earnings_status,
     previous_run_revision_id,
+    reinvestment_coordinates,
     screening_calibration_method_identity,
-    screening_review_set_payloads,
     screening_run_asof_dates,
     screening_run_payload,
 )
@@ -90,70 +88,77 @@ from .tasks import list_task_payloads, task_store_exists
 
 __all__ = [
     "APPLICATION_DB_PATH",
+    "ASSESSMENT_STALE_DAYS",
     "ER_LEVEL_CALIBRATION_CONTEXT_PATH",
-    "MACRO_CONTEXT_STALE_DAYS",
-    "MACRO_DB_PATH",
-    "MACRO_READING_RULES_PATH",
+    "INDICATORS_DB_PATH",
     "MARKET_DB_PATH",
+    "READING_RULES_PATH",
     "RUNS_DB_PATH",
     "HoldingSnapshot",
-    "MacroGranularity",
+    "IndicatorGranularity",
     "MaterializationPreconditionError",
     "PortfolioLedgerError",
     "PortfolioSnapshot",
     "StoreLayoutError",
+    "StoredMachineValuation",
+    "anchor_gap_pct",
     "application_db_updated_at",
-    "capital_allocation_assessment_payload",
+    "assessment_payload",
+    "candidate_rows",
     "close_change_since",
     "current_portfolio",
-    "current_research_triage",
+    "indicator_fetch_health",
+    "indicator_latest_observed_at",
+    "indicator_series",
+    "indicator_series_names",
+    "interpreted_next_earnings_status",
+    "investment_proposal_payload",
+    "latest_assessment_payload",
     "latest_disclosure_dates_after",
-    "latest_macro_context_payload",
     "latest_market_bar_date",
-    "latest_research_triage_payload",
     "latest_unadjusted_closes",
-    "list_capital_allocation_assessment_payloads",
-    "list_macro_context_payloads",
+    "list_assessment_payloads",
+    "list_assessment_review_publications",
+    "list_investment_proposal_payloads",
     "list_operation_sessions",
     "list_portfolio_outcome_payloads",
-    "list_position_review_publications",
-    "list_research_triage_payloads",
+    "list_stock_assessment_publications",
     "list_task_payloads",
-    "list_thesis_publications",
-    "list_thesis_review_publications",
-    "macro_context_payload",
-    "macro_indicator_series",
-    "macro_latest_observed_at",
-    "macro_reading_snapshot",
-    "macro_registered_series",
-    "macro_series_fetch_health",
-    "macro_series_names",
+    "machine_valuation_from_analysis",
     "market_calendar_business_day",
+    "market_master_snapshot",
     "next_earnings_dates",
     "portfolio_ledger_document",
+    "preview_current_proposal_terms",
     "previous_business_day",
     "previous_run_revision_id",
+    "price_comparison_basis_is_confirmed",
+    "reading_snapshot",
+    "registered_indicator",
+    "reinvestment_coordinates",
     "reject_noncanonical_store_paths",
     "repository_root_error",
-    "research_triage_payload",
-    "research_triage_payload_hash",
-    "research_triage_payloads_for_review_set",
-    "reviewed_thesis_projection",
+    "reviewed_assessment_projection",
     "safe_load",
     "screening_calibration_method_identity",
     "screening_latest_asof",
-    "screening_review_set_payloads",
     "screening_run_asof_dates",
     "screening_run_payload",
+    "stock_assessment_publication",
+    "stored_machine_valuation",
     "task_store_exists",
-    "thesis_publication",
     "validate_application_store_schema",
-    "validate_macro_reading_rules",
     "validate_market_store_hydration",
     "validate_market_store_schema",
-    "worst_close_drawdown",
+    "validate_reading_rules",
 ]
 
 from baibai_engine.read_api.position import current_portfolio
 
-from .research import reviewed_thesis_projection
+from .research import reviewed_assessment_projection
+from .valuation import (
+    StoredMachineValuation,
+    anchor_gap_pct,
+    machine_valuation_from_analysis,
+    stored_machine_valuation,
+)

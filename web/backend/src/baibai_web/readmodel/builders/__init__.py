@@ -10,5 +10,4 @@ from .presentation import number as number
 from .presentation import percentage as percentage
 from .presentation import security_names_for_run as security_names_for_run
 from .presentation import text as text
-from .presentation import upcoming_events as upcoming_events
 from .tasks import build_tasks as build_tasks

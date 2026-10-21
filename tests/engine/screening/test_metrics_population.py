@@ -1,30 +1,19 @@
 from __future__ import annotations
 
 import unittest
-from datetime import timedelta
+from datetime import date, timedelta
 
-from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.screening.metrics import (
-    MetricBuildResult,
-    build_metrics,
-)
+from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.screening.metrics.snapshot import MetricBuildResult, build_metrics
 
 
 class MedianPopulationTests(unittest.TestCase):
     def test_sector_median_uses_only_population_tickers(self) -> None:
-        from datetime import date as _date
-
-        from baibai_engine.market.bars import JQuantsDailyBar
-        from baibai_engine.market.jquants_models import (
-            JQuantsFinancialSummary,
-        )
-
-        asof = _date(2026, 4, 24)
+        asof = date(2026, 4, 24)
 
         def bars(code: str, close: float) -> list[JQuantsDailyBar]:
-
             return [
                 JQuantsDailyBar(
                     ticker=code,
@@ -39,14 +28,14 @@ class MedianPopulationTests(unittest.TestCase):
             shares = 1e8
             return JQuantsFinancialSummary(
                 ticker=code,
-                disclosed_at=_date(2026, 2, 1),
+                disclosed_at=date(2026, 2, 1),
                 eps_ttm=eps,
                 profit=eps * shares,
                 shares_outstanding=shares,
                 treasury_shares=0.0,
-                type_of_current_period="FY",
-                period_start=_date(2025, 1, 1),
-                period_end=_date(2025, 12, 31),
+                fiscal_period="FY",
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
             )
 
         securities = {
@@ -61,9 +50,11 @@ class MedianPopulationTests(unittest.TestCase):
             for code in [f"11{i:02d}" for i in range(12)]
         }
         bars_by = {code: bars(code, close=100.0) for code in securities}
-        # Liquid population PERs are all 10 (eps 10); the out-of-population
-        # ticker has PER 100 (eps 1) and would distort the median if included.
-        summaries = {code: [summary(code, eps=10.0)] for code in securities}
+        # Selected population PERs range from 5 to 15 (median 10). Including
+        # the outsider at PER 100 changes the median to 10.5.
+        summaries = {
+            code: [summary(code, eps=100.0 / (5 + index))] for index, code in enumerate(securities)
+        }
         summaries["1111"] = [summary("1111", eps=1.0)]
         population = frozenset(code for code in securities if code != "1111")
 
@@ -78,7 +69,7 @@ class MedianPopulationTests(unittest.TestCase):
 
         gap = result.derived["1111"].sector_median_gap.get("per_trailing")
         assert gap is not None
-        # PER 100 vs liquid-population median 10 -> gap = 9.0; a full-population
+        # PER 100 vs selected-population median 10 -> gap = 9.0; a full-population
         # median would shift the baseline and lower the gap.
         self.assertAlmostEqual(gap, 9.0, places=6)
 
@@ -90,15 +81,8 @@ class MedianPopulationTests(unittest.TestCase):
         answers is then readable from the gap alone, and the basis label has to agree
         with it.
         """
-        from datetime import date as _date
 
-        from baibai_engine.market.bars import JQuantsDailyBar
-        from baibai_engine.market.jquants_models import (
-            JQuantsFinancialSummary,
-        )
-        from baibai_engine.market.models import SecurityMaster
-
-        asof = _date(2026, 4, 24)
+        asof = date(2026, 4, 24)
         shares = 1e8
 
         def bars(code: str) -> list[JQuantsDailyBar]:
@@ -115,14 +99,14 @@ class MedianPopulationTests(unittest.TestCase):
         def summary(code: str, eps: float) -> JQuantsFinancialSummary:
             return JQuantsFinancialSummary(
                 ticker=code,
-                disclosed_at=_date(2026, 2, 1),
+                disclosed_at=date(2026, 2, 1),
                 eps_ttm=eps,
                 profit=eps * shares,
                 shares_outstanding=shares,
                 treasury_shares=0.0,
-                type_of_current_period="FY",
-                period_start=_date(2025, 1, 1),
-                period_end=_date(2025, 12, 31),
+                fiscal_period="FY",
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
             )
 
         thick = {f"11{index:02d}": "機械" for index in range(12)}
@@ -175,6 +159,6 @@ class MedianPopulationTests(unittest.TestCase):
         self.assertEqual(derived.sector_median_basis["per_trailing"], "market")
         # The market's 10, not the thin sector's own 4.
         self.assertAlmostEqual(derived.sector_median_value["per_trailing"], 10.0, places=6)
-        # PER 4 against a baseline of 10 reads as 60% cheap, which is what sector
+        # PER 4 against a baseline of 10 is 60% below that median, which is what sector
         # composition alone produces here — the label is what separates the two readings.
         self.assertAlmostEqual(derived.sector_median_gap["per_trailing"], -0.6, places=6)

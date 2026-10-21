@@ -2,7 +2,7 @@
 title: "自己レンジ anchor を真の倍率履歴と比べる — 事前登録"
 summary: "価格履歴を倍率の単位で表した現行 anchor と、cohort を横に並べて作る真の倍率履歴 anchor を、結果を見る前に固定した窓・母集団・閾値で比べる。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-17
 ---
 

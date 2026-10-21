@@ -3,16 +3,16 @@ from datetime import date
 
 import pytest
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
-from tests.engine.test_review_set import _analysis, _build_review_set
+from tests.engine.test_candidate_discovery import _analysis, _discover
 
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.calibration.panel import rules_content_hash
-from baibai_engine.screening.discovery import review_set as discovery
-from baibai_engine.screening.metrics import build_metrics
+from baibai_engine.screening.discovery import candidates as discovery
+from baibai_engine.screening.metrics.snapshot import build_metrics
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.security_analysis_builder import build_security_analysis_metrics
+from baibai_engine.screening.stock_analysis_builder import build_stock_analysis_metrics
 
 
 def _periods(quarter):
@@ -72,9 +72,8 @@ def _analysis_from_source(rows, *, preserve_source_equity=False):
     )
     row = _analysis("130A")
     row["metrics"] = dict(
-        build_security_analysis_metrics(
+        build_stock_analysis_metrics(
             financial,
-            freshness_warning_count=0,
             derived=DerivedMetrics(sector_median_gap={"p_s": -0.4}),
         )
     )
@@ -82,7 +81,7 @@ def _analysis_from_source(rows, *, preserve_source_equity=False):
 
 
 @pytest.mark.parametrize("quarter", [1, 2, 3, 4])
-def test_source_to_analysis_to_review_set_uses_same_ttm_period(quarter):
+def test_source_to_analysis_to_candidates_uses_same_ttm_period(quarter):
     rows = _periods(min(quarter, 3))
     if quarter == 4:
         rows = rows[:2]
@@ -95,9 +94,9 @@ def test_source_to_analysis_to_review_set_uses_same_ttm_period(quarter):
     assert values is not None
     assert values.operating_margin == pytest.approx(profit / sales)
     assert values.capital_return == pytest.approx(profit / 110_000)
-    entries = _build_review_set([row])["entries"]
     assert any(
-        n["valuation_approach_id"] == "reinvestment-value" for n in entries[0]["nominations"]
+        n.valuation_approach_id == "reinvestment-value"
+        for n in _discover([row]).contexts["130A"].reasons
     )
 
 
@@ -123,9 +122,8 @@ def test_missing_operating_profit_fails_closed_without_other_profit_fallback(mis
     assert financial.operating_profit_ttm is None
     assert discovery._reinvestment_values(row) is None
     assert not any(
-        n["valuation_approach_id"] == "reinvestment-value"
-        for e in _build_review_set([row])["entries"]
-        for n in e["nominations"]
+        n.valuation_approach_id == "reinvestment-value"
+        for n in _discover([row]).contexts["130A"].reasons
     )
 
 
@@ -147,11 +145,10 @@ def test_ttm_changes_quality_eligibility_order_and_union():
     target = _analysis("9999", per=100, normalized_per=100, asset_ratio=0.01)
     target["metrics"].update(operating_profit=3.0, operating_profit_ttm=24.0)
     old = {**target, "metrics": {**target["metrics"], "operating_profit_ttm": 3.0}}
-    before = _build_review_set([*peers, old])
-    after = _build_review_set([*peers, target])
-    assert "9999" not in {e["ticker"] for e in before["entries"]}
-    entry = next(e for e in after["entries"] if e["ticker"] == "9999")
-    assert [(n["valuation_approach_id"], n["rank"]) for n in entry["nominations"]] == [
+    before = _discover([*peers, old])
+    after = _discover([*peers, target])
+    assert before.contexts["9999"].reasons == ()
+    assert [(n.valuation_approach_id, n.rank) for n in after.contexts["9999"].reasons] == [
         ("reinvestment-value", 1)
     ]
     floors = discovery._reinvestment_quality_floors([*peers, target])
@@ -160,14 +157,14 @@ def test_ttm_changes_quality_eligibility_order_and_union():
 
 
 def test_new_calculation_has_distinct_production_and_calibration_identity(monkeypatch):
-    from baibai_engine.screening import metrics
     from baibai_engine.screening.calibration import panel
+    from baibai_engine.valuation.metrics import financial_snapshot
 
     rules = load_screening_rules()
     current = production_rules_contract_hash(rules.model_dump_json())
     calibration = rules_content_hash(rules)
     monkeypatch.setattr(
-        metrics, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"
+        financial_snapshot, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"
     )
     monkeypatch.setattr(
         panel, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"
@@ -237,3 +234,23 @@ def test_reinvestment_accepts_zero_debt_and_cash_but_not_nonpositive_capital():
     assert discovery._reinvestment_values(row) is not None
     row["metrics"]["cash"] = 120.0
     assert discovery._reinvestment_values(row) is None
+
+
+def test_offsetting_dividend_actions_have_distinct_calculation_identity(monkeypatch):
+    from baibai_engine.screening.calibration import forward, panel
+    from baibai_engine.valuation.metrics import financial_snapshot
+
+    rules = load_screening_rules()
+    production = production_rules_contract_hash(rules.model_dump_json())
+    calibration = rules_content_hash(rules)
+    forward_identity = forward.DEFAULT_FORWARD_OBSERVATION_POLICY.digest
+    monkeypatch.setattr(
+        financial_snapshot, "VALUATION_CALCULATION_REVISION", "document-period-forecasts-v27"
+    )
+    monkeypatch.setattr(panel, "VALUATION_CALCULATION_REVISION", "document-period-forecasts-v27")
+    monkeypatch.setattr(
+        forward, "FORWARD_CALCULATION_REVISION", "fy-dividend-document-revisions-v1"
+    )
+    assert production_rules_contract_hash(rules.model_dump_json()) != production
+    assert rules_content_hash(rules) != calibration
+    assert forward.DEFAULT_FORWARD_OBSERVATION_POLICY.digest != forward_identity

@@ -1,12 +1,8 @@
-// Run history and step logs stay on GitHub: reading them needs a token the
-// serving Worker deliberately does not hold.
+// Run history and step logs stay on GitHub; the serving Worker does not fetch them.
 export const ACTIONS_URL =
   'https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-daily-batch.yml'
 
-// The four top-level tabs. A tab is "active" for its own routes and for the
-// tab-less detail routes that belong to it (report detail under Macro; Research Triage,
-// Capital Allocation Assessment and security detail under Stocks), so the header reflects the
-// current section.
+// The navigation follows the reader's work; analysis domains are evidence within Research.
 export interface NavTab {
   readonly to: string
   readonly label: string
@@ -16,16 +12,11 @@ export interface NavTab {
 export const NAV_TABS: readonly NavTab[] = [
   { to: '/', label: 'Dashboard', match: (pathname) => pathname === '/' },
   {
-    to: '/macro',
-    label: 'Macro',
-    match: (pathname) => pathname === '/macro' || pathname.startsWith('/macro/'),
-  },
-  {
     to: '/stocks',
-    label: 'Stocks',
+    label: '調査・提案',
     match: (pathname) =>
+      pathname === '/market-context' || pathname.startsWith('/market-context/') ||
       pathname === '/stocks' ||
-      pathname === '/research-triage' ||
       pathname.startsWith('/stocks/') ||
       pathname.startsWith('/securities/'),
   },

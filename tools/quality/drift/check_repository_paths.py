@@ -12,24 +12,23 @@ _OWNERS = {
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
     "stores/market/market.sqlite": Path("engine/src/baibai_engine/foundation/repository_layout.py"),
-    "stores/macro/macro.sqlite": Path("engine/src/baibai_engine/foundation/repository_layout.py"),
+    "stores/market_context/indicators.sqlite": Path(
+        "engine/src/baibai_engine/foundation/repository_layout.py"
+    ),
     "stores/screening/runs.sqlite": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
     "stores/screening/calibration": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
-    "method/screening/rules/2026-08-30T215359+0900.yaml": Path(
-        "engine/src/baibai_engine/foundation/repository_layout.py"
-    ),
-    "method/macro/reading/2026-08-01T100000+0900.yaml": Path(
-        "engine/src/baibai_engine/foundation/repository_layout.py"
-    ),
-    "web/config/macro-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
+    "web/config/market-context-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
     "reports/published/er-level-calibration-latest.yaml": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
 }
+
+_METHOD_DIRECTORIES = ("method/screening/rules/", "method/macro/reading/")
+_METHOD_OWNER = Path("engine/src/baibai_engine/foundation/repository_layout.py")
 
 
 def check(root: Path) -> list[str]:
@@ -44,7 +43,10 @@ def check(root: Path) -> list[str]:
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
                     continue
-                if (owner := _OWNERS.get(node.value)) and relative != owner:
+                owner = _OWNERS.get(node.value)
+                if node.value.startswith(_METHOD_DIRECTORIES) and node.value.endswith(".yaml"):
+                    owner = _METHOD_OWNER
+                if owner is not None and relative != owner:
                     errors.append(
                         f"{relative}:{node.lineno}: repository path {node.value!r} "
                         f"belongs in {owner}"

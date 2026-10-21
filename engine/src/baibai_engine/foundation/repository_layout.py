@@ -5,11 +5,11 @@ from pathlib import Path
 APPLICATION_DB_PATH = Path("stores/application/baibai.sqlite")
 MARKET_DB_PATH = Path("stores/market/market.sqlite")
 RUNS_DB_PATH = Path("stores/screening/runs.sqlite")
-MACRO_DB_PATH = Path("stores/macro/macro.sqlite")
+INDICATORS_DB_PATH = Path("stores/market_context/indicators.sqlite")
 CALIBRATION_DIR = Path("stores/screening/calibration")
 ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path("reports/published/er-level-calibration-latest.yaml")
-SCREENING_RULES_PATH = Path("method/screening/rules/2026-09-23T103000+0900.yaml")
-MACRO_READING_RULES_PATH = Path("method/macro/reading/2026-08-01T100000+0900.yaml")
+SCREENING_RULES_PATH = Path("method/screening/rules/2026-10-16T133000+0900.yaml")
+READING_RULES_PATH = Path("method/macro/reading/2026-08-01T100000+0900.yaml")
 
 
 class StoreLayoutError(RuntimeError):
@@ -47,9 +47,9 @@ __all__ = [
     "APPLICATION_DB_PATH",
     "CALIBRATION_DIR",
     "ER_LEVEL_CALIBRATION_CONTEXT_PATH",
-    "MACRO_DB_PATH",
-    "MACRO_READING_RULES_PATH",
+    "INDICATORS_DB_PATH",
     "MARKET_DB_PATH",
+    "READING_RULES_PATH",
     "RUNS_DB_PATH",
     "SCREENING_RULES_PATH",
     "StoreLayoutError",

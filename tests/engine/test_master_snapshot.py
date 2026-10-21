@@ -2,50 +2,73 @@ from __future__ import annotations
 
 import copy
 import io
+import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
 from unittest.mock import patch
 
-from tests.helpers.screening_sqlite import make_master_records
+import pytest
+import requests
+from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
+from baibai_engine.collection.jquants.http import JQuantsHTTP
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.master_snapshot import validate_master_snapshot
-from baibai_engine.market.providers.jquants import JQuantsProvider
-from baibai_engine.market.providers.jquants_decode import JQuantsProviderError
-from baibai_engine.market.sqlite.ingest import open_connection, store_jquants_master
-from baibai_engine.market.sqlite.reader import read_eq_master_asof, read_eq_master_exact
-from baibai_engine.screening.cli import backfill_master_command, bootstrap_cache_command
+from baibai_engine.market.jpx_reader import JPXReader
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
+from baibai_engine.screening.cli.cache import backfill_master_command, bootstrap_cache_command
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
+from baibai_engine.storage.observations.reader import read_eq_master_asof, read_eq_master_exact
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
-class _MasterClient:
+class _MasterClient(requests.Session):
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[str] = []
 
-    def get_eq_master(self, *, date: str) -> list[dict[str, Any]]:
-        self.calls.append(date)
-        return make_master_records(__import__("datetime").date.fromisoformat(date))
+    def get(self, url, **kwargs):
+        assert url.endswith("/equities/master")
+        requested = kwargs["params"]["date"]
+        self.calls.append(requested)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {"data": make_master_records(date.fromisoformat(requested))}
+        ).encode()
+        response._content_consumed = True
+        return response
+
+
+def _refresh(db: Path, session: _MasterClient) -> JQuantsRefresh:
+    return JQuantsRefresh(db, None, client=JQuantsHTTP("token", session=session))
 
 
 class _BootstrapJQuants:
-    def __init__(self, provider: JQuantsProvider, sqlite_path: Path) -> None:
-        self.provider = provider
+    def __init__(self, reader: JQuantsReader, refresh: JQuantsRefresh, sqlite_path: Path) -> None:
+        self.reader = reader
+        self.refresh = refresh
         self.sqlite_path = sqlite_path
 
     def get_eq_master(self, requested_asof: date):
-        return self.provider.get_eq_master(requested_asof)
+        return self.reader.get_eq_master(requested_asof)
+
+    def ensure_master(self, day: date) -> int:
+        return self.refresh.ensure_master(day)
 
     def get_eq_bars_daily_range(self, start: date, end: date):
         del start, end
         return []
 
-    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
+    def ensure_daily_bars(self, start: date, end: date) -> int:
         del start, end
         return 0
 
@@ -57,33 +80,38 @@ class _BootstrapJQuants:
         del start, end
         return []
 
-    def refresh_fin_summary_range(
+    def refresh_fin_summaries(
         self,
         start: date,
         end: date,
         *,
         revision_overlap_days: int,
-        repair_ranges=(),
         progress=None,
     ) -> int:
-        del start, revision_overlap_days, repair_ranges
-        conn = open_connection(self.sqlite_path)
-        tickers = [
-            str(row[0])
-            for row in conn.execute(
-                "SELECT ticker FROM jquants_master_snapshots "
-                "WHERE snapshot_date = ? AND is_common_stock = 1",
-                (end.isoformat(),),
-            )
-        ]
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_fin_summaries("
-            "ticker, disclosed_at, shares_outstanding, treasury_shares, "
-            "equity_to_asset_ratio) VALUES (?, ?, ?, ?, ?)",
-            [(ticker, end.isoformat(), 10_000_000.0, 1_000_000.0, 0.5) for ticker in tickers],
-        )
-        conn.commit()
-        conn.close()
+        del start, revision_overlap_days
+        with closing(open_connection(self.sqlite_path)) as conn, conn:
+            tickers = [
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT substr(security_code,1,4) FROM jquants_master_snapshots "
+                    "WHERE snapshot_date = ? AND substr(security_code,5,1)='0' "
+                    "AND json_extract(record_json, '$.ProdCat')='011'",
+                    (end.isoformat(),),
+                )
+            ]
+            for ticker in tickers:
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": f"{ticker}0",
+                        "DiscDate": end.isoformat(),
+                        "DiscNo": f"{ticker}-{end.isoformat()}",
+                        "ShOutFY": 10_000_000.0,
+                        "TrShFY": 1_000_000.0,
+                        "EqAR": 0.5,
+                    },
+                )
+            conn.commit()
         if progress is not None:
             progress(1, 1, end, end)
         return len(tickers)
@@ -96,17 +124,24 @@ class _BootstrapJQuants:
         del start, end
         return []
 
-    def refresh_mkt_short_sale_report_range(self, start: date, end: date):
+    def refresh_short_sale_reports(self, start: date, end: date) -> int:
         del start, end
-        return []
+        return 0
 
-    def refresh_mkt_margin_alert_range(self, start: date, end: date):
+    def refresh_margin_alerts(self, start: date, end: date) -> int:
         del start, end
-        return []
+        return 0
 
-    def get_mkt_all_issues_daily_margin(self, balance_date: date):
+    def ensure_all_issues_daily_margin(self, balance_date: date) -> int:
         del balance_date
-        return []
+        return 0
+
+    def ensure_market_calendar(self, start: date, end: date) -> int:
+        del start, end
+        return 0
+
+    def close(self) -> None:
+        self.refresh.close()
 
 
 class _BootstrapJPX:
@@ -114,14 +149,17 @@ class _BootstrapJPX:
         del asof_date
         return {}
 
+    def close(self) -> None:
+        pass
+
 
 def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
     conn = sqlite3.connect(db)
     try:
         rows = tuple(
             conn.execute(
-                "SELECT snapshot_date, ticker, name, market, sector_33, is_common_stock "
-                "FROM jquants_master_snapshots ORDER BY snapshot_date, ticker"
+                "SELECT snapshot_date, security_code, record_json "
+                "FROM jquants_master_snapshots ORDER BY snapshot_date, security_code"
             ).fetchall()
         )
         coverage = tuple(
@@ -137,25 +175,43 @@ def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
 
 
 class MasterSnapshotStoreTests(unittest.TestCase):
-    def test_validation_logs_raw_persisted_and_intentional_exclusion_counts(self) -> None:
+    def test_native_snapshot_preserves_secondary_classes_and_all_provider_fields(self) -> None:
         asof = date(2026, 5, 29)
-        with self.assertLogs("baibai_engine.market.master_snapshot", level="INFO") as captured:
-            validated = validate_master_snapshot(make_master_records(asof, excluded_count=2), asof)
-
-        self.assertEqual(validated.raw_count, 2502)
-        self.assertEqual(validated.persisted_count, 2500)
-        self.assertEqual(validated.excluded_count, 2)
-        self.assertIn("raw=2502 persisted=2500 intentional_excluded=2", captured.output[0])
+        records = make_master_records(asof, secondary_class_count=2)
+        records[0].update(CoNameEn="Source name", S17="1", ScaleCat="TOPIX Small", Mrgn="2")
+        records.append(dict(records[0], Code="90000", CoName="ETF native record", ProdCat="014"))
+        validated = validate_master_snapshot(records, asof)
+        self.assertEqual(validated.persisted_count, 2503)
+        self.assertEqual(json.loads(validated.rows[0][2]), records[0])
+        self.assertEqual(json.loads(validated.rows[-1][2]), records[-1])
+        self.assertTrue(validated.rows[-2][1].endswith("1"))
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            self.assertEqual(store_jquants_master(db, records, requested_asof=asof), 2503)
+            with closing(sqlite3.connect(db)) as conn:
+                persisted = conn.execute(
+                    "SELECT security_code, record_json FROM jquants_master_snapshots "
+                    "ORDER BY security_code"
+                ).fetchall()
+            self.assertEqual(
+                {code: json.loads(payload) for code, payload in persisted},
+                {row["Code"]: row for row in records},
+            )
+            projected = read_eq_master_exact(db, asof)
+            assert projected is not None
+            self.assertEqual(len(projected), 2501)
+            self.assertEqual(sum(row.is_common_stock for row in projected), 2500)
+            self.assertFalse(next(row for row in projected if row.ticker == "9000").is_common_stock)
 
     def test_two_dates_are_append_only_and_same_date_is_idempotent(self) -> None:
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            first_records = make_master_records(first, excluded_count=2)
+            first_records = make_master_records(first, secondary_class_count=2)
             self.assertEqual(
                 store_jquants_master(db, first_records, requested_asof=first),
-                2500,
+                2502,
             )
             first_rows, first_coverage = _snapshot_state(db, first)
 
@@ -174,8 +230,8 @@ class MasterSnapshotStoreTests(unittest.TestCase):
                     (second.isoformat(),),
                 ).fetchone()[0]
                 replaced_name = conn.execute(
-                    "SELECT name FROM jquants_master_snapshots "
-                    "WHERE snapshot_date = ? AND ticker = '1000'",
+                    "SELECT json_extract(record_json, '$.CoName') FROM jquants_master_snapshots "
+                    "WHERE snapshot_date = ? AND security_code = '10000'",
                     (second.isoformat(),),
                 ).fetchone()[0]
             finally:
@@ -204,8 +260,8 @@ class MasterSnapshotStoreTests(unittest.TestCase):
         invalid_code[0]["Code"] = "bad-code"
         duplicate = copy.deepcopy(base)
         duplicate[1]["Code"] = duplicate[0]["Code"]
-        contradictory_type = copy.deepcopy(base)
-        contradictory_type[0]["SecurityType"] = "preferred"
+        missing_product = copy.deepcopy(base)
+        missing_product[0].pop("ProdCat")
 
         invalid_cases = {
             "empty": [],
@@ -218,7 +274,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
             "invalid_code": invalid_code,
             "duplicate_ticker": duplicate,
             "small_population": make_master_records(requested, count=2499),
-            "contradictory_security_type": contradictory_type,
+            "missing_product_category": missing_product,
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -251,7 +307,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market.sqlite.ingest.jquants.record_source_coverage",
+                    "baibai_engine.storage.observations.ingest.jquants.record_source_coverage",
                     side_effect=sqlite3.OperationalError("injected coverage failure"),
                 ),
                 self.assertRaises(sqlite3.OperationalError),
@@ -260,46 +316,18 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             self.assertEqual(_db_fingerprint(db), before)
 
-    def test_post_insert_count_mismatch_rolls_back_same_date_replacement(self) -> None:
-        asof = date(2026, 5, 29)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            records = make_master_records(asof)
-            store_jquants_master(db, records, requested_asof=asof)
-            before = _db_fingerprint(db)
-            validated = validate_master_snapshot(records, asof)
-            inconsistent = SimpleNamespace(
-                rows=validated.rows,
-                persisted_count=validated.persisted_count + 1,
-                raw_count=validated.raw_count,
-                excluded_count=validated.excluded_count,
-                common_stock_count=validated.common_stock_count,
-            )
-
-            with (
-                patch(
-                    "baibai_engine.market.sqlite.ingest.jquants.validate_master_snapshot",
-                    return_value=inconsistent,
-                ),
-                self.assertRaisesRegex(JQuantsProviderError, "persisted count mismatch"),
-            ):
-                store_jquants_master(db, records, requested_asof=asof)
-
-            self.assertEqual(_db_fingerprint(db), before)
-
     def test_insert_failure_rolls_back_same_date_replacement(self) -> None:
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-            conn = sqlite3.connect(db)
-            conn.execute(
-                "CREATE TRIGGER fail_master_insert BEFORE INSERT "
-                "ON jquants_master_snapshots WHEN NEW.name = 'must rollback' "
-                "BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END"
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(db)) as conn, conn:
+                conn.execute(
+                    "CREATE TRIGGER fail_master_insert BEFORE INSERT "
+                    "ON jquants_master_snapshots WHEN json_extract(NEW.record_json, '$.CoName') = 'must rollback' "
+                    "BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END"
+                )
+                conn.commit()
             before = _db_fingerprint(db)
             replacement = make_master_records(asof)
             replacement[0]["CoName"] = "must rollback"
@@ -309,19 +337,13 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             self.assertEqual(_db_fingerprint(db), before)
 
-    def test_the_half_width_middle_dot_sector_is_stored_in_one_form(self) -> None:
-        """J-Quants emits U+FF65 ("情報･通信業") and U+30FB ("情報・通信業") for the same
-        TSE 33 sector. Two spellings of one sector split every sector-relative
-        comparison downstream, so validation folds them before the row is persisted.
-        """
-
+    def test_sector_spelling_is_normalized_only_in_the_reading_projection(self) -> None:
         asof = date(2026, 5, 7)
         records = make_master_records(asof)
         records[0]["S33Nm"] = "情報･通信業"
-
         validated = validate_master_snapshot(records, asof)
-
-        self.assertEqual(validated.rows[0][4], "情報・通信業")
+        self.assertEqual(json.loads(validated.rows[0][2])["S33Nm"], "情報･通信業")
+        self.assertEqual(masters_from_payloads([validated.rows[0][2]])[0].sector_33, "情報・通信業")
 
 
 class MasterSnapshotCoverageTests(unittest.TestCase):
@@ -334,16 +356,15 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
             ):
                 db = Path(tmp) / "market.sqlite"
                 store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-                conn = open_connection(db)
-                conn.execute(
-                    "UPDATE source_coverage SET record_count = ? "
-                    "WHERE source = ? AND coverage_start = ?",
-                    (invalid_count, "jquants_master_snapshots", asof.isoformat()),
-                )
-                conn.commit()
-                issues = []
-                _append_master_snapshot_issues(conn, issues, asof_date=asof)
-                conn.close()
+                with closing(open_connection(db)) as conn, conn:
+                    conn.execute(
+                        "UPDATE source_coverage SET record_count = ? "
+                        "WHERE source = ? AND coverage_start = ?",
+                        (invalid_count, "jquants_master_snapshots", asof.isoformat()),
+                    )
+                    conn.commit()
+                    issues = []
+                    _append_master_snapshot_issues(conn, issues, asof_date=asof)
 
                 self.assertTrue(any("not a non-negative integer" in i.reason for i in issues))
 
@@ -351,7 +372,7 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)
         for damaged in (first, second):
-            for damage_kind in ("row", "coverage", "common_flag"):
+            for damage_kind in ("row", "coverage", "product_category"):
                 with (
                     self.subTest(damaged=damaged, damage_kind=damage_kind),
                     tempfile.TemporaryDirectory() as tmp,
@@ -359,37 +380,36 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
                     db = Path(tmp) / "market.sqlite"
                     store_jquants_master(db, make_master_records(first), requested_asof=first)
                     store_jquants_master(db, make_master_records(second), requested_asof=second)
-                    conn = open_connection(db)
-                    if damage_kind == "row":
-                        conn.execute(
-                            "DELETE FROM jquants_master_snapshots "
-                            "WHERE snapshot_date = ? AND ticker = '1000'",
-                            (damaged.isoformat(),),
-                        )
-                    elif damage_kind == "coverage":
-                        conn.execute(
-                            "DELETE FROM source_coverage WHERE source = ? "
-                            "AND coverage_start = ? AND coverage_end = ?",
-                            (
-                                "jquants_master_snapshots",
-                                damaged.isoformat(),
-                                damaged.isoformat(),
-                            ),
-                        )
-                    else:
-                        conn.execute(
-                            "UPDATE jquants_master_snapshots SET is_common_stock = 0 "
-                            "WHERE snapshot_date = ? AND ticker = '1000'",
-                            (damaged.isoformat(),),
-                        )
-                    conn.commit()
+                    with closing(open_connection(db)) as conn, conn:
+                        if damage_kind == "row":
+                            conn.execute(
+                                "DELETE FROM jquants_master_snapshots "
+                                "WHERE snapshot_date = ? AND security_code = '10000'",
+                                (damaged.isoformat(),),
+                            )
+                        elif damage_kind == "coverage":
+                            conn.execute(
+                                "DELETE FROM source_coverage WHERE source = ? "
+                                "AND coverage_start = ? AND coverage_end = ?",
+                                (
+                                    "jquants_master_snapshots",
+                                    damaged.isoformat(),
+                                    damaged.isoformat(),
+                                ),
+                            )
+                        else:
+                            conn.execute(
+                                "UPDATE jquants_master_snapshots SET record_json = json_set(record_json, '$.ProdCat', NULL) "
+                                "WHERE snapshot_date = ? AND security_code = '10000'",
+                                (damaged.isoformat(),),
+                            )
+                        conn.commit()
 
-                    damaged_issues = []
-                    _append_master_snapshot_issues(conn, damaged_issues, asof_date=damaged)
-                    intact = second if damaged == first else first
-                    intact_issues = []
-                    _append_master_snapshot_issues(conn, intact_issues, asof_date=intact)
-                    conn.close()
+                        damaged_issues = []
+                        _append_master_snapshot_issues(conn, damaged_issues, asof_date=damaged)
+                        intact = second if damaged == first else first
+                        intact_issues = []
+                        _append_master_snapshot_issues(conn, intact_issues, asof_date=intact)
 
                     self.assertTrue(damaged_issues)
                     self.assertEqual(intact_issues, [])
@@ -401,21 +421,31 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(first), requested_asof=first)
             store_jquants_master(db, make_master_records(second), requested_asof=second)
-            conn = open_connection(db)
-            conn.execute(
-                "UPDATE source_coverage SET status = 'failed', error = 'bad second' "
-                "WHERE source = 'jquants_master_snapshots' AND coverage_start = ?",
-                (second.isoformat(),),
-            )
-            conn.commit()
-            issues = []
-            _append_master_snapshot_issues(conn, issues, asof_date=first)
-            conn.close()
+            with closing(open_connection(db)) as conn, conn:
+                conn.execute(
+                    "UPDATE source_coverage SET status = 'failed', error = 'bad second' "
+                    "WHERE source = 'jquants_master_snapshots' AND coverage_start = ?",
+                    (second.isoformat(),),
+                )
+                conn.commit()
+                issues = []
+                _append_master_snapshot_issues(conn, issues, asof_date=first)
             self.assertEqual(issues, [])
 
 
 class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
-    def test_exact_prior_unavailable_and_latest_global_without_ghost_ticker(self) -> None:
+    def test_provider_does_not_refetch_to_hide_an_incompatible_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            with closing(open_connection(db)) as conn, conn:
+                conn.execute("PRAGMA user_version = 1")
+            client = _MasterClient()
+            reader = JQuantsReader(db)
+            with self.assertRaises(SQLiteSchemaError):
+                reader.get_eq_master(date(2026, 5, 29))
+            self.assertEqual(client.calls, [])
+
+    def test_exact_prior_and_future_snapshot_selection(self) -> None:
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)
         first_records = make_master_records(first)
@@ -426,6 +456,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 "CoName": "Old only",
                 "MktNm": "Prime",
                 "S33Nm": "機械",
+                "ProdCat": "011",
             }
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -442,20 +473,20 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             self.assertEqual(fallback.status, "future_snapshot")
             self.assertEqual(fallback.snapshot_date, first)
 
-    def test_exact_reader_treats_corrupt_ticker_as_semantic_miss(self) -> None:
+    def test_exact_reader_rejects_corrupt_native_code(self) -> None:
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-            conn = sqlite3.connect(db)
-            conn.execute(
-                "UPDATE jquants_master_snapshots SET ticker = '!' "
-                "WHERE snapshot_date = ? AND ticker = '1000'",
-                (asof.isoformat(),),
-            )
-            conn.commit()
-            conn.close()
-            self.assertIsNone(read_eq_master_exact(db, asof))
+            with closing(sqlite3.connect(db)) as conn, conn:
+                conn.execute(
+                    "UPDATE jquants_master_snapshots SET record_json = json_set(record_json, '$.Code', '!') "
+                    "WHERE snapshot_date = ? AND security_code = '10000'",
+                    (asof.isoformat(),),
+                )
+                conn.commit()
+            with self.assertRaises(JQuantsProviderError):
+                read_eq_master_exact(db, asof)
 
     def test_exact_reader_treats_non_integer_coverage_count_as_semantic_miss(self) -> None:
         asof = date(2026, 5, 29)
@@ -466,14 +497,13 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             ):
                 db = Path(tmp) / "market.sqlite"
                 store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-                conn = sqlite3.connect(db)
-                conn.execute(
-                    "UPDATE source_coverage SET record_count = ? "
-                    "WHERE source = ? AND coverage_start = ?",
-                    (invalid_count, "jquants_master_snapshots", asof.isoformat()),
-                )
-                conn.commit()
-                conn.close()
+                with closing(sqlite3.connect(db)) as conn, conn:
+                    conn.execute(
+                        "UPDATE source_coverage SET record_count = ? "
+                        "WHERE source = ? AND coverage_start = ?",
+                        (invalid_count, "jquants_master_snapshots", asof.isoformat()),
+                    )
+                    conn.commit()
 
                 self.assertIsNone(read_eq_master_exact(db, asof))
 
@@ -484,26 +514,14 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(first), requested_asof=first)
 
-            no_fetch_client = _MasterClient()
-            cache_only = JQuantsProvider(
-                "token",
-                Path(tmp) / "raw-cache-only",
-                client=no_fetch_client,
-                sqlite_path=db,
-                cache_only=True,
-            )
-            with self.assertRaisesRegex(JQuantsProviderError, second.isoformat()):
-                cache_only.get_eq_master(second)
-            self.assertEqual(no_fetch_client.calls, [])
+            reader = JQuantsReader(db)
+            with self.assertRaisesRegex(JQuantsProviderError, "incomplete: master"):
+                reader.get_eq_master(second)
 
             fetch_client = _MasterClient()
-            provider = JQuantsProvider(
-                "token",
-                Path(tmp) / "raw",
-                client=fetch_client,
-                sqlite_path=db,
-            )
-            self.assertEqual(len(provider.get_eq_master(second)), 2500)
+            maintenance = _refresh(db, fetch_client)
+            self.assertEqual(maintenance.ensure_master(second), 2500)
+            self.assertEqual(len(reader.get_eq_master(second)), 2500)
             self.assertEqual(fetch_client.calls, [second.isoformat()])
             self.assertEqual(_snapshot_dates(db), [first.isoformat(), second.isoformat()])
 
@@ -513,11 +531,14 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(today), requested_asof=today)
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            reader = JQuantsReader(db)
+            maintenance = _refresh(db, client)
             output = io.StringIO()
             result = backfill_master_command(
                 asof_dates=[today],
-                providers=ProviderBundle(jquants=provider, edinet=None, jpx=None),
+                providers=ProviderBundle(
+                    jquants=reader, edinet=None, jpx=JPXReader(db), jquants_refresh=maintenance
+                ),
                 sqlite_path=db,
                 stdout=output,
             )
@@ -532,9 +553,12 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(future), requested_asof=future)
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            reader = JQuantsReader(db)
+            maintenance = _refresh(db, client)
 
-            self.assertEqual(len(provider.get_eq_master(requested)), 2500)
+            with self.assertRaisesRegex(JQuantsProviderError, "incomplete: master"):
+                reader.get_eq_master(requested)
+            self.assertEqual(maintenance.ensure_master(requested), 2500)
             self.assertEqual(client.calls, [requested.isoformat()])
             self.assertEqual(_snapshot_dates(db), [requested.isoformat(), future.isoformat()])
 
@@ -543,18 +567,17 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-            conn = sqlite3.connect(db)
-            conn.execute(
-                "UPDATE source_coverage SET record_count = record_count + 1 "
-                "WHERE source = ? AND coverage_start = ?",
-                ("jquants_master_snapshots", asof.isoformat()),
-            )
-            conn.commit()
-            conn.close()
+            with closing(sqlite3.connect(db)) as conn, conn:
+                conn.execute(
+                    "UPDATE source_coverage SET record_count = record_count + 1 "
+                    "WHERE source = ? AND coverage_start = ?",
+                    ("jquants_master_snapshots", asof.isoformat()),
+                )
+                conn.commit()
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            maintenance = _refresh(db, client)
 
-            self.assertEqual(len(provider.get_eq_master(asof)), 2500)
+            self.assertEqual(maintenance.ensure_master(asof), 2500)
             self.assertEqual(client.calls, [asof.isoformat()])
             self.assertIsNotNone(read_eq_master_exact(db, asof))
 
@@ -564,11 +587,15 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            reader = JQuantsReader(db)
+            maintenance = _refresh(db, client)
+            bootstrap_jquants = _BootstrapJQuants(reader, maintenance, db)
             bundle = ProviderBundle(
-                jquants=_BootstrapJQuants(provider, db),
+                jquants=bootstrap_jquants,
                 edinet=None,
-                jpx=_BootstrapJPX(),
+                jpx=JPXReader(db),
+                jpx_refresh=_BootstrapJPX(),
+                jquants_refresh=bootstrap_jquants,
             )
             for asof in (first, second):
                 self.assertEqual(
@@ -602,8 +629,8 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
     try:
         rows = tuple(
             conn.execute(
-                "SELECT ticker, name, market, sector_33, is_common_stock "
-                "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+                "SELECT security_code, record_json "
+                "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY security_code",
                 (asof.isoformat(),),
             ).fetchall()
         )
@@ -619,3 +646,12 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
     finally:
         conn.close()
     return rows, coverage
+
+
+def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
+    from baibai_engine.external_assessment.tradingview.diagnostics import failure_category
+
+    with pytest.raises(JQuantsProviderError) as caught:
+        masters_from_payloads(["{broken"])
+    assert failure_category(caught.value) == "storage"
+    assert isinstance(caught.value.__cause__, json.JSONDecodeError)

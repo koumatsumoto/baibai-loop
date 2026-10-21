@@ -1,5 +1,7 @@
 # 事前登録仮説 H1–H8 の design/confirm 検証とランキング改訂（WU4 #295）
 
+これは 2026 年 7 月の旧 playbook / select 方式に対する測定・採用記録である。「現行」「本番」、廃止済み CLI・field・保存先、後続計画は当時を指す。数値と採否の来歴は保持するが、現在の Candidate Discovery の仕様・有効性や新しい運用指示には読み替えない。両期間の点推定の一致は、統計的な優越性・非劣性や因果効果の証明ではない。
+
 計画 #291 §5 で事前登録した仮説を、design（cohort asof ≤ 2024-06-30）/ confirm（> 2024-06-30）の時間分割で検証し、通過した変更だけを select に反映する記録。計測基盤は PR #297/#298/#299（total return 基準・E[r] 導入済み store）。
 
 ## 0. 採否基準（検証実行前に固定・本節を先に commit）
@@ -31,7 +33,7 @@
 
 **er_ranked の近似について**: er_ranked は pass_screen × er 非 null 集合の並べ替えで、本番 select の liquidity / sizing_eligible filter・上場廃止銘柄の枠縮小は再現しない近似。本番形の確認は §2 の panel 再構築後 recommended_rank replay が担う（両者は同方向・同水準）。
 
-**diversity cap の変種比較**（E[r] 主キー・top-10・6m mean median excess）: playbook cap=2 は design +8.4% / confirm **+3.7%** と confirm で失速、cap 撤廃は **+7.6% / +7.6%** と両窓で頑健 → sector cap（2）は維持、playbook cap は実質無効化（10）を採用。cap=2 の飽和（推奨 8 銘柄で頭打ち）が baseline で測った害の主因。**この cap 選択は両窓の結果を見た post-hoc 判断であり、cap パラメータについて confirm の out-of-sample 性は消費済み**（H3 本体の 3 条件は margin が大きく影響しない）。採用構成（sector2 + playbook10）の本番形は §2 の表が正で、design 6m top-10 は +6.4% と cap 撤廃変種（+7.6%）よりやや低い。
+**diversity cap の変種比較**（E[r] 主キー・top-10・6m mean median excess）: playbook cap=2 は design +8.4% / confirm **+3.7%** と confirm で失速、cap 撤廃は **+7.6% / +7.6%** と両窓で頑健 → sector cap（2）は維持、playbook cap は実質無効化（10）を採用。cap=2 の飽和（推奨 8 銘柄で頭打ち）は、この固定入力で観測した劣後に関係する。ただし他の順位・構成効果と分離した一般的な主因の証明ではない。**この cap 選択は両窓の結果を見た post-hoc 判断であり、cap パラメータについて confirm の out-of-sample 性は消費済み**（H3 本体の点推定は基準を満たすが、最終 cap 構成の独立した確認標本はない）。採用構成（sector2 + playbook10）の本番形は §2 の表が正で、design 6m top-10 は +6.4% と cap 撤廃変種（+7.6%）よりやや低い。
 
 **previous-candidate cap の整合**: 較正リプレイは previous_candidates を中立化して計測しており、本番の `max_previous_candidates_in_recommended: 2` は「E[r] 上位が月をまたいで持続する」正常な挙動と衝突して検証済み順位を運用で崩す。**計測した構成に本番を一致させるため null（cap なし）に変更**した（suppression = 人間の deferred/rejected 判断による除外は残る。これはリプレイが中立化した人間判断レイヤーで、乖離として本節に記録する）。
 
@@ -57,12 +59,12 @@
 | H1 益回り正 IC | ocf_yield 0.126→0.125・per_trailing 0.194→0.201（すべて正） | **支持** |
 | H2 sector 相対 vs 自己レンジ | smg_pbr +0.156→+0.135 / srp_pbr −0.085→−0.104 | **支持**（自己レンジ percentile は両窓で負 — E[r] の自己中央値は cap 用途のみで整合） |
 | H4 deterioration gate | 割安 decile 内の pass−block 差は小さく窓間で符号不安定 | 不確定（rule 変更なし） |
-| H5 自社株買い | 0.174→0.105（IC+ 100%→83%・trap 最低クラス） | **支持**（E[r] carry に組込済み） |
+| H5 純株式数縮小（自社株買い等の proxy） | 0.174→0.105（IC+ 100%→83%・trap 最低クラス） | **支持**（E[r] carry に組込済み） |
 | H6 イールドチェイス | dividend_yield D10 trap 5.5%→4.7%（母集団平均より低い） | **棄却**（この窓では利回り上位のトラップ上昇は確認されず。バリュー期レジーム注意） |
 | H7 60 日下落条件 | IC 0.006→−0.046（6m）/ −0.012→+0.068（12m）と方向不一致。ただし D10 trap 26–38% は全軸最悪で両窓一致 | 不確定（「深押し追いは高トラップ」のみ一貫。条件 B の rule 変更は rules variant 計測を要するため別 issue） |
 | H8 per_forward > per_trailing | 0.213 vs 0.194 → 0.207 vs 0.201（12m も同方向） | **支持**（差は小・E[r] の収益 anchor は forward 優先で整合） |
 
-診断（変更なしの記録）: `er_population_top10`（screen gate なしの母集団 E[r] 選抜）は design +14.1% / confirm +6.7% と er_ranked（gate 内）以上 — **playbook screen gate は E[r] の上では選抜価値を足していない**。universe gating の再設計は本プログラム外の将来課題として記録する。
+診断（変更なしの記録）: `er_population_top10`（screen gate なしの母集団 E[r] 選抜）は design +14.1% / confirm +6.7% と er_ranked（gate 内）以上 — **この標本の点推定では playbook screen gate による追加的な選抜成績を確認できなかった**。universe gating の再設計は本プログラム外の将来課題として記録する。
 
 ## 3.5 運用テスト（現 asof 2026-07-01 の select 前後）
 

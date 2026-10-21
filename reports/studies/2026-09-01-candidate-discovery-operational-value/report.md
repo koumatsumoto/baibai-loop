@@ -1,5 +1,7 @@
 # Candidate Discovery operational value baseline — 2026-09-01
 
+この baseline は 2026-09-01 時点の旧 Review Set 容量・Triage v2・Research workspace・CAA の履歴である。「current」「確定待ち」「次の判断条件」は当時の状態を指す。現行の全 Nomination union、Stock Assessment / Investment Proposal、および運用手順とは区別し、旧 checkpoint を現在の未完了作業として再開しない。
+
 ## 結論
 
 このstudyはCandidate Discoveryのalphaやmethod superiorityを証明しない。application DBには16件・320 judgmentのimmutableなpublished Triage revisionsがあるが、これらを16 independent operation cyclesとは数えない。current contractで明示接続できるv2 operation cycleは1件で、human Research Set確定待ちのcheckpointにある。したがって、全revisionを使ったResearch yieldやrepeat-skipはpublication履歴の記述統計であり、独立した運用performance標本ではない。

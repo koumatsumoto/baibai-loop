@@ -201,19 +201,20 @@ def test_web_workflow_keeps_all_gates_before_the_only_deploy_step() -> None:
     deploy_index = names.index("Deploy Worker and UI assets")
 
     assert all(names.index(gate) < deploy_index for gate in gates)
+    assert all("if" not in steps[names.index(gate)] for gate in gates)
     assert names.index("Verify current production target") < deploy_index
     assert names.count("Deploy Worker and UI assets") == 1
     deploy = steps[deploy_index]
     assert deploy["if"] == (
         "${{ success() "
-        "&& (github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
+        "&& github.event_name == 'workflow_dispatch' "
         "&& github.ref == 'refs/heads/main' "
         "&& steps.deploy-target.outputs.current == 'true' }}"
     )
     assert deploy["run"] == "npx wrangler deploy"
 
 
-def test_nothing_answering_from_outside_the_tree_stands_in_front_of_production() -> None:
+def test_web_job_keeps_node_audit_in_a_separate_workflow() -> None:
     """`npm audit` answers from GitHub's advisory database, not from the tree.
 
     A disclosure lands without anyone touching the repository, so an audit in this
@@ -226,38 +227,12 @@ def test_nothing_answering_from_outside_the_tree_stands_in_front_of_production()
     assert not [step for step in steps if "audit" in str(step.get("run", ""))]
 
 
-@pytest.mark.parametrize(
-    "failed_gate",
-    [
-        "Lint UI",
-        "Build UI",
-        "Test UI",
-        "Check Worker generated types",
-        "Typecheck Worker",
-        "Test Worker",
-        "Dry-run Worker deploy",
-    ],
-)
-def test_each_failed_web_gate_leaves_deploy_call_count_zero(failed_gate: str) -> None:
-    steps = _steps(_workflow("web.yml"), "quality")
-    success = True
-    deploy_calls = 0
-    for step in steps:
-        name = str(step.get("name", ""))
-        if name == failed_gate:
-            success = False
-        if name == "Deploy Worker and UI assets" and success:
-            deploy_calls += 1
-
-    assert deploy_calls == 0
-
-
-def test_only_named_events_can_reach_production() -> None:
+def test_only_manual_main_runs_can_reach_production() -> None:
     """`github.ref` is the default branch for schedule, workflow_run and friends.
 
     Testing "not a pull request" would therefore hand production to any trigger
-    added to `on:` later. The condition names the two events that may deploy, and
-    the trigger set is pinned so a third one cannot arrive unnoticed.
+    added to `on:` later. PR/push keep their quality checks, while only an explicit
+    main dispatch can check the production target or deploy.
     """
     workflow = _workflow("web.yml")
     triggers = workflow["on"]
@@ -267,22 +242,24 @@ def test_only_named_events_can_reach_production() -> None:
     assert set(triggers) == {"pull_request", "push", "workflow_dispatch"}
     for gated in ("Verify current production target", "Deploy Worker and UI assets"):
         condition = str(by_name[gated]["if"])
-        assert (
-            "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
-        ) in condition
+        assert "github.event_name == 'workflow_dispatch'" in condition
         assert "github.ref == 'refs/heads/main'" in condition
+        assert "||" not in condition
+        assert "'push'" not in condition
+    assert by_name["Verify current production target"]["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}"
+    )
 
 
-def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
+def test_web_trigger_covers_published_trees_and_shared_contracts() -> None:
     """Editing this workflow is gated before merge but never publishes by itself.
 
-    On `push` the filter is exactly what `wrangler deploy` ships, so a CI-only
-    edit cannot reach production; on `pull_request` the file is included so its
-    own change still has to pass the job it defines.
+    On `push` the filter checks the frontend/edge trees and shared contracts; on PRs the
+    workflow file is included so its own change passes the job it defines.
     """
     triggers = _workflow("web.yml")["on"]
     assert isinstance(triggers, dict)
-    published = ["web/frontend/**", "web/edge/**"]
+    inputs = ["web/frontend/**", "web/edge/**", "web/contracts/**"]
 
     for event in ("pull_request", "push"):
         scope = triggers[event]
@@ -292,20 +269,16 @@ def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
     push = triggers["push"]
     assert isinstance(pull_request, dict)
     assert isinstance(push, dict)
-    assert pull_request["paths"] == [*published, ".github/workflows/web.yml"]
-    assert push["paths"] == published
+    assert pull_request["paths"] == [*inputs, ".github/workflows/web.yml"]
+    assert push["paths"] == inputs
 
 
 def test_the_generated_ui_types_sit_inside_the_web_trigger() -> None:
-    """The read models reach the UI gates through the file they generate.
+    """Generated types and shared schemas are web quality inputs.
 
-    `tools/quality/drift/check_readmodel_contract.py` already turns a model change with
-    stale artifacts red in the Python job, so the only state the UI gates have to see is
-    a regenerated one — and regenerating rewrites `web/frontend/src/api/types.ts`, which
-    the existing filter matches. Widening the filter to `web/backend/**` would run the
-    npm install, the build and the Worker dry-run on every backend pull request without
-    catching a state the Python gate lets through. Moving the generated file out of that
-    tree is what would open the gap, so it is pinned here rather than left implicit.
+    The Python drift gate rejects stale generated artifacts. Cover their destinations
+    directly instead of running npm for every backend-only implementation change.
+    A JSON Schema edit need not change the TypeScript text, so both trees are gated.
     """
     from baibai_web.contracts_export import TYPES_PATH
 
@@ -326,25 +299,24 @@ def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
     matching file falls outside that window. A diff is bounded by the files
     present before it plus the files present after — deletions are why it can
     name more files than the tree holds — so while every commit keeps the tree
-    under this budget no diff between two of them can reach 3,000. The largest
-    first-parent diff on main so far is 708 files against a tree of 640.
+    under this budget no diff between two of them can reach 3,000.
 
     Growing past this budget means the filter has to give way to in-job detection
-    before it starts hiding the web gates. GitHub's troubleshooting page still
-    quotes the older 300-file window, so a shrinking limit would also be silent;
-    the workflow-syntax reference is the one that carries 3,000.
+    before it starts hiding the web gates. The limit was checked on 2026-10-14:
+    https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#git-diff-comparisons
     """
     tracked = _git(ROOT, "ls-files").splitlines()
 
-    assert len(tracked) < 1000
+    # Any two trees below half the documented limit have a diff below that limit.
+    assert 2 * len(tracked) < 3000
 
 
 def test_runs_that_cannot_deploy_stay_out_of_the_production_queue() -> None:
     """A concurrency group holds one pending run and evicts the previous one.
 
-    A dispatch on a feature branch sharing the production group would therefore
-    cancel a queued deploy, leaving production behind main with only a notice
-    annotation on a green run as evidence.
+    A push quality run or feature-branch dispatch sharing the production group
+    would cancel a queued deploy, leaving production behind main with only a
+    notice annotation on a green run as evidence.
     """
     workflow = _workflow("web.yml")
     jobs = workflow["jobs"]
@@ -357,9 +329,13 @@ def test_runs_that_cannot_deploy_stay_out_of_the_production_queue() -> None:
 
     assert set(jobs) == {"quality"}
     assert "needs" not in quality
+    assert "if" not in quality
     assert "concurrency" not in quality
     assert "github.event.pull_request.number" in group
-    assert "github.ref == 'refs/heads/main' && format('{0}-production-deploy'" in group
+    assert (
+        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' "
+        "&& format('{0}-production-deploy'"
+    ) in group
     assert "format('{0}-{1}', github.workflow, github.run_id)" in group
     assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
@@ -376,10 +352,14 @@ def test_docs_only_advance_keeps_web_target_current(tmp_path: Path) -> None:
     assert output == "current=true\n"
 
 
-def test_later_web_change_marks_old_target_stale(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "changed_path",
+    ["web/frontend/index.ts", "web/edge/index.ts", "web/contracts/read-model.schema.json"],
+)
+def test_later_web_change_marks_old_target_stale(tmp_path: Path, changed_path: str) -> None:
     repo, _baseline = _web_history_repo(tmp_path)
-    target = _commit(repo, "web/frontend/index.ts", "export const version = 1;\n", "web target")
-    _commit(repo, "web/frontend/index.ts", "export const version = 2;\n", "newer web target")
+    target = _commit(repo, changed_path, "version one\n", "web target")
+    _commit(repo, changed_path, "version two\n", "newer web target")
 
     code, output = _run_deploy_target(repo, target=target)
 
@@ -424,7 +404,7 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
                     setup_steps.append(step)
 
     assert required == "==0.12.17"
-    assert len(setup_steps) == 7
+    assert len(setup_steps) == 9
     assert all("version" not in step.get("with", {}) for step in setup_steps)
 
 

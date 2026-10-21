@@ -1,0 +1,163 @@
+"""The Market Context indicator panel maps every registered series exactly once, and its view
+tolerates a store that has not caught up with the registry."""
+
+from __future__ import annotations
+
+from calendar import monthrange
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+import pytest
+from tests.helpers.indicator_store import store_h15_observations
+
+from baibai_engine.collection.economic.store import initialize_database
+from baibai_engine.market_context.indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.read_api import READING_RULES_PATH
+from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
+from baibai_web.sources.db_sources import DbMarketContextSource, load_indicator_panel_config
+from baibai_web.sources.types import IndicatorGroupConfig, IndicatorSeriesConfig
+
+_PANEL_PATH = Path("web/config/market-context-panel.yaml")
+_AS_OF = date(2026, 7, 25)
+
+
+def _configured_series_ids() -> list[str]:
+    groups = load_indicator_panel_config(_PANEL_PATH)
+    return [series.series_id for group in groups for series in group.series]
+
+
+def test_panel_covers_every_registered_series_exactly_once() -> None:
+    configured = _configured_series_ids()
+    registered = {series.series_id for series in load_definitions().series}
+
+    assert set(configured) == registered, {
+        "missing_from_panel": sorted(registered - set(configured)),
+        "unknown_in_panel": sorted(set(configured) - registered),
+    }
+    assert len(configured) == len(set(configured)), "a series is listed in more than one group"
+
+
+def test_panel_groups_are_non_empty() -> None:
+    groups = load_indicator_panel_config(_PANEL_PATH)
+    assert groups
+    for group in groups:
+        assert group.series, f"empty indicator panel group: {group.title}"
+
+
+def _panel_source(
+    tmp_path: Path, *, series_ids: tuple[str, ...], stored: str
+) -> DbMarketContextSource:
+    store = tmp_path / "indicators.sqlite"
+    stored_definition = load_definitions().by_id()[stored]
+    connection = initialize_database(store)
+    try:
+        # This is how a store written before the registry grew looks: it has no
+        # row at all for the series added since.
+        store_h15_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id=stored,
+                    observed_at=date(2026, 7, 15),
+                    value=4.3,
+                    unit=stored_definition.unit,
+                    source_url="https://example.com/series",
+                )
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    groups = (
+        IndicatorGroupConfig(
+            title="金利",
+            series=tuple(IndicatorSeriesConfig(series_id=item, label=None) for item in series_ids),
+        ),
+    )
+    # No application store, so the report index is empty and only the panel is exercised.
+    return DbMarketContextSource(tmp_path / "absent.sqlite", store, groups, READING_RULES_PATH)
+
+
+def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Path) -> None:
+    source = _panel_source(tmp_path, series_ids=("us.10y", "jp.2y"), stored="us.10y")
+
+    view = build_market_context(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
+
+    rows = {series.series_id: series for group in view.groups for series in group.series}
+    assert list(rows) == ["us.10y", "jp.2y"]
+    # The overview carries only a compact monthly sparkline, not full history.
+    assert [point.observed_at for point in rows["us.10y"].points] == [date(2026, 7, 15)]
+    # The row survives with no observations and keeps its registry name, so a store that
+    # lags the registry shows the gap instead of dropping the series or failing the view.
+    assert rows["jp.2y"].points == []
+    definition = load_definitions().by_id()["jp.2y"]
+    assert rows["jp.2y"].name == definition.name
+    assert rows["jp.2y"].unit == definition.unit
+    history = build_indicator_series(source, series_id="us.10y", as_of=_AS_OF)
+    assert history is not None
+    assert history.points
+
+
+def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Path) -> None:
+    store = tmp_path / "indicators.sqlite"
+    definition = load_definitions().by_id()["us.10y"]
+    connection = initialize_database(store)
+    try:
+        observations: list[ObservationRecord] = []
+        # Fifteen calendar months with two observations each.  The overview must retain
+        # only the final observation in each month and at most thirteen months.
+        for offset in range(15):
+            month_index = 2023 * 12 + 11 + offset  # December 2023 is zero-based month 11.
+            year, zero_based_month = divmod(month_index, 12)
+            month = zero_based_month + 1
+            for day in (1, monthrange(year, month)[1]):
+                observations.append(
+                    ObservationRecord(
+                        series_id="us.10y",
+                        observed_at=date(year, month, day),
+                        value=3.0 + offset / 100 + day / 1000,
+                        unit=definition.unit,
+                        source_url="https://example.com/series",
+                    )
+                )
+        store_h15_observations(connection, observations)
+        connection.commit()
+    finally:
+        connection.close()
+    groups = (
+        IndicatorGroupConfig(
+            title="金利・金融政策",
+            series=(IndicatorSeriesConfig(series_id="us.10y", label=None),),
+        ),
+    )
+    source = DbMarketContextSource(
+        tmp_path / "absent.sqlite",
+        store,
+        groups,
+        READING_RULES_PATH,
+    )
+
+    as_of = date(2025, 2, 28)
+    view = build_market_context(source, as_of=as_of, known_at=datetime(2026, 7, 21, tzinfo=UTC))
+
+    points = view.groups[0].series[0].points
+    assert len(points) == 13
+    assert points[0].observed_at == date(2024, 2, 29)
+    assert points[-1].observed_at == as_of
+    assert all(
+        point.observed_at.day == monthrange(point.observed_at.year, point.observed_at.month)[1]
+        for point in points
+    )
+    history = build_indicator_series(source, series_id="us.10y", as_of=as_of)
+    assert history is not None
+    assert len(history.points) == 30
+
+
+def test_panel_rejects_a_configured_series_no_registry_defines(tmp_path: Path) -> None:
+    source = _panel_source(tmp_path, series_ids=("us.10y", "jp.no_such_series"), stored="us.10y")
+
+    with pytest.raises(ValueError, match=r"not registered: jp\.no_such_series"):
+        build_market_context(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))

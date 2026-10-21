@@ -10,6 +10,7 @@ from baibai_web.readmodel.builders.presentation import (
     holding_view,
     latest_research_by_ticker,
     percentage,
+    reservation_last_valid_day,
     security_names_for_run,
 )
 from baibai_web.readmodel.models import (
@@ -39,14 +40,12 @@ def build_dashboard(
     latest_research = latest_research_by_ticker(revisions)
     latest_run = screening.latest_run()
     security_names = security_names_for_run(latest_run)
-    research_load_errors = research.load_errors()
 
     if not ledger.exists():
         return _empty_dashboard(
             generated_at=now,
             ledger_exists=False,
             ledger_error=None,
-            research_load_errors=research_load_errors,
         )
     try:
         snapshot = ledger.snapshot()
@@ -55,7 +54,6 @@ def build_dashboard(
             generated_at=now,
             ledger_exists=True,
             ledger_error=str(error),
-            research_load_errors=research_load_errors,
         )
 
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
@@ -63,6 +61,7 @@ def build_dashboard(
     holdings = [
         holding_view(
             holding,
+            market=market,
             revision=latest_research.get(holding.ticker),
             security_name=security_names.get(holding.ticker),
             next_earnings_date=earnings_dates.get(holding.ticker),
@@ -76,16 +75,25 @@ def build_dashboard(
     reservations = [
         ReservationView(
             reservation_id=item.reservation_id,
+            side=item.side,
             ticker=item.ticker,
             sector=item.sector,
             remaining_quantity=item.remaining_quantity,
             price_guard_yen=str(item.price_guard_yen),
             reserved_yen=item.reserved_yen,
             expires_at=item.expires_at,
+            expiry_label=item.expiry_label
+            if item.expiry_label is not None
+            else (
+                reservation_last_valid_day(item.expires_at).isoformat()
+                if item.expires_at is not None
+                else None
+            ),
+            route_label=item.route_label,
         )
         for item in snapshot.active_reservations
     ]
-    reservations.sort(key=lambda item: item.expires_at)
+    reservations.sort(key=lambda item: (item.expires_at is None, item.expires_at))
     warnings = [
         WarningView(
             code=item.code,
@@ -106,18 +114,17 @@ def build_dashboard(
         if any(item.market_price_as_of is None for item in holdings)
         else min(
             (item.market_price_as_of for item in holdings if item.market_price_as_of is not None),
-            default=snapshot.as_of,
+            default=snapshot.as_of.astimezone(_JST).date(),
         )
     )
     return DashboardView(
         generated_at=now,
         ledger_exists=True,
         ledger_error=None,
-        ledger_as_of=snapshot.as_of,
-        ledger_stale=snapshot.as_of.date() <= today - timedelta(days=7),
+        ledger_as_of=snapshot.ledger_as_of,
+        ledger_stale=snapshot.ledger_as_of.astimezone(_JST).date() <= today - timedelta(days=7),
         valuation_as_of=valuation_as_of,
-        valuation_stale=valuation_as_of is None
-        or valuation_as_of.date() <= today - timedelta(days=7),
+        valuation_stale=valuation_as_of is None or valuation_as_of <= today - timedelta(days=7),
         total_capital_yen=total,
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
@@ -130,7 +137,6 @@ def build_dashboard(
         holdings=holdings,
         reservations=reservations,
         warnings=warnings,
-        research_load_errors=research_load_errors,
     )
 
 
@@ -139,7 +145,6 @@ def _empty_dashboard(
     generated_at: datetime,
     ledger_exists: bool,
     ledger_error: str | None,
-    research_load_errors: list[str],
 ) -> DashboardView:
     return DashboardView(
         generated_at=generated_at,
@@ -161,5 +166,4 @@ def _empty_dashboard(
         holdings=[],
         reservations=[],
         warnings=[],
-        research_load_errors=research_load_errors,
     )

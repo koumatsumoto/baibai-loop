@@ -3,38 +3,43 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable
+from contextlib import closing
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+import yaml
 
 from baibai_batch.jobs.daily import (
     BatchStepError,
-    CalendarCoverageError,
     CommandResult,
-    _macro_refresh_groups,
+    _economic_refresh_groups,
     _Notice,
-    _parse_macro_series,
+    _parse_economic_sources,
     _read_daily_delta,
+    _read_run_view,
     build_parser,
     main,
     run_daily_batch,
     run_daily_batch_structured,
 )
-from baibai_engine.macro.indicators.service import (
+from baibai_engine.collection.economic.acquisition import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
-from baibai_engine.market.sqlite import store_jquants_market_calendar
+from baibai_engine.collection.economic.sources import load_sources
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 
 JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)
 
 OK = CommandResult(0, "", "")
-EXTRACT_OK = CommandResult(
+REFRESH_METRICS_OK = CommandResult(
     0,
-    "EDINET extraction summary: selected=1 reused=1 downloaded=0 "
+    "EDINET extraction summary: selected=1 reused=1 parsed=0 "
     "quarantined_events=0 quarantined_tickers=0 quarantine_sample=none "
     "baseline_asof=2026-07-18\n",
     "",
@@ -45,45 +50,22 @@ RUN_OK = CommandResult(
     "universe=3800; candidates=42\n",
     "",
 )
-REVIEW_SET_OK = CommandResult(
-    0,
-    json.dumps({"review_set_id": "review-set-1", "entries": [{"ticker": "2331"}]}) + "\n",
-    "",
-)
 
 
-def _macro_list_row(
-    series_id: str,
-    category: str,
-    geography: str,
-    frequency: str,
-    provider: str,
-    *,
-    kind: str = "http",
-) -> dict[str, object]:
-    """One `macro list --format json` row as the CLI emits it."""
-
-    return {
-        "series_id": series_id,
-        "name": series_id,
-        "category": category,
-        "geography": geography,
-        "frequency": frequency,
-        "unit": "unit",
-        "provider": provider,
-        "kind": kind,
-    }
+def _economic_source_row(source_id: str) -> dict[str, object]:
+    """One Collection list row with the catalog's complete source fields."""
+    return asdict(load_sources()[source_id])
 
 
-MACRO_LIST_OK = CommandResult(
+ECONOMIC_LIST_OK = CommandResult(
     0,
     json.dumps(
         [
-            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-            _macro_list_row("jp.foreign_flows", "flows", "jp", "weekly", "jquants_flows"),
-            _macro_list_row("jp.cpi_all", "prices", "jp", "monthly", "estat"),
-            _macro_list_row("jp.gdp", "growth", "jp", "quarterly", "estat"),
-            _macro_list_row("jp.bankruptcies", "credit", "jp", "monthly", "tsr_bankruptcies"),
+            _economic_source_row("fed-h15"),
+            _economic_source_row("jquants-trades-spec"),
+            _economic_source_row("estat-cpi"),
+            _economic_source_row("fred-a191rl1q225sbea"),
+            _economic_source_row("tsr-bankruptcies"),
         ]
     ),
     "",
@@ -93,6 +75,8 @@ MACRO_LIST_OK = CommandResult(
 def _key(argv: list[str]) -> str:
     if "baibai_web.materialize" in argv:
         return "export"
+    if argv[1:3] == ["collection", "economic"]:
+        return " ".join(argv[1:4])
     return " ".join(argv[1:3])
 
 
@@ -101,11 +85,55 @@ def _run_yaml_writer(revision_id: str | None) -> Callable[[list[str]], None]:
 
     def _writer(argv: list[str]) -> None:
         idx = argv.index("--output-path")
-        lines = ['asof_date: "2026-07-21"', "universe_size: 3800", "candidates:"]
-        if revision_id is not None:
-            lines.insert(0, f'run_revision_id: "{revision_id}"')
-            lines.extend(['  - ticker: "2331"', '  - ticker: "0001"'])
-        Path(argv[idx + 1]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        payload = {
+            "schema_version": 1,
+            "kind": "stock_analysis_run",
+            "run_revision_id": revision_id,
+            "asof_date": "2026-07-21",
+            "universe_size": 3800,
+            "stock_analyses": [
+                {
+                    "ticker": "2331",
+                    "candidate": {
+                        "common_eligible": True,
+                        "reasons": [
+                            {
+                                "valuation_approach_id": "current-earnings-power",
+                                "valuation_method_id": "synthetic-method",
+                                "rank": 1,
+                            }
+                        ],
+                        "normalized_per_3fy_sector_gap": None,
+                    },
+                },
+                {
+                    "ticker": "0001",
+                    "candidate": {
+                        "common_eligible": False,
+                        "reasons": [],
+                        "normalized_per_3fy_sector_gap": None,
+                    },
+                },
+            ],
+            "candidate_discovery": {
+                "method": {
+                    "method_id": "synthetic-method",
+                    "method_hash": "a" * 64,
+                    "nomination_depth": 20,
+                },
+                "diagnostics": {
+                    "common_eligible_count": 1,
+                    "candidate_count": 1,
+                    "candidate_counts_by_approach": {
+                        "current-earnings-power": 1,
+                        "normalized-earnings-power": 0,
+                        "asset-value": 0,
+                        "reinvestment-value": 0,
+                    },
+                },
+            },
+        }
+        Path(argv[idx + 1]).write_text(yaml.safe_dump(payload), encoding="utf-8")
 
     return _writer
 
@@ -138,15 +166,14 @@ class ScriptedRunner:
 def _success_script() -> dict[str, list[CommandResult]]:
     return {
         "screening refresh-edinet-documents": [OK],
-        "screening verify-cache-coverage": [OK, OK],
+        "screening verify-cache-coverage": [OK],
         "screening bootstrap-cache": [OK],
-        "screening extract-edinet-metrics": [EXTRACT_OK],
+        "screening refresh-edinet-metrics": [REFRESH_METRICS_OK],
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
-        "screening review-set": [REVIEW_SET_OK],
-        "screening extract-edinet-facts": [OK],
-        "macro list": [MACRO_LIST_OK],
-        "macro refresh": [OK, OK, OK],
+        "screening refresh-edinet-facts": [OK],
+        "collection economic list": [ECONOMIC_LIST_OK],
+        "collection economic refresh": [OK, OK, OK],
         "export": [OK],
         "screening prune": [OK],
     }
@@ -158,7 +185,7 @@ def _runner(
     run_revision_id: str | None = "rev-1",
 ) -> ScriptedRunner:
     return ScriptedRunner(
-        results or _success_script(),
+        _success_script() if results is None else results,
         writers={"screening run": _run_yaml_writer(run_revision_id)},
     )
 
@@ -169,7 +196,7 @@ def _seed_calendar(root: Path, rows: dict[date, str]) -> None:
     days = sorted(rows)
     store_jquants_market_calendar(
         db,
-        [{"Date": day.isoformat(), "HolidayDivision": division} for day, division in rows.items()],
+        [{"Date": day.isoformat(), "HolDiv": division} for day, division in rows.items()],
         requested_start=days[0],
         requested_end=days[-1],
     )
@@ -197,17 +224,15 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     assert exit_code == 0
     assert runner.call_keys() == [
         "screening refresh-edinet-documents",
-        "screening verify-cache-coverage",
         "screening bootstrap-cache",
-        "screening extract-edinet-metrics",
+        "screening refresh-edinet-metrics",
         "screening verify-cache-coverage",
         "screening run",
-        "screening review-set",
-        "screening extract-edinet-facts",
-        "macro list",
-        "macro refresh",
-        "macro refresh",
-        "macro refresh",
+        "screening refresh-edinet-facts",
+        "collection economic list",
+        "collection economic refresh",
+        "collection economic refresh",
+        "collection economic refresh",
         "export",
         "screening prune",
         "task reconcile-earnings",
@@ -218,16 +243,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     assert run_argv[3:5] == ["--asof", "2026-07-21"]
     assert "--output-path" in run_argv
 
-    select_argv = _call(runner, "screening review-set")
-    assert select_argv[3:] == [
-        "publish",
-        "--asof",
-        "2026-07-21",
-        "--run-revision-id",
-        "rev-1",
-        "--format",
-        "json",
-    ]
+    assert "screening review-set" not in runner.call_keys()
 
     export_argv = _call(runner, "export")
     assert export_argv[:3] == [sys.executable, "-m", "baibai_web.materialize"]
@@ -264,46 +280,44 @@ def test_structured_and_human_daily_paths_have_normalized_equivalent_results(
     assert result.exit_code == human_exit == 0
     assert result.status == "machine_complete"
     assert result.run_revision_id == "rev-1"
-    assert result.review_set_id == "review-set-1"
+    assert result.candidate_count == 1
     assert human.call_keys() == structured.call_keys()
     assert [step.name for step in result.steps] == [
         "refresh-edinet-documents",
-        "verify-cache-coverage",
         "bootstrap-cache",
-        "extract-edinet-metrics",
-        "verify-cache-coverage(recheck)",
+        "refresh-edinet-metrics",
+        "verify-cache-coverage",
         "screening-run",
-        "screening-review-set",
         "edinet-research-facts",
-        "macro-list",
-        "macro-refresh-14d",
-        "macro-refresh-60d",
-        "macro-refresh-370d",
+        "economic-source-list",
+        "economic-source-refresh-14d",
+        "economic-source-refresh-60d",
+        "economic-source-refresh-370d",
         "export-read-models",
         "screening-prune",
         "task-reconcile-earnings",
     ]
 
 
-def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: Path) -> None:
+def test_daily_batch_refreshes_sources_by_frequency_window(tmp_path: Path) -> None:
     runner = _runner()
 
     run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
-    refresh_calls = [argv for argv in runner.calls if _key(argv) == "macro refresh"]
-    assert [argv[3:] for argv in refresh_calls] == [
-        ["us.10y", "--start", (ASOF - timedelta(days=14)).isoformat(), "--end", "2026-07-21"],
+    refresh_calls = [argv for argv in runner.calls if _key(argv) == "collection economic refresh"]
+    assert [argv[4:] for argv in refresh_calls] == [
+        ["fed-h15", "--start", (ASOF - timedelta(days=14)).isoformat(), "--end", "2026-07-21"],
         [
-            "jp.foreign_flows",
+            "jquants-trades-spec",
             "--start",
             (ASOF - timedelta(days=60)).isoformat(),
             "--end",
             "2026-07-21",
         ],
         [
-            "jp.cpi_all",
-            "jp.gdp",
-            "jp.bankruptcies",
+            "estat-cpi",
+            "fred-a191rl1q225sbea",
+            "tsr-bankruptcies",
             "--start",
             (ASOF - timedelta(days=370)).isoformat(),
             "--end",
@@ -312,31 +326,22 @@ def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: P
     ]
 
 
-def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path) -> None:
+def test_daily_batch_defers_remaining_cache_gap_after_bootstrap(tmp_path: Path) -> None:
     script = _success_script()
     script["screening verify-cache-coverage"] = [
-        CommandResult(1, "SQLite cache coverage incomplete for --asof 2026-07-21\n", ""),
-        OK,
+        CommandResult(1, "SQLite cache coverage incomplete\n", "missing input"),
     ]
-    script["screening bootstrap-cache"] = [OK]
-    script["screening extract-edinet-metrics"] = [EXTRACT_OK]
     runner = _runner(script)
-
-    exit_code = run_daily_batch(
+    result = run_daily_batch_structured(
         root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
     )
-
-    assert exit_code == 0
-    assert runner.call_keys()[:6] == [
-        "screening refresh-edinet-documents",
-        "screening verify-cache-coverage",
-        "screening bootstrap-cache",
-        "screening extract-edinet-metrics",
-        "screening verify-cache-coverage",
-        "screening run",
-    ]
-    assert runner.calls[2][3:] == ["--asof", "2026-07-21"]
-    assert runner.calls[3][3:] == ["--asof", "2026-07-21"]
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert "screening bootstrap-cache" in runner.call_keys()
+    assert "screening run" not in runner.call_keys()
+    assert runner.call_keys().count("collection economic list") == 1
+    assert runner.call_keys().count("export") == 1
+    assert "--skip-history" in _call(runner, "export")
 
 
 def test_daily_batch_bootstraps_cache_when_coverage_is_complete(tmp_path: Path) -> None:
@@ -347,79 +352,79 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_complete(tmp_path: Path) 
     )
 
     assert exit_code == 0
-    assert runner.call_keys()[:6] == [
+    assert runner.call_keys()[:5] == [
         "screening refresh-edinet-documents",
-        "screening verify-cache-coverage",
         "screening bootstrap-cache",
-        "screening extract-edinet-metrics",
+        "screening refresh-edinet-metrics",
         "screening verify-cache-coverage",
         "screening run",
     ]
 
 
-def test_daily_batch_rejects_extraction_without_quarantine_counters(tmp_path: Path) -> None:
+def test_daily_batch_defers_metric_refresh_without_quarantine_counters(
+    tmp_path: Path, capsys
+) -> None:
     script = _success_script()
-    script["screening verify-cache-coverage"] = [
-        CommandResult(1, "SQLite cache coverage incomplete for --asof 2026-07-21\n", ""),
-    ]
-    script["screening bootstrap-cache"] = [OK]
-    script["screening extract-edinet-metrics"] = [OK]
+    script["screening refresh-edinet-metrics"] = [OK]
     runner = _runner(script)
-
-    with pytest.raises(BatchStepError, match="without quarantine counters"):
-        run_daily_batch(
-            root=tmp_path,
-            output_dir=tmp_path / "serving",
-            asof=ASOF,
-            runner=runner,
-        )
-
+    assert (
+        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
+        == 3
+    )
+    assert "without quarantine counters" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
+    assert "collection economic refresh" in runner.call_keys()
+    assert "export" in runner.call_keys()
 
 
-def test_daily_batch_treats_verify_exit1_without_marker_as_crash(tmp_path: Path) -> None:
+def test_daily_batch_defers_verifier_crash_without_publishing_screening(tmp_path: Path) -> None:
     script = _success_script()
-    script["screening verify-cache-coverage"] = [
-        CommandResult(1, "", "Traceback: ConfigError: rules file is corrupt\n")
-    ]
+    script["screening verify-cache-coverage"] = [CommandResult(1, "", "broken rules")]
     runner = _runner(script)
-
-    with pytest.raises(BatchStepError, match="without the coverage-incomplete marker"):
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
-
-    assert "screening bootstrap-cache" not in runner.call_keys()
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
     assert "screening run" not in runner.call_keys()
+    assert "collection economic refresh" in runner.call_keys()
+    assert "export" in runner.call_keys()
 
 
-def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_path: Path) -> None:
-    incomplete = CommandResult(1, "SQLite cache coverage incomplete for --asof 2026-07-21\n", "")
-    script = {
-        "screening refresh-edinet-documents": [OK],
-        "screening verify-cache-coverage": [incomplete, incomplete],
-        "screening bootstrap-cache": [OK],
-        "screening extract-edinet-metrics": [EXTRACT_OK],
-    }
+def test_daily_batch_acquires_shared_market_after_edinet_failure(tmp_path: Path) -> None:
+    script = _success_script()
+    script["screening refresh-edinet-documents"] = [CommandResult(1, "", "EDINET unavailable")]
     runner = _runner(script)
-
-    with pytest.raises(BatchStepError, match="recheck"):
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
-
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 3
+    assert "screening bootstrap-cache" in runner.call_keys()
     assert "screening run" not in runner.call_keys()
+    assert runner.call_keys().count("export") == 1
 
 
-def test_daily_batch_stops_on_step_failure_with_stderr_summary(tmp_path: Path) -> None:
+def test_daily_batch_continues_economic_sources_after_screening_fatal(
+    tmp_path: Path, capsys
+) -> None:
     script = _success_script()
     script["screening run"] = [CommandResult(1, "", "boom\nprovider unavailable\n")]
     runner = _runner(script)
-
-    with pytest.raises(BatchStepError) as excinfo:
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
-
-    message = str(excinfo.value)
-    assert "screening-run" in message
-    assert "exit 1" in message
-    assert "provider unavailable" in message
-    assert "screening review-set" not in runner.call_keys()
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert result.run_revision_id is None
+    assert result.candidate_count is None
+    error = capsys.readouterr().err
+    assert "provider unavailable" in error
+    assert "read models exported locally" in error
+    assert "export published" not in error
+    assert runner.call_keys().count("collection economic list") == 1
+    assert runner.call_keys().count("export") == 1
+    assert "screening prune" not in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
 
 
 def test_daily_batch_continues_when_run_reports_partial_warning(tmp_path: Path, capsys) -> None:
@@ -444,11 +449,11 @@ def test_daily_batch_continues_when_run_reports_partial_warning(tmp_path: Path, 
     assert "partial warning (run is published" in capsys.readouterr().out
 
 
-def test_daily_batch_defers_macro_refresh_failure_until_after_export(
+def test_daily_batch_defers_economic_source_refresh_failure_until_after_export(
     tmp_path: Path, capsys
 ) -> None:
     script = _success_script()
-    script["macro refresh"] = [
+    script["collection economic refresh"] = [
         CommandResult(1, "", "provider down\n"),
         OK,
         OK,
@@ -461,44 +466,15 @@ def test_daily_batch_defers_macro_refresh_failure_until_after_export(
 
     assert exit_code == 3
     keys = runner.call_keys()
-    assert keys.count("macro refresh") == 3
+    assert keys.count("collection economic refresh") == 3
     assert "export" in keys
     # The deferred detail is surfaced immediately, not only in the final summary.
     assert "deferred failure" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("returncode", [0, 1])
-def test_daily_batch_always_echoes_registry_prune_audit_lines(
-    tmp_path: Path, capsys, returncode: int
-) -> None:
+def test_daily_batch_defers_economic_source_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
-    script["macro refresh"] = [
-        CommandResult(
-            returncode,
-            "us.10y\t2026-07-21\t4.2\n"
-            "registry-prune\tretired.series\tobservations=42\tprovider_runs=3\n",
-            "provider down\n" if returncode else "",
-        ),
-        OK,
-        OK,
-    ]
-    runner = _runner(script)
-
-    exit_code = run_daily_batch(
-        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
-    )
-
-    output = capsys.readouterr().out
-    assert "registry-prune-pending" not in output
-    assert "transaction=" not in output
-    assert "registry-prune\tretired.series\tobservations=42\tprovider_runs=3" in output
-    assert "us.10y\t2026-07-21\t4.2" not in output
-    assert exit_code == (3 if returncode else 0)
-
-
-def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
-    script = _success_script()
-    script["macro list"] = [CommandResult(1, "", "boom\n")]
+    script["collection economic list"] = [CommandResult(1, "", "boom\n")]
     runner = _runner(script)
 
     exit_code = run_daily_batch(
@@ -507,47 +483,52 @@ def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path)
 
     assert exit_code == 3
     keys = runner.call_keys()
-    assert "macro refresh" not in keys
+    assert "collection economic refresh" not in keys
     assert "export" in keys
 
 
-def test_daily_batch_stops_when_run_view_lacks_run_revision_id(tmp_path: Path) -> None:
+def test_daily_batch_defers_run_view_without_revision(tmp_path: Path) -> None:
     runner = _runner(run_revision_id=None)
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert "collection economic list" in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
 
-    with pytest.raises(BatchStepError, match="run_revision_id"):
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
-    assert "screening review-set" not in runner.call_keys()
-
-
-def test_daily_batch_stops_when_review_set_artifact_lacks_id(tmp_path: Path) -> None:
+def test_daily_batch_export_failure_remains_fatal_after_economic_sources(tmp_path: Path) -> None:
     script = _success_script()
-    script["screening review-set"] = [CommandResult(0, '{"asof":"2026-07-08"}\n', "")]
+    script["export"] = [CommandResult(1, "", "untrusted store")]
     runner = _runner(script)
-
-    with pytest.raises(BatchStepError, match="review_set_id"):
+    with pytest.raises(BatchStepError, match="export-read-models"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
+    assert "collection economic refresh" in runner.call_keys()
+    assert "screening prune" not in runner.call_keys()
 
-    assert "macro list" not in runner.call_keys()
 
-
-def test_daily_batch_skips_non_business_day(tmp_path: Path, capsys) -> None:
+def test_daily_batch_skips_only_screening_on_non_business_day(tmp_path: Path, capsys) -> None:
     today = datetime.now(JST).date()
     _seed_calendar(tmp_path, {today: "0"})
-    runner = _runner({})
-
-    exit_code = run_daily_batch(
+    runner = _runner()
+    result = run_daily_batch_structured(
         root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner
     )
-
-    assert exit_code == 0
-    assert runner.calls == []
-    assert f"skip: {today.isoformat()} は非営業日" in capsys.readouterr().out
+    assert result.exit_code == 0
+    assert result.screening_status == "skipped_non_business_day"
+    assert result.market_updated is False
+    assert "screening bootstrap-cache" not in runner.call_keys()
+    assert "screening run" not in runner.call_keys()
+    assert runner.call_keys().count("collection economic list") == 1
+    assert runner.call_keys().count("export") == 1
+    assert "--skip-history" in _call(runner, "export")
+    assert f"skip Screening: {today.isoformat()} は非営業日" in capsys.readouterr().out
 
 
 def test_analysis_structured_path_gates_an_explicit_non_business_day(tmp_path: Path) -> None:
     _seed_calendar(tmp_path, {ASOF: "0"})
-    runner = _runner({})
+    runner = _runner()
 
     result = run_daily_batch_structured(
         root=tmp_path,
@@ -558,9 +539,10 @@ def test_analysis_structured_path_gates_an_explicit_non_business_day(tmp_path: P
         quiet=True,
     )
 
-    assert result.status == "skipped_non_business_day"
+    assert result.screening_status == "skipped_non_business_day"
     assert result.exit_code == 0
-    assert runner.calls == []
+    assert "screening run" not in runner.call_keys()
+    assert "collection economic refresh" in runner.call_keys()
 
 
 def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
@@ -606,34 +588,50 @@ def test_scheduled_and_explicit_asof_are_mutually_exclusive() -> None:
         )
 
 
-def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path) -> None:
+def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path, capsys) -> None:
     today = datetime.now(JST).date()
     _seed_calendar(tmp_path, {today - timedelta(days=30): "1"})
-    runner = _runner({})
+    runner = _runner()
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert "does not cover" in capsys.readouterr().err
+    assert "screening run" not in runner.call_keys()
+    assert "collection economic refresh" in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
 
-    with pytest.raises(CalendarCoverageError, match="does not cover"):
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
 
-    assert runner.calls == []
-
-
-def test_daily_batch_errors_when_calendar_table_is_missing(tmp_path: Path) -> None:
+def test_daily_batch_errors_when_calendar_table_is_missing(tmp_path: Path, capsys) -> None:
     import sqlite3
 
     db = tmp_path / "stores/market/market.sqlite"
     db.parent.mkdir(parents=True)
     sqlite3.connect(db).close()
-    runner = _runner({})
+    runner = _runner()
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert "unreadable" in capsys.readouterr().err
+    assert "screening run" not in runner.call_keys()
+    assert "collection economic refresh" in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
 
-    with pytest.raises(CalendarCoverageError, match="unreadable"):
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
 
-
-def test_daily_batch_errors_when_market_sqlite_is_absent(tmp_path: Path) -> None:
-    runner = _runner({})
-
-    with pytest.raises(CalendarCoverageError, match="does not exist"):
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
+def test_daily_batch_errors_when_market_sqlite_is_absent(tmp_path: Path, capsys) -> None:
+    runner = _runner()
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert "does not exist" in capsys.readouterr().err
+    assert "screening run" not in runner.call_keys()
+    assert "collection economic refresh" in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
 
 
 def test_main_rejects_a_root_without_project_markers(tmp_path: Path, capsys) -> None:
@@ -668,7 +666,7 @@ def _notice_runner(
     results: dict[str, list[CommandResult]] | None = None,
 ) -> ScriptedRunner:
     return ScriptedRunner(
-        results or _success_script(),
+        _success_script() if results is None else results,
         writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer},
     )
 
@@ -694,7 +692,8 @@ def test_daily_batch_writes_the_notice_with_asof_and_an_unmeasured_delta(tmp_pat
     # rather than empty lists that would read as "nothing changed".
     assert _load_notice(notice_path) == {
         "asof": "2026-07-21",
-        "skipped": False,
+        "screening_status": "published",
+        "market_updated": None,
         "failed_stage": None,
         "delta_measured": False,
         "delta_unmeasured_reason": "view_unreadable",
@@ -707,7 +706,6 @@ def _delta_view(path: Path, entered: list[object], exited: list[object] | None =
     payload = {
         "entered": entered,
         "exited": [] if exited is None else exited,
-        "er_moves": [],
         "holdings": [],
         "unavailable": [],
     }
@@ -804,19 +802,17 @@ def test_daily_delta_reports_an_empty_list_when_nothing_entered(tmp_path: Path) 
     assert notice.entered == []
 
 
-def test_daily_delta_drops_unreadable_entered_rows_without_failing(
+def test_daily_delta_keeps_identified_rows_with_unusable_optional_fields(
     tmp_path: Path,
 ) -> None:
     view = _delta_view(
         tmp_path / "daily-delta.json",
         [
-            "not-a-row",
-            _entry(" ", "Blank", 40.0),
-            {"company_name": "No ticker", "er_annual_pct": 50.0},
             _entry("3001", "Broken", float("nan")),
             _entry("3002", "Boolish", True),
             _entry("3003", "Multi\nline {name}", 3.0),
             _entry("3004", "x" * 200, 2.0),
+            _entry("3005", "Overflow", 10**400),
         ],
     )
 
@@ -825,23 +821,33 @@ def test_daily_delta_drops_unreadable_entered_rows_without_failing(
     labels = notice.entered
 
     assert isinstance(labels, list)
-    # A row that cannot be identified by ticker is dropped; a value the renderer
-    # cannot use (NaN, bool) costs only that field, not the row.
-    assert labels[2:] == ["3003 Multi line name E[r]+3.0%", "3004 " + "x" * 24 + " E[r]+2.0%"]
+    assert notice.delta_measured
+    # An unusable optional value costs only that field, not an identified row.
+    assert labels[2:] == [
+        "3003 Multi line name E[r]+3.0%",
+        "3004 " + "x" * 24 + " E[r]+2.0%",
+        "3005 Overflow",
+    ]
     assert labels[:2] == ["3001 Broken", "3002 Boolish"]
     assert all("\n" not in label and len(label) <= 48 for label in labels)
 
 
-def test_daily_delta_names_nothing_when_the_view_cannot_be_read(tmp_path: Path) -> None:
+@pytest.mark.parametrize("content", [None, b"not json", b"\xff"])
+def test_daily_delta_names_nothing_when_the_view_cannot_be_read(tmp_path: Path, content) -> None:
+    path = tmp_path / "delta.json"
+    if content is not None:
+        path.write_bytes(content)
     notice = _Notice()
-    _read_daily_delta(tmp_path / "missing.json", notice)
+    _read_daily_delta(path, notice)
 
     assert notice.delta_measured is False
     assert notice.delta_unmeasured_reason == "view_unreadable"
     assert notice.entered == []
 
 
-def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Path) -> None:
+def test_daily_batch_reports_screening_skip_without_skipping_economic_sources(
+    tmp_path: Path,
+) -> None:
     today = datetime.now(JST).date()
     _seed_calendar(tmp_path, {today: "0"})
     notice_path = tmp_path / "notice.json"
@@ -850,13 +856,13 @@ def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Pat
         root=tmp_path,
         output_dir=tmp_path / "serving",
         asof=None,
-        runner=_notice_runner({}),
+        runner=_notice_runner(),
         notice_output=notice_path,
     )
 
     assert exit_code == 0
     notice = _load_notice(notice_path)
-    assert notice["skipped"] is True
+    assert notice["screening_status"] == "skipped_non_business_day"
     assert notice["asof"] == today.isoformat()
     assert notice["failed_stage"] is None
 
@@ -865,7 +871,7 @@ def test_daily_batch_exits_3_and_names_the_first_deferred_macro_failure(
     tmp_path: Path,
 ) -> None:
     script = _success_script()
-    script["macro refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
+    script["collection economic refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
     notice_path = tmp_path / "notice.json"
 
     exit_code = run_daily_batch(
@@ -877,17 +883,14 @@ def test_daily_batch_exits_3_and_names_the_first_deferred_macro_failure(
     )
 
     assert exit_code == 3
-    assert _load_notice(notice_path)["failed_stage"].startswith("macro-refresh-")
+    assert _load_notice(notice_path)["failed_stage"].startswith("economic-source-refresh-")
 
 
-def test_daily_batch_names_the_failed_stage_in_the_notice_on_a_fatal_failure(
-    tmp_path: Path,
-) -> None:
+def test_daily_batch_names_screening_failure_without_claiming_fresh_result(tmp_path: Path) -> None:
     script = _success_script()
     script["screening run"] = [CommandResult(1, "", "boom\n")]
     notice_path = tmp_path / "notice.json"
-
-    with pytest.raises(BatchStepError):
+    assert (
         run_daily_batch(
             root=tmp_path,
             output_dir=tmp_path / "serving",
@@ -895,28 +898,32 @@ def test_daily_batch_names_the_failed_stage_in_the_notice_on_a_fatal_failure(
             runner=_notice_runner(script),
             notice_output=notice_path,
         )
-
+        == 3
+    )
     notice = _load_notice(notice_path)
     assert notice["failed_stage"] == "screening-run"
-    # The stderr text stays in the log; the notice carries only the stage name.
+    assert notice["screening_status"] == "failed"
+    assert notice["delta_measured"] is False
     assert "boom" not in json.dumps(notice)
 
 
-def test_daily_batch_names_the_calendar_stage_when_the_market_store_is_missing(
+def test_daily_batch_names_missing_calendar_and_still_exports_economic_sources(
     tmp_path: Path,
 ) -> None:
     notice_path = tmp_path / "notice.json"
-
-    with pytest.raises(CalendarCoverageError):
+    assert (
         run_daily_batch(
             root=tmp_path,
             output_dir=tmp_path / "serving",
             asof=None,
-            runner=_notice_runner({}),
+            runner=_notice_runner(),
             notice_output=notice_path,
         )
-
+        == 3
+    )
     assert _load_notice(notice_path)["failed_stage"] == "calendar"
+    assert _load_notice(notice_path)["screening_status"] == "failed"
+    assert (tmp_path / "serving/views/meta.json").is_file()
 
 
 def test_main_rejects_an_invalid_asof_before_writing_a_notice(tmp_path: Path, capsys) -> None:
@@ -943,75 +950,59 @@ def test_main_rejects_an_invalid_asof_before_writing_a_notice(tmp_path: Path, ca
     assert not notice_path.exists()
 
 
-def test_parse_macro_series_reads_json_list() -> None:
+def test_parse_economic_sources_reads_json_list() -> None:
     stdout = json.dumps(
         [
-            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-            _macro_list_row("jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"),
+            _economic_source_row("fed-h15"),
+            _economic_source_row("spglobal-jp-pmi-mfg"),
         ]
     )
 
-    parsed = _parse_macro_series(stdout)
+    parsed = _parse_economic_sources(stdout)
 
-    assert [item.series_id for item in parsed] == ["us.10y", "jp.pmi_manufacturing"]
+    assert [item.source_id for item in parsed] == ["fed-h15", "spglobal-jp-pmi-mfg"]
 
 
-def test_parse_macro_series_rejects_non_json() -> None:
+def test_parse_economic_sources_rejects_non_json() -> None:
     with pytest.raises(BatchStepError, match="not parseable JSON"):
-        _parse_macro_series("us.10y\tdaily\tfred_csv")
+        _parse_economic_sources("fed-h15\tdaily\tfrb_h15")
 
 
-def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None:
-    parsed = _parse_macro_series(
+def test_economic_refresh_groups_buckets_every_source_by_frequency_window() -> None:
+    parsed = _parse_economic_sources(
         json.dumps(
             [
-                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-                _macro_list_row(
-                    "jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"
-                ),
-                _macro_list_row("jp.cpi", "prices", "jp", "monthly", "estat"),
+                _economic_source_row("fed-h15"),
+                _economic_source_row("jquants-trades-spec"),
+                _economic_source_row("spglobal-jp-pmi-mfg"),
+                _economic_source_row("estat-cpi"),
             ]
         )
     )
 
-    groups = _macro_refresh_groups(parsed)
+    groups = _economic_refresh_groups(parsed)
 
     assert groups == [
-        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y"]),
-        (DEFAULT_LATEST_LOOKBACK_DAYS, ["jp.pmi_manufacturing", "jp.cpi"]),
+        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["fed-h15"]),
+        (LATEST_FETCH_LOOKBACK_DAYS["weekly"], ["jquants-trades-spec"]),
+        (DEFAULT_LATEST_LOOKBACK_DAYS, ["spglobal-jp-pmi-mfg", "estat-cpi"]),
     ]
 
 
-def test_macro_refresh_groups_orders_derived_after_base() -> None:
-    parsed = _parse_macro_series(
-        json.dumps(
-            [
-                _macro_list_row(
-                    "gold_copper_ratio", "commodity", "world", "daily", "derived", kind="local"
-                ),
-                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-                _macro_list_row("gold", "commodity", "world", "daily", "yahoo"),
-            ]
-        )
-    )
-
-    groups = _macro_refresh_groups(parsed)
-
-    # Same daily window, but base (http) is refreshed before the derived (local) series.
-    assert groups == [
-        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y", "gold"]),
-        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["gold_copper_ratio"]),
-    ]
+def test_collection_catalog_has_no_acquisition_entry_for_derived_l2_series() -> None:
+    sources = load_sources()
+    derived = [item for item in load_definitions().series if item.provider == "derived"]
+    assert derived
+    assert all(item.source_id not in sources for item in derived)
+    assert all(source.provider != "derived" for source in sources.values())
 
 
-def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
+def test_a_reconcile_failure_degrades_the_batch_after_local_export(
     tmp_path: Path,
 ) -> None:
-    """The step reports and writes nothing, so it must never cost the day's publish.
+    """A reconciliation failure is deferred after a successful local export.
 
-    Pins the deferral itself: replacing the try/except with a bare `_run_step`
-    puts the step back on the critical path, and nothing else in the suite would
-    notice.
+    The scripted runner tests orchestration and notice state, not remote publication.
     """
     script = _success_script()
     script["task reconcile-earnings"] = [CommandResult(returncode=1, stdout="", stderr="boom")]
@@ -1029,18 +1020,18 @@ def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     )
 
     keys = runner.call_keys()
-    assert "screening review-set" in keys
+    assert "screening run" in keys
     assert "export" in keys
     assert exit_code == 3
     assert _load_notice(notice_path)["failed_stage"] == "task-reconcile-earnings"
 
 
-@pytest.mark.parametrize("section", ["screening_run", "previous_screening_run", "review_set"])
+@pytest.mark.parametrize("section", ["screening_run", "previous_screening_run", "candidates"])
 def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, section):
     view = _delta_view(tmp_path / "delta.json", [])
-    payload = json.loads(view.read_text())
+    payload = json.loads(view.read_text(encoding="utf-8"))
     payload["unavailable"] = [section]
-    view.write_text(json.dumps(payload))
+    view.write_text(json.dumps(payload), encoding="utf-8")
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
@@ -1049,23 +1040,228 @@ def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, secti
 
 def test_daily_delta_distinguishes_method_change(tmp_path):
     view = _delta_view(tmp_path / "delta.json", [])
-    payload = json.loads(view.read_text())
+    payload = json.loads(view.read_text(encoding="utf-8"))
     payload["method_changed"] = True
-    view.write_text(json.dumps(payload))
+    view.write_text(json.dumps(payload), encoding="utf-8")
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
     assert notice.delta_unmeasured_reason == "手法変更"
 
 
-def test_research_fact_failure_is_deferred_until_after_publication(tmp_path):
+def test_research_fact_failure_is_deferred_until_after_local_export(tmp_path):
     script = _success_script()
-    script["screening extract-edinet-facts"] = [CommandResult(1, "", "XBRL unavailable")]
+    script["screening refresh-edinet-facts"] = [CommandResult(1, "", "XBRL unavailable")]
     runner = _runner(script)
     assert (
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
         == 3
     )
-    assert "screening review-set" in runner.call_keys()
+    assert "screening run" in runner.call_keys()
     assert "export" in runner.call_keys()
-    assert "--initialize" not in _call(runner, "screening extract-edinet-facts")
+    assert "--initialize" not in _call(runner, "screening refresh-edinet-facts")
+
+
+def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_publish(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+
+    _seed_calendar(tmp_path, {ASOF: "1"})
+    script = _success_script()
+    script["screening bootstrap-cache"] = [CommandResult(1, "", "later source chunk failed")]
+    runner = _notice_runner(script)
+    market = tmp_path / "stores/market/market.sqlite"
+    next_day = ASOF + timedelta(days=1)
+    runner._writers["screening bootstrap-cache"] = lambda _argv: store_jquants_market_calendar(
+        market,
+        [{"Date": next_day.isoformat(), "HolDiv": "1"}],
+        requested_start=next_day,
+        requested_end=next_day,
+    )
+    notice_path = tmp_path / "notice.json"
+    result = run_daily_batch_structured(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=runner,
+        notice_output=notice_path,
+    )
+    assert result.exit_code == 3
+    assert result.market_updated is True
+    assert result.screening_status == "failed"
+    assert _load_notice(notice_path)["market_updated"] is True
+    with closing(sqlite3.connect(market)) as connection:
+        assert connection.execute(
+            "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
+            (next_day.isoformat(),),
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
+            (ASOF.isoformat(),),
+        ).fetchone() == (1,)
+    assert "screening run" not in runner.call_keys()
+    assert (
+        runner.call_keys().count("collection economic list")
+        == runner.call_keys().count("export")
+        == 1
+    )
+    assert (tmp_path / "serving/views/meta.json").is_file()
+
+
+def test_corrupt_market_store_does_not_block_economic_sources_and_export_stays_fatal(
+    tmp_path: Path,
+) -> None:
+    market = tmp_path / "stores/market/market.sqlite"
+    market.parent.mkdir(parents=True)
+    market.write_bytes(b"injected corrupt sqlite")
+    script = _success_script()
+    script["export"] = [CommandResult(1, "", "market store schema/hydration invalid")]
+    runner = _runner(script)
+    with pytest.raises(BatchStepError, match="export-read-models"):
+        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
+    assert "screening run" not in runner.call_keys()
+    assert "collection economic refresh" in runner.call_keys()
+    assert not (tmp_path / "serving/views/meta.json").exists()
+
+
+def test_daily_output_uses_single_run_export_and_zero_candidates_is_published(
+    tmp_path: Path,
+) -> None:
+    runner = _runner()
+    original_writer = _run_yaml_writer("rev-1")
+
+    def empty_candidates(argv: list[str]) -> None:
+        original_writer(argv)
+        output = Path(argv[argv.index("--output-path") + 1])
+        payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+        payload["stock_analyses"][0]["candidate"]["reasons"] = []
+        payload["candidate_discovery"]["diagnostics"]["candidate_count"] = 0
+        payload["candidate_discovery"]["diagnostics"]["candidate_counts_by_approach"][
+            "current-earnings-power"
+        ] = 0
+        output.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    runner._writers["screening run"] = empty_candidates
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 0
+    assert result.screening_status == "published"
+    assert result.candidate_count == 0
+    assert result.run_revision_id == "rev-1"
+    assert "review_set_id" not in result.to_json()
+    assert "screening prune" in runner.call_keys()
+
+
+@pytest.mark.parametrize("mutation", ["header", "rows", "context", "counts", "method", "universe"])
+def test_daily_rejects_invalid_committed_run_export_and_keeps_economic_sources_independent(
+    tmp_path: Path, mutation: str
+) -> None:
+    runner = _runner()
+    original_writer = _run_yaml_writer("rev-1")
+
+    def broken_export(argv: list[str]) -> None:
+        original_writer(argv)
+        output = Path(argv[argv.index("--output-path") + 1])
+        payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+        if mutation == "header":
+            payload.pop("candidate_discovery")
+        elif mutation == "rows":
+            payload["stock_analyses"] = None
+        elif mutation == "context":
+            payload["stock_analyses"][0]["candidate"] = None
+        elif mutation == "counts":
+            payload["candidate_discovery"]["diagnostics"]["candidate_count"] = 0
+        elif mutation == "method":
+            payload["candidate_discovery"]["method"]["method_hash"] = "invalid"
+        else:
+            payload["universe_size"] = True
+        output.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    runner._writers["screening run"] = broken_export
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert result.candidate_count is None
+    assert "collection economic refresh" in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
+    assert "screening prune" not in runner.call_keys()
+
+
+def test_run_export_counts_match_stock_rows_without_review_publication_id(tmp_path: Path) -> None:
+    output = tmp_path / "run.yaml"
+    _run_yaml_writer("rev-1")(["--output-path", str(output)])
+    view = _read_run_view(output)
+    assert view.run_revision_id == "rev-1"
+    assert view.universe_size == 3800
+    assert view.analyzed_count == 2
+    assert view.candidate_count == 1
+
+
+@pytest.mark.parametrize("failure", ["connect", "before", "after"])
+def test_unreadable_change_probe_does_not_stop_batch_or_claim_no_change(
+    tmp_path, monkeypatch, failure
+):
+    import sqlite3
+
+    market = tmp_path / "stores/market/market.sqlite"
+    market.parent.mkdir(parents=True)
+    market.touch()
+    reads = []
+    closed = []
+
+    class Probe:
+        def execute(self, query):
+            assert query == "PRAGMA data_version"
+            reads.append(query)
+            if failure == "before" or (failure == "after" and len(reads) == 2):
+                raise sqlite3.OperationalError("probe unavailable")
+            return self
+
+        def fetchone(self):
+            return (1,)
+
+        def close(self):
+            closed.append(True)
+
+    def connect(*args, **kwargs):
+        if failure == "connect":
+            raise sqlite3.OperationalError("probe unavailable")
+        return Probe()
+
+    monkeypatch.setattr("baibai_batch.jobs.daily.sqlite3.connect", connect)
+    runner = _notice_runner()
+    notice_path = tmp_path / "notice.json"
+    result = run_daily_batch_structured(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=runner,
+        notice_output=notice_path,
+    )
+    assert result.exit_code == 0
+    assert result.market_updated is None
+    assert _load_notice(notice_path)["market_updated"] is None
+    assert "collection economic refresh" in runner.call_keys()
+    assert "export" in runner.call_keys()
+    assert closed == ([] if failure == "connect" else [True])
+
+
+@pytest.mark.parametrize("section", ["entered", "exited"])
+@pytest.mark.parametrize("row", ["not-a-row", {"ticker": " "}, {"company_name": "No ticker"}])
+@pytest.mark.parametrize("mixed", [False, True])
+def test_unidentified_delta_row_is_not_reported_as_no_change_or_a_complete_list(
+    tmp_path, section, row, mixed
+):
+    path = _delta_view(tmp_path / "delta.json", [])
+    payload = json.loads(path.read_text())
+    payload[section] = [*([_entry("3001", "Known", 5.0)] if mixed else []), row]
+    path.write_text(json.dumps(payload))
+    notice = _Notice()
+    _read_daily_delta(path, notice)
+    assert not notice.delta_measured
+    assert notice.delta_unmeasured_reason == "view_unreadable"
+    assert notice.entered == notice.exited == []

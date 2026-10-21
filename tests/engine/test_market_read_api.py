@@ -1,17 +1,29 @@
 from __future__ import annotations
 
-from datetime import date
+import sqlite3
+from contextlib import closing
+from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.market.sqlite.schema import open_connection
+import pytest
+from tests.helpers.screening_sqlite import insert_financial_record
+
+from baibai_engine.market import store as market_store
+from baibai_engine.position.market_source import (
+    market_basis_is_confirmed,
+    next_order_session,
+    read_unadjusted_close,
+)
 from baibai_engine.read_api.market import (
     close_change_since,
     latest_disclosure_dates_after,
     latest_unadjusted_closes,
     next_earnings_dates,
     previous_business_day,
-    worst_close_drawdown,
 )
+from baibai_engine.screening.calibration.forward import latest_market_data_date
+from baibai_engine.screening.sqlite_coverage.core import _connect_readonly
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _seed_bars(path: Path, rows: list[tuple[str, str, float | None]]) -> None:
@@ -121,7 +133,7 @@ def _seed_calendar(path: Path, rows: list[tuple[str, int]]) -> None:
     connection = open_connection(path)
     try:
         connection.executemany(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)", rows
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)", rows
         )
         connection.commit()
     finally:
@@ -175,25 +187,6 @@ def test_close_change_since_keeps_factor_on_a_close_null_day(tmp_path: Path) -> 
     assert close_change_since(database, ["2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
 
 
-def test_worst_close_drawdown_keeps_factor_on_a_close_null_day(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_bars_with_factors(
-        database,
-        [
-            ("2331", "2026-07-28", 1.0, 1.0),
-            ("2331", "2026-07-29", None, 100.0),
-            ("2331", "2026-07-30", 50.0, 1.0),
-        ],
-    )
-
-    assert worst_close_drawdown(
-        database,
-        ["2331"],
-        start=date(2026, 7, 28),
-        end=date(2026, 7, 30),
-    ) == {"2331": -0.5}
-
-
 def test_close_change_since_skips_a_ticker_with_no_close_by_the_day(tmp_path: Path) -> None:
     database = tmp_path / "market.sqlite"
     _seed_bars_with_factors(
@@ -217,20 +210,23 @@ def test_latest_disclosure_dates_after_excludes_the_boundary_day(tmp_path: Path)
     database = tmp_path / "market.sqlite"
     connection = open_connection(database)
     try:
-        connection.executemany(
-            "INSERT INTO jquants_fin_summaries(ticker, disclosed_at) VALUES (?, ?)",
-            [
-                ("2331", "2026-07-28"),
-                ("2331", "2026-07-29"),
-                ("4432", "2026-07-28"),
-            ],
-        )
+        for ticker, day in (
+            ("2331", "2026-07-28"),
+            ("2331", "2026-07-29"),
+            ("4432", "2026-07-28"),
+        ):
+            insert_financial_record(
+                connection,
+                {"Code": f"{ticker}0", "DiscDate": day, "DiscNo": f"{ticker}-{day}"},
+            )
         connection.commit()
     finally:
         connection.close()
 
-    # Strictly after: a disclosure on the earlier as-of was already known then.
-    result = latest_disclosure_dates_after(database, ["2331", "4432"], after=date(2026, 7, 28))
+    # The comparison excludes the earlier date and includes the later date.
+    result = latest_disclosure_dates_after(
+        database, ["2331", "4432"], after=date(2026, 7, 28), through_date=date(2026, 7, 29)
+    )
 
     assert result == {"2331": date(2026, 7, 29)}
 
@@ -252,3 +248,72 @@ def test_previous_business_day_is_unknown_when_the_calendar_stops_short(tmp_path
     _seed_calendar(database, [("2026-07-27", 1)])
 
     assert previous_business_day(database, date(2026, 7, 27)) is None
+
+
+@pytest.mark.parametrize("name", ["market #1.sqlite", "market?mode=rw.sqlite", "市場%20.sqlite"])
+def test_readonly_market_readers_escape_uri_filename(tmp_path: Path, name: str) -> None:
+    path = tmp_path / name
+    day = date(2026, 10, 14)
+    _seed_bars_with_factors(path, [("2331", day.isoformat(), 1000.0, 1.0)])
+    _seed_calendar(path, [(day.isoformat(), 1), ("2026-10-15", 1)])
+    now = datetime.fromisoformat("2026-10-14T16:00:00+09:00")
+
+    quote = read_unadjusted_close(sqlite_path=path, ticker="2331", at=now)
+    assert quote is not None
+    assert quote.close_yen == 1000.0
+    assert market_basis_is_confirmed(
+        basis="shares", sqlite_path=path, ticker="2331", from_date=day, through_date=day
+    )
+    assert next_order_session(sqlite_path=path, now=now) == date(2026, 10, 15)
+    assert latest_market_data_date(path) == day
+    with closing(_connect_readonly(path)) as connection:
+        assert connection.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone() == (
+            day.isoformat(),
+        )
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            connection.execute("DELETE FROM jquants_daily_bars")
+
+
+def test_order_session_rejects_naive_instant_before_store_read(tmp_path: Path) -> None:
+    path = tmp_path / "missing.sqlite"
+    naive = datetime(2026, 10, 14, 16)  # noqa: DTZ001 - deliberately invalid input
+    with pytest.raises(ValueError, match="timezone"):
+        next_order_session(sqlite_path=path, now=naive)
+    assert not path.exists()
+
+
+def test_close_change_keeps_ticker_scope_without_changing_the_store(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_bars_with_factors(
+        database,
+        [
+            ("2331", "2026-07-28", 100.0, 1.0),
+            ("2331", "2026-07-29", 120.0, 1.0),
+            ("2331", "2026-07-30", 90.0, 1.0),
+            ("2331", "2026-07-31", 50.0, 0.5),
+            ("4432", "2026-07-28", 1000.0, 1.0),
+            ("4432", "2026-07-30", 1.0, 1.0),
+        ],
+    )
+    before = database.read_bytes()
+    assert close_change_since(database, ["2331", "2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
+    assert database.read_bytes() == before
+    missing = tmp_path / "absent.sqlite"
+    assert close_change_since(missing, [], since=date(2026, 7, 28)) == {}
+    assert not missing.exists()
+
+
+def test_calendar_query_failure_is_not_reported_as_missing_data(tmp_path, monkeypatch):
+    database = tmp_path / "market.sqlite"
+    _seed_calendar(database, [("2026-07-28", 1)])
+    connection = sqlite3.connect(database)
+    monkeypatch.setattr(market_store, "connect_current", lambda _: connection)
+
+    def failed_coverage_query(conn, *_args):
+        return conn.execute("SELECT * FROM missing_coverage_table").fetchone()
+
+    monkeypatch.setattr(market_store, "range_covered", failed_coverage_query)
+    with pytest.raises(sqlite3.OperationalError, match="missing_coverage_table"):
+        market_store.read_market_calendar(database, date(2026, 7, 28), date(2026, 7, 28))
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connection.execute("SELECT 1")

@@ -1,4 +1,4 @@
-"""Security Analysisの軸とquality bucketを評価する。"""
+"""Stock Analysisの軸とquality bucketを評価する。"""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ from baibai_engine.screening.calibration.evaluation.policy import (
     RETURN_CHANGE_CONTROL_FIELDS,
     REVERSION_AXES,
     SECTOR_MEDIAN_AXES,
-    TRAP_EXCESS_THRESHOLD,
     AxisSpec,
 )
 from baibai_engine.screening.calibration.evaluation.statistics import (
@@ -42,13 +41,12 @@ from baibai_engine.screening.calibration.panel import PanelRow
 
 
 def _adjustment_factor_status(rows: Sequence[ForwardReturnRow]) -> str:
-    """Say whether every bar behind these rows carried a split adjustment factor.
+    """Summarize adjustment-factor coverage reported by the forward calculation.
 
-    This is the only corporate-action question the bar store can answer. Actions
-    it does not adjust — a merger's consideration, a rights offering — leave no
-    local trace, so the residual is disclosed in the reference doc instead of
-    being folded into this value. ``unknown`` means no row reported a factor at
-    all and is kept distinct from a factor that is present but incomplete.
+    This describes the factors required for that price comparison, not complete
+    corporate-action coverage. Native event kinds can identify rights events, but
+    a factor alone does not establish consideration or shareholder cash flows.
+    ``unknown`` means at least one row has unknown coverage, or there are no rows.
     """
     values = {str(row.adjustment_factor_coverage) for row in rows}
     if not values or "unknown" in values:
@@ -82,14 +80,7 @@ def _evaluate_axis(
         "rank_ic": round(ic, 4) if ic is not None else None,
         "best_decile_median_excess": round(best_median, 6) if best_median is not None else None,
         "best_decile_mean_excess": round(fmean(best_values), 6) if best_values else None,
-        "best_decile_trap_rate": (
-            round(
-                sum(1 for value in best_values if value < TRAP_EXCESS_THRESHOLD) / len(best_values),
-                4,
-            )
-            if best_values
-            else None
-        ),
+        "best_decile_trap_rate": deciles[-1]["trap_rate"],
         "decile_spread_median": (
             round(best_median - worst_median, 6)
             if best_median is not None and worst_median is not None
@@ -103,18 +94,10 @@ def _quality_group_deltas(
     high: Mapping[str, object], low: Mapping[str, object]
 ) -> dict[str, float | None]:
     return {
-        "median_excess_delta": _rounded_difference(
-            high.get("median_excess"), low.get("median_excess")
-        ),
-        "mean_excess_delta": _rounded_difference(high.get("mean_excess"), low.get("mean_excess")),
-        "trap_rate_delta": _rounded_difference(high.get("trap_rate"), low.get("trap_rate")),
+        "median_excess_delta": _rounded_delta(high.get("median_excess"), low.get("median_excess")),
+        "mean_excess_delta": _rounded_delta(high.get("mean_excess"), low.get("mean_excess")),
+        "trap_rate_delta": _rounded_delta(high.get("trap_rate"), low.get("trap_rate")),
     }
-
-
-def _rounded_difference(high: object, low: object) -> float | None:
-    if not isinstance(high, int | float) or not isinstance(low, int | float):
-        return None
-    return round(float(high) - float(low), 6)
 
 
 def _stratified_quality_control(
@@ -478,27 +461,11 @@ def _evaluate_sector_median_basis(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
 ) -> dict[str, object]:
-    """Split each sector-gap axis by which population produced its median.
+    """Compare within each baseline group without claiming sector-matched effects.
 
-    A sector below the head-count floor is compared against the whole market instead,
-    and the two answers are not the same quantity: the sectors that fall through sit
-    below the market on every valuation axis, so their names carry a negative gap that
-    sector composition alone can explain. The axis result is reported for each basis so
-    that a reader can tell an axis that works from an axis that works on one basis.
-
-    **What the group did is not what the axis is worth.** Falling back is decided per
-    sector, so the market-basis group is a union of whole sectors and its median outcome
-    is that sector mix -- subtracting each row's own sector median drives it to zero on
-    every axis and cohort. `group_median_excess` is therefore reported as the mix it is,
-    and the axis is measured inside each group by splitting on the axis value itself:
-    the cheap half against the expensive half is a comparison the sector mix cannot
-    produce, because both halves carry the same sectors.
-
-    The two sides are not the same size. A cohort holds a few thousand names on their own
-    sector and roughly fifty on the market, because only nine sectors sit below the floor.
-    A decile spread over fifty rows puts five names in a bucket, so the spread is reported
-    only where the sample supports it while the half-split, which needs far less, carries
-    the comparison on both sides.
+    Group levels describe the observed population. Half-split and decile differences
+    describe its axis ordering; the two sides can still differ in sector composition
+    and other characteristics. Sample availability depends on the cohort and axis.
     """
     result: dict[str, object] = {}
     for axis_name in SECTOR_MEDIAN_AXES:
@@ -514,7 +481,7 @@ def _evaluate_sector_median_basis(
                 "market_fallback" if metric in row.smg_market_fallback.split("|") else "own_sector"
             )
             groups[basis].append((value * spec.direction, excess[row.ticker]))
-            screened[basis] += row.in_review_set
+            screened[basis] += row.in_nomination_union
         entry: dict[str, object] = {}
         for basis, pairs in groups.items():
             decile_values = _decile_values(pairs) if len(pairs) >= MIN_AXIS_SAMPLE else None
@@ -540,16 +507,14 @@ def _evaluate_sector_median_basis(
     return result
 
 
-# 群内を軸値で 2 分割して効きを測るのに要る最小標本。市場 fallback 側は 1 cohort
-# あたり 50〜80 行なので decile は組めないが、半分ずつなら分位あたり 15 行以上を保てる。
+# 群内の半分割に要る最小標本。両側で15行以上を確保する。
 MIN_HALF_SPLIT_SAMPLE = 30
 
 
 def _half_split_effect(pairs: Sequence[tuple[float, float]]) -> dict[str, object]:
     """群の中で「割安側」と「割高側」の実現超過を比べる。
 
-    群そのものの中央値は、群の決まり方 (業種が薄いかどうか) が持ち込む構成をそのまま
-    映す。同じ群を軸値で割れば両側が同じ構成を持つので、差は軸の効きだけを表す。
+    群内の単純な軸値順による比較であり、両側の業種構成や他の交絡を揃えてはいない。
     """
     if len(pairs) < MIN_HALF_SPLIT_SAMPLE:
         return {
@@ -705,9 +670,8 @@ def _evaluate_er_level_calibration(
         realized_total = median(total for _, _, total in chunk)
         quintiles.append(
             {
-                # The display context maps a current estimate back to the historical
-                # calibration band. Keep the observed band edge with the cohort;
-                # reconstructing it later from the median would only be an approximation.
+                # This diagnostic uses observed outcomes. Display-context boundaries
+                # are separately derived from all declared predictions in context.py.
                 "max_predicted_er_annual": round(
                     max(float(row.er_annual or 0.0) for row, _, _ in chunk), 6
                 ),
@@ -738,7 +702,7 @@ def _evaluate_er_level_calibration(
         "calibration_error_basis": "realized_minus_predicted",
         "component_basis": {
             "predicted_reversion": "er_reversion_annual",
-            "predicted_carry": "er_carry_annual_dividend_plus_buyback",
+            "predicted_carry": "er_carry_annual_dividend_plus_share_count_yield",
             "realized_price": "adjusted_close_price_return_annualized",
             "realized_dividend": "annualized_total_minus_annualized_price",
         },

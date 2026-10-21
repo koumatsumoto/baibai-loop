@@ -1,43 +1,40 @@
 ---
-title: "Research Triage runner"
-summary: "Triage runnerの入力境界、終了状態、結果の所在。"
+title: "Researchの選定と進行"
+summary: "三入口から固定選定・企業評価・提案を完成し、保存入力から再開する。"
 doc_type: reference
 status: active
 ---
 
-# Research Triage runner
+# Researchの選定と進行
 
-`baibai-batch analysis run`は、保存済みの対象日Review Setを一つのAI判断へ渡し、engineのserviceを通してTriageを発行する。Screening Run・Review Setの生成、macro取得、cloud公開は行わない。操作の順序は[Research Triage skill](../../.agents/skills/research-triage/SKILL.md)が所有する。
+通常の「投資提案して」はAIが分析と候補を比較・選定して提案まで進める。指定銘柄と保有見直しは同じResearchの別scope。選定は人間の採用・注文指示ではなく、候補外や0件も扱う。全候補Triage・旧batch analysis runnerは使用しない。操作は[Research skill](../../.agents/skills/research/SKILL.md)が所有する。
 
-## 入力と判断の境界
+## 明示開始と固定対象
 
-`--asof YYYY-MM-DD`は対象日の最新Review Setを使う。option省略は今日JSTのexact指定であり、対象日になければ`no_review_set`（exit 0）となり、別日へfallbackしない。
+Operationが一回の依頼・選定・唯一の入力snapshotと成果を保持する。requestはtext/scope/指定集合を表し、identityはOperationが発行するresearch-op identityが所有する。対象の順序が実行順であり、容量は保存policyに従う。現行policyは最大3対象で、定義は[`selection_policy.py`](../../engine/src/baibai_engine/research/selection_policy.py)が所有する。現在の上限を構造型や経済的資格と扱わない。scopeごとにnew/holdingを分け、既保有のnewを黙って保有見直しへ変換しない。
 
-`--latest`はpull済みruns storeの最新as-of・同日最新canonical publicationを既存resolverで選ぶ。`--asof`とは排他である。最新Screening RunとReview Setのrevision一致とpayloadのidentity bindingを確認し、同じexact Review Setの既存Triage・Macro Contextを結合する。Review SetまたはRunがない、revisionが不一致、payloadやbindingが不正な場合は`failed`（non-zero）となり、model起動・canonical writeは0。新しい日や同日の後続revisionが未発行でも古いReview Setへfallbackしない。calendar上の未実行判定は行わず、同期済みstoreの整合を確認する。
+新開始ではread-only contextを読みAIがdraftを作り、prepareでcanonical sourceと現在保有purposeを検証してsnapshotを一度commitする。snapshotには選択行のnull・field欠落をそのまま保持し、header identity不明を現在値で補完しない。機械分析の不足はInputGapで説明し、企業の否定と区別する。
 
-Review Set全件、[TRIAGE_POLICY](../../batch/src/baibai_batch/analysis/policy.py)、利用可能なMacro Contextの共有projectionを一つのpayloadとして渡す。AIにrepository・runbook・成功logを読ませず、ID・CAS・publish操作を判断させない。
+## 固定入力と時点
 
-Triageの対象集合と保存bindingはengineが検証する。候補を`research / skip`へ分類し、調査優先度を決めるもので、購入やOperation開始ではない。active OperationがあってもTriageは実行できる。
+Operationの`payload.artifacts`内に保存した唯一の`research_selection.inputs`が入力の正本。workspaceのmanifestはID・digest・purpose・Research日だけを束縛し、domain-inputsは保存snapshotから純粋に投影する。mutable storeやclockを再読しないため、元store整理後も同じ内容を再生成できる。新しい資料はStock Assessment sourcesへ入り、開始入力を書き換えない。
 
-## 終了状態
+Research日、機械analysis_as_of/run_at、cutoff対応readerのinput_known_at、実際のAssessment/Review/Proposalの正式評価日を区別する。input_known_atは全入力の厳密なPIT再現保証ではない。Market Context/Readingの既存readerが現在storeから再計算する意味を保持し、prepareで読んだ値を固定する。当日Researchに前日runを使えるが、前日Assessmentの日付だけを改変して当日Proposalにしない。
 
-| status | 意味 | model起動 |
-| --- | --- | --- |
-| `already_running` | local analysisのlockを取得できない | 0 |
-| `no_review_set` | 対象日のReview Setがない | 0 |
-| `empty_review_set` | 対象Review Setのentryが0件 | 0 |
-| `awaiting_human` | exact Review SetのTriageが既存で、research候補がある | 0 |
-| `already_published` | exact Review SetのTriageが既存で、全skip | 0 |
-| `published_awaiting_human` | 今回の発行経路が成功し、research候補がある | 通常1 |
-| `published_all_skip` | 今回の発行経路が成功し、全skip | 通常1 |
-| `failed` | 入力・AI・binding・write等の失敗 | 発生地点による |
+`domain-inputs.yaml`の`analysis_source`は、この固定snapshotに保存済みのrun ID、analysis_as_of、run_at、rules hash、E[r] modelをそのまま示す。較正文脈はSelectionへ追加保存せず、必要時に明示的な読取照会で固定runと照合する。照会日の変化は過去の入力、Assessment本文、独立Reviewのhashを変えない。
 
-正常状態はexit 0、失敗はnon-zeroである。非営業日であること自体はno-op条件ではない。正常な対象なしと、保存物の破損を区別する。
+## 成果と被覆
 
-## 結果と再実行
+new/holdingの各固定対象はexact Reviewed Assessment参照または理由・参照付き未完了で被覆する。未完了は経済的unsupported/no_actionと別に扱う。全対象の被覆から共通Investment Proposalを作り、未調査は評価参照なしのdeferとして保存する。0対象では空Proposalを捏造せず選定理由とresult/nextを残す。
 
-成功時はcanonical Triage ID、as-of、priority順の全research候補を返す。人間が選ぶ対象はこのexact IDへ結び付ける。
+Operationは公開済みProposalのID/hashを保持し、本文やhold draftを再保存しない。Proposal発行時には現在Operationと固定scopeを照合するが、後でprogressが進んでも保存scopeを書き換えず、通常read/previewに強制一致を要求しない。buyを含むOperationの完了には具体termsを要求する。sellは経済判断と具体売却条件の準備を分け、terms不足の理由を残して調査工程を完了できるが、価格・数量まで提案完成したとは扱わない。人間の採否を調査工程の完了条件にしない。
 
-実行結果と必要な診断は`${XDG_STATE_HOME:-~/.local/state}/baibai-loop/analysis/<timestamp>/`の`summary.json`、`run.log`等にある。通常成功時のlog再読は不要である。機密を含み得るadapter出力はredactionされたprivate logとして扱う。
+## 再開と次の依頼
 
-表示やlog保存が失敗しても、canonical writeの有無を終了コードだけで決めない。原因を解消して同じ対象日をfreshに実行すると、既存のexact Review Set照合がTriageの再生成を避ける。旧workspaceのresumeや、別日のlatestによる補完はしない。
+manifest/Operation ID、またはactiveの同一draftで再開する。scope・対象・理由・source・cutoffを変更せず、別activeや別workspace bindingをforceで上書きしない。file失敗後はcommitされたOperation IDから投影を復元する。forceは投影だけを修復して執筆済みdraftを保持する。再開保証は固定入力の同一再生成であり、現在価格・資本・正式評価の条件不変や提案完成の保証ではない。
+
+追加対象は現在の結果・未完了を確定して次Operationへ進める。同文の本当の再依頼をglobal dedupeしない。旧workspace/selectionはruntimeで継続しない。切替時に退避した材料は新しいResearchの参考資料とし、現在入力から新Operationを開始する。
+
+## 完了済みの切替
+
+旧schemaからの一回移行は完了し、専用toolは撤去した。[切替記録](../../batch/OPERATIONS.md#research-domain-cutover)と通常Researchの開始・再開を混同しない。

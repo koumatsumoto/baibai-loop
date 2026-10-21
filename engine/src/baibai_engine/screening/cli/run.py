@@ -9,13 +9,12 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.providers.edinet import EdinetMetricRecord, EDINETProviderError
-from baibai_engine.market.providers.jpx import JPXEarningsCalendarEntry, JPXProviderError
-from baibai_engine.market.providers.jquants import JQuantsProviderError
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXProviderError
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
 from baibai_engine.screening.config import (
     ScreeningConfig,
@@ -25,39 +24,35 @@ from baibai_engine.screening.earnings_lag import (
     index_calendar_announcements,
     tickers_without_calendar_rows,
 )
-from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
-from baibai_engine.screening.freshness import (
-    detect_edinet_freshness_warnings,
-    load_disclosure_events,
-)
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
-from baibai_engine.screening.metrics import (
+from baibai_engine.screening.metrics.snapshot import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     build_metrics,
-    build_normalized_profit_signals,
-    build_shares_outstanding_index,
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
-from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.screening.schema import (
-    FinancialSnapshot,
-    ScreeningRunDocument,
-    SecurityAnalysis,
-    TTMQuality,
+from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from baibai_engine.screening.schema import ScreeningRunDocument, StockAnalysis
+from baibai_engine.screening.screening_run_serializer import (
+    screening_run_payload,
+    serialize_published_run_yaml,
 )
-from baibai_engine.screening.screening_run_serializer import serialize_screening_run_yaml
-from baibai_engine.screening.security_analysis_builder import build_security_analysis
+from baibai_engine.screening.stock_analysis_builder import build_stock_analysis
 from baibai_engine.screening.universe import (
     MIN_BAR_HISTORY,
     build_universe,
     candidate_comparison_population,
 )
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
+from baibai_engine.valuation.metrics.capital import build_shares_outstanding_index
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
+from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
 
 from .providers import ProviderBundle
 
@@ -69,7 +64,6 @@ def run_command(
     *,
     rules: ScreeningRules | None = None,
     now: datetime | None = None,
-    allow_stale_jpx: bool = False,
     output_path: Path | None = None,
     force: bool = False,
     run_store_path: Path | None = None,
@@ -87,21 +81,9 @@ def run_command(
         print("--run-at must include a UTC offset", file=sys.stderr)
         return 1
     run_id = f"screening-{asof_date:%Y%m%d}"
-    today = run_now.astimezone(JST).date()
-    if (
-        not allow_stale_jpx
-        and asof_date < today
-        and weekday_distance(asof_date, today) > 7
-        and not providers.jpx.has_regulation_cache(asof_date)
-    ):
-        print(
-            "JPX regulation cache is missing for a stale backfill; "
-            "rerun with --allow-stale-jpx to fetch the latest JPX snapshot explicitly",
-            file=sys.stderr,
-        )
-        return 1
+    # CLI preflight owns source freshness; injected providers here supply the inputs.
 
-    # 窓の正本は metrics.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
+    # 窓の正本は metrics/snapshot.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
     # (較正リプレイと共有)。fin を bars と同じ 1200 日にしないのは、J-Quants Light
     # で ~26 chunk (各 1-3 分) の追加取得コストが支配的になるため。
     bars_start_date = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
@@ -179,7 +161,7 @@ def run_command(
             file=out,
             flush=True,
         )
-    except (JQuantsProviderError, JPXProviderError, sqlite3.Error) as exc:
+    except (JQuantsProviderError, JPXProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
         # exception はラップ済みなので str(exc) 表示で安全。
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -209,7 +191,6 @@ def run_command(
         asof_date,
         adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
-    edinet_load_error: str | None = None
     edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
     if providers.edinet is None:
         print("EDINET preprocessed metrics provider is required for screening run", file=sys.stderr)
@@ -272,37 +253,27 @@ def run_command(
         margin_prior_26w=margin_prior_26w,
         adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
-    disclosure_load_result = load_disclosure_events(
-        config.cache_dir / "disclosures",
-        asof_date=asof_date,
-    )
 
-    security_analyses: list[SecurityAnalysis] = []
+    stock_analyses: list[StockAnalysis] = []
     for ticker in sorted(universe_result.snapshots):
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
         security = securities_by_ticker[ticker]
-        freshness_warnings = detect_edinet_freshness_warnings(
-            ticker=ticker,
-            financial=financial,
-            events_by_ticker=disclosure_load_result.events_by_ticker,
-            asof_date=asof_date,
-        )
         normalized_profit = build_normalized_profit_signals(
             normalized_fy_by_ticker.get(ticker, ()),
             normalized_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=financial.market_price_yen,
+            ttm_rules=rules.ttm,
         )
-        security_analyses.append(
-            build_security_analysis(
+        stock_analyses.append(
+            build_stock_analysis(
                 ticker=ticker,
                 security=security,
                 financial=financial,
                 derived=derived,
                 universe_snapshot=universe_snapshot,
-                freshness_warnings=freshness_warnings,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 earnings_lag=build_earnings_lag(
                     asof=asof_date,
@@ -328,7 +299,7 @@ def run_command(
     approx_total = metric_result.ttm_quality_counts.get(
         "approximated", 0
     ) + metric_result.ttm_quality_counts.get("unavailable", 0)
-    # Quality gates watch data degradation for the investable population so
+    # Quality notices describe data degradation for the comparison population so
     # the wider all-common-stock scope does not dilute the warning ratios.
     population_financials = [
         snapshot
@@ -336,7 +307,7 @@ def run_command(
         if ticker in median_population
     ]
     population_size = len(median_population)
-    required_ttm_non_exact = _required_ttm_non_exact_count(population_financials, rules)
+    required_ttm_non_exact = _required_ttm_non_exact_count(population_financials)
     population_yoy_missing = sum(
         1
         for snapshot in population_financials
@@ -350,63 +321,29 @@ def run_command(
         or (population_yoy_missing / population_size)
         >= rules.quality.partial_warning_yoy_missing_ratio
     )
+    # 欠測を隠さず利用判断へ渡す。YoY悪化による企業除外gateではない (#1481)。
+    # docs/reference/screening-runtime.md#data-quality-context
     fallback_lines: list[str] = []
     if approx_total:
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            "有効Valuation Approach必須TTM metric非exact件数(common eligible母集団): "
-            f"{required_ttm_non_exact}"
+            f"OCF・売上TTM metric非exact件数(common eligible母集団): {required_ttm_non_exact}"
         )
     if population_yoy_missing:
         fallback_lines.append(
-            f"業績悪化フィルタ入力欠損(common eligible母集団): {population_yoy_missing} 銘柄"
+            f"業績YoY入力欠損(common eligible母集団): {population_yoy_missing} 銘柄"
         )
-    if edinet_load_error is not None:
-        fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
-    if disclosure_load_result.load_errors:
-        fallback_lines.append(
-            f"Disclosure title scan 読み込み失敗: {len(disclosure_load_result.load_errors)} 件"
-        )
-    if disclosure_load_result.skipped_record_count:
-        fallback_lines.append(
-            "Disclosure title scan 必須 key 欠損/不正 record: "
-            f"{disclosure_load_result.skipped_record_count} 件"
-        )
-    if disclosure_load_result.unsupported_record_count:
-        fallback_lines.append(
-            "Disclosure title scan 未対応 record/layout: "
-            f"{disclosure_load_result.unsupported_record_count} 件"
-        )
-
     data_sources = [
         "j-quants-light",
         "jpx-public-earnings-calendar",
         "jpx-public-regulation",
     ]
-    if edinet_by_ticker:
-        data_sources.append("edinet-preprocessed-metrics")
-    if disclosure_load_result.file_count:
-        data_sources.append("disclosure-title-events")
+    data_sources.append("edinet-preprocessed-metrics")
     provider_status_lines = [
         "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX（決算発表予定・規制）"
     ]
-    if edinet_by_ticker:
-        provider_status_lines.append("EDINET preprocessed metrics: loaded")
-    else:
-        provider_status_lines.append("EDINET preprocessed metrics: optional unavailable")
-    if disclosure_load_result.file_count:
-        provider_status_lines.append(
-            "Disclosure title material-event scan: "
-            f"{disclosure_load_result.event_count} events from "
-            f"{disclosure_load_result.file_count} files "
-            f"(skipped={disclosure_load_result.skipped_record_count}, "
-            f"unsupported={disclosure_load_result.unsupported_record_count}, "
-            f"errors={len(disclosure_load_result.load_errors)})"
-        )
-    else:
-        provider_status_lines.append("Disclosure title material-event scan: optional unavailable")
-
+    provider_status_lines.append("EDINET preprocessed metrics: loaded")
     cap_null_count = sum(
         1 for snapshot in universe_result.snapshots.values() if snapshot.market_cap_oku is None
     )
@@ -428,7 +365,7 @@ def run_command(
             "markets": "prime/standard/growth",
             "min_bar_history": MIN_BAR_HISTORY,
         },
-        security_analyses=tuple(security_analyses),
+        stock_analyses=tuple(stock_analyses),
         run_at=run_now,
         run_id=run_id,
         screening_rules_hash=production_rules_contract_hash(rules.model_dump_json()),
@@ -441,26 +378,39 @@ def run_command(
         ttm_quality_counts=metric_result.ttm_quality_counts,
         fallback_lines=tuple(fallback_lines),
     )
-    publication_yaml = serialize_screening_run_yaml(document)
-    raw_payload = safe_load(publication_yaml)
-    if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
-        raise AssertionError("screening renderer must produce a mapping")
     try:
         publication = ScreeningRunStore(run_store_path).publish_run(
-            raw_payload, run_revision_id=run_revision_id
+            screening_run_payload(document),
+            rules=rules,
+            run_revision_id=run_revision_id,
         )
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening run publication failed: {exc}", file=sys.stderr)
         return 1
-    yaml_text = serialize_screening_run_yaml(document, run_revision_id=publication.publication_id)
-    if output_path is not None:
-        write_text_atomic(output_path, yaml_text)
+    try:
+        saved = ScreeningRunReader(run_store_path).get_run(publication.publication_id)
+        if saved is None:
+            raise ValueError("committed run revision was not found")
+        yaml_text = serialize_published_run_yaml(saved)
+        if output_path is not None:
+            write_text_atomic(output_path, yaml_text)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        print(
+            f"screening run committed: run_revision_id={publication.publication_id}; "
+            f"export failed: {exc}; recover with screening run-show --run-revision-id "
+            f"{publication.publication_id}",
+            file=sys.stderr,
+        )
+        return 1
+    discovery = saved.payload["candidate_discovery"]
+    candidate_count = discovery["diagnostics"]["candidate_count"]
     status = "partial warning" if partial_warning else "ok"
     print(
         "screening run done: "
         f"status={status}; run_revision_id={publication.publication_id}; "
+        f"candidate_count={candidate_count}; "
         f"output={output_path}; "
-        f"universe={universe_size}; analyzed_securities={len(security_analyses)}",
+        f"universe={universe_size}; analyzed_stocks={len(stock_analyses)}",
         file=out,
         flush=True,
     )
@@ -476,17 +426,14 @@ def run_command(
     return 2 if partial_warning else 0
 
 
-def _required_ttm_non_exact_count(
-    financials: Iterable[FinancialSnapshot],
-    _rules: ScreeningRules,
-) -> int:
-    snapshots = tuple(financials)
-    required_qualities = [
-        quality
-        for snapshot in snapshots
+def _required_ttm_non_exact_count(financials: Iterable[FinancialSnapshot]) -> int:
+    """Count non-exact OCF/sales metric values, not distinct affected tickers."""
+    return sum(
+        1
+        for snapshot in financials
         for quality in (snapshot.ttm_quality_ocf_yield, snapshot.ttm_quality_p_s)
-    ]
-    return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
+        if quality != TTMQuality.EXACT
+    )
 
 
 def _index_next_earnings(

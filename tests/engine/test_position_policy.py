@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import copy
 import unittest
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.position.policy import PORTFOLIO_POLICY, validate_policy
 
@@ -33,6 +30,16 @@ class PolicyConfigTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "positive integer"):
             validate_policy(policy)
+
+    def test_each_threshold_rejects_missing_boolean_and_nonnumeric_values(self) -> None:
+        for section, thresholds in PORTFOLIO_POLICY.items():
+            for key in thresholds:
+                for invalid in (None, True, "1", float("nan"), float("inf")):
+                    with self.subTest(section=section, key=key, invalid=invalid):
+                        policy = copy.deepcopy(PORTFOLIO_POLICY)
+                        policy[section][key] = invalid
+                        with self.assertRaisesRegex(RuntimeError, key):
+                            validate_policy(policy)
 
 
 if __name__ == "__main__":

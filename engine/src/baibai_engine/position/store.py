@@ -10,21 +10,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.paths import database_path
-from baibai_engine.appdb.read import connect_read_only
-from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.position.decision_references import (
+    DecisionReferenceBinding,
+    add_manual_fact_binding,
+)
 from baibai_engine.position.ledger import (
     LedgerEvent,
-    MarketPrice,
     PortfolioLedgerDocument,
 )
 from baibai_engine.position.ledger_read import (
     LedgerConflictError,
     ledger_append_head,
     load_ledger_in_transaction,
-    require_canonical_prices,
 )
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,14 +63,13 @@ class LedgerStoreService:
         expected_head: int,
         expected_document: PortfolioLedgerDocument,
         replacement: PortfolioLedgerDocument,
+        binding_addition: DecisionReferenceBinding | None = None,
     ) -> LedgerApplyResult:
         """Atomically append events and replace document rows after a stale check.
 
         Existing events are immutable. A past-time event is physically appended and
         receives the last ordinal at that instant; only the replay view is reordered.
         """
-        require_canonical_prices(expected_document)
-        require_canonical_prices(replacement)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -87,8 +88,9 @@ class LedgerStoreService:
                 additions = tuple(
                     event for event in replacement.events if event.event_id not in current_by_id
                 )
+                if binding_addition is not None:
+                    add_manual_fact_binding(connection, binding_addition, additions=additions)
                 _append_events(connection, additions)
-                _replace_prices(connection, replacement.market_prices)
                 _replace_meta(connection, replacement)
                 stored, _ = load_ledger_in_transaction(connection)
                 if stored != replacement:
@@ -111,10 +113,6 @@ def _utc_text(value: datetime) -> str:
 
 def _event_payload(event: LedgerEvent) -> str:
     return canonical_json(event.model_dump(mode="json"))
-
-
-def _price_payload(price: MarketPrice) -> str:
-    return canonical_json(price.model_dump(mode="json"))
 
 
 def _meta_payload(document: PortfolioLedgerDocument) -> str:
@@ -152,18 +150,6 @@ def _event_values(
         _event_ticker(event),
         _event_decision_reference(event),
         _event_payload(event),
-    )
-
-
-def _price_values(price: MarketPrice) -> tuple[object, ...]:
-    return (
-        price.ticker,
-        _utc_text(price.observed_at),
-        str(price.price_yen),
-        price.source_kind,
-        price.price_basis,
-        price.source_ref,
-        _price_payload(price),
     )
 
 
@@ -208,18 +194,6 @@ def _append_events(connection: sqlite3.Connection, events: Sequence[LedgerEvent]
             )
         except sqlite3.IntegrityError as error:
             raise LedgerConflictError(f"ledger event conflicts: {event.event_id}") from error
-
-
-def _replace_prices(connection: sqlite3.Connection, prices: Sequence[MarketPrice]) -> None:
-    connection.execute("DELETE FROM ledger_market_price")
-    connection.executemany(
-        """
-        INSERT INTO ledger_market_price(
-            ticker, observed_at, price_yen, source_kind, price_basis, source_ref, payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        [_price_values(price) for price in prices],
-    )
 
 
 def _replace_meta(connection: sqlite3.Connection, document: PortfolioLedgerDocument) -> None:

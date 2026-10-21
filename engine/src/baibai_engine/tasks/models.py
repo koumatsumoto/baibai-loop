@@ -18,7 +18,7 @@ class Task(BaseModel):
     title: str = Field(min_length=1)
     kind: TaskKind
     status: TaskStatus
-    ticker: str | None = Field(default=None, pattern=r"^[0-9]{4}[A-Z0-9]?$")
+    ticker: str | None = Field(default=None, pattern=r"^[0-9A-Z]{4}$")
     due_date: date
     event_label: str | None = None
     event_date: date | None = None

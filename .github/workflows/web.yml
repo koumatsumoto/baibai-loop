@@ -1,25 +1,28 @@
 name: web
 
-# The path filter is the deploy scope. GitHub diffs the pull request three-dot or
-# the push range itself, so a run existing at all already means the web tree moved,
+# The path filter scopes automatic quality checks. GitHub diffs the pull request
+# three-dot or the push range, so a filtered run already means the web tree moved,
 # and no job has to re-derive that from git. The filter is exact here because it
 # only goes silent on diffs past 3,000 files, which a tree this size cannot reach
 # — tests/batch/test_cloud_workflow_contracts.py holds that budget.
 #
 # This file is filtered on pull requests so its own edits are gated, and left out
-# of the push filter so that editing CI never publishes production.
+# of the push filter. Production deploy is explicitly dispatched after any
+# required read-model publication and readback.
 on:
   pull_request:
     branches: [main]
     paths:
       - web/frontend/**
       - web/edge/**
+      - web/contracts/**
       - .github/workflows/web.yml
   push:
     branches: [main]
     paths:
       - web/frontend/**
       - web/edge/**
+      - web/contracts/**
   workflow_dispatch:
 
 permissions:
@@ -30,7 +33,7 @@ permissions:
 # a group holds one pending run, so a branch dispatch sharing it would evict a
 # real deploy that is waiting its turn.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || github.ref == 'refs/heads/main' && format('{0}-production-deploy', github.workflow) || format('{0}-{1}', github.workflow, github.run_id) }}
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && format('{0}-production-deploy', github.workflow) || format('{0}-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -89,19 +92,18 @@ jobs:
       # would roll production backwards, so the run compares its own tree against main
       # and steps aside rather than deploying.
       #
-      # The event test is an allowlist rather than "not a pull request": `github.ref` is
-      # the default branch for schedule, workflow_run and repository_dispatch too, so a
-      # trigger added later must be named here before it can reach production.
+      # PR/push runs check quality only. Only an explicit main dispatch can publish
+      # the UI, after the operator has verified any required serving update.
       - name: Verify current production target
         id: deploy-target
-        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
         env:
           TARGET_SHA: ${{ github.sha }}
         run: |
           git fetch --no-tags --depth=1 origin main
           current_sha="$(git rev-parse FETCH_HEAD)"
           current=false
-          if git diff --quiet "$TARGET_SHA" "$current_sha" -- web/frontend web/edge; then
+          if git diff --quiet "$TARGET_SHA" "$current_sha" -- web/frontend web/edge web/contracts; then
             current=true
           else
             diff_status=$?
@@ -115,7 +117,7 @@ jobs:
           echo "current=$current" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Worker and UI assets
-        if: ${{ success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && steps.deploy-target.outputs.current == 'true' }}
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.deploy-target.outputs.current == 'true' }}
         working-directory: web/edge
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

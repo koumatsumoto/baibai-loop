@@ -2,7 +2,7 @@
 title: "priced master 未評価銘柄の有界バイアス判定"
 summary: "件数だけで cohort を落とす契約を、対象 row の同定・return 完全性・両側置換に対する結論方向の安定性で判定する契約へ改め、同条件の eligible を 3y 5→30、5y 4→12 に拡張した。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # priced master 未評価銘柄の有界バイアス判定
@@ -11,7 +11,7 @@ status: active
 
 ## 1. 判定規則
 
-規則・対象 metric・向き・採否条件は、計測前の commit `ef1bd2d` と [`2026-08-01-calibration-evidence-capacity-preregistration.md`](.../2026-08-01-calibration-evidence-capacity/preregistration/report.md) §1 で固定した。
+規則・対象 metric・向き・採否条件は、計測前の commit `ef1bd2d` と [`2026-08-01-calibration-evidence-capacity-preregistration.md`](../2026-08-01-calibration-evidence-capacity/preregistration.md) §1 で固定した。
 
 asof 当日に価格があり master にも在るが universe 評価へ入らなかった row を cache 上で同定する。報告値は観測した forward return を使い、感度計算だけで対象 row の return を全損 `-1.0` と置換前の resolved 流動性母集団中央値へ置換する。rank や E[r] は後付けしない。
 

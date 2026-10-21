@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from datetime import date
+from contextlib import closing
+from datetime import date, datetime
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.market.providers.edinet import EDINETProviderError
-from baibai_engine.market.valuation_catalysts import (
-    ValuationCatalystError,
-    refresh_tse_capital_policy,
-)
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
+from baibai_engine.foundation.time import JST
+from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.market.jpx_models import JPXProviderError
+from baibai_engine.market.jpx_refresh import JPXRefresh
+from baibai_engine.market.valuation_catalysts import ValuationCatalystError
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 from .providers import ProviderBundle
 
@@ -25,8 +28,15 @@ def refresh_tse_capital_policy_command(
     """Re-read the TSE capital-policy disclosure workbook."""
     out = stdout if stdout is not None else sys.stdout
     try:
-        summary = refresh_tse_capital_policy(sqlite_path)
-    except (ValuationCatalystError, OSError, sqlite3.Error) as exc:
+        with closing(JPXRefresh(sqlite_path=sqlite_path)) as refresh:
+            summary = refresh.refresh_capital_policy_snapshot(datetime.now(JST).date())
+    except (
+        JPXProviderError,
+        ValuationCatalystError,
+        SQLiteSchemaError,
+        OSError,
+        sqlite3.Error,
+    ) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(
@@ -49,15 +59,15 @@ def backfill_edinet_identity_command(
 ) -> int:
     """Re-list a window of EDINET days so its rows carry submitter and target codes."""
     out = stdout if stdout is not None else sys.stdout
-    if providers.edinet is None:
+    if providers.edinet_refresh is None:
         print("EDINET provider is not configured", file=sys.stderr)
         return 1
     if start > end:
         print(f"--start {start.isoformat()} is after --end {end.isoformat()}", file=sys.stderr)
         return 1
     try:
-        result = providers.edinet.backfill_document_identity(start, end)
-    except (EDINETProviderError, sqlite3.Error) as exc:
+        result = providers.edinet_refresh.backfill_document_identity(start, end)
+    except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(

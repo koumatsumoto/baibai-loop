@@ -7,6 +7,10 @@ from datetime import date, timedelta
 
 from baibai_engine.market import master_snapshot as master_contract
 
+from .common_stock import (
+    COMMON_STOCK_SNAPSHOT_SQL,
+    scope_parameters,
+)
 from .shared import CacheCoverageIssue
 
 _DENSITY_BUCKET_DAYS = 120
@@ -21,17 +25,18 @@ def _append_master_snapshot_issues(
     iso = asof_date.isoformat()
     row = conn.execute(
         "SELECT COUNT(*), "
-        "SUM(CASE WHEN is_common_stock = 1 THEN 1 ELSE 0 END), "
-        "SUM(CASE WHEN TRIM(ticker) = '' OR name IS NULL OR TRIM(name) = '' "
-        "OR market IS NULL OR TRIM(market) = '' "
-        "OR sector_33 IS NULL OR TRIM(sector_33) = '' "
-        "OR is_common_stock IS NULL OR is_common_stock != 1 THEN 1 ELSE 0 END) "
+        "SUM(CASE WHEN length(security_code) != 5 "
+        "OR COALESCE(json_extract(record_json, '$.CoName'), '') = '' "
+        "OR COALESCE(json_extract(record_json, '$.MktNm'), '') = '' "
+        "OR COALESCE(json_extract(record_json, '$.S33Nm'), '') = '' "
+        "OR COALESCE(json_extract(record_json, '$.ProdCat'), '') = '' "
+        "THEN 1 ELSE 0 END) "
         "FROM jquants_master_snapshots WHERE snapshot_date = ?",
         (iso,),
     ).fetchone()
     actual_count = int(row[0] or 0)
-    common_count = int(row[1] or 0)
-    invalid_count = int(row[2] or 0)
+    invalid_count = int(row[1] or 0)
+    common_count = _common_stock_count(conn, asof_date)
     coverage_rows = conn.execute(
         "SELECT coverage_start, coverage_end, record_count, status, error "
         "FROM source_coverage WHERE source = ? AND coverage_key = ?",
@@ -127,9 +132,11 @@ def _append_asof_bar_density_issue(
     if expected <= 0:
         return
     actual_row = conn.execute(
-        "SELECT COUNT(DISTINCT ticker) FROM jquants_daily_bars "
-        "WHERE traded_at = ? AND close IS NOT NULL",
-        (asof_iso,),
+        f"WITH p AS ({COMMON_STOCK_SNAPSHOT_SQL}) "  # nosec B608
+        "SELECT COUNT(DISTINCT b.ticker) FROM jquants_daily_bars b "
+        "JOIN p ON p.ticker = b.ticker "
+        "WHERE b.traded_at = :traded_at AND b.close IS NOT NULL",
+        {**scope_parameters(asof_date), "traded_at": asof_iso},
     ).fetchone()
     actual = int(actual_row[0] or 0)
     minimum = max(1, expected // 2)
@@ -157,10 +164,16 @@ def _append_recent_bar_density_issue(
         return
     recent_start = asof_date - timedelta(days=30)
     rows = conn.execute(
-        "SELECT traded_at, COUNT(DISTINCT ticker) FROM jquants_daily_bars "
-        "WHERE traded_at BETWEEN ? AND ? AND close IS NOT NULL "
-        "GROUP BY traded_at ORDER BY traded_at DESC LIMIT 5",
-        (recent_start.isoformat(), asof_date.isoformat()),
+        f"WITH p AS ({COMMON_STOCK_SNAPSHOT_SQL}) "  # nosec B608
+        "SELECT b.traded_at, COUNT(DISTINCT b.ticker) FROM jquants_daily_bars b "
+        "JOIN p ON p.ticker = b.ticker "
+        "WHERE b.traded_at BETWEEN :start AND :end AND b.close IS NOT NULL "
+        "GROUP BY b.traded_at ORDER BY b.traded_at DESC LIMIT 5",
+        {
+            **scope_parameters(asof_date),
+            "start": recent_start.isoformat(),
+            "end": asof_date.isoformat(),
+        },
     ).fetchall()
     minimum = max(1, expected // 2)
     if len(rows) < 5:
@@ -208,12 +221,19 @@ def _append_daily_history_density_issue(
         minimum_floor = 1 if bucket_days < 20 else 5
         minimum_dates = max(minimum_floor, int(bucket_days * 0.25))
         row = conn.execute(
+            f"WITH p AS ({COMMON_STOCK_SNAPSHOT_SQL}) "  # nosec B608
             "SELECT COUNT(*) FROM ("
-            "SELECT traded_at FROM jquants_daily_bars "
-            "WHERE traded_at BETWEEN ? AND ? AND close IS NOT NULL "
-            "GROUP BY traded_at HAVING COUNT(DISTINCT ticker) >= ?"
+            "SELECT b.traded_at FROM jquants_daily_bars b "
+            "JOIN p ON p.ticker = b.ticker "
+            "WHERE b.traded_at BETWEEN :start AND :end AND b.close IS NOT NULL "
+            "GROUP BY b.traded_at HAVING COUNT(DISTINCT b.ticker) >= :minimum"
             ")",
-            (bucket_start.isoformat(), bucket_end.isoformat(), minimum_tickers),
+            {
+                **scope_parameters(end),
+                "start": bucket_start.isoformat(),
+                "end": bucket_end.isoformat(),
+                "minimum": minimum_tickers,
+            },
         ).fetchone()
         actual_dates = int(row[0] or 0)
         if actual_dates < minimum_dates:
@@ -248,9 +268,11 @@ def _append_fin_summary_density_issue(
     minimum_tickers = max(1, expected // 2)
     recent_start = max(start, end - timedelta(days=450))
     row = conn.execute(
-        "SELECT COUNT(DISTINCT ticker) FROM jquants_fin_summaries "
-        "WHERE disclosed_at BETWEEN ? AND ?",
-        (recent_start.isoformat(), end.isoformat()),
+        f"WITH p AS ({COMMON_STOCK_SNAPSHOT_SQL}) "  # nosec B608
+        "SELECT COUNT(DISTINCT s.ticker) FROM jquants_fin_summaries s "
+        "JOIN p ON p.ticker = s.ticker "
+        "WHERE s.disclosed_at BETWEEN :start AND :end",
+        {**scope_parameters(end), "start": recent_start.isoformat(), "end": end.isoformat()},
     ).fetchone()
     actual = int(row[0] or 0)
     if actual < minimum_tickers:
@@ -268,8 +290,7 @@ def _append_fin_summary_density_issue(
 
 def _common_stock_count(conn: sqlite3.Connection, snapshot_date: date) -> int:
     master_row = conn.execute(
-        "SELECT COUNT(DISTINCT ticker) FROM jquants_master_snapshots "
-        "WHERE is_common_stock = 1 AND snapshot_date = ?",
-        (snapshot_date.isoformat(),),
+        f"SELECT COUNT(DISTINCT ticker) FROM ({COMMON_STOCK_SNAPSHOT_SQL})",  # nosec B608
+        scope_parameters(snapshot_date),
     ).fetchone()
     return int(master_row[0] or 0)

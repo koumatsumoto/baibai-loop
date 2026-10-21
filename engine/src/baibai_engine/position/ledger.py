@@ -2,28 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Annotated, Literal, cast
 
-import yaml
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationError,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.policy import PORTFOLIO_POLICY, PolicyConfig
 
 _MODEL_CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
@@ -78,11 +67,33 @@ class _EventBase(BaseModel):
 
     event_id: Annotated[str, Field(min_length=1)]
     occurred_at: datetime
+    occurred_on: date | None = None
 
     @field_validator("occurred_at", mode="before")
     @classmethod
     def _parse_occurred_at(cls, value: object) -> datetime:
         return _datetime(value)
+
+    @field_validator("occurred_on", mode="before")
+    @classmethod
+    def _parse_occurred_on(cls, value: object) -> date | None:
+        if value is None or (isinstance(value, date) and not isinstance(value, datetime)):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value)
+            except ValueError as error:
+                raise ValueError("occurred_on must be an ISO date") from error
+        raise ValueError("occurred_on must be an ISO date")
+
+    @model_validator(mode="after")
+    def _validate_date_only_event(self) -> _EventBase:
+        if (
+            self.occurred_on is not None
+            and self.occurred_at.astimezone(JST).date() != self.occurred_on
+        ):
+            raise ValueError("occurred_on must match the event replay date")
+        return self
 
 
 class OpeningBalanceEvent(_EventBase):
@@ -102,6 +113,7 @@ class WithdrawalEvent(_EventBase):
 
 class ReservationEvent(_EventBase):
     type: Literal["reservation"]
+    side: Literal["buy", "sell"] = "buy"
     reservation_id: Annotated[str, Field(min_length=1)]
     order_id: Annotated[str, Field(min_length=1)]
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)]
@@ -110,7 +122,9 @@ class ReservationEvent(_EventBase):
     decision_reference: Annotated[str, Field(min_length=1)] | None = None
     quantity: Annotated[int, Field(gt=0)]
     price_guard_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
-    expires_at: datetime
+    expires_at: datetime | None = None
+    expiry_label: str | None = None
+    route_label: str | None = None
 
     @field_validator("common_factors", mode="before")
     @classmethod
@@ -119,8 +133,8 @@ class ReservationEvent(_EventBase):
 
     @field_validator("expires_at", mode="before")
     @classmethod
-    def _parse_expires_at(cls, value: object) -> datetime:
-        return _datetime(value)
+    def _parse_expires_at(cls, value: object) -> datetime | None:
+        return None if value is None else _datetime(value)
 
     @field_validator("price_guard_yen", mode="before")
     @classmethod
@@ -129,8 +143,14 @@ class ReservationEvent(_EventBase):
 
     @model_validator(mode="after")
     def _expiry_follows_reservation(self) -> ReservationEvent:
-        if self.expires_at <= self.occurred_at:
-            raise ValueError("expires_at must be after occurred_at")
+        if self.expires_at is not None:
+            invalid_expiry = (
+                self.expires_at.astimezone(JST).date() < self.occurred_on
+                if self.occurred_on is not None
+                else self.expires_at <= self.occurred_at
+            )
+            if invalid_expiry:
+                raise ValueError("expires_at must not precede the reported order")
         if len(set(self.common_factors)) != len(self.common_factors):
             raise ValueError("common_factors must not contain duplicates")
         if self.common_factors != tuple(sorted(self.common_factors)):
@@ -154,33 +174,19 @@ class ExecutionEvent(_EventBase):
     quantity: Annotated[int, Field(gt=0)]
     price_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
     decision_reference: Annotated[str, Field(min_length=1)] | None = None
-    occurred_on: date | None = None
+
+    sector: Annotated[str, Field(min_length=1)] | None = None
+    common_factors: tuple[Annotated[str, Field(min_length=1)], ...] = ()
+
+    @field_validator("common_factors", mode="before")
+    @classmethod
+    def _parse_common_factors(cls, value: object) -> object:
+        return _tuple(value)
 
     @field_validator("price_yen", mode="before")
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
         return _price(value)
-
-    @field_validator("occurred_on", mode="before")
-    @classmethod
-    def _parse_occurred_on(cls, value: object) -> date | None:
-        if value is None or (isinstance(value, date) and not isinstance(value, datetime)):
-            return value
-        if isinstance(value, str):
-            try:
-                return date.fromisoformat(value)
-            except ValueError as error:
-                raise ValueError("occurred_on must be an ISO date") from error
-        raise ValueError("occurred_on must be an ISO date")
-
-    @model_validator(mode="after")
-    def _validate_date_only_sell(self) -> ExecutionEvent:
-        if self.occurred_on is not None and (
-            self.side != "sell"
-            or self.occurred_at != datetime.combine(self.occurred_on, time.min, tzinfo=JST)
-        ):
-            raise ValueError("occurred_on requires the date-only sell replay key")
-        return self
 
 
 class IncomeEvent(_EventBase):
@@ -194,14 +200,14 @@ class CostEvent(_EventBase):
     type: Literal["cost"]
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)] | None = None
     cost_kind: Literal["commission", "exchange_fee", "other"]
-    amount_yen: Annotated[int, Field(gt=0)]
+    amount_yen: Annotated[int, Field(ge=0)]
 
 
 class ConfirmedTaxEvent(_EventBase):
     type: Literal["tax_confirmed"]
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)] | None = None
     tax_kind: Literal["dividend", "capital_gain", "other"]
-    amount_yen: Annotated[int, Field(gt=0)]
+    amount_yen: Annotated[int, Field(ge=0)]
 
 
 type LedgerEvent = Annotated[
@@ -223,15 +229,15 @@ class MarketPrice(BaseModel):
 
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)]
     price_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
-    observed_at: datetime
+    price_as_of: date
     source_kind: Literal["market_api", "official_exchange", "licensed_dataset", "test_fixture"]
     price_basis: Literal["current", "close", "unadjusted_close"]
     source_ref: Annotated[str, Field(min_length=1)]
 
-    @field_validator("observed_at", mode="before")
+    @field_validator("price_as_of", mode="before")
     @classmethod
-    def _parse_observed_at(cls, value: object) -> datetime:
-        return _datetime(value)
+    def _parse_price_date(cls, value: object) -> object:
+        return date.fromisoformat(value) if isinstance(value, str) else value
 
     @field_validator("price_yen", mode="before")
     @classmethod
@@ -269,7 +275,7 @@ class LedgerMetadata(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     portfolio_scope: Literal["repository_only"]
     as_of: datetime
     estimated_exit_tax_rate_bps: Annotated[int, Field(ge=0, le=10_000)] | None = None
@@ -302,9 +308,8 @@ class PortfolioLedgerDocument(LedgerMetadata):
     """Versioned persistence contract for repository-only portfolio capital."""
 
     events: tuple[LedgerEvent, ...]
-    market_prices: tuple[MarketPrice, ...]
 
-    @field_validator("events", "market_prices", mode="before")
+    @field_validator("events", mode="before")
     @classmethod
     def _parse_rows(cls, value: object) -> object:
         return _tuple(value)
@@ -326,11 +331,6 @@ class PortfolioLedgerDocument(LedgerMetadata):
             raise ValueError("events must be ordered by occurred_at")
         if any(event.occurred_at > self.as_of for event in self.events):
             raise ValueError("events cannot occur after as_of")
-        price_tickers = [price.ticker for price in self.market_prices]
-        if len(set(price_tickers)) != len(price_tickers):
-            raise ValueError("market_prices ticker must be unique")
-        if any(price.observed_at > self.as_of for price in self.market_prices):
-            raise ValueError("market price cannot be observed after as_of")
         return self
 
 
@@ -342,7 +342,7 @@ class HoldingSnapshot:
     quantity: int
     deployed_cost_yen: int
     market_price_yen: Decimal | None
-    market_price_observed_at: datetime | None
+    market_price_as_of: date | None
     market_price_source_kind: str | None
     market_price_basis: str | None
     market_price_source_ref: str | None
@@ -353,6 +353,7 @@ class HoldingSnapshot:
 class ReservationSnapshot:
     reservation_id: str
     order_id: str
+    side: Literal["buy", "sell"]
     ticker: str
     sector: str
     common_factors: tuple[str, ...]
@@ -360,7 +361,9 @@ class ReservationSnapshot:
     remaining_quantity: int
     price_guard_yen: Decimal
     reserved_yen: int
-    expires_at: datetime
+    expires_at: datetime | None
+    expiry_label: str | None
+    route_label: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,7 +381,9 @@ class PortfolioWarning:
 
 @dataclass(frozen=True, slots=True)
 class PortfolioSnapshot:
+    # Replay/valuation cutoff and last recorded ledger instant are different facts.
     as_of: datetime
+    ledger_as_of: datetime
     portfolio_scope: Literal["repository_only"]
     available_cash_yen: int
     reserved_cash_yen: int
@@ -403,13 +408,16 @@ class PortfolioSnapshot:
 class _Reservation:
     reservation_id: str
     order_id: str
+    side: Literal["buy", "sell"]
     ticker: str
     sector: str
     common_factors: tuple[str, ...]
     decision_reference: str | None
     remaining_quantity: int
     price_guard_yen: Decimal
-    expires_at: datetime
+    expires_at: datetime | None
+    expiry_label: str | None
+    route_label: str | None
 
 
 @dataclass(slots=True)
@@ -447,24 +455,6 @@ class ReplayedPortfolioValue:
     holdings_market_value_yen: int
     total_capital_yen: int
     holdings: tuple[HoldingSnapshot, ...]
-
-
-def load_portfolio_ledger_with_sha256(path: Path) -> tuple[PortfolioLedgerDocument, str]:
-    """Parse a ledger and hash the exact same bytes used for that parse."""
-
-    try:
-        source = path.read_bytes()
-        text = source.decode("utf-8")
-        raw = safe_load(text)
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
-        raise PortfolioLedgerError(f"failed to read ledger: {error}") from error
-    if not isinstance(raw, Mapping):
-        raise PortfolioLedgerError("portfolio ledger root must be a mapping")
-    try:
-        document = PortfolioLedgerDocument.model_validate(raw)
-    except ValidationError as error:
-        raise PortfolioLedgerError(str(error)) from error
-    return document, hashlib.sha256(source).hexdigest()
 
 
 def replay_events_through(
@@ -525,7 +515,17 @@ def replay_events_through(
                 notional = _yen_notional(
                     event.quantity, event.price_guard_yen, field="reservation notional"
                 )
-                _require_cash(available_cash, notional, event.event_id)
+                if event.side == "buy":
+                    _require_cash(available_cash, notional, event.event_id)
+                else:
+                    held = sum(lot.quantity for lot in lots[event.ticker])
+                    pending = sum(
+                        item.remaining_quantity
+                        for item in active.values()
+                        if item.side == "sell" and item.ticker == event.ticker
+                    )
+                    if event.quantity > held - pending:
+                        raise PortfolioLedgerError("sell order exceeds uncommitted holding")
                 has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
                     item.ticker == event.ticker for item in active.values()
                 )
@@ -537,6 +537,7 @@ def replay_events_through(
                 active[event.reservation_id] = _Reservation(
                     reservation_id=event.reservation_id,
                     order_id=event.order_id,
+                    side=event.side,
                     ticker=event.ticker,
                     sector=event.sector,
                     common_factors=event.common_factors,
@@ -544,77 +545,116 @@ def replay_events_through(
                     remaining_quantity=event.quantity,
                     price_guard_yen=event.price_guard_yen,
                     expires_at=event.expires_at,
+                    expiry_label=event.expiry_label,
+                    route_label=event.route_label,
                 )
-                available_cash -= notional
-                reserved_cash += notional
+                if event.side == "buy":
+                    available_cash -= notional
+                    reserved_cash += notional
             case ReleaseEvent():
                 reservation = active.get(event.reservation_id)
                 if reservation is None:
                     raise PortfolioLedgerError(
                         f"release references no active reservation: {event.reservation_id}"
                     )
-                if event.reason == "expired" and event.occurred_at < reservation.expires_at:
-                    raise PortfolioLedgerError(
-                        f"expired release predates expires_at: {event.reservation_id}"
+                if event.reason == "expired" and reservation.expires_at is not None:
+                    before_expiry = (
+                        event.occurred_on < reservation.expires_at.astimezone(JST).date()
+                        if event.occurred_on is not None
+                        else event.occurred_at < reservation.expires_at
                     )
-                if event.occurred_at >= reservation.expires_at and event.reason != "expired":
-                    raise PortfolioLedgerError(
-                        "release at or after expires_at must use expired reason: "
-                        f"{event.reservation_id}"
-                    )
+                    if before_expiry:
+                        raise PortfolioLedgerError(
+                            f"expired release predates expires_at: {event.reservation_id}"
+                        )
                 released = _yen_notional(
                     reservation.remaining_quantity,
                     reservation.price_guard_yen,
                     field="released reservation notional",
                 )
-                available_cash += released
-                reserved_cash -= released
+                if reservation.side == "buy":
+                    available_cash += released
+                    reserved_cash -= released
                 del active[event.reservation_id]
             case ExecutionEvent(side="buy"):
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
-                if event.reservation_id is None:
-                    raise PortfolioLedgerError("buy execution requires reservation_id")
                 if event.quantity % board_lot:
                     raise PortfolioLedgerError(
                         f"execution quantity must be a multiple of board_lot {board_lot}"
                     )
-                reservation = active.get(event.reservation_id)
-                if reservation is None:
-                    raise PortfolioLedgerError(
-                        f"buy references no active reservation: {event.reservation_id}"
-                    )
-                if event.ticker != reservation.ticker:
-                    raise PortfolioLedgerError("execution ticker must match reservation ticker")
-                if event.occurred_at >= reservation.expires_at:
-                    raise PortfolioLedgerError("buy execution cannot occur at or after expires_at")
-                if event.quantity > reservation.remaining_quantity:
-                    raise PortfolioLedgerError("execution quantity exceeds reserved quantity")
-                if event.price_yen > reservation.price_guard_yen:
-                    raise PortfolioLedgerError("execution price exceeds reservation price guard")
-                seen_executions.add(event.execution_id)
-                guarded = _yen_notional(
-                    event.quantity, reservation.price_guard_yen, field="filled guarded notional"
-                )
                 paid = _yen_notional(
                     event.quantity, event.price_yen, field="buy execution notional"
                 )
-                reserved_cash -= guarded
-                available_cash += guarded - paid
-                reservation.remaining_quantity -= event.quantity
+                if event.reservation_id is None:
+                    _require_cash(available_cash, paid, event.event_id)
+                    if event.sector is None:
+                        raise PortfolioLedgerError("unreserved buy execution requires sector")
+                    has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
+                        item.ticker == event.ticker for item in active.values()
+                    )
+                    if not has_exposure:
+                        metadata.pop(event.ticker, None)
+                    _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
+                    available_cash -= paid
+                else:
+                    reservation = active.get(event.reservation_id)
+                    if reservation is None or reservation.side != "buy":
+                        raise PortfolioLedgerError("buy execution requires an active buy order")
+                    if event.ticker != reservation.ticker:
+                        raise PortfolioLedgerError("execution ticker must match reservation ticker")
+                    if event.quantity > reservation.remaining_quantity:
+                        raise PortfolioLedgerError("execution quantity exceeds reserved quantity")
+                    if event.price_yen > reservation.price_guard_yen:
+                        raise PortfolioLedgerError(
+                            "execution price exceeds reservation price guard"
+                        )
+                    guarded = _yen_notional(
+                        event.quantity, reservation.price_guard_yen, field="filled guarded notional"
+                    )
+                    reserved_cash -= guarded
+                    available_cash += guarded - paid
+                    reservation.remaining_quantity -= event.quantity
+                    if reservation.remaining_quantity == 0:
+                        del active[event.reservation_id]
+                seen_executions.add(event.execution_id)
                 lots[event.ticker].append(_Lot(event.quantity, event.price_yen))
-                if reservation.remaining_quantity == 0:
-                    del active[event.reservation_id]
             case ExecutionEvent(side="sell"):
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
                 if event.reservation_id is not None:
-                    raise PortfolioLedgerError("sell execution cannot consume a cash reservation")
+                    reservation = active.get(event.reservation_id)
+                    if reservation is None or reservation.side != "sell":
+                        raise PortfolioLedgerError("sell execution requires an active sell order")
+                    if event.ticker != reservation.ticker:
+                        raise PortfolioLedgerError("sell execution ticker must match order")
+                    if event.decision_reference != reservation.decision_reference:
+                        raise PortfolioLedgerError(
+                            "sell execution decision reference must match order"
+                        )
+                    if event.quantity > reservation.remaining_quantity:
+                        raise PortfolioLedgerError("sell execution exceeds ordered quantity")
+                    if event.price_yen < reservation.price_guard_yen:
+                        raise PortfolioLedgerError("sell execution below limit price")
                 if event.quantity % board_lot:
                     raise PortfolioLedgerError(
                         f"execution quantity must be a multiple of board_lot {board_lot}"
                     )
+                if event.reservation_id is None:
+                    pending = sum(
+                        item.remaining_quantity
+                        for item in active.values()
+                        if item.side == "sell" and item.ticker == event.ticker
+                    )
+                    held = sum(lot.quantity for lot in lots[event.ticker])
+                    if pending and event.quantity > held - pending:
+                        raise PortfolioLedgerError("sell execution exceeds uncommitted holding")
                 consumed_cost = _consume_fifo(lots[event.ticker], event.quantity, event.ticker)
+                if event.reservation_id is not None:
+                    assert reservation is not None
+                    reservation.remaining_quantity -= event.quantity
+                    if reservation.remaining_quantity == 0:
+                        del active[event.reservation_id]
                 seen_executions.add(event.execution_id)
                 proceeds = _yen_notional(
                     event.quantity, event.price_yen, field="sell execution notional"
@@ -638,6 +678,7 @@ def replay_events_through(
             item.remaining_quantity, item.price_guard_yen, field="active reservation notional"
         )
         for item in active.values()
+        if item.side == "buy"
     ):
         raise PortfolioLedgerError("reserved cash does not reconcile to active reservations")
     return ReplayedPortfolioState(
@@ -667,7 +708,7 @@ def require_resolved_expiries(state: ReplayedPortfolioState) -> None:
     expired = sorted(
         item.reservation_id
         for item in state.active_reservations.values()
-        if item.expires_at <= state.as_of
+        if item.expires_at is not None and item.expires_at <= state.as_of
     )
     if expired:
         raise PortfolioLedgerError(f"expired reservations require an explicit release: {expired}")
@@ -711,18 +752,25 @@ def _reservation_snapshots(
         ReservationSnapshot(
             reservation_id=item.reservation_id,
             order_id=item.order_id,
+            side=item.side,
             ticker=item.ticker,
             sector=item.sector,
             common_factors=item.common_factors,
             decision_reference=item.decision_reference,
             remaining_quantity=item.remaining_quantity,
             price_guard_yen=item.price_guard_yen,
-            reserved_yen=_yen_notional(
-                item.remaining_quantity,
-                item.price_guard_yen,
-                field="reservation snapshot notional",
+            reserved_yen=(
+                _yen_notional(
+                    item.remaining_quantity,
+                    item.price_guard_yen,
+                    field="reservation snapshot notional",
+                )
+                if item.side == "buy"
+                else 0
             ),
             expires_at=item.expires_at,
+            expiry_label=item.expiry_label,
+            route_label=item.route_label,
         )
         for item in sorted(active.values(), key=lambda item: item.reservation_id)
     )
@@ -735,7 +783,7 @@ def summarize_portfolio(
     *,
     policy: PolicyConfig = PORTFOLIO_POLICY,
 ) -> PortfolioSnapshot:
-    """Show confirmed capital even when some holdings cannot be valued."""
+    """Summarize the replay instant, not the document's last recorded instant."""
     holdings = _holding_snapshots(state.lots, state.metadata, prices)
     deployed_cost = sum(item.deployed_cost_yen for item in holdings)
     market_value = (
@@ -767,7 +815,8 @@ def summarize_portfolio(
         else ()
     )
     return PortfolioSnapshot(
-        as_of=document.as_of,
+        as_of=state.as_of,
+        ledger_as_of=document.as_of,
         portfolio_scope=document.portfolio_scope,
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
@@ -794,6 +843,7 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
 
     return {
         "as_of": snapshot.as_of.isoformat(),
+        "ledger_as_of": snapshot.ledger_as_of.isoformat(),
         "portfolio_scope": snapshot.portfolio_scope,
         "available_cash_yen": snapshot.available_cash_yen,
         "reserved_cash_yen": snapshot.reserved_cash_yen,
@@ -819,9 +869,9 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
                 "market_price_yen": None
                 if holding.market_price_yen is None
                 else _price_payload(holding.market_price_yen),
-                "market_price_observed_at": None
-                if holding.market_price_observed_at is None
-                else holding.market_price_observed_at.isoformat(),
+                "market_price_as_of": None
+                if holding.market_price_as_of is None
+                else holding.market_price_as_of.isoformat(),
                 "market_price_source_kind": holding.market_price_source_kind,
                 "market_price_basis": holding.market_price_basis,
                 "market_price_source_ref": holding.market_price_source_ref,
@@ -833,13 +883,20 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
             {
                 "reservation_id": reservation.reservation_id,
                 "order_id": reservation.order_id,
+                "side": reservation.side,
                 "ticker": reservation.ticker,
                 "sector": reservation.sector,
                 "common_factors": list(reservation.common_factors),
                 "remaining_quantity": reservation.remaining_quantity,
                 "price_guard_yen": _price_payload(reservation.price_guard_yen),
                 "reserved_yen": reservation.reserved_yen,
-                "expires_at": reservation.expires_at.isoformat(),
+                "expires_at": (
+                    reservation.expires_at.isoformat()
+                    if reservation.expires_at is not None
+                    else None
+                ),
+                "expiry_label": reservation.expiry_label,
+                "route_label": reservation.route_label,
             }
             for reservation in snapshot.active_reservations
         ],
@@ -939,7 +996,7 @@ def _holding_snapshots(
                 quantity=quantity,
                 deployed_cost_yen=deployed,
                 market_price_yen=None if market_price is None else market_price.price_yen,
-                market_price_observed_at=None if market_price is None else market_price.observed_at,
+                market_price_as_of=None if market_price is None else market_price.price_as_of,
                 market_price_source_kind=None if market_price is None else market_price.source_kind,
                 market_price_basis=None if market_price is None else market_price.price_basis,
                 market_price_source_ref=None if market_price is None else market_price.source_ref,
@@ -956,8 +1013,8 @@ def estimated_exit_tax_yen(
 ) -> int | None:
     """Return the configured FIFO gross-unrealized-gain tax estimate.
 
-    Both the ledger aggregate and a Position Review use this deliberately small
-    estimate.  It is not an account-tax engine: confirmed tax, fees, loss
+    The ledger aggregate and portfolio outcome use this deliberately small
+    estimate. It is not an account-tax engine: confirmed tax, fees, loss
     offsets, and account type remain separate ledger facts.
     """
     if rate_bps is None or basis is None:

@@ -1,13 +1,13 @@
 ---
 title: "Market lake operations"
-summary: "R2のimmutable L1 releaseをpublishし、固定releaseからmarket storeを復元する運用契約。"
+summary: "R2のimmutable market releaseをpublishし、固定releaseからmarket storeを復元する運用契約。"
 doc_type: reference
 status: active
 ---
 
 # Market lake operations
 
-この文書はmarket factのL1公開、固定releaseの読み取り、hydrateと保持を定める。storeの正本は[architecture](../architecture.md#store-authority)、sourceの選択は[data sources](./data-sources.md)、指標の意味は[valuation metrics](./valuation-metrics.md)が所有する。calibration結果はlakeへ載せず、`stores/screening/calibration/current.sqlite`に置く。
+この文書はmarketのL1原本とL2派生datasetの公開、固定releaseの読み取り、hydrateと保持を定める。storeの正本は[architecture](../architecture.md#store-authority)、sourceの選択は[data sources](./data-sources.md)、指標の意味は[valuation metrics](./valuation-metrics.md)が所有する。calibration結果はlakeへ載せず、`stores/screening/calibration/current.sqlite`に置く。
 
 <a id="market-lake-publication-contract"></a>
 <a id="publication-contract"></a>
@@ -15,17 +15,19 @@ status: active
 ## 発行契約
 
 market factはR2のcontent-addressed Parquet objectとして保持する。dataset manifestはpartition objectと
-row数・schema・digestを列挙し、L1 release manifestは同時に使うdataset buildの集合を固定する。
-`lake/pointers/l1/current.json`だけが可変で、それ以外のobjectとmanifestはimmutableである。
+row数・schema・digest・layerを列挙し、market release manifestは同時に使うdataset buildの集合を固定する。
+lakeは物理的な公開bundleであり、各dataset契約の`l1_source`と`l2_processed`を一つのreleaseで扱う。
+`lake/pointers/market/current.json`だけが可変で、それ以外のobjectとmanifestはimmutableである。
 
 - partition grainはdataset契約が宣言し、row数から動的に変えない
 - object key、SHA-256、byte数、row数、Arrow schemaを読取時に照合する
-- releaseは`production` profileだけを持ち、required dataset・coverage・row/population floorを満たす
+- releaseは`production` profileだけを持ち、required dataset・coverage・非空の観測と世代整合を満たす
+- coverageはdatasetごとの運用判定である。日次株価は成功した取得区間の連続性を使い、休日等の空応答も取得済みとする。未取得日・partialは取得済みとしない。取得区間は全営業日・全銘柄の価格の存在を証明しない。過去に保存した件数や銘柄数を新しい取得範囲の最低値にしない。件数は実際に保持する量であり、完全性の証明ではない
 - prefix listing、glob、`union_by_name`、provider fallbackで欠損を補わない
 - 一つのdatasetへ同時に二つのcanonical writerを持たない
 - readerは開始時にcurrentを一度だけ解決し、以後は固定releaseだけを読む
 
-L1 releaseに含まれないstore-local tableはSQLite側が所有する。hydrateはrelease対象tableを空にしてから
+market releaseに含まれないstore-local tableはSQLite側が所有する。hydrateはrelease対象tableを空にしてから
 積み、manifest row数と一致した場合だけatomic replaceする。したがって、撤回済みrowや旧世代の残り物を
 暗黙に引き継がない。
 
@@ -43,11 +45,19 @@ uv run baibai-engine lake export-all \
 
 dataset追加時は次を同じ変更で揃える。
 
-1. `market/lake/datasets.py`のtyped契約
+1. `storage/lake/datasets.py`のtyped契約
 2. SQLite schemaとingest
-3. release profileのrequired/optional、coverage、floor
+3. release profileのrequired/optional、coverage、非空の観測
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
+
+`jquants.source_pages`は取得したJ-Quants応答のL1原本である。そこからidentityと日付を整えて採用した`jquants.master_snapshots`（contract version 3）と`jquants.fin_summaries`（contract version 5）はL2であり、原本の代替ではない。後者の主キーは`ticker / disclosed_at / disclosure_number`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。現行の取得はnative HTTP pageであり、保存した提供元recordのJSONも原HTTP body bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
+
+財務の取得範囲内に開示が0件でも、正常に取得した期間は取得済みとして再利用する。未取得・不正recordを含むpartialとは区別し、計算に必要な履歴・銘柄数の充足とは別に判定する。訂正確認のための明示的な再取得と直近期間の更新は継続する。
+
+文書は原本の`DiscNo`で識別し、番号がないrecordへpayload digestによる代替identityを生成しない。必須identityがない応答は保存済み範囲の置換前に拒否する。同じidentityの同一recordは一度だけ保存し、内容が異なる場合は入力順で選ばず拒否する。開示番号はrevision順序ではない。[公式仕様](https://jpx-jquants.com/ja/spec/fin-summary)に従い、開示日・時刻と会計期間で判断する。型変換・当期/翌期予想の選択・財務計算は読込後の共通純粋投影で行う。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)、物理schemaは[観測store](../../engine/src/baibai_engine/storage/observations/schema.py)を正本とする。
+
+旧contractのreleaseは対応codeと組み合わせて保持し、runtimeの旧schema読替え・自動移行は行わない。原本を欠く旧flattened行を原本recordに見せかけて変換しない。schema変更時の再構築・検証・明示切替と、通常の取得・発行・復旧を分ける。運用は[batch運用](../../batch/OPERATIONS.md)に従う。
 
 個別dataset専用の移行runnerは作らない。現行storeからreleaseを再構築し、hydrateで現行schemaへ満たす。
 
@@ -67,7 +77,7 @@ lock対象外にする。
 
 ## 日次切替
 
-実行順は[batch運用](../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を正本とする。L1 publishはmachine store pushより先に行う。逆順ではcoverageだけが進み、factがcurrent releaseに無い状態を作り得る。readerは開始時にreleaseを固定する。
+実行順は[batch運用](../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を正本とする。market releaseのpublishはmachine store pushより先に行う。逆順ではcoverageだけが進み、factがcurrent releaseに無い状態を作り得る。readerは開始時にreleaseを固定する。
 
 <a id="fixed-release-read"></a>
 
@@ -84,10 +94,43 @@ named releaseはIDだけでは受理せずmanifest SHA-256を必須とする。�
 - pointerとrelease manifestのidentity
 - release entryとdataset manifestのidentity・contract
 - objectのSHA-256、byte数、row数、Arrow schema
-- required dataset、coverage、row/population floor
+- required dataset、coverage、非空の観測と世代整合
 
-readerはmanifestが列挙したobject keyだけをbounded batchで読む。remote readに必要なDuckDB extensionは
-provisioning stepで事前にinstallし、runtime downloadへfallbackしない。
+`lake resolve`はmanifestを解決してidentityとdataset一覧を表示する。任意SQLの実行やdata objectの検証は行わない。
+Pythonで同じreleaseを固定し、必要なdatasetのmanifestに列挙されたobjectを検証してDuckDBへ渡す。
+次は`uv run python`で使うローカルmirrorの例で、`name / alias`を`edinet.documents / docs`、
+`edinet.segment_facts / segments`、`edinet.debt_schedule / debt`、`tradingview.forecast_snapshots / tv`から選ぶ。
+
+```python
+from pathlib import Path
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.reader import (
+    accepted_dataset,
+    materialize_partitions,
+    resolve_release,
+    selected_partitions,
+)
+
+mirror = Path("stores")
+source = LocalMirrorSource(mirror)
+release = resolve_release(source, "<release-id>", manifest_sha256="<release-manifest-sha256>")
+cache = LakeObjectCache(root=mirror, source=source)
+name, alias = "edinet.documents", "docs"
+paths = materialize_partitions(
+    cache,
+    dataset=accepted_dataset(release, name),
+    partitions=selected_partitions(release, name),
+)
+with lake_session() as session:
+    session.connection.read_parquet([str(path) for path in paths]).create_view(alias)
+    rows = session.connection.execute("SELECT * FROM docs").fetchall()
+```
+
+同じsessionへ必要なviewを追加し、以下のSQL例もparameterをbindして実行する。optional datasetが一覧にない場合や
+objectが0件の場合は収録なしとして原典へ戻り、別releaseで補わない。`selected_partitions`の`periods`で対象月を
+絞れるが、提出版選択用の`docs`は全保持範囲を読む。readerはmanifestが列挙したobject keyだけをbounded batchで読む。
+remote readに必要なDuckDB extensionはprovisioning stepで事前にinstallし、runtime downloadへfallbackしない。
 
 <a id="shared-raw-read"></a>
 
@@ -97,13 +140,13 @@ Webの共有認証から、次の順序で既存manifestとParquetをraw GETし�
 [Web](../../web/README.md#共有read)、credential設定と受入手順は
 [運用手順](../../batch/OPERATIONS.md#shared-read-setup)を参照してください。
 
-1. `GET /api/lake/current`でexact `lake/pointers/l1/current.json`を一度だけ取得する。
+1. `GET /api/lake/current`でexact `lake/pointers/market/current.json`を一度だけ取得する。
 2. pointerが指すrelease manifest keyを`GET /api/lake/object?key=<key>`へ渡す。
 3. そのreleaseが列挙したdataset manifestを同じobject routeで取得する。
 4. そのdataset manifestが列挙したpartitionだけを取得する。
 
-object routeは`lake/manifests/releases/l1/`と`lake/manifests/datasets/`の`.json`、
-`lake/l1/canonical/`の`.parquet`だけを許可します。pointerはcurrent routeだけで公開し、store snapshot、
+object routeは`lake/manifests/releases/market/`と`lake/manifests/datasets/`の`.json`、
+`lake/l1/source/`と`lake/l2/processed/`の`.parquet`だけを許可します。pointerはcurrent routeだけで公開し、store snapshot、
 application DB、staging、GCには到達できません。keyはquery parserで一度decodeした文字列として判定し、
 callerがbucketやupstream hostを指定することはできません。
 
@@ -127,13 +170,13 @@ uv run baibai-engine lake hydrate \
   --store stores/market/market.sqlite
 ```
 
-hydrateは同一filesystem上のtemporary storeへ書き、`integrity_check`、foreign key、manifest row数を
-確認してから`os.replace`する。途中失敗時は直前のstoreを保持する。current以外を使う場合は
-`--release`と`--manifest-sha256`、またはtyped `--release-ref`で固定する。
+hydrateは同一filesystem上のtemporary storeへ書き、SQLiteの`quick_check`・対象列・manifest row数を
+確認してからatomic replaceする。途中失敗時は直前のstoreを保持する。current以外を使う場合は
+`--release`と`--manifest-sha256`、またはtyped `--release-ref`で固定する。remote拡張を使えない環境での完全mirrorの準備と停止条件は[ローカルhydrateの運用手順](../../batch/OPERATIONS.md#local-release-hydrate)を参照する。
 
 ## 保持とGC
 
-retention rootはL1 current releaseだけである。そこから到達できるmanifest/objectは保持し、未到達objectと
+retention rootはmarket current releaseだけである。そこから到達できるmanifest/objectは保持し、未到達objectと
 stagingだけをgrace期間後の候補にする。
 
 ```bash
@@ -168,19 +211,40 @@ operator-local CLIは復旧に必要なlocal pathを表示してよい。R2 toke
 finalizerで権限を分け、production bucketを試験用途に使わない。remote実装のprotocol確認はdeterministic
 unit testとlocal fakeで行い、専用acceptance workflowやexact workflow auditを運用条件にしない。
 
+## EDINET原本archive
+
+`edinet.source_archives`はCSV/XBRLの取得ZIP bytesを保持する任意datasetである。旧releaseの抽出値から原本を捏造せず、明示したSQLite `edinet_source_archives`の再利用と必要な新規取得から増やす。日付partitionは初回保存日であり、書類の観測日ではない。抽出値の正本と混同せず、[原本保存の運用](../../batch/OPERATIONS.md#edinet-source-archives)に従って不足確認・再計算・公開受入を行う。
+
 <a id="edinet-research-query"></a>
 
 ## Researchのセグメント・負債満期照会
 
-最初に`l1.current`でreleaseを固定する。2 datasetはoptionalであり、`l1.describe`で存在を確かめる。導入前のreleaseも他datasetを読み続けられるが、存在しないdatasetへのqueryは行わず原典へ戻る。両datasetのpartitionは提出月、日付filterは`disclosed_on`である。企業別・期間別の行の存在は、questionの解決や全債務のcoverageを意味しない。
+最初に[解決と読み取り](#fixed-release-read)の`lake resolve`でrelease IDとmanifest SHA-256を固定する。2 datasetはoptionalであり、同じreleaseのdataset一覧で存在を確かめる。導入前のreleaseも他datasetを読み続けられるが、存在しないdatasetへのqueryは行わず原典へ戻る。両datasetのpartitionは提出月、日付filterは`disclosed_on`である。企業別・期間別の行の存在は、questionの解決や全債務のcoverageを意味しない。
 
-1. `l1.query`のsource alias `docs`に`edinet.documents`を指定し、[書類選択SQL](./queries/edinet-research-filing.sql)へ`ticker`と`cutoff`（JST日付、当日末まで）を渡す。sourceのfrom/toは保持したdocumentの全範囲を含める。狭い範囲にすると訂正のparentや取下げイベントを落とす。最新年次family内の提出版を先に選び、抽出済みかどうかで古い版へ戻らない。
-2. `validity=usable`の書類だけについて、同じreleaseで下記のfact queryを行う。選択0件・`validity_unknown`・抽出行なしは原典確認へ戻り、訂正前の値で補わない。現行inventoryが履歴を確定できない情報修正・不開示・取下げも、選択familyに紐づく場合、またはfamily不明の年次イベントがそれ以降の年次に影響し得る場合はunknownに倒す。既知の別familyだけに紐づくイベントでは選択familyを止めない。年次familyに関連しない非年次イベントだけでは止めない。日中時点のPIT再現にはこの日次例を使わない。
-3. 年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
+書類選択は抽出工程と同じ純粋な `edinet_facts.selection` を使う。独立したSQL版の訂正・取下げ判定は持たない。固定releaseを[Storeの復元](#store-hydration)で明示的な作業コピーへhydrateし、次のように全保持範囲から選ぶ。hydrateにも同じrelease ID・manifest SHA-256を指定し、currentへ乗り換えない。
+
+```python
+from datetime import date
+from pathlib import Path
+from baibai_engine.market.edinet_facts.selection import latest_annual_filing, usable_document
+from baibai_engine.market.edinet_facts.store import document_inventory
+
+cutoff = date.fromisoformat("<YYYY-MM-DD>")
+doc = latest_annual_filing(
+    document_inventory(Path("/tmp/research-fixed.sqlite"), cutoff), "<TICKER>"
+)
+if doc is None or not usable_document(doc):
+    raise ValueError("年次書類を確定できません。原典を確認してください。")
+doc_id = doc["docID"]
+```
+
+cutoffはJST日付で当日末までを含む。保存済み原本のkey存在・明示nullを保持して操作イベントを畳み、最新年次familyとその訂正を選んでから利用可否を確認する。解決できた情報修正を永久に拒否せず、親不明の訂正を落として古い年次へ戻らない。選択なしは書類の不存在を意味しない。未確認・未抽出なら原典へ戻り、同じrelease内でも古い版へfallbackしない。日中時点のPIT再現にはこの日次例を使わない。
+
+年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
 
 `edinet.metrics`の年次書類120/130には、売上債権・棚卸資産・仕入債務・契約負債・前受金・未払金のOCF寄与と、報告された有形・無形CapEx内訳をnullableで持つ。OCF内訳は報告符号、CapEx内訳はpositive expenditure magnitudeである。内訳を0と仮定した値は原因分解の感応度に過ぎず、「正常FCF」や維持投資の機械判定として扱わない。nullはゼロではなく、対象標準conceptの不存在、context・unitの不一致や曖昧さ、またはv1対象外conceptを含み得る。必要な場合は原典を確認する。
 
-セグメントsourceを`segments`として、選ばれた`doc`をparameterに渡す。sourceの日付範囲は選択書類の提出日を含める。
+同じreleaseの`edinet.segment_facts`をview `segments`として、選ばれた`doc_id`をSQLの`doc` parameterに渡す。partitionを絞る場合は選択書類の提出月を含め、`disclosed_on`のcutoffも照合する。
 
 ```sql
 SELECT period_start, period_end, consolidation_basis, segment_key, segment_name,
@@ -190,7 +254,7 @@ WHERE source_doc_id = $doc AND segment_kind = 'segment'
 ORDER BY period_end, segment_key, metric
 ```
 
-負債sourceを`debt`として読む。nullを合計で黙って無視せず、categoryごとの欠測bucketも確認する。categoryがない場合は債務0としない。
+同じreleaseの`edinet.debt_schedule`をview `debt`として読む。nullを合計で黙って無視せず、categoryごとの欠測bucketも確認する。categoryがない場合は債務0としない。
 
 ```sql
 SELECT balance_sheet_date, consolidation_basis, debt_category,
@@ -199,23 +263,45 @@ FROM debt WHERE source_doc_id = $doc
 ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 ```
 
-原典に戻る範囲とsource意味は[data sources](./data-sources.md#edinet-research-facts)が所有する。ここから資金余命を評価する際の将来FCF・維持投資・借換えはResearchの見積りであり、L1 factへ保存しない。
+原典に戻る範囲とsource意味は[data sources](./data-sources.md#edinet-research-facts)が所有する。ここから資金余命を評価する際の将来FCF・維持投資・借換えはResearchの見積りであり、EDINETのL2抽出factへ混ぜない。
+
+<a id="external-assessment-query"></a>
+
+## External Assessmentの保存済み照会
+
+`equity_web.source_responses`はHTTP 200の公開HTML原本を受領UTC年月でpartitionするL1である。receipt ID・attempt ID・媒体/要求ticker・page/iframe親子・URL・encoding・受領時刻・本文bytesを保持し、parse失敗の原本も落とさない。private raw bundleは公開前の短期handoffであり、固定releaseに載ったL1とは区別する。publisherは変更月の原本全履歴を行順に照合し、選択receiptのmetadataと本文を確認する。再取得できなかった応答の本文は作らない。
+
+`external_assessment.model_valuation_observations`、`external_assessment.analyst_rating_observations`、`external_assessment.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。External Assessmentを含まないreleaseをcurrent-schema作業コピーへhydrateした場合、そのtableは空となる。旧retail dataset名を含む固定releaseは元commitとの組合せで読み、新runtimeへ透過的に読み替えない。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。旧SQLiteの形をruntime readerが読み替えることはしない。
+
+同じ銘柄を同日に複数回受信しても、`fetched_at_utc`が違えば別行にする。保存済みstageの再投入は元の受信時刻を維持し、同じキー・同じ内容なら無変更、異なる内容ならtransaction全体を拒否する。新しいHTTP受信の同値は改定とは数えない。将来別配信元を同じsemantic tableへ追加するときは、その配信元を含むキーへ明示的にcontractを変更する。
+
+領域は銘柄・cutoffについて、各datasetの配信元ごとに最新受領と直前受領を選ぶ。同じtableの別配信元の直近2行を比較相手にしない。最新の正常nullも受領として保持し、過去のnonnullへfallbackしない。未取得、受領済みで値がない、未知/変更された比較basisを区別する。最新・直前を含むL2抽出値の再保存・再取得は不要で、株マップの取得済みscoreも同じ入口から利用できる。原評価元の関係は値の種類ごとに引用を束ねるだけで、独立票数や合成scoreを作らない。
+
+領域入口は`external_assessment.query.external_assessment`、Web・toolsの公開facadeは`read_api.external_assessment`であり、銘柄・受領cutoff・評価論理時刻を明示する。Webの銘柄詳細・ticker profile・次のCLIが同じ領域結果を読む。Web exportは外部観測だけを持つtickerも含め、一つの受領cutoffをexport全体で固定する。ticker profileは要求日のJST末を論理cutoffとし、profile全体のportfolio基準日は[Market Context読取](./market-context.md#market-context-reads)に従う。lakeの固定releaseでも受信時刻のcutoffを併用する。
+
+```bash
+uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <ISO_DATETIME_WITH_TIMEZONE> --db stores/market/market.sqlite
+```
+
+`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・原応答captureのimportは明示された`collect / import`だけが現行取得入口へ委譲する。`rebuild-raw`は既存market SQLite内の明示したL1試行だけをofflineで再解析し、選択されたL2キーを原子的に置換する。現行取得jobや通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#external-assessment-acquisition)、手動取得・capture importは[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)が所有する。
 
 <a id="tradingview-query"></a>
 
 ## TradingView snapshotの照会
 
-`tradingview.forecast_snapshots`はmonth partitionの任意datasetであり、未収録のreleaseには存在しない。Owner MCPでcurrentを一度解決し、同じ`release_ref`のcatalogとbounded queryを使う。過去snapshotには期間filter、特定企業にはticker parameterを指定する。
+`tradingview.forecast_snapshots`はmonth partitionの任意datasetであり、未収録のreleaseには存在しない。[解決と読み取り](#fixed-release-read)でcurrentを一度解決し、同じrelease IDとmanifest SHA-256のdataset一覧とPython readerを使う。過去snapshotには期間filter、特定企業にはticker parameterを指定する。
 
-例えば、対象期間を絞ったsourceのaliasを`tv`として、次のSQLで取得状態と実取得時刻を確認できる。
+例えば、対象月のobjectからview `tv`を作り、`snapshot_date`の期間条件とともに、次のSQLで取得状態と実取得時刻を確認できる。
 
 ```sql
 SELECT snapshot_date, ticker, fetched_at_utc, fetch_status,
        eps_forecast_next_fy, quote_currency, estimate_currency
 FROM tv
-WHERE ticker = $ticker
+WHERE ticker = $ticker AND snapshot_date BETWEEN $start AND $end
 ORDER BY snapshot_date DESC
 LIMIT 30
 ```
+
+External AssessmentはTradingViewも同じ保存済み読取へ含める。正常受領の予測欄あり、正常受領で全予測欄null、`unresolved`、未取得を別状態で返す。quoteや人数だけを有効な予測の証拠にせず、正常受領を比較可能な企業評価と同一視しない。元のquote通貨と未確認のestimate通貨・単位・株式基準・絶対対象期を区別し、既存の未知metadataから数値deltaや対価格の割安判定を作らない。行単位の`target_period_label/end`は各metricとの対象期対応を保証しない。年度metadataが埋まっていても四半期・次年度・倍率等へ割り当てず、現行TradingViewの数値差分は`metric_period_mapping_unconfirmed`で比較不能に保つ。最新・直前の提示値と未取得・欠測・復帰の受領状態は保持する。銘柄列挙と値の読取は同じaware時刻比較を使い、optionalな秒以下表現やcutoffのUTC offsetで選択を変えない。
 
 最新行も`snapshot_date`と`fetched_at_utc`を併記する。同じ日でもbatchや後続slotで取得時刻が異なる。対象日に行がないこと、`unresolved`の行、正常rowの個別指標nullを別々に読む。部分公開の場合、rowがない銘柄は未取得であり、coverage不存在とは判定しない。取得前の履歴、provider公表時刻、翌日取得による前日補完はこのdatasetから復元できない。値の意味は[data sources](./data-sources.md#tradingviewの市場期待)に従う。

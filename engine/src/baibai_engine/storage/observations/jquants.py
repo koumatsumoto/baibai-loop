@@ -1,0 +1,185 @@
+"""J-Quants ingest for the market price/calendar tables: daily bars and calendars."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from baibai_engine.market.jquants_decode import normalize_ex_right_type
+from baibai_engine.storage.observations.convert import (
+    NormalizedRows,
+    code_quality,
+    date_iso,
+    distinct_source_rows,
+    to_float,
+    to_str_or_none,
+)
+from baibai_engine.storage.observations.coverage import (
+    delete_date_range,
+    record_range_source_coverage,
+)
+from baibai_engine.storage.observations.schema import open_connection
+
+
+def store_jquants_daily_bars(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date,
+    requested_end: date,
+    fetched_at_utc: str | None = None,
+) -> int:
+    normalized = _bars_rows_with_quality(records)
+    rows = normalized.rows
+    _validate_request_dates(rows, date_index=1, start=requested_start, end=requested_end)
+    conn = open_connection(db_path)
+    try:
+        delete_date_range(
+            conn,
+            "jquants_daily_bars",
+            "traded_at",
+            requested_start,
+            requested_end,
+        )
+        if rows:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO jquants_daily_bars(
+                  ticker, traded_at, open, high, low, close, volume, turnover_value,
+                  adjustment_factor, upper_limit, lower_limit, ex_right_type,
+                  market_cap_million_yen
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        persisted_count = record_range_source_coverage(
+            conn,
+            source="jquants_daily_bars",
+            operation="get_eq_bars_daily_range",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=requested_start,
+            requested_end=requested_end,
+            status=normalized.status,
+            error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
+        )
+        conn.commit()
+        return persisted_count
+    finally:
+        conn.close()
+
+
+def store_jquants_market_calendar(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date,
+    requested_end: date,
+    fetched_at_utc: str | None = None,
+) -> int:
+    normalized = _market_calendar_rows_with_quality(records)
+    rows = normalized.rows
+    _validate_request_dates(rows, date_index=0, start=requested_start, end=requested_end)
+    conn = open_connection(db_path)
+    try:
+        delete_date_range(
+            conn,
+            "jquants_market_calendar",
+            "day",
+            requested_start,
+            requested_end,
+        )
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) "
+                "VALUES (?, ?)",
+                rows,
+            )
+        persisted_count = record_range_source_coverage(
+            conn,
+            source="jquants_market_calendar",
+            operation="get_mkt_calendar",
+            table="jquants_market_calendar",
+            date_column="day",
+            requested_start=requested_start,
+            requested_end=requested_end,
+            status=normalized.status,
+            error=normalized.error,
+            fetched_at_utc=fetched_at_utc,
+        )
+        conn.commit()
+        return persisted_count
+    finally:
+        conn.close()
+
+
+def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
+    for record in records:
+        ticker, code_status = code_quality(record.get("Code"))
+        if code_status == "rejected":
+            rejected_count += 1
+            continue
+        if code_status == "excluded":
+            excluded_count += 1
+            continue
+        traded_at = date_iso(record.get("Date"))
+        if ticker is None or traded_at is None:
+            rejected_count += 1
+            continue
+        rows.append(
+            (
+                ticker,
+                traded_at,
+                to_float(record.get("O")),
+                to_float(record.get("H")),
+                to_float(record.get("L")),
+                to_float(record.get("C")),
+                to_float(record.get("Vo")),
+                to_float(record.get("Va")),
+                to_float(record.get("AdjFactor")),
+                to_str_or_none(record.get("UL")),
+                to_str_or_none(record.get("LL")),
+                normalize_ex_right_type(record.get("ExRT")),
+                to_float(record.get("MktCap")),
+            )
+        )
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="daily bars"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
+
+
+def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    for record in records:
+        day = date_iso(record.get("Date"))
+        division = to_str_or_none(record.get("HolDiv"))
+        if day is None or division is None:
+            rejected_count += 1
+            continue
+        # Retain the source category; cash-equity session selection belongs to readers.
+        rows.append((day, division))
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=1, source="market calendar"),
+        rejected_count=rejected_count,
+    )
+
+
+def _validate_request_dates(
+    rows: Sequence[tuple[Any, ...]], *, date_index: int, start: date, end: date
+) -> None:
+    """A range replacement may not write observations outside its requested partition."""
+    if start > end:
+        raise ValueError("request start must not follow end")
+    for row in rows:
+        observed = date.fromisoformat(str(row[date_index]))
+        if not start <= observed <= end:
+            raise ValueError("observation date is outside the requested range")

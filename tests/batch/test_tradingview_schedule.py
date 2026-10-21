@@ -25,7 +25,7 @@ def test_delayed_prior_day_firing_uses_current_day(hour, expected):
     ) == (date(2026, 9, 29), "post-close-2h", expected, "")
 
 
-def test_manual_uses_current_day_and_close_guard():
+def test_manual_uses_current_day_and_defers_market_close_check_to_preflight():
     assert resolve_tradingview_target(
         datetime(2026, 9, 28, 6, 29, tzinfo=UTC), event_name="workflow_dispatch", schedule=""
     ) == (date(2026, 9, 28), "manual", True, "")

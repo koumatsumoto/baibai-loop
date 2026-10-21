@@ -1,0 +1,454 @@
+"""source_coverage bookkeeping, date-range row maintenance, and coverage reads."""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Iterable
+from datetime import UTC, date, datetime, timedelta
+
+from baibai_engine.foundation.sqlite_read import is_missing_table_error
+
+_DELETE_DATE_RANGE_SQL = {
+    ("jquants_daily_bars", "traded_at"): (
+        "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
+    ),
+    ("jquants_fin_summaries", "disclosed_at"): (
+        "DELETE FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_market_calendar", "day"): (
+        "DELETE FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
+    ),
+    ("jquants_short_sale_reports", "disclosed_at"): (
+        "DELETE FROM jquants_short_sale_reports WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_margin_alerts", "publication_date"): (
+        "DELETE FROM jquants_margin_alerts WHERE publication_date BETWEEN ? AND ?"
+    ),
+    ("jquants_all_issues_daily_margin", "balance_date"): (
+        "DELETE FROM jquants_all_issues_daily_margin WHERE balance_date BETWEEN ? AND ?"
+    ),
+}
+_COUNT_DATE_RANGE_SQL = {
+    ("jquants_daily_bars", "traded_at"): (
+        "SELECT COUNT(*) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
+    ),
+    ("jquants_fin_summaries", "disclosed_at"): (
+        "SELECT COUNT(*) FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_market_calendar", "day"): (
+        "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
+    ),
+    ("jquants_short_sale_reports", "disclosed_at"): (
+        "SELECT COUNT(*) FROM jquants_short_sale_reports WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_margin_alerts", "publication_date"): (
+        "SELECT COUNT(*) FROM jquants_margin_alerts WHERE publication_date BETWEEN ? AND ?"
+    ),
+    ("jquants_all_issues_daily_margin", "balance_date"): (
+        "SELECT COUNT(*) FROM jquants_all_issues_daily_margin WHERE balance_date BETWEEN ? AND ?"
+    ),
+    ("edinet_documents", "doc_date"): (
+        "SELECT COUNT(*) FROM edinet_documents WHERE doc_date BETWEEN ? AND ?"
+    ),
+    ("edinet_metrics", "asof_date"): (
+        "SELECT COUNT(*) FROM edinet_metrics WHERE asof_date BETWEEN ? AND ?"
+    ),
+    ("jpx_regulation_flags", "asof_date"): (
+        "SELECT COUNT(*) FROM jpx_regulation_flags WHERE asof_date BETWEEN ? AND ?"
+    ),
+}
+
+
+def delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
+    conn.execute("DELETE FROM source_coverage WHERE source = ?", (source,))
+
+
+def source_coverage_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
+    """Return the distinct source names that currently have coverage rows.
+
+    This is the set of sources an invalidate can target: coverage bookkeeping is
+    the single source of truth for what has been fetched, so a name absent here
+    has nothing to invalidate and is reported as unknown rather than accepted.
+    """
+    rows = conn.execute("SELECT DISTINCT source FROM source_coverage ORDER BY source").fetchall()
+    return tuple(str(row[0]) for row in rows)
+
+
+def count_source_coverage(conn: sqlite3.Connection, source: str) -> int:
+    """Count all coverage rows for `source` (matches `delete_source_coverage`)."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM source_coverage WHERE source = ?", (source,)
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def count_overlapping_source_coverage(
+    conn: sqlite3.Connection,
+    source: str,
+    start: date,
+    end: date,
+) -> int:
+    """Count coverage rows for `source` overlapping `[start, end]`.
+
+    Uses the same predicate as `delete_overlapping_source_coverage`, so the count
+    shown before an invalidate equals the number of rows the delete removes.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) FROM source_coverage WHERE source = ? "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+        "AND coverage_start <= ? AND coverage_end >= ?",
+        (source, end.isoformat(), start.isoformat()),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def delete_overlapping_source_coverage(
+    conn: sqlite3.Connection,
+    source: str,
+    start: date,
+    end: date,
+) -> None:
+    conn.execute(
+        "DELETE FROM source_coverage WHERE source = ? "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+        "AND coverage_start <= ? AND coverage_end >= ?",
+        (source, end.isoformat(), start.isoformat()),
+    )
+
+
+def record_range_source_coverage(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    operation: str,
+    table: str,
+    date_column: str,
+    requested_start: date,
+    requested_end: date,
+    status: str,
+    error: str | None,
+    fetched_at_utc: str | None = None,
+) -> int:
+    """Record coverage for a freshly fetched ``[requested_start, requested_end]`` range.
+
+    The fetched range is merged with any overlapping or adjacent ``ok`` coverage
+    window into one contiguous window. Range fetches chunk the request and anchor
+    chunk boundaries at ``asof - N days``, so a later bootstrap shifts those
+    boundaries; a re-fetch whose chunk only partially overlaps an existing window
+    must not delete-and-shrink that window and orphan the rest of it (the bug that
+    left ``range_covered`` gaps even though the rows were present). ``record_count``
+    is recomputed over the merged window from the rows themselves -- the DB is the
+    source of truth, and the merged window keeps rows preserved outside the
+    fetched range.
+
+    A non-``ok`` fetch is recorded for its own range without merging, so a fetch
+    quality problem stays visible instead of being absorbed into an ``ok`` window.
+    Overlapping ``ok`` windows are trimmed around that range rather than dropped:
+    a rejected record inside one chunk says nothing about the years of history the
+    same window covers outside it, and dropping the window would narrow coverage to
+    the chunk, leaving the filings on either side present but unreadable.
+    """
+    merged_start, merged_end = requested_start, requested_end
+    if status == "ok":
+        # Treat windows touching within one day as adjacent so the merged window is
+        # contiguous under `range_covered` (which tolerates a <=1 day gap).
+        window_low = (requested_start - timedelta(days=1)).isoformat()
+        window_high = (requested_end + timedelta(days=1)).isoformat()
+        # Same bind params and WHERE clause for the select-then-delete pair. The
+        # clause is written out literally in each query (not interpolated) so the
+        # SQL stays a static string and never builds a query from variables.
+        overlap_params = (source, window_high, window_low)
+        for coverage_start, coverage_end in conn.execute(
+            "SELECT coverage_start, coverage_end FROM source_coverage "
+            "WHERE source = ? AND status = 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start <= ? AND coverage_end >= ?",
+            overlap_params,
+        ).fetchall():
+            try:
+                existing_start = date.fromisoformat(coverage_start)
+                existing_end = date.fromisoformat(coverage_end)
+            except ValueError:
+                continue
+            merged_start = min(merged_start, existing_start)
+            merged_end = max(merged_end, existing_end)
+        conn.execute(
+            "DELETE FROM source_coverage "
+            "WHERE source = ? AND status = 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start <= ? AND coverage_end >= ?",
+            overlap_params,
+        )
+        # A clean re-fetch supersedes any quality complaint about the range it now
+        # covers, so those rows go rather than accumulating one per partial chunk.
+        conn.execute(
+            "DELETE FROM source_coverage "
+            "WHERE source = ? AND status <> 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start >= ? AND coverage_end <= ?",
+            (source, merged_start.isoformat(), merged_end.isoformat()),
+        )
+    else:
+        _trim_ok_coverage_around(
+            conn,
+            source=source,
+            table=table,
+            date_column=date_column,
+            start=requested_start,
+            end=requested_end,
+        )
+        # Only complaints this fetch fully re-examined are replaced. One that reaches
+        # past the fetched range still describes the months outside it, and narrowing
+        # it to this chunk would report one bad month where a bad year was found.
+        conn.execute(
+            "DELETE FROM source_coverage "
+            "WHERE source = ? AND status <> 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start >= ? AND coverage_end <= ?",
+            (source, requested_start.isoformat(), requested_end.isoformat()),
+        )
+    persisted_count = date_range_row_count(conn, table, date_column, merged_start, merged_end)
+    record_source_coverage(
+        conn,
+        source=source,
+        coverage_key=_range_coverage_key(operation, merged_start, merged_end),
+        coverage_start=merged_start.isoformat(),
+        coverage_end=merged_end.isoformat(),
+        record_count=persisted_count,
+        status=status,
+        error=error,
+        fetched_at_utc=fetched_at_utc,
+    )
+    return persisted_count
+
+
+def _trim_ok_coverage_around(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+) -> None:
+    """Cut ``[start, end]`` out of the overlapping ``ok`` windows, keeping the rest.
+
+    The parts of a window outside the range keep their claim, because nothing was
+    re-fetched there. Each surviving part gets its own row so `range_covered` sees
+    a gap exactly where the fetch failed, and its `record_count` is recounted from
+    the rows so the row stays a statement about what the store actually holds.
+
+    A surviving financial window can contain no disclosures. It remains fetched:
+    absence of filings is a valid observation, not a reason to request it again.
+    """
+    rows = conn.execute(
+        "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc "
+        "FROM source_coverage WHERE source = ? AND status = 'ok' "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+        "AND coverage_start <= ? AND coverage_end >= ?",
+        (source, end.isoformat(), start.isoformat()),
+    ).fetchall()
+    for coverage_key, coverage_start, coverage_end, fetched_at_utc in rows:
+        try:
+            existing_start = date.fromisoformat(coverage_start)
+            existing_end = date.fromisoformat(coverage_end)
+        except ValueError:
+            continue
+        conn.execute(
+            "DELETE FROM source_coverage WHERE source = ? AND coverage_key = ?",
+            (source, coverage_key),
+        )
+        # The key carries the operation that produced the window; the range part is
+        # rewritten per surviving piece.
+        operation = str(coverage_key).rsplit(":", 1)[0]
+        remainders = (
+            (existing_start, min(existing_end, start - timedelta(days=1))),
+            (max(existing_start, end + timedelta(days=1)), existing_end),
+        )
+        for piece_start, piece_end in remainders:
+            if piece_start > piece_end:
+                continue
+            record_source_coverage(
+                conn,
+                source=source,
+                coverage_key=_range_coverage_key(operation, piece_start, piece_end),
+                coverage_start=piece_start.isoformat(),
+                coverage_end=piece_end.isoformat(),
+                record_count=date_range_row_count(conn, table, date_column, piece_start, piece_end),
+                status="ok",
+                error=None,
+                fetched_at_utc=str(fetched_at_utc),
+            )
+
+
+def delete_date_range(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+) -> None:
+    conn.execute(
+        _DELETE_DATE_RANGE_SQL[(table, date_column)],
+        (start.isoformat(), end.isoformat()),
+    )
+
+
+def date_range_row_count(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+) -> int:
+    row = conn.execute(
+        _COUNT_DATE_RANGE_SQL[(table, date_column)],
+        (start.isoformat(), end.isoformat()),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def record_source_coverage(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    coverage_key: str,
+    coverage_start: str | None,
+    coverage_end: str | None,
+    record_count: int,
+    status: str = "ok",
+    error: str | None = None,
+    fetched_at_utc: str | None = None,
+    replace: bool = True,
+) -> None:
+    """Record the minimal provider coverage needed for preflight checks."""
+    conflict_action = "REPLACE" if replace else "IGNORE"
+    conn.execute(
+        f"""
+        INSERT OR {conflict_action} INTO source_coverage(
+          source, coverage_key, coverage_start, coverage_end,
+          fetched_at_utc, record_count, status, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            source,
+            coverage_key,
+            coverage_start,
+            coverage_end,
+            fetched_at_utc or datetime.now(UTC).isoformat(),
+            record_count,
+            status,
+            error,
+        ),
+    )
+
+
+def _range_coverage_key(operation: str, start: date, end: date) -> str:
+    return f"{operation}:{start.isoformat()}..{end.isoformat()}"
+
+
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_market_calendar"})
+
+
+def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, date], ...]:
+    """Sort and fuse ranges that touch, so abutting fetches read as one window.
+
+    Touching means the next range starts on the day after the previous one ends;
+    a range starting two days later leaves a real missing day and stays separate.
+    Every caller shares this rule so a range the reader considers continuous is
+    never re-requested as two, and a day nobody fetched is never assumed present.
+    """
+    ordered = sorted((low, high) for low, high in ranges if low <= high)
+    if not ordered:
+        return ()
+    merged: list[tuple[date, date]] = [ordered[0]]
+    for low, high in ordered[1:]:
+        current_low, current_high = merged[-1]
+        if low > current_high + timedelta(days=1):
+            merged.append((low, high))
+        else:
+            merged[-1] = (current_low, max(current_high, high))
+    return tuple(merged)
+
+
+def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date, date], ...]:
+    """Merge the coverage windows a source can actually be read through.
+
+    A window counts only when it is `ok`. Calendars additionally require rows;
+    daily bars and financial disclosures may legitimately be absent in a fetched
+    window. Acquisition coverage does not establish analytical sufficiency.
+    Abutting windows are merged, so two fetches that stopped either side of a
+    chunk boundary describe one continuous range.
+
+    This is the single definition of "the store already has this". `range_covered`
+    answers a yes/no from it and `missing_intervals` answers what is left to fetch,
+    so a planner can never decide a range is held while the reader disagrees.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT coverage_start, coverage_end, record_count, status "
+            "FROM source_coverage WHERE source = ?",
+            (source,),
+        ).fetchall()
+    except sqlite3.OperationalError as error:
+        if not is_missing_table_error(error):
+            raise
+        return ()
+    intervals: list[tuple[date, date]] = []
+    for coverage_start, coverage_end, record_count, status in rows:
+        if status != "ok":
+            continue
+        if source in _RANGE_SOURCES_REQUIRING_ROWS and int(record_count or 0) == 0:
+            continue
+        if not coverage_start or not coverage_end:
+            continue
+        try:
+            parsed = (date.fromisoformat(coverage_start), date.fromisoformat(coverage_end))
+        except ValueError:
+            continue
+        intervals.append(parsed)
+    return merge_date_ranges(intervals)
+
+
+def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
+    """True when source_coverage rows collectively span the requested range.
+
+    Fetch provenance cannot be re-derived from row presence: an empty daily-bars
+    response may be a holiday, and an empty financial response may mean no filing
+    was due. Coverage does not prove every expected security has a row.
+    """
+    if start > end:
+        return False
+    return any(
+        interval_start <= start and interval_end >= end
+        for interval_start, interval_end in covered_intervals(conn, source)
+    )
+
+
+def missing_intervals(
+    conn: sqlite3.Connection, source: str, start: date, end: date
+) -> tuple[tuple[date, date], ...]:
+    """The sub-ranges of `[start, end]` the store cannot serve yet.
+
+    This is the complement of `covered_intervals` inside the request, which makes
+    a fetch cost what the store is actually missing instead of what the caller
+    happened to ask for. A window the batch skipped shows up here exactly as wide
+    as the outage; a store that has never been filled yields the whole request.
+    """
+    if start > end:
+        return ()
+    gaps: list[tuple[date, date]] = []
+    cursor = start
+    for interval_start, interval_end in covered_intervals(conn, source):
+        if interval_end < cursor:
+            continue
+        if interval_start > end:
+            break
+        if interval_start > cursor:
+            gaps.append((cursor, interval_start - timedelta(days=1)))
+        cursor = max(cursor, interval_end + timedelta(days=1))
+        if cursor > end:
+            return tuple(gaps)
+    if cursor <= end:
+        gaps.append((cursor, end))
+    return tuple(gaps)

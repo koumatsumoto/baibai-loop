@@ -7,6 +7,7 @@ import os
 import sqlite3
 import uuid
 from collections.abc import Iterator
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -20,26 +21,26 @@ from baibai_batch.storage.lake_publish import (
     LakeCASConflict,
     LakePublishError,
     RemoteObject,
-    publish_l1_release,
+    publish_release,
 )
-from baibai_engine.market.lake import models as lake_models
-from baibai_engine.market.lake.datasets import LAKE_DATASETS
-from baibai_engine.market.lake.hydrate import hydrate_market_store
-from baibai_engine.market.lake.keys import (
-    current_l1_pointer_key,
+from baibai_engine.storage.lake import models as lake_models
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.lake.hydrate import hydrate_market_store
+from baibai_engine.storage.lake.keys import (
+    current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
-from baibai_engine.market.lake.models import (
+from baibai_engine.storage.lake.models import (
     ReleaseManifest,
     canonical_lake_model_bytes,
     load_lake_model_json,
 )
-from baibai_engine.market.lake.objects import open_lake
-from baibai_engine.market.lake.prefetch import prefetching_hydration_cache
-from baibai_engine.market.lake.reader import resolve_current_release
-from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.writer import export_lake_legacy
+from baibai_engine.storage.lake.objects import open_lake
+from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
+from baibai_engine.storage.lake.reader import resolve_current_release
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
+from baibai_engine.storage.lake.writer import export_market_store
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("BAIBAI_R2_ACCEPTANCE") != "1",
@@ -59,16 +60,14 @@ def _emptied_market(source: Path, destination: Path) -> Path:
     """A copy of the market store shaped like the object R2 holds: no lake-owned row."""
 
     destination.write_bytes(source.read_bytes())
-    connection = sqlite3.connect(destination)
-    for dataset in LAKE_DATASETS.values():
-        connection.execute(f"DELETE FROM {dataset.sqlite_table}")  # nosec B608
-    connection.commit()
-    connection.close()
+    with closing(sqlite3.connect(destination)) as connection, connection:
+        for dataset in LAKE_DATASETS.values():
+            connection.execute(f"DELETE FROM {dataset.sqlite_table}")  # nosec B608
     return destination
 
 
 def _lake_table_contents(path: Path) -> dict[str, list[tuple[object, ...]]]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return {
             dataset.sqlite_table: [
@@ -131,14 +130,14 @@ def _exclusive_bucket_lifecycle() -> Iterator[None]:
 def _tiny_market(path: Path) -> Path:
     """The smallest store that still satisfies the narrowed release profile.
 
-    Every extra row is an extra object this acceptance run uploads to and deletes
-    from real R2, so the seed stays at one row per dataset.
+    Extra rows can enlarge partition objects uploaded to real R2. Keep the seed
+    small; rows do not map one-to-one to remote objects.
     """
 
     return market_store(
         path,
         daily_bars=(("1301", "2026-01-05", 100.0, 1000.0),),
-        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "1301", "Fund", 0.006, 600, 6, 0),),
+        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "1301", "Fund", 0.006, 600, 6),),
         short_sale_coverage=(
             "acceptance",
             "2026-01-01",
@@ -156,7 +155,7 @@ def _download_l1_closure(store: Boto3R2Store, mirror: Path) -> None:
         store.download_file(key, path)
         return path.read_bytes()
 
-    pointer = load_lake_model_json(download(current_l1_pointer_key()), L1ReleasePointer)
+    pointer = load_lake_model_json(download(current_release_pointer_key()), LakeReleasePointer)
     release = load_lake_model_json(download(pointer.manifest_key), ReleaseManifest)
     for name, reference in release.datasets.items():
         key = dataset_manifest_key(dataset=name, build_id=reference.build_id)
@@ -173,7 +172,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
     `--if-none-match` when it read nothing, and rollback no longer exists to undo a
     pointer that the wrong writer won. Two things can only be observed against a real
     bucket: that R2 enforces the precondition at all rather than accepting the write,
-    and that the CLI's refusal is recognised as a conflict rather than a generic
+    and that the SDK response is recognised as a conflict rather than a generic
     failure. Neither is visible to a fake store, which raises the conflict by
     construction. A throwaway key carries the same object semantics as a pointer key
     without making one run's serving state depend on another's.
@@ -222,25 +221,25 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     store = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
-    build = export_lake_legacy(
+    build = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
         expected_store_origin=None,
     )
-    release_path, _release = create_l1_release(
+    release_path, _release = create_release(
         dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],
         mirror_root=mirror,
         release_id=f"acceptance-{uuid.uuid4().hex}",
         created_at=datetime.now(UTC),
     )
 
-    first = publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    immediate = store.head(current_l1_pointer_key())
+    first = publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    immediate = store.head(current_release_pointer_key())
     assert immediate is not None
     assert immediate.etag == first.pointer_etag
     immediate_pointer = load_lake_model_json(
-        store.get_bytes(current_l1_pointer_key()), L1ReleasePointer
+        store.get_bytes(current_release_pointer_key()), LakeReleasePointer
     )
     assert immediate_pointer.release_id == first.release_id
     remote_mirror = tmp_path / "remote-reader"
@@ -257,7 +256,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
             dataset_names=tuple(sorted(build.datasets)),
         )
     assert mirrored.release_id == fixed.release_id
-    with sqlite3.connect(mirrored_store) as connection:
+    with closing(sqlite3.connect(mirrored_store)) as connection:
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 
     # The reader path production uses: objects resolved out of the bucket through
@@ -289,9 +288,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     assert _lake_table_contents(mirrored_store) == _lake_table_contents(sqlite_path)
 
     # A run that changes nothing must not move the closure's bytes again.
-    unchanged = publish_l1_release(
-        mirror_root=mirror, release_manifest_path=release_path, store=store
-    )
+    unchanged = publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
     assert unchanged.transfers.uploaded_bytes == 0
     assert unchanged.transfers.downloaded_bytes < first.transfers.uploaded_bytes
 
@@ -299,14 +296,16 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     # generation just published, and repair is another publication rather than a step
     # backwards.
     successor_id = f"acceptance-{uuid.uuid4().hex}"
-    successor_path, _successor = create_l1_release(
+    successor_path, _successor = create_release(
         dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],
         mirror_root=mirror,
         release_id=successor_id,
         created_at=datetime.now(UTC),
     )
-    publish_l1_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
-    serving = load_lake_model_json(store.get_bytes(current_l1_pointer_key()), L1ReleasePointer)
+    publish_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
+    serving = load_lake_model_json(
+        store.get_bytes(current_release_pointer_key()), LakeReleasePointer
+    )
     assert serving.release_id == successor_id
 
 
@@ -322,20 +321,20 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
     delegate = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
-    build = export_lake_legacy(
+    build = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="b" * 40,
         expected_store_origin=None,
     )
     release_id = f"acceptance-ambiguous-{fault}-{uuid.uuid4().hex}"
-    release_path, _release = create_l1_release(
+    release_path, _release = create_release(
         dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],
         mirror_root=mirror,
         release_id=release_id,
         created_at=datetime.now(UTC),
     )
-    pointer_key = current_l1_pointer_key()
+    pointer_key = current_release_pointer_key()
 
     class FaultAfterPointerCommit:
         def __init__(self) -> None:
@@ -385,7 +384,7 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
             if fault == "conflict":
                 successor_id = f"acceptance-successor-{uuid.uuid4().hex}"
                 successor = canonical_lake_model_bytes(
-                    L1ReleasePointer(
+                    LakeReleasePointer(
                         release_id=successor_id,
                         manifest_key=release_manifest_key(release_id=successor_id),
                         manifest_sha256="f" * 64,
@@ -409,7 +408,7 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
     store = FaultAfterPointerCommit()
     if fault == "conflict":
         with pytest.raises(LakeCASConflict, match="different release"):
-            publish_l1_release(
+            publish_release(
                 mirror_root=mirror,
                 release_manifest_path=release_path,
                 store=store,
@@ -417,20 +416,20 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
         return
     if fault == "unknown":
         with pytest.raises(LakePublishError, match="outcome is unknown"):
-            publish_l1_release(
+            publish_release(
                 mirror_root=mirror,
                 release_manifest_path=release_path,
                 store=store,
             )
         return
 
-    report = publish_l1_release(
+    report = publish_release(
         mirror_root=mirror,
         release_manifest_path=release_path,
         store=store,
     )
     assert report.release_id == release_id
-    current = load_lake_model_json(delegate.get_bytes(pointer_key), L1ReleasePointer)
+    current = load_lake_model_json(delegate.get_bytes(pointer_key), LakeReleasePointer)
     assert current.release_id == release_id
 
 

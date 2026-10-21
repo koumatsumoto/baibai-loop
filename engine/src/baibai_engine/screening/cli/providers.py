@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
-from baibai_engine.market.bars import (
-    JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
-    JQuantsMarketCalendarDay,
-)
+from baibai_engine.market.calendar import JQuantsMarketCalendarDay
+from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.jpx_models import JPXEarningsCalendarSnapshot, JPXRegulationSnapshot
 from baibai_engine.market.jquants_models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsFinancialSummary,
@@ -20,73 +18,69 @@ from baibai_engine.market.jquants_models import (
     JQuantsWeeklyMargin,
 )
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.providers.edinet import EdinetMetricRecord
-from baibai_engine.market.providers.jpx import (
-    JPXEarningsCalendarSnapshot,
-    JPXRegulationSnapshot,
-)
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
-class JQuantsAdapter(Protocol):
+class JQuantsRead(Protocol):
     def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]: ...
-
     def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]: ...
-
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]: ...
-
-    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int: ...
-
     def get_adjustment_factor_bars_range(
         self, start: date, end: date
     ) -> list[JQuantsAdjustmentFactorEvent]: ...
+    def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
+    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
+    def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
+    def get_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]: ...
+    def get_mkt_all_issues_daily_margin(
+        self, balance_date: date
+    ) -> list[JQuantsAllIssuesDailyMargin]: ...
+    def get_mkt_short_sale_report_range(
+        self, start: date, end: date
+    ) -> list[JQuantsShortSaleReport]: ...
 
-    def get_fin_summary_range(
-        self,
-        start: date,
-        end: date,
-    ) -> list[JQuantsFinancialSummary]: ...
 
-    def refresh_fin_summary_range(
+class JQuantsMaintenance(Protocol):
+    def ensure_master(self, day: date) -> int: ...
+    def ensure_market_calendar(self, start: date, end: date) -> int: ...
+    def ensure_daily_bars(self, start: date, end: date) -> int: ...
+    def ensure_fin_summaries(self, start: date, end: date) -> int: ...
+    def refresh_fin_summaries(
         self,
         start: date,
         end: date,
         *,
         revision_overlap_days: int,
-        repair_ranges: Sequence[tuple[date, date]] = (),
         progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int: ...
-
-    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
-
-    def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
-
-    def refresh_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
-
-    def get_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]: ...
-
-    def refresh_mkt_margin_alert_range(
-        self, start: date, end: date
-    ) -> list[JQuantsMarginAlert]: ...
-
-    def get_mkt_all_issues_daily_margin(
-        self, balance_date: date
-    ) -> list[JQuantsAllIssuesDailyMargin]: ...
-
-    def get_mkt_short_sale_report_range(
-        self, start: date, end: date
-    ) -> list[JQuantsShortSaleReport]: ...
-
-    def refresh_mkt_short_sale_report_range(
-        self, start: date, end: date
-    ) -> list[JQuantsShortSaleReport]: ...
+    def ensure_weekly_margin(self, day: date) -> int: ...
+    def refresh_weekly_margin(self, day: date) -> int: ...
+    def ensure_all_issues_daily_margin(self, day: date) -> int: ...
+    def ensure_margin_alerts(self, start: date, end: date) -> int: ...
+    def refresh_margin_alerts(self, start: date, end: date) -> int: ...
+    def ensure_short_sale_reports(self, start: date, end: date) -> int: ...
+    def refresh_short_sale_reports(self, start: date, end: date) -> int: ...
+    def close(self) -> None: ...
 
 
-class EDINETAdapter(Protocol):
+class EDINETRead(Protocol):
     def load_metric_records(self, asof_date: date) -> Mapping[str, EdinetMetricRecord]: ...
 
     def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
 
+    def read_csv_zip(self, doc_id: str) -> bytes: ...
+
+    def read_xbrl_zip(self, doc_id: str) -> bytes: ...
+
+
+class EDINETMaintenance(Protocol):
+    def close(self) -> None: ...
+
+    def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
+
     def download_csv_zip(self, doc_id: str) -> bytes: ...
+
+    def download_xbrl_zip(self, doc_id: str) -> bytes: ...
 
     def bootstrap_cache(self, start: date, end: date) -> Mapping[str, int]: ...
 
@@ -95,18 +89,23 @@ class EDINETAdapter(Protocol):
     def backfill_document_identity(self, start: date, end: date) -> Mapping[str, int]: ...
 
 
-class JPXAdapter(Protocol):
+class JPXRead(Protocol):
     def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot: ...
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
 
-    def has_regulation_cache(self, asof_date: date) -> bool: ...
 
+class JPXMaintenance(Protocol):
     def bootstrap_cache(self, asof_date: date) -> Mapping[str, int]: ...
+
+    def close(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
 class ProviderBundle:
-    jquants: JQuantsAdapter
-    edinet: EDINETAdapter | None
-    jpx: JPXAdapter
+    jquants: JQuantsRead
+    edinet: EDINETRead | None
+    jpx: JPXRead
+    jquants_refresh: JQuantsMaintenance | None = None
+    edinet_refresh: EDINETMaintenance | None = None
+    jpx_refresh: JPXMaintenance | None = None

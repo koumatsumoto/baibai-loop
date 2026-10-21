@@ -11,12 +11,10 @@ from tests.engine.screening.metric_fixtures import (
 )
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.screening.metrics import (
-    build_metrics,
-)
-from baibai_engine.screening.schema import FinancialSnapshot
+from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.screening.metrics.snapshot import build_metrics
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
 class ScreeningMetricsTests(SnapshotFixtures):
@@ -72,6 +70,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             "130A",
             asof - timedelta(days=200),
             fiscal_period="FY",
+            fiscal_year_end=date(2025, 3, 31),
             period_start=date(2024, 4, 1),
             period_end=date(2025, 3, 31),
             # 自己資本は円で 4.8e10 (= bps 120 x 自己株控除後 400M) になる値を置く。
@@ -80,6 +79,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
             equity_to_asset_ratio=0.6,
         )
         quarterly = JQuantsFinancialSummary(
+            # Calculation fixture: guidance has already been projected for this snapshot.
+            forecast_status="confirmed",
             ticker="130A",
             disclosed_at=asof - timedelta(days=10),
             forecast_eps=20.0,
@@ -122,7 +123,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
     def test_disclosures_after_the_asof_date_do_not_reach_the_snapshot(self) -> None:
         """較正リプレイは過去の断面を作り直す。発表前の決算が 1 行混ざれば全部が偽になる。
 
-        bar は `_latest_bar_on_or_before` が切るので、開示行だけ呼び出し側任せにすると
+        bar は `latest_bar_on_or_before` が切るので、開示行だけ呼び出し側任せにすると
         「未発表の好決算で割安に見える」行ができる。
         """
         asof = date(2026, 3, 31)
@@ -135,11 +136,17 @@ class ScreeningMetricsTests(SnapshotFixtures):
             shares_outstanding=100_000_000.0,
             treasury_shares=0.0,
             fiscal_period="FY",
-            fiscal_year_end=date(2026, 3, 31),
-            period_start=date(2025, 4, 1),
-            period_end=date(2026, 3, 31),
+            fiscal_year_end=date(2025, 12, 31),
+            period_start=date(2025, 1, 1),
+            period_end=date(2025, 12, 31),
         )
-        undisclosed = replace(disclosed, disclosed_at=asof + timedelta(days=10), eps_ttm=99.0)
+        undisclosed = replace(
+            disclosed,
+            disclosed_at=asof + timedelta(days=10),
+            eps_ttm=99.0,
+            profit=9_900_000_000.0,
+            forecast_eps=120.0,
+        )
 
         def snapshot(summaries: list[JQuantsFinancialSummary]) -> FinancialSnapshot:
             return build_metrics(
@@ -153,8 +160,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         without = snapshot([disclosed])
         with_future = snapshot([disclosed, undisclosed])
         self.assertEqual(with_future.latest_financial_disclosure_date, date(2026, 3, 1))
-        self.assertEqual(with_future.eps, without.eps)
-        self.assertEqual(with_future.per_trailing, without.per_trailing)
+        self.assertEqual(with_future, without)
 
     def test_build_metrics_adds_short_dislocation_fields(self) -> None:
         asof = date(2026, 4, 24)
@@ -164,7 +170,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 ticker="130A",
                 traded_at=start + timedelta(days=index),
                 close=90.0 if index >= 25 else 100.0,
-                adjustment_close=90.0 if index >= 25 else 100.0,
                 turnover_value=300_000_000.0 if index >= 25 else 100_000_000.0,
             )
             for index in range(30)
@@ -216,10 +221,10 @@ class ScreeningMetricsTests(SnapshotFixtures):
         # Historical EV/EBITDA should be
         # (price * shares + debt - cash) / ebitda, not a collapsed price ratio.
         self.assertIsNotNone(snapshot.ev_ebitda)
-        self.assertIsNotNone(derived.self_range_percentile["ev_ebitda"])
+        self.assertIsNotNone(derived.self_range_position["ev_ebitda"])
         self.assertIsNotNone(derived.sigma_gap["ev_ebitda"])
         self.assertAlmostEqual(snapshot.ev_ebitda, ((120.0 * 10.0) + 300.0 - 100.0) / 200.0)
-        self.assertAlmostEqual(derived.self_range_percentile["ev_ebitda"], 1.0)
+        self.assertAlmostEqual(derived.self_range_position["ev_ebitda"], 1.0)
         history_values = [
             ((price * 10.0) + 300.0 - 100.0) / 200.0 for price in (80.0, 100.0, 120.0)
         ]
@@ -303,7 +308,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={"130A": _edinet_metric_record(ebitda_ttm=-10.0)},
         )
         self.assertIsNone(negative_ebitda.financials["130A"].ev_ebitda)
-        self.assertIsNone(negative_ebitda.derived["130A"].self_range_percentile["ev_ebitda"])
+        self.assertIsNone(negative_ebitda.derived["130A"].self_range_position["ev_ebitda"])
         self.assertIsNone(negative_ebitda.derived["130A"].sigma_gap["ev_ebitda"])
 
         negative_ev = build_metrics(
@@ -316,5 +321,5 @@ class ScreeningMetricsTests(SnapshotFixtures):
             },
         )
         self.assertIsNone(negative_ev.financials["130A"].ev_ebitda)
-        self.assertIsNone(negative_ev.derived["130A"].self_range_percentile["ev_ebitda"])
+        self.assertIsNone(negative_ev.derived["130A"].self_range_position["ev_ebitda"])
         self.assertIsNone(negative_ev.derived["130A"].sigma_gap["ev_ebitda"])

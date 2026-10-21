@@ -44,7 +44,7 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import PanelRow
-from baibai_engine.screening.discovery.review_set import APPROACH_IDS
+from baibai_engine.screening.discovery.contracts import APPROACH_IDS
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
 
@@ -80,9 +80,7 @@ def evaluate_cohorts(
             "evidence_role": require_horizon(horizon).evidence_role,
             "cohorts": cohort_results,
             "observation_dependence": _observation_dependence(cohort_results, horizon=horizon),
-            "aggregate": _aggregate(
-                cohort_results, candidate_discovery_rules=candidate_discovery_rules
-            ),
+            "aggregate": _aggregate(cohort_results),
         }
     return per_horizon
 
@@ -103,14 +101,18 @@ def _evaluate_cohort(
     unresolved_reasons: dict[str, int] = {}
     for row in unresolved:
         unresolved_reasons[row.status] = unresolved_reasons.get(row.status, 0) + 1
-    # The panel records the last close at or before asof, so it is the authority on
-    # whether a name was priced then. A forward row that found no entry for a name
-    # the panel priced is a tradeable name dropped from the measurement, not a name
-    # that was absent from the market — the two must not share a bucket, because only
-    # the first can bias the cohort.
-    priced_at_asof = {row.ticker for row in panel if row.close is not None}
+    # Separate names with an observed panel price from names without one. Neither
+    # absence nor presence of a stored close proves listing or actual executability.
+    # A missing forward entry for a price-backed panel member loses an observation
+    # the analytical population otherwise includes.
+    priced_at_asof = {
+        row.ticker
+        for row in panel
+        if row.close is not None
+        or row.population_coverage_status == "priced_master_without_universe"
+    }
     missing_entry = [row for row in unresolved if row.status == "unresolved_missing_entry"]
-    entry_not_listed = [row for row in missing_entry if row.ticker not in priced_at_asof]
+    entry_unpriced_at_asof = [row for row in missing_entry if row.ticker not in priced_at_asof]
     entry_price_gap = [row for row in missing_entry if row.ticker in priced_at_asof]
     unpriced_exit = [
         row
@@ -132,9 +134,9 @@ def _evaluate_cohort(
         ),
         "forward_rows_count": len(candidate_rows),
         "resolved_count": sum(1 for row in candidate_rows if row.resolved),
-        # Windows a completed cash tender offer priced instead of a market close.
-        # Counted apart so a reader can see how much of the resolved population is
-        # settled takeover consideration rather than an observed quote.
+        # Windows valued by the cash tender-offer proxy rather than a market close.
+        # This identifies a measurement basis, not proof that an investor tendered
+        # shares or received settlement consideration.
         "control_event_exit_count": sum(
             1 for row in candidate_rows if row.status == CONTROL_EVENT_EXIT_STATUS
         ),
@@ -144,13 +146,11 @@ def _evaluate_cohort(
         "failure_exit_count": sum(1 for row in candidate_rows if row.status == FAILURE_EXIT_STATUS),
         "data_unresolved_count": len(unresolved),
         "data_unresolved_reason_counts": unresolved_reasons,
-        # Unresolved rows are not one kind of defect. A name that was not listed
-        # at asof is a correct exclusion; a name priced earlier but absent at
-        # asof would be a silently dropped tradeable name; a name whose series
-        # ends inside the window is the survivorship exposure that needs an exit
-        # value. Only the last two can bias a cohort, so the evidence readiness
-        # reads these counts rather than the undivided total.
-        "entry_not_listed_count": len(entry_not_listed),
+        # An unpriced panel member is outside the production screen's usable-price
+        # scope; this does not establish that it was unlisted. Missing forward data
+        # for a price-backed member and an unpriced exit remain separate measurement
+        # gaps. Readiness follows that scope distinction, not inferred listing dates.
+        "entry_unpriced_at_asof_count": len(entry_unpriced_at_asof),
         "entry_price_gap_count": len(entry_price_gap),
         "unpriced_exit_count": len(unpriced_exit),
         # Whether those exclusions could have produced the cohort's conclusions.
@@ -171,7 +171,7 @@ def _evaluate_cohort(
         # pass without a blocker. The residual makes that impossible.
         "unclassified_unresolved_count": (
             len(unresolved)
-            - len(entry_not_listed)
+            - len(entry_unpriced_at_asof)
             - len(entry_price_gap)
             - len(unpriced_exit)
             - len(future_horizon)
@@ -190,7 +190,6 @@ def _evaluate_cohort(
     if context is None:
         fidelity = _candidate_discovery_fidelity(
             panel,
-            {},
             {},
             candidate_discovery_rules=candidate_discovery_rules,
             jpx_input_status=candidate_discovery_jpx_input_status,
@@ -224,12 +223,11 @@ def _evaluate_cohort(
         if axes_result is not None:
             axes[spec.name] = axes_result
     candidate_discovery = _evaluate_candidate_discovery(
-        population, excess, candidate_discovery_rules=candidate_discovery_rules
+        panel, excess, candidate_discovery_rules=candidate_discovery_rules
     )
     candidate_discovery_fidelity = _candidate_discovery_fidelity(
         panel,
         excess,
-        candidate_discovery,
         candidate_discovery_rules=candidate_discovery_rules,
         jpx_input_status=candidate_discovery_jpx_input_status,
     )

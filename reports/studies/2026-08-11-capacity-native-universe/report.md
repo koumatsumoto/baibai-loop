@@ -1,5 +1,7 @@
 # Capacity-native universe replay report
 
+この記録は 2026-08-11 の旧 rules・panel・FY 配当近似による履歴であり、「現行」や floor 維持は当時の判断を指す。現行の Candidate Discovery、流動性・上場期間条件、E[r] hurdle の仕様には読み替えない。p20 出来高と固定参加率から得る capacity days は容量の仮定計算で、将来の約定や退出日数を保証しない。欠損を無出来として扱うのは当時の保守的な計算規則であり、欠損が実際の無取引だった証拠ではない。全損・中立代入は固定ケース感度で、未知対価の全範囲の上下限ではない。
+
 価値tier: T1 — 固定流動性floorの外側にある候補を実注文容量で回収しても、長期after-cost価値と退出可能性が維持されるかを判定した。
 
 ## 結論
@@ -165,7 +167,7 @@ holdoutではcapacity daysとAmihudのhigh bucketがprice / totalとも中央値
 
 capacity-only全体では、E[r] Q5−Q1 median excessは全window・両basisで正だった。200bps後の範囲は1y holdoutの+9.23pt（price）が最小、5y totalの+100.71ptが最大。`E[r] >= 8.5%`帯のmedian excessも全windowで正（最小+1.34% price / 1y holdout）。Q5 trapはQ1より13.93〜45.96pt低い。
 
-空flag集合では、E[r]が同集合内で並べる力は残る一方、固定floor外の上位集合そのものがcurrent policy / boundaryよりtrap・退出不能・長期中央値で劣った。この診断はmarket-cap floorを外すproduction変更の便益を示さないが、production同等membershipの効果を反証したとも扱わない。
+空flag集合では、E[r] の上位・下位群に記述的な差がある一方、固定floor外の上位集合そのものがcurrent policy / boundaryよりtrap・価格未解決率・長期中央値で劣った。価格が未解決であることだけで実際に退出不能だったとは断定しない。この診断はmarket-cap floorを外すproduction変更の便益を示さないが、production同等membershipの効果を反証したとも扱わない。
 
 ## Unresolved / stale / delisting sensitivity
 

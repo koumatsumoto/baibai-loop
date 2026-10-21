@@ -2,7 +2,7 @@
 title: "pre-2019 375-session self-range panel 診断"
 summary: "production と分離した診断 panel で2018年調整を含む20 cohortを構築した。2018-10〜12のE[r]上下差は1yで正、3yで2/3が正だが、深いstress一般やproduction parameterを支持する証拠ではない。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # pre-2019 375-session self-range panel 診断
@@ -11,7 +11,7 @@ status: active
 
 ## 1. 入力契約と分離
 
-規則・評価量・限定は、計測前の commit `ef1bd2d` と [`2026-08-01-calibration-evidence-capacity-preregistration.md`](.../2026-08-01-calibration-evidence-capacity/preregistration/report.md) §2 で固定した。
+規則・評価量・限定は、計測前の commit `ef1bd2d` と [`2026-08-01-calibration-evidence-capacity-preregistration.md`](../2026-08-01-calibration-evidence-capacity/preregistration.md) §2 で固定した。
 
 | 項目 | 診断 variant | production |
 | --- | --- | --- |

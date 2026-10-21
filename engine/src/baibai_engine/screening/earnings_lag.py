@@ -8,12 +8,11 @@
   「もう出た」が区別できない。
 - ``jquants_fin_summaries`` — 実際に開示された数字。機械行の財務はここから作られる。
 
-この 2 つを突き合わせられる場所は 1 つしかないので、状態の判定はすべてここで行い、
-表示層は転記だけをする。ranking にも gate にも E[r] にも入らない。
+状態の判定はここへ集約し、表示層は転記する。ranking・gate・E[r] には入らない。
 
-**historical backfill では読めない**: カレンダーは単一 snapshot で fetch 日を持たないため、
-過去 as-of の run は「今日の予定表」を読む。その run の annotation は as-of 時点の状態では
-ないので、過去 run の `next_earnings_status` と `stale_fin_flag` を解釈しない。
+**過去時点の予定表を再現しない**: カレンダーは単一 snapshot で、取得時刻は coverage に
+保存されるが、過去時点別の予定表を保持しない。historical backfill が現在の snapshot を
+読む場合、その `next_earnings_status` と `stale_fin_flag` は当時の状態の証拠にはならない。
 """
 
 from __future__ import annotations
@@ -23,14 +22,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
+from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.providers.jpx import JPXEarningsCalendarEntry
 
-type NextEarningsStatus = Literal["announced", "scheduled", "estimated", "unknown"]
+type NextEarningsStatus = Literal["scheduled_date_reached", "scheduled", "estimated", "unknown"]
 
-# 会社は予定日より数日早く開示することがある。その差を「別の四半期」と読むと、数字が
-# 現に最新である行を stale と呼び、逆に発表済みの行を「これから」と呼ぶ。四半期の間隔は
-# 90 日前後なので、この幅なら同じ発表の前倒しと前四半期のままを取り違えない。
+# 財務行の日付と予定日が近ければ stale 判定を立てないための許容幅。
+# 同じ予定の発表を確認した証拠にはせず、前倒し発表の推論にも使わない。
 _SAME_EVENT_TOLERANCE_DAYS = 14
 
 # 前年同期の発表日は決算期変更や休日繰り上げでずれる。これより離れた開示は同一四半期と
@@ -46,7 +44,7 @@ class EarningsLag:
     next_earnings_estimated_date: date | None
     next_earnings_status: NextEarningsStatus
     # None = 判定材料が無い: 予定日が未来 / カレンダー行が無い / 行に財務が無い。
-    # False は「照合して食い違わなかった」であり、両者を同じ値にしない。
+    # False は「財務開示日が予定日の14日前以降」であり、同じ決算の発表確認ではない。
     stale_fin_flag: bool | None
 
 
@@ -57,7 +55,7 @@ def index_calendar_announcements(
 
     network 経路は ticker あたり 1 行を保証するが、cache の primary key は
     ``(announcement_date, ticker)`` なので同じ ticker の 2 行を弾かない。黙って
-    どちらかが勝つと「発表済みなのに予定」へ静かに転ぶので、見つけたら止める。
+    どちらかが勝つと予定日の状態が静かに変わるので、見つけたら止める。
     """
 
     index: dict[str, date] = {}
@@ -167,8 +165,7 @@ def build_earnings_lag(
     ここで数え直すと「行が使った日」と「annotation が示す日」が静かにずれうるので、
     導出元は 1 つに保つ。
 
-    状態と flag は同じ 2 入力から同時に決める。別々の層で判定すると、一方が「発表済み」
-    と読む行を他方が「これから」と呼ぶ食い違いが起きる。
+    状態と flag は予定日を共通入力にして決める。どちらも開示確認を表さない。
     """
 
     estimated = (
@@ -196,24 +193,31 @@ def _status(
     """予定日と as-of の前後だけで決める。
 
     「予定日の手前に開示があるから前倒しで発表済み」という読みは試したが、実 store の
-    retrospective で 89% が誤りだった —— 決算直前の業績予想修正・再開示が同じ形に見え、
-    本番の開示は予定どおり来る。誤って ``announced`` にすると読み手は目前の決算を
-    event risk から外すので、判定できないほうへ倒す。前倒し開示した銘柄はカレンダーが
-    更新されるまで ``scheduled`` に見えるが、隣の ``latest_financial_disclosure_date`` が
-    予定日の直前を指すので読み手はそこで気づける。
+    retrospective で 89% が誤りだった。予定当日・経過後も日付だけでは開示を確認できない。
+    ``scheduled_date_reached`` は予定表の時刻関係だけを表し、現実の発表を主張しない。
     """
 
     if announcement_date is not None:
-        return "announced" if announcement_date <= asof else "scheduled"
+        return "scheduled_date_reached" if announcement_date <= asof else "scheduled"
     return "estimated" if estimated is not None else "unknown"
+
+
+def interpreted_next_earnings_status(saved_status: str | None) -> str | None:
+    """Read a frozen legacy ``announced`` as the date-only claim it actually made.
+
+    Saved run bytes remain immutable. This projection is for
+    present-day readers and model inputs; historical exact reads retain the source.
+    """
+
+    return "scheduled_date_reached" if saved_status == "announced" else saved_status
 
 
 def _stale_fin_flag(
     *, asof: date, announcement_date: date | None, latest_financial_disclosure_date: date | None
 ) -> bool | None:
-    """予定日に対応する開示が行に無いか。原因は区別しない。
+    """予定日から離れた古い財務行か。発表の有無や原因は区別しない。
 
-    立つのは「予定日が as-of 以前なのに、その発表に対応する statement が行に無い」場合で、
+    立つのは「予定日が as-of 以前なのに、近い日付の財務行が無い」場合で、
     延期・決算期変更・provider 欠落のいずれでも立つ。どれであっても読み手のすべきことは
     同じ = 一次開示で切り分ける、なので、原因を断定しない。判定材料が無ければ ``None``。
     """
@@ -245,5 +249,6 @@ __all__ = [
     "build_earnings_lag",
     "estimate_next_announcement",
     "index_calendar_announcements",
+    "interpreted_next_earnings_status",
     "tickers_without_calendar_rows",
 ]

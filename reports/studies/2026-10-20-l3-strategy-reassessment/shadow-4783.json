@@ -1,0 +1,292 @@
+{
+  "study_scope": "公開原典による10/16固定価格の後日shadow評価。実口座・本番store・注文へ適用しない。",
+  "timestamp_basis": "retrieved_atは本shadow作成で保存原典を読み直した時刻。原公表時刻や当時取得済みの証明ではない。",
+  "document": {
+    "kind": "stock_assessment",
+    "schema_version": 1,
+    "input_snapshot": {
+      "snapshot_version": 1,
+      "producer_model_version": "l3-strategy-shadow-20261020",
+      "ticker": "4783",
+      "company_name": "NCD",
+      "sector": "情報・通信業",
+      "common_factors": [],
+      "as_of": "2026-10-16",
+      "sources": [
+        {
+          "source_id": "ncd_annual",
+          "ticker": "4783",
+          "source_tier": "primary",
+          "ref": "https://api.edinet-fsa.go.jp/api/v2/documents/S100YEMH?type=2",
+          "retrieved_at": "2026-10-20T12:37:50+00:00",
+          "as_of": "2026-06-19",
+          "used_for": "FY2026有報の事業・顧客集中・CF。関連箇所のみ実読。"
+        },
+        {
+          "source_id": "ncd_q1",
+          "ticker": "4783",
+          "source_tier": "primary",
+          "ref": "https://assets.minkabu.jp/news/article_media_content/urn:newsml:tdnet.info:20260805510616/140120260805510616.pdf",
+          "retrieved_at": "2026-10-20T12:37:50+00:00",
+          "as_of": "2026-08-07",
+          "used_for": "FY2027Q1会社予想、株数、BS、セグメントの当期/前期。"
+        },
+        {
+          "source_id": "ncd_plan",
+          "ticker": "4783",
+          "source_tier": "primary",
+          "ref": "https://www.ncd.co.jp/ir/management/plan/pdf/vision2029.pdf",
+          "retrieved_at": "2026-10-20T12:37:50+00:00",
+          "as_of": "2026-05-15",
+          "used_for": "Vision2029の投資計画、cash-inの控除範囲、必要現金方針。"
+        },
+        {
+          "source_id": "fixed_price",
+          "ticker": "4783",
+          "source_tier": "local_data",
+          "provider": "jquants",
+          "dataset": "fixed-study/run-revision-41f490fe8c1041a8b6ebb4d6972edf44",
+          "retrieved_at": "2026-10-20T12:37:50+00:00",
+          "as_of": "2026-10-16",
+          "used_for": "取得済み10/16固定断面の未調整終値。後日取得の対照でありpoint-in-time再現ではない。"
+        }
+      ],
+      "facts": [
+        {
+          "fact_id": "price",
+          "fact_kind": "market_price",
+          "value": 2508,
+          "unit": "JPY_per_share",
+          "as_of": "2026-10-16",
+          "source_ids": [
+            "fixed_price"
+          ],
+          "price_basis": "last_close_unadjusted"
+        },
+        {
+          "fact_id": "shares",
+          "fact_kind": "shares_outstanding",
+          "value": 8020116,
+          "unit": "shares",
+          "as_of": "2026-06-30",
+          "source_ids": [
+            "ncd_q1"
+          ]
+        },
+        {
+          "fact_id": "forecast_ni",
+          "fact_kind": "net_income_attributable_to_owners",
+          "value": 1830000000,
+          "unit": "JPY",
+          "as_of": "2026-08-07",
+          "source_ids": [
+            "ncd_q1"
+          ]
+        },
+        {
+          "fact_id": "forecast_op",
+          "fact_kind": "other",
+          "value": 2750000000,
+          "unit": "JPY",
+          "as_of": "2026-08-07",
+          "source_ids": [
+            "ncd_q1"
+          ]
+        },
+        {
+          "fact_id": "forecast_dps",
+          "fact_kind": "other",
+          "value": 120,
+          "unit": "JPY_per_share",
+          "as_of": "2026-08-07",
+          "source_ids": [
+            "ncd_q1"
+          ]
+        }
+      ]
+    },
+    "derived": {
+      "metrics": []
+    },
+    "valuation": {
+      "status": "resolved",
+      "market_price_fact_id": "price",
+      "horizon_months": 30,
+      "required_annual_return_pct": "6",
+      "base": {
+        "terminal_value_per_share_yen": "2673.6552366347546",
+        "cash_distribution_per_share_yen": "240",
+        "calculation": "条件対照のみ。6%は研究の共通比較基準で個人要求率や購入推奨ではない。営業利益3,000,000,000円×(1,830,000,000/2,750,000,000)/8,020,116株×PER10.5+終期未入金権利60円=2673.6552366347546円。期間内cash240円。将来配当維持・株数一定・利益改善を仮定。費用は利益内、全cashや投資45億円を再加減しない。",
+        "source_ids": [
+          "ncd_annual",
+          "ncd_q1",
+          "ncd_plan"
+        ]
+      },
+      "downside": {
+        "terminal_value_per_share_yen": "1526.275333174732",
+        "cash_distribution_per_share_yen": "180",
+        "calculation": "仮説の反対条件であり損失上限ではない。営業利益2,200,000,000円×純利益比率0.60/8,020,116株×PER9+終期権利45円=1526.275333174732円。30か月cash180円。顧客縮小・費用負担・評価倍率・分配を同時に悪化させる。",
+        "source_ids": [
+          "ncd_annual",
+          "ncd_q1",
+          "ncd_plan"
+        ]
+      },
+      "unresolved_reason": null
+    },
+    "investment_case": {
+      "explanation": "固定価格のshadow検証。人材・IT投資と価格改定が持続利益を増やし、投資・必要cash・分配を両立する価値経路を検討する。以下の30億円利益・PER10.5は条件対照であって確認済みの予想ではない。",
+      "invalidation_conditions": [
+        "費用増・顧客縮小で、投資後の持続利益改善が成立しない。",
+        "必要cashと投資・分配を両立できず、継続資金や株数の前提が変わる。"
+      ],
+      "status": "uncertain",
+      "status_reason": "会社目標だけでは利益・投資・株主回収の接続と独立した出口倍率を裏付けられない。価格条件を通ることと投資仮説の支持を分ける。 全軸unknownという件数で採否を決めない。今回の主要な未解決は、投資・人件費を踏まえた利益成長と採用倍率の根拠、および後発資本異動の照合である。顧客集中は観測済み曝露、セグメント配賦変更は比較basisとして区別する。",
+      "source_ids": [
+        "ncd_annual",
+        "ncd_q1",
+        "ncd_plan"
+      ]
+    },
+    "permanent_loss_risks": [
+      {
+        "axis": "funding_liquidity",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "6月末現預金84.439億円。必要cashは月商2.5〜3か月という方針で、全cashを余剰認定しない。将来投資・分配・運転資金の同時充足は未確定。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "ncd_q1",
+          "ncd_plan"
+        ]
+      },
+      {
+        "axis": "debt_repayment",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "短期借入7億円とlease約6.492億円を確認。元本返済とCF控除の重複を避ける。期間内の借換条件と駐輪場設備投資除外分の調達は未確認。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "ncd_q1",
+          "ncd_plan"
+        ]
+      },
+      {
+        "axis": "cash_flow",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "FY2026の営業CFから有形・無形投資とlease元本を引くと約11.045億円。120円配当試算は約9.624億円。単年度差額は将来余剰予測ではなく、計画cash-in90億円は人材・R&D控除前。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "ncd_annual",
+          "ncd_plan"
+        ]
+      },
+      {
+        "axis": "dilution",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "6月末の自己株控除株数8,020,116を確認し試算上一定。評価日までの全後発資本異動の網羅照合は未実施で、basis confirmedへ昇格しない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "ncd_q1"
+        ]
+      },
+      {
+        "axis": "customer_concentration",
+        "assessment": "adverse",
+        "evidence_status": "partially_verified",
+        "summary": "確認済みの不利な曝露はMetLifeへの売上比率17.7%という集中。集中が存在する点はunknownではない。ただし顧客喪失の確率や固定費吸収への影響額は未確定で、これだけで企業仮説brokenや永久損失を認定しない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "ncd_annual"
+        ]
+      },
+      {
+        "axis": "structural_decline",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "DX需要と価格交渉効果はあるが、サポートでは海外移転・vendor集約・不採算案件が逆風。全社の増益を全事業の持続的成長にしない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "ncd_q1"
+        ]
+      },
+      {
+        "axis": "governance_accounting",
+        "assessment": "unknown",
+        "evidence_status": "partially_verified",
+        "summary": "確認した会計変更はセグメント配賦方法の変更で、前期比較も組替え済み。これは比較時のbasisであって、不正・不適切会計の兆候と認定していない。unknownは本shadowで統治全般の必要な確認を完了していない範囲を示し、配賦変更そのものを全体判断の阻害理由にしない。",
+        "as_of": "2026-10-16",
+        "source_ids": [
+          "ncd_q1"
+        ]
+      }
+    ],
+    "findings": {
+      "business_understanding": "開発、サポート、駐輪場の異なる経済性を持つ。Q1増益には価格改定のほか外注費・一過性費用減があり、サポートは減益。",
+      "value_gap_explanation": "Base対照は30か月・6%でPmax約2518.68円となり固定価格2508円を僅かに上回るが、PER9または要求率9%では通らない。価格差そのものを独立な投資機会の証明にしない。",
+      "realization": {
+        "mechanism": "投資後の利益と分配の持続が確認され市場で評価される。",
+        "timing": "uncertain",
+        "timing_reason": "会社のFY2029計画に合わせた30か月の比較窓で、実現日は確約されない。",
+        "delay_risk": "投資先行・案件回復の遅れはcashと利益、終価を同時に変える。"
+      },
+      "hypotheses": [
+        {
+          "statement": "期間を延ばすだけで要求率を満たす。",
+          "origin": "research",
+          "result": "refuted",
+          "reason": "同じ利益・PERで12か月0.3130%、30か月2.9313%。6%を通るのは利益改善も仮定した場合。",
+          "source_ids": [
+            "ncd_annual",
+            "ncd_q1",
+            "ncd_plan"
+          ]
+        },
+        {
+          "statement": "営業利益30億円と配当維持を投資後も支えられる。",
+          "origin": "research",
+          "result": "unresolved",
+          "reason": "価格改定効果は確認できるが不採算案件や費用負担、cash計画の対応に不確実性が残る。",
+          "source_ids": [
+            "ncd_annual",
+            "ncd_q1",
+            "ncd_plan"
+          ]
+        },
+        {
+          "statement": "会社計画45億円を法定営業CFから全額再控除すべき。",
+          "origin": "research",
+          "result": "refuted",
+          "reason": "会社cash-inは人材・R&D控除前で、法定CFとの範囲が異なる。二重控除を避ける。",
+          "source_ids": [
+            "ncd_plan"
+          ]
+        }
+      ],
+      "unresolved_questions": [
+        "投資後の持続利益と顧客別採算。",
+        "駐輪場投資を含む資金計画と必要cash。",
+        "出口PER10.5の独立した根拠。",
+        "評価日までの資本異動照合。"
+      ],
+      "source_ids": [
+        "ncd_annual",
+        "ncd_q1",
+        "ncd_plan"
+      ]
+    },
+    "conclusion": {
+      "stance": "uncertain",
+      "assessed_at": "2026-10-20T12:37:50+00:00",
+      "strongest_countercase": "有利な条件を組み合わせただけで、投資後利益と倍率の裏付けがない可能性。小さな価格余裕はモデル誤差に比べて十分とは認定できない。"
+    }
+  },
+  "expected_action": "defer",
+  "expected_blockers": [
+    "assessment_not_supported"
+  ],
+  "review": null
+}

@@ -1,6 +1,8 @@
 # 決算発表予定 provider 監査（2026-07-14）
 
-## 結論
+この文書は2026-07-14時点の観測・採用判断の記録である。以下のファイル、件数、失敗条件は当時のもので、現行手順ではない。現在の取得範囲と制約は[Screening runtime](../../../docs/reference/screening-runtime.md#jpx-earnings-calendar)を参照する。
+
+## 当時の結論
 
 screening の `next_earnings_date` は、J-Quants ClientV2 `get_eq_earnings_cal` ではなく、JPX の[決算発表予定日時一覧](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html)に現在掲載されている全 cohort Excel を合成した snapshot から取得する。
 

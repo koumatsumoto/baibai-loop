@@ -21,18 +21,17 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
 from baibai_engine.read_api import (
-    MACRO_READING_RULES_PATH,
+    READING_RULES_PATH,
     MaterializationPreconditionError,
     PortfolioSnapshot,
     StoreLayoutError,
     reject_noncanonical_store_paths,
     repository_root_error,
     screening_run_asof_dates,
-    validate_application_store_schema,
-    validate_macro_reading_rules,
     validate_market_store_hydration,
-    validate_market_store_schema,
+    validate_reading_rules,
 )
+from baibai_web.readmodel.assessment import build_market_context_assessment_detail
 from baibai_web.readmodel.builders import (
     build_daily_delta,
     build_dashboard,
@@ -40,14 +39,20 @@ from baibai_web.readmodel.builders import (
     build_operations_view,
     build_tasks,
 )
-from baibai_web.readmodel.macro import build_macro, build_macro_context_detail, build_macro_series
+from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
 from baibai_web.readmodel.models import DashboardView, MetaBatch, ScreeningView
 from baibai_web.readmodel.stocks import (
-    build_assessment_detail,
     build_screening,
     build_screening_history_run,
     build_security_detail,
     prepare_security_inputs,
+)
+from baibai_web.readmodel.stocks.research import (
+    build_proposal_detail,
+    build_proposal_list,
+    build_proposal_preview,
+    build_stock_assessment_detail,
+    build_stock_assessment_list,
 )
 from baibai_web.sources.db_sources import DbLedgerSource, DbResearchSource, DbScreeningSource
 from baibai_web.sources.factory import build_sources
@@ -58,10 +63,10 @@ _JST = ZoneInfo("Asia/Tokyo")
 # Same shape the ledger and run store enforce at write time; re-checked here so a
 # store-derived string never reaches filename composition unvalidated.
 _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
-# macro context_id charset; excludes path separators so it is safe in a filename
+# assessment context_id charset; excludes path separators so it is safe in a filename
 # and mirrors the Worker route validation for the same key.
-_MACRO_CONTEXT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
-_MACRO_SERIES_ID_FORMAT = re.compile(r"[a-z0-9._-]{1,128}")
+_MARKET_CONTEXT_ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
+_INDICATOR_SERIES_ID_FORMAT = re.compile(r"[a-z0-9._-]{1,128}")
 _ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
@@ -73,6 +78,7 @@ def export_read_models(
     output_dir: Path,
     *,
     batch: MetaBatch | None = None,
+    include_history: bool = True,
 ) -> list[Path]:
     """Write every serving JSON under ``output_dir`` and return the written paths.
 
@@ -84,9 +90,7 @@ def export_read_models(
     """
 
     stores = build_sources(root)
-    validate_application_store_schema(stores.app_db_path)
-    validate_macro_reading_rules(root / MACRO_READING_RULES_PATH)
-    validate_market_store_schema(stores.market_db_path)
+    validate_reading_rules(root / READING_RULES_PATH)
     validate_market_store_hydration(stores.market_db_path)
     # These sources live only for this export. API requests keep the fresh DB sources.
     stores = replace(
@@ -121,11 +125,16 @@ def export_read_models(
         )
     )
 
+    prepared_security = prepare_security_inputs(stores.ledger, stores.research, stores.screening)
+    stores.market.prepare_market_context(as_of=prepared_security.today)
     screening = build_screening(
         stores.screening,
         stores.ledger,
         stores.research,
         stores.er_level_calibration,
+        external_assessment=stores.external_assessment,
+        market=stores.market,
+        external_cutoff=prepared_security.external_cutoff,
     )
     written.append(_write_model(views_dir / "screening_latest.json", screening))
 
@@ -145,65 +154,90 @@ def export_read_models(
         _write_model(views_dir / "operations.json", build_operations_view(stores.operations))
     )
 
-    as_of = datetime.now(_JST).date()
-    macro = build_macro(stores.macro, as_of=as_of)
-    written.append(_write_model(views_dir / "macro.json", macro))
-    for group in stores.macro.groups:
+    written.append(
+        _write_model(
+            views_dir / "stock-assessments.json",
+            build_stock_assessment_list(stores.research),
+        )
+    )
+    written.append(
+        _write_model(views_dir / "investment-proposals.json", build_proposal_list(stores.research))
+    )
+    known_at = datetime.now(_JST)
+    as_of = prepared_security.today
+    market_context = build_market_context(
+        stores.market_context, as_of=as_of, known_at=known_at, market=stores.market
+    )
+    written.append(_write_model(views_dir / "market-context.json", market_context))
+    for group in stores.market_context.groups:
         for configured in group.series:
             series_id = configured.series_id
-            if _MACRO_SERIES_ID_FORMAT.fullmatch(series_id) is None:
-                _warn(f"macro series_id has an unexpected format: {series_id!r}; view skipped")
+            if _INDICATOR_SERIES_ID_FORMAT.fullmatch(series_id) is None:
+                _warn(f"indicator series_id has an unexpected format: {series_id!r}; view skipped")
                 continue
-            series = build_macro_series(stores.macro, series_id=series_id, as_of=as_of)
+            series = build_indicator_series(stores.market_context, series_id=series_id, as_of=as_of)
             if series is None:  # pragma: no cover - group entries come from the registry
-                _warn(f"macro series view is unavailable for {series_id!r}; skipped")
+                _warn(f"indicator series view is unavailable for {series_id!r}; skipped")
                 continue
-            written.append(_write_model(views_dir / f"macro-series--{series_id}.json", series))
+            written.append(_write_model(views_dir / f"indicator-series--{series_id}.json", series))
 
-    for context in stores.macro.contexts():
+    for context in stores.market_context.assessment_history():
         context_id = str(context["context_id"])
-        if _MACRO_CONTEXT_ID_FORMAT.fullmatch(context_id) is None:
-            _warn(f"macro context_id has an unexpected format: {context_id!r}; report view skipped")
-            continue
-        try:
-            detail = build_macro_context_detail(stores.macro, context_id=context_id, as_of=as_of)
-        except ValueError as error:
-            # A not-yet-eligible (future as_of) revision is 404 on the API too; skip it
-            # rather than fail the whole batch.
-            _warn(f"macro report view skipped for {context_id!r}: {error}")
-            continue
-        written.append(_write_model(views_dir / f"macro-context--{context_id}.json", detail))
-
-    # The screening index is deliberately current-only, but the detail API accepts
-    # every immutable assessment ID. Export from the canonical assessment store so a
-    # completed cycle stays addressable after a newer screening run becomes current.
-    for raw_assessment in stores.research.assessments():
-        capital_allocation_assessment_id = str(raw_assessment["capital_allocation_assessment_id"])
-        if _ASSESSMENT_ID_FORMAT.fullmatch(capital_allocation_assessment_id) is None:
-            _warn(
-                "capital_allocation_assessment_id has an unexpected format: "
-                f"{capital_allocation_assessment_id!r}; view skipped"
+        if _MARKET_CONTEXT_ASSESSMENT_ID_FORMAT.fullmatch(context_id) is None:
+            raise ValueError(
+                f"indexed assessment context_id has an unexpected format: {context_id!r}"
             )
-            continue
-        assessment = build_assessment_detail(
-            stores.research, capital_allocation_assessment_id=capital_allocation_assessment_id
+        # Exact-ID history is independent of the current analytical cutoff. Every
+        # indexed publication must remain readable for this export to be complete.
+        detail = build_market_context_assessment_detail(
+            stores.market_context, context_id=context_id, as_of=as_of
         )
-        if assessment is None:  # pragma: no cover - the index comes from the same store
-            _warn(
-                "capital allocation assessment view is unavailable for "
-                f"{capital_allocation_assessment_id!r}; skipped"
-            )
-            continue
-        assessment_id = capital_allocation_assessment_id
         written.append(
-            _write_model(
-                views_dir / f"capital-allocation-assessment--{assessment_id}.json",
-                assessment,
-            )
+            _write_model(views_dir / f"market-context-assessment--{context_id}.json", detail)
         )
 
-    prepared_security = prepare_security_inputs(stores.ledger, stores.research, stores.screening)
-    for ticker in _security_tickers(dashboard, screening):
+    # Immutable exact publications remain addressable after the current analysis or
+    # assessment revision changes. Current calculations get their own timestamped view.
+    for revision in stores.research.revisions():
+        assessment_id = revision.assessment_id
+        if _ASSESSMENT_ID_FORMAT.fullmatch(assessment_id) is None:
+            raise ValueError(f"assessment_id has an unexpected format: {assessment_id!r}")
+        stock_detail = build_stock_assessment_detail(stores.research, assessment_id=assessment_id)
+        if stock_detail is None:
+            raise ValueError(f"indexed Stock Assessment is unavailable: {assessment_id}")
+        written.append(
+            _write_model(views_dir / f"stock-assessment--{assessment_id}.json", stock_detail)
+        )
+
+    for publication in stores.research.proposals():
+        proposal_id = str(publication["proposal_id"])
+        if _ASSESSMENT_ID_FORMAT.fullmatch(proposal_id) is None:
+            raise ValueError(f"proposal_id has an unexpected format: {proposal_id!r}")
+        proposal = build_proposal_detail(stores.research, proposal_id=proposal_id)
+        if proposal is None:
+            raise ValueError(f"indexed Investment Proposal is unavailable: {proposal_id}")
+        written.append(
+            _write_model(views_dir / f"investment-proposal--{proposal_id}.json", proposal)
+        )
+        preview = build_proposal_preview(
+            stores.research,
+            proposal_id=proposal_id,
+            sqlite_path=stores.market_db_path,
+            now=known_at,
+        )
+        if preview is None:
+            raise ValueError(f"indexed Investment Proposal preview is unavailable: {proposal_id}")
+        written.append(
+            _write_model(views_dir / f"investment-proposal-preview--{proposal_id}.json", preview)
+        )
+
+    tickers = sorted(
+        set(_security_tickers(dashboard, screening))
+        | {item.ticker for item in screening.external_assessment_securities}
+        | set(prepared_security.revisions)
+        | set(prepared_security.proposals)
+    )
+    for ticker in tickers:
         if _TICKER_FORMAT.fullmatch(ticker) is None:
             _warn(f"ticker has an unexpected format: {ticker!r}; security view skipped")
             continue
@@ -214,21 +248,23 @@ def export_read_models(
             stores.screening,
             stores.market,
             prepared=prepared_security,
+            external_assessment=stores.external_assessment,
         )
         if security is None:
             _warn(f"security view is unavailable for ticker {ticker}; skipped")
             continue
         written.append(_write_model(views_dir / f"security--{ticker}.json", security))
 
-    written.extend(
-        _write_history(
-            output_dir,
-            screening_source=stores.screening,
-            ledger=stores.ledger,
-            research=stores.research,
-            runs_db_path=stores.runs_db_path,
+    if include_history:
+        written.extend(
+            _write_history(
+                output_dir,
+                screening_source=stores.screening,
+                ledger=stores.ledger,
+                research=stores.research,
+                runs_db_path=stores.runs_db_path,
+            )
         )
-    )
     written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
     return written
 
@@ -258,20 +294,19 @@ class _CachedResearchSource(DbResearchSource):
         return self._revisions
 
     @cached_property
-    def _assessments(self) -> list[dict[str, object]]:
-        return super().assessments()
+    def _proposals(self) -> list[dict[str, object]]:
+        return super().proposals()
 
-    def assessments(self) -> list[dict[str, object]]:
-        return self._assessments
+    def proposals(self) -> list[dict[str, object]]:
+        return self._proposals
 
 
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
-    """Enumerate holdings, latest-run analyses, and Research Triage tickers."""
+    """Enumerate portfolio tickers and latest-run analyses; Research is added by caller."""
 
     tickers = {holding.ticker for holding in dashboard.holdings}
-    tickers.update(row.ticker for row in screening.security_analyses)
-    for research_triage in screening.research_triages:
-        tickers.update(entry.ticker for entry in research_triage.entries)
+    tickers.update(item.ticker for item in dashboard.reservations)
+    tickers.update(row.ticker for row in screening.stock_analyses)
     return sorted(tickers)
 
 
@@ -295,8 +330,8 @@ def _write_history(
             research,
             as_of=screening_as_of,
         )
-        if history is None:  # pragma: no cover - date index and exact lookup share one store
-            continue
+        if history is None:
+            raise ValueError(f"indexed Screening history is unavailable: {screening_as_of}")
         written.append(
             _write_model(
                 output_dir / "history/candidate-views" / f"{screening_as_of.isoformat()}.json",
@@ -339,6 +374,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--batch", choices=("daily", "manual"))
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--skip-history",
+        action="store_true",
+        help="preserve retained Screening history when it did not update",
+    )
     return parser
 
 
@@ -356,7 +396,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     output_dir = args.output_dir.resolve()
     try:
-        written = export_read_models(root, output_dir, batch=_batch_kind(args.batch))
+        written = export_read_models(
+            root, output_dir, batch=_batch_kind(args.batch), include_history=not args.skip_history
+        )
     except ExportPreconditionError as precondition:
         print(f"error: {precondition}", file=sys.stderr)
         return 1

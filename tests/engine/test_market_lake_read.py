@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, closing, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,46 +20,48 @@ import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.market.lake import duck as duck_module
-from baibai_engine.market.lake import hydrate as hydrate_module
-from baibai_engine.market.lake import prefetch as prefetch_module
-from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS
-from baibai_engine.market.lake.duck import (
+from baibai_engine.storage.lake import duck as duck_module
+from baibai_engine.storage.lake import hydrate as hydrate_module
+from baibai_engine.storage.lake import objects as objects_module
+from baibai_engine.storage.lake import prefetch as prefetch_module
+from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS, LAKE_DATASETS
+from baibai_engine.storage.lake.duck import (
     LakeCredentialError,
     LakeSession,
     R2ReadCredentials,
     lake_session,
 )
-from baibai_engine.market.lake.hydrate import (
+from baibai_engine.storage.lake.hydrate import (
     LakeHydrateError,
     dehydrate_market_store,
     hydrate_market_store,
 )
-from baibai_engine.market.lake.keys import (
+from baibai_engine.storage.lake.keys import (
     canonical_object_key,
-    current_l1_pointer_key,
+    current_release_pointer_key,
     release_manifest_key,
 )
-from baibai_engine.market.lake.models import (
+from baibai_engine.storage.lake.models import (
     DatasetManifest,
-    L1ReleaseSourceRef,
     LakeObject,
+    LakeReleaseSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.market.lake.objects import (
+from baibai_engine.storage.lake.objects import (
+    MAX_BUFFERED_OBJECT_BYTES,
     LakeObjectCache,
     LakeObjectError,
     LocalMirrorSource,
+    R2ObjectSource,
     mirror_path,
     mirror_root,
-    sha256_file,
 )
-from baibai_engine.market.lake.prefetch import (
+from baibai_engine.storage.lake.prefetch import (
     PrefetchingSource,
     hydration_order,
     prefetching_hydration_cache,
 )
-from baibai_engine.market.lake.reader import (
+from baibai_engine.storage.lake.reader import (
     LakeReadError,
     accepted_dataset,
     iter_partition_rows,
@@ -69,20 +71,19 @@ from baibai_engine.market.lake.reader import (
     selected_partitions,
     verify_object,
 )
-from baibai_engine.market.lake.release import (
-    L1ReleasePointer,
-    create_l1_release,
-)
-from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
-from baibai_engine.market.lake.writer import (
-    export_legacy_sqlite,
-    sealed_sqlite_snapshot,
-)
-from baibai_engine.market.sqlite import SQLITE_SCHEMA_VERSION, SQLiteSchemaError, open_connection
-from baibai_engine.market.sqlite.lake_origin import (
+from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
+from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
+from baibai_engine.storage.lake.sources import sha256_file
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
+)
+from baibai_engine.storage.observations.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    open_connection,
 )
 
 _COMMIT = "b" * 40
@@ -93,7 +94,7 @@ _BUILT_AT = datetime(2026, 8, 12, 3, 0, tzinfo=UTC)
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     # These fixtures build the two datasets these tests exercise, so the profile is
-    # narrowed to them: a policy that still required the other thirteen would refuse
+    # narrowed to them: a policy that still required every other dataset would refuse
     # every fixture release for being incomplete, which is a fact about the fixture
     # rather than about the code under test.
     narrow_release_policy(monkeypatch)
@@ -123,8 +124,8 @@ class Lake:
 
 
 def _publish_pointer(mirror: Path, release_id: str, manifest_path: Path) -> None:
-    target = mirror / current_l1_pointer_key()
-    pointer = L1ReleasePointer(
+    target = mirror / current_release_pointer_key()
+    pointer = LakeReleasePointer(
         release_id=release_id,
         manifest_key=manifest_path.relative_to(mirror).as_posix(),
         manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
@@ -145,7 +146,7 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
@@ -155,7 +156,7 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
             ).manifest_path
             for name in ("jquants.daily_bars", "jquants.short_sale_reports")
         ]
-    manifest_path, _release = create_l1_release(
+    manifest_path, _release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id=release_id,
@@ -242,6 +243,21 @@ def _cache(lake: Lake, *, recording: RecordingSource | None = None) -> LakeObjec
 
 
 class TestFixedRelease:
+    @pytest.mark.parametrize("error", [FileNotFoundError("missing"), PermissionError("denied")])
+    def test_pointer_read_failure_does_not_claim_the_pointer_is_absent(
+        self, lake: Lake, monkeypatch: pytest.MonkeyPatch, error: OSError
+    ) -> None:
+        def fail_read(_source: LocalMirrorSource, key: str) -> bytes:
+            assert key == current_release_pointer_key()
+            raise error
+
+        monkeypatch.setattr(LocalMirrorSource, "read_bytes", fail_read)
+        with pytest.raises(LakeReadError, match="current pointer could not be read") as failure:
+            resolve_current_release(LocalMirrorSource(lake.mirror))
+
+        assert failure.value.__cause__ is error
+        assert "pointer is absent" not in str(failure.value)
+
     def test_pointer_is_read_once_and_a_mid_run_switch_does_not_change_the_input(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
@@ -250,8 +266,8 @@ class TestFixedRelease:
         release = resolve_current_release(cache.source)
         # A publisher switches the pointer while the run is still going.
         newer = _build_lake(tmp_path / "second", release_id="release-two")
-        (lake.mirror / current_l1_pointer_key()).write_bytes(
-            (newer.mirror / current_l1_pointer_key()).read_bytes()
+        (lake.mirror / current_release_pointer_key()).write_bytes(
+            (newer.mirror / current_release_pointer_key()).read_bytes()
         )
 
         report = hydrate_market_store(
@@ -263,7 +279,7 @@ class TestFixedRelease:
         )
 
         assert report.release_id == "release-one"
-        assert recording.reads.count(current_l1_pointer_key()) == 1
+        assert recording.reads.count(current_release_pointer_key()) == 1
 
     def test_a_run_reads_only_lake_keys_and_never_the_legacy_sqlite(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -292,7 +308,7 @@ class TestFixedRelease:
         )
 
         assert release.release_id == lake.release_id
-        assert current_l1_pointer_key() not in recording.reads
+        assert current_release_pointer_key() not in recording.reads
 
     def test_named_release_requires_the_pinned_manifest_digest(self, lake: Lake) -> None:
         with pytest.raises(LakeReadError, match="expected identity"):
@@ -335,12 +351,12 @@ class TestFixedRelease:
 
     def test_typed_release_ref_resolves_the_digest_bound_release(self, lake: Lake) -> None:
         digest = _release_digest(lake.mirror, lake.release_id)
-        reference = L1ReleaseSourceRef(
-            kind="l1_release",
+        reference = LakeReleaseSourceRef(
+            kind="lake_release",
             source_id=lake.release_id,
             key=release_manifest_key(release_id=lake.release_id),
             sha256=digest,
-            manifest_version=1,
+            manifest_version=2,
         )
 
         release = resolve_release_ref(LocalMirrorSource(lake.mirror), reference)
@@ -370,7 +386,7 @@ class TestFixedRelease:
         assert pinned.release_id == lake.release_id
 
     def test_release_manifest_digest_mismatch_fails_closed(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         payload = json.loads(pointer_path.read_text(encoding="utf-8"))
         payload["manifest_sha256"] = "0" * 64
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -379,7 +395,7 @@ class TestFixedRelease:
             resolve_current_release(LocalMirrorSource(lake.mirror))
 
     def test_pointer_duplicate_field_is_rejected_by_the_reader(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         payload = pointer_path.read_bytes().replace(
             b'"release_id":"release-one"',
             b'"release_id":"release-one","release_id":"release-other"',
@@ -390,7 +406,7 @@ class TestFixedRelease:
             resolve_current_release(LocalMirrorSource(lake.mirror))
 
     def test_pointer_validation_error_does_not_render_input_values(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         pointer_path.write_bytes(
             pointer_path.read_bytes().replace(b"{", b'{"secret":"SENTINEL-DO-NOT-LOG",', 1)
         )
@@ -409,7 +425,7 @@ class TestFixedRelease:
             b'"release_id":"release-one","release_id":"release-other"',
         )
         manifest_path.write_bytes(payload)
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
         pointer["manifest_sha256"] = hashlib.sha256(payload).hexdigest()
         pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
@@ -434,7 +450,7 @@ class TestFixedRelease:
         ).hexdigest()
         updated_release = json.dumps(release_payload).encode()
         release_path.write_bytes(updated_release)
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
         pointer["manifest_sha256"] = hashlib.sha256(updated_release).hexdigest()
         pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
@@ -457,9 +473,9 @@ class TestFixedRelease:
             copied.dataset_manifest_sha256["mutated"] = "0" * 64  # type: ignore[index]
 
     def test_pointer_naming_another_release_manifest_key_fails_closed(self, lake: Lake) -> None:
-        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path = lake.mirror / current_release_pointer_key()
         payload = json.loads(pointer_path.read_text(encoding="utf-8"))
-        payload["manifest_key"] = "lake/manifests/releases/l1/release-other.json"
+        payload["manifest_key"] = "lake/manifests/releases/market/release-other.json"
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
 
         with pytest.raises(LakeReadError, match="current pointer is invalid"):
@@ -475,7 +491,7 @@ class TestFixedRelease:
             )
         )
         payload["release_id"] = "release-drifted"
-        payload["datasets"]["jquants.daily_bars"]["contract_version"] = 2
+        payload["datasets"]["jquants.daily_bars"]["contract_version"] += 1
         (lake.mirror / release_manifest_key(release_id="release-drifted")).write_text(
             json.dumps(payload), encoding="utf-8"
         )
@@ -496,7 +512,7 @@ class TestFixedRelease:
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
         payload = json.loads((lake.mirror / key).read_text(encoding="utf-8"))
-        payload["contract_version"] = 2
+        payload["contract_version"] += 1
         broken = json.dumps(payload).encode()
         (lake.mirror / key).write_bytes(broken)
         release_payload = json.loads(
@@ -505,7 +521,9 @@ class TestFixedRelease:
             )
         )
         release_payload["release_id"] = "release-broken"
-        release_payload["datasets"]["jquants.daily_bars"]["contract_version"] = 2
+        release_payload["datasets"]["jquants.daily_bars"]["contract_version"] = payload[
+            "contract_version"
+        ]
         release_payload["datasets"]["jquants.daily_bars"]["manifest_sha256"] = hashlib.sha256(
             broken
         ).hexdigest()
@@ -541,12 +559,12 @@ class TestFixedRelease:
         release = resolve_current_release(source)
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute("UPDATE jquants_daily_bars SET close = 999.0")
         with sealed_sqlite_snapshot(
             sqlite_path=lake.sqlite_path, mirror_root=tmp_path / "second-mirror"
         ) as snapshot:
-            replacement = export_legacy_sqlite(
+            replacement = export_dataset_snapshot(
                 dataset_name="jquants.daily_bars",
                 mirror_root=tmp_path / "second-mirror",
                 producer_git_commit=_COMMIT,
@@ -564,13 +582,17 @@ class TestFixedRelease:
     ) -> None:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
         manifest = release.dataset_manifest("jquants.daily_bars")
-        next_contract = replace_manifest_contract(manifest, contract_version=2)
+        next_contract = replace_manifest_contract(
+            manifest, contract_version=manifest.contract_version + 1
+        )
         future = replace(
             release,
             dataset_manifests={**release.dataset_manifests, "jquants.daily_bars": next_contract},
         )
 
-        with pytest.raises(LakeReadError, match="this reader accepts only v1"):
+        with pytest.raises(
+            LakeReadError, match=f"this reader accepts only v{manifest.contract_version}"
+        ):
             accepted_dataset(future, "jquants.daily_bars")
 
     def test_a_dataset_the_release_does_not_publish_is_not_readable(self, lake: Lake) -> None:
@@ -654,7 +676,7 @@ class TestObjectIntegrity:
         foreign = tmp_path / "foreign.parquet"
         pq.write_table(pa.table({"ticker": ["1301"], "traded_at": ["2026-01-05"]}), foreign)
         lake_object = LakeObject(
-            key="lake/l1/canonical/jquants.daily_bars/contract=v1/year=2026/month=1/"
+            key="lake/l2/processed/jquants.daily_bars/contract=v1/year=2026/month=1/"
             f"part-{sha256_file(foreign)}.parquet",
             sha256=sha256_file(foreign),
             bytes=foreign.stat().st_size,
@@ -679,7 +701,7 @@ class TestObjectIntegrity:
 
     def test_path_traversal_in_an_object_key_is_rejected(self, lake: Lake) -> None:
         with pytest.raises(ValueError, match="unsafe path segment"):
-            mirror_path(lake.mirror, "lake/l1/canonical/../../etc/passwd")
+            mirror_path(lake.mirror, "lake/l2/processed/../../etc/passwd")
 
     def test_a_mirror_root_that_would_be_read_as_a_pattern_is_rejected(
         self, tmp_path: Path
@@ -775,7 +797,7 @@ class TestExplicitObjectReads:
     def test_rows_arrive_in_bounded_batches_rather_than_one_list(
         self, session: LakeSession, lake: Lake
     ) -> None:
-        """Peak memory has to follow the batch size, not the dataset size.
+        """Python row conversion is bounded separately from DuckDB query memory.
 
         A decade of daily bars is eight figures of rows; converting them all into
         Python objects at once is what would make a real fill unbuildable.
@@ -809,6 +831,28 @@ class TestExplicitObjectReads:
 
 
 class TestCredentialBoundary:
+    @pytest.mark.parametrize("failed_statement", [1, 2])
+    def test_session_closes_when_connection_setup_fails(
+        self, monkeypatch: pytest.MonkeyPatch, failed_statement: int
+    ) -> None:
+        class FailingConnection:
+            statements = 0
+            closed = False
+
+            def execute(self, _statement: str) -> None:
+                self.statements += 1
+                if self.statements == failed_statement:
+                    raise RuntimeError("setup failed")
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FailingConnection()
+        monkeypatch.setattr(duck_module.duckdb, "connect", lambda _database: connection)
+        with pytest.raises(RuntimeError, match="setup failed"), lake_session():
+            pytest.fail("a failed setup must not yield a session")
+        assert connection.closed
+
     def test_remote_authorization_loads_but_never_installs_httpfs(self) -> None:
         class RecordingConnection:
             def __init__(self) -> None:
@@ -876,13 +920,13 @@ class TestCredentialBoundary:
             R2ReadCredentials.from_env({"R2_ACCOUNT_ID": "a" * 32})
 
     def test_a_session_without_credentials_cannot_produce_a_remote_uri(self) -> None:
-        from baibai_engine.market.lake.objects import R2ObjectSource
+        from baibai_engine.storage.lake.objects import R2ObjectSource
 
         with (
             lake_session() as session,
             pytest.raises(LakeObjectError, match="authorised session"),
         ):
-            R2ObjectSource(session).uri("lake/pointers/l1/current.json")
+            R2ObjectSource(session).uri("lake/pointers/market/current.json")
 
     def test_a_session_without_credentials_cannot_reach_a_remote_path(self) -> None:
         """Extension autoload is off, so a remote path fails instead of pulling httpfs in."""
@@ -896,7 +940,7 @@ class TestCredentialBoundary:
             ).fetchone() == (False, False)
             with pytest.raises(duckdb.Error, match="httpfs"):
                 session.connection.execute(
-                    "SELECT * FROM read_blob('s3://bucket/lake/pointers/l1/current.json')"
+                    "SELECT * FROM read_blob('s3://bucket/lake/pointers/market/current.json')"
                 ).fetchall()
 
 
@@ -910,7 +954,7 @@ def _build_lake_second_release(lake: Lake) -> str:
         snapshot_id=f"snapshot-{release_id}",
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=lake.mirror,
                 producer_git_commit=_COMMIT,
@@ -920,7 +964,7 @@ def _build_lake_second_release(lake: Lake) -> str:
             ).manifest_path
             for name in ("jquants.daily_bars", "jquants.short_sale_reports")
         ]
-    manifest_path, _release = create_l1_release(
+    manifest_path, _release = create_release(
         dataset_manifest_paths=manifests,
         mirror_root=lake.mirror,
         release_id=release_id,
@@ -1099,7 +1143,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "stale.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1129,7 +1173,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "repair.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(store) as connection:
+        with closing(sqlite3.connect(store)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1149,7 +1193,9 @@ class TestHydrate:
             release_id=release.release_id,
             release_manifest_sha256=release.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT close FROM jquants_daily_bars "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1163,7 +1209,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "generation-a.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1184,7 +1230,9 @@ class TestHydrate:
             release_id=release.release_id,
             release_manifest_sha256=release.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT close FROM jquants_daily_bars "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1223,7 +1271,9 @@ class TestHydrate:
             release_id=original.release_id,
             release_manifest_sha256=original.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT COUNT(*) FROM jquants_short_sale_reports"
             ).fetchone() == (2,)
@@ -1237,6 +1287,16 @@ class TestHydrate:
             table: _table_shape(before, table)
             for table in ("jquants_daily_bars", "jquants_short_sale_reports")
         }
+        expected_rows = {
+            name: before.execute(
+                f"SELECT * FROM {LAKE_DATASETS[name].sqlite_table} "
+                f"ORDER BY {', '.join(LAKE_DATASETS[name].primary_key)}"
+            ).fetchall()
+            for name in ("jquants.daily_bars", "jquants.short_sale_reports")
+        }
+        expected_coverage = before.execute(
+            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+        ).fetchall()
         expected_version = before.execute("PRAGMA user_version").fetchone()[0]
         before.close()
 
@@ -1250,10 +1310,23 @@ class TestHydrate:
         assert origin.release_manifest_sha256 == report.release_manifest_sha256
         filled = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
         try:
-            assert filled.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 4
+            for name, rows in expected_rows.items():
+                dataset = LAKE_DATASETS[name]
+                assert (
+                    filled.execute(
+                        f"SELECT * FROM {dataset.sqlite_table} "
+                        f"ORDER BY {', '.join(dataset.primary_key)}"
+                    ).fetchall()
+                    == rows
+                )
             # The coverage ledger is what the lake does not own, and the fill has to be
             # the reason it survives rather than an accident of the copy.
-            assert filled.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 1
+            assert (
+                filled.execute(
+                    "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+                ).fetchall()
+                == expected_coverage
+            )
             assert filled.execute("PRAGMA user_version").fetchone()[0] == expected_version
             for table, shape in expected_shape.items():
                 assert _table_shape(filled, table) == shape
@@ -1286,17 +1359,6 @@ class TestHydrate:
             _hydrate(session, lake, store)
 
         assert store.read_bytes() == before
-
-    def test_filling_allows_a_store_that_is_behind_the_release(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        """Catching up is the ordinary case and must not be caught by the guard above."""
-
-        store = _dehydrated(lake, tmp_path / "behind.sqlite")
-
-        report = _hydrate(session, lake, store)
-
-        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
 
     def test_filling_refuses_a_table_that_drifted_from_its_dataset_contract(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -1348,22 +1410,40 @@ class TestHydrate:
         with pytest.raises(LakeHydrateError, match="no longer current"):
             _hydrate(session, lake, store, still_current=lambda: moved)
 
-    def test_a_case_insensitive_filesystem_is_rejected_before_the_store_changes(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_failed_publication_link_preserves_the_previous_store(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         before = store.read_bytes()
-        monkeypatch.setattr(Path, "samefile", lambda _self, _other: True)
+        real_link = Path.hardlink_to
 
-        with pytest.raises(LakeHydrateError, match="case-sensitive"):
+        def fail_link(path: Path, target: Path) -> None:
+            if path.name.endswith(".rollback"):
+                raise OSError("publication link unavailable")
+            real_link(path, target)
+
+        monkeypatch.setattr(Path, "hardlink_to", fail_link)
+        with pytest.raises(OSError, match="publication link unavailable"):
             _hydrate(session, lake, store)
-
         assert store.read_bytes() == before
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".probe")]
+        assert not list(tmp_path.glob("*.hydrating"))
+
+    def test_capacity_failure_during_load_preserves_the_previous_store(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from baibai_engine.storage.lake import hydrate as hydrate_module
+
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = store.read_bytes()
+
+        def fail_load(*_args, **_kwargs):
+            raise sqlite3.OperationalError("database or disk is full")
+
+        monkeypatch.setattr(hydrate_module, "load_dataset_rows", fail_load)
+        with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+            _hydrate(session, lake, store)
+        assert store.read_bytes() == before
+        assert not list(tmp_path.glob("*.hydrating"))
 
     def test_insufficient_capacity_fails_before_the_store_changes(
         self,
@@ -1468,13 +1548,13 @@ class TestHydrate:
     ) -> None:
         """A readable SQLite is the mistyped path that a file-type check would miss.
 
-        `runs.sqlite` and the application store open cleanly and pass every integrity
+        `research.sqlite` and the application store open cleanly and pass every integrity
         check, so what refuses them is the contract comparison: the release's tables are
-        not there. The copy is made first, so the proof that matters is that the named
-        file still holds its own bytes afterwards.
+        not there. Preflight refuses before copying; the named file must still hold
+        its own bytes afterwards.
         """
 
-        store = tmp_path / "runs.sqlite"
+        store = tmp_path / "research.sqlite"
         connection = sqlite3.connect(store)
         connection.execute("CREATE TABLE screening_run(run_revision_id TEXT PRIMARY KEY)")
         connection.execute("INSERT INTO screening_run VALUES ('r1')")
@@ -1549,7 +1629,10 @@ class TestDehydrate:
         emptied = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
         try:
             assert emptied.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
-            assert emptied.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 1
+            assert {row[0] for row in emptied.execute("SELECT source FROM source_coverage")} == {
+                "jquants_daily_bars",
+                "jquants_short_sale_reports",
+            }
         finally:
             emptied.close()
 
@@ -1583,7 +1666,7 @@ class TestDehydrate:
         shutil.copyfile(lake.sqlite_path, store)
         connection = sqlite3.connect(store)
         connection.execute(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES ('2026-03-02', 1)"
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES ('2026-03-02', 1)"
         )
         connection.commit()
         connection.close()
@@ -1597,7 +1680,7 @@ def test_obsolete_market_store_is_rejected_before_lake_work(tmp_path: Path) -> N
     store = tmp_path / "obsolete.sqlite"
     connection = open_connection(store)
     connection.close()
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(SQLiteSchemaError, match="replace it with a current local build"):
@@ -1639,7 +1722,7 @@ class TestOperatorDerivedRetraction:
         with sealed_sqlite_snapshot(
             sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
         ) as snapshot:
-            manifest_path = export_legacy_sqlite(
+            manifest_path = export_dataset_snapshot(
                 dataset_name="edinet.tender_offer_exit_values",
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
@@ -1647,7 +1730,7 @@ class TestOperatorDerivedRetraction:
                 build_id=f"build-exits-{release_id}",
                 created_at=_BUILT_AT,
             ).manifest_path
-        release_manifest, _release = create_l1_release(
+        release_manifest, _release = create_release(
             dataset_manifest_paths=[manifest_path],
             mirror_root=mirror,
             release_id=release_id,
@@ -1797,6 +1880,129 @@ class _RefusingSource:
         return self.inner.uri(key)
 
 
+@dataclass
+class _StreamingSource:
+    payload: bytes
+    reads: int = 0
+    downloads: int = 0
+
+    def read_bytes(self, key: str) -> bytes:
+        self.reads += 1
+        raise AssertionError(f"large object was buffered: {key}")
+
+    def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
+        self.downloads += 1
+        assert len(self.payload) <= max_bytes
+        destination.write_bytes(self.payload)
+
+    def uri(self, key: str) -> str:
+        return key
+
+
+class TestLargeObjectStreaming:
+    def _object(self, lake: Lake, payload: bytes) -> LakeObject:
+        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        item = hydration_order(release, ("jquants.daily_bars",))[0]
+        return LakeObject(
+            key=item.key,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            bytes=len(payload),
+            rows=item.rows,
+            min_key=item.min_key,
+            max_key=item.max_key,
+        )
+
+    def test_large_object_is_streamed_and_installed_only_after_digest_check(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        payload = b"x" * (MAX_BUFFERED_OBJECT_BYTES + 1)
+        item = self._object(lake, payload)
+        source = _StreamingSource(payload)
+        cache = LakeObjectCache(root=tmp_path / "cache", source=source)
+
+        target = cache.materialize(item)
+
+        assert target.stat().st_size == len(payload)
+        assert hashlib.sha256(target.read_bytes()).hexdigest() == item.sha256
+        assert source.reads == 0
+        assert source.downloads == 1
+
+    def test_corrupt_stream_keeps_the_cache_empty(self, lake: Lake, tmp_path: Path) -> None:
+        payload = b"x" * (MAX_BUFFERED_OBJECT_BYTES + 1)
+        item = self._object(lake, payload)
+        source = _StreamingSource(b"y" * len(payload))
+        cache = LakeObjectCache(root=tmp_path / "cache", source=source)
+
+        with pytest.raises(LakeObjectError, match="digest differs"):
+            cache.materialize(item)
+
+        assert not mirror_path(cache.root, item.key).exists()
+        assert not list(mirror_path(cache.root, item.key).parent.glob("*.part"))
+
+    def test_prefetch_skips_a_large_object_and_streams_on_the_consumer(
+        self, lake: Lake, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        payload = b"x" * (MAX_BUFFERED_OBJECT_BYTES + 1)
+        item = self._object(lake, payload)
+        base = _StreamingSource(payload)
+        worker = _StreamingSource(payload)
+        source = PrefetchingSource(
+            base=base,
+            objects=(item,),
+            source_factory=lambda: nullcontext(worker),
+            mirror=tmp_path / "cache",
+        )
+        try:
+            target = LakeObjectCache(root=tmp_path / "cache", source=source).materialize(item)
+        finally:
+            source.close()
+
+        assert target.stat().st_size == len(payload)
+        assert base.downloads == 1
+        assert base.reads == 0
+        assert worker.reads == 0
+        assert "(1 streamed)" in capfd.readouterr().err
+
+    def test_r2_download_reads_bounded_chunks(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        payload = b"one" + b"two" + b"three"
+        item = self._object(lake, payload)
+
+        class Body:
+            chunks = iter((b"one", b"two", b"three", b""))
+            requested: list[int] = []
+
+            def read(self, size: int) -> bytes:
+                self.requested.append(size)
+                return next(self.chunks)
+
+            def close(self) -> None:
+                pass
+
+        class Client:
+            body = Body()
+
+            def get_object(self, *, Bucket: str, Key: str) -> dict[str, Body]:
+                assert Bucket == "baibai-stores"
+                assert Key == item.key
+                return {"Body": self.body}
+
+            def close(self) -> None:
+                pass
+
+        client = Client()
+        monkeypatch.setattr(objects_module.boto3, "client", lambda *args, **kwargs: client)
+        credentials = R2ReadCredentials("0" * 32, "A" * 20, "dummy", "baibai-stores")
+        source = R2ObjectSource(replace(session, credentials=credentials))
+        destination = tmp_path / "remote.parquet"
+
+        source.download_file(item.key, destination, max_bytes=len(payload))
+
+        assert destination.read_bytes() == payload
+        assert client.body.requested == [objects_module._STREAM_CHUNK_BYTES] * 4
+
+
 class TestPrefetchingHydration:
     """The prefetching source must change wall time only, never a fill's meaning."""
 
@@ -1804,6 +2010,41 @@ class TestPrefetchingHydration:
 
     def _release(self, lake: Lake) -> Any:
         return resolve_current_release(LocalMirrorSource(lake.mirror))
+
+    def test_large_fetched_objects_are_evicted_after_their_rows_load(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(objects_module, "MAX_BUFFERED_OBJECT_BYTES", 1)
+        monkeypatch.setattr(prefetch_module, "MAX_BUFFERED_OBJECT_BYTES", 1)
+        monkeypatch.setattr(hydrate_module, "MAX_BUFFERED_OBJECT_BYTES", 1)
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        source = PrefetchingSource(
+            base=LocalMirrorSource(lake.mirror),
+            objects=planned,
+            source_factory=lambda: nullcontext(LocalMirrorSource(lake.mirror)),
+            mirror=tmp_path / "cache",
+        )
+        try:
+            report = hydrate_market_store(
+                session,
+                release=release,
+                cache=LakeObjectCache(
+                    root=tmp_path / "cache", source=source, evict_large_after_read=True
+                ),
+                store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+                dataset_names=self._NAMES,
+            )
+        finally:
+            source.close()
+
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+        assert all(not mirror_path(tmp_path / "cache", item.key).exists() for item in planned)
+        assert all(mirror_path(lake.mirror, item.key).is_file() for item in planned)
 
     def test_planned_order_is_exactly_the_order_a_fill_reads_objects(
         self, session: LakeSession, lake: Lake, tmp_path: Path

@@ -49,6 +49,12 @@ describe('noticeForAuthRequired', () => {
 })
 
 describe('PasswordForm rendering', () => {
+  it('associates the visible password label with its input', () => {
+    const markup = renderForm(null)
+    expect(markup).toContain('<label for="view-password">閲覧パスワード</label>')
+    expect(markup).toMatch(/<input\b[^>]*id="view-password"/)
+  })
+
   it('shows the invalid-input notice when validation fails', () => {
     const markup = renderForm(PASSWORD_INVALID_NOTICE)
     expect(markup).toContain(PASSWORD_INVALID_NOTICE)

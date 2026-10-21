@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -30,17 +30,7 @@ DECISION_REF = "position-review-20260711-2331-position-2331"
 
 def _seed(db: Path) -> LedgerStoreService:
     source = load_portfolio_ledger(LEDGER)
-    seed_ledger(
-        db,
-        source.model_copy(
-            update={
-                "market_prices": tuple(
-                    price.model_copy(update={"source_kind": "licensed_dataset"})
-                    for price in source.market_prices
-                )
-            }
-        ),
-    )
+    seed_ledger(db, source)
     return LedgerStoreService(db)
 
 
@@ -148,7 +138,10 @@ def test_sell_quantity_not_multiple_of_board_lot_is_rejected(tmp_path: Path) -> 
         )
 
 
-def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("fees_yen", "tax_yen"), [(0, 0), (100, 200)])
+def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(
+    tmp_path: Path, fees_yen: int, tax_yen: int
+) -> None:
     db = tmp_path / "app.sqlite"
     service = _seed(db)
     before = portfolio_snapshot(service.load())
@@ -166,6 +159,10 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
                 "100",
                 "--price-yen",
                 "1100",
+                "--fees-yen",
+                str(fees_yen),
+                "--tax-yen",
+                str(tax_yen),
                 "--occurred-on",
                 "2026-07-12",
                 "--decision-reference",
@@ -177,23 +174,63 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
         == 0
     )
     draft = load_draft(tmp_path / "date-only-sell.yaml")
-    addition = next(
-        event
-        for event in draft.replacement.events
-        if event.event_id not in {item.event_id for item in draft.source.events}
-    )
-    assert addition.occurred_on == date(2026, 7, 12)
-    assert addition.occurred_at.isoformat() == "2026-07-12T00:00:00+09:00"
+    source_ids = {item.event_id for item in draft.source.events}
+    additions = [event for event in draft.replacement.events if event.event_id not in source_ids]
+    assert {event.type for event in additions} == {"execution", "cost", "tax_confirmed"}
+    assert all(event.occurred_on == date(2026, 7, 12) for event in additions)
+    assert all(event.occurred_at.isoformat() == "2026-07-12T00:00:00+09:00" for event in additions)
     assert (
         main(["apply-draft", str(tmp_path / "date-only-sell.yaml"), "--db", str(db), "--confirmed"])
         == 0
     )
-    saved = next(event for event in service.load().events if event.event_id == addition.event_id)
-    assert saved.occurred_on == date(2026, 7, 12)
-    assert (
-        portfolio_snapshot(service.load()).available_cash_yen == before.available_cash_yen + 110_000
-    )
+    saved = [event for event in service.load().events if event.event_id not in source_ids]
+    assert all(event.occurred_on == date(2026, 7, 12) for event in saved)
+    assert {event.type: event.amount_yen for event in saved if event.type != "execution"} == {
+        "cost": fees_yen,
+        "tax_confirmed": tax_yen,
+    }
+    expected_cash = before.available_cash_yen + 110_000 - fees_yen - tax_yen
+    assert portfolio_snapshot(service.load()).available_cash_yen == expected_cash
     assert portfolio_snapshot(service.load()).realized_gross_pnl_yen == 6_000
+
+
+def test_sell_cli_passes_execution_id_and_reports_retry_as_no_change(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    service = _seed(db)
+    args = [
+        "sell-execution-draft",
+        "--root",
+        str(tmp_path),
+        "--db",
+        str(db),
+        "--ticker",
+        "2331",
+        "--quantity",
+        "100",
+        "--price-yen",
+        "1100",
+        "--occurred-on",
+        "2026-07-12",
+        "--execution-id",
+        "broker-order-s/fill-1",
+    ]
+    assert main([*args, "--out", "sell.yaml"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "draft_created"
+    draft = load_draft(tmp_path / "sell.yaml")
+    assert (
+        next(
+            item.execution_id
+            for item in draft.replacement.events
+            if item.event_id not in {event.event_id for event in draft.source.events}
+        )
+        == "broker-order-s/fill-1"
+    )
+    apply_draft(service, draft, human_confirmed=True)
+    assert main([*args, "--out", "retry.yaml"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
+    assert not (tmp_path / "retry.yaml").exists()
 
 
 def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -> None:
@@ -209,7 +246,10 @@ def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -
         )
 
 
-def test_identical_sell_parameters_after_apply_are_rejected_as_duplicate(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retry_at", [OCCURRED_AT, OCCURRED_AT.astimezone(UTC)])
+def test_identical_sell_parameters_after_apply_are_no_change(
+    tmp_path: Path, retry_at: datetime
+) -> None:
     service = _seed(tmp_path / "app.sqlite")
     first = build_sell_execution_draft(
         service,
@@ -219,13 +259,24 @@ def test_identical_sell_parameters_after_apply_are_rejected_as_duplicate(tmp_pat
         price_yen=Decimal("1100"),
     )
     apply_draft(service, first, human_confirmed=True)
-    with pytest.raises(ValueError, match="event_id must be unique"):
+    assert (
         build_sell_execution_draft(
             service,
-            occurred_at=OCCURRED_AT,
+            occurred_at=retry_at,
             ticker="2331",
             quantity=100,
             price_yen=Decimal("1100"),
+        )
+        is None
+    )
+    assert _holding(service, "2331").quantity == 100
+    with pytest.raises(ValueError, match="conflicting human report"):
+        build_sell_execution_draft(
+            service,
+            occurred_at=retry_at,
+            ticker="2331",
+            quantity=100,
+            price_yen=Decimal("1101"),
         )
 
 

@@ -11,9 +11,9 @@ import type {
   HoldingView,
   OperationsView,
   PortfolioOutcomeView,
+  ReservationView,
   WarningView,
 } from '../api/types'
-import { AsOfBadge } from '../components/AsOfBadge'
 import { InfoHint } from '../components/InfoHint'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
@@ -28,23 +28,23 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDateShort, formatPct, formatYen } from '../lib/format'
+import { EMPTY, formatJstDateShort, formatNumber, formatPct, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
 // Why each section is on this page, carried behind its own ⓘ instead of a subtitle that
 // repeats what the numbers already say.
 const HINT = {
-  allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。Macro の現在局面と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
-  holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
-  reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
-  outcomes: '税・費用込みの総合 return を、同じ期間の配当込み TOPIX と同じ basis で比べた結果。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
+  allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
+  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、価格変動の大きい保有を並べる。市場環境の判断と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
+  holdings: '保有中の各銘柄の取得原価・現値・原評価のPmax（新規買付上限）との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
+  reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
+  outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
 
 const allocationConfig = {
   holdings: { label: '保有株式', color: 'var(--chart-1)' },
-  available: { label: '購入余力', color: 'var(--chart-2)' },
+  available: { label: '未予約現金', color: 'var(--chart-2)' },
   reserved: { label: '予約', color: 'var(--chart-3)' },
 } satisfies ChartConfig
 
@@ -58,7 +58,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   const allocation = total !== null && holdingsValue !== null && available !== null && reserved !== null
     ? [
         { key: 'holdings', name: '保有株式', value: holdingsValue, fill: 'var(--color-holdings)' },
-        { key: 'available', name: '購入余力', value: available, fill: 'var(--color-available)' },
+        { key: 'available', name: '未予約現金', value: available, fill: 'var(--color-available)' },
         { key: 'reserved', name: '予約', value: reserved, fill: 'var(--color-reserved)' },
       ]
     : []
@@ -120,7 +120,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           {[
             { label: '総資産', value: data.total_capital_yen, detail: `${data.holdings.length} 銘柄を保有`, color: 'bg-foreground', tone: 'plain' as const, sign: false },
             { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1', tone: 'plain' as const, sign: false },
-            { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${formatPct(data.cash_pct)}`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
+            { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
             { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3', tone: 'plain' as const, sign: false },
             { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
             { label: '累積確定損益', value: data.realized_gross_pnl_yen ?? null, detail: '台帳開始以来の売却損益・税／手数料控除前', color: null, tone: 'pnl' as const, sign: true },
@@ -169,8 +169,8 @@ function warningCopy(warning: WarningView) {
   }
   if (warning.code === 'portfolio.dry-powder') {
     return {
-      title: '購入余力',
-      description: `購入余力が ${actual} で、目安 ${threshold} を下回っています。新規購入前に確認してください。`,
+      title: '台帳の未予約現金',
+      description: `未予約現金の比率が ${actual} で、目安 ${threshold} を下回っています。新規購入前に証券会社の発注可能額を確認してください。`,
     }
   }
   return {
@@ -280,8 +280,9 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
                 <TableCell className="text-right">
                   <YenAmount value={holding.pmax_raw_yen} />
                   <PctBadge className="mt-1 block text-xs" value={holding.pmax_gap_pct} />
+                  {holding.pmax_gap_unavailable_reason && <p className="mt-1 text-xs text-muted-foreground">{holding.pmax_gap_unavailable_reason}</p>}
                 </TableCell>
-                <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.disposition ?? '—'}</Badge></TableCell>
+                <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.stance ?? '—'}</Badge></TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>
               </TableRow>
             )
@@ -306,9 +307,9 @@ function deltaCount(delta: DailyDeltaView) {
 const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
   screening_run: 'Screening Run（run なし）',
   previous_screening_run: 'Screening Run（比較する前 run なし）',
-  review_set: 'Review Set（選定出力または比較に必要な手法情報なし）',
-  review_set_estimate: 'Review Set の E[r]（見積り欠損またはモデルを比較できない）',
-  holdings: '保有（ledger なし）',
+  candidates: '候補（比較に必要な手法情報なし）',
+  candidate_estimate: '候補の E[r]（見積り欠損またはモデルを比較できない）',
+  holdings: '保有（台帳または価格比較を確認できない）',
   market: '市場データ（store なし）',
 }
 
@@ -332,7 +333,7 @@ function DeltaSecurity({ name, ticker }: { name: string | null; ticker: string }
 
 function DeltaDisclosedBadge({ disclosed }: { disclosed: boolean | null }) {
   if (disclosed === null) return <Badge variant="secondary">開示不明</Badge>
-  return disclosed ? <Badge variant="outline">決算開示後</Badge> : null
+  return disclosed ? <Badge variant="outline">期間内に決算開示</Badge> : null
 }
 
 function DeltaEntries({ children, count, label }: { children: ReactNode; count: number; label: string }) {
@@ -350,7 +351,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
   const description =
     delta !== null && delta.previous_as_of !== null && delta.as_of !== null
       ? `${formatJstDateShort(delta.previous_as_of)} → ${formatJstDateShort(delta.as_of)}`
-      : '前営業日との比較'
+      : '保存した実行どうしの比較'
   return (
     <SectionCard
       description={description}
@@ -360,7 +361,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
     >
       {delta === null ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          {failed ? '変化を読み込めませんでした。変化がないことを意味しません。' : '変化の観測がまだありません。'}
+          {failed ? '変化を読み込めませんでした。変化がないことを意味しません。' : '変化を読み込んでいます。'}
         </p>
       ) : (
         <div className="divide-y">
@@ -386,7 +387,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
           <DeltaEntries count={delta.exited.length} label="候補外れ">
           {delta.exited.map((item) => (
             <DeltaRow key={`exited-${item.ticker}`} label="候補外れ">
-              {/* A name that left the Review Set may have no detail view exported, so it is
+              {/* A name that left the candidate list may have no detail view exported, so it is
                   shown as text rather than a link that would 404. */}
               <span className="min-w-0 truncate font-medium">
                 <span className="font-mono">{item.ticker}</span>
@@ -406,7 +407,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
                 {' → '}
                 {item.er_annual_pct === null ? EMPTY : formatPct(item.er_annual_pct)}
               </span>
-              <PctBadge value={item.change_pp} />
+              <span className="font-mono text-sm tabular-nums">{item.change_pp > 0 ? '+' : ''}{formatNumber(item.change_pp, 1)}pt</span>
             </DeltaRow>
           ))}
           {delta.er_moves_total > delta.er_moves.length && (
@@ -435,7 +436,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
             )}
           <div className="px-5 py-3 sm:px-6">
-            <Link className="text-sm font-medium underline underline-offset-4" to="/macro">現在のマクロ局面を見る</Link>
+            <Link className="text-sm font-medium underline underline-offset-4" to="/market-context">市場環境の根拠を見る</Link>
           </div>
         </div>
       )}
@@ -455,10 +456,10 @@ const STATUS_LABEL: Record<string, string> = {
 // dedicated screen is the natural home once an outcome carries more than a period
 // comparison (annual review notes, per-holding attribution, calibration against the
 // entry estimate); that surface does not exist yet.
-function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
+export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   return (
     <SectionCard
-      description="ポートフォリオと配当込み TOPIX の期間比較"
+      description="記録済みの税・費用を反映したポートフォリオと配当込み TOPIX の期間比較。未報告分は含みません。"
       hint={HINT.outcomes}
       meta={<Badge variant="secondary">{outcomes.length} 件</Badge>}
       title="運用成績"
@@ -489,9 +490,36 @@ function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   )
 }
 
+export function PendingOrdersCard({ reservations }: { reservations: ReservationView[] }) {
+  return <SectionCard hint={HINT.reservations} meta={<Badge variant="secondary">{reservations.length} 件</Badge>} title="未約定注文">
+    <Table>
+      <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent">
+        <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
+        <TableHead className="text-right">数量 / 指値</TableHead>
+        <TableHead className="text-right">予約額</TableHead>
+        <TableHead className="pr-5 text-right sm:pr-6">期限</TableHead>
+      </TableRow></TableHeader>
+      <TableBody>{reservations.map((reservation) => <TableRow key={reservation.reservation_id}>
+        <TableCell className="pl-5 sm:pl-6">
+          <span className="mr-2">{reservation.side === 'sell' ? '売' : '買'}</span>
+          <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
+          {reservation.route_label && <span className="ml-2 text-xs text-muted-foreground">{reservation.route_label}</span>}
+        </TableCell>
+        <TableCell className="text-right font-mono tabular-nums">
+          {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
+          <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
+        </TableCell>
+        <TableCell className="text-right">{reservation.side === 'sell' ? '—' : <YenAmount className="font-medium" value={reservation.reserved_yen} />}</TableCell>
+        <TableCell className="pr-5 text-right sm:pr-6">{reservation.expiry_label ?? '未指定'}</TableCell>
+      </TableRow>)}</TableBody>
+    </Table>
+  </SectionCard>
+}
+
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
   const [operations, setOperations] = useState<OperationsView | null>(null)
+  const [operationsError, setOperationsError] = useState<string | null>(null)
   const [delta, setDelta] = useState<DailyDeltaView | null>(null)
   const [deltaFailed, setDeltaFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -501,32 +529,27 @@ export function DashboardPage() {
       setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
     })
     fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : '運用状態を読み込めませんでした')
+      setOperationsError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')
     })
-    // An extra read, not a required one: a serving generation deployed before this
-    // view existed must still render the page, so its absence leaves the card empty
-    // instead of failing the dashboard.
+    // Independent evidence: an unavailable comparison does not erase the portfolio.
     fetchJson<DailyDeltaView>('/api/daily-delta')
       .then(setDelta)
       .catch(() => setDeltaFailed(true))
   }, [])
 
-  if (error) return <PageState message={error} title="Dashboard read error" />
+  if (error !== null) return <PageState message={error} title="Dashboard read error" />
   if (!data) return <LoadingPage label="資産状況を読み込んでいます" />
   return (
     <PageShell title="Dashboard">
-      {data.ledger_error && (
-        <Alert variant="destructive"><CircleAlert /><AlertTitle>Ledger error</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
-      )}
-      {data.research_load_errors.length > 0 && (
-        <Alert variant="destructive"><CircleAlert /><AlertTitle>Research read error</AlertTitle><AlertDescription>{data.research_load_errors.join(' / ')}</AlertDescription></Alert>
+      {data.ledger_error !== null && (
+        <Alert variant="destructive"><CircleAlert /><AlertTitle>台帳を読み込めません。資産・保有・未約定注文を確認できません。</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
       )}
 
-      <PortfolioAllocationCard data={data} />
+      {data.ledger_error === null && <PortfolioAllocationCard data={data} />}
 
       <DailyDeltaCard delta={delta} failed={deltaFailed} />
 
-      {!data.ledger_exists && !data.ledger_error ? (
+      {data.ledger_error === null && (!data.ledger_exists ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
         <HoldingsTable holdings={data.holdings} ledgerAsOf={data.ledger_as_of} warnings={data.warnings} />
@@ -535,39 +558,14 @@ export function DashboardPage() {
           <CardContent className="py-8 text-center text-sm text-muted-foreground">保有銘柄はありません。</CardContent>
           <PortfolioWarnings warnings={data.warnings} />
         </Card>
-      )}
+      ))}
 
-      {data.reservations.length > 0 && (
-        <SectionCard hint={HINT.reservations} meta={<Badge variant="secondary">{data.reservations.length} 件</Badge>} title="資金予約">
-          <Table>
-            <TableHeader className="bg-muted/60">
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
-                <TableHead className="text-right">数量 / 指値</TableHead>
-                <TableHead className="text-right">予約額</TableHead>
-                <TableHead className="pr-5 text-right sm:pr-6">期限</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.reservations.map((reservation) => (
-                <TableRow key={reservation.reservation_id}>
-                  <TableCell className="pl-5 sm:pl-6">
-                    <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
-                    <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
-                  </TableCell>
-                  <TableCell className="text-right"><YenAmount className="font-medium" value={reservation.reserved_yen} /></TableCell>
-                  <TableCell className="pr-5 text-right sm:pr-6"><AsOfBadge compact value={reservation.expires_at} /></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </SectionCard>
-      )}
+      {data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
-      {operations && <OutcomeCard outcomes={operations.outcomes} />}
+      <Link className="text-sm font-medium underline underline-offset-4" to="/stocks">調査・提案を見る →</Link>
+      {operationsError !== null
+        ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{operationsError}</AlertDescription></Alert>
+        : operations && <OutcomeCard outcomes={operations.outcomes} />}
     </PageShell>
   )
 }

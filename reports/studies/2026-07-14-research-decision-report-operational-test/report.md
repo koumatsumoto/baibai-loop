@@ -1,5 +1,7 @@
 # 詳細research統合report 運用テスト（#423）
 
+これは 2026-07-14 の旧運用テストの記録である。以下の採用、保存先、renderer command、購入提案・期限は当時の結果であり、現行の操作手順や投資提案ではない。旧 records/03-thesis、decision packet、独立 review、tools.research_decision_report を復活させず、現在の Stock Assessment / Investment Proposal と正本ドキュメントを使う。測定値と元 artifact の hash は来歴として保持する。
+
 ## 0. 目的と採用判定
 
 詳細research後の比較・購入方法を、レビュー可能な小さい構造化情報へ統合し、内容レビューに合格した

@@ -11,7 +11,8 @@ interface UpdatedAtBadgeProps {
 }
 
 // Publication and run timestamps only. Callers must not substitute an as-of,
-// observation date, generated_at, or file timestamp when the actual update is absent.
+// observation date, unrelated view-generation time, or file timestamp when the
+// actual publication/run time is absent.
 export function UpdatedAtBadge({ value, compact = false, className }: UpdatedAtBadgeProps) {
   if (value === null) {
     return <span className={cn('text-xs text-muted-foreground', className)}>{LABEL.updated} —</span>

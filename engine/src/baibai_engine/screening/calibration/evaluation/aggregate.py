@@ -18,7 +18,6 @@ from baibai_engine.screening.calibration.evaluation.policy import (
     RETURN_CHANGE_CONTROL_FIELDS,
     SECTOR_MEDIAN_AXES,
 )
-from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
 
 @dataclass(slots=True)
@@ -26,7 +25,14 @@ class _QualityControlAccumulator:
     median_deltas: list[float]
     trap_deltas: list[float]
     matched_weight: int = 0
-    cohorts: int = 0
+
+    def add(self, median_value: object, trap_value: object, weight: object) -> None:
+        if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
+            return
+        self.median_deltas.append(float(median_value))
+        self.trap_deltas.append(float(trap_value))
+        if isinstance(weight, int):
+            self.matched_weight += weight
 
 
 @dataclass(slots=True)
@@ -38,11 +44,7 @@ class _ComponentAccumulator:
     false_n: int = 0
 
 
-def _aggregate(
-    cohorts: Sequence[dict[str, object]],
-    *,
-    candidate_discovery_rules: CandidateDiscoveryRules,
-) -> dict[str, object]:
+def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     """cohort 横断の集計: 効果量の平均と cohort 勝率 (有意性は主張しない) 。"""
     if not cohorts:
         return {"cohort_count": 0}
@@ -78,7 +80,8 @@ def _aggregate(
         if not ics and not best_medians:
             continue
         axis_summary[spec.name] = {
-            "cohorts": len(ics),
+            "cohorts": len(best_medians),
+            "rank_ic_cohorts": len(ics),
             "total_n": total_n,
             "mean_rank_ic": round(fmean(ics), 4) if ics else None,
             "ic_positive_share": (
@@ -128,7 +131,7 @@ def _aggregate(
                         round(fmean(float(row[field]) for row in rows), 1) if rows else 0
                     )
                     for field in (
-                        "review_set_n",
+                        "nomination_union_n",
                         "pure_er_n",
                         "overlap_n",
                         "displaced_from_er_n",
@@ -256,9 +259,8 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
 def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     """Cross-cohort effect of each sector-gap axis, kept apart by baseline.
 
-    `axis_effect` は群の中を軸値で割った差なので、両側とも同じ構成を持つ。これが軸の
-    効きを表す量で、`group_median_excess` の側は群の決まり方が持ち込む業種構成である。
-    2 つを別の名前で並べ、構成を効きとして読めないようにする。
+    `axis_effect` は群内を軸値で分割した記述的な差で、業種等の交絡を除いた因果効果ではない。
+    群全体の水準 `group_median_excess` と区別し、標本数とcohort間のばらつきを併記する。
     """
     result: dict[str, object] = {}
     for axis_name in SECTOR_MEDIAN_AXES:
@@ -293,8 +295,7 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 trap = group.get("trap_rate")
                 if isinstance(trap, int | float):
                     traps.append(float(trap))
-                # The market side never fills a decile, so the spread joins the report
-                # only where a cohort had the sample; the half split carries both sides.
+                # Report a decile spread only when this cohort has enough observations.
                 spread = group.get("decile_spread_median")
                 if isinstance(spread, int | float):
                     spreads.append(float(spread))
@@ -307,9 +308,7 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 "mean_group_median_excess": (
                     round(fmean(group_medians), 6) if group_medians else None
                 ),
-                # 軸の効き。群内を割安 / 割高で割った差。ばらつきを平均と並べるのは、
-                # 月末 as-of の窓が大きく重なり、cohort 数だけ独立観測があるように
-                # 見えるため。市場側は 1 cohort 50 行前後なので特に効く。
+                # 群内分割の差。業種構成を揃えた比較ではなく、月次窓も独立ではない。
                 "effect_cohorts": len(effects),
                 "mean_axis_effect": round(fmean(effects), 6) if effects else None,
                 "stdev_axis_effect": round(stdev(effects), 6) if len(effects) > 1 else None,
@@ -357,18 +356,11 @@ def _aggregate_margin_hypotheses(
                 control = controls.get(field_name)
                 if not isinstance(control, dict) or control.get("normalized_in_axis") is True:
                     continue
-                median_value = control.get("stratified_median_excess_spread")
-                trap_value = control.get("stratified_trap_rate_delta")
-                if not isinstance(median_value, int | float) or not isinstance(
-                    trap_value, int | float
-                ):
-                    continue
-                accumulator.median_deltas.append(float(median_value))
-                accumulator.trap_deltas.append(float(trap_value))
-                accumulator.cohorts += 1
-                weight = control.get("matched_weight")
-                if isinstance(weight, int):
-                    accumulator.matched_weight += weight
+                accumulator.add(
+                    control.get("stratified_median_excess_spread"),
+                    control.get("stratified_trap_rate_delta"),
+                    control.get("matched_weight"),
+                )
         controls_summary = _control_summaries(control_values)
         result[axis_name] = {
             "eligible_n": eligible_n,
@@ -403,18 +395,11 @@ def _aggregate_profit_normalization(
                 control = cohort_controls.get(name)
                 if not isinstance(control, dict):
                     continue
-                median_value = control.get("stratified_median_excess_spread")
-                trap_value = control.get("stratified_trap_rate_delta")
-                if not isinstance(median_value, int | float) or not isinstance(
-                    trap_value, int | float
-                ):
-                    continue
-                accumulator.median_deltas.append(float(median_value))
-                accumulator.trap_deltas.append(float(trap_value))
-                accumulator.cohorts += 1
-                weight = control.get("matched_weight")
-                if isinstance(weight, int):
-                    accumulator.matched_weight += weight
+                accumulator.add(
+                    control.get("stratified_median_excess_spread"),
+                    control.get("stratified_trap_rate_delta"),
+                    control.get("matched_weight"),
+                )
 
     return {
         "mean_normalized_per_3fy_coverage": (
@@ -484,16 +469,11 @@ def _aggregate_asset_backed_hypotheses(
             control = cohort_controls.get(name)
             if not isinstance(control, dict):
                 continue
-            median_value = control.get("stratified_median_excess_spread")
-            trap_value = control.get("stratified_trap_rate_delta")
-            if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
-                continue
-            accumulator.median_deltas.append(float(median_value))
-            accumulator.trap_deltas.append(float(trap_value))
-            accumulator.cohorts += 1
-            matched_weight = control.get("matched_weight")
-            if isinstance(matched_weight, int):
-                accumulator.matched_weight += matched_weight
+            accumulator.add(
+                control.get("stratified_median_excess_spread"),
+                control.get("stratified_trap_rate_delta"),
+                control.get("matched_weight"),
+            )
 
     return {
         "mean_asset_backed_ratio_coverage": round(fmean(coverage), 4) if coverage else None,
@@ -626,16 +606,11 @@ def _collect_control_values(
         control = controls.get(field_name)
         if not isinstance(control, dict):
             continue
-        median_value = control.get("stratified_median_excess_delta")
-        trap_value = control.get("stratified_trap_rate_delta")
-        if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
-            continue
-        summary.median_deltas.append(float(median_value))
-        summary.trap_deltas.append(float(trap_value))
-        summary.cohorts += 1
-        weight = control.get("matched_weight")
-        if isinstance(weight, int):
-            summary.matched_weight += weight
+        summary.add(
+            control.get("stratified_median_excess_delta"),
+            control.get("stratified_trap_rate_delta"),
+            control.get("matched_weight"),
+        )
 
 
 def _control_summaries(
@@ -643,7 +618,7 @@ def _control_summaries(
 ) -> dict[str, object]:
     return {
         field_name: {
-            "cohorts": summary.cohorts,
+            "cohorts": len(summary.median_deltas),
             "matched_weight": summary.matched_weight,
             "mean_stratified_median_excess_delta": (
                 round(fmean(summary.median_deltas), 6) if summary.median_deltas else None

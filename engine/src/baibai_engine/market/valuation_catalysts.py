@@ -1,4 +1,4 @@
-"""Produce point-in-time TSE policy and EDINET filing context for Research Triage.
+"""Produce snapshot-dated TSE policy and EDINET filing context for Stock Analysis.
 
 The context is a fact-layer annotation and never affects ranking, E[r], or a gate.
 Filing absence is reported only when identity coverage proves the whole lookback window.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from calendar import monthrange
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -16,15 +17,17 @@ from pathlib import Path
 from typing import Literal
 
 import openpyxl
-import requests
 
-from baibai_engine.market.sqlite import connect_current, open_connection
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
+from baibai_engine.market.edinet_document_store import read_current_filing_documents
+from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"
 
 # Six months of filings. A large-holding position or a tender offer older than that is
-# no longer the "recent" context the research_triage reader is asking about, and the window
+# no longer the "recent" context the Stock Analysis reader is asking about, and the window
 # has to be short enough that the identity coverage behind it is provable.
 FILING_LOOKBACK_DAYS = 183
 
@@ -39,7 +42,6 @@ TENDER_OFFER_WITHDRAWAL_DOC_TYPE = "260"
 TENDER_OFFER_RESULT_DOC_TYPE = "270"
 TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE = "280"
 
-_HTTP_TIMEOUT_SECONDS = 30
 _MONTH_SHEET_RE = re.compile(r"(?:【過去分】)?開示企業一覧（(\d{4})年(\d{1,2})月末時点）")
 
 type CapitalPolicyStatus = Literal["disclosed", "considering"]
@@ -58,6 +60,7 @@ class TSECapitalPolicyRow:
     status_change: str | None
     updated_on: date | None
     contact_requested: bool
+    # First disclosed month observed in the selected workbook, not the exact day.
     first_disclosed_month_end: date | None
     first_disclosure_left_censored: bool
 
@@ -108,10 +111,10 @@ class ControlFilingIndex:
 def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyRow, ...]:
     """Expand every monthly sheet without inventing an exact first disclosure day.
 
-    The workbook carries the current month plus past-month snapshots, so the series is
-    point-in-time reconstructable. The earliest sheet cannot say whether a company that
-    already appears on it disclosed that month or earlier, so those rows are marked
-    left-censored instead of being dated to the first sheet.
+    Each sheet is one snapshot month within this workbook. This does not prove that
+    earlier months are all present. The earliest included sheet cannot say whether a
+    company already on it disclosed that month or earlier, so those rows are marked
+    left-censored instead of assigning an exact first-disclosure day.
     """
     try:
         workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
@@ -120,29 +123,32 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
 
     raw_rows: list[tuple[date, str, CapitalPolicyStatus, str | None, date | None, bool]] = []
     sheet_months: list[date] = []
-    for worksheet in workbook.worksheets:
-        match = _MONTH_SHEET_RE.search(worksheet.title.strip())
-        if match is None:
-            continue
-        month_end = _calendar_month_end(int(match.group(1)), int(match.group(2)))
-        sheet_months.append(month_end)
-        rows = list(worksheet.iter_rows(values_only=True))
-        columns = _resolve_tse_columns(rows, sheet=worksheet.title)
-        for values in rows[columns.first_data_row :]:
-            ticker_raw = _cell(values, columns.ticker)
-            status_raw = _text(_cell(values, columns.status))
-            if ticker_raw in (None, "") and not status_raw:
+    try:
+        for worksheet in workbook.worksheets:
+            match = _MONTH_SHEET_RE.search(worksheet.title.strip())
+            if match is None:
                 continue
-            raw_rows.append(
-                (
-                    month_end,
-                    _ticker_from_excel(ticker_raw),
-                    _capital_policy_status(status_raw),
-                    _text(_cell(values, columns.status_change)) or None,
-                    _excel_date(_cell(values, columns.updated_on)),
-                    bool(_text(_cell(values, columns.contact_requested))),
+            month_end = _calendar_month_end(int(match.group(1)), int(match.group(2)))
+            sheet_months.append(month_end)
+            rows = list(worksheet.iter_rows(values_only=True))
+            columns = _resolve_tse_columns(rows, sheet=worksheet.title)
+            for values in rows[columns.first_data_row :]:
+                ticker_raw = _cell(values, columns.ticker)
+                status_raw = _text(_cell(values, columns.status))
+                if ticker_raw in (None, "") and not status_raw:
+                    continue
+                raw_rows.append(
+                    (
+                        month_end,
+                        _ticker_from_excel(ticker_raw),
+                        _capital_policy_status(status_raw),
+                        _text(_cell(values, columns.status_change)) or None,
+                        _excel_date(_cell(values, columns.updated_on)),
+                        bool(_text(_cell(values, columns.contact_requested))),
+                    )
                 )
-            )
+    finally:
+        workbook.close()
     if not sheet_months or not raw_rows:
         raise ValuationCatalystError("TSE capital-policy workbook has no monthly rows")
     if len(sheet_months) != len(set(sheet_months)):
@@ -162,7 +168,11 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
             status_change=status_change,
             updated_on=updated_on,
             contact_requested=contact_requested,
-            first_disclosed_month_end=first_disclosed.get(ticker),
+            first_disclosed_month_end=(
+                first_disclosed.get(ticker)
+                if first_disclosed.get(ticker, date.max) <= month_end
+                else None
+            ),
             first_disclosure_left_censored=first_disclosed.get(ticker) == earliest_sheet,
         )
         for month_end, ticker, status, status_change, updated_on, contact_requested in sorted(
@@ -172,18 +182,13 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
 
 
 def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPolicyRow]) -> int:
-    """Replace whole months, because a month's sheet is a complete snapshot of it."""
+    """Atomically replace the full view with one successfully decoded workbook."""
     if not rows:
         raise ValuationCatalystError("refusing to replace TSE capital-policy facts with zero rows")
-    month_ends = sorted({row.snapshot_month_end for row in rows})
     connection = open_connection(sqlite_path)
     try:
-        placeholders = ",".join("?" for _ in month_ends)
-        connection.execute(
-            "DELETE FROM tse_capital_policy_snapshots "
-            f"WHERE snapshot_month_end IN ({placeholders})",  # nosec B608
-            tuple(day.isoformat() for day in month_ends),
-        )
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("DELETE FROM tse_capital_policy_snapshots")
         connection.executemany(
             "INSERT INTO tse_capital_policy_snapshots("
             "snapshot_month_end, ticker, status, status_change, updated_on, "
@@ -205,36 +210,19 @@ def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPo
         )
         connection.commit()
         return len(rows)
+    except BaseException:
+        connection.rollback()
+        raise
     finally:
         connection.close()
-
-
-def refresh_tse_capital_policy(
-    sqlite_path: Path, *, session: requests.Session | None = None
-) -> TSECapitalPolicyRefreshSummary:
-    """Download and replace every month present in the TSE workbook."""
-    client = session or requests.Session()
-    response = client.get(TSE_CAPITAL_POLICY_URL, timeout=_HTTP_TIMEOUT_SECONDS)
-    if response.status_code >= 400:
-        raise ValuationCatalystError(
-            f"failed to download TSE capital-policy workbook: {response.status_code}"
-        )
-    rows = parse_tse_capital_policy_workbook(response.content)
-    store_tse_capital_policy_rows(sqlite_path, rows)
-    return TSECapitalPolicyRefreshSummary(
-        sheet_count=len({row.snapshot_month_end for row in rows}),
-        row_count=len(rows),
-        disclosed_count=sum(row.status == "disclosed" for row in rows),
-        considering_count=sum(row.status == "considering" for row in rows),
-    )
 
 
 def read_valuation_catalyst_contexts(
     sqlite_path: Path, *, as_of: date, tickers: Iterable[str]
 ) -> dict[str, ValuationCatalystContext]:
-    """Read point-in-time policy state and recent target-company filings.
+    """Read policy snapshots dated at/before as-of and recent target-company filings.
 
-    Never affects rank: the caller copies these into the Security Analysis payload only.
+    Never affects rank: the caller copies these into the Stock Analysis payload only.
     """
     requested = sorted({normalize_ticker(ticker) for ticker in tickers})
     if not requested:
@@ -243,6 +231,7 @@ def read_valuation_catalyst_contexts(
     if connection is None:
         return {}
     try:
+        connection.execute("BEGIN")
         policy_month = connection.execute(
             "SELECT MAX(snapshot_month_end) FROM tse_capital_policy_snapshots "
             "WHERE snapshot_month_end <= ?",
@@ -291,18 +280,21 @@ def read_control_filing_index(
     """
     if not edinet_identity_covered(connection, start=start, end=end):
         return None
-    ticker_by_edinet_code = edinet_code_to_ticker(connection)
-    rows = connection.execute(
-        "SELECT doc_date, doc_type_code, issuer_edinet_code, subject_edinet_code, "
-        "legal_status, disclosure_status, withdrawal_status "
-        "FROM edinet_documents WHERE doc_date BETWEEN ? AND ? "
-        "AND doc_type_code IN "
-        f"({_placeholders(LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES)})",  # nosec B608
-        (start.isoformat(), end.isoformat(), *LARGE_HOLDING_DOC_TYPES, *TENDER_OFFER_DOC_TYPES),
-    ).fetchall()
+    ticker_by_edinet_code = edinet_code_to_ticker(connection, through=end)
     index: dict[tuple[str, ControlFilingKind], date] = {}
     anonymous: set[ControlFilingKind] = set()
-    for doc_date, doc_type, issuer, subject, legal, disclosure, withdrawal in rows:
+    for doc in read_current_filing_documents(connection, through=end):
+        doc_type = str(doc.get("docTypeCode"))
+        if doc_type not in LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES:
+            continue
+        doc_date = date.fromisoformat(str(doc["doc_date"]))
+        if doc_date < start:
+            continue
+        legal = doc.get("legalStatus")
+        disclosure = doc.get("disclosureStatus")
+        withdrawal = doc.get("withdrawalStatus")
+        issuer = doc.get("issuerEdinetCode")
+        subject = doc.get("subjectEdinetCode")
         if not is_usable_filing_status(legal, disclosure, withdrawal):
             continue
         filing_kind: ControlFilingKind = (
@@ -320,7 +312,7 @@ def read_control_filing_index(
             # The target is named but its listing cannot be resolved. That is a gap for
             # the company behind that code, which `identified_tickers` already excludes.
             continue
-        observed = date.fromisoformat(str(doc_date))
+        observed = doc_date
         key = (ticker, filing_kind)
         if observed > index.get(key, date.min):
             index[key] = observed
@@ -364,49 +356,25 @@ def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end:
     return stale_rows == 0
 
 
-def edinet_code_to_ticker(connection: sqlite3.Connection) -> dict[str, str]:
+def edinet_code_to_ticker(connection: sqlite3.Connection, *, through: date) -> dict[str, str]:
     """Resolve EDINET codes through the (edinetCode, secCode) pairs the list observed.
 
-    A code seen against more than one ticker is dropped rather than picked between.
+    Only filing dates through the caller's cutoff participate. Later discoveries
+    or conflicts must not change an earlier lookup. A code seen against more than
+    one ticker in that window is dropped rather than picked between.
     """
     observed: dict[str, set[str]] = {}
     for edinet_code, sec_code in connection.execute(
         "SELECT DISTINCT edinet_code, sec_code FROM edinet_documents "
-        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL"
+        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL AND doc_date <= ?",
+        (through.isoformat(),),
     ):
         try:
-            ticker = normalize_ticker(str(sec_code)[:4])
-        except ValueError:
+            ticker = parse_sec_code(sec_code)
+        except EDINETProviderError:
             continue
         observed.setdefault(str(edinet_code), set()).add(ticker)
     return {code: next(iter(values)) for code, values in observed.items() if len(values) == 1}
-
-
-def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:
-    """Same usability rule the metric extraction applies to a list row."""
-    return (
-        _status_text(legal) in (None, "1", "2")
-        and _status_text(disclosure) in (None, "0")
-        and _status_text(withdrawal) in (None, "0")
-    )
-
-
-def edinet_filing_counts(sqlite_path: Path, *, through: date) -> dict[str, int]:
-    """Form-code histogram of the stored index, for the source-coverage record."""
-    connection = connect_current(sqlite_path)
-    if connection is None:
-        return {}
-    doc_types = LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES
-    try:
-        rows = connection.execute(
-            "SELECT doc_type_code, COUNT(*) FROM edinet_documents "
-            f"WHERE doc_date <= ? AND doc_type_code IN ({_placeholders(doc_types)}) "  # nosec B608
-            "GROUP BY doc_type_code ORDER BY doc_type_code",
-            (through.isoformat(), *doc_types),
-        ).fetchall()
-    finally:
-        connection.close()
-    return {str(code): int(count) for code, count in rows}
 
 
 def _policy_by_ticker(
@@ -558,8 +526,10 @@ def _excel_date(value: object) -> date | None:
 
 
 def _calendar_month_end(year: int, month: int) -> date:
-    first_next = date(year + int(month == 12), month % 12 + 1, 1)
-    return first_next - timedelta(days=1)
+    try:
+        return date(year, month, monthrange(year, month)[1])
+    except ValueError as exc:
+        raise ValuationCatalystError(f"invalid TSE snapshot month: {year}-{month}") from exc
 
 
 def _cell(values: Sequence[object], index: int) -> object | None:
@@ -568,10 +538,6 @@ def _cell(values: Sequence[object], index: int) -> object | None:
 
 def _text(value: object) -> str:
     return re.sub(r"\s+", "", str(value or "")).strip()
-
-
-def _status_text(value: object) -> str | None:
-    return None if value is None else str(value)
 
 
 def _placeholders(values: Sequence[object]) -> str:
@@ -603,12 +569,9 @@ __all__ = (
     "ValuationCatalystContext",
     "ValuationCatalystError",
     "edinet_code_to_ticker",
-    "edinet_filing_counts",
     "edinet_identity_covered",
-    "is_usable_filing_status",
     "parse_tse_capital_policy_workbook",
     "read_control_filing_index",
     "read_valuation_catalyst_contexts",
-    "refresh_tse_capital_policy",
     "store_tse_capital_policy_rows",
 )

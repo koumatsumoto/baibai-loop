@@ -10,11 +10,8 @@ interface State {
   failed: boolean
 }
 
-// Serving JSON is fetched from R2 and cast, not parsed, so a view whose shape has
-// moved ahead of the deployed UI throws during render — and a render throw takes
-// the whole React tree with it, leaving a blank page with no way back. Deploy and
-// materialize are two independent steps here, so that skew is a routine state,
-// not an exotic one.
+// Rendering and lazy-module failures share this boundary. The cause is logged;
+// the fallback must not assume a particular data or deployment mismatch.
 export class RouteErrorBoundary extends Component<Props, State> {
   override state: State = { failed: false }
 
@@ -31,7 +28,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
       return (
         <PageState
           message="この画面を表示できませんでした"
-          title="配信データがこの UI と一致していません"
+          title="ページを再読み込みしてください。改善しない場合は時間をおいて再度お試しください"
         />
       )
     }
