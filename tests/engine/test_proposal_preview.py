@@ -182,3 +182,95 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
     assert preview.items[0]["current_quote_calculation"]["current_price_projection"] is None
     assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     assert _snapshot(case.app) == before
+
+
+@pytest.mark.parametrize(
+    ("horizon_months", "expected_maximum"),
+    [(12, "1067.9612"), (30, "1021.6441"), (36, "1006.6558")],
+)
+def test_rate_and_horizon_flow_through_context_publication_and_preview(
+    tmp_path, horizon_months, expected_maximum
+):
+    from baibai_engine.read_api.research import reviewed_assessment_projection
+    from baibai_engine.research.assessment import assessment_core_hash
+    from baibai_engine.research.proposal_inputs import build_proposal_context
+
+    # A synthetic fixed total value isolates period propagation, not business growth.
+    case = backend_case(tmp_path, required_rate="3", horizon_months=horizon_months)
+    original_hash = assessment_core_hash(case.pair.document)
+    original_projection = reviewed_assessment_projection(
+        case.app, assessment_id=case.pair.assessment_id
+    )
+    context = build_proposal_context(
+        operation_id=case.operation.operation_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED,
+    )
+    calculation = context.payload()["calculations"]["1234"]
+    maximum = original_projection["pmax_original_yen"]
+    assert original_projection["horizon_months"] == horizon_months
+    assert Decimal(str(maximum)).quantize(Decimal("0.0001")) == Decimal(expected_maximum)
+    assert calculation["calculation_at_maximum_price"]["hard_blockers"] == []
+    assert calculation["buy_at_actual_quote"]["hard_blockers"][0]["code"] == "limit_above_pmax"
+    raw = reviewed_proposal(case).payload()
+    raw["items"][0]["terms"]["maximum_entry_price_yen"] = calculation[
+        "calculation_at_maximum_price"
+    ]["maximum_price_yen"]
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(proposal).valid
+    service.publish(proposal)
+    before = _snapshot(case.app)
+    preview = preview_current_terms(
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=5),
+    )
+    assert preview.status == "unchanged"
+    assert preview.items[0]["saved_limit_revalidation"]["hard_blockers"] == []
+    assert (
+        preview.items[0]["current_quote_calculation"]["hard_blockers"][0]["code"]
+        == "limit_above_pmax"
+    )
+    for calculation_key in ("current_quote_calculation", "saved_limit_revalidation"):
+        current = preview.items[0][calculation_key]
+        assert Decimal(current["maximum_price_yen"]).quantize(Decimal("0.0001")) == Decimal(
+            expected_maximum
+        )
+        assert current["current_price_projection"]["horizon_months"] == horizon_months
+    assert _snapshot(case.app) == before
+    assert assessment_core_hash(case.pair.document) == original_hash
+    assert (
+        reviewed_assessment_projection(case.app, assessment_id=case.pair.assessment_id)
+        == original_projection
+    )
+    # Only the current observation changes. Saved rate, exact pair and proposal stay fixed.
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=1000")
+    changed = preview_current_terms(
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=6),
+    )
+    assert changed.status == "changed"
+    assert changed.current_inputs.quotes[0].price_yen == Decimal(1000)
+    assert changed.items[0]["current_quote_calculation"]["hard_blockers"] == []
+    assert changed.items[0]["saved_limit_revalidation"]["hard_blockers"] == []
+    for calculation_key in ("current_quote_calculation", "saved_limit_revalidation"):
+        current = changed.items[0][calculation_key]
+        assert Decimal(current["maximum_price_yen"]).quantize(Decimal("0.0001")) == Decimal(
+            expected_maximum
+        )
+        assert current["current_price_projection"]["horizon_months"] == horizon_months
+    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+    after_projection = reviewed_assessment_projection(
+        case.app, assessment_id=case.pair.assessment_id
+    )
+    assert after_projection == original_projection
+    assert after_projection["core_sha256"] == original_hash
+    assert after_projection["required_annual_return_pct"] == 3
+    assert after_projection["horizon_months"] == horizon_months
+    assert _snapshot(case.app) == before

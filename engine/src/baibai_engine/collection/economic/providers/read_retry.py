@@ -13,6 +13,8 @@ from urllib3.exceptions import DecodeError, HTTPError, InvalidHeader, ProtocolEr
 from urllib3.response import BaseHTTPResponse, HTTPResponse
 from urllib3.util import Retry
 
+from baibai_engine.collection.read_http import check_acquisition_deadline
+
 from .base import FetchContext, ProviderFetchStoppedError
 
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
@@ -26,6 +28,7 @@ class ReadDeadline:
     expires_at: float | None = None
 
     def check(self, waiting: float = 0.0) -> None:
+        check_acquisition_deadline(waiting)
         now = time.monotonic()
         if self.expires_at is None:
             self.expires_at = now + self.seconds
@@ -36,6 +39,7 @@ class ReadDeadline:
         self.check(seconds)
         if seconds > 0:
             time.sleep(seconds)
+        self.check()
 
 
 class ReadRetry(Retry):

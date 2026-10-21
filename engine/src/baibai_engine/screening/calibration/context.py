@@ -51,7 +51,7 @@ def build_er_distribution_context(
 ) -> dict[str, object]:
     """Keep the declared prediction bands while reporting observed outcomes.
 
-    機械priorの誤差を示す分布で、購入floorや4 Approachの優越性を代行しない。
+    機械priorの誤差を示す分布で、L3の要求率決定や4 Approachの優越性を代行しない。
     docs/reference/estimate-calibration.md#estimator-vs-decision
     """
 

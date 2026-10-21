@@ -19,21 +19,23 @@ status: active
 | --- | --- |
 | `input_snapshot` | ticker、企業名、正式評価基準日、採用した観測factとsource |
 | `derived.metrics` | 必要な機械再計算値と入力・式・単位 |
-| `investment_case` | 未織込み、価値の変化、実現経路、重大な不成立条件、成立性と根拠 |
+| `investment_case` | 事業・資本配分が企業価値を生む経路と、市場での未織込み・価格差を区別した仮説、その成立性・重大な不成立条件と根拠 |
 | `valuation` | 一つの期間、記録済み要求年率、BaseとDownside |
 | `permanent_loss_risks` | 永久損失7軸の調査結果 |
-| `findings` | 事業理解、価値差の説明、実現経路と遅延、依頼者・作者の検証仮説、未解決の問い |
+| `findings` | 事業理解、重要観測の個社伝達、価値差と実現経路・遅延、依頼者/作者の検証仮説と重要な相違、未解決の問い |
 | `conclusion` | `supported / uncertain / unsupported`、作者の評価時刻、最強反対仮説 |
 
-`investment_case.status`は`intact / broken / uncertain`。brokenはunsupported、uncertainの投資仮説をsupportedへしない。supportedにはresolved valuationと重要な根拠の独立確認が必要だが、購入採用を意味しない。現在価格がPmaxを超えても企業評価を書き換えず、cash不足を評価結論へ混ぜない。
+`investment_case.status`は`intact / broken / uncertain`。brokenはunsupported、uncertainの投資仮説をsupportedへしない。supportedにはresolved valuationと重要な根拠の独立確認が必要だが、購入採用を意味しない。現在価格がPmaxを超えても企業評価を書き換えず、cash不足を評価結論へ混ぜない。現在株価からの下落率と条件付き価値に対する余裕は別である。価格待ちを提案する際は、利益・倍率等の小さな変更で要求率を割るかを確かめ、価格低下と同時に仮説が悪化した場合の再確認条件を残す。
 
 <a id="input-snapshot-and-lineage"></a>
 
 ## 観測・根拠・単位
 
-Snapshotは必要な値を固定し、元run storeの存在を要求しない。ScreeningのE[r]とFV anchorは候補発見のsecondary machine priorであり、Stock Assessmentへ重複転記しない。
+Snapshotは必要な値を固定し、元run storeの存在を要求しない。ScreeningのE[r]とFV anchorは候補発見のsecondary machine priorであり、Stock Assessmentへ重複転記しない。Market Contextや外部評価の保存sourceがあるだけでは個社の利益、元評価者の対象期・株式basis、将来終価を確定できない。重要な材料だけを自己仮定へ接続し、重要でない観測、比較条件が未確認の観測、観測自体の未取得を分ける。
 
 factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外部sourceはHTTPS、local dataはprovider/datasetを持つ。ticker、source参照、取得・観測時刻、単位を検証する。判断後の資料を判断前の事実として混入しない。市場価格は未調整1株の`price_basis`を明示する。日次終値は原典の取引日`as_of`で扱い、観測時刻を捏造しない。実際に観測時刻がある場合だけ`observed_at`を付け、realtime価格では必須とする。終値の利用可能な取引日はJSTの立会終了境界で判定する。
+
+財務実績factの`as_of`は対象期間末日、sourceの`as_of`は公表・提出日として区別する。例えば3月期実績は3月31日、6月末第1四半期実績は6月30日であり、後日の提出日へ置換しない。会社予想は公表時点の予想として扱い、対象期を別途示して、実績期末へ遡らせない。Reviewでは原典の対象期間と公表日を照合する。
 
 resolved valuationは価格factを参照する。unresolvedでは価格もnullでよく、valuation_metricや正の起点利益を要求しない。財務根拠が未確定なら所見と理由を独立確認しuncertain/unsupportedの評価を完成させる。欠損を0やverifiedへ変換しない。
 
@@ -43,11 +45,11 @@ resolved valuationは価格factを参照する。unresolvedでは価格もnull�
 
 評価前提型は[`valuation/models.py`](../../engine/src/baibai_engine/valuation/models.py)、Projectionと純粋算術は[`valuation/scenario.py`](../../engine/src/baibai_engine/valuation/scenario.py)が所有する。Stock Assessmentはこれらを内包し、全体の検証・価格factとの合成・独立Review・store・調査進行はResearchに残る。厳密な新型は[`research/assessment.py`](../../engine/src/baibai_engine/research/assessment.py)、公開と再読は[`assessment_store.py`](../../engine/src/baibai_engine/research/assessment_store.py)が正本である。機械推計の意味と入口は[Valuation metrics](./valuation-metrics.md#machine-valuation)を参照する。
 
-`valuation.status`はresolved/unresolved。resolvedは正の有限な`required_annual_return_pct`、正整数`horizon_months`、価格参照、Base/DownsideのProjectionを必須とする。unresolvedは期間・要求年率・両Projectionをnull、`unresolved_reason`を必須とする。
+`valuation.status`はresolved/unresolved。resolvedは正の有限な`required_annual_return_pct`、正整数`horizon_months`、価格参照、Base/DownsideのProjectionを必須とする。unresolvedは期間・要求年率・両Projectionをnull、`unresolved_reason`を必須とする。算式を計算できるだけではresolvedにしない。重要な資本・利益・終価の根拠が未確認の例示は所見や研究記録へ分け、採用済みProjectionへ置かない。一方、将来の合理的な見積り幅や未公表の当日簿価を理由に全評価を止めず、確認済み起点からの仮定と重要性を判断する。
 
-新しい通常評価では[要求年率方針](../portfolio-management.md#required-return-policy)を出発点に、作者が採用率を`required_annual_return_pct`へ明記する。個別の上乗せ理由は既存のcalculationに記す。scaffoldは未評価の率をnullで出し、自動補完しない。保存済み評価は原率で読み、率を改める場合は新revisionと独立Reviewを作る。
+新しい通常評価では[要求年率方針](../portfolio-management.md#required-return-policy)に従い、作者が案件ごとの採用率を`required_annual_return_pct`へ明記する。その率を選ぶ経済的理由は既存のcalculationに記す。scaffoldは未評価の率をnullで出し、自動補完しない。保存済み評価は原率で読み、率を改める場合は新revisionと独立Reviewを作る。
 
-夜間評価の注文案が翌営業日を対象日としていても、翌朝の現在判断には同日の企業評価を使う。元Stock Assessmentからの差分draftで、価値・期間・これから受け取るcashを確認し、新しい独立ReviewとInvestment Proposalへ束縛する。元資料の再取得や全Researchは一律に要求しないが、日付だけの更新で旧分配を今後分へ読み替えない。Operationの分析対象日、企業評価日、quote日は区別する。
+夜間評価の注文案が翌営業日を対象日としていても、翌朝に新規買付や当日起点の収益算術を提案するなら同日の企業評価を使う。元Stock Assessmentからの差分draftで、価値・期間・これから受け取るcashを確認し、新しい独立ReviewとInvestment Proposalへ束縛する。元資料の再取得や全Researchは一律に要求しないが、日付だけの更新で旧分配を今後分へ読み替えない。Operationの分析対象日、企業評価日、quote日は区別する。
 
 Projectionは`terminal_value_per_share_yen / cash_distribution_per_share_yen / calculation / source_ids`。terminalとcashは0以上の有限値。calculationに入力、単位、式、数値代入、結果、重要仮定を記す。期間は銘柄とシナリオの比較窓で、保有期限や売却期限ではない。期間の根拠、重要な遅延・上振れは文章で扱う。
 
@@ -59,9 +61,25 @@ Pmax_raw = W_base / (1 + required_annual_return_pct / 100) ** (horizon_months / 
 required_total_value_at_P = price * (1 + required_annual_return_pct / 100) ** (horizon_months / 12)
 ```
 
-Decimalで計算・比較し、Pmaxを呼値や整数円に丸めない。価格・期間は正、bool/NaN/Infinityは拒否。W=0の総return・年率は-100%。表示年率は小数4桁。この年率は条件付き・税費用控除前・分配再投資なしで、確率加重の期待利回りではない。
+Decimalで計算・比較し、Pmaxを呼値や整数円に丸めない。価格・期間は正、bool/NaN/Infinityは拒否。W=0の総return・年率は-100%。表示年率は小数4桁。この年率は条件付き・投資家の税金と売買費用控除前・分配再投資なしで、確率加重の期待利回りではない。企業利益・cashに既に織り込んだ法人税や営業費用を除外する意味ではない。
 
-terminalは分配後に残る価値、cashは当該期間の累積分配である。配当・資産売却・買戻しを二重算入しない。起点の未調整1株に権利単位を揃え、分割、自己株控除、希薄化を説明する。NI×PERへ負債を再度控除せず、EVと株主価値を混同しない。回復可能な赤字を正の起点利益へ捏造しない。Downsideは経済的に不利な状態から組み立てる。
+terminalは分配後に残る価値、cashは当該期間の累積分配である。配当・資産売却・買戻しを二重算入しない。終期が配当基準日の後で入金前なら、権利落ち後株価と未入金の受取権を別に数え、cashへ受取済みとしても重ねない。未公表の次期配当は維持条件と権利なしの保守条件を分け、確定値へ変換しない。起点の未調整1株に権利単位を揃え、分割、自己株控除、希薄化を説明する。NI×PERへ負債を再度控除せず、EVと株主価値を混同しない。回復可能な赤字を正の起点利益へ捏造しない。Downsideは経済的に不利な状態から組み立てる。
+
+<a id="valuation-model-choice"></a>
+
+### 主要モデルと期間を選ぶ
+
+評価モデルは株価との比較より先に、価値獲得経路と根拠のある期間から選び、既存の`investment_case.explanation`と`calculation`で説明する。EPS×出口PERは選択肢の一つで、12か月を既定にしない。将来利益を機械的に延長できない場合、次のうち重要な対照を使う。全方式で値を出して平均したり、最も高い値を採用したりしない。
+
+- 持続収益：価格・数量・費用から反復可能な利益/cashを見積もる。倍率に含む成長・再投資・リスクと、独立に認識する資産を区別する。
+- 回復・再投資：回復に必要な支出・運転資金・損失期間を含む複数年経路を置く。過去のcapital proxyや会社のROIC目標を、新規投資の限界収益率にしない。費用計上済みの人材・研究開発投資を再控除しない。
+- 有限寿命・資本解放：権利の残存収益または回収可能資産を、更新/撤退費、税、債権者・他の出資者への帰属、分配時期とともに評価する。継続価値を置くなら、その後の収益を維持する費用と根拠を示す。
+
+倍率据置は、どの利益・資産に対する倍率かを明示する。利益一定でも留保で簿価が増えると、PBR一定はPER上昇を含み得る。「再評価なし」という言葉だけで同じcaseにしない。留保利益は自由cashと同じではなく、再投資・回収と将来収益への寄与を確認する。
+
+多年度化には年度別の新schemaを要求せず、主要な中間年の利益/cash・投資・資金と終期の関係を`calculation`へ残す。最終出力は同じProjectionへ集約する。期間を伸ばす際は累積分配だけを増やさず、その間の事業変化・投資・調達と残余価値も更新する。期間内分配を再投資しない既存年率はIRRではなく、異なる分配時期の効果を精密に比較するものではない。早期回収の価値が採否を左右する場合は、時期を明示した別の感応度を説明し、保存年率の意味を変えない。
+
+採用しなかった競合仮説が結論を覆し得る場合は、何が確認されれば主モデルを変えるかを`findings.hypotheses`または最強反対仮説に残す。例えば一時売却益を利益から除いても、手取りによる債務削減を消してよいわけではない。元の低PERが成立しないことと、残存事業・資産を含む投資機会がないことを分ける。
 
 <a id="capital-bridge"></a>
 
@@ -77,9 +95,11 @@ equity_end = operating_EV_end + nonoperating_assets_end
              + (cash_end - required_operating_cash_end) - debt_end - minority_claims_end
 ```
 
-必要操業cashは営業EVに織り込んだ額だけを控除し、不足する差額も`max(0, ...)`で消さない。これは営業EV方式を全社へ強制する式ではない。NI×PER等で既に株主価値を求めた場合、同じ利益に対応する現金や全現金を機械的に足さず、別認識する余剰資産と利益の範囲を説明する。元本返済は現金と負債を同額減らす移動で、株主価値から再控除しない。通常賃借料を営業費用に含める評価とリース負債を控除する評価を混ぜず、会計基準変更によるEBIT・償却の見かけの変化を成長にしない。未コミットM&Aは既定で実行済みにせず、織り込むなら対価・調達と取得価値/利益を両側に反映する。利益の資本化率と、期間中の総価値を現在価格と比較する要求年率は別の仮定である。
+必要操業cashは営業EVに織り込んだ額だけを控除し、不足する差額も`max(0, ...)`で消さない。これは営業EV方式を全社へ強制する式ではない。NI×PER等で既に株主価値を求めた場合、同じ利益に対応する現金や全現金を機械的に足さず、別認識する余剰資産と利益の範囲を説明する。元本返済は現金と負債を同額減らす移動で、株主価値から再控除しない。通常賃借料を営業費用に含める評価とリース負債を控除する評価を混ぜず、会計基準変更によるEBIT・償却の見かけの変化を成長にしない。未コミットM&Aは既定で実行済みにせず、織り込むなら対価・調達と取得価値/利益を両側に反映する。利益の資本化率と、期間中の総価値を現在価格と比較する要求年率は別の仮定である。PBRとROEを照合する場合は起点でなく終期の利益・簿価・分配の組合せを使い、留保で簿価が増える一方で利益を据え置けば終期ROEが低下することを反映する。金融機関の一般的なcash-debtを株主の余剰資産とみなさず、普通株主資本、規制資本、OCI、配当権利の範囲を区別する。
 
 合成例（実銘柄・実証収益ではない）：期首・期末の必要操業cash、非営業資産、非支配持分は0。期末営業EV100、期首現金30・負債10（純余剰資産20）、税・利息後の営業CF13から設備投資3を差し引いたCF10、運転資金変化0、配当2、元本返済4、他の変化0なら、期末現金34・負債6・純余剰資産28、期末株主価値128、受取分配込み130。配当だけ0なら現金36・株主価値130・分配込み130。返済だけ0なら現金38・負債10・株主価値128・分配込み130。設備投資3は既にCF10へ反映済みで、省略すると営業価値も変わり得るため、現金増だけを利益としない。配当2を旧10株に払った後、期末に新2株を対価20で発行する例なら株主価値は148、期末12株の残余価値は1株当たり148/12、旧1株が受け取った分配は2/10。発行対価20は外部から入った資本で、留保CFや旧株主の価値創出ではない。分割・発行・転換の時期と分配権利に合わせ、terminalとcashを同じ起点1株へ換算する。
+
+償却・減損などの非現金費用を正常化する際は、会計上の費用と資産の経済的な消耗を分ける。権利の寿命短縮、競合参入、更新投資が重要なら、単なる足し戻しで従来の利益・cashが継続すると扱わず、残る収益期間・代替投資・終価へ反映する。営業CFには既に足し戻された費用を重ねて足さない。会社予想の残り必要利益は達成条件の算術であり、達成可能性の結論ではない。季節性、比較期の一時損益、為替、事業別の進捗を確認し、四半期利益の単純年率化や不足額だけで回復・未達を断定しない。
 
 倍率上昇には一次資料で確認した利益品質・事業構造等の根拠を記す。機械anchorや相対的割安さだけを根拠にせず、倍率が回復しない反対仮説も検算する。利益と倍率、業績と借換えが連動して悪化する場合は、一変数だけ動かして反証を済ませない。株数は会社EPSとの整合を確認し、自己株式込みのグロス株数を無条件に使わない。金融的妥当性は作者と独立Reviewの責務であり、productionで任意formulaを実行しない。
 
@@ -153,7 +173,7 @@ Base/Downsideの必要terminalは、その累積分配で要求年率以上に�
 | 返済条件不明と、将来EPSの幅 | materialな返済条件を確認できなければuncertain等を維持し、`nonmaterial_unknown_reason`で通さない。一方、一次根拠から将来EPSを幅で置くこと自体は自動排除の理由にしない。根拠のない回復予測や合理的に評価できないcaseはuncertain等とする |
 | 企業評価はsupportedだが現在価格がPmax超過 | 同じ評価を参照してPmax以下の条件付きbuyを検討できる。実quoteを安い架空価格へ置換せず、仮説・cash・保有・権利単位等のgateを別に確認する |
 
-必要な業績・倍率・分配・感度は既存Base/Downsideの`calculation`、実現経路と成立条件は`investment_case.explanation / status_reason / invalidation_conditions`、作者と独立Reviewの反証はそれぞれの`strongest_countercase`に書く。数値の引用は原価格・期間・仮定に対応させ、全出力や新しい派生fieldをStock Assessment/Investment Proposalへ複写しない。
+事業・資本配分による価値創出と、その価値が市場価格に未織込みという仮説を分け、重要な観測・外部との相違は既存`findings.value_gap_explanation / hypotheses`へ書く。成立する経済経路と反証条件は`investment_case.explanation / status_reason / invalidation_conditions`へ、Base/Downsideの`calculation`には将来cash、終価の評価、分配、期間へ与える方向または感応度を記し、要求率は`valuation.required_annual_return_pct`とその経済的理由で扱う。市場環境がcashに影響しなくても割引率・市場の織込み・流動性を通じて判断に関わり得る。どの経路を採ったか示し、同じリスクを利益・倍率・要求率で無説明に重複計上しない。作者と独立Reviewの`strongest_countercase`には結論を覆す反例を記す。外部の元評価者、metric、対象期、株式basis、元更新日・前提が揃わないときは比較できない条件を明示し、値だけを自己終価へ採用しない。同じ候補の複数仮説も分けて検討し、戦略名や全入力の採否欄を固定しない。数値の引用は原価格・期間・仮定に対応させる。例えば公表済み分配だけの保守条件と、未公表の次期分配維持を含むBaseでは、採用した権利・分配条件が異なることをhypothesesや結論でも省略しない。異なる条件のreturnを同じcaseの裏付け・反証として混ぜない。全出力や新しい派生fieldをStock Assessment/Investment Proposalへ複写しない。
 
 作成・評価・独立Review・公開・Proposalへの接続順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。
 
@@ -161,7 +181,7 @@ Base/Downsideの必要terminalは、その累積分配で要求年率以上に�
 
 ## 永久損失7軸
 
-`funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting`を各1件持つ。評価はacceptable/adverse/unknown、証拠はverified/partially_verified/unverified。赤字や下方修正だけを永久損失としない。重要な根拠不足を小口購入やoverrideで通さない。非重要なunknownを許容する理由はReviewへ記す。
+`funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting`を各1件持つ。評価はacceptable/adverse/unknown、証拠はverified/partially_verified/unverified。赤字や下方修正だけを永久損失としない。重要な根拠不足を小口購入やoverrideで通さない。非重要なunknownを許容する理由はReviewへ記す。確認済みの顧客集中・構造圧力等は、影響の大きさや発生確率が未確定でも曝露自体をunknownへ戻さない。verifiedは記した根拠の確認範囲であり、リスクの不存在や将来の安全性を保証しない。
 
 AIを含む技術・産業構造変化も、materialな場合だけ通常のcalculation、investment case、リスク、反対仮説へ接続する。専用のscoreやchecklistは設けない。
 
@@ -169,9 +189,11 @@ AIを含む技術・産業構造変化も、materialな場合だけ通常のcalc
 
 ## 独立Review
 
-全公開Stock Assessmentに、review_id、独立passのidentity/role/time、exact core hash、primary_source_check、checked_source_ids、review_scope、最強反証を持つReviewを組み合わせる。Base/Downside各1件のterminal/cashを独立に再計算する。作者値をscaffoldでコピーして検算としない。照合許容差は0.0001円。source・単位・hash不一致は公開できない。
+全公開Stock Assessmentに、review_id、独立passのidentity/role/time、exact core hash、primary_source_check、checked_source_ids、review_scope、最強反証を持つReviewを組み合わせる。resolved valuationではBase/Downside各1件のterminal/cashを独立に再計算する。unresolvedでは`recalculated_projections`を空にし、ゼロの価値や例示の投影を検算済みとして埋めない。原本の比較表では行・年度見出し・当期/前期列を合わせて照合し、期間内入金と終期の配当権利を別に検算する。作者値をscaffoldでコピーして検算としない。照合許容差は0.0001円。source・単位・hash不一致は公開できない。
 
-materialな[資本のつながり](#capital-bridge)はReview側も一次資料と独立入力で追い、留保・投資・分配・返済・希薄化の片側だけを動かした仮定を確認する。配当停止なら残る現金、借入返済なら残る負債、増資なら調達額と分母株数も更新し、結論が変わる条件を既存の反対仮説・riskへ記す。最終terminal/cashの数値一致だけでは上流仮定の正しさを証明しない。
+外部評価との一致は、それだけで独立した割安の確認にはならない。同じ会社予想・価格・倍率・配信原典を共有する一致は重複した根拠になり得る。比較可能な対象期と株式basisを揃え、自己評価とは異なる根拠が主要仮定を支える範囲で確信を補強する。一致の票数や精密な確率へ変換しない。不一致も棄却せず、利益見通し・資本コスト・倍率・評価期間のどこが違うかを既存の仮説と反対仮説へ戻す。過去高値からの下落や外部目標値との乖離は、将来収益の悪化を織り込んだ結果かもしれず、単独で安全余裕と呼ばない。
+
+materialな[資本のつながり](#capital-bridge)はReview側も一次資料と独立入力で追い、留保・投資・分配・返済・希薄化の片側だけを動かした仮定を確認する。重要な市場/マクロの観測が将来cash、終価の評価、要求率、市場の織込みのどこへ効くか、外部評価との重要な相違が比較可能か、不明ならその制約を確認する。配当停止なら残る現金、借入返済なら残る負債、増資なら調達額と分母株数も更新し、結論が変わる条件を既存の反対仮説・riskへ記す。最終terminal/cashの数値一致だけでは上流仮定の正しさを証明しない。
 
 primary_source_check=verifiedは重要な判断根拠を確認した意味で、全非開示事項を解明した意味ではない。重要なunknownはsupportedを通さず、非重要なunknownは`nonmaterial_unknown_reason`で説明する。hashは整合性を保証するだけで、独立性や文章の真実性の証明ではない。
 
@@ -197,7 +219,7 @@ AssessmentとReviewのUUIDは各scaffoldで発行する。Assessmentの同一素
 
 古い評価は原価格・原期間でいつでも閲覧でき、現在projectionが不可でも評価を悪い・失効と断定しない。仮説維持を今回確認した保有継続と、当日の残る収益算術は[Proposalのholding契約](./investment-proposal.md#holding)で分ける。
 
-`current_price_projection`は同日評価・利用可能なquote・同じ権利単位が揃う場合だけ現在の未調整価格によるBase/Downsideを返す。保存した原価格・予測を置換しない。この一時出力は条件付き税費用前・分配再投資なしの算術で、確率加重の期待利回りや売却閾値ではない。
+`current_price_projection`は同日評価・利用可能なquote・同じ権利単位が揃う場合だけ現在の未調整価格によるBase/Downsideを返す。保存した原価格・予測を置換しない。この一時出力は条件付き・投資家の税金と売買費用控除前・分配再投資なしの算術で、確率加重の期待利回りや売却閾値ではない。
 
 ## Workspaceとコマンド
 

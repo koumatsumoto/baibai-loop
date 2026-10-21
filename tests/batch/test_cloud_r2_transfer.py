@@ -1263,6 +1263,60 @@ def test_application_store_push_prunes_beyond_the_kept_generations(tmp_path: Pat
     ]
 
 
+def test_application_store_push_can_skip_backup_pruning(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
+    env["AWS_FAKE_LIST_KEYS"] = "\t".join(
+        f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)
+    )
+    env["R2_APP_BACKUP_PRUNE"] = "skip"
+    (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
+        '"etag-stable"\n', encoding="utf-8"
+    )
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    commands = _transfer_commands(log)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "application backup pruning skipped" in completed.stdout
+    assert any(command.startswith("s3api copy-object ") for command in commands)
+    assert any(command.startswith("s3api put-object ") for command in commands)
+    assert not any("list-objects-v2" in command for command in commands)
+    assert not any("delete-object" in command for command in commands)
+
+
+def test_application_store_push_rejects_unknown_backup_prune_mode_before_write(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["R2_APP_BACKUP_PRUNE"] = "unknown"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "R2_APP_BACKUP_PRUNE must be retain or skip" in completed.stderr
+    assert not any(
+        command.startswith(("s3api copy-object ", "s3api put-object ", "s3api delete-object "))
+        for command in _transfer_commands(log)
+    )
+
+
 def test_application_store_prune_leaves_keys_it_did_not_write(tmp_path: Path) -> None:
     """A prefix delete would take whatever else sits under the prefix. The pre-dated
     single `.bak` is exactly that, and it is still a generation worth having."""

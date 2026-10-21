@@ -172,7 +172,7 @@ uv run baibai-engine lake hydrate \
 
 hydrateは同一filesystem上のtemporary storeへ書き、SQLiteの`quick_check`・対象列・manifest row数を
 確認してからatomic replaceする。途中失敗時は直前のstoreを保持する。current以外を使う場合は
-`--release`と`--manifest-sha256`、またはtyped `--release-ref`で固定する。
+`--release`と`--manifest-sha256`、またはtyped `--release-ref`で固定する。remote拡張を使えない環境での完全mirrorの準備と停止条件は[ローカルhydrateの運用手順](../../batch/OPERATIONS.md#local-release-hydrate)を参照する。
 
 ## 保持とGC
 

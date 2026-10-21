@@ -40,6 +40,46 @@ def prepare(tmp_path, *, value=None, workspace=None, db=None, market=None, now=N
     )
 
 
+def test_discover_new_preserves_selected_noncandidate_from_fixed_run(tmp_path):
+    from tests.helpers.screening_run import stock_analysis
+
+    from baibai_engine.research.selection import ResearchRequest
+    from baibai_engine.research.selection_query import load_selection_context
+
+    runs = tmp_path / "runs"
+    value = selection(
+        now=NOW,
+        tickers=("1234",),
+        runs=runs,
+        rows=[stock_analysis("1234", name="合成会社")],
+    )
+    row = value.inputs.analysis.analyses["1234"]
+    assert row["candidate"]["common_eligible"] is True
+    assert row["candidate"]["reasons"] == []
+    context = load_selection_context(
+        request=ResearchRequest(text="合成例：投資提案して", scope="discover_new"),
+        research_as_of=NOW.date(),
+        run_revision_id="run-synthetic",
+        known_at=NOW,
+        runs_path=runs,
+        db_path=tmp_path / "app",
+    )
+    assert context["status"] == "ready"
+    assert context["candidates"] == []
+    assert context["run_revision_id"] == "run-synthetic"
+    original_run = runs.read_bytes()
+
+    prepared = prepare(tmp_path, value=value)
+    saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
+    assert prepared.status == "prepared"
+    assert saved is not None
+    assert saved.request.scope == "discover_new"
+    assert saved.request.requested_tickers == ()
+    assert saved.inputs.analysis.run_revision_id == context["run_revision_id"]
+    assert saved.inputs.analysis.analyses["1234"] == row
+    assert runs.read_bytes() == original_run
+
+
 def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_path, monkeypatch):
     value = selection(now=NOW, tickers=("1234",), runs=tmp_path / "runs")
     writer = selected_prepare._write_workspace_file
@@ -392,6 +432,13 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
     assert canonical_row == row
     projected = project_research_inputs(saved)
     assert projected["securities"]["1234"]["machine_valuation"]["as_of"] == "2026-09-06"
+    assert projected["analysis_source"] == {
+        "run_revision_id": "run-revision-" + "a" * 32,
+        "analysis_as_of": "2026-09-06",
+        "run_at": "2026-09-06T18:00:00+09:00",
+        "screening_rules_hash": analysis.screening_rules_hash,
+        "er_model_version": None,
+    }
     directory = prepared.workspace / "1234"
     directory.mkdir()
     assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")

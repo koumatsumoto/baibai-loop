@@ -14,7 +14,7 @@ import { UpdatedAtBadge } from '../components/UpdatedAtBadge'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { formatJstStamp, formatNumber } from '../lib/format'
-import { ACTION_LABELS, RETURN_UNAVAILABLE_LABELS, proposalWarningLabel, researchRecord as record, researchText as text } from '../lib/research'
+import { ACTION_LABELS, RETURN_UNAVAILABLE_LABELS, proposalWarningLabel, researchRecord as record, researchReturnPct, researchText as text } from '../lib/research'
 
 function yen(value: string | number | null | undefined): string {
   return value == null ? '未確認' : `${formatNumber(Number(value), 2)}円`
@@ -59,7 +59,7 @@ export function ProposalAssessmentDetails({ item }: { item: InvestmentProposalIt
     <summary className="cursor-pointer px-4 py-3 font-medium">{item.ticker} · 提案が参照した評価と Review</summary>
     <SectionCard padded title={`${item.ticker} · 保存評価の根拠`} description="この提案が参照した評価版です。最新評価へ付け替えません。">
       <p className="mb-4 break-all text-xs">Assessment: {item.assessment_ref.assessment_id} · Review: {item.assessment_ref.review_id}</p>
-      {Object.keys(document).length > 0 ? <ReviewedAssessmentContent document={document} projection={projection} /> : <p>参照評価の本文を表示できません。保存 ID から評価を確認してください。</p>}
+      {Object.keys(document).length > 0 ? <ReviewedAssessmentContent document={document} projection={projection} review={item.assessment_review} /> : <p>参照評価の本文を表示できません。保存 ID から評価を確認してください。</p>}
       <details className="mt-4 rounded border p-4"><summary className="cursor-pointer text-sm">参照した独立 Review</summary>{item.assessment_review ? <pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(item.assessment_review, null, 2)}</pre> : <p className="mt-3 text-sm">参照した Review 本文を表示できません。保存 ID から確認してください。</p>}</details>
       <Link className="mt-4 inline-block text-sm underline" to={`/stocks/stock-assessments/${item.assessment_ref.assessment_id}`}>保存した評価版を開く →</Link>
     </SectionCard>
@@ -81,7 +81,7 @@ export function CurrentPreviewContent({ preview }: { preview: InvestmentProposal
       const downside = record(projection.downside)
       const blockers = Array.isArray(item.blockers) ? item.blockers.map(record) : []
       return <article className="grid gap-2 rounded border p-3" key={`${item.ticker}-${index}`}><p className="font-mono text-sm">{text(item.ticker)}</p>
-        <div className="grid gap-3 sm:grid-cols-2"><div><p className="text-sm font-medium">現在 quote での再試算</p>{Object.keys(projection).length === 0 ? <p className="text-sm">再試算できません。{typeof unavailableReason === 'string' && (RETURN_UNAVAILABLE_LABELS[unavailableReason] ?? unavailableReason)}</p> : <><p className="text-sm">試算価格 {text(current.calculation_price_yen ?? projection.price_yen)}円</p><p className="text-xs">Base {text(base.total_return_pct)}% · Downside {text(downside.total_return_pct)}%</p></>}</div>
+        <div className="grid gap-3 sm:grid-cols-2"><div><p className="text-sm font-medium">現在 quote での再試算</p>{Object.keys(projection).length === 0 ? <p className="text-sm">再試算できません。{typeof unavailableReason === 'string' && (RETURN_UNAVAILABLE_LABELS[unavailableReason] ?? unavailableReason)}</p> : <><p className="text-sm">試算価格 {text(current.calculation_price_yen ?? projection.price_yen)}円</p><p className="text-xs">Base {researchReturnPct(base.total_return_pct)} · Downside {researchReturnPct(downside.total_return_pct)}</p></>}</div>
         <div><p className="text-sm font-medium">保存 limit の再検証</p>{Object.keys(revalidation).length === 0 ? <p className="text-sm">対象なし、または条件未確定。</p> : <p className="text-sm">{item.saved_action === 'sell' ? '保存した売却数量' : '現在資金等での試算数量'} {text(revalidation.quantity)}株</p>}</div></div>
         {blockers.map((reason, i) => <p className="text-sm" key={i}>{text(reason.message)}</p>)}
       </article>
@@ -139,11 +139,10 @@ export function InvestmentProposalPage() {
   const quotes = Array.isArray(data.saved_inputs.quotes) ? data.saved_inputs.quotes.map(record) : []
   return <PageShell above={<ResearchNav />} title={data.headline} lead="発行時の評価・比較範囲・価格・資金を固定した提案です。採否・注文・約定は別工程です。" width="reading" meta={<div className="flex flex-wrap gap-3"><AsOfBadge value={data.as_of} /><UpdatedAtBadge value={data.published_at} /></div>}>
     <SectionCard padded title="比較と今回の判断"><p className="whitespace-pre-line text-sm">{data.comparison}</p><p className="mt-3 whitespace-pre-line text-sm">見送った選択肢: {data.forgone}</p></SectionCard>
-    {data.items.map(item => <ProposalItemContent item={item} savedQuote={quotes.find(quote => quote.ticker === item.ticker)} key={item.ticker} />)}
+    {data.items.map(item => <div className="grid gap-3" key={item.ticker}><ProposalItemContent item={item} savedQuote={quotes.find(quote => quote.ticker === item.ticker)} /><ProposalAssessmentDetails item={item} /></div>)}
     {data.unfinished_research.length > 0 && <SectionCard padded title="調査未完了" description="完成した経済的な見送りと区別した、提案当時の不足です。">{data.unfinished_research.map(item => <div className="mb-3 text-sm" key={item.ticker}><p>{item.ticker} · {item.unfinished_reason}</p><p className="break-all text-xs text-muted-foreground">{item.references.join(' · ')}</p></div>)}</SectionCard>}
     <SectionCard padded title="発行時の資金・範囲・警告"><p className="text-sm">保存した利用可能 cash {text(data.saved_inputs.available_cash_yen)}円 · 入力確認時点 {text(data.saved_inputs.checked_at)}</p>{data.warnings.length > 0 && <p className="mt-2 break-words text-xs">当時の警告: {data.warnings.map(proposalWarningLabel).join(' / ')}</p>}<details className="mt-3"><summary className="cursor-pointer text-sm">保存した入力・比較範囲・資本集中</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify({ inputs: data.saved_inputs, research_scope: data.research_scope, portfolio_exposure: data.portfolio_exposure, liquidity_context: data.liquidity_context }, null, 2)}</pre></details></SectionCard>
     <CurrentProposalPreviewPanel key={data.proposal_id} proposalId={data.proposal_id} />
-    {data.items.map(item => <ProposalAssessmentDetails item={item} key={item.ticker} />)}
     <details className="rounded border p-4"><summary className="cursor-pointer text-sm">提案内容の独立 Review</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(data.review, null, 2)}</pre><p className="mt-3 break-all text-xs">Proposal: {data.proposal_id} · draft hash: {data.draft_sha256}</p></details>
     {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この提案が参照した市場環境評価を見る →</Link>}
     <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>

@@ -26,7 +26,6 @@ type BuyGateCode = Literal[
     "quote_missing_or_stale",
     "positive_quote_required",
     "valuation_unresolved",
-    "required_return_below_current_policy",
     "positive_limit_required",
     "limit_above_pmax",
     "available_cash_below_board_lot",
@@ -58,7 +57,6 @@ def evaluate_buy_terms(
     quote: QuoteInput | None,
     proposed_limit_yen: Decimal,
     basis_confirmed: bool,
-    minimum_required_annual_return_pct: Decimal,
     market_price_max_age_days: int,
     held_quantity: int,
     active_reservation: bool,
@@ -118,12 +116,6 @@ def evaluate_buy_terms(
             horizon_months=valuation.horizon_months,
             required_annual_return_pct=valuation.required_annual_return_pct,
         )
-        if valuation.required_annual_return_pct < finite_decimal(
-            minimum_required_annual_return_pct
-        ):
-            block(
-                "required_return_below_current_policy", "評価の要求率が現 policy floor 未満です。"
-            )
         if limit > maximum:
             block("limit_above_pmax", "提案 limit が Base による購入上限を超えています。")
     quantity = 0

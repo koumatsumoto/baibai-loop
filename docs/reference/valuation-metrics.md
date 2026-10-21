@@ -67,6 +67,12 @@ ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成�
 
 Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrunの保存値を引用し、EDINETの書類ID・種類・提出日時・書類metadata期間・capex出所を残す。書類metadata期間はCF実測期間ではなく、最新財務開示日もOCF合成期間ではない。必要なら原典のCF計算書で期間・連結範囲・単位を確認する。欠測はnullのまま、明示0と負値は保持し、後日の資料で補完しない。Researchの合成入口と入力確定時刻は[Research進行](./analysis-operations.md#明示開始と固定対象)に従う。
 
+### Researchへ渡すBS文脈
+
+`valuation.query.balance_sheet_from_analysis`は同じ保存runから`balance_sheet`を作り、J-Quantsの現金同等物・総資産・同一開示行からの自己資本額と、EDINETの現金・金融債務・net cash・投資有価証券を分ける。金額は円、`equity_ratio`は無次元の比率。候補外の保存済みStock Analysisも同じ入口で読み、取得・再計算・選抜変更はしない。
+
+現在のStock Analysisは個々のBS factの測定日・債務内訳を保存しないため、測定日と`debt_scope`はnull、未保存の理由を併記する。最新財務開示日やEDINET書類metadata期末を測定日へ転記しない。carry-forward対象と最大lagをそのまま残し、最大lagから各金額の日付を逆算しない。EDINET debtは抽出済み金融債務であり負債総額ではなく、保存されたnet cash品質だけで債務範囲の完全性を保証しない。重要な範囲・時点は当該書類と原典内訳で確認し、年度の異なる金額を混ぜない。
+
 ## 2. Forward PER の取得方針（重要）
 
 ### 2.1 採用ソース
@@ -164,7 +170,7 @@ PBRの普通株自己資本と株式basisは[資本の分母](#51-資本の分�
 分割を跨ぐ行では自己株式数も発行済と同じ factor で換算する。片方だけ換算すると差である自己株控除後株式数が壊れる。
 
 
-EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich valuation approach で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
+EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として倍率比較に使わない。負の EV は net cash / cash-rich valuation approach で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
 
 ## 6. P/S の算出
 
@@ -182,13 +188,13 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。金額は nati
 
 財務本表の当期contextを先に一つの期間・連結範囲へ絞る。年次は `CurrentYearInstant/Duration`、半期は `InterimInstant/Duration`、旧四半期報告は `CurrentQuarterInstant` と累計の `CurrentYTDDuration` を使い、四半期単独期間を累計値へ混ぜない。個別は対応する `_NonConsolidatedMember` で区別する。セグメント等の追加次元・前期・翌期を当期全社値の穴埋めに使わず、辞書順によるcontext選択を行わない。CSVの「連結・個別」が「その他」でも財務本表のcontextで範囲を判断し、非財務の記述箇所へこの規則を一般化しない。根拠は[現行インスタンスガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140112.pdf#page=49)と[旧四半期のcontext定義](https://www.fsa.go.jp/search/20170228/2b.pdf#page=51)。
 
-原本の `jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI`（`FilingDateInstant`）が `true` なら、連結の当期対応タグだけを使う。対応タグがなければ単体値へ戻さず未取得とし、`consolidated_dei_no_supported_current_facts` を残す。`false` の単体書類は従来の単体context採用を維持する。DEIが欠ける旧fixtureは従来の選択を保つが、単体を採用した場合は `consolidation_dei_missing` を残して作成有無を推定しない。DEIが矛盾・不正値なら単体へ移行しない。これらは未検証のIFRS科目を同義タグとして追加する根拠にはならない。
+原本の `jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI`（`FilingDateInstant`）が `true` なら、連結の当期対応タグだけを使う。対応タグがなければ単体値へ戻さず算出不能とし、`consolidated_dei_no_supported_current_facts` を残す。`false` の単体書類は従来の単体context採用を維持する。DEIが欠ける旧fixtureは従来の選択を保つが、単体を採用した場合は `consolidation_dei_missing` を残して作成有無を推定しない。DEIが矛盾・不正値なら単体へ移行しない。これらは未検証のIFRS科目を同義タグとして追加する根拠にはならない。 `AccountingStandardsDEI`が示す会計基準を先に選び、同一contextに併記された日本基準とIFRSを混合しない。宣言の矛盾・不正・未対応基準、宣言なしで同一範囲の両基準が混在する場合は未解決として残す。標準IFRSは`jpigp_cor`の検証済みRevenue/NetSales、営業CF、営業利益、現金同等物、純資産、総資産、減価償却・償却、有形/無形固定資産取得の明示対応だけを使う（[原本fixture](../../tests/fixtures/edinet/README.md)）。会社独自科目、別namespace、類似名、債券・借入金だけからの金融債務全体、その他金融資産からの投資有価証券は推定しない。
 
 - `cash`: 現金及び預金を優先し、該当科目がない場合に現金及び現金同等物を使う。両者をCSV行順で選ばない
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算。意味を確認した標準科目の合算であり、名称だけが似た提出者独自の総額・別名を加えない。開示の全債務を網羅したことを保証する値ではない
-- `investment_securities`: BS の `InvestmentSecurities` exact local name だけを連結優先・単体 fallback で抽出する帳簿価額。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。CSV仕様で定義された ASCII `-` または数値ゼロだけを 0 とし、空欄や似た横棒を補完しない
+- `investment_securities`: 上記のDEI・当期context選択で確定した範囲の、BS の `InvestmentSecurities` exact local nameだけを抽出する帳簿価額。項目単独で別の連結範囲へfallbackしない。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。CSV仕様で定義された ASCII `-` または数値ゼロだけを 0 とし、空欄や似た横棒を補完しない
 - `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー
-- 減価償却加算は `DepreciationAndAmortizationOpeCF` と `AmortizationOfGoodwillOpeCF` の観測値を使う。両者は標準間接法CFの別の加算子であり、同義名として片方を落とさない。のれん償却だけで減価償却費を代用せず、減価償却費が不明ならEBITDAを算出しない。根拠のない短縮名・提出者独自名をさらに足さない。[標準タクソノミ](https://disclosure2.edinet-fsa.go.jp/weee0020.aspx) の2016・2026年版を照合した範囲の対応であり、IFRSの異なる要素名を自動的な別名としない。
+- 減価償却加算は `DepreciationAndAmortizationOpeCF` と `AmortizationOfGoodwillOpeCF` の観測値を使う。両者は標準間接法CFの別の加算子であり、同義名として片方を落とさない。のれん償却だけで減価償却費を代用せず、減価償却費が不明ならEBITDAを算出しない。根拠のない短縮名・提出者独自名をさらに足さない。[標準タクソノミ](https://disclosure2.edinet-fsa.go.jp/weee0020.aspx) の2016・2026年版を照合した範囲の対応であり、IFRSの標準`DepreciationAndAmortizationOpeCFIFRS`は検証済みの明示対応を使い、それ以外の異なる要素名を自動的な別名としない。
 - `capex_ttm`: 有形固定資産・無形固定資産の取得支出。CFOと同じcontext・連結/単体の合算科目を優先し、合算がない場合は有形・無形の両科目が揃うときだけ足す。合算と内訳は二重計上せず、欠測をゼロにしない。符号は取得支出額の絶対値へ一度だけ正規化する
 - `net_cash = cash - debt`
 - `asset_backed_ratio = (net_cash + investment_securities) / market_cap`
@@ -287,7 +293,7 @@ fallback した値も `sector_median_gap` / `sector_median_value` に入るた�
 
 Valuationの`self_range_position`は自己レンジ内の位置であり、較正panelでは`srp_*`として保持する。式は`(current - min(history)) / (max(history) - min(history))`。履歴なし／現在値欠測は`null`、履歴の最大値と最小値が同じなら`0.0`とし、0〜1へのclipはしない。観測順位に基づく統計的percentileではない。採用・除外条件は[Candidate Discovery](./screening-runtime.md#candidate-discovery)に従う。
 
-Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の価格調整基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ as-of 価格調整基準の price を使うため、株式分割があっても history は連続になる。
+Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の価格調整基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDAだけ、この倍率の比較に使う。PBR / PER の history も同じ as-of 価格調整基準の price を使うため、株式分割があっても history は連続になる。
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 
@@ -317,7 +323,7 @@ J-Quantsの価格factorには分割・併合だけでなくライツイシュー
 - **J-Quants API v2**: 取得の実装は[HTTP collector](../../engine/src/baibai_engine/collection/jquants/http.py)、保存済み入力の読取は[offline reader](../../engine/src/baibai_engine/market/jquants_reader.py)に従う。保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)、取得可能範囲は契約と実際のcoverageで確認する。
 - **EDINET API v2**: documents listで書類を選び、`type=5` CSV ZIPから本書のEV/EBITDA・Net cash・Asset-backed・FCF項目を抽出する。このvaluation経路にはraw XBRLをfallbackしない。`type=1` raw XBRLを使う[Research facts](../../batch/OPERATIONS.md#edinet-research-facts)は別の抽出経路である。
 - **JPX**:
-  - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は、より current な view を持つ file を採る）
+  - 決算発表予定: 公式 financial-announcement indexの資料を使う。対象scope・優先順位・未定・矛盾の扱いは[ScreeningのJPX決算予定](./screening-runtime.md#jpx-earnings-calendar)を正本とする。
   - 上場会社情報（業種分類、市場区分の補助確認）
   - 特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定
 
@@ -330,7 +336,7 @@ J-Quantsの価格factorには分割・併合だけでなくライツイシュー
 - 品質は供給元の計算・期間の区別であり、継続利益、資金の経済的持続性、株主回収可能性、倍率全体の正しさの認定ではない。`approximated`を一律に半期と解釈しない。
 - Webの同じStock Analysis rowにある`ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、raw Stock Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけで候補理由を変えない。
 - Web DTOでは2項目を必須nullable fieldとして明示する。Researchは選択したraw Stock Analysisのnull・field欠落を維持する。保存rawとWeb表示のshapeを区別し、旧canonicalとhashを変更しない。
-- `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
+- EV/EBITDAの品質・有効条件は[§5](#5-evebitda-の算出)と[自己レンジ](#9-過去自己比較過去-3-年レンジ)に従う。現行の機械ER/FV anchorが使うのはPBRと収益PERであり、EV/EBITDAをreversionへ投入する契約ではない。
 - 指標をeligibility/orderへ使う条件は各Approachに従う。`asset_backed_ratio`は非金融企業のAsset Valueで使い、E[r]・FV・全銘柄の単一順位やwarningには使わない。TTM品質の注記と、Approachが要求する入力条件を区別する。
 
 ## 12. 選択利益とTTM営業利益

@@ -1,9 +1,18 @@
+import { formatPct } from './format'
+
 export function researchRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 export function researchText(value: unknown): string {
   return value == null ? '未確認' : String(value)
+}
+
+/** Display only: never round the stored valuation or purchase comparison. */
+export function researchReturnPct(value: unknown): string {
+  if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) return '未確認'
+  const number = Number(value)
+  return Number.isFinite(number) ? formatPct(number, { digits: 4 }) : '未確認'
 }
 
 export const ACTION_LABELS: Readonly<Record<string, string>> = {

@@ -786,9 +786,17 @@ case "${1:-}" in
     write_machine_manifest
     ;;
   push-app)
+    case "${R2_APP_BACKUP_PRUNE:-retain}" in
+      retain|skip) ;;
+      *) printf 'R2_APP_BACKUP_PRUNE must be retain or skip\n' >&2; exit 2 ;;
+    esac
     app_version="$(pulled_version baibai.sqlite)"
     push_key_if_version baibai.sqlite "${app_version}"
-    prune_app_backups
+    if [[ "${R2_APP_BACKUP_PRUNE:-retain}" == "skip" ]]; then
+      printf 'application backup pruning skipped\n'
+    else
+      prune_app_backups
+    fi
     ;;
   # The serving bucket has one writer: the batch that produces a complete export.
   # The views mirror runs with `--delete`, so a partial local export would remove

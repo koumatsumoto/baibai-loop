@@ -34,7 +34,7 @@ def assessment(*, rate="10", case="intact", resolved=True):
     return StockAssessmentDocument.model_validate(payload)
 
 
-def buy(document, *, limit=Decimal(1000), minimum_rate=Decimal(6)):
+def buy(document, *, limit=Decimal(1000)):
     return evaluate_buy_terms(
         document,
         reviewed=True,
@@ -49,7 +49,6 @@ def buy(document, *, limit=Decimal(1000), minimum_rate=Decimal(6)):
         ),
         proposed_limit_yen=limit,
         basis_confirmed=True,
-        minimum_required_annual_return_pct=minimum_rate,
         market_price_max_age_days=7,
         held_quantity=0,
         active_reservation=False,
@@ -60,38 +59,48 @@ def buy(document, *, limit=Decimal(1000), minimum_rate=Decimal(6)):
     )
 
 
-@pytest.mark.parametrize(("rate", "eligible"), [("5.9999", False), ("6", True), ("6.0001", True)])
-def test_six_percent_buy_floor_boundary(rate, eligible):
-    result = buy(assessment(rate=rate))
-    assert bool(result.quantity) is eligible
-    assert (
-        any(
-            reason.code == "required_return_below_current_policy" for reason in result.hard_blockers
-        )
-        is not eligible
-    )
+@pytest.mark.parametrize("rate", ["0.0001", "3", "5.9999", "6", "6.0001"])
+def test_positive_case_rate_is_not_a_uniform_buy_floor(rate):
+    document = assessment(rate=rate)
+    result = buy(document)
+    assert result.quantity == 300
+    assert result.hard_blockers == ()
+    assert result.maximum_price_yen > Decimal(1000)
+    # The actual quote stays above Pmax; a low rate never makes any price acceptable.
+    assert result.current_price_above_maximum is True
+    at_maximum = buy(document, limit=result.maximum_price_yen)
+    assert at_maximum.hard_blockers == ()
+    above = buy(document, limit=result.maximum_price_yen + Decimal("0.000000001"))
+    assert above.quantity == 0
+    assert tuple(reason.code for reason in above.hard_blockers) == ("limit_above_pmax",)
 
 
-def test_lower_policy_floor_does_not_rewrite_saved_assessment_or_pmax():
+@pytest.mark.parametrize("rate", [0, "-0.0001", True, "NaN", "Infinity", "-Infinity", None])
+def test_required_rate_must_be_positive_finite_and_explicit(rate):
+    with pytest.raises(ValueError, match=r"finite|greater than 0|resolved valuation requires"):
+        assessment(rate=rate)
+
+
+def test_case_rate_is_not_a_percentage_share_capped_at_one_hundred():
+    document = assessment(rate="101")
+    result = buy(document, limit=Decimal(500))
+    assert result.quantity > 0
+    assert result.maximum_price_yen < Decimal(550)
+
+
+def test_case_rate_does_not_rewrite_existing_assessment_hash_or_pmax():
     document = assessment(rate="8.5")
     original_json, original_hash = document.model_dump_json(), assessment_core_hash(document)
-    previous = buy(document, limit=Decimal(1030), minimum_rate=Decimal("8.5"))
     current = buy(document, limit=Decimal(1030))
-    assert current.maximum_price_yen == previous.maximum_price_yen
+    assert current.maximum_price_yen.quantize(Decimal("0.0001")) == Decimal("1013.8249")
     assert tuple(reason.code for reason in current.hard_blockers) == ("limit_above_pmax",)
-    assert current.hard_blockers == previous.hard_blockers
     assert document.model_dump_json() == original_json
     assert assessment_core_hash(document) == original_hash
-    revised = assessment(rate="6")
-    revised_result = buy(revised, limit=Decimal(1030))
-    assert revised_result.quantity > 0
-    assert revised_result.maximum_price_yen > current.maximum_price_yen
-    assert assessment_core_hash(revised) != original_hash
 
 
 @pytest.mark.parametrize("case", ["broken", "uncertain"])
-def test_lower_buy_floor_never_turns_an_uncertain_or_broken_case_into_a_buy(case):
-    result = buy(assessment(rate="6", case=case))
+def test_low_case_rate_never_turns_an_uncertain_or_broken_case_into_a_buy(case):
+    result = buy(assessment(rate="3", case=case))
     assert result.quantity == 0
     assert any(reason.code == "assessment_not_supported" for reason in result.hard_blockers)
 

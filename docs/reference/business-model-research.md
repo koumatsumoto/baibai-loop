@@ -1,6 +1,6 @@
 ---
 title: "事業モデル別リサーチ"
-summary: "個別銘柄のresearchで事業モデル固有の問いを選び、主張の一次性とissuerからの独立性を分けて検証する試行契約。"
+summary: "個別銘柄のresearchで価値を左右する問いを選び、主張の一次性とissuerからの独立性を分けて検証する指針。"
 doc_type: reference
 status: active
 related_docs:
@@ -15,17 +15,15 @@ related_docs:
 
 ## 目的と非目標
 
-この文書は、「企業がどう稼ぎ、どのKPIと制約が評価期間の企業価値を決めるか」を確認するための試行用の観点である。「なぜ安く見えるか」を扱う`Valuation Approach`とは役割を分ける。
-
-事業モデルの分類そのものを投資根拠、screening条件、assessment fieldにはしない。質問の抜けを減らすためだけに使い、試行期間はoperation sessionで指定したResearch Set対象だけへ適用する。対象外へ一律には強制しない。
+この文書は、機械指標から事業の経済性へ戻るための問いの選び方を定める。「なぜ安く見えるか」を扱う`Valuation Approach`と、企業がどう稼ぎ、誰にcashが残るかという事業モデルを分ける。分類名を投資根拠、screening条件、assessment fieldにはしない。
 
 ## 適用手順
 
-1. research開始時に、Baseの残余価値と累積分配を最も左右する価値獲得経路から主要観点を一つ選び、理由を1〜2行で記録する。
-2. 複合事業で別segmentも評価期間の価値を左右する場合だけ、補助観点を一つ選ぶ。その節から重要な問いを追加し、売上区分だけで機械分類しない。
-3. 主要観点の必須の確認事項をすべて確認する。補助観点では、選んだ重要な確認事項をすべて確認する。各問は`answered / unknown / not_applicable`のいずれかにする。
-4. 回答にはsource IDとclaim classを接続し、後述するsourceの独立性とclaim class別の要求に従う。開示されないKPIを同業平均や推測で埋めない。
-5. どの試行観点にも適合しない企業を無理に分類せず、skill `research`の共通確認へ戻る。試行中に観点を追加しない。自然に発生した2〜3件のrun後に、維持・修正・撤回・拡張を別Issueで判断する。
+1. Baseの残余価値と累積分配を左右する経路を選ぶ。事業名や業種codeではなく、収益の反復性、資本の帰属、費用負担、回収期間を見る。複合事業なら重要な異なる経路だけを加える。
+2. 下の観点から、答えによって利益・cash・期間・永久損失または採否が変わる問いを選ぶ。全問を必須にせず、重要な問いが表にない場合は事業固有の問いを立てる。業種ごとのchecklist完成を目的にしない。
+3. 確認した事実、将来の仮定、残るunknownを既存欄へ記す。KPIの期間・対象・分母・定義変更とM&A影響を揃え、開示されないKPIを同業平均や推測で埋めない。会社計画を下げるだけで独立した見積りにしたとは扱わない。
+4. 重要な未知でも、肯定的な効果を採らず、確認済み事業だけで合理的な幅を置けるかを検討する。その条件で評価できることと、元の成長・競争優位の主張を確認できたことは別である。未確認の重要事実を保守的という言葉で免除しない。
+5. 同じ原典の反復で答えが増えないときは、何の開示・実績で再評価するかを残す。調査終了と企業評価の成立、購入採用は別判断である。
 
 ## 調査結果の記録
 
@@ -84,96 +82,22 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 - valuationのresolved/unresolved、企業評価のstance、新規/保有の行動は分けて判断する。企業評価は[Stock Assessment](./stock-assessment.md)、新規購入の条件と行動は[Investment Proposal](./investment-proposal.md)に従う。valuation不足から保有を一律deferにせず、確認済みの重大なbreakによるsellと、今回intactを確認したholdの扱いは[保有継続と回収](./investment-proposal.md#holding)を正本とする。
 - 非重要なunknownはReviewの`nonmaterial_unknown_reason`へ根拠を示し、比較を続けてよい。unsupportedは確認した重大な不成立や不適切な企業評価の結論である。現在価格がPmaxを超えたという理由だけで企業評価をunsupportedにしない。現在の購入条件と候補間配分はInvestment Proposalが所有する。
 
-## 試行1 — 継続契約software / data
+## 経済性に応じた問い
 
-### 価値獲得の経路
+以下は選択する観点であり、固定分類・必須項目数・別の進捗台帳ではない。源泉の異なる重要な収益や資産は分け、同じcashを複数の経路で加算しない。
 
-契約継続、利用拡大、価格改定がrecurring revenueと粗利へ届き、獲得・導入・hosting費用を差し引いたcashが一株価値になるmodel。SaaS、期間license、保守、data subscriptionを同一視せず、収益認識と解約可能性を分ける。
+| 経済性 | 判断を左右する問い | 間違えやすい対照 |
+| --- | --- | --- |
+| 継続契約software / data | subscription、license、保守、導入・従量課金の粗利と費用負担。更新・解約、seat/usage・単価、顧客集中、前受・RPOの売上/入金化。獲得・導入・hosting費用を含む回収 | recurring比率だけで耐久性を認定しない。ARR、受注残、契約負債は別物。会社定義のないNRR/CACを創作しない |
+| 人員依存project / outsourcing | 契約のrisk負担、受注の売上化、単価・稼働人員・稼働率、賃上げ・外注・採用育成、不採算案件、検収・未請求・回収。顧客集中と切替条件 | 受注増を同marginの確定売上にせず、採用人数を即時capacityにしない。DX需要と当該企業の利益獲得は別 |
+| IP / license / 有限寿命の権利 | 既存収益の減衰、地域・契約・権利期間、更新/代替投資、royalty、固定費と撤退費。pipelineはstage、費用負担、独立需要/承認の証拠を分ける | 償却の足し戻しは経済寿命の延長ではない。発売・申請・特許期限だけで成功または売上ゼロとせず、既存flowと未実現optionを分ける |
+| 原料・市況・加工業 | 数量・価格・mix、在庫評価、加工付加価値、ヘッジ損益の表示位置と対象期間、運転資金と調達。維持・能力増強の支出と稼働率 | 名目増収を数量成長、ヘッジ前営業利益を経済的収益力、負FCFを成長投資の証明にしない。相場反転時の在庫・ヘッジ・資金を一緒に動かす |
+| 資産保有・ファンド・複合企業 | 連結scopeと親会社持分、他の出資者・債権者の請求、資金拘束・配当可能性、換金費用・税、運転資金、回収を実行する主体と条件 | 連結資産や預り資金を普通株主の余剰資産にしない。非支配持分の帳簿額を個別資産から一律控除して時価持分とみなさない |
+| 金融仲介 | 貸出/預金等の再価格化、調達費、信用費用、債券/OCI、普通株主資本と規制資本、分配と資本余力。利益留保後の終期ROEと倍率の整合 | 預り資金やgeneric net cashを株主の余剰資産にせず、会計自己資本比率とCET1を混同しない。金利方向だけで受益認定しない |
+| 事業/資産売却・回復 | 売却益と入金の違い、税・返済・維持費・残存事業、回復に必要な時間と追加資本、契約条件と実行段階 | 一時利益を永続資本化せず、除外するだけで一回限りの資本改善まで消さない。売却前の資産と売却後cashを重ねず、返済はcashとdebt双方へ反映 |
 
-### 必須の確認事項
+資産・利益・cashを普通株主価値へつなぐ算術は[Stock Assessmentの資本bridge](./stock-assessment.md#capital-bridge)、評価モデルと期間の選択は[同書](./stock-assessment.md#valuation-model-choice)を正本とする。
 
-1. `recurring.revenue_boundary`: 何がsubscription、license、保守、従量課金、導入serviceで、売上・粗利の構成はどう違うか。
-2. `recurring.retention`: 更新率、解約率、NRR/GRR、契約継続年数のどれが開示され、対象customer・期間・分母は一貫しているか。
-3. `recurring.expansion`: customer増、seat/usage増、upsell、価格改定のどれが成長を作り、値上げ後の解約やdowngradeはどうか。
-4. `recurring.contract_cash`: 契約期間、請求時点、解約条項、前受/契約負債、RPO/backlogが売上・cashへ変わる時期はいつか。
-5. `recurring.delivery_cost`: 導入・customization・support・cloud/royalty費用は誰が負担し、recurring成長でgross marginとFCFが拡大するか。
-6. `recurring.acquisition`: sales/channel費用、導入期間、CAC/paybackを直接または代替KPIで保守的に評価できるか。
-7. `recurring.concentration`: 大口customer、業界、地域、platform/technology supplierへの集中と切替costはどちら側にあるか。
+## 改善を判定する
 
-### 重要KPI
-
-recurring売上・粗利比率、ARR/MRR、NRR/GRR、logo/売上churn、ARPU/seat/usage、customer数、RPO/契約負債、gross margin、sales費用、導入backlog、support/hosting費用。会社が定義しないKPIを逆算で創作せず、定義変更・acquisition影響を分離する。
-
-### 典型的な誤読
-
-- recurring売上比率が高いだけで、解約可能性・値下げ・導入service負担を確認せず耐久性が高いとする。
-- ARR、RPO、受注残、契約負債を同じものとして扱い、将来売上と将来cashを二重計上する。
-- customer数やseat増を、ARPU低下・無償枠・acquisitionを分けずorganic growthとする。
-
-### `blocked` / `defer`の条件
-
-retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolvedとする。企業評価と行動は上記の共通の扱いに従う。
-
-## 試行2 — 人員依存project / outsourcing
-
-### 価値獲得の経路
-
-受注、稼働人員、単価、稼働率、delivery品質が売上とproject marginへ届き、採用・賃上げ・外注・手戻り・運転資金を差し引いたcashが一株価値になるmodel。請負、準委任、派遣、managed service/BPOを分ける。
-
-### 必須の確認事項
-
-1. `people.contract_mix`: 固定価格、time-and-material、派遣、成果報酬、recurring managed serviceの構成とrisk負担はどう違うか。
-2. `people.orders_conversion`: 受注、backlog、book-to-billはどの期間の売上へ転換し、取消・scope変更・検収条件は何か。
-3. `people.capacity`: 技術者/運用人員、稼働率、billable比率、単価、1人当たり売上のどれが開示され、capacityと需要を分けられるか。
-4. `people.labor_bridge`: 採用、離職、賃上げ、外注比率、offshore/automationがgross marginへどう届くか。
-5. `people.delivery_risk`: 不採算project、追加原価、品質事故、SLA penalty、引当の発生と再発防止は何か。
-6. `people.concentration`: 上位customer・vendor・業界への集中、更新周期、値上げ交渉力、内製化riskはどうか。
-7. `people.cash_conversion`: 契約資産、未請求、売掛、前受、検収遅延が利益と営業CFをどれだけ乖離させるか。
-
-### 重要KPI
-
-受注高・backlog・book-to-bill、売上転換率、稼働率、技術者/運用人員、採用・離職、単価、1人当たり売上、外注比率、人件費、gross/project margin、不採算project損失、契約資産、DSO、営業CF conversion。backlogの定義と期間を必ず併記する。
-
-### 典型的な誤読
-
-- backlog全額が過去と同じmarginで売上化すると仮定し、取消、検収、delivery capacityを無視する。
-- 人員増を即時の売上capacity増とみなし、採用費、training、bench、離職を落とす。
-- 「DX需要が強い」という市場claimだけで、対象企業の受注・単価・margin・cash conversionを確認せず成長を置く。
-
-### `blocked` / `defer`の条件
-
-受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとする。評価期間のBase/Downsideを保守的にも置けなければvaluationを理由付きunresolvedとする。企業評価と行動は上記の共通の扱いに従う。
-
-## 試行3 — IP / live-service / hit portfolio
-
-### 価値獲得の経路
-
-既存IPの継続課金・updateと、新作・新地域・新platformのlaunchが売上へ届き、開発・運営・marketing・platform fee・royaltyを差し引いたportfolio cashが一株価値になるmodel。既存live-serviceのdurabilityと未発売titleのoption valueを分け、単一hitを通常収益力へ外挿しない。
-
-### 必須の確認事項
-
-1. `content.existing_cohorts`: 既存title/IPごとの売上、payer/active user、retention、ARPU、地域・platform、経過年数をどこまで分けられるか。
-2. `content.flow_durability`: update cadence、content backlog、運営team、community、seasonalityが既存flow収益とmarginを何年支え得るか。
-3. `content.pipeline_stage`: 各案件を発売済み、発売日確定、test中、年だけ公表、未定に分け、完全新作、地域展開、platform展開、update、publishingを区別したか。
-4. `content.pipeline_economics`: 開発・marketing・minimum guarantee・royalty・platform fee・revenue share、capitalized development、回収期間をtitle別または保守的なportfolio幅で評価できるか。
-5. `content.hit_evidence`: test参加、engagement、wishlist/pre-registration、paid conversion、retentionなどのうち、issuerから独立した需要evidenceは何か。規模の異なる指標をhit確率へ直結していないか。
-6. `content.concentration`: 上位title/IP、地域、platform、license owner、studio/key personへの集中と契約更新・終了条件は何か。
-7. `content.downside_policy`: launch遅延、中止、初動不振、既存title減衰時にmarketing・開発・運営費をどこまで止められ、balance sheetが何回の失敗に耐えられるか。
-
-### 重要KPI
-
-title/IP別売上、MAU/DAU、payer数・payer率、ARPU/ARPPU、retention、bookings、地域/platform mix、update cadence、test engagement、wishlist/pre-registration、開発・marketing費、platform fee/royalty、capitalized development、title別/portfolio margin、既存titleだけの営業CF。定義・対象地域・platform・cohort・期間が無いKPIを比較しない。
-
-### 典型的な誤読
-
-- 発売予定表にある全titleをbase caseへ入れ、stage、延期率、開発費、publisher/地域/platform展開を区別しない。
-- test参加者、wishlist、事前登録をpaid userや長期retentionと同一視し、blockbuster成功確率を過大評価する。
-- 単一hitのpeak売上・marginをportfolioの正常収益へ外挿し、既存title減衰と次作失敗を同時に置かない。
-
-### `blocked` / `defer`の条件
-
-既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolvedとする。企業評価と行動は上記の共通の扱いに従う。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineの上振れを補助的な可能性として文章に留め、比較を続けてよい。
-
-## 試行の見直し
-
-次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、企業評価の`supported / uncertain / unsupported`と、別の行動判断であるProposalの`buy / hold / sell / no_action / defer`を区別し、根拠のある各結論を正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。
+質問数やunknown数ではなく、原典から確認した経済的な差が、主要仮定・価値の幅・反証条件・調査の継続可否のどれを変えたかを見る。既知事項の再確認、仮定の変更、未解決を区別し、結論不変も記録する。追加の問いが判断に寄与しなければ削減する。少数例での誤読訂正と、投資収益の改善は同一ではない。

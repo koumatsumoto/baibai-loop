@@ -29,14 +29,14 @@ source_paths:
 
 | 実行環境 | 担当する作業 |
 | --- | --- |
-| ユーザーのローカルPC | 開発・検証・provider取得・本番DB更新・公開・復旧を含む全作業。既存の`publish.sh`とlocalのmachine / lake発行経路を使う |
+| ユーザーのローカルPC | 対応OS・依存・認可が揃う開発と運用。既存のapplication / machine / lake手順を使う |
 | GitHub Actions | 主にバッチの外部データ書込。daily、TradingView snapshot、materialize、Worker deployとPRのCIを既存workflowで実行する |
-| ChatGPTクラウド | 本番データは基本read-only。コード・文書編集、依存導入、build、fixture・検証コピーへの書込、commit・push・PR作成、認可された実データ・provider読取を行う。外部データの更新・公開は原則として許可されたActionsへ委譲する。ユーザーが明示的に依頼したtask更新は、既存engineで作業コピーを編集し、取得世代への条件付きPUTでR2正本へ直接反映できる |
+| ChatGPTクラウド | 通常開発はコード・文書・検証コピーの編集、commit・push・PRと認可済み読取。本番処理は既存Actionsを優先し、個別に承認されたapplication更新は対応する運用環境から正規CLIと条件付き反映を使える |
 
 データ状態の正本と作業コピーは[architecture](../architecture.md#store-authority)に従い、この表の実行場所とは区別する。
 操作はユーザーの依頼・接続の権限・利用枠の範囲で行う。providerから取得した応答の検証用保存は
 クラウド内の書込であり、本番storeや外部serviceへの書込とは区別する。
-本番操作の入口とcredential配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
+本番操作の入口とcredential配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。ローカルPCであること自体を保存の必須条件にせず、実行環境の承認とOS・依存・接続・競合検知を確認する。文書変更や環境接続だけでは、本番書込やcredentialの新設・拡張は許可されない。
 
 開発は、対象revisionとAGENTS.md・対象skillを確認 → branchで修正 → draft PR →
 [対象headのCI](#9-ci-and-local-parity)確認の順で行う。ローカル検証が必要な場合だけcheckoutと依存を準備する。
@@ -65,7 +65,7 @@ frontendとedgeのlockfile依存、frontend buildを準備する。再実行時�
 checkout、lockfile、`.env`、storeは変更しない。生成したenv.shには非secretのpath設定だけを置き、
 shellごとにsourceする。checkoutを移動した場合はsetupを再実行する。
 基本setupには秘密情報も実データも不要で、lint・型検査・fixture testと空データのUIが使える。
-品質検証は[完全gate](#9-ci-and-local-parity)、UIの操作は[Web](../../web/README.md)を参照する。
+品質検証は[完全gate](#9-ci-and-local-parity)、UIの操作は[Web](../../web/README.md)を参照する。Windows hostで編集や依存導入ができても、Linux/POSIX用の運用scriptが動くことの確認にはならない。WSL・cloud Linux等の対応環境と、Windows上の準備だけを終えた状態を区別する。
 
 追加downloadは必要な場合だけ明示する。失敗時は非zeroで終了し、基本setup成功と追加機能の導入成功を区別する。
 
@@ -77,6 +77,7 @@ ChromiumはPlaywright指定版、httpfsは既存provision toolを使う。OSのb
 DuckDB既定extension cacheの書込権限は環境側で用意する。403なら実際の配布hostを環境管理側で確認し、
 proxy解除・TLS検証無効化で回避しない。書込可能な別directoryへのDuckDB接続設定は新規connectionへ継承されず、
 現在のlake readerにはそのpathを渡す環境変数が無い。任意pathへの配置だけで導入完了にしない。
+remote httpfsを使えない場合でも、[固定releaseのローカルhydrate](../../batch/OPERATIONS.md#local-release-hydrate)が適するかを確認できる。これは本番書込や検証の省略ではない。
 既存ChromiumをUI smokeだけに使う場合は実行pathとversionを確認し、Playwrightの
 `chromium.launch(executable_path=..., headless=True)`で明示する。指定版の導入・互換性検証とは区別する。
 
@@ -125,7 +126,7 @@ Personal Vaultの値は接続先をnetwork allowlistへ自動追加しない。�
 403等はscope・endpoint・network設定を確認する。秘密値の表示やproxy・TLS検証の解除で診断しない。
 
 writer用R2 credential、GitHub Secret writer token、Cloudflare deploy tokenは通常のクラウド開発へ渡さない。
-明示依頼されたtaskの直接更新では、既存runtime credentialの権限内で操作し、認証失敗を権限拡大や別経路で回避しない。
+承認済みapplication更新は、専用の運用環境に既に許可されたruntime credentialの範囲で行う。認証失敗を権限拡大や別経路で回避せず、新規設定・共有は別の承認として扱う。
 外部書込用の配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
 [R2 acceptance](../../tests/integration/test_lake_r2_acceptance.py)は外部に書込・削除する試験であり、通常のクラウドgateでは実行しない。
 ローカルPCで明示依頼された場合だけ、専用の空bucketと専用credentialを用意し、
@@ -144,7 +145,7 @@ CIの型検査はmypy strictに統一し、runtime packageとtoolsを対象に�
 
 ## 5. Validation boundary
 
-外部入力と保存境界をdomain model・DB constraint・serviceで検証する。providerの正規化、文書内部の整合、現在のsourceとの整合はそれぞれのownerが担う。内部計算に同じvalidationを重ねない。過去の保存物の読取と、新しい判断の適格性を区別する。
+外部入力と保存境界をdomain model・DB constraint・serviceで検証する。providerの正規化、文書内部の整合、現在のsourceとの整合はそれぞれのownerが担う。内部計算に同じvalidationを重ねない。過去の保存物の読取と、新しい判断の適格性を区別する。生成JSON Schemaの構造検査はruntime modelやserviceの意味検証を代行しない。ID形式、時刻順、参照、canonical hash、現在入力との整合は正規CLIで確認し、schema validatorの成功だけで公開readyとしない。
 
 ## 6. I/O and adapters
 

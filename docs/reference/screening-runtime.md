@@ -123,7 +123,7 @@ read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下の
 
 JPX決算calendarは銘柄ごとの次回決算日の注記だが、snapshotの取得失敗は現行`run`全体を保存前に止める。個別銘柄にcalendar行がないことと同じ停止条件ではない。予定日当日・経過後の状態は`scheduled_date_reached`であり、発表確認を意味しない。保存済みの旧`announced`もWeb APIの投影とResearch入力では同じ意味として扱い、exact読取と元snapshotは保全する（[#1507](https://github.com/koumatsumoto/baibai-loop/issues/1507)）。EDINETのCSV抽出にhard failureが1件でもあると前処理snapshotを書かず、dailyもScreeningを進めない。いずれも取得・成果物の完全性に関する現行運用境界であり、銘柄の経済的な除外根拠や停止による機会損失の実測ではない。
 
-J-Quantsの取得は[HTTP collector](../../engine/src/baibai_engine/collection/jquants/http.py)が単一GETの再試行を所有し、受信ページを保存してから投影する。通常の`run`は[offline reader](../../engine/src/baibai_engine/market/jquants_reader.py)で保存済み入力だけを読む。単一GETは初回＋最大5回で、429と一時HTTP失敗を対象にする。有効な`Retry-After`の秒数／HTTP-dateを優先し、無いか不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗を再試行せず、ページ列・日付range全体も再実行しない。成功済みchunkとcacheからの再開を維持する。job残時間を取得側へ渡す経路は現行に無く、残時間による待機前終了は未実装である。永続cooldownや他providerのretryはこの契約に含めない。
+J-Quantsの取得は[HTTP collector](../../engine/src/baibai_engine/collection/jquants/http.py)が単一GETの再試行を所有し、受信ページを保存してから投影する。通常の`run`は[offline reader](../../engine/src/baibai_engine/market/jquants_reader.py)で保存済み入力だけを読む。単一GETは初回＋最大5回で、429と一時HTTP失敗を対象にする。有効な`Retry-After`の秒数／HTTP-dateを優先し、無いか不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗を再試行せず、ページ列・日付range全体も再実行しない。成功済みchunkとcacheからの再開を維持する。日次jobはprocess環境の`BAIBAI_ACQUISITION_DEADLINE`を取得CLIへ渡す。新しい要求・ページとretry待機の前に期限を確認し、待機が収まらなければ短縮せず停止する。期限設定と公開工程の余白は[日次運用](../../batch/OPERATIONS.md)を正本とする。この期限は永続cooldownではなく、次runへ持ち越さない。通常のlocal実行で未設定なら、job期限を仮定せず既存の有限retryを使う。
 
 ## 検証
 

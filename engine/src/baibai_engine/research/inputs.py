@@ -1,4 +1,4 @@
-"""保存済み三領域を調査workspaceへ合成する。AI起動・取得・store書込は行わない。"""
+"""保存済み分析と文脈を調査workspaceへ投影する。取得・store書込は行わない。"""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from baibai_engine.research.selection import (
 )
 from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 from baibai_engine.valuation.query import (
+    balance_sheet_from_analysis,
     cash_flow_from_analysis,
     machine_valuation_from_analysis,
 )
@@ -86,6 +87,7 @@ def project_research_inputs(selection: ResearchSelection) -> dict[str, JsonValue
                 "estimate": asdict(machine_valuation_from_analysis(analysis)),
             },
             "cash_flow": None if analysis is None else cash_flow_from_analysis(analysis),
+            "balance_sheet": None if analysis is None else balance_sheet_from_analysis(analysis),
             **(
                 {"machine_analysis_unavailable_reason": snapshot.unavailable[ticker]}
                 if analysis is None
@@ -97,6 +99,15 @@ def project_research_inputs(selection: ResearchSelection) -> dict[str, JsonValue
         {
             "research_as_of": selection.research_as_of.isoformat(),
             "known_at": selection.input_known_at.isoformat(),
+            "analysis_source": {
+                "run_revision_id": snapshot.run_revision_id,
+                "analysis_as_of": None
+                if snapshot.analysis_as_of is None
+                else snapshot.analysis_as_of.isoformat(),
+                "run_at": None if snapshot.run_at is None else snapshot.run_at.isoformat(),
+                "screening_rules_hash": snapshot.screening_rules_hash,
+                "er_model_version": snapshot.er_model_version,
+            },
             "market_context": selection.inputs.market_context,
             "securities": securities,
             "research_targets": [

@@ -30,11 +30,151 @@ function render(component: typeof ProposalItemContent | typeof ProposalAssessmen
 }
 
 describe('保存した提案と評価', () => {
+  it('永久損失の判断・証拠・基準日・出典を本文に表示し、未確認を安全に変えない', () => {
+    const axes = ['funding_liquidity', 'debt_repayment', 'cash_flow', 'dilution', 'customer_concentration', 'structural_decline', 'governance_accounting']
+    const riskDocument = {
+      ...document,
+      input_snapshot: { ...document.input_snapshot, sources: [{ source_id: 'risk_source', as_of: '2026-10-12', ref: 'https://example.invalid/risk-source' }] },
+      permanent_loss_risks: axes.map((axis, index) => ({ axis, assessment: index === 0 ? 'acceptable' : index === 1 ? 'adverse' : 'unknown', evidence_status: index === 0 ? 'partially_verified' : index === 1 ? 'verified' : 'unverified', summary: `保存リスク根拠${index}`, as_of: '2026-10-14', source_ids: ['risk_source'] })),
+    }
+    const saved = { ...item, assessment_projection: { ...item.assessment_projection, raw: riskDocument } }
+    const before = JSON.stringify(saved)
+    const html = render(ProposalAssessmentDetails, saved)
+    const section = html.match(/<section[^>]*aria-label="永久損失リスク"[^>]*>([\s\S]*?)<\/section>/)?.[1] ?? ''
+    for (const label of ['資金繰り', '債務返済', 'キャッシュフロー', '希薄化', '顧客集中', '構造的な衰退', 'ガバナンス・会計']) expect(section).toContain(label)
+    expect(section).toContain('判断: 許容できる / 根拠: 一部確認')
+    expect(section).toContain('判断: 不利 / 根拠: 確認済み')
+    expect(section).toContain('判断: 未確認 / 根拠: 未確認')
+    expect(section).toContain('評価基準日: 2026-10-14')
+    expect(section).toContain('risk_source · 保存sourceのas_of 2026-10-12')
+    expect(section).toContain('href="https://example.invalid/risk-source"')
+    expect(section).toContain('保存リスク根拠6')
+    expect(section).toContain('確認済みは、リスクがないことを意味しません。')
+    expect(JSON.stringify(saved)).toBe(before)
+  })
+  it('リスク本文が欠けた場合は評価済み・リスクなしと表示しない', () => {
+    const html = render(ProposalAssessmentDetails)
+    const section = html.match(/<section[^>]*aria-label="永久損失リスク"[^>]*>([\s\S]*?)<\/section>/)?.[1] ?? ''
+    expect(section).toContain('リスク本文を表示できません。保存した評価版を確認してください。')
+    expect(section).not.toContain('判断: 許容できる')
+  })
+
+  it.each([
+    { stance: 'uncertain', label: '未確定' },
+    { stance: null, label: '未確認' },
+  ])('intactでも企業評価の結論 $label を別に示す', ({ stance, label }) => {
+    const saved = { ...item, action: 'defer' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, conclusion: { ...document.conclusion, stance } } } }
+    const html = render(ProposalAssessmentDetails, saved)
+    expect(html).toMatch(new RegExp(`企業評価の結論</dt><dd[^>]*><p>${label}</p>`))
+    expect(html).toMatch(/投資仮説の成立性<\/dt><dd[^>]*><p>intact/)
+    expect(render(ProposalItemContent, saved)).toContain('判断保留')
+  })
+  it.each([
+    { total: -100, annual: 0, expectedTotal: '-100.0000%', expectedAnnual: '0.0000%' },
+    { total: '33.33333333333333', annual: 14.0175425099138, expectedTotal: '33.3333%', expectedAnnual: '14.0175%' },
+    { total: null, annual: undefined, expectedTotal: '未確認', expectedAnnual: '未確認' },
+  ])('収益率 $total / $annual は表示だけを丸め欠測を保つ', ({ total, annual, expectedTotal, expectedAnnual }) => {
+    const saved = { ...item, assessment_projection: { ...item.assessment_projection, projections: { base: { total_return_pct: total, annualized_return_pct: annual } } } }
+    const before = JSON.stringify(saved)
+    expect(render(ProposalAssessmentDetails, saved)).toContain(`原評価価格の条件付き総 return ${expectedTotal} / 年率換算 ${expectedAnnual}`)
+    expect(JSON.stringify(saved)).toBe(before)
+    const preview = { saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: {}, change_reasons: [], items: [{ ticker: '1234', saved_action: 'buy', current_quote_calculation: { current_price_projection: { base: { total_return_pct: total }, downside: { total_return_pct: annual } } }, saved_limit_revalidation: null, blockers: [] }], warnings: [], portfolio_exposure: null } as InvestmentProposalPreviewView
+    const previewBefore = JSON.stringify(preview)
+    expect(renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))).toContain(`Base ${expectedTotal} · Downside ${expectedAnnual}`)
+    expect(JSON.stringify(preview)).toBe(previewBefore)
+  })
   it('exact評価/Reviewと根拠・所見・原価格を表示する', () => {
     const html = render(ProposalAssessmentDetails)
     for (const text of ['stock-assessment-original', 'assessment-review-original', '保存した収益構造', '当時の投資仮説', 'original-source', '保存した独立reviewer', 'ユーザーの仮説', '原評価の観測価格 1100']) expect(html).toContain(text)
     expect(html).toContain('href="/stocks/stock-assessments/stock-assessment-original"')
     expect(html).not.toContain('最新評価の根拠')
+  })
+  it('合成例の個社経路・比較不能な外部相違・反証を保存sourceとReviewへ辿れる', () => {
+    const syntheticDocument = {
+      ...document,
+      input_snapshot: { ...document.input_snapshot, sources: [
+        { source_id: 'macro', source_tier: 'local_data', as_of: '2026-10-10', used_for: 'financing_conditions' },
+        { source_id: 'issuer', source_tier: 'primary', as_of: '2026-10-12', ref: 'https://example.invalid/issuer', used_for: 'debt_maturity' },
+        { source_id: 'external', source_tier: 'secondary', as_of: '2026-10-13', ref: 'https://example.invalid/estimate', used_for: 'reference_only' },
+      ] },
+      findings: { ...document.findings, value_gap_explanation: '借換費用を織り込んだ自前Baseと外部目標の差は対象期不明で比較保留', hypotheses: [
+        { statement: '金利上昇が借換費用を増す', result: 'supported', reason: '満期開示から個社cashへ伝達', source_ids: ['macro', 'issuer'] },
+        { statement: '外部目標は自前Baseより高い', result: 'unresolved', reason: '対象期と株式basisが未確認のため参考', source_ids: ['external'] },
+      ], source_ids: ['macro', 'issuer', 'external'] },
+      investment_case: { ...document.investment_case, explanation: '継続収益と負債管理が株主に帰属するcashを生む', status: 'uncertain', status_reason: '借換条件は未取得', source_ids: ['issuer'] },
+      valuation: { ...document.valuation, base: { ...document.valuation.base, calculation: '借換費用を控除したBase', source_ids: ['macro', 'issuer'] }, downside: { ...document.valuation.downside, calculation: '追加利払いと遅延を反映したDownside', source_ids: ['macro', 'issuer'] } },
+    }
+    const syntheticItem: InvestmentProposalItemView = { ...item, action: 'defer', rationale: '借換条件が未取得のため判断保留', terms: null, order_readiness: 'not_applicable', blockers: [{ code: 'material_unknown', message: '借換条件を確認する' }], resume_conditions: ['借換条件の一次資料を入手する'], assessment_projection: { ...item.assessment_projection, raw: syntheticDocument }, assessment_review: { ...item.assessment_review, strongest_countercase: '借換条件悪化でcashが残らない', review_scope: '満期の原典を独立確認し外部目標の対象期は未確認', checked_source_ids: ['issuer', 'external'] } }
+    const before = JSON.stringify(syntheticItem)
+    const html = render(ProposalAssessmentDetails, syntheticItem)
+    for (const phrase of ['価値を生む仮説', '観測と個社への伝達', '条件付き価値と時間', '反証と独立Review', '対象期と株式basisが未確認のため参考', '借換費用を控除したBase', '追加利払いと遅延を反映したDownside', '借換条件悪化でcashが残らない']) expect(html).toContain(phrase)
+    expect(html.indexOf('観測と個社への伝達')).toBeLessThan(html.indexOf('条件付き価値と時間'))
+    expect(html.indexOf('条件付き価値と時間')).toBeLessThan(html.indexOf('反証と独立Review'))
+    expect(html).toContain('href="https://example.invalid/estimate"')
+    expect(html).toContain('external · 保存sourceのas_of 2026-10-13')
+    expect(html).toContain('所見全体の参照:')
+    const businessField = html.match(/<dl[^>]*><dt[^>]*>事業の収益構造<\/dt><dd[^>]*>(.*?)<\/dd><\/dl>/)?.[1]
+    expect(businessField).toContain('保存した収益構造')
+    expect(businessField).not.toContain('external')
+    expect(html.indexOf('所見全体の参照:')).toBeGreaterThan(html.indexOf('事業の収益構造'))
+    expect(html.indexOf('所見全体の参照:')).toBeLessThan(html.indexOf('観測と個社への伝達'))
+    expect(render(ProposalItemContent, syntheticItem)).toContain('判断保留')
+    expect(JSON.stringify(syntheticItem)).toBe(before)
+  })
+  it('検証仮説がない場合は空見出しを出さず、所見全体の参照と未解決の問いの範囲を保つ', () => {
+    const withoutHypotheses = { ...document, findings: { ...document.findings, source_ids: ['issuer'], hypotheses: [], unresolved_questions: [] }, input_snapshot: { ...document.input_snapshot, sources: [{ source_id: 'issuer', as_of: '2026-10-12' }] } }
+    const assessmentItem = { ...item, assessment_projection: { ...item.assessment_projection, raw: withoutHypotheses } }
+    const html = render(ProposalAssessmentDetails, assessmentItem)
+    expect(html).toContain('所見全体の参照: <span>issuer · 保存sourceのas_of 2026-10-12</span>')
+    expect(html).not.toContain('観測と個社への伝達')
+    expect(html).not.toContain('未解決の問い')
+
+    const onlyQuestion = { ...withoutHypotheses, findings: { ...withoutHypotheses.findings, unresolved_questions: ['借換条件が未取得'] } }
+    const questionHtml = render(ProposalAssessmentDetails, { ...assessmentItem, assessment_projection: { ...assessmentItem.assessment_projection, raw: onlyQuestion } })
+    expect(questionHtml).toContain('借換条件が未取得')
+    expect(questionHtml).toContain('aria-label="残る確認事項"')
+    expect(questionHtml).not.toContain('観測と個社への伝達')
+  })
+  it('参照Review本文が欠けたときは反証節でも表示不足を明示する', () => {
+    const html = render(ProposalAssessmentDetails, { ...item, assessment_review: null })
+    expect(html).toContain('独立Review本文を表示できません。保存した評価版のReviewを確認してください。')
+    expect(html).toContain('参照した Review 本文を表示できません。保存 ID から確認してください。')
+    expect(html).not.toContain('独立Reviewの最も強い反対仮説')
+  })
+  it('価値未解決をBase/Downsideの架空表示へ変換しない', () => {
+    const unresolved = { ...item, action: 'defer' as const, terms: null, order_readiness: 'not_applicable' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, valuation: { status: 'unresolved', unresolved_reason: '借換条件が未取得', base: null, downside: null, horizon_months: null, required_annual_return_pct: null } }, projections: {} } }
+    const html = render(ProposalAssessmentDetails, unresolved)
+    expect(html).toContain('借換条件が未取得')
+    expect(html).not.toContain('分配後の価値')
+    expect(html).not.toContain('要求年率 未確認')
+  })
+  it.each([
+    { name: '日次終値', price: 1100, date: '2026-10-13', time: null, basis: 'last_close_unadjusted' },
+    { name: '時刻付きquote', price: 1100, date: '2026-10-14', time: '2026-10-14T10:05:00+09:00', basis: 'realtime' },
+    { name: '価格欠測', price: null, date: null, time: null, basis: null },
+  ])('$nameの価格基準日と実観測時刻を区別する', ({ price, date, time, basis }) => {
+    const raw = price === null ? { ...document, valuation: { status: 'unresolved', unresolved_reason: '価格未取得', market_price_fact_id: null, horizon_months: null, required_annual_return_pct: null, base: null, downside: null } } : document
+    const html = render(ProposalAssessmentDetails, { ...item, assessment_projection: { ...item.assessment_projection, raw, original_price_yen: price, original_price_as_of: date, original_quote_at: time, original_price_basis: basis, projections: price === null ? {} : item.assessment_projection?.projections } })
+    // Inspect the main display, independently of the raw document disclosure.
+    const priceLine = html.match(/<p[^>]*>評価起点 .*?<\/p>/)?.[0] ?? ''
+    expect(priceLine).toContain('評価起点 2026-10-14')
+    expect(priceLine).toContain(`価格基準日 ${date ?? '未確認'}`)
+    expect(priceLine).toContain(`原評価の観測価格 ${price ?? '未確認'} 円`)
+    if (time) expect(priceLine).toContain(`観測時刻 ${time}`)
+    else expect(priceLine).not.toContain('観測時刻')
+    if (price === null) {
+      expect(html).toContain('価格未取得')
+      expect(html).not.toContain('分配後の価値')
+      expect(priceLine).not.toContain('価格基準日 2026-10-14')
+    }
+  })
+  it('案件別の保存要求率を比較目安へ置換せず表示する', () => {
+    const saved = { ...item, assessment_projection: { ...item.assessment_projection, raw: { ...document, valuation: { ...document.valuation, required_annual_return_pct: '3' } } } }
+    const before = JSON.stringify(saved)
+    const html = render(ProposalAssessmentDetails, saved)
+    expect(html).toContain('要求年率 3%')
+    expect(html).not.toContain('要求年率 6%')
+    expect(JSON.stringify(saved)).toBe(before)
   })
   it('保存limit/quantity/target_session/warningsを示し、注文や約定と区別する', () => {
     const html = render(ProposalItemContent)

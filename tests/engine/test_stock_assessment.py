@@ -371,6 +371,17 @@ def test_decimal_valuation_rejects_nonfinite_bool_and_negative(bad):
         StockAssessmentDocument.model_validate(document)
 
 
+def test_required_rate_change_requires_a_new_core_review():
+    document, review = pair_payload()
+    original_hash = review["reviewed_assessment_sha256"]
+    document["valuation"]["required_annual_return_pct"] = "3"
+    assert assessment_core_hash(StockAssessmentDocument.model_validate(document)) != original_hash
+    assert (
+        "Assessment Review hash does not match assessment"
+        in evaluation(document, review, refresh_hash=False).errors
+    )
+
+
 def test_current_projection_same_day_guards_and_origin_context_are_separate():
     document, review = pair_payload()
     typed = StockAssessmentDocument.model_validate(document)

@@ -40,6 +40,8 @@ def backend_case(
     opening_at="2026-10-14T09:00:00+09:00",
     assessment_as_of="2026-10-14",
     valuation_unresolved=False,
+    required_rate=None,
+    horizon_months=None,
     tickers=("1234",),
 ):
     """実writerで固定選定/Operationと評価・Reviewのpairを作る。新Operation行のSQL seedはしない。"""
@@ -132,6 +134,12 @@ def backend_case(
             ],
         )
     document, review = pair_payload(as_of=assessment_as_of)
+    if required_rate is not None:
+        document["valuation"]["required_annual_return_pct"] = required_rate
+        update_review_hash(document, review)
+    if horizon_months is not None:
+        document["valuation"]["horizon_months"] = horizon_months
+        update_review_hash(document, review)
     if broken:
         document["investment_case"]["status"] = "broken"
         document["investment_case"]["status_reason"] = "一次資料で恒常的な収益源の消失を確認。"

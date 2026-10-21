@@ -88,7 +88,7 @@ Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依
 | Portfolio/Position | Ledger、Reservation、Holding、Outcome | 人間確認済みbroker factを記録し、保有と資本を再構築する。分析層とは別の業務 | application。Positionの事実記録・読取service。[Portfolio](./portfolio-management.md) |
 | Operation/task | Operation Session、調査進行、運用task | 明示開始・対象・成果・完了/未完了を記録する。AI完了を採用・約定に変換しない | application。`research/operation`と`tasks`のservice |
 
-Collection内の名前付き取得元は、経済統計（provider-native record・文書body）、J-Quants（native HTTP JSON page）、EDINET（一覧応答・CSV/XBRL ZIP bytes）、JPX（HTTP body・workbook等）、TradingView（SDK `CallToolResult`）、公開株式Web（HTML body bytes）である。保持する範囲・identityは各[入力契約](./reference/data-sources.md)と[market lake契約](./reference/market-lake.md)に従う。provider familyのfolderはコードの整理単位であり、familyごとの物理DBや全source共通のruntime registryではない。新しい外部参考評価元は名前付き取得・原本契約と対応するL2 normalizationを拡張し、全sourceを一つの人工schemaに押し込まない。将来のRSI/Bollingerは保存価格と明示した`price_basis`から純粋L2として作れるが、経済Reading registryへの追加や価格の重複取得は要らない。本変更では実装しない。
+Collection内の名前付き取得元は、経済統計（provider-native record・文書body）、J-Quants（native HTTP JSON page）、EDINET（一覧応答・CSV/XBRL ZIP bytes）、JPX（HTTP body・workbook等）、TradingView（SDK `CallToolResult`）、公開株式Web（HTML body bytes）である。保持する範囲・identityは各[入力契約](./reference/data-sources.md)と[market lake契約](./reference/market-lake.md)に従う。provider familyのfolderはコードの整理単位であり、familyごとの物理DBや全source共通のruntime registryではない。新しい外部参考評価元は名前付き取得・原本契約と対応するL2 normalizationを拡張し、全sourceを一つの人工schemaに押し込まない。将来のRSI/Bollingerは保存価格と明示した`price_basis`から純粋L2として作れるが、経済Reading registryへの追加や価格の重複取得は要らない。現在は未実装であり、追加の採否は別途検討する。
 
 L1の定期取得とL2の定期・読取時処理を、L3の明示開始と区別する。一つのOperationは新規または保有の単一scopeとし、保存capacityに従って開始時に対象を固定する。0件・部分完了・未完了も記録し、弱い候補で枠を埋めず、一銘柄ずつ提案する。AIの完了、人間の採用、注文、約定は別の事実・状態である。成果物間の関係は[Decision flow](./domain-language.md#decision-flow)、開始・発行の条件は各skillが所有する。
 
@@ -107,7 +107,7 @@ storageは物理保存の技術責務であり、保存DBをL3そのものと呼
 | `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | Calibration |
 | `stores/market_context/indicators.sqlite` | 経済sourceのnative record・文書・取得runの作業コピー。L2系列・計算値は保存しない | `collection/economic`の原本契約・DB adapter |
 
-データ状態の正本はクラウド、PC/Actionsは更新元である。未公開変更を正本と区別し、取得世代を保持して競合上書きを止める。コピーの取得時点と反映状態を区別し、market storeを丸ごと消してstore-local dataを失わない。serving JSONは表示用派生物であり、application DBの本文や完了履歴の代替ではない。再取得できることは改定前情報の再現を保証しない。再生成可能なL2へ一律に永久保存を要求しない。
+データ状態の正本はクラウド、承認済み作業環境/Actionsは更新元である。未公開変更を正本と区別し、取得世代を保持して競合上書きを止める。コピーの取得時点と反映状態を区別し、market storeを丸ごと消してstore-local dataを失わない。serving JSONは表示用派生物であり、application DBの本文や完了履歴の代替ではない。再取得できることは改定前情報の再現を保証しない。再生成可能なL2へ一律に永久保存を要求しない。
 
 共有技術保存は`storage/application`・`storage/observations`・`storage/lake`に配置する。source別の取得・原本意味はCollection、共通の正規化・読取modelはmarket等のL2に置き、物理保存のownerと意味のownerを混同しない。保存・保持は[market lake](./reference/market-lake.md)、転送・復旧は[batch運用](../batch/OPERATIONS.md)を参照する。
 
@@ -125,7 +125,7 @@ EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配�
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する数値・fieldの意味・dated pathを保持し、名前切替のための移設・複製・revision変更を行わない。計算を変えない説明訂正は可能とし、変更前のbytesはgit履歴で確認する。
 
-実装・移行と通常運用の受入は区別する。現行の層・配置整理の進捗、未完了の受入と確認証拠は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)で追い、現行仕様は本書とreferenceで管理する。
+実装・移行と通常運用の受入は区別する。完了した層・配置整理と本番切替の確認証拠は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)に残し、現行仕様は本書とreference、後続の変更は対応するIssueで管理する。
 
 <a id="cloud-serving-layer"></a>
 
@@ -134,10 +134,9 @@ Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2
 Ubuntu Linux/POSIXを対象とし、作業分担は[Python foundation](./reference/python-foundation.md#cloud-development-boundary)に従う。SQLite編集は作業コピー上で行い、検証済み変更をクラウドへ反映する。
 
 ```text
-PCの作業コピー ──条件付き更新──> R2 stores（データ状態の正本）
-                                      ↑
-GitHub Actions ──定期処理・転送─────────┤
-       └──read model生成──> R2 serving ──> Worker ──> browser
+承認済み作業環境 ──条件付き更新──> R2 stores（データ状態の正本）
+GitHub Actions ──定期処理・転送──> R2 stores
+GitHub Actions ──read model生成──> R2 serving ──> Worker ──> browser
 ```
 
 `baibai-engine`はdomain操作、`baibai-web`は表示/read model、`baibai-batch`は運用の入口である。optionの正本はpublic `--help`。[docs portal](./README.md#目的別の入口)から実操作へ進む。

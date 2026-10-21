@@ -145,7 +145,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 <a id="estimator-vs-decision"></a>
 
-機械E[r]の収束係数・clip・固定8.5%帯は近似推計と歴史分布の座標であり、企業判断の[通常購入6%](../portfolio-management.md#required-return-policy)とは別の仮定である。6%は暫定政策で、最適値や確率加重期待収益を実証した値ではない。E[r]較正の成立は4 Approachのfidelity、個別企業の利益・倍率・分配の見積り、購入採否を代行しない。係数の優劣を主張する変更は事前登録と3y/5y evidenceで検証し、診断帯を購入floorに追随させて統計を付け替えない。
+機械E[r]の収束係数・clip・固定8.5%帯は近似推計と歴史分布の座標であり、企業判断の[案件ごとの要求年率](../portfolio-management.md#required-return-policy)とは別の仮定である。比較目安の6%は最適値や確率加重期待収益を実証した値ではない。E[r]較正の成立は4 Approachのfidelity、個別企業の利益・倍率・分配の見積り、購入採否を代行しない。係数の優劣を主張する変更は事前登録と3y/5y evidenceで検証し、診断帯をL3の要求率に追随させて統計を付け替えない。
 
 <a id="er-level-distribution-context"></a>
 
@@ -160,6 +160,8 @@ schema 4では、結果の観測可否で予測帯を選ばない。宣言母集
 これは未評価を含む全母集団の実証済期待収益・個別予測・購入条件ではない。未評価は損益0として集計しない。basisごとに観測対象と累積returnの比較中央値が異なり、price-total差を配当効果として解釈しない。Research入力と既存Stock Analysis表示は分母・不足理由・formal completenessとこの限界を一緒に渡す。購入条件やselection/orderは変更しない。
 
 UIとResearchの明示照会は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / 候補一覧 の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。identity不明・不一致は較正文脈を利用不能として扱い、Research全体の新hard gateにしない。E[r]、順位、選定、FVは変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
+
+Researchでは固定Operation IDを指定し、`research calibration-context --operation-id <ID> --db stores/application/baibai.sqlite`で照会する。既定の照会日は実行日のJST日付で、`--asof YYYY-MM-DD`と`--context-path`を検証・隔離調査時に指定できる。出力は固定Selectionのhash/run identity、利用可否と理由、利用可能なら3y/5yの候補別対応帯、宣言・観測・未評価の分母、formal evidenceの成立可否を含む。これはread-onlyで、固定入力・候補順位・保存判断へ較正artifactを混入しない。古いrunに対して現行artifactが不一致なら、古いrunを現行runに付け替えず`rules_identity_mismatch`等を示す。
 
 配当予想の鮮度など計算入力の意味を変える場合は、既存の`VALUATION_CALCULATION_REVISION`を更新する。productionのrules hash、panelのrules hash、派生cache contractへ同じrevisionを伝え、旧panelの再利用と旧contextの新runへの適用を拒否する。ER算式が同じなら`expected-return-v1`は維持する。保持artifactの旧計算revision・scope・入力窓はprovenance検証だけで認識し、元bytes/hashを変更しない。複数の変更を統合する場合、panel・contextの再生成は承認済みの最終methodでまとめて行う。
 

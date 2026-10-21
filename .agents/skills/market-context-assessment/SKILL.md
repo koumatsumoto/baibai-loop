@@ -12,7 +12,7 @@ description: 人間の明示開始から保存済み入力を固定し、小さ�
 1. 対象日`as_of`と入力確定時刻`known_at`を固定する。通常は今回の入力確定時刻、当時の分析入力を調べる場合は人間が指定した過去cutoffを使う。前営業日の評価を週末に発行でき、対象日末を一律cutoffにはしない。保存済みReading・市場/業種/個別状態と一次資料を読む。`market-context indicators get`は保存原本からの機械的な読取で、外部取得は`collection economic refresh`が担う。正本と同期は[Ops Maintenance](../ops-maintenance/SKILL.md)に従う。
 2. 固定入力の出典・利用可能時刻と、要約・重要変化の根拠・反証/不確実性・調査とリスクへの含意を書く。変化が小さい場合や欠測をそのまま記録する。定量状態はL1/L2を引用し、AIが同じ値を別の正本として保存しない。形は[model](../../../engine/src/baibai_engine/research/market_context/models.py)、意味は[reference](../../../docs/reference/market-context.md#assessment)に従う。
 3. [判断文書の編集](../../../docs/reference/judgment-writing.md)に従って編集し、authorと別sessionのreviewerへ固定draftとsourceを渡す。source、因果、反証、含意を確認する。最大3巡で未解決なら発行せず人間へ上げる。機械checkを意味のreviewの代わりにしない。
-4. review PASSまたは人間のdraft承認後にcheckし、既存headを確認してCAS発行する。以下のfileと非秘密IDは実値へ置換する。
+4. review PASSまたは人間のdraft承認後に、入力のknown_atを保ち、初回発行直前にpublished_atを実発行時刻にしてcheckし、既存headを確認してCAS発行する。時刻だけを変える場合も経済本文・入力が不変か確認し、review済み内容の変更は再reviewする。以下のfileと非秘密IDは実値へ置換する。
 
    ```bash
    uv run baibai-engine research market-context publish /tmp/assessment.json --check
@@ -26,8 +26,8 @@ description: 人間の明示開始から保存済み入力を固定し、小さ�
    uv run baibai-engine research market-context publish /tmp/assessment.json --expected-head "$expected_head"
    ```
 
-   headがnullの場合だけ`--expected-head`を省略する。同じIDは同じ本文・発行状態の再試行だけを許す。CAS競合でheadだけ更新して無条件再試行しない。
-5. 発行IDを指定して本文を読戻す。cloud反映はOps Maintenanceのapplication反映へ進む。観測storeの`push-indicators`だけでは判断の反映にならない。
+   headがnullの場合だけ`--expected-head`を省略する。同じIDは同じ本文・発行状態の再試行だけを許す。再試行時にpublished_atを作り直さず、結果不明ならIDで読戻して適用済みか確認する。CAS競合でheadだけ更新して無条件再試行しない。
+5. 発行IDを指定して本文を読戻す。作業コピーへのCAS発行と本番反映は別であり、cloud反映はOps Maintenanceのapplication反映へ進む。観測storeの`push-indicators`だけでは判断の反映にならない。
 
    ```bash
    context_id='発行結果のcontext_id'
