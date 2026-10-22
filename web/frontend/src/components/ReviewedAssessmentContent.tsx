@@ -14,19 +14,38 @@ const EVIDENCE_LABELS: Readonly<Record<string, string>> = {
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <dl className="grid gap-1"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="text-sm font-medium">{children}</dd></dl>
+  return <dl className="grid min-w-0 gap-1"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="whitespace-pre-line break-words text-sm leading-7">{children}</dd></dl>
 }
 
 function SourceRefs({ ids, sources, label = '参照:' }: { ids: unknown; sources: Record<string, unknown>[]; label?: string }) {
   if (!Array.isArray(ids) || ids.length === 0) return null
-  return <p className="text-xs text-muted-foreground">{label} {ids.map((value, index) => {
+  return <p className="break-words text-xs text-muted-foreground">{label} {ids.map((value, index) => {
     const id = text(value)
     const source = sources.find(item => item.source_id === id)
-    const label = `${id}${typeof source?.as_of === 'string' ? ` · 保存sourceのas_of ${source.as_of}` : ''}`
+    const label = `${typeof source?.used_for === 'string' ? `${source.used_for} · ` : ''}${id}${typeof source?.as_of === 'string' ? ` · 保存sourceのas_of ${source.as_of}` : ''}`
     return <span key={`${id}-${index}`}>{index > 0 && ' / '}{typeof source?.ref === 'string' && source.ref.startsWith('https://')
       ? <a className="underline" href={source.ref} rel="noopener noreferrer" target="_blank">{label}</a>
       : label}</span>
   })}</p>
+}
+
+export function AssessmentReviewContent({ review, sources = [] }: { review?: Record<string, unknown> | null; sources?: Record<string, unknown>[] }) {
+  if (!review) return <p className="text-sm text-muted-foreground">独立Review本文を表示できません。保存した評価版のReviewを確認してください。</p>
+  const recalculated = Array.isArray(review.recalculated_projections) ? review.recalculated_projections.map(record) : []
+  return <div className="grid gap-4">
+    <Field label="独立Reviewの確認範囲"><p>{text(review.review_scope)}</p></Field>
+    <Field label="一次資料の確認状態"><p>{EVIDENCE_LABELS[text(review.primary_source_check)] ?? text(review.primary_source_check)}</p><SourceRefs ids={review.checked_source_ids} sources={sources} /></Field>
+    <Field label="独立Reviewの最も強い反対仮説"><p>{text(review.strongest_countercase)}</p></Field>
+    {review.nonmaterial_unknown_reason != null && <Field label="残る不明点を非重要とした理由"><p>{text(review.nonmaterial_unknown_reason)}</p></Field>}
+    <Field label="独立再計算">
+      {recalculated.length > 0 ? <div className="grid gap-3 sm:grid-cols-2">{recalculated.map((row, index) => <div className="rounded border p-3" key={index}>
+        <p className="font-medium">{row.name === 'base' ? 'Base' : row.name === 'downside' ? 'Downside' : text(row.name)}</p>
+        <p>分配後の価値 {text(row.terminal_value_per_share_yen)} 円</p>
+        <p>今後の累積分配 {text(row.cash_distribution_per_share_yen)} 円</p>
+      </div>)}</div> : <p>保存された再計算値はありません。価値未解決や確認範囲を上で確認してください。</p>}
+    </Field>
+    <p className="break-words text-xs text-muted-foreground">確認者 {text(review.reviewer_identity)} · 確認時刻 {text(review.reviewed_at)}</p>
+  </div>
 }
 
 export function ReviewedAssessmentContent({ document, projection, review }: { document: Record<string, unknown>; projection: Record<string, unknown>; review?: Record<string, unknown> | null }) {
@@ -38,18 +57,17 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
   const snapshot = record(document.input_snapshot)
   const sources = Array.isArray(snapshot.sources) ? snapshot.sources.map(record) : []
   const projections = record(projection.projections)
-  const independentReview = record(review)
   const risks = Array.isArray(document.permanent_loss_risks) ? document.permanent_loss_risks.map(record) : []
   const hypotheses = Array.isArray(findings.hypotheses) ? findings.hypotheses : []
   const unresolvedQuestions = Array.isArray(findings.unresolved_questions) ? findings.unresolved_questions : []
   const hasHypotheses = hypotheses.length > 0
   const observationTitle = hasHypotheses ? '観測と個社への伝達' : '残る確認事項'
-  return <div className="grid gap-5">
+  return <div className="grid min-w-0 gap-6 break-words leading-relaxed">
     <section className="grid gap-3" aria-label="価値を生む仮説">
       <h3 className="text-sm font-semibold">価値を生む仮説</h3>
       <Field label="企業評価の結論"><p>{STANCE_LABELS[text(conclusion.stance)] ?? text(conclusion.stance)}</p></Field>
-      <Field label="事業の収益構造"><p>{text(findings.business_understanding)}</p></Field>
       <Field label="価値と価格の隔たり"><p>{text(findings.value_gap_explanation)}</p></Field>
+      <Field label="事業の収益構造"><p>{text(findings.business_understanding)}</p></Field>
       <Field label="投資仮説"><p>{text(investment.explanation)}</p><SourceRefs ids={investment.source_ids} sources={sources} /></Field>
       <Field label="投資仮説の成立性"><p>{text(investment.status)} — {text(investment.status_reason)}</p></Field>
     </section>
@@ -94,8 +112,15 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
       <h3 className="text-sm font-semibold">反証と独立Review</h3>
       <Field label="重大な不成立条件"><p>{Array.isArray(investment.invalidation_conditions) ? investment.invalidation_conditions.join(' / ') : '未確認'}</p></Field>
       <Field label="作者の最も強い反対仮説"><p>{text(conclusion.strongest_countercase)}</p></Field>
-      {review ? <><Field label="独立Reviewの最も強い反対仮説"><p>{text(independentReview.strongest_countercase)}</p></Field><Field label="独立Reviewの確認範囲"><p>{text(independentReview.review_scope)}</p><SourceRefs ids={independentReview.checked_source_ids} sources={sources} /></Field></> : <p className="text-sm text-muted-foreground">独立Review本文を表示できません。保存した評価版のReviewを確認してください。</p>}
+      <AssessmentReviewContent review={review} sources={sources} />
     </section>
-    <details className="rounded border p-4"><summary className="cursor-pointer font-medium">Stock Assessment 本文・入力・出典</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(document, null, 2)}</pre></details>
+    <details className="min-w-0 rounded border p-4"><summary className="min-h-11 cursor-pointer py-2 font-medium">保存した入力・出典・原文</summary>
+      <div className="mt-3 grid gap-4">{sources.map((source, index) => <dl className="grid gap-1 text-sm" key={index}>
+        <dt className="font-medium">{text(source.source_id)}</dt><dd>用途: {text(source.used_for)}</dd>
+        <dd>対象時点: {text(source.as_of)} · 受領時刻: {text(source.retrieved_at)}</dd>
+        <dd>{typeof source.ref === 'string' && source.ref.startsWith('https://') ? <a className="underline" href={source.ref} rel="noopener noreferrer" target="_blank">掲載元を開く</a> : <>{text(source.provider)} · {text(source.dataset)}</>}</dd>
+      </dl>)}</div>
+      <details className="mt-4"><summary className="min-h-11 cursor-pointer py-2 text-sm">Stock Assessment / Review の保存JSON</summary><pre className="mt-3 max-w-full overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify({ assessment: document, review: review ?? null }, null, 2)}</pre></details>
+    </details>
   </div>
 }
