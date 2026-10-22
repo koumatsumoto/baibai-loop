@@ -2,7 +2,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
-import { AssessmentReturnLink, assessmentReturnHref, savedAssessmentHref } from '../src/components/ReadingNavigation'
+import { AssessmentReturnLink } from '../src/components/ReadingNavigation'
+import { assessmentReturnHref, savedAssessmentHref } from '../src/lib/reading-navigation'
 
 describe('保存評価から元の判断へ戻る', () => {
   it('固定評価Aを開き、読了後に同じ提案の対象へ戻る', () => {

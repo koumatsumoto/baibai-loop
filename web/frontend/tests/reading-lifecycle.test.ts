@@ -1,7 +1,7 @@
 import { isValidElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fetchJson } from '../src/api/client'
-import { useProposalReadingAnchor } from '../src/components/ReadingNavigation'
+import { useProposalReadingAnchor } from '../src/lib/reading-navigation'
 import { CurrentProposalPreviewPanel } from '../src/pages/InvestmentProposalPage'
 
 const hooks = vi.hoisted(() => ({
