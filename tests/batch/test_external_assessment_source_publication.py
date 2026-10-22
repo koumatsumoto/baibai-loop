@@ -7,12 +7,6 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
-from tests.batch.test_external_assessment_publication import RECEIVED
-from tests.batch.test_external_assessment_publication import publication as publication
-from tests.batch.test_external_assessment_raw import Session
-from tests.batch.test_external_assessment_raw import connect as connect
-from tests.engine.test_external_assessment_sources import monex_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs import external_assessment_publication as publisher
@@ -39,6 +33,13 @@ from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
+from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
+from tests.batch.test_external_assessment_publication import RECEIVED
+from tests.batch.test_external_assessment_publication import publication as publication
+from tests.batch.test_external_assessment_raw import Session
+from tests.batch.test_external_assessment_raw import connect as connect
+from tests.engine.test_external_assessment_sources import monex_html
+from tests.engine.test_minkabu import html as minkabu_html
 
 
 def _plan(previous, *, run_id, tickers=("7203",), sources=("monex",), cohort_size=50):
@@ -168,10 +169,12 @@ def test_three_sources_normal_null_and_rakuten_retry_rebuild_from_l1_only(public
         ] == [1, 1, 1]
 
 
-def test_actual_receiver_bundle_flows_into_fixed_release(publication, connect):
+@pytest.mark.parametrize("source", ["monex", "minkabu"])
+def test_actual_receiver_bundle_flows_into_fixed_release(publication, connect, source):
     store, previous, _, database, _, _ = publication
-    plan = _plan(previous, run_id="source-receiver-integration")
-    connect(Session([(200, monex_html("7203").encode(), "utf-8")]))
+    plan = _plan(previous, run_id="source-receiver-integration", sources=(source,))
+    html = monex_html("7203") if source == "monex" else minkabu_html("7203")
+    connect(Session([(200, html.encode(), "utf-8")]))
     daily.acquire_cohort(store, plan, 0)
     report = _publish(publication, plan, "receiver-integration")
     assert report["readback"] == "verified"

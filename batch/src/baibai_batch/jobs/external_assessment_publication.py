@@ -260,7 +260,13 @@ def publish_and_verify(
         raise LakePublishError("external assessment publication changed dataset inventory")
     if unchanged_objects(before, changed) != unchanged_objects(after, changed):
         raise LakePublishError("external assessment publication changed unrelated partitions")
-    for name in (SOURCE_RESPONSES_DATASET, VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET):
+    for name in (
+        SOURCE_RESPONSES_DATASET,
+        VALUATION_DATASET,
+        RATING_DATASET,
+        QUANTS_DATASET,
+        ANALYST_FORECAST_DATASET,
+    ):
         manifest = after.dataset_manifests.get(name)
         if manifest is None:
             continue
@@ -319,7 +325,14 @@ def publish_and_verify(
     external_assessment_readback = {
         obj.key: obj.bytes
         for name, manifest in after.dataset_manifests.items()
-        if name in {SOURCE_RESPONSES_DATASET, VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET}
+        if name
+        in {
+            SOURCE_RESPONSES_DATASET,
+            VALUATION_DATASET,
+            RATING_DATASET,
+            QUANTS_DATASET,
+            ANALYST_FORECAST_DATASET,
+        }
         for part in manifest.partitions
         if (name, part.values["year"], part.values["month"]) in changed
         for obj in part.objects

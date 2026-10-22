@@ -208,7 +208,7 @@ def test_transport_timeout_is_not_a_confirmed_429(clock):
 
 
 def test_retry_policy_version_changes_old_plan_binding(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v7"
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v8"
     new = collection.collector_binding()
     monkeypatch.setattr(
         collection, "PAIR_ACQUISITION_POLICY_VERSION", "external-assessment-pair-acquisition-v1"
@@ -248,3 +248,4 @@ def test_invalid_calendar_or_second_is_malformed_not_leap_second(clock, header):
     result = collect(Session(clock, header=header))
     assert result.retry_after_not_before_utc is None
     assert result.retry_after_unrepresentable is False
+
