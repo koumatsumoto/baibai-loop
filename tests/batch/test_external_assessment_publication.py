@@ -56,9 +56,10 @@ RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 def test_acquire_workflow_timeout_can_start_a_harmless_command():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     commands = [
-        shlex.split(step["run"])
+        shlex.split(line.strip())
         for step in workflow["jobs"]["acquire"]["steps"]
-        if step.get("run", "").startswith("timeout ")
+        for line in step.get("run", "").splitlines()
+        if line.strip().startswith("timeout ")
     ]
     assert len(commands) == 1
     command = commands[0]
