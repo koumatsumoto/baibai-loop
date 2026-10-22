@@ -300,3 +300,13 @@ def test_current_card_and_annual_values_require_explicit_identity_units_and_cell
 def test_visible_history_priority_does_not_infer_hidden_rounding_from_card():
     text = html().replace('<span class="fsxxl">100</span>', '<span class="fsxxl">99</span>')
     assert parse(text).target_price_yen == 100
+
+
+def test_conflicting_displayed_forecast_year_is_not_silently_reconciled():
+    from baibai_engine.external_assessment.acquisition.collection import PARSE_FAILURE_REASONS
+
+    # Equal figures do not establish which of two conflicting period labels is true.
+    text = html().replace("2027年3月期", "2026年12月期")
+    with pytest.raises(ParseError, match=r"^conflicting_forecast_period$"):
+        parse(text)
+    assert "conflicting_forecast_period" in PARSE_FAILURE_REASONS

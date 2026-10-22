@@ -784,7 +784,7 @@ import対象は明示した既存の隔離作業コピーであり、current mar
    runs/indicatorsは同じlease内でfresh pullした無変更の内容を同時に戻す。applicationを変更せず、既存Lake原本の履歴も保持する。
    続けて通常のmaterializeを行い、各stepの成否とlease解放を確認する。
 4. 反映済み48に対して移行入力を再指定しない。store反映後にmaterializeだけ失敗した場合は、
-   次回は`upgrade_market_v48=false`で再実行する。部分machine pushでは既存の部分push復旧手順に従う。
+   次回は`upgrade_market_v48=false`で再実行する。Lake公開だけ成功してremote marketが47のままなら、実際のcurrent releaseとmachineの反映状態を確認し、fresh pullした47の変換とcurrent Lakeのhydrateから再開する。部分machine pushでは既存の部分push復旧手順に従う。
    未確認のbackupへの上書きやuser_versionだけの変更をしない。
 5. 切替受入後に一回限りのtool・専用test・workflow入力/stepを撤去し、通常経路に互換分岐を残さない。
    3銘柄の初回実取得・原本/観測の新規件数・固定release公開と、schema切替の各stepを別に確認する。schema切替成功だけを取得済みとは数えない。
@@ -813,7 +813,7 @@ planは既存stageを一度走査し、未記録pairを持つcohortだけをmatr
 
 待機がbudgetへ収まらない、有効な待機値が表現不能、5回使い切った後の429、403では新規通信を止め、最後に確定した失敗と未記録pairをpartial stageへ保存する。失敗は同planで再取得しない。operatorが原因を確認して同batchを再開する場合も未記録pairだけを取得する。失敗pairを改めて取得する必要があれば、重複取得範囲を明示して別batchを計画する。retry専用matrix・再dispatchにまたがる残り回数や待機期限は作らない。
 
-追加取得のcollector bindingはparser・host・pair上限を含むv7である。旧checkpoint形式は新readerで実行時変換せず、未公開の旧batchは旧revisionで確認・完結させるか、レビュー済みの個別切替を行う。新batchへ旧checkpointを読み替えない。今回のcode変更だけで本番の旧stage移行済みとは扱わない。verified terminalは追加取得のbinding確認より先に認識し、元の完全/部分公開結果のままno-opで返す。
+追加取得のcollector bindingはparser・host・pair上限・みんかぶの明示request headerを含む。実行revisionの`collector_binding()`を正本とし、保存planのbindingと照合する。旧checkpoint形式は新readerで実行時変換せず、未公開の旧batchは旧revisionで確認・完結させるか、レビュー済みの個別切替を行う。新batchへ旧checkpointを読み替えない。今回のcode変更だけで本番の旧stage移行済みとは扱わない。verified terminalは追加取得のbinding確認より先に認識し、元の完全/部分公開結果のままno-opで返す。
 
 ### 公開HTML原本のcohort handoff bundle
 
@@ -821,7 +821,7 @@ HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stage
 
 受信した本文は文字decode前にcallbackへ渡す。各attemptの最大2本文をpair deadline外でprivateなlocal fileへspoolし、cohort終了時にarchiveを作ってimmutable bundleをuploadする。成功したuploadのkeyと選択attempt IDを含めてからtyped stageを条件付きcommitする。raw append・finalize・upload失敗はstage commitを止める。stage PUTが曖昧な場合は既存の読戻しで実際に保存された競合stageを採用し、上書きしない。commit前のhard killでは未確定GETを再実行し得るため、解析の各命令より前に永続保存済みとは主張しない。完了済みstage/terminalは再取得・raw補完しない。
 
-keyは既存rootの`external-assessment/raw/utc-date/<bundle作成UTC日>/bundles/<batch_id>/cohort-NNNN-<bundle UUID>.tar.gz`とする。manifestの各本文の実受領時刻はbundle作成日へ付け替えない。本文共有用のhash-indexや独自containerは持たず、3媒体と429 retryのsynthetic fixtureで全bytes復元と容量を検証する。200のparse失敗本文も保持するが、typed failureをnormalnullへ変えない。非200・未受領本文のreceiptは作らず、応答なしの試行はattempt IDだけを残す。限定`collect` CLIも同じ原応答callbackからprivate captureを作る。
+keyは既存rootの`external-assessment/raw/utc-date/<bundle作成UTC日>/bundles/<batch_id>/cohort-NNNN-<bundle UUID>.tar.gz`とする。manifestの各本文の実受領時刻はbundle作成日へ付け替えない。本文共有用のhash-indexや独自containerは持たず、各媒体と429 retryのsynthetic fixtureで全bytes復元と容量を検証する。200のparse失敗本文も保持するが、typed failureをnormalnullへ変えない。非200・未受領本文のreceiptは作らず、応答なしの試行はattempt IDだけを残す。限定`collect` CLIも同じ原応答callbackからprivate captureを作る。
 
 raw rootは引き続き`external-assessment/raw/`であり、R2標準lifecycleの期限方針はこの変更では触らない。この単一prefixへ`Expiration: {Days: 3}`を設定する方針とし、deploymentでは実設定を確認する。適用時の実保持は通常概ね3〜4日で、厳密な72時間TTLではない（[R2公式仕様](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)）。v2 bundleはstageより先にdurable uploadされる短期handoffであり、stage commitだけで公開済みL1とは扱わない。publisherが原本をmarket SQLiteへ取り込み、固定Lake releaseを読戻して初めて長期L1として確認する。旧rootの移動・削除やlifecycle操作を日次取得へ加えない。
 

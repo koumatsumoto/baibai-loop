@@ -15,7 +15,7 @@ from baibai_engine.external_assessment.normalization import (
 )
 from baibai_engine.external_assessment.observations.models import AnalystForecastObservation
 
-PARSER_VERSION = "minkabu-analyst-3"
+PARSER_VERSION = "minkabu-analyst-4"
 RATING_LABELS = ("強気買い", "買い", "中立", "売り", "強気売り")
 COUNT_FIELDS = ("strong_buy_count", "buy_count", "neutral_count", "sell_count", "strong_sell_count")
 FORECAST_FIELDS = {
@@ -242,7 +242,7 @@ def parse_html(
     if sections and "forecast_period_label" in annual:
         year = str(annual["forecast_period_label"])[:4]
         if not any(compact(h.text) == year + "年の業績予想" for h in sections[0].find("h3")):
-            raise ParseError("changed_analyst_forecast")
+            raise ParseError("conflicting_forecast_period")
     return AnalystForecastObservation.model_validate(
         {
             "ticker": ticker,

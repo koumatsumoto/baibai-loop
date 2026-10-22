@@ -56,3 +56,21 @@ def test_default_plan_includes_four_sources_and_minkabu_roundtrips(available):
     assert [entry.state for entry in restored.entries] == ["unattempted"] * 3 + [
         "success" if available else "normal_null"
     ]
+
+
+def test_source_period_conflict_remains_a_reasoned_failure_in_cohort_handoff():
+    plan = make_plan(
+        run_id="synthetic-period-conflict",
+        tickers=("7203",),
+        universe_binding="synthetic-universe",
+        collector_binding="synthetic-code",
+    )
+    outcome = ExternalAssessmentCollectionOutcome(
+        "minkabu", "7203", "parse_failure", "conflicting_forecast_period", 200, str(uuid4())
+    )
+    result = record_outcome(plan, new_result(plan, 0), outcome, None)
+    restored = load_result(plan, json.loads(json.dumps(result_value(plan, result))))
+    assert restored == result
+    assert restored.observations == ()
+    assert restored.entries[-1].state == "failure"
+    assert restored.entries[-1].reason == "conflicting_forecast_period"

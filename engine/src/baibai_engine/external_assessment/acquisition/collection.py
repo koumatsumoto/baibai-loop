@@ -59,6 +59,7 @@ PARSE_FAILURE_REASONS = frozenset(
         "missing_analyst_forecast",
         "unconfirmed_no_analyst_coverage",
         "changed_analyst_forecast",
+        "conflicting_forecast_period",
         "missing_quants_date",
         "missing_quants_scores",
         "changed_quants_score",
