@@ -10,6 +10,7 @@ from pathlib import Path
 
 from baibai_batch.observability.discord import (
     DEFAULT_TIMEOUT_SECONDS,
+    MESSAGE_MAX_CHARS,
     OUTCOME_CANCELLED,
     OUTCOME_DEGRADED,
     OUTCOME_FAILED,
@@ -60,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--publication-mode", choices=("complete", "confirmed_partial"), default="complete"
     )
     parser.add_argument("--sources-report", type=Path)
+    parser.add_argument("--render-only", action="store_true")
+    parser.add_argument("--message-json")
     parser.add_argument("--lease-release-outcome", choices=(*JOB_RESULTS, ""), default="")
     return parser
 
@@ -160,15 +163,44 @@ def render_sources(
             + f"\nrun: {sanitize_one_line(run_url(os.environ), 420)}"
         )
     except (OSError, ValueError, KeyError, TypeError, UnicodeError):
-        outcome = OUTCOME_CANCELLED if cancelled == "true" else OUTCOME_FAILED
-        return (
-            f"{OUTCOME_LABELS[outcome]} external assessment — "
-            "source別結果不明・公開の未反映とは断定不可\n"
-            f"run: {sanitize_one_line(run_url(os.environ), 420)}"
-        )
+        return unknown_sources_message(cancelled=cancelled == "true")
+
+
+def unknown_sources_message(*, cancelled: bool) -> str:
+    outcome = OUTCOME_CANCELLED if cancelled else OUTCOME_FAILED
+    return (
+        f"{OUTCOME_LABELS[outcome]} external assessment — "
+        "source別結果不明・公開の未反映とは断定不可\n"
+        f"run: {sanitize_one_line(run_url(os.environ), 420)}"
+    )
 
 
 def render_message(args: argparse.Namespace) -> str:
+    if args.message_json is not None:
+        cancelled = args.cancelled == "true" or "cancelled" in (
+            args.plan_result,
+            args.acquire_result,
+            args.publish_result,
+        )
+        try:
+            prepared = json.loads(args.message_json)
+            if not isinstance(prepared, str) or len(prepared) > MESSAGE_MAX_CHARS:
+                raise ValueError
+            label = next(
+                (
+                    label
+                    for label in OUTCOME_LABELS.values()
+                    if prepared.startswith(f"{label} external assessment")
+                ),
+                None,
+            )
+            if label is None:
+                raise ValueError
+            if cancelled:
+                prepared = OUTCOME_LABELS[OUTCOME_CANCELLED] + prepared[len(label) :]
+            return prepared[:MESSAGE_MAX_CHARS]
+        except (ValueError, TypeError):
+            return unknown_sources_message(cancelled=cancelled)
     if args.sources_report is not None:
         return render_sources(
             args.sources_report,
@@ -243,11 +275,13 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     args = build_parser().parse_args(argv)
     message = render_message(args)
     print(message, flush=True)
-    # Mark before POST: a lost response may already have delivered the message.
-    # The fallback must not repeat a possibly completed external send.
-    if output := os.environ.get("GITHUB_OUTPUT"):
-        with Path(output).open("a", encoding="utf-8") as stream:
-            print("attempted=true", file=stream)
+    if args.render_only:
+        # Only the allowlisted rendered message crosses the job boundary.
+        # Single-line JSON preserves newlines without a shell/body interpolation.
+        if output := os.environ.get("GITHUB_OUTPUT"):
+            with Path(output).open("a", encoding="utf-8") as stream:
+                print(f"message_json={json.dumps(message)}", file=stream)
+        return 0
     failure = deliver(
         os.environ.get(WEBHOOK_ENV_VAR, ""),
         message,

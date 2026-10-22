@@ -128,7 +128,7 @@ jobs:
   publish:
     needs: [plan, acquire]
     outputs:
-      notification_attempted: ${{ steps.notice.outputs.attempted }}
+      message_json: ${{ steps.notice.outputs.message_json }}
     if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.eligible == 'true' }}
     runs-on: ubuntu-latest
     # The existing publication lease expires after 120 minutes.
@@ -205,18 +205,17 @@ jobs:
         id: cancellation
         if: ${{ cancelled() }}
         run: printf 'cancelled=true\n' >> "$GITHUB_OUTPUT"
-      - name: Notify the measured per-source publication results
+      - name: Prepare the safe per-source notification without sending
         id: notice
         if: ${{ always() }}
         continue-on-error: true
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-        run: python3 -m baibai_batch.observability.external_assessment_discord --sources-report "$RUNNER_TEMP/source-publication.json" --plan-result success --publish-result "${{ steps.publish.outcome }}" --lease-release-outcome "${{ steps.lease-release.outcome }}" --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
+        run: python3 -m baibai_batch.observability.external_assessment_discord --render-only --sources-report "$RUNNER_TEMP/source-publication.json" --plan-result success --publish-result "${{ steps.publish.outcome }}" --lease-release-outcome "${{ steps.lease-release.outcome }}" --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
 
   notify:
     needs: [plan, acquire, publish]
-    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.outputs.eligible != 'false' && needs.publish.outputs.notification_attempted != 'true' }}
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.outputs.eligible != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -225,9 +224,10 @@ jobs:
         id: cancellation
         if: ${{ cancelled() }}
         run: printf 'cancelled=true\n' >> "$GITHUB_OUTPUT"
-      - name: Notify missing source publication results
+      - name: Send the one run notification
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-        run: python3 -m baibai_batch.observability.external_assessment_discord --plan-result "${{ needs.plan.result }}" --acquire-result "${{ needs.acquire.result }}" --publish-result "${{ needs.publish.result }}" --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
+          SOURCE_NOTICE_JSON: ${{ needs.publish.outputs.message_json }}
+        run: python3 -m baibai_batch.observability.external_assessment_discord --message-json "$SOURCE_NOTICE_JSON" --plan-result "${{ needs.plan.result }}" --acquire-result "${{ needs.acquire.result }}" --publish-result "${{ needs.publish.result }}" --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
