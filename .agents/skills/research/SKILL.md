@@ -84,7 +84,10 @@ uv run baibai-engine research prepare \
 ```bash
 uv run python -m baibai_engine.research.pdf_reader <PRIVATE_REPORT_PDF> --pages 1-3
 uv run python -m baibai_engine.research.pdf_reader <PRIVATE_REPORT_PDF> --search 業績予想 リスク
+uv run python -m baibai_engine.research.pdf_reader <PRIVATE_REPORT_PDF> --pages 4-12 --search 業績予想 リスク --show-hit-pages
 ```
+
+`--pages`は検索範囲も制限し、表示番号は物理PDFページ番号のまま保持する。`--show-hit-pages`は検索に一致したページの抽出全文を一度ずつ表示し、断片検索からページ番号を転記して再実行する操作を省く。既定は短い断片表示であり、全文が不要な調査で入力を増やさない。未一致は選択範囲の抽出テキストに一致しないだけで、空テキストや画像中の記載不存在を証明しない。前ページの見出しやpypdfの列順崩れは自動修復しない。
 
 数表は年度見出しと脚注を一緒に読み、抽出が崩れた表は原PDFのページ表示で確認する。原本URL・実受領時刻・読取範囲を既存sourceの用途へ記録し、SRCの独自予想と会社計画、フィスコの有償企業調査と独立裏取りを区別する。資料が古い・未カバー・取得できない場合も、それだけでResearchを止めず、重要な不足と一次資料で補えた範囲を残す。
 
@@ -147,4 +150,5 @@ uv run baibai-engine research proposal-publish <REVIEWED_DRAFT> --db stores/appl
 固定対象の被覆と公開済み提案を確認する。buy/sellの具体terms不足は未完了理由を明示し、具体提案完成と区別する。0対象は理由ある選定結果を保って終了できる。L3提案完成と調査終了を記録し、人間の採否・broker操作・実約定を完了条件へ補完しない。
 
 必要なmonitoringは既存taskを確認して登録する。cloud反映は[Ops Maintenance](../ops-maintenance/SKILL.md)に従う。対象未確定、重要な入力矛盾、独立Review未完了、binding競合は解消するまで先へ進まない。
+
 

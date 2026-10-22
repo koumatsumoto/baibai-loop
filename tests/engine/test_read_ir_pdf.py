@@ -159,3 +159,126 @@ def test_cli_extracts_only_requested_pages_or_all_pages_for_search(
     assert "3 page(s)" in output
     for number in expected:
         assert f"営業利益{number}" in output
+
+
+def _mock_pdf(tmp_path, monkeypatch, texts):
+    from baibai_engine.research import pdf_reader
+
+    calls = []
+
+    class Page:
+        def __init__(self, number, text):
+            self.number = number
+            self.text = text
+
+        def extract_text(self):
+            calls.append(self.number)
+            return self.text
+
+    path = tmp_path / "synthetic.pdf"
+    path.touch()
+    monkeypatch.setattr(
+        pdf_reader,
+        "PdfReader",
+        lambda _path: SimpleNamespace(
+            pages=[Page(number, text) for number, text in enumerate(texts, start=1)]
+        ),
+    )
+    return path, calls
+
+
+@pytest.mark.parametrize("full", [False, True])
+def test_search_scope_preserves_physical_page_order_and_extracts_once(
+    tmp_path, monkeypatch, capsys, full
+):
+    path, calls = _mock_pdf(tmp_path, monkeypatch, [f"営業利益{i}" for i in range(1, 8)])
+    args = [str(path), "--pages", "7,3,7", "--search", "営業利益"]
+    if full:
+        args.append("--show-hit-pages")
+    assert main(args) == 0
+    assert calls == [7, 3]
+    out = capsys.readouterr().out
+    prefix = "=== page " if full else "--- p"
+    assert out.index(prefix + "7") < out.index(prefix + "3")
+    assert prefix + "1" not in out
+    assert out.count(prefix) == 2
+
+
+@pytest.mark.parametrize("context", [0, 500])
+def test_hit_page_output_preserves_lines_and_deduplicates_keywords_and_pages(
+    tmp_path, monkeypatch, capsys, context
+):
+    text = "2026年度 前期 当期\n単位：百万円\n売上高 100 120\n営業利益 -4 ---\n脚注 営業利益"
+    path, calls = _mock_pdf(tmp_path, monkeypatch, [text])
+    assert (
+        main(
+            [
+                str(path),
+                "--search",
+                "営業利益",
+                "売上高",
+                "営業利益",
+                "--show-hit-pages",
+                "--context",
+                str(context),
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert calls == [1]
+    assert out.count("=== page 1 [営業利益, 売上高]") == 1
+    assert out.count(text) == 1
+    assert "--- p" not in out
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_scoped_search_distinguishes_no_hit_from_partial_keyword_miss(
+    tmp_path, monkeypatch, capsys, partial
+):
+    path, calls = _mock_pdf(tmp_path, monkeypatch, ["のれん", "営業利益"])
+    keywords = ["営業利益", "のれん"] if partial else ["のれん"]
+    assert main([str(path), "--pages", "2", "--search", *keywords]) == (0 if partial else 1)
+    assert calls == [2]
+    err = capsys.readouterr().err
+    assert "no hit for: ['のれん']" in err
+    assert ("no match in the selected pages' extracted text" in err) is (not partial)
+
+
+def test_empty_extracted_pages_warn_without_claiming_absence(tmp_path, monkeypatch, capsys):
+    path, calls = _mock_pdf(tmp_path, monkeypatch, [None, "  \n", "営業利益"])
+    assert main([str(path), "--pages", "2,1,3", "--search", "営業利益"]) == 0
+    assert calls == [2, 1, 3]
+    err = capsys.readouterr().err
+    assert "no searchable extracted text on pages: [2, 1]" in err
+    assert "inspect the original PDF" in err
+
+
+@pytest.mark.parametrize("selection", ["9", ""])
+def test_search_rejects_invalid_page_selection(tmp_path, monkeypatch, capsys, selection):
+    path, calls = _mock_pdf(tmp_path, monkeypatch, ["営業利益"])
+    with pytest.raises(SystemExit) as error:
+        main([str(path), "--pages", selection, "--search", "営業利益"])
+    assert error.value.code == 2
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [["--show-hit-pages"], ["--search", "営業利益", "--show-hit-pages", "--context", "-1"]],
+)
+def test_invalid_full_page_options_fail_before_pdf_read(tmp_path, arguments):
+    with pytest.raises(SystemExit) as error:
+        main([str(tmp_path / "not-read.pdf"), *arguments])
+    assert error.value.code == 2
+
+
+def test_all_empty_extracted_pages_are_not_a_successful_absence_check(
+    tmp_path, monkeypatch, capsys
+):
+    path, calls = _mock_pdf(tmp_path, monkeypatch, [None, " "])
+    assert main([str(path), "--search", "営業利益", "--show-hit-pages"]) == 1
+    assert calls == [1, 2]
+    err = capsys.readouterr().err
+    assert "no searchable extracted text on pages: [1, 2]" in err
+    assert "no match in the selected pages' extracted text" in err
