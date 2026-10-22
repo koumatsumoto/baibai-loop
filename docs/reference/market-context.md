@@ -46,7 +46,7 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選ぶ。そのsnapshotにいないtickerを古いsnapshotから復活させず、未来分類を使わない。価格はcutoff以下のraw closeを保存済み価格調整係数の後方累積で揃え、closeがnullの価格調整eventも落とさない。現金配当込みreturnではない。価格の観測日、requested cutoff、master snapshotの日は同一とは限らないため、各基準日を見て読む。
 
-SMA20/50/200・BB20・Wilder RSI14は、同じ保存価格basisを利用する独立した[Technical Analysis](./technical-analysis.md)から読む。新規読取の`price`にBBを混在させず、ticker-profileとResearchでは`technical_analysis`へ分ける。旧固定snapshotのBB欄は当時のまま保持し、現在値の後付けは行わない。
+個別価格のSMA20/50/200・BB20・Wilder RSI14は、同じ保存価格basisを利用する独立した[Technical Analysis](./technical-analysis.md)が所有し、市場・業種・個別相対を扱うMarket Contextから分けて読む。Researchでは内部snapshotの`securities_context[ticker].technical_analysis`を固定入力とし、解釈と四領域の統合は[Stock Assessment](./stock-assessment.md#analysis-domain-integration)に従う。新規読取の`price`にBBを混在させず、旧固定snapshotのBB欄は当時のまま保持し、現在のtechnical値を後付けしない。
 
 既存CLIは次の領域計算を参照する。
 
