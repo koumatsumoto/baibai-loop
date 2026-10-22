@@ -236,6 +236,39 @@ def test_unknown_order_without_reservation_records_only_the_unregistered_fact(tm
     assert build_broker_fact_draft(service, lambda _: "1234", **report) == (None, ())
 
 
+def test_unregistered_direct_order_id_cannot_mint_another_reference_for_a_fill(tmp_path: Path):
+    service = _service(tmp_path)
+    report = {
+        "decision_reference": None,
+        "direct_fact": True,
+        "status": "filled",
+        "occurred_on": AT.date(),
+        "ticker": "1234",
+        "quantity": 100,
+        "price_yen": Decimal(900),
+        "sector": "合成業種",
+        "order_id": "unregistered-direct-order",
+        "now": AT,
+    }
+    draft, _ = build_broker_fact_draft(service, lambda _: "1234", **report)
+    assert draft is not None
+    assert draft.binding_addition is not None
+    reference = draft.binding_addition.reference
+    apply_draft(service, draft, human_confirmed=True)
+    before = service.load_with_head()
+
+    with pytest.raises(ValueError, match="saved manual-fact reference"):
+        build_broker_fact_draft(service, lambda _: "1234", **report)
+    assert service.load_with_head() == before
+    assert build_broker_fact_draft(
+        service, lambda _: "1234", **(report | {"decision_reference": reference})
+    ) == (None, ())
+    document = service.load()
+    state = replay_events_through(document.events, document.as_of)
+    assert state.available_cash_yen == 910_000
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 100
+
+
 @pytest.mark.parametrize(
     ("quantity", "price", "error"),
     [(300, "900", "exceeds reserved quantity"), (100, "1001", "exceeds reservation price guard")],
