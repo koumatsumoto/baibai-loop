@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.observations.contract import (
+    ANALYST_FORECAST_COLUMNS,
+    ANALYST_FORECAST_TABLE,
     ANALYST_RATING_COLUMNS,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
@@ -18,6 +20,7 @@ from baibai_engine.external_assessment.observations.contract import (
     Column,
 )
 from baibai_engine.external_assessment.observations.models import (
+    AnalystForecastObservation,
     AnalystRatingObservation,
     ModelValuationObservation,
     QuantsScoreObservation,
@@ -29,6 +32,7 @@ from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_T
 from baibai_engine.storage.observations.read import connect_read_only
 
 from .models import (
+    AnalystForecastHistory,
     AnalystRatingHistory,
     ModelValuationHistory,
     ObservationHistory,
@@ -124,6 +128,12 @@ def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> Obser
             QuantsScoreObservation.model_validate(dict(row))
             for row in _latest_rows(conn, QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS, ticker, cutoff)
         ]
+        minkabu = [
+            AnalystForecastObservation.model_validate(dict(row))
+            for row in _latest_rows(
+                conn, ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS, ticker, cutoff
+            )
+        ]
         tradingview = sorted(
             (
                 TradingViewObservation.model_validate(dict(row))
@@ -148,6 +158,10 @@ def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> Obser
         quants_scores=tuple(
             QuantsScoreHistory(latest=latest, previous=previous)
             for latest, previous in _pairs(quants)
+        ),
+        minkabu=AnalystForecastHistory(
+            latest=minkabu[0] if minkabu else None,
+            previous=minkabu[1] if len(minkabu) > 1 else None,
         ),
         tradingview=TradingViewHistory(
             latest=tradingview[0] if tradingview else None,

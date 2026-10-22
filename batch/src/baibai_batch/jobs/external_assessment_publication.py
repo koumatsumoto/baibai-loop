@@ -32,6 +32,9 @@ from baibai_batch.storage.publish_market_lake import (
     publish_market_lake,
 )
 from baibai_engine.batch_api import (
+    EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET as ANALYST_FORECAST_DATASET,
+)
+from baibai_engine.batch_api import (
     EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET as ANALYST_RATING_DATASET,
 )
 from baibai_engine.batch_api import (
@@ -41,6 +44,7 @@ from baibai_engine.batch_api import (
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET as QUANTS_SCORE_DATASET,
 )
 from baibai_engine.batch_api import (
+    ExternalAssessmentAnalystForecastObservation,
     ExternalAssessmentModelValuationObservation,
     ExternalAssessmentObservation,
     ExternalAssessmentQuantsScoreObservation,
@@ -215,6 +219,8 @@ def publish_and_verify(
             if isinstance(item, ExternalAssessmentModelValuationObservation)
             else QUANTS_DATASET
             if isinstance(item, ExternalAssessmentQuantsScoreObservation)
+            else ANALYST_FORECAST_DATASET
+            if isinstance(item, ExternalAssessmentAnalystForecastObservation)
             else RATING_DATASET,
             item.snapshot_date.year,
             item.snapshot_date.month,

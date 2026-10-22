@@ -8,13 +8,14 @@ from typing import Literal
 from pydantic import AwareDatetime, Field, FiniteFloat
 
 from baibai_engine.external_assessment.observations.models import (
+    AnalystForecastObservation,
     AnalystRatingObservation,
     FrozenModel,
     ModelValuationObservation,
     QuantsScoreObservation,
 )
 
-METHOD_VERSION = "same-series-v3"
+METHOD_VERSION = "same-series-v4"
 
 
 class ModelValuationHistory(FrozenModel):
@@ -91,6 +92,11 @@ class TradingViewHistory(FrozenModel):
     previous: TradingViewObservation | None = None
 
 
+class AnalystForecastHistory(FrozenModel):
+    latest: AnalystForecastObservation | None = None
+    previous: AnalystForecastObservation | None = None
+
+
 class ObservationHistory(FrozenModel):
     ticker: str
     cutoff: datetime
@@ -98,6 +104,7 @@ class ObservationHistory(FrozenModel):
     analyst_ratings: tuple[AnalystRatingHistory, ...] = ()
     quants_scores: tuple[QuantsScoreHistory, ...] = ()
     tradingview: TradingViewHistory = Field(default_factory=TradingViewHistory)
+    minkabu: AnalystForecastHistory = Field(default_factory=AnalystForecastHistory)
 
 
 class ModelValuationAssessment(FrozenModel):
@@ -146,3 +153,4 @@ class ExternalAssessment(FrozenModel):
     quants_scores: tuple[QuantsScoreAssessment, ...]
     tradingview: TradingViewAssessment
     origin_groups: tuple[OriginGroup, ...]
+    minkabu: AnalystForecastHistory = Field(default_factory=AnalystForecastHistory)

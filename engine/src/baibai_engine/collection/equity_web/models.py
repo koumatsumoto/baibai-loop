@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-type Source = Literal["monex", "rakuten", "kabumap"]
+type Source = Literal["monex", "rakuten", "kabumap", "minkabu"]
 type Role = Literal["page", "iframe"]
 
 

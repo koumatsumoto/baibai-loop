@@ -20,6 +20,7 @@ from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.external_assessment.normalization import (
     ParseError,
     kabumap,
+    minkabu,
     monex,
     rakuten,
 )
@@ -55,6 +56,8 @@ PARSE_FAILURE_REASONS = frozenset(
         "changed_rating_headers",
         "changed_rating_cell",
         "response_encoding",
+        "missing_analyst_forecast",
+        "changed_analyst_forecast",
         "missing_quants_date",
         "missing_quants_scores",
         "changed_quants_score",
@@ -119,7 +122,7 @@ def collect(
     if (
         not sources
         or len(set(sources)) != len(sources)
-        or any(source not in {"monex", "rakuten", "kabumap"} for source in sources)
+        or any(source not in {"monex", "rakuten", "kabumap", "minkabu"} for source in sources)
     ):
         raise ValueError("collection requires distinct supported sources")
     if not 1 <= request_budget <= MAX_REQUESTS:
@@ -192,6 +195,12 @@ def collect(
                             url = monex.public_url(ticker)
                             html, received, _ = receive(url, role="page")
                             observation: Observation = monex.parse_html(
+                                html, ticker=ticker, source_url=url, fetched_at_utc=received
+                            )
+                        elif source == "minkabu":
+                            url = minkabu.public_url(ticker)
+                            html, received, _ = receive(url, role="page")
+                            observation = minkabu.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         elif source == "kabumap":
@@ -327,11 +336,12 @@ def collector_binding() -> str:
         "monex_parser": monex.PARSER_VERSION,
         "rakuten_parser": rakuten.PARSER_VERSION,
         "kabumap_parser": kabumap.PARSER_VERSION,
+        "minkabu_parser": minkabu.PARSER_VERSION,
         "request_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
         "initial_pair_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
         "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,
         "request_timeout_seconds": DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
-        "source_request_limits": {"monex": 1, "rakuten": 2, "kabumap": 1},
+        "source_request_limits": {"monex": 1, "rakuten": 2, "kabumap": 1, "minkabu": 1},
         "daily_host_rate": {
             "hosts": source_http.RATE_LIMITED_HOSTS,
             "requests_per_second": source_http.HOST_REQUEST_RATE_PER_SECOND,
@@ -364,7 +374,7 @@ def collect_pair(
     finite pair/HTTP deadlines and source identity checks remain unchanged.
     """
     ticker = normalize_ticker(ticker)
-    if source not in {"monex", "rakuten", "kabumap"}:
+    if source not in {"monex", "rakuten", "kabumap", "minkabu"}:
         raise ValueError("pair collection requires a supported source")
     if not math.isfinite(time_limit_seconds) or not 0 < time_limit_seconds <= 120:
         raise ValueError("wall-clock limit must be positive and at most 120 seconds")

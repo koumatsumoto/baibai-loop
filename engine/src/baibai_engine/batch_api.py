@@ -70,6 +70,9 @@ from baibai_engine.external_assessment.normalization.decode import (
     decode_attempt as external_assessment_decode_attempt,
 )
 from baibai_engine.external_assessment.observations.identity import (
+    ANALYST_FORECAST_DATASET as EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET,
+)
+from baibai_engine.external_assessment.observations.identity import (
     ANALYST_RATING_DATASET as EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET,
 )
 from baibai_engine.external_assessment.observations.identity import (
@@ -77,6 +80,9 @@ from baibai_engine.external_assessment.observations.identity import (
 )
 from baibai_engine.external_assessment.observations.identity import (
     QUANTS_SCORE_DATASET as EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET,
+)
+from baibai_engine.external_assessment.observations.models import (
+    AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation,
 )
 from baibai_engine.external_assessment.observations.models import (
     AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
@@ -201,6 +207,7 @@ __all__ = [
     "EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET",
     "EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET",
     "EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET",
+    "EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET",
     "INDICATORS_DB_PATH",
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
@@ -217,6 +224,7 @@ __all__ = [
     "ExternalAssessmentModelValuationObservation",
     "ExternalAssessmentObservation",
     "ExternalAssessmentQuantsScoreObservation",
+    "ExternalAssessmentAnalystForecastObservation",
     "ExternalAssessmentSource",
     "IndicatorDefinitions",
     "LakeBuildError",

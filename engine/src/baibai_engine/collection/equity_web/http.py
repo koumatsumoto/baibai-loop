@@ -29,6 +29,7 @@ RATE_LIMITED_HOSTS = (
     "www.rakuten-sec.co.jp",
     "rakuten-sec.ifis.co.jp",
     "jp.kabumap.com",
+    "minkabu.jp",
 )
 
 

@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.external_assessment.normalization import ParseError, kabumap, monex, rakuten
+from baibai_engine.external_assessment.normalization import (
+    ParseError,
+    kabumap,
+    minkabu,
+    monex,
+    rakuten,
+)
 from baibai_engine.external_assessment.observations.models import Observation
 
 
@@ -38,13 +44,20 @@ def decode_attempt(responses: Sequence[EquityWebSourceResponse]) -> Observation:
     ticker = responses[0].requested_ticker
     roles = {response.role: response for response in responses}
     expected = {"page", "iframe"} if source == "rakuten" else {"page"}
-    if source not in ("monex", "rakuten", "kabumap") or set(roles) != expected:
+    if source not in ("monex", "rakuten", "kabumap", "minkabu") or set(roles) != expected:
         raise ParseError("incomplete_attempt")
     page = roles["page"]
     if page.parent_receipt_id is not None:
         raise ParseError("parent_identity")
     if source == "monex":
         return monex.parse_html(
+            _html(page),
+            ticker=ticker,
+            source_url=page.requested_url,
+            fetched_at_utc=page.received_at_utc,
+        )
+    if source == "minkabu":
+        return minkabu.parse_html(
             _html(page),
             ticker=ticker,
             source_url=page.requested_url,

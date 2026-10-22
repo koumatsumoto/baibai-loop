@@ -149,4 +149,34 @@ class QuantsScoreObservation(ReceivedObservation):
     industry_average_score: FiniteFloat | None = Field(default=None, ge=0, le=100)
 
 
-type Observation = ModelValuationObservation | AnalystRatingObservation | QuantsScoreObservation
+class AnalystForecastObservation(ReceivedObservation):
+    """Visible Minkabu analyst fields, separate from its combined/crowd prediction."""
+
+    distributor: Literal["minkabu"] = "minkabu"
+    display_as_of_date: date
+    rating_label: str | None = None
+    strong_buy_count: int | None = Field(default=None, ge=0, strict=True)
+    buy_count: int | None = Field(default=None, ge=0, strict=True)
+    neutral_count: int | None = Field(default=None, ge=0, strict=True)
+    sell_count: int | None = Field(default=None, ge=0, strict=True)
+    strong_sell_count: int | None = Field(default=None, ge=0, strict=True)
+    target_price_yen: FiniteFloat | None = Field(default=None, ge=0)
+    target_horizon_months: Literal[12] | None = None
+    forecast_period_label: str | None = None
+    analyst_forecast_as_of_date: date | None = None
+    company_forecast_as_of_date: date | None = None
+    analyst_revenue_million_yen: FiniteFloat | None = None
+    analyst_net_income_million_yen: FiniteFloat | None = None
+    analyst_eps_yen: FiniteFloat | None = None
+    company_revenue_million_yen: FiniteFloat | None = None
+    company_net_income_million_yen: FiniteFloat | None = None
+    company_eps_yen: FiniteFloat | None = None
+    share_basis: str | None = None
+
+
+type Observation = (
+    ModelValuationObservation
+    | AnalystRatingObservation
+    | QuantsScoreObservation
+    | AnalystForecastObservation
+)

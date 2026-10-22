@@ -19,6 +19,7 @@ def observed_tickers(path: Path, *, cutoff: datetime) -> list[str]:
     from contextlib import closing
 
     from baibai_engine.external_assessment.observations.contract import (
+        ANALYST_FORECAST_TABLE,
         ANALYST_RATING_TABLE,
         MODEL_VALUATION_TABLE,
         QUANTS_SCORE_TABLE,
@@ -33,7 +34,12 @@ def observed_tickers(path: Path, *, cutoff: datetime) -> list[str]:
     tickers: set[str] = set()
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        for table in (MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE):
+        for table in (
+            MODEL_VALUATION_TABLE,
+            ANALYST_RATING_TABLE,
+            QUANTS_SCORE_TABLE,
+            ANALYST_FORECAST_TABLE,
+        ):
             if (
                 connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)

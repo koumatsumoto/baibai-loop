@@ -23,7 +23,7 @@ def validate_response(response: EquityWebSourceResponse) -> None:
         raise EquityWebReceiptError("invalid equity web response model")
     _uuid_text(response.receipt_id, "receipt_id")
     _uuid_text(response.attempt_id, "attempt_id")
-    if response.source not in ("monex", "rakuten", "kabumap"):
+    if response.source not in ("monex", "rakuten", "kabumap", "minkabu"):
         raise EquityWebReceiptError("unsupported equity web source")
     if response.role not in ("page", "iframe"):
         raise EquityWebReceiptError("unsupported equity web response role")

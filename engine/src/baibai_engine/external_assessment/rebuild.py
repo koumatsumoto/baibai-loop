@@ -13,6 +13,8 @@ from typing import Any
 from baibai_engine.collection.equity_web.receipts import read_responses
 from baibai_engine.external_assessment.normalization.decode import decode_attempt
 from baibai_engine.external_assessment.observations.contract import (
+    ANALYST_FORECAST_COLUMNS,
+    ANALYST_FORECAST_TABLE,
     ANALYST_RATING_COLUMNS,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
@@ -21,6 +23,7 @@ from baibai_engine.external_assessment.observations.contract import (
     QUANTS_SCORE_TABLE,
 )
 from baibai_engine.external_assessment.observations.models import (
+    AnalystForecastObservation,
     AnalystRatingObservation,
     ModelValuationObservation,
     Observation,
@@ -50,6 +53,8 @@ def _row(observation: Observation) -> tuple[str, tuple[str, ...], tuple[Any, ...
         table, columns = MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS
     elif isinstance(observation, AnalystRatingObservation):
         table, columns = ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS
+    elif isinstance(observation, AnalystForecastObservation):
+        table, columns = ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS
     elif isinstance(observation, QuantsScoreObservation):
         table, columns = QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS
     else:
