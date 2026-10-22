@@ -164,19 +164,25 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v7_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v7"
+def test_v8_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v8"
     assert source_http.HOST_REQUEST_RATE_PER_SECOND == 2
     assert source_http.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
-    assert binding == "90faf95d394b651fa7ba6fcc5fb018a11ec7c1a838cc3b078c35a64febc183ae"
+    assert binding == "6d4681fed76373bb998c811f08334360269245a0581314ffb337305202dcb183"
     monkeypatch.setattr(source_http, "HOST_REQUEST_RATE_PER_SECOND", 3)
     assert collection.collector_binding() != binding
 
 
-def test_kabumap_shares_two_requests_per_second_and_four_credit_burst(clock):
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://jp.kabumap.com/servlets/kabumap/Action",
+        "https://minkabu.jp/stock/7203/analyst_consensus",
+    ],
+)
+def test_additional_sources_share_two_requests_per_second_and_four_credit_burst(clock, url):
     bucket = source_http.HostRateLimiter()
-    url = "https://jp.kabumap.com/servlets/kabumap/Action"
     bucket.wait(url, deadline=120)
     first = clock.seconds
     bucket.wait(url, deadline=120)
