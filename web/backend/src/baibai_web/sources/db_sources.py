@@ -382,15 +382,15 @@ class DbMetaSource:
     def __init__(
         self,
         app_db_path: Path,
-        runs_db_path: Path,
+        screening: DbScreeningSource,
         indicators_db_path: Path,
     ) -> None:
         self._app_db_path = app_db_path.resolve()
-        self._runs_db_path = runs_db_path.resolve()
+        self._screening = screening
         self._indicators_db_path = indicators_db_path.resolve()
 
     def screening_as_of(self) -> date | None:
-        run = DbScreeningSource(self._runs_db_path).latest_run()
+        run = self._screening.latest_run()
         return None if run is None else run.as_of
 
     def indicator_as_of(self) -> date | None:
@@ -402,7 +402,7 @@ class DbMetaSource:
     def data_updated_at(self) -> datetime | None:
         """Return the newest timestamp recorded by any UI data store."""
 
-        screening_run = DbScreeningSource(self._runs_db_path).latest_run()
+        screening_run = self._screening.latest_run()
         screening_updated_at = None if screening_run is None else screening_run.generated_at
         indicator_observed_at = indicator_latest_observed_at(self._indicators_db_path)
         indicator_updated_at = (

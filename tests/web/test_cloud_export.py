@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 from contextlib import closing
+from copy import deepcopy
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.indicator_store import store_h15_observations, store_mof_observations
+from tests.helpers.screening_run import screening_run_payload
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
@@ -26,7 +28,8 @@ from baibai_engine.market_context.reading.rules import (
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.market_context.models import StoredAssessment
-from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.storage.application import LATEST_VERSION
 from baibai_engine.storage.application.json import canonical_json
 from baibai_web import materialize as export_module
@@ -45,7 +48,7 @@ from baibai_web.readmodel.models import (
     SecurityDetailView,
     TasksView,
 )
-from baibai_web.sources.db_sources import DbMetaSource, DbResearchSource
+from baibai_web.sources.db_sources import DbMetaSource, DbResearchSource, DbScreeningSource
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -53,7 +56,7 @@ JST = ZoneInfo("Asia/Tokyo")
 def _meta_source(root: Path) -> DbMetaSource:
     return DbMetaSource(
         root / "stores/application/baibai.sqlite",
-        root / "stores/screening/runs.sqlite",
+        DbScreeningSource(root / "stores/screening/runs.sqlite"),
         root / "stores/market_context/indicators.sqlite",
     )
 
@@ -609,7 +612,7 @@ def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
 
 
 @pytest.mark.parametrize("count", [1, 10, 100])
-def test_export_reuses_research_history_and_ledger_per_export(
+def test_export_reuses_run_research_history_and_ledger_per_export(
     app_method_root: Path, tmp_path: Path, count: int, mocker
 ) -> None:
     from baibai_web.readmodel.stocks import screening as stocks
@@ -623,6 +626,7 @@ def test_export_reuses_research_history_and_ledger_per_export(
     convert = mocker.spy(stocks, "_candidate_summary")
     read = mocker.spy(db_sources, "list_stock_assessment_publications")
     replay = mocker.spy(db_sources, "current_portfolio")
+    runs = mocker.spy(db_sources, "screening_run_payload")
     mocker.patch.object(
         export_module,
         "_security_tickers",
@@ -632,6 +636,8 @@ def test_export_reuses_research_history_and_ledger_per_export(
     assert read.call_count == 1
     assert replay.call_count == 1
     assert prepare.call_count == 1
+    assert sum(not call.kwargs for call in runs.call_args_list) == 1
+    assert all(call.kwargs.get("as_of_date") != date(2026, 7, 8) for call in runs.call_args_list)
     conversions = convert.call_count
     assert conversions < 10
     # A second export must read its own inputs; no result escapes the first export.
@@ -640,11 +646,85 @@ def test_export_reuses_research_history_and_ledger_per_export(
     assert replay.call_count == 2
     assert prepare.call_count == 2
     assert convert.call_count == 2 * conversions
+    assert sum(not call.kwargs for call in runs.call_args_list) == 2
+    assert all(call.kwargs.get("as_of_date") != date(2026, 7, 8) for call in runs.call_args_list)
     first = tmp_path / "first/views/security--2331.json"
     second = tmp_path / "second/views/security--2331.json"
     assert json.loads(first.read_text(encoding="utf-8")) == json.loads(
         second.read_text(encoding="utf-8")
     )
+
+
+def test_export_rereads_and_rejects_a_run_corrupted_after_the_previous_export(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    export_module.export_read_models(app_method_root, tmp_path / "first")
+    database = app_method_root / "stores/screening/runs.sqlite"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            "UPDATE screening_run SET payload=json_set("
+            "payload, '$.candidate_discovery.diagnostics.candidate_count', 999) "
+            "WHERE asof_date='2026-07-08'"
+        )
+    output = tmp_path / "second"
+    with pytest.raises(ValueError, match="candidate diagnostics differ"):
+        export_module.export_read_models(app_method_root, output)
+    assert not (output / "views/meta.json").exists()
+
+
+def test_export_fixes_missing_latest_once_per_export(
+    app_method_root: Path, tmp_path: Path, mocker
+) -> None:
+    from baibai_web.sources import db_sources
+
+    (app_method_root / "stores/screening/runs.sqlite").unlink()
+    read = mocker.spy(db_sources, "screening_run_payload")
+    for count in (1, 2):
+        output = tmp_path / str(count)
+        export_module.export_read_models(app_method_root, output)
+        assert read.call_count == count
+        meta = json.loads((output / "views/meta.json").read_text(encoding="utf-8"))
+        assert meta["screening_as_of"] is None
+
+
+def test_export_builders_do_not_mutate_the_shared_latest_run(
+    app_method_root: Path, tmp_path: Path, mocker
+) -> None:
+    latest = DbScreeningSource(app_method_root / "stores/screening/runs.sqlite").latest_run()
+    assert latest is not None
+    before = deepcopy(latest)
+    read = mocker.patch.object(DbScreeningSource, "latest_run", return_value=latest)
+
+    export_module.export_read_models(app_method_root, tmp_path / "export")
+
+    assert read.call_count == 1
+    assert latest == before
+
+
+def test_export_run_sharing_keeps_exact_dates_and_revision_selection(app_method_root: Path) -> None:
+    database = app_method_root / "stores/screening/runs.sqlite"
+    store = ScreeningRunStore(database)
+    earlier = store.publish_run(
+        screening_run_payload(as_of="2026-08-01", run_at="2026-08-01T18:00:00+09:00"),
+        rules=load_screening_rules(),
+    )
+    newer = store.publish_run(
+        screening_run_payload(as_of="2026-08-01", run_at="2026-08-01T10:00:00+00:00"),
+        rules=load_screening_rules(),
+    )
+    source = export_module._CachedScreeningSource(database)
+    latest = source.latest_run()
+
+    assert latest is not None
+    assert latest.run_revision_id == newer.publication_id
+    assert source.run_as_of(date(2026, 8, 1)) is latest
+    exact = source.run(earlier.publication_id)
+    assert exact is not None
+    assert exact.run_revision_id == earlier.publication_id
+    previous = source.previous_run()
+    assert previous is not None
+    assert previous.as_of == date(2026, 7, 8)
+    assert source.run_as_of(date(2026, 8, 2)) is None
 
 
 def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(

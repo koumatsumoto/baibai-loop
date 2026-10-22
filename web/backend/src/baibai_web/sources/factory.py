@@ -86,18 +86,19 @@ def build_sources(
     groups = indicator_groups if indicator_groups is not None else load_indicator_groups(root)
     validate_application_store_schema(resolved_db)
     validate_market_store_schema(resolved_market)
+    screening = DbScreeningSource(resolved_runs)
     return Sources(
         external_assessment=DbExternalAssessmentSource(resolved_market),
         ledger=DbLedgerSource(resolved_db, resolved_market),
         research=DbResearchSource(resolved_db),
         tasks=DbTaskSource(resolved_db),
-        screening=DbScreeningSource(resolved_runs),
+        screening=screening,
         market_context=DbMarketContextSource(
             resolved_db, indicators_db, groups, root / READING_RULES_PATH
         ),
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(resolved_market),
-        meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
+        meta=DbMetaSource(resolved_db, screening, indicators_db),
         er_level_calibration=load_er_level_calibration_context(
             root / ER_LEVEL_CALIBRATION_CONTEXT_PATH,
             expected_method_identity=screening_calibration_method_identity(root),
