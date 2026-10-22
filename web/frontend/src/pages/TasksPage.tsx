@@ -45,8 +45,14 @@ export function TasksPage() {
   const [operationsError, setOperationsError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    fetchJson<TasksView>('/api/tasks').then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Tasks を読み込めませんでした'))
-    fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => setOperationsError(reason instanceof Error ? reason.message : '運用状況を読み込めませんでした'))
+    const controller = new AbortController()
+    fetchJson<TasksView>('/api/tasks', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setData(value) })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Tasks を読み込めませんでした') })
+    fetchJson<OperationsView>('/api/operations', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setOperations(value) })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setOperationsError(reason instanceof Error ? reason.message : '運用状況を読み込めませんでした') })
+    return () => controller.abort()
   }, [])
   if (error !== null) return <PageState message={error} title="Tasks read error" />
   if (data === null) return <LoadingPage label="Tasks を読み込んでいます" />

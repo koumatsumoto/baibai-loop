@@ -525,16 +525,24 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchJson<DashboardView>('/api/dashboard').then(setData).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
-    })
-    fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => {
-      setOperationsError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')
-    })
+    const controller = new AbortController()
+    fetchJson<DashboardView>('/api/dashboard', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setData(value) })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return
+        setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
+      })
+    fetchJson<OperationsView>('/api/operations', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setOperations(value) })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return
+        setOperationsError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')
+      })
     // Independent evidence: an unavailable comparison does not erase the portfolio.
-    fetchJson<DailyDeltaView>('/api/daily-delta')
-      .then(setDelta)
-      .catch(() => setDeltaFailed(true))
+    fetchJson<DailyDeltaView>('/api/daily-delta', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setDelta(value) })
+      .catch(() => { if (!controller.signal.aborted) setDeltaFailed(true) })
+    return () => controller.abort()
   }, [])
 
   if (error !== null) return <PageState message={error} title="Dashboard read error" />

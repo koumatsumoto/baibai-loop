@@ -35,8 +35,11 @@ export function ResearchPage() {
     fetchProposalHistory(controller.signal)
       .then(result => { if (!controller.signal.aborted) setData(result) })
       .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '提案を読み込めませんでした') })
-    fetchJson<DashboardView>('/api/dashboard').then(view => setNames(new Map(view.holdings.map(item => [item.ticker, item.company_name])))).catch(() => {})
-    fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => setOperationError(reason instanceof Error ? reason.message : '調査進捗を読み込めませんでした'))
+    fetchJson<DashboardView>('/api/dashboard', { signal: controller.signal })
+      .then(view => { if (!controller.signal.aborted) setNames(new Map(view.holdings.map(item => [item.ticker, item.company_name]))) }).catch(() => {})
+    fetchJson<OperationsView>('/api/operations', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setOperations(value) })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setOperationError(reason instanceof Error ? reason.message : '調査進捗を読み込めませんでした') })
     return () => controller.abort()
   }, [])
   if (!data && !error) return <LoadingPage label="提案を読み込んでいます" />
