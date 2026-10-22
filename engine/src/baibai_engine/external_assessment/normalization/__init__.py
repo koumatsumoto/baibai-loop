@@ -37,6 +37,15 @@ class Element:
         return value in self.attrs.get("class", "").split()
 
 
+def numeric_text(element: Element) -> str:
+    """Preserve explicit line breaks without adding gaps between inline elements."""
+    if element.tag == "br":
+        return "\n"
+    return "".join(
+        child if isinstance(child, str) else numeric_text(child) for child in element.children
+    )
+
+
 class _Document(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)

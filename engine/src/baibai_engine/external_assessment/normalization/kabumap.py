@@ -7,10 +7,15 @@ import unicodedata
 from datetime import date, datetime
 
 from baibai_engine.collection.identifiers import normalize_ticker
-from baibai_engine.external_assessment.normalization import ParseError, compact, document
+from baibai_engine.external_assessment.normalization import (
+    ParseError,
+    compact,
+    document,
+    numeric_text,
+)
 from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
 
-PARSER_VERSION = "kabumap-quants-2"
+PARSER_VERSION = "kabumap-quants-3"
 LABELS = {
     "成長性": "growth_score",
     "割安性": "undervaluation_score",
@@ -29,11 +34,15 @@ def public_url(ticker: str) -> str:
 
 
 def _score(text: str, maximum: int) -> float | None:
-    text = compact(text)
-    if text in {"NA", "--", "-", f"NA/{maximum}", f"--/{maximum}"}:
+    text = text.strip()
+    if text in {"NA", "--", "-"}:
         return None
-    match = re.fullmatch(r"([0-9]+)/(" + str(maximum) + r")", text)
-    if match is None or not 0 <= int(match[1]) <= maximum:
+    match = re.fullmatch(r"(NA|--|[0-9]+)\s*/\s*" + str(maximum), text)
+    if match is None:
+        raise ParseError("changed_quants_score")
+    if match[1] in {"NA", "--"}:
+        return None
+    if not 0 <= int(match[1]) <= maximum:
         raise ParseError("changed_quants_score")
     return float(match[1])
 
@@ -81,7 +90,7 @@ def parse_html(
         label = unicodedata.normalize("NFKC", compact(labels[0].text))
         if label not in LABELS or LABELS[label] in values:
             raise ParseError("changed_quants_score")
-        values[LABELS[label]] = _score(cells[0].text, 10)
+        values[LABELS[label]] = _score(numeric_text(cells[0]), 10)
     if set(values) != set(LABELS.values()):
         raise ParseError("missing_quants_scores")
     for identifier, name in (
@@ -91,7 +100,7 @@ def parse_html(
         rows = page.find("li", id=identifier)
         if len(rows) != 1:
             raise ParseError("missing_quants_scores")
-        values[name] = _score(rows[0].text, 100)
+        values[name] = _score(numeric_text(rows[0]), 100)
     return QuantsScoreObservation.model_validate(
         {
             "ticker": ticker,

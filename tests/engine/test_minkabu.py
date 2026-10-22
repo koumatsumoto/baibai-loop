@@ -22,7 +22,8 @@ NOW = datetime(2026, 10, 22, 7, tzinfo=UTC)
 def html(ticker="7203", *, eps="4.5", with_forecast=True):
     forecast = """
     <div class="ly_content_wrapper"><h3>2027年の業績予想</h3>
-    <table><tr><th></th><th colspan="4">証券アナリスト予想</th><th>会社予想</th></tr>
+    <table><tr><th rowspan="2"></th>
+    <th colspan="4">証券アナリスト予想</th><th>会社予想</th></tr>
     <tr><th>3ヶ月前(2026/07/24)</th><th>1ヶ月前(2026/09/22)</th>
     <th>1週間前(2026/10/15)</th><th>最新(2026/10/22)</th><th>最新(2026/09/17)</th></tr>
     <tr><th>売上高</th><td>90</td><td>95</td><td>100</td><td>123</td><td>120</td></tr>
@@ -78,9 +79,13 @@ def test_visible_analyst_fields_not_combined_target_or_chart_data():
     assert row.company_forecast_as_of_date.isoformat() == "2026-09-17"
 
 
-@pytest.mark.parametrize("cell", ["---", "ー", "―", "--"])
+@pytest.mark.parametrize("cell", ["", " \n\t", "---", "ー", "―", "--"])
 def test_missing_is_not_zero(cell):
-    assert parse(html(eps=cell)).analyst_eps_yen is None
+    row = parse(html(eps=cell))
+    assert row.analyst_eps_yen is None
+    assert row.rating_label == "買い"
+    assert row.target_price_yen == 100
+    assert row.analyst_revenue_million_yen == 123
     assert parse(html(eps="0")).analyst_eps_yen == 0
 
 
@@ -368,3 +373,128 @@ def test_conflicting_displayed_forecast_year_is_not_silently_reconciled():
     with pytest.raises(ParseError, match=r"^conflicting_forecast_period$"):
         parse(text)
     assert "conflicting_forecast_period" in PARSE_FAILURE_REASONS
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        html(eps="1 2"),
+        html(eps="1<br>2"),
+        html(eps="<span>1 </span><span>2</span>"),
+        html(eps="1, 234"),
+        html(eps="- 4"),
+        html().replace("2人", "2 1人"),
+        html().replace("<td>95</td><td>100</td></tr>", "<td>95</td><td>1 2</td></tr>"),
+        current_card_only_html().replace(
+            '<span class="fsxxl">---</span>', '<span class="fsxxl">1 2</span>'
+        ),
+        current_card_only_html().replace("<td>123</td>", "<td>1 2</td>"),
+    ],
+    ids=[
+        "eps",
+        "line-break",
+        "span-whitespace",
+        "comma",
+        "sign",
+        "count",
+        "history-target",
+        "card-target",
+        "annual-revenue",
+    ],
+)
+def test_numeric_internal_whitespace_is_not_removed(text):
+    with pytest.raises(ParseError):
+        parse(text)
+
+
+def test_numeric_outer_whitespace_and_adjacent_spans_keep_displayed_values():
+    text = (
+        html(eps="<br> \n<span>1</span><span>2</span>\t <br>")
+        .replace("<td>2人</td>", "<td> \n<span>2</span> 人\t </td>")
+        .replace("証券アナリスト予想", "証券<br>アナリスト予想")
+        .replace("<th>売上高</th>", "<th>売 上高</th>")
+        .replace("<td>買い</td>", "<td>買 い</td>")
+        .replace("最新(2026/10/22)", "最新\n(2026/10/22)")
+    )
+    row = parse(text)
+    assert row.analyst_eps_yen == 12
+    assert row.strong_buy_count == 2
+    assert row.rating_label == "買い"
+    assert row.analyst_forecast_as_of_date.isoformat() == "2026-10-22"
+    assert row.company_forecast_as_of_date.isoformat() == "2026-09-17"
+    text = current_card_only_html().replace(
+        '<span class="fsxxl">---</span>',
+        '<span class="fsxxl"> \n<span>1</span><span>00</span>\t </span>',
+    ).replace("<td>123</td>", "<td> \n<span>1</span><span>23</span>\t </td>")
+    row = parse(text)
+    assert row.target_price_yen == 100
+    assert row.analyst_revenue_million_yen == 123
+    assert row.forecast_period_label == "2027年3月期"
+
+
+@pytest.mark.parametrize(
+    "analyst_span,company_span",
+    [
+        ("3", "2"),
+        ("5", "1"),
+        ("4", "2"),
+        ("0", "1"),
+        ("-4", "1"),
+        ("", "1"),
+        ("four", "1"),
+        ("４", "1"),
+        ("0 4", "1"),
+    ],
+)
+def test_detailed_forecast_requires_analyst_and_company_column_groups(analyst_span, company_span):
+    text = html().replace(
+        'colspan="4">証券アナリスト予想</th><th>会社予想',
+        f'colspan="{analyst_span}">証券アナリスト予想</th><th colspan="{company_span}">会社予想',
+    )
+    with pytest.raises(ParseError, match="changed_analyst_forecast"):
+        parse(text)
+
+
+@pytest.mark.parametrize(
+    "analyst_span,blank_rowspan",
+    [("4", "2"), ("04", "02"), (" 4 ", " 2 "), ("\n04\t", "\n02\t")],
+)
+def test_detailed_forecast_equivalent_spans_preserve_values_and_dates(analyst_span, blank_rowspan):
+    text = (
+        html()
+        .replace('colspan="4"', f'colspan="{analyst_span}" rowspan="01"')
+        .replace('rowspan="2"', f'colspan="01" rowspan="{blank_rowspan}"', 1)
+        .replace("<th>会社予想</th>", '<th colspan="01" rowspan="01">会社予想</th>')
+        .replace("<th>3ヶ月前(", '<th colspan="01" rowspan="01">3ヶ月前(')
+        .replace("<td>123</td>", '<td colspan="01" rowspan="01">123</td>')
+    )
+    row = parse(text)
+    assert row.analyst_revenue_million_yen == 123
+    assert row.company_revenue_million_yen == 120
+    assert row.analyst_forecast_as_of_date.isoformat() == "2026-10-22"
+    assert row.company_forecast_as_of_date.isoformat() == "2026-09-17"
+
+
+@pytest.mark.parametrize("rowspan", [None, "1", "3", "0", "-2", "", "two", "２", "0 2"])
+def test_detailed_forecast_blank_header_requires_two_rows(rowspan):
+    attribute = "" if rowspan is None else f'rowspan="{rowspan}"'
+    text = html().replace('rowspan="2"', attribute, 1)
+    with pytest.raises(ParseError, match="changed_analyst_forecast"):
+        parse(text)
+
+
+def test_detailed_forecast_analyst_group_cannot_span_date_row():
+    text = html().replace('colspan="4"', 'colspan="4" rowspan="2"')
+    with pytest.raises(ParseError, match="changed_analyst_forecast"):
+        parse(text)
+
+
+@pytest.mark.parametrize("attribute", ["colspan", "rowspan"])
+@pytest.mark.parametrize(
+    "cell",
+    ["<th>会社予想</th>", "<th>3ヶ月前(2026/07/24)</th>", "<th>売上高</th>", "<td>123</td>"],
+)
+def test_detailed_forecast_cells_cannot_span_rows_or_columns(cell, attribute):
+    text = html().replace(cell, cell.replace(">", f' {attribute}="2">', 1))
+    with pytest.raises(ParseError, match="changed_analyst_forecast"):
+        parse(text)
