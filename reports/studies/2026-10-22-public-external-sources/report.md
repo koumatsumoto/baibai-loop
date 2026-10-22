@@ -28,7 +28,7 @@
 [2307](https://jp.investing.com/equities/cross-cat-co-ltd-consensus-estimates)の公開予想ページには数値評価がなく、概要は未対応と表示。[4783](https://www.investing.com/equities/nippon-computer-dynamics-co-ltd-consensus-estimates)は検索経由の読取が古かったため、通常HTTPで再取得し、公開本文の予想値を確認できない状態を照合した。ページ自体があることと評価が収録されていることは別である。
 
 - Fair Valueはロックされた別項目であり、無料consensusと混同しない。ログイン・課金・ロック解除はしていない。
-- 7203/8306の人数・平均目標がみんかぶと一致する例がある。集計母集団や原データ契約が同一であることまでは証明できないが、別サイトを独立票として数える根拠にもならない。
+- 7203/8306では買い区分をまとめた人数と、表示の丸め差以内の平均目標がみんかぶと整合する。小数表示の精度差まで完全一致とは扱わない。集計母集団や原データ契約が同一であることまでは証明できないが、別サイトを独立票として数える根拠にもならない。
 - 現時点の増分は、証券会社別の変更日・変更主体・新旧目標を追えること。理由本文の入手や無料の全期間履歴まで確認済みとはしない。
 - [公式consensus説明](https://www.investing-support.com/hc/en-us/articles/360000236178-What-is-a-Consensus-Estimate)も全銘柄の収録を保証しない。Pro製品のprovider説明を無料consensusへ流用しない。
 

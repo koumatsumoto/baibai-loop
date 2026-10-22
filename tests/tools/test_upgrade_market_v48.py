@@ -77,7 +77,7 @@ def test_unreviewed_source_stays_untouched_and_no_candidate_remains(tmp_path, da
         )
         connection.commit()
     before = source.read_bytes()
-    with pytest.raises(ValueError, match="source (must be|schema differs)"):
+    with pytest.raises(ValueError, match=r"source (must be|schema differs)"):
         upgrade(source, output)
     assert source.read_bytes() == before
     assert not output.exists()
