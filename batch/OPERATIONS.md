@@ -768,7 +768,7 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 ### みんかぶ導入時の market 47 → 48 切替
 
 みんかぶの原本source制約と新しいL2表を追加するため、codeだけの反映では既存schema 47を読めない。
-本番切替の前に、固定masterの対象全銘柄について取得・対象外・失敗・未試行を集計し、未解決の取得経路や解析不備がないことを確認する。以下の3銘柄preflightは切替直前の疎通確認であり、全銘柄検証の代わりにはしない。403/429で停止した全件検証を、少数の公開画面やCI成功で完了扱いにしない。
+本番切替の前に、固定masterの対象全銘柄について取得・対象外・失敗・未試行を集計し、未解決の取得経路やparser不備がないことを確認する。[source契約](../docs/reference/data-sources.md#external-assessment-acquisition)に従う原提供元の期間衝突による拒否は、理由付きの不採用として区別し、失敗件数0を切替条件にしない。以下の3銘柄preflightは切替直前の疎通確認であり、全銘柄検証の代わりにはしない。403/429で停止した全件検証を、少数の公開画面やCI成功で完了扱いにしない。
 日次や通常readerに暗黙migrationは追加しない。最終HEADのCIと切替toolの検証を終えてから、
 `cloud-materialize`の明示入力`upgrade_market_v48=true`を使い、一度だけ担当者が切り替える。
 通常のmaterializeではこの入力はfalseであり、machine storeを公開しない。

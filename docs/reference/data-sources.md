@@ -194,7 +194,7 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 楽天の保存観測が対象時点までにない場合も、External Assessmentは`distributor=rakuten`・`inputs.latest=null`・比較状態`not_observed` / 理由`no_observation`を返す。これは取得未試行・未確認shell・技術障害等のどれかを推測する結果ではなく、読取storeに観測がないという意味である。正常nullは元受領時刻を持つ観測行と`missing` / `latest_missing`で区別し、画面とResearch入力にも同じ結果を渡す。取得の具体的な失敗理由はprivate cohort stageで確認する。後日の取得失敗は既存観測を消さないため、表示値は受領時刻付きの最新保存観測であり、現在値や最新試行成功を保証しない。
 
-受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#external-assessment-query)、比較の意味は[外部参考評価](#external-assessment)に従う。現adapterでは`share_basis`・評価対象期間・レーティング尺度が未確認のnullであり、数値deltaは基本的に`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
+受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#external-assessment-query)、比較の意味は[外部参考評価](#external-assessment)に従う。比較に必要な`share_basis`・評価対象期間・レーティング尺度が未確認の系列では、未確認の項目をnullに保ち、数値deltaは`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
 
 現行の抽出済みtyped観測はDB上のL2履歴として読取に使う。日次の固定pair取得では公開HTTP 200のbody bytesとencodingを文字decodeより前に捕捉し、bounded pairの終了後に標準tar.gzへまとめる。raw bundle v2のupload成功後だけ、選択したattempt IDとbundle keyを持つtyped cohort stageをcommitする。raw append・圧縮・upload失敗時はstageをcommitしない。hard killがcommit前に起きれば未確定GETは繰り返され得るので、各解析命令の前に永続保存されたとは主張しない。private bundleは公開前の短期handoffであり、publisherのL1公開・読戻し成功後に初めて長期原本として使える。HTTP成功の原応答と、銘柄同一性・値が確認できたtyped観測は別であり、parse失敗や未確認の共通ページを正常観測へ変えない。過去に保存しなかった本文は取得当時の原応答として復元できない。日付別保持・候補確認・読戻しは[batch運用](../../batch/OPERATIONS.md#日次取得と固定コホートの再開)に従う。
 
@@ -210,7 +210,7 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 決算期ラベルは年度表に明示されたものだけを取り込み、対象月のない「2027年」等から期末日を推定しない。売上高・純利益は百万円、EPS・目標株価は円として表の単位を照合する。元アナリストの集計提供元・株数basis・指標ごとの予想人数が確認できないものは未知のまま保持し、rating内訳の人数を利益予想の寄与者数へ流用しない。他媒体から独立した評価とはまだ断定せず、自動的な数値差や一致票へしない。
 
-予想ページの404、銘柄同一性未確認、構造変更、HTTP失敗は正常な「予想なし」と区別する。ページ内の一部の予想欠測は有効なratingを消さない。公開ページがある少数例だけで全銘柄のcoverageを保証しない。
+予想ページの404、銘柄同一性未確認、構造変更、HTTP失敗は正常な「予想なし」と区別する。ページ内の一部の予想欠測は有効なratingを消さない。一方、比較表と年度表の対象期が衝突する場合は`conflicting_forecast_period`として観測全体を不採用にし、原本を保持する。業績欄だけを通常欠測へ落としたりratingだけを公開したりせず、年を推定補正しない。公開ページがある少数例だけで全銘柄のcoverageを保証しない。
 
 ## TradingViewの市場期待
 
