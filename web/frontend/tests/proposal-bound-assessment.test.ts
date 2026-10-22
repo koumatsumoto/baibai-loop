@@ -212,12 +212,32 @@ describe('保存した提案と評価', () => {
     expect(render(ProposalAssessmentDetails, { ...item, assessment_projection: {} })).toContain('参照評価の本文を表示できません')
   })
   it('現在quote再試算と保存limit再検証を別表示し、渡されたpreviewを変更しない', () => {
-    const preview = { saved_proposal_id: 'investment-proposal-original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: { available_cash_yen: '200000' }, change_reasons: [{ code: 'inputs_changed', message: 'cashが変化しました' }], items: [{ ticker: '1234', saved_action: 'buy', current_quote_calculation: { calculation_price_yen: '1100', quantity: 0, current_price_projection: { base: { total_return_pct: 0 }, downside: { total_return_pct: -36.3636 } } }, saved_limit_revalidation: { quantity: 200 }, blockers: [] }], warnings: ['current-warning'], portfolio_exposure: null } as InvestmentProposalPreviewView
+    const preview = { saved_proposal_id: 'investment-proposal-original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: { available_cash_yen: '200000' }, change_reasons: [{ code: 'inputs_changed', message: 'cashが変化しました' }], items: [{ ticker: '1234', saved_action: 'buy', current_quote_calculation: { calculation_price_yen: '1100', quantity: 0, current_price_projection: { price_yen: 1100, base: { total_return_pct: 0 }, downside: { total_return_pct: -36.3636 } } }, saved_limit_revalidation: { quantity: 200 }, blockers: [] }], warnings: ['current-warning'], portfolio_exposure: null } as InvestmentProposalPreviewView
     const originalPreview = JSON.stringify(preview)
     const html = renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))
     for (const text of ['現在 quote での再試算', '試算価格 1100円', '保存 limit の再検証', '現在資金等での試算数量 200株', 'cashが変化しました', '保存した価格・数量・対象日を更新していません']) expect(html).toContain(text)
     expect(JSON.stringify(preview)).toBe(originalPreview)
     expect(render(ProposalItemContent)).toContain('300株')
+  })
+  it('現在quoteの収益率には共通呼値へ丸める前の試算価格を表示する', () => {
+    const preview = {
+      saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed',
+      current_inputs: {}, change_reasons: [], warnings: [], portfolio_exposure: null,
+      items: [{
+        ticker: '1234', saved_action: 'buy', blockers: [], saved_limit_revalidation: { quantity: 100 },
+        current_quote_calculation: {
+          calculation_price_yen: '3475', price_grid_available: true,
+          current_price_projection: { price_yen: 3478, base: { total_return_pct: 9.9051 }, downside: { total_return_pct: -13.7435 } },
+          limit_price_projection: { price_yen: 3475, base: { total_return_pct: 10 } },
+        },
+      }],
+    } as InvestmentProposalPreviewView
+    const before = JSON.stringify(preview)
+    const html = renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))
+    expect(html).toContain('試算価格 3478円')
+    expect(html).toContain('Base 9.9051% · Downside -13.7435%')
+    expect(html).not.toContain('試算価格 3475円')
+    expect(JSON.stringify(preview)).toBe(before)
   })
   it('再計算不能の保有判断では理由を示し、未確認の収益率を計算結果に見せない', () => {
     const preview = { saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: {}, change_reasons: [], items: [{ ticker: '1234', saved_action: 'hold', current_quote_calculation: { action: 'hold', current_price_projection: null, return_calculation_unavailable_reason: 'valuation_basis_requires_refresh' }, saved_limit_revalidation: null, blockers: [] }], warnings: [], portfolio_exposure: null } as InvestmentProposalPreviewView
