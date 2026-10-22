@@ -117,15 +117,19 @@ def build_broker_fact_draft(
 
     source, expected_head = ledger_service.load_with_head()
     binding_addition: DecisionReferenceBinding | None = None
-    if direct_fact:
-        if side != "buy" or ticker is None:
-            raise ValueError("direct-fact requires an explicit buy ticker")
-        known = known_broker_reference(
+    known = (
+        known_broker_reference(
             source,
             execution_id=execution_id,
             order_id=order_id,
             reservation_ids=requested_ids,
         )
+        if direct_fact or order_id is not None
+        else None
+    )
+    if direct_fact:
+        if side != "buy" or ticker is None:
+            raise ValueError("direct-fact requires an explicit buy ticker")
         if known is not None:
             saved_reference, saved_reservation_id = known
             if decision_reference is not None and decision_reference != saved_reference:
@@ -159,6 +163,12 @@ def build_broker_fact_draft(
             )
     elif decision_reference is None:
         raise ValueError("decision_reference is required unless direct-fact is explicit")
+    elif known is not None:
+        saved_reference, saved_reservation_id = known
+        if decision_reference != saved_reference:
+            raise ValueError("decision_reference conflicts with the reported broker identity")
+        if not requested_ids and saved_reservation_id is not None:
+            requested_ids = (saved_reservation_id,)
     assert decision_reference is not None
     if (occurred_at is None) == (occurred_on is None):
         raise ValueError("specify exactly one of occurred_at and occurred_on")

@@ -252,7 +252,7 @@ def record_broker_fact(
                 decision_reference=decision_reference,
                 status=status,
                 occurred_at=occurred_at,
-                event_identity=reservation.ticker,
+                event_identity=f"{reservation.ticker}:{reservation.reservation_id}",
                 occurred_on=occurred_on,
             )
         )
