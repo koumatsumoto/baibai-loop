@@ -64,7 +64,6 @@ const pages: {
   ] },
   { name: 'Tasks', render: TasksPage, requests: [
     { path: '/api/tasks', setterIndex: 0 },
-    { path: '/api/operations', setterIndex: 1 },
   ] },
   { name: '候補探索', render: CandidateExplorationPage, requests: [
     { path: '/api/screening/latest', setterIndex: 0 },
