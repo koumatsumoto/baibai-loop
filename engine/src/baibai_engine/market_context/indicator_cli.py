@@ -116,6 +116,13 @@ def _print_observations(result: QueryResult) -> None:
             f"{result.series.series_id}\t{item.observed_at.isoformat()}\t{item.value:g}\t"
             f"{item.unit}\t{result.series.provider}"
         )
+        if item.notes:
+            print(
+                f"# {item.observed_at}: vintage_at={item.vintage_at}; "
+                f"quality_flags={','.join(item.quality_flags)}"
+            )
+            for note in item.notes:
+                print(f"# {note}")
 
 
 if __name__ == "__main__":

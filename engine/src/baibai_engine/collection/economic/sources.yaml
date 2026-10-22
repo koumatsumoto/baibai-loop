@@ -1,4 +1,8 @@
 sources:
+  matsui-margin:
+    provider: matsui_margin
+    source_url: https://www.matsui.co.jp/market/
+    frequency: daily
   boj-bank-lending-yoy:
     frequency: monthly
     provider: boj_timeseries

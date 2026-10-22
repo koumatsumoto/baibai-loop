@@ -17,6 +17,8 @@ class ObservationRecord:
     period_end: date | None = None
     vintage_at: datetime | None = None
     fetch_status: str = "ok"
+    quality_flags: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # Vintage is an instant, not the spelling of a provider's timezone.

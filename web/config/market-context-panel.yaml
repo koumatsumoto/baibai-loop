@@ -77,6 +77,7 @@ groups:
       - id: us.philly_fed_manufacturing
   - title: 流動性・クレジット・リスク
     series:
+      - id: jp.matsui_margin_long_evaluation_pnl
       - id: us.fed_assets
       - id: us.reverse_repo
       - id: us.tga

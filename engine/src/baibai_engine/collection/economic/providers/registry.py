@@ -17,6 +17,7 @@ from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
 from .frb_h15 import FrbH15Source
 from .fred import FredSource
+from .matsui_margin import MatsuiMarginSource
 from .mof_jgb import MofJgbSource
 from .nikkei_indexes import NikkeiIndexesSource
 from .spglobal_pmi import SpGlobalPmiSource
@@ -62,6 +63,8 @@ def provider_spec(name: str) -> ProviderSpec:
         return SpGlobalPmiSource.spec
     if name == "tsr_bankruptcies":
         return TsrBankruptciesSource.spec
+    if name == "matsui_margin":
+        return MatsuiMarginSource.spec
     raise IndicatorsProviderError(f"unsupported indicator provider: {name}")
 
 
@@ -69,6 +72,7 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
     return (
         SpGlobalPmiSource.spec,
         TsrBankruptciesSource.spec,
+        MatsuiMarginSource.spec,
         EStatDashboardSource.spec,
         EStatSource.spec,
         FrbH15Source.spec,

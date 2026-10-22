@@ -241,6 +241,10 @@ function IndicatorDialog({ row, history: fetchedHistory, historyLoading, history
           </DialogDescription>
         </DialogHeader>
         <StatusBadges row={row} />
+        {(reading?.notes.length ?? 0) > 0 && <div className="space-y-1 text-xs text-muted-foreground">
+          {reading?.notes.map(note => <p key={note}>{note}</p>)}
+          {reading?.vintage_at && <p>選択保存原本の受領時刻：{formatJstDateTime(reading.vintage_at)}</p>}
+        </div>}
         {failedFetch !== null && (
           <Alert variant="destructive">
             <CircleAlert />

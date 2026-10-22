@@ -3021,11 +3021,41 @@
         "value": {
           "title": "Value",
           "type": "number"
+        },
+        "quality_flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Quality Flags",
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "vintage_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vintage At"
         }
       },
       "required": [
         "observed_at",
-        "value"
+        "value",
+        "quality_flags",
+        "notes",
+        "vintage_at"
       ],
       "title": "IndicatorPointView",
       "type": "object"
@@ -5512,6 +5542,26 @@
           },
           "title": "Flags",
           "type": "array"
+        },
+        "vintage_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vintage At"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
         }
       },
       "required": [
@@ -5540,7 +5590,9 @@
         "z_score",
         "short_trend",
         "long_trend",
-        "flags"
+        "flags",
+        "vintage_at",
+        "notes"
       ],
       "title": "ReadingSeriesView",
       "type": "object"

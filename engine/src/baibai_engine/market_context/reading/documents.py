@@ -10,6 +10,7 @@ from baibai_engine.collection.economic.documents import read_documents
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 
+from .matsui_margin import read_matsui_margin_documents
 from .pmi import read_pmi_document
 from .tsr_bankruptcies import parse_tsr_bankruptcies_json
 
@@ -22,6 +23,8 @@ def read_document_series(
     end: date,
 ) -> tuple[ObservationRecord, ...]:
     documents = read_documents(connection, series.source_id)
+    if series.provider == "matsui_margin":
+        return read_matsui_margin_documents(series, documents, start=start, end=end)
     if series.provider == "spglobal_pmi":
         return tuple(
             read_pmi_document(series, document)
