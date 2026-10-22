@@ -1,4 +1,4 @@
-import type { ExternalAssessment, MetricComparison, ModelValuationObservation } from '../../api/types'
+import type { AnalystForecastHistory, ExternalAssessment, MetricComparison, ModelValuationObservation } from '../../api/types'
 import { SectionCard } from '../../components/SectionCard'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 
@@ -41,13 +41,39 @@ function Receipt({ day, fetched, previous }: { day: string; fetched: string; pre
   return <p className="text-xs text-muted-foreground">受領日(JST) {day} · 取得(UTC) {fetched}{previous && ` · 直前取得 ${previous}`}</p>
 }
 
+function MinkabuForecast({ history }: { history: AnalystForecastHistory }) {
+  const row = history.latest
+  if (!row) return null
+  const forecasts = [
+    ['売上高（百万円）', row.analyst_revenue_million_yen, row.company_revenue_million_yen],
+    ['純利益（百万円）', row.analyst_net_income_million_yen, row.company_net_income_million_yen],
+    ['EPS（円）', row.analyst_eps_yen, row.company_eps_yen],
+  ] as const
+  return <div className="grid gap-2"><h3 className="text-sm font-medium">みんかぶ · アナリスト予想</h3>
+    <Receipt day={row.snapshot_date} fetched={row.fetched_at_utc} previous={history.previous?.fetched_at_utc} />
+    <p className="text-xs">最新の保存観測です。受領後の取得失敗や未取得は反映しないため、現在値の保証ではありません。</p>
+    {row.availability === 'not_covered' ? <p className="text-sm text-muted-foreground">銘柄を確認できた公開ページが「アナリスト対象外」と明示した受領済み観測です。</p> : <>
+      <p className="text-xs">表示基準日 {known(row.display_as_of_date)} · 原評価元 {known(row.origin)} · 株式basis {known(row.share_basis)}</p>
+      <p className="text-sm">評価 {known(row.rating_label)} · 目標株価 {number(row.target_price_yen)}円 · 想定期間 {known(row.target_horizon_months)}か月</p>
+      <p className="text-xs">評価区分別人数: 強気買い {number(row.strong_buy_count)} · 買い {number(row.buy_count)} · 中立 {number(row.neutral_count)} · 売り {number(row.sell_count)} · 強気売り {number(row.strong_sell_count)}。各業績予想の寄与者数とは限りません。</p>
+      <p className="text-xs">業績予想の対象期 {known(row.forecast_period_label)} · アナリスト予想日 {known(row.analyst_forecast_as_of_date)} · 会社予想日 {known(row.company_forecast_as_of_date)}</p>
+      <Table><TableHeader><TableRow><TableHead>業績予想</TableHead><TableHead className="text-right">アナリスト予想</TableHead><TableHead className="text-right">会社予想</TableHead></TableRow></TableHeader><TableBody>
+        {forecasts.map(([label, analyst, company]) => <TableRow key={label}><TableCell>{label}</TableCell><TableCell className="text-right font-mono">{number(analyst)}</TableCell><TableCell className="text-right font-mono">{number(company)}</TableCell></TableRow>)}
+      </TableBody></Table>
+      <p className="text-xs text-muted-foreground">欠測は「—」で表示します。未確認の比較基準を補完せず、数値差分や独立票を作りません。</p>
+    </>}
+    <a className="text-xs underline" href={row.source_url} rel="noopener noreferrer" target="_blank">掲載元</a>
+  </div>
+}
+
 export function ExternalAssessmentSection({ assessment }: { assessment: ExternalAssessment | null | undefined }) {
   if (!assessment) return <SectionCard title="外部参考評価" padded><p className="text-sm text-muted-foreground">保存済み外部観測なし</p></SectionCard>
-  const observed = [...assessment.model_valuations, ...assessment.analyst_ratings, ...assessment.quants_scores].some(source => source.inputs.latest !== null) || assessment.tradingview.inputs.latest !== null
+  const observed = [...assessment.model_valuations, ...assessment.analyst_ratings, ...assessment.quants_scores].some(source => source.inputs.latest !== null) || assessment.tradingview.inputs.latest !== null || assessment.minkabu.latest !== null
   const tv = assessment.tradingview.inputs.latest
   return <SectionCard title="外部参考評価" description="媒体が提示した値です。独自の企業価値評価とは分け、異なる尺度を多数決点へまとめません。" meta={<span className="text-xs">読取対象時点(UTC) {assessment.cutoff}</span>} padded>
     {!observed && <p className="text-sm text-muted-foreground">この対象時点以前の保存済み外部評価はありません。</p>}
     <div className="grid gap-6">
+      <MinkabuForecast history={assessment.minkabu} />
       {assessment.model_valuations.map(source => {
         const row = source.inputs.latest
         if (!row) return null

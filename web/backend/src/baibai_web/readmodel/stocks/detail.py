@@ -129,6 +129,7 @@ def build_security_detail(
         or any(source.inputs.latest is not None for source in assessment.analyst_ratings)
         or any(source.inputs.latest is not None for source in assessment.quants_scores)
         or assessment.tradingview.inputs.latest is not None
+        or assessment.minkabu.latest is not None
     )
     if (
         holding_snapshot is None

@@ -479,6 +479,7 @@
       }
     ]
   },
+  "minkabu": { "latest": null, "previous": null },
   "origin_groups": [
     {
       "origin": "IFIS",
