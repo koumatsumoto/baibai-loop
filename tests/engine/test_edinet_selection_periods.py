@@ -70,6 +70,15 @@ def test_unknown_metadata_does_not_add_annual_precedence(missing_fields) -> None
     assert select_document_candidates([annual, interim]).candidates["0000"].doc_id == "S100INTERIM"
 
 
+@pytest.mark.parametrize("start", ["2025-12-31", "2026-01-01"])
+def test_nonpositive_period_does_not_add_annual_precedence(start: str) -> None:
+    annual = _document("S100ANNUAL", "120", "2026-03-25 10:00")
+    interim = _document("S100INTERIM", "160", "2026-04-01 10:00")
+    for document in (annual, interim):
+        document["periodStart"] = start
+    assert select_document_candidates([annual, interim]).candidates["0000"].doc_id == "S100INTERIM"
+
+
 @pytest.mark.parametrize("field", ["periodStart", "periodEnd"])
 @pytest.mark.parametrize("missing_from", ["annual", "interim"])
 def test_asymmetric_metadata_keeps_existing_known_period_order(field, missing_from) -> None:
