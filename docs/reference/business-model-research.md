@@ -50,6 +50,8 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 
 対象企業のWeb siteに転載された顧客事例、対象企業が作成またはsponsorしたsurvey、販売代理店だけの紹介、共同文面、issuer提供数値、同じpress kitの再掲は、issuerまたはcoordinated familyとして扱う。customer / partner sourceを`independent-primary`として扱えるのは、その組織が直接観測・管理する事実を、自身の責任で公表する範囲だけである。競合企業の資料は、その競合自身の価格・製品・行動には一次sourceだが、対象企業の優位性を中立に証明するものではない。
 
+公開の外部企業レポートは[Research時の参照先と解釈](./data-sources.md#public-research-reports)から使う。第三者のサイトにあることとissuerから独立した根拠であることを同一視しない。
+
 ## 主張区分ごとの証拠要件
 
 各claimは`load-bearing / supporting`を区別する。claimが変わることで、permanent-loss結論、Base/Downsideの価値、投資理由の成立性、企業評価の`supported / uncertain / unsupported`、Proposalの行動結論のいずれかが変わる場合は`load-bearing`である。
