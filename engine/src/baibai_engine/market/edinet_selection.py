@@ -155,13 +155,22 @@ def _is_unusable_status(document: Mapping[str, Any]) -> bool:
 
 def _document_sort_key(
     candidate: EdinetDocumentCandidate,
-) -> tuple[int, date, int, date, str, int, str]:
+) -> tuple[int, date, int, date, int, str, int, str]:
     correction = 1 if candidate.doc_type_code in CORRECTION_DOC_TYPE_CODES else 0
     return (
         1 if candidate.period_end is not None else 0,
         candidate.period_end or date.min,
         1 if candidate.period_start is not None else 0,
         candidate.period_start or date.min,
+        # Interim metadata can describe the whole fiscal year. For a known
+        # window, a late interim correction must not replace annual statements.
+        # Missing or invalid metadata cannot establish that window.
+        int(
+            candidate.doc_type_code in {"120", "130"}
+            and candidate.period_start is not None
+            and candidate.period_end is not None
+            and candidate.period_start < candidate.period_end
+        ),
         candidate.submit_datetime or "",
         correction,
         candidate.doc_id,
