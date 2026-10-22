@@ -8,7 +8,6 @@ from tools.cutover.upgrade_market_v48 import prior_schema_sql, upgrade
 
 from baibai_engine.storage.observations.schema import validate_current_schema
 
-
 # Frozen audited sqlite_master SQL, independent of the tool's legacy replacements.
 _LEGACY_MARGIN_TABLE_SQL = """CREATE TABLE jquants_margin_alerts(
   publication_date TEXT NOT NULL,
