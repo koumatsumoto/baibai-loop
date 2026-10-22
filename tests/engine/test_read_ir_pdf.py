@@ -282,3 +282,23 @@ def test_all_empty_extracted_pages_are_not_a_successful_absence_check(
     err = capsys.readouterr().err
     assert "no searchable extracted text on pages: [1, 2]" in err
     assert "no match in the selected pages' extracted text" in err
+
+
+def test_full_hit_pages_exclude_nonmatching_pages_and_pair_numbers_with_bodies(
+    tmp_path, monkeypatch, capsys
+):
+    texts = ["unused"] * 7
+    texts[6] = "p7本文\n営業利益700"
+    texts[2] = "p3だけの非一致本文"
+    texts[4] = "p5本文\n営業利益500"
+    path, calls = _mock_pdf(tmp_path, monkeypatch, texts)
+    assert main([str(path), "--pages", "7,3,5", "--search", "営業利益", "--show-hit-pages"]) == 0
+    assert calls == [7, 3, 5]
+    out = capsys.readouterr().out
+    first = "=== page 7 [営業利益]\np7本文\n営業利益700"
+    second = "=== page 5 [営業利益]\np5本文\n営業利益500"
+    assert first in out
+    assert second in out
+    assert out.index(first) < out.index(second)
+    assert "=== page 3" not in out
+    assert texts[2] not in out
