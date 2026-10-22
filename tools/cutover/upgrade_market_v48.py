@@ -33,6 +33,42 @@ def _objects(connection: sqlite3.Connection, database: str) -> list[tuple[object
     ).fetchall()
 
 
+def _matches_prior_objects(
+    actual: list[tuple[object, ...]], expected: list[tuple[object, ...]]
+) -> bool:
+    """Accept canonical DDL and only the two audited legacy schema-47 spellings."""
+    if len(actual) != len(expected):
+        return False
+    for found, canonical in zip(actual, expected, strict=True):
+        if found == canonical:
+            continue
+        if found[:3] != canonical[:3]:
+            return False
+        sql = str(canonical[3])
+        if canonical[:3] == ("table", "jquants_margin_alerts", "jquants_margin_alerts"):
+            legacy_sql = sql.replace(
+                "  -- AppDate is the reported balance's application date (申込日), "
+                "not a regulation effective date.\n",
+                "",
+                1,
+            )
+        elif canonical[:3] == (
+            "index",
+            "idx_jquants_margin_alerts_ticker",
+            "jquants_margin_alerts",
+        ):
+            legacy_sql = sql.replace(
+                "\n  ON jquants_margin_alerts(ticker, publication_date)",
+                "\nON jquants_margin_alerts(ticker, publication_date)",
+                1,
+            )
+        else:
+            return False
+        if found[3] != legacy_sql:
+            return False
+    return True
+
+
 def upgrade(source: Path, output: Path) -> dict[str, int]:
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -54,7 +90,7 @@ def upgrade(source: Path, output: Path) -> dict[str, int]:
                 raise ValueError(
                     "source must be market schema 47; do not retry a completed cutover"
                 )
-            if _objects(connection, "prior") != old_objects:
+            if not _matches_prior_objects(_objects(connection, "prior"), old_objects):
                 raise ValueError("source schema differs from the reviewed schema 47")
             if connection.execute("PRAGMA prior.quick_check").fetchone() != ("ok",):
                 raise ValueError("source integrity check failed")
