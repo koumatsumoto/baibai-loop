@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from baibai_batch.jobs.external_assessment_cohorts import (
     load_plan,
     load_result,
@@ -19,7 +21,8 @@ from baibai_engine.batch_api import (
 )
 
 
-def test_default_plan_includes_four_sources_and_minkabu_roundtrips():
+@pytest.mark.parametrize("available", [True, False])
+def test_default_plan_includes_four_sources_and_minkabu_roundtrips(available):
     plan = make_plan(
         run_id="synthetic-minkabu",
         tickers=("7203",),
@@ -34,8 +37,9 @@ def test_default_plan_includes_four_sources_and_minkabu_roundtrips():
         fetched_at_utc=datetime(2026, 10, 22, tzinfo=UTC),
         source_url="https://minkabu.jp/stock/7203/analyst_consensus",
         parser_version="synthetic-1",
-        display_as_of_date="2026-10-22",
-        target_price_yen=100,
+        availability="available" if available else "not_covered",
+        display_as_of_date="2026-10-22" if available else None,
+        target_price_yen=100 if available else None,
     )
     outcome = ExternalAssessmentCollectionOutcome(
         "minkabu",
@@ -49,4 +53,6 @@ def test_default_plan_includes_four_sources_and_minkabu_roundtrips():
     restored = load_result(plan, json.loads(json.dumps(result_value(plan, result))))
     assert restored == result
     assert restored.observations == (row,)
-    assert [entry.state for entry in restored.entries] == ["unattempted"] * 3 + ["success"]
+    assert [entry.state for entry in restored.entries] == ["unattempted"] * 3 + [
+        "success" if available else "normal_null"
+    ]

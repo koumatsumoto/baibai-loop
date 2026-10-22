@@ -153,3 +153,90 @@ def test_analysis_rejects_future_or_different_security():
         )
         with pytest.raises(ValueError, match="outside ticker/cutoff"):
             analyze(history, evaluated_at=NOW)
+
+
+def no_coverage_html(ticker="130A"):
+    return f'''<html><head><title>合成会社 ({ticker}) : 株価</title>
+    <link rel="canonical" href="{minkabu.profile_url(ticker)}"></head><body>
+    <span class="md_box"><p class="label">個人予想</p><span>対象外</span></span>
+    <span class="ly_col md_box"><p class="label">アナリスト</p>
+    <span class="md_picksPlate theme_none">対象外</span></span></body></html>'''
+
+
+def test_explicit_identified_no_coverage_is_not_zero_or_an_http_error(tmp_path):
+    from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
+    from baibai_engine.external_assessment.normalization.decode import decode_attempt
+
+    response = EquityWebSourceResponse(
+        str(uuid4()),
+        str(uuid4()),
+        "minkabu",
+        "130A",
+        "page",
+        None,
+        minkabu.profile_url("130A"),
+        NOW,
+        "utf-8",
+        no_coverage_html().encode(),
+    )
+    row = decode_attempt([response])
+    assert row.availability == "not_covered"
+    assert row.display_as_of_date is None
+    assert row.strong_buy_count is None
+    assert row.target_price_yen is None
+    db = tmp_path / "market.sqlite"
+    assert save_observations(db, [row]) == 1
+    assert read_observations(db, "130A", NOW).minkabu.latest == row
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("130A", "7203"),
+        ("アナリスト</p>", "個人予想</p>"),
+        ("対象外", "---"),
+        ('class="ly_col md_box"', 'class="unrelated"'),
+        ('<span class="ly_col md_box">', '<span href="/unexpected" class="ly_col md_box">'),
+    ],
+)
+def test_404_or_incidental_missing_text_never_proves_no_coverage(old, new):
+    with pytest.raises(ParseError):
+        minkabu.parse_html(
+            no_coverage_html().replace(old, new),
+            ticker="130A",
+            source_url=minkabu.profile_url("130A"),
+            fetched_at_utc=NOW,
+        )
+
+
+def test_no_coverage_cannot_carry_values_and_available_requires_display_date():
+    from pydantic import ValidationError
+
+    from baibai_engine.external_assessment.observations.models import AnalystForecastObservation
+
+    base = dict(
+        ticker="130A",
+        fetched_at_utc=NOW,
+        source_url=minkabu.profile_url("130A"),
+        parser_version="synthetic",
+    )
+    with pytest.raises(ValidationError):
+        AnalystForecastObservation(**base)
+    with pytest.raises(ValidationError):
+        AnalystForecastObservation(**base, availability="not_covered", strong_buy_count=0)
+
+
+def test_later_no_coverage_does_not_leave_previous_forecast_as_latest(tmp_path):
+    db = tmp_path / "market.sqlite"
+    earlier = parse(ticker="130A")
+    later = minkabu.parse_html(
+        no_coverage_html(),
+        ticker="130A",
+        source_url=minkabu.profile_url("130A"),
+        fetched_at_utc=NOW + timedelta(days=1),
+    )
+    save_observations(db, [earlier, later])
+    history = read_observations(db, "130A", NOW + timedelta(days=1)).minkabu
+    assert history.latest == later
+    assert history.previous == earlier
+    assert read_observations(db, "130A", NOW).minkabu.latest == earlier

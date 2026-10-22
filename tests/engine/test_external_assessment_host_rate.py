@@ -164,12 +164,12 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v8_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v8"
+def test_v9_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v9"
     assert source_http.HOST_REQUEST_RATE_PER_SECOND == 2
     assert source_http.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
-    assert binding == "6d4681fed76373bb998c811f08334360269245a0581314ffb337305202dcb183"
+    assert binding == "7b9688aa1e92d642aeaf71f1e197626ee26388e5fc7e8e1ab1e3ed506ff6fb7d"
     monkeypatch.setattr(source_http, "HOST_REQUEST_RATE_PER_SECOND", 3)
     assert collection.collector_binding() != binding
 
@@ -204,3 +204,51 @@ def test_token_wait_timeout_is_unattempted_with_no_http(clock):
     assert result.outcomes[0].status == "not_attempted"
     assert result.stop_reason == "wall_clock_limit"
     assert client.calls == []
+
+
+def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_received_200(clock):
+    from tests.engine.test_minkabu import no_coverage_html
+
+    from baibai_engine.external_assessment.normalization.decode import decode_attempt
+
+    originals = []
+    client = Session(clock, [(404, "not found", {}), (200, no_coverage_html(), {})])
+    result = pair(
+        client,
+        source_http.HostRateLimiter(),
+        ticker="130A",
+        source="minkabu",
+        on_received_html=originals.append,
+    )
+    assert result.requests == 2
+    assert result.outcomes[0].status == "observed"
+    assert result.observations[0].availability == "not_covered"
+    assert [url for _, url, _ in client.calls] == [
+        "https://minkabu.jp/stock/130A/analyst_consensus",
+        "https://minkabu.jp/stock/130A",
+    ]
+    assert len(originals) == 1
+    assert decode_attempt(originals) == result.observations[0]
+    assert originals[0].requested_url.endswith("/130A")
+
+
+@pytest.mark.parametrize("status", [403, 429, 500])
+def test_minkabu_never_uses_profile_to_bypass_denial_or_http_failure(clock, status):
+    client = Session(clock, [(status, "denied", {})])
+    result = pair(client, source_http.HostRateLimiter(), source="minkabu")
+    assert result.requests == 1
+    assert result.observations == ()
+    assert result.outcomes[0].http_status == status
+
+
+def test_minkabu_404_with_unconfirmed_profile_is_failure_not_normal_null(clock):
+    from tests.engine.test_minkabu import no_coverage_html
+
+    client = Session(
+        clock, [(404, "not found", {}), (200, no_coverage_html().replace("対象外", "不明"), {})]
+    )
+    result = pair(client, source_http.HostRateLimiter(), ticker="130A", source="minkabu")
+    assert result.requests == 2
+    assert result.observations == ()
+    assert result.outcomes[0].status == "parse_failure"
+    assert result.outcomes[0].reason == "unconfirmed_no_analyst_coverage"

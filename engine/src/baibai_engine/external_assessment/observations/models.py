@@ -153,7 +153,8 @@ class AnalystForecastObservation(ReceivedObservation):
     """Visible Minkabu analyst fields, separate from its combined/crowd prediction."""
 
     distributor: Literal["minkabu"] = "minkabu"
-    display_as_of_date: date
+    availability: Literal["available", "not_covered"] = "available"
+    display_as_of_date: date | None = None
     rating_label: str | None = None
     strong_buy_count: int | None = Field(default=None, ge=0, strict=True)
     buy_count: int | None = Field(default=None, ge=0, strict=True)
@@ -172,6 +173,19 @@ class AnalystForecastObservation(ReceivedObservation):
     company_net_income_million_yen: FiniteFloat | None = None
     company_eps_yen: FiniteFloat | None = None
     share_basis: str | None = None
+
+    @model_validator(mode="after")
+    def consistent_availability(self) -> Self:
+        if self.availability == "available":
+            if self.display_as_of_date is None:
+                raise ValueError("available forecast requires its displayed date")
+        else:
+            forecast_fields = (
+                type(self).model_fields.keys() - ReceivedObservation.model_fields.keys()
+            )
+            if any(getattr(self, name) is not None for name in forecast_fields - {"availability"}):
+                raise ValueError("not-covered forecast cannot carry forecast values or dates")
+        return self
 
 
 type Observation = (

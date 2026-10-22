@@ -76,7 +76,8 @@ QUANTS_SCORE_DDL = _ddl(QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS)
 
 ANALYST_FORECAST_COLUMNS: tuple[Column, ...] = (
     *_COMMON_COLUMNS,
-    ("display_as_of_date", "TEXT", False, 0),
+    ("availability", "TEXT", False, 0),
+    ("display_as_of_date", "TEXT", True, 0),
     ("rating_label", "TEXT", True, 0),
     *(
         (name, "INTEGER", True, 0)

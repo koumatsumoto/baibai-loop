@@ -107,10 +107,27 @@
           "title": "Contract Version",
           "type": "string"
         },
-        "display_as_of_date": {
-          "format": "date",
-          "title": "Display As Of Date",
+        "availability": {
+          "default": "available",
+          "enum": [
+            "available",
+            "not_covered"
+          ],
+          "title": "Availability",
           "type": "string"
+        },
+        "display_as_of_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display As Of Date"
         },
         "rating_label": {
           "anyOf": [
@@ -347,6 +364,7 @@
         "source_url",
         "parser_version",
         "contract_version",
+        "availability",
         "display_as_of_date",
         "rating_label",
         "strong_buy_count",

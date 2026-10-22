@@ -14,6 +14,7 @@ from tests.batch.test_external_assessment_raw import Session
 from tests.batch.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_sources import monex_html
 from tests.engine.test_minkabu import html as minkabu_html
+from tests.engine.test_minkabu import no_coverage_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs import external_assessment_publication as publisher
@@ -169,12 +170,19 @@ def test_three_sources_normal_null_and_rakuten_retry_rebuild_from_l1_only(public
         ] == [1, 1, 1]
 
 
-@pytest.mark.parametrize("source", ["monex", "minkabu"])
-def test_actual_receiver_bundle_flows_into_fixed_release(publication, connect, source):
+@pytest.mark.parametrize(
+    ("source", "missing"), [("monex", False), ("minkabu", False), ("minkabu", True)]
+)
+def test_actual_receiver_bundle_flows_into_fixed_release(publication, connect, source, missing):
     store, previous, _, database, _, _ = publication
     plan = _plan(previous, run_id="source-receiver-integration", sources=(source,))
     html = monex_html("7203") if source == "monex" else minkabu_html("7203")
-    connect(Session([(200, html.encode(), "utf-8")]))
+    replies = (
+        [(404, b"not found", "utf-8"), (200, no_coverage_html("7203").encode(), "utf-8")]
+        if missing
+        else [(200, html.encode(), "utf-8")]
+    )
+    connect(Session(replies))
     daily.acquire_cohort(store, plan, 0)
     report = _publish(publication, plan, "receiver-integration")
     assert report["readback"] == "verified"

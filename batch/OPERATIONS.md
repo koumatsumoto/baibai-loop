@@ -768,6 +768,7 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 ### みんかぶ導入時の market 47 → 48 切替
 
 みんかぶの原本source制約と新しいL2表を追加するため、codeだけの反映では既存schema 47を読めない。
+本番切替の前に、固定masterの対象全銘柄について取得・対象外・失敗・未試行を集計し、未解決の取得経路や解析不備がないことを確認する。以下の3銘柄preflightは切替直前の疎通確認であり、全銘柄検証の代わりにはしない。403/429で停止した全件検証を、少数の公開画面やCI成功で完了扱いにしない。
 日次や通常readerに暗黙migrationは追加しない。最終HEADのCIと切替toolの検証を終えてから、
 `cloud-materialize`の明示入力`upgrade_market_v48=true`を使い、一度だけ担当者が切り替える。
 通常のmaterializeではこの入力はfalseであり、machine storeを公開しない。
@@ -796,7 +797,7 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 初回に最新L1のreleaseを固定し、日次取得ではそのJPXカレンダーで対象営業日のexact-date masterを選ぶ。休日も取得し、連続したカレンダーで直近営業日を確認してその保存済みmasterを使う。手動では従来どおりmaster日付を明示する。calendarと必要なmaster年partition以外をこの計画段階で取得・hydrateせず、新しいmasterをproviderから取得しない。calendarの対象日・連続性、普通株のproduction floor、分類、master日付・release bindingが不足する場合はprovider通信前に停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では保存済みplanを読み、別universeへ置換しない。受領日時とJST受領日は実通信から保持し、休日や翌日の再開をmaster日付・cron対象日へ付け替えない。
 
-既定・最大50銘柄のcohortを直列のmatrix jobへ分ける。通常の4媒体では50×（Monex 1HTTP＋楽天2HTTP＋株マップ1HTTP＋みんかぶ1HTTP）で最大250HTTPとなる。取得は銘柄ごとにplanの媒体順で回し、別hostの待機枠を使う。保存planとstageのpair順は従来の媒体順を保持する。別のHTTP数groupや細粒度matrixは作らない。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。全5hostは平均2HTTP/秒・最大4creditのtoken bucketをcohort内の全pair・再試行で共有し、実送信直前にtokenを消費する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは直列1件、process開始時のcreditは0で、再起動によるcredit付与はない。HTTP Sessionはcohort内で再利用し、各pair開始時にcookieを空にする。限定CLIの2秒間隔と通常のTLS/proxy経路は維持する。
+既定・最大50銘柄のcohortを直列のmatrix jobへ分ける。通常の4媒体では50×（Monex 1HTTP＋楽天2HTTP＋株マップ1HTTP＋みんかぶ最大2HTTP）で最大300HTTPとなる。取得は銘柄ごとにplanの媒体順で回し、別hostの待機枠を使う。保存planとstageのpair順は従来の媒体順を保持する。別のHTTP数groupや細粒度matrixは作らない。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。全5hostは平均2HTTP/秒・最大4creditのtoken bucketをcohort内の全pair・再試行で共有し、実送信直前にtokenを消費する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは直列1件、process開始時のcreditは0で、再起動によるcredit付与はない。HTTP Sessionはcohort内で再利用し、各pair開始時にcookieを空にする。限定CLIの2秒間隔と通常のTLS/proxy経路は維持する。
 
 pair取得は120秒以内、HTTP timeoutは30秒以内とする。取得jobは4時間のsoft budgetに次pair・保存の15分余裕を残し、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
 
@@ -804,7 +805,7 @@ pair取得は120秒以内、HTTP timeoutは30秒以内とする。取得jobは4�
 
 確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/external-assessment/<batch_id>/cohort-NNNN.json`へ`external-assessment-cohort-stage-v2`で保存する。成功・正常null・既知失敗・未記録を区別し、実受領UTC時刻を変更しない。通常終了・soft budget・retry上限など制御された停止では、raw bundleの保存を確認してから確定結果をcohort stageとして一度だけ条件付きPUTする。取得前の永続予約、inflight状態、永続429 retry/cooldownは持たない。
 
-planは既存stageを一度走査し、未記録pairを持つcohortだけをmatrixへ渡す。acquireは対象cohortのstageだけを読み、完了済みならprovider通信0・PUT0で返す。部分再開では保存済みの成功・正常null・失敗と元受領時刻を保ち、未記録pairだけを取得する。hard kill前に未commitのGETは再取得されうる。通常cohort最大200HTTPの再取得を受け入れ、HTTP exactly-onceを保証しない。結果が一件も確定しないsoft stopでは空stageを保存しない。
+planは既存stageを一度走査し、未記録pairを持つcohortだけをmatrixへ渡す。acquireは対象cohortのstageだけを読み、完了済みならprovider通信0・PUT0で返す。部分再開では保存済みの成功・正常null・失敗と元受領時刻を保ち、未記録pairだけを取得する。hard kill前に未commitのGETは再取得されうる。通常cohort最大300HTTPの再取得を受け入れ、HTTP exactly-onceを保証しない。結果が一件も確定しないsoft stopでは空stageを保存しない。
 
 初回PUTは`If-None-Match`、部分再開は読取世代の`If-Match`で更新する。PUT応答不明・ETag欠落・CAS競合では実際のstageを読んで確定済み結果を採用し、新しい受信値で既存結果を上書きしない。保存が確認できない場合は失敗とし、競合stageに未記録pairが残る場合も未完了と報告する。通常の成功PUTではContent-MD5と応答ETagを検証し、取得用storeのPUT直後HEADを省く。保存済みobjectのHEAD→GET→HEADとSHA256/世代検証は維持する。
 
@@ -816,7 +817,7 @@ planは既存stageを一度走査し、未記録pairを持つcohortだけをmatr
 
 ### 公開HTML原本のcohort handoff bundle
 
-HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stageより先に保存する。対象は既存collectorが要求した公開Monex、楽天outer、確認済みIFIS iframe、株マップの銘柄診断、みんかぶの証券アナリスト予想に限る。SRC/FISCOの企業レポートはこの日次取得へ加えず、Research時の参照とする。HTTP転送圧縮展開後・文字decode前のbytesを捕捉し、manifestにreceipt UUID・attempt UUID・媒体・要求ticker・page/iframeと親receipt・URL・encoding・実受領UTC・HTTP status・本文SHA256/bytes・archive memberを記録する。Cookie・認証header・全response headerは保存しない。旧診断用format v1はv2の原本読取で拒否し、旧本文からcanonical identityを補わない。
+HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stageより先に保存する。対象は既存collectorが要求した公開Monex、楽天outer、確認済みIFIS iframe、株マップの銘柄診断、みんかぶの証券アナリスト予想と、404時に対象外を確認する同一銘柄の公開本体ページに限る。SRC/FISCOの企業レポートはこの日次取得へ加えず、Research時の参照とする。HTTP転送圧縮展開後・文字decode前のbytesを捕捉し、manifestにreceipt UUID・attempt UUID・媒体・要求ticker・page/iframeと親receipt・URL・encoding・実受領UTC・HTTP status・本文SHA256/bytes・archive memberを記録する。Cookie・認証header・全response headerは保存しない。旧診断用format v1はv2の原本読取で拒否し、旧本文からcanonical identityを補わない。
 
 受信した本文は文字decode前にcallbackへ渡す。各attemptの最大2本文をpair deadline外でprivateなlocal fileへspoolし、cohort終了時にarchiveを作ってimmutable bundleをuploadする。成功したuploadのkeyと選択attempt IDを含めてからtyped stageを条件付きcommitする。raw append・finalize・upload失敗はstage commitを止める。stage PUTが曖昧な場合は既存の読戻しで実際に保存された競合stageを採用し、上書きしない。commit前のhard killでは未確定GETを再実行し得るため、解析の各命令より前に永続保存済みとは主張しない。完了済みstage/terminalは再取得・raw補完しない。
 
@@ -1137,3 +1138,4 @@ market lake credentialは新しいbucket-scoped Object Read only tokenを作り�
 旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。market lakeの共有読取を止める場合は
 `(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
 既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。
+

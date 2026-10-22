@@ -19,7 +19,8 @@ export interface AnalystForecastObservation {
   source_url: string
   parser_version: string
   contract_version: '1'
-  display_as_of_date: string
+  availability: 'available' | 'not_covered'
+  display_as_of_date: string | null
   rating_label: string | null
   strong_buy_count: number | null
   buy_count: number | null

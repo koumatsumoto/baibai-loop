@@ -15,7 +15,7 @@ from baibai_engine.external_assessment.normalization import (
 )
 from baibai_engine.external_assessment.observations.models import AnalystForecastObservation
 
-PARSER_VERSION = "minkabu-analyst-1"
+PARSER_VERSION = "minkabu-analyst-2"
 RATING_LABELS = ("強気買い", "買い", "中立", "売り", "強気売り")
 COUNT_FIELDS = ("strong_buy_count", "buy_count", "neutral_count", "sell_count", "strong_sell_count")
 FORECAST_FIELDS = {
@@ -27,6 +27,10 @@ FORECAST_FIELDS = {
 
 def public_url(ticker: str) -> str:
     return f"https://minkabu.jp/stock/{normalize_ticker(ticker)}/analyst_consensus"
+
+
+def profile_url(ticker: str) -> str:
+    return f"https://minkabu.jp/stock/{normalize_ticker(ticker)}"
 
 
 def _cells(row: Element) -> list[str]:
@@ -68,18 +72,42 @@ def parse_html(
     html: str, *, ticker: str, source_url: str, fetched_at_utc: datetime
 ) -> AnalystForecastObservation:
     ticker = normalize_ticker(ticker)
-    if source_url != public_url(ticker):
+    if source_url not in {public_url(ticker), profile_url(ticker)}:
         raise ParseError("source_identity")
     page = document(html)
     canonical = page.find("link", rel="canonical")
     titles = page.find("title")
     if (
         len(canonical) != 1
-        or canonical[0].attrs.get("href") != public_url(ticker)
+        or canonical[0].attrs.get("href") != source_url
         or len(titles) != 1
         or f"({ticker})" not in compact(titles[0].text)
     ):
         raise ParseError("ticker_identity")
+    if source_url == profile_url(ticker):
+        boxes = [
+            node
+            for node in page.find()
+            if node.has_class("md_box")
+            and [compact(label.text) for label in node.find("p", **{"class": "label"})]
+            == ["アナリスト"]
+        ]
+        if (
+            len(boxes) != 1
+            or boxes[0].tag != "span"
+            or "href" in boxes[0].attrs
+            or compact(boxes[0].text) != "アナリスト対象外"
+        ):
+            raise ParseError("unconfirmed_no_analyst_coverage")
+        return AnalystForecastObservation.model_validate(
+            {
+                "ticker": ticker,
+                "fetched_at_utc": fetched_at_utc,
+                "source_url": source_url,
+                "parser_version": PARSER_VERSION,
+                "availability": "not_covered",
+            }
+        )
     headings = [
         compact(node.text)
         for node in page.find("h2")

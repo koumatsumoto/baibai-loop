@@ -57,6 +57,7 @@ PARSE_FAILURE_REASONS = frozenset(
         "changed_rating_cell",
         "response_encoding",
         "missing_analyst_forecast",
+        "unconfirmed_no_analyst_coverage",
         "changed_analyst_forecast",
         "missing_quants_date",
         "missing_quants_scores",
@@ -199,7 +200,15 @@ def collect(
                             )
                         elif source == "minkabu":
                             url = minkabu.public_url(ticker)
-                            html, received, _ = receive(url, role="page")
+                            try:
+                                html, received, _ = receive(url, role="page")
+                            except source_http.HttpFailure as exc:
+                                if exc.status != 404:
+                                    raise
+                                # 404 alone proves nothing. Only the identified issuer's
+                                # explicit public "対象外" display can become normal-null.
+                                url = minkabu.profile_url(ticker)
+                                html, received, _ = receive(url, role="page")
                             observation = minkabu.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
@@ -341,7 +350,7 @@ def collector_binding() -> str:
         "initial_pair_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
         "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,
         "request_timeout_seconds": DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
-        "source_request_limits": {"monex": 1, "rakuten": 2, "kabumap": 1, "minkabu": 1},
+        "source_request_limits": {"monex": 1, "rakuten": 2, "kabumap": 1, "minkabu": 2},
         "daily_host_rate": {
             "hosts": source_http.RATE_LIMITED_HOSTS,
             "requests_per_second": source_http.HOST_REQUEST_RATE_PER_SECOND,
@@ -405,7 +414,7 @@ def collect_pair(
         result = collect(
             [ticker],
             sources=(source,),
-            request_budget=2 if source == "rakuten" else 1,
+            request_budget=2 if source in {"rakuten", "minkabu"} else 1,
             time_limit_seconds=remaining,
             request_timeout_seconds=request_timeout_seconds,
             session=wrapped,
