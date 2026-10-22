@@ -29,6 +29,8 @@ related_docs:
 
 比較理由には[投資目的とリスク許容](../doctrine.md#investment-strategy)に沿って、価値を生む経済経路、重要な観測と個社への伝達、Base/Downside・反証・実現までの時間を現金維持や他の完成案と比べて書く。同じBase年率でも倍率上昇と業績回復への依存を分け、外部評価との重要な相違を採用・反証・保留または参考とした理由へ辿れるようにする。比較不能な観測や未完了対象を有利/不利な確定判断に変えず、Pmax内というだけで買付を決めない。企業別の根拠を比較欄へ全文コピーせず、[原価格の成立条件](./stock-assessment.md#valuation-context)と参照評価を示す。
 
+[四領域の統合](./stock-assessment.md#analysis-domain-integration)を踏まえ、重要なtechnical所見が今買う・待つ・見送る理由とどう関係するかを既存の`items[].rationale / comparison`へ、見直す観測・条件を`items[].review_conditions`へ書く。価値差と価格局面が相反する場合も、その判断と限界を説明する。technicalだけでPmax・購入gate・sell条件を変更せず、欠測だけで他領域や提案を一律停止しない。technical理由は参照Assessmentの保存所見に基づけ、ProposalAuthoringContextへtechnical blockが直接渡ることを前提にしない。
+
 ## 条件付き購入
 
 買付算術は[`evaluate_buy_terms`](../../engine/src/baibai_engine/research/entry_policy.py)が所有する。実quoteは観測、提案limitは試算価格であり、現在quoteを架空の安い値へ置換しない。pmaxはBase終価・今後分配・記録された期間と要求率から求め、Downside算術を別の購入閾値へしない。
@@ -67,7 +69,7 @@ intactでmaterialな反証が無いことを今回確認した場合は、旧val
 
 提案の具体条件はschema 3とし、対象日（target_session）から重複する15:30の期限を保存しない。対象日は呼値と現在条件の確認に使う。実注文の任意期限は本人が報告した台帳上の事実であり、提案から補完しない。既存schema 2の提案がある場合は本番切替前に移行・退役方針を確定し、読込時に期限だけを削って旧Reviewや参照hashを新本文へ付け替えない。
 
-scaffoldで入力snapshotとProposal/ReviewのIDを固定し、作者が行動・具体条件・比較理由を記す。初期draftの未記述比較はdeferであり、経済的no_actionへ自動変換しない。`proposal-check`は書込をせず、Review前にdraft_sha256を確認できる。`valid=true`やexit 0でも`review_binding=stale`はあり得るため、入力checkとReview完了を別に確認する。作者とは別の役が内容Reviewを行い、正規modelの`proposal_draft_sha256`へ束縛し、公開前は`review_binding=match`を確かめる。raw JSON/YAMLファイルのhashを代用しない。内容を変更した場合は取り直す。
+scaffoldで入力snapshotとProposal/ReviewのIDを固定し、作者が行動・具体条件・比較理由を記す。初期draftの未記述比較はdeferであり、経済的no_actionへ自動変換しない。`proposal-check`は書込をせず、Review前にdraft_sha256を確認できる。`valid=true`やexit 0でも`review_binding=stale`はあり得るため、入力checkとReview完了を別に確認する。作者とは別の役が内容Reviewを行い、正規modelの`proposal_draft_sha256`へ束縛し、公開前は`review_binding=match`を確かめる。raw JSON/YAMLファイルのhashを代用しない。内容を変更した場合は取り直す。重要なtechnical所見を使った理由と見直し条件、時点・basis・期間の整合、価格局面と企業価値の混同、同じ価格情報の多重票を確認し、technicalだけでPmax・gate・sell条件を変えていないかを見る。
 
 Review後の初回発行直前に実時刻を`published_at`へ設定し、prepared_at ≤ reviewed_at ≤ published_atを守る。Reviewの時刻や対象hashを、内容を再確認せずに付け替えない。Review hashにはreviewとpublished_at以外の全文を含め、cash、scope、価格・数量・対象日・前提、grid、warnings/exposureを束縛する。公開時はOperationの現在被覆と保存scope、exact評価pair、現在入力事実を再読照合する。checked_atの経過だけをdriftにせず、実入力値を比較する。入力が変わればsnapshotと独立Reviewを取り直す。
 
