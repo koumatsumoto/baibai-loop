@@ -400,3 +400,19 @@ def test_source_notifier_runs_after_lease_release_and_uses_only_step_secret():
     assert release < notice
     assert steps[notice]["if"] == "${{ always() }}"
     assert steps[notice]["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
+
+
+def test_status_function_is_only_evaluated_in_step_condition_for_source_notice():
+    repository = Path(__file__).resolve().parents[2]
+    workflow = yaml.load(
+        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    for job in ("publish", "notify"):
+        steps = workflow["jobs"][job]["steps"]
+        cancellation = next(step for step in steps if step.get("id") == "cancellation")
+        assert cancellation["if"] == "${{ cancelled() }}"
+        assert "cancelled=true" in cancellation["run"]
+        notice = next(step for step in steps if "--cancelled" in step.get("run", ""))
+        assert "steps.cancellation.outputs.cancelled || 'false'" in notice["run"]
+        assert all("cancelled()" not in step.get("run", "") for step in steps)
