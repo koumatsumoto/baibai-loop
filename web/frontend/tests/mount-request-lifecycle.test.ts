@@ -52,19 +52,38 @@ afterEach(() => {
   hooks.setters = []
 })
 
-const pages = [
-  { name: 'Dashboard', render: DashboardPage, paths: ['/api/dashboard', '/api/operations', '/api/daily-delta'] },
-  { name: 'Tasks', render: TasksPage, paths: ['/api/tasks', '/api/operations'] },
-  { name: '候補探索', render: CandidateExplorationPage, paths: ['/api/screening/latest'] },
-  { name: 'Research補助情報', render: ResearchPage, paths: ['/api/dashboard', '/api/operations'] },
-  { name: 'AppShell', render: AppShell, paths: ['/api/meta'] },
+const pages: {
+  name: string
+  render: () => unknown
+  requests: { path: string; setterIndex: number; expectedValue?: (marker: string) => unknown }[]
+}[] = [
+  { name: 'Dashboard', render: DashboardPage, requests: [
+    { path: '/api/dashboard', setterIndex: 0 },
+    { path: '/api/operations', setterIndex: 1 },
+    { path: '/api/daily-delta', setterIndex: 3 },
+  ] },
+  { name: 'Tasks', render: TasksPage, requests: [
+    { path: '/api/tasks', setterIndex: 0 },
+    { path: '/api/operations', setterIndex: 1 },
+  ] },
+  { name: '候補探索', render: CandidateExplorationPage, requests: [
+    { path: '/api/screening/latest', setterIndex: 0 },
+  ] },
+  { name: 'Research補助情報', render: ResearchPage, requests: [
+    { path: '/api/dashboard', setterIndex: 1, expectedValue: marker => new Map([['1234', marker]]) },
+    { path: '/api/operations', setterIndex: 2 },
+  ] },
+  { name: 'AppShell', render: AppShell, requests: [
+    { path: '/api/meta', setterIndex: 0 },
+  ] },
 ]
 
 for (const page of pages) {
   describe(`${page.name}のmount request`, () => {
     it.each(['success', 'error', 'abort'])('StrictModeの再setup後に旧%sがstateを変更しない', async outcome => {
-      const previous = page.paths.map(() => deferred())
-      const current = page.paths.map(() => deferred())
+      const paths = page.requests.map(request => request.path)
+      const previous = paths.map(() => deferred())
+      const current = paths.map(() => deferred())
       for (const request of [...previous, ...current]) vi.mocked(fetchJson).mockReturnValueOnce(request.promise)
       page.render()
       const setup = hooks.effects[0]
@@ -72,9 +91,14 @@ for (const page of pages) {
       const cleanup = setup()
       cleanup?.()
       const currentCleanup = setup()
-      for (const request of current) request.resolve(payload('current'))
+      const currentValues = paths.map(path => payload(`current:${path}`))
+      current.forEach((request, index) => request.resolve(currentValues[index]))
       await settle()
-      expect(hooks.setters.some(setter => setter.mock.calls.length > 0)).toBe(true)
+      const expectedCalls = hooks.setters.map(() => [] as unknown[][])
+      page.requests.forEach((request, index) => {
+        expectedCalls[request.setterIndex] = [[request.expectedValue?.(`current:${request.path}`) ?? currentValues[index]]]
+      })
+      expect(hooks.setters.map(setter => setter.mock.calls)).toEqual(expectedCalls)
       const completed = hooks.setters.map(setter => [...setter.mock.calls])
       // Deliberately let mocks settle after abort to check callbacks too.
       for (const request of previous) {
@@ -83,10 +107,10 @@ for (const page of pages) {
       }
       await settle()
       expect(hooks.setters.map(setter => setter.mock.calls)).toEqual(completed)
-      expect(vi.mocked(fetchJson).mock.calls.map(([path]) => path)).toEqual([...page.paths, ...page.paths])
+      expect(vi.mocked(fetchJson).mock.calls.map(([path]) => path)).toEqual([...paths, ...paths])
       const signals = vi.mocked(fetchJson).mock.calls.map(([, init]) => init?.signal)
-      expect(signals.slice(0, page.paths.length).every(signal => signal?.aborted === true)).toBe(true)
-      expect(signals.slice(page.paths.length).every(signal => signal?.aborted === false)).toBe(true)
+      expect(signals.slice(0, paths.length).every(signal => signal?.aborted === true)).toBe(true)
+      expect(signals.slice(paths.length).every(signal => signal?.aborted === false)).toBe(true)
       currentCleanup?.()
     })
   })

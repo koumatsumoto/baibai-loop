@@ -104,7 +104,12 @@ function minkabuOnly(available: boolean): ExternalAssessment {
 
 describe('Minkabuの受領状態', () => {
   it('他媒体なしでも保存予想と受領時刻を表示する', () => {
-    const html = render(minkabuOnly(true))
+    const assessment = minkabuOnly(true)
+    Object.assign(assessment.minkabu.latest!, {
+      analyst_revenue_million_yen: 12345, company_revenue_million_yen: 23456,
+      analyst_net_income_million_yen: 3456, company_net_income_million_yen: 4567,
+    })
+    const html = render(assessment)
     expect(html).not.toContain('この対象時点以前の保存済み外部評価はありません')
     expect(html).toContain('みんかぶ')
     expect(html).toContain('1,500')
@@ -113,6 +118,9 @@ describe('Minkabuの受領状態', () => {
     expect(html).toContain('原評価元 未確認')
     expect(html).toContain('株式basis 未確認')
     expect(html).toContain('現在値の保証ではありません')
+    expect(html).toMatch(/業績予想<\/th><th[^>]*>アナリスト予想<\/th><th[^>]*>会社予想<\/th>/)
+    expect(html).toMatch(/売上高（百万円）<\/td><td[^>]*>12,345<\/td><td[^>]*>23,456<\/td>/)
+    expect(html).toMatch(/純利益（百万円）<\/td><td[^>]*>3,456<\/td><td[^>]*>4,567<\/td>/)
     expect(html).toMatch(/EPS（円）<\/td><td[^>]*>0<\/td><td[^>]*>—<\/td>/)
   })
 
