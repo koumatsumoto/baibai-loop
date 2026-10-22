@@ -46,6 +46,10 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選ぶ。そのsnapshotにいないtickerを古いsnapshotから復活させず、未来分類を使わない。価格はcutoff以下のraw closeを保存済み価格調整係数の後方累積で揃え、closeがnullの価格調整eventも落とさない。現金配当込みreturnではない。価格の観測日、requested cutoff、master snapshotの日は同一とは限らないため、各基準日を見て読む。
 
+個別価格contextの`price.bollinger_20bar`は、同じ調整済み終値の直近20観測bar（当該barを含む）をSMAと価格の母標準偏差（ddof=0）で記述する。平均±2σを厳密に超えた場合だけ上下の超過とし、接触は非超過とする。リターンの実現volatilityや価格の順位百分位とは別の量で、割安・過熱、反転確率、企業価値や投資成果を示さない。20は観測本数であり連続営業日や20暦日ではない。欠測を補間せず、実際の窓の開始・終了日と本数を保持する。20本未満、ゼロ分散、窓内の非正・非有限価格では理由付きでz-scoreと位置をnullにし、他の評価・調査の資格を落とさない。`available`は計算可能という意味であり、古い最終barの日付をrequested cutoffへ更新したり、鮮度を保証したりしない。
+
+この補助情報は共有の個別価格contextと生のticker-profile、Researchの新規固定入力へ載せる。Webの型付き表示には追加せず、Screeningの候補理由・資格・順位やER/FVへ接続しない。新しいsource・storeは持たず、Research再開は保存snapshotを投影し、BB欄のない既存snapshotへ現在値を補わない。日付cutoffで再計算しても後日訂正前の価格vintageを保証するものではない。
+
 既存CLIは次の領域計算を参照する。
 
 ```bash

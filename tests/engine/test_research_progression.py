@@ -18,6 +18,7 @@ from tests.helpers.assessment_v1 import (
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_selection import selection as make_selection
+from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.research.assessment_store import publish_reviewed_assessment
 from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
@@ -586,6 +587,45 @@ def test_domain_inputs_preserve_gaps_and_null_and_do_not_write_or_use_network(
     assert db.read_bytes() == before
     assert not market.exists()
     assert not (tmp_path / "absent-indicators.sqlite").exists()
+
+
+def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypatch):
+    db, market = case
+    insert_daily_bars_from_closes(market, "1234", [100] * 19 + [120], end_date=NOW.date())
+    selected = make_selection(now=NOW, tickers=("1234",))
+    inputs = collect_research_inputs(
+        snapshot=selected.inputs.analysis,
+        input_gaps=selected.inputs.input_gaps,
+        tickers=("1234",),
+        research_as_of=NOW.date(),
+        input_known_at=NOW,
+        market_path=market,
+        indicators_path=tmp_path / "absent-indicators.sqlite",
+        app_path=db,
+    )
+    saved = type(selected).model_validate_json(
+        selected.model_copy(update={"inputs": inputs}).model_dump_json()
+    )
+    expected = deepcopy(
+        inputs.securities_context["1234"]["market_context"]["price"]["bollinger_20bar"]
+    )
+    assert expected["position"] == "above_upper"
+    assert expected["z_score"] == pytest.approx(19**0.5)
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=90")
+
+    def no_recompute(*args, **kwargs):
+        pytest.fail("projecting saved research inputs must not recalculate prices")
+
+    monkeypatch.setattr("baibai_engine.research.inputs.build_security_market_context", no_recompute)
+    projected = project_research_inputs(saved)
+    assert projected["securities"]["1234"]["market_context"]["price"]["bollinger_20bar"] == expected
+    historical = saved.model_dump(mode="json")
+    del historical["inputs"]["securities_context"]["1234"]["market_context"]["price"][
+        "bollinger_20bar"
+    ]
+    old_projection = project_research_inputs(type(selected).model_validate(historical))
+    assert "bollinger_20bar" not in old_projection["securities"]["1234"]["market_context"]["price"]
 
 
 def test_equivalent_publication_instants_use_aware_time_comparison(case):
