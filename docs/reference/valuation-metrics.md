@@ -210,7 +210,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。必要なEDINET指標を欠くApproachではnominateしないが、他の指標・Approachまで一律に無効にしない。現行Asset Valueの`net_cash_to_market_cap`はanalysis contextであり、eligibility/orderには使わない。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。取得・更新は[EDINETRefresh](../../engine/src/baibai_engine/market/edinet_refresh.py)、保存済み書類の読取は[EDINETReader](../../engine/src/baibai_engine/market/edinet_reader.py)、選択は[文書選択](../../engine/src/baibai_engine/market/edinet_selection.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。既知で正順の書類metadataの開始・終了日が同じ年次と半期等が並ぶ場合は年次を優先し、遅れて提出された半期訂正で年次の残高・フローを置き換えない。同じ書類区分内では提出順で改訂を選ぶ。取得・更新は[EDINETRefresh](../../engine/src/baibai_engine/market/edinet_refresh.py)、保存済み書類の読取は[EDINETReader](../../engine/src/baibai_engine/market/edinet_reader.py)、選択は[文書選択](../../engine/src/baibai_engine/market/edinet_selection.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
 
 [EDINET API仕様](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140206.pdf)の書類情報訂正を畳む際は、保存したnative responseの同日・seqNumber・docIDに対応する操作行を使う。供給されたキーの明示nullは反映し、キーの省略は以前の値を変更しない。特定の4項目が揃うかから完全な置換を推定しない。native responseを持たない保存行ではSQL NULLから元のキー有無を復元できないため、NULLは明示的な消去の証拠にしない。通常の提出行は閲覧期限前に観測したidentityを保持し、同日の複数行は操作日時・seqNumberの順で選ぶ。
 
@@ -293,7 +293,7 @@ fallback した値も `sector_median_gap` / `sector_median_value` に入るた�
 
 Valuationの`self_range_position`は自己レンジ内の位置であり、較正panelでは`srp_*`として保持する。式は`(current - min(history)) / (max(history) - min(history))`。履歴なし／現在値欠測は`null`、履歴の最大値と最小値が同じなら`0.0`とし、0〜1へのclipはしない。観測順位に基づく統計的percentileではない。採用・除外条件は[Candidate Discovery](./screening-runtime.md#candidate-discovery)に従う。
 
-Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の価格調整基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDAだけ、この倍率の比較に使う。PBR / PER の history も同じ as-of 価格調整基準の price を使うため、株式分割があっても history は連続になる。
+Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の価格調整基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とする。半期等の倍率は取得期間のTTM品質と合わせて読む。PBR / PER の history も同じ as-of 価格調整基準の price を使うため、株式分割があっても history は連続になる。
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 

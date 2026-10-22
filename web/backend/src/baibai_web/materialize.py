@@ -13,7 +13,7 @@ import re
 import shutil
 import sys
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
 from baibai_engine.read_api import (
+    INDICATORS_DB_PATH,
     READING_RULES_PATH,
     MaterializationPreconditionError,
     PortfolioSnapshot,
@@ -54,10 +55,15 @@ from baibai_web.readmodel.stocks.research import (
     build_stock_assessment_detail,
     build_stock_assessment_list,
 )
-from baibai_web.sources.db_sources import DbLedgerSource, DbResearchSource, DbScreeningSource
+from baibai_web.sources.db_sources import (
+    DbLedgerSource,
+    DbMetaSource,
+    DbResearchSource,
+    DbScreeningSource,
+)
 from baibai_web.sources.factory import build_sources
 from baibai_web.sources.protocols import LedgerSource, ResearchSource
-from baibai_web.sources.types import ResearchRevision
+from baibai_web.sources.types import ResearchRevision, ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
 # Same shape the ledger and run store enforce at write time; re-checked here so a
@@ -93,10 +99,13 @@ def export_read_models(
     validate_reading_rules(root / READING_RULES_PATH)
     validate_market_store_hydration(stores.market_db_path)
     # These sources live only for this export. API requests keep the fresh DB sources.
+    screening_source = _CachedScreeningSource(stores.runs_db_path)
     stores = replace(
         stores,
         ledger=_CachedLedgerSource(stores.app_db_path, stores.market_db_path),
         research=_CachedResearchSource(stores.app_db_path),
+        screening=screening_source,
+        meta=DbMetaSource(stores.app_db_path, screening_source, root / INDICATORS_DB_PATH),
     )
     views_dir = output_dir / "views"
     if views_dir.is_dir():
@@ -267,6 +276,21 @@ def export_read_models(
         )
     written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
     return written
+
+
+class _CachedScreeningSource(DbScreeningSource):
+    @cached_property
+    def _latest_run(self) -> ScreeningRunRecord | None:
+        return super().latest_run()
+
+    def latest_run(self) -> ScreeningRunRecord | None:
+        return self._latest_run
+
+    def run_as_of(self, as_of: date) -> ScreeningRunRecord | None:
+        latest = self.latest_run()
+        if latest is not None and latest.as_of == as_of:
+            return latest
+        return super().run_as_of(as_of)
 
 
 class _CachedLedgerSource(DbLedgerSource):

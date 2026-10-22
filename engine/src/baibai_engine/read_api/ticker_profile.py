@@ -23,6 +23,7 @@ from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.market_context.security import build_security_market_context
+from baibai_engine.market_context.technical_query import technical_analysis
 from baibai_engine.read_api.position import (
     portfolio_ledger_document,
     replay_events_through,
@@ -64,6 +65,7 @@ def build_ticker_profile(
     )
     cutoff = datetime.combine(asof_date, time.max, ZoneInfo("Asia/Tokyo"))
     return {
+        "technical_analysis": technical_analysis(sqlite_path, ticker=ticker, as_of=asof_date),
         "external_assessment": external_assessment(
             sqlite_path,
             ticker=ticker,

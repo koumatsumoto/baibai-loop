@@ -47,7 +47,11 @@ export function AppShell() {
   // Meta view is optional infrastructure: when the endpoint is missing or errors, keep
   // the shell usable and simply omit the freshness strip.
   useEffect(() => {
-    fetchJson<MetaView>('/api/meta').then(setMeta).catch(() => setMeta(null))
+    const controller = new AbortController()
+    fetchJson<MetaView>('/api/meta', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setMeta(value) })
+      .catch(() => { if (!controller.signal.aborted) setMeta(null) })
+    return () => controller.abort()
   }, [])
 
   return (

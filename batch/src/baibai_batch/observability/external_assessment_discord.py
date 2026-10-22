@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 
 from baibai_batch.observability.discord import (
     DEFAULT_TIMEOUT_SECONDS,
+    MESSAGE_MAX_CHARS,
     OUTCOME_CANCELLED,
     OUTCOME_DEGRADED,
     OUTCOME_FAILED,
@@ -57,10 +60,154 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--publication-mode", choices=("complete", "confirmed_partial"), default="complete"
     )
+    parser.add_argument("--sources-report", type=Path)
+    parser.add_argument("--render-only", action="store_true")
+    parser.add_argument("--message-json")
+    parser.add_argument("--lease-release-outcome", choices=(*JOB_RESULTS, ""), default="")
     return parser
 
 
+def render_sources(
+    path: Path, *, lease_release: str, cancelled: str, publish_result: str = "skipped"
+) -> str:
+    """Only allowlisted source names, states and aggregate counts leave the runner."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        rows = payload["sources"]
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 4:
+            raise ValueError
+        statuses = {
+            "published",
+            "partially_published",
+            "already_published",
+            "already_partially_published",
+            "blocked",
+            "incomplete",
+            "not_started",
+            "publication_unconfirmed",
+        }
+        labels = {
+            "published": "公開確認済み",
+            "partially_published": "確定分のみ部分公開・同batch再開なし",
+            "already_published": "以前の公開確認済み・今回再公開なし",
+            "already_partially_published": "以前の部分公開確認済み・今回再公開なし",
+            "blocked": "取得元で停止・未公開",
+            "incomplete": "取得未完了・未公開",
+            "not_started": "plan未確定・未試行数不明",
+            "publication_unconfirmed": "公開確認未完了・未反映とは断定不可",
+        }
+        names = set()
+        lines = []
+        degraded = False
+        published = False
+        previous_only = True
+        for row in rows:
+            source, status = row["source"], row["status"]
+            if (
+                source not in {"monex", "rakuten", "kabumap", "minkabu"}
+                or source in names
+                or status not in statuses
+            ):
+                raise ValueError
+            names.add(source)
+            states = row.get("state_counts")
+            states = states if isinstance(states, dict) else {}
+
+            def count(value: object) -> str:
+                return str(value) if type(value) is int and value >= 0 else "不明"
+
+            typed = row.get("observations")
+            if (
+                typed is None
+                and type(states.get("success")) is int
+                and type(states.get("normal_null")) is int
+            ):
+                typed = states["success"] + states["normal_null"]
+            failed = states.get("failure")
+            degraded |= status not in {"published", "already_published"} or (
+                type(failed) is int and failed > 0
+            )
+            published |= status in {
+                "published",
+                "partially_published",
+                "already_published",
+                "already_partially_published",
+            }
+            previous_only &= status in {"already_published", "already_partially_published"}
+            lines.append(
+                f"{source}: {labels[status]}; 固定pair={count(row.get('expected_pairs'))}; "
+                f"typed={count(typed)}; 失敗={count(failed)}; "
+                f"正常null={count(states.get('normal_null'))}; "
+                f"未試行={count(states.get('unattempted'))}; 追加row={count(row.get('rows_added'))}"
+            )
+        outcome = (
+            OUTCOME_CANCELLED
+            if cancelled == "true"
+            else OUTCOME_FAILED
+            if not published
+            else OUTCOME_SKIPPED
+            if previous_only
+            else OUTCOME_DEGRADED
+            if degraded
+            else OUTCOME_OK
+        )
+        if publish_result == "failure":
+            outcome = OUTCOME_DEGRADED if published else OUTCOME_FAILED
+            lines.append("公開処理step失敗・上記のterminal確認済み到達点を保持して確認")
+        if lease_release == "failure":
+            outcome = OUTCOME_DEGRADED if published else OUTCOME_FAILED
+            lines.append("lease解放失敗・上記の公開到達点を保持して確認")
+        return (
+            f"{OUTCOME_LABELS[outcome]} external assessment\n"
+            + "\n".join(lines)
+            + f"\nrun: {sanitize_one_line(run_url(os.environ), 420)}"
+        )
+    except (OSError, ValueError, KeyError, TypeError, UnicodeError):
+        return unknown_sources_message(cancelled=cancelled == "true")
+
+
+def unknown_sources_message(*, cancelled: bool) -> str:
+    outcome = OUTCOME_CANCELLED if cancelled else OUTCOME_FAILED
+    return (
+        f"{OUTCOME_LABELS[outcome]} external assessment — "
+        "source別結果不明・公開の未反映とは断定不可\n"
+        f"run: {sanitize_one_line(run_url(os.environ), 420)}"
+    )
+
+
 def render_message(args: argparse.Namespace) -> str:
+    if args.message_json is not None:
+        cancelled = args.cancelled == "true" or "cancelled" in (
+            args.plan_result,
+            args.acquire_result,
+            args.publish_result,
+        )
+        try:
+            prepared = json.loads(args.message_json)
+            if not isinstance(prepared, str) or len(prepared) > MESSAGE_MAX_CHARS:
+                raise ValueError
+            label = next(
+                (
+                    label
+                    for label in OUTCOME_LABELS.values()
+                    if prepared.startswith(f"{label} external assessment")
+                ),
+                None,
+            )
+            if label is None:
+                raise ValueError
+            if cancelled:
+                prepared = OUTCOME_LABELS[OUTCOME_CANCELLED] + prepared[len(label) :]
+            return prepared[:MESSAGE_MAX_CHARS]
+        except (ValueError, TypeError):
+            return unknown_sources_message(cancelled=cancelled)
+    if args.sources_report is not None:
+        return render_sources(
+            args.sources_report,
+            lease_release=args.lease_release_outcome,
+            cancelled=args.cancelled,
+            publish_result=args.publish_result,
+        )
     previous = args.terminal_status != "pending" and args.plan_result == "success"
     if previous:
         outcome = OUTCOME_SKIPPED
@@ -128,6 +275,13 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     args = build_parser().parse_args(argv)
     message = render_message(args)
     print(message, flush=True)
+    if args.render_only:
+        # Only the allowlisted rendered message crosses the job boundary.
+        # Single-line JSON preserves newlines without a shell/body interpolation.
+        if output := os.environ.get("GITHUB_OUTPUT"):
+            with Path(output).open("a", encoding="utf-8") as stream:
+                print(f"message_json={json.dumps(message)}", file=stream)
+        return 0
     failure = deliver(
         os.environ.get(WEBHOOK_ENV_VAR, ""),
         message,

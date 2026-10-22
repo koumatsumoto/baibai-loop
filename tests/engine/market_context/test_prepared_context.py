@@ -1,6 +1,7 @@
 """生成内共有でもsplit、exact端点、自己除外、欠測の意味を変えない。"""
 
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -88,11 +89,15 @@ def test_shared_generation_preserves_market_and_all_security_outputs(context_sto
 
 
 def test_shared_security_reads_only_its_long_history(context_store: Path, mocker) -> None:
+    master = read_master_snapshot(context_store, as_of=ASOF)
+    assert master is not None
+    securities = mocker.Mock(wraps=master.securities)
     prepared = prepare_market_context_inputs(
         sqlite_path=context_store,
         asof_date=ASOF,
-        master=read_master_snapshot(context_store, as_of=ASOF),
+        master=replace(master, securities=securities),
     )
+    assert securities.items.call_count == 1
     read = mocker.spy(
         __import__("baibai_engine.market_context.security", fromlist=["read_price_bars"]),
         "read_price_bars",
@@ -106,6 +111,61 @@ def test_shared_security_reads_only_its_long_history(context_store: Path, mocker
             prepared=prepared,
         )
     assert [call.kwargs["tickers"] for call in read.call_args_list] == [("AAAA",), ("BBBB",)]
+    assert securities.items.call_count == 1
+
+
+def test_sector_candidates_keep_common_peers_and_each_tickers_exact_endpoints(
+    context_store: Path,
+) -> None:
+    insert_daily_bars_from_closes(
+        context_store,
+        "CCCC",
+        [100 + index**2 for index in range(350)],
+        end_date=ASOF - timedelta(days=1),
+    )
+    insert_daily_bars_from_closes(
+        context_store, "DDDD", [100] * 350, end_date=ASOF - timedelta(days=1)
+    )
+    insert_daily_bars_from_closes(
+        context_store,
+        "OLD2",
+        [100 + index for index in range(80)],
+        end_date=ASOF - timedelta(days=500),
+    )
+    with closing(open_connection(context_store)) as connection:
+        insert_master_rows(
+            connection,
+            [
+                ("2026-05-28", "CCCC", "peer", "プライム", "機械", "011"),
+                ("2026-05-28", "DDDD", "other sector", "プライム", "情報・通信業", "011"),
+                ("2026-05-28", "OLD2", "old peer", "プライム", "機械", "011"),
+            ],
+        )
+        connection.commit()
+    prepared = prepare_market_context_inputs(
+        sqlite_path=context_store,
+        asof_date=ASOF,
+        master=read_master_snapshot(context_store, as_of=ASOF),
+    )
+    assert "PREF" not in prepared.common_stock_tickers_by_sector["機械"]
+    assert prepared.common_stock_tickers_by_sector["情報・通信業"] == ("DDDD",)
+    # BBBB lacks AAAA's comparison day; OLD1 needs the existing long-history fallback.
+    for ticker, start_days_ago, peer_count in (("AAAA", 21, 1), ("BBBB", 22, 2), ("OLD1", 520, 1)):
+        arguments = dict(
+            sqlite_path=context_store, ticker=ticker, asof_date=ASOF, self_range_window_bars=750
+        )
+        plain = build_security_market_context(**arguments)
+        shared = build_security_market_context(**arguments, prepared=prepared)
+        assert shared == plain
+        sector = shared["relative"]["sector"]
+        assert sector["peer_count"] == peer_count
+        assert (
+            sector["comparison_start_date"] == (ASOF - timedelta(days=start_days_ago)).isoformat()
+        )
+        if ticker == "AAAA":
+            assert sector["peer_median_return_20d"] == pytest.approx(
+                (100 + 349**2) / (100 + 329**2) - 1
+            )
 
 
 def test_prepared_scope_cannot_change_dates(context_store: Path) -> None:

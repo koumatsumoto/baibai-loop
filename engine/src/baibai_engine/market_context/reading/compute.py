@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from statistics import fmean, stdev
 
@@ -22,6 +22,7 @@ from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 from .models import ObservationReader, ReadingSnapshot, SeriesReading, SeriesTrend, TrendDirection
+from .observations import UnavailableObservationError
 from .rules import ReadingRules, ReadingStatistic, ResolvedRule, SamplingCadence, window_start
 
 # A percentile / z-score needs enough points that it describes a distribution
@@ -86,7 +87,14 @@ def _read_series(
 ) -> SeriesReading:
     rule = rules.resolve(series_id=definition.series_id, frequency=definition.frequency)
     start = window_start(asof, rule.percentile_window_years)
-    observations = reader(definition.series_id, _read_start(start, rule.statistic), asof)
+    try:
+        observations = reader(definition.series_id, _read_start(start, rule.statistic), asof)
+    except UnavailableObservationError as error:
+        return replace(
+            _empty_reading(definition, rule),
+            flags=("source_unreadable",),
+            notes=(str(error),),
+        )
     if not observations:
         return _empty_reading(definition, rule)
     latest = max(observations, key=lambda observation: observation.observed_at)
@@ -154,7 +162,9 @@ def _read_series(
         z_score=None if ranked is None else _z_score(values, ranked),
         short_trend=_trend(observations, months=rule.short_trend_months, latest=latest, asof=asof),
         long_trend=_trend(observations, months=rule.long_trend_months, latest=latest, asof=asof),
-        flags=rule.matched_flags(latest.value),
+        flags=(*rule.matched_flags(latest.value), *latest.quality_flags),
+        vintage_at=latest.vintage_at,
+        notes=latest.notes,
     )
 
 

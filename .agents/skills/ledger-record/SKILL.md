@@ -54,6 +54,7 @@ uv run baibai-engine position broker-fact-draft --db stores/application/baibai.s
 ```bash
 uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
   --decision-reference <SAVED_REFERENCE> --status filled \
+  --ticker <TICKER> \
   --reservation-id <RESERVATION_ID> --execution-id <BROKER_EXECUTION_ID> \
   --quantity <FILLED_QTY> --price-yen <FILL_PRICE> \
   --occurred-on <YYYY-MM-DD> --out <DRAFT>

@@ -310,3 +310,50 @@ def test_external_security_identity_uses_japan_date_of_the_cutoff(mocker, instan
     market.security_identities.assert_called_once_with(as_of=date(2026, 10, 16))
     external.observed_tickers.assert_called_once_with(cutoff=cutoff)
     assert result.external_assessment_securities[0].name == "合成企業"
+
+
+@pytest.mark.parametrize("available", [True, False], ids=["forecast", "not-covered"])
+def test_minkabu_only_ticker_keeps_detail_and_export(app_method_root, tmp_path, available):
+    """受領済みMinkabuは、他媒体や機械分析なしでも銘柄の存在根拠になる。"""
+    from datetime import date
+
+    from baibai_engine.external_assessment.observations.models import AnalystForecastObservation
+
+    forecasts = (
+        {
+            "display_as_of_date": date(2026, 10, 9),
+            "target_price_yen": 1500,
+            "analyst_eps_yen": 0,
+            "company_eps_yen": None,
+        }
+        if available
+        else {}
+    )
+    observation = AnalystForecastObservation(
+        ticker="9999",
+        fetched_at_utc=datetime(2026, 10, 10, 7, tzinfo=UTC),
+        source_url=(
+            "https://minkabu.jp/stock/9999/analyst_consensus"
+            if available
+            else "https://minkabu.jp/stock/9999"
+        ),
+        parser_version="synthetic-minkabu-review-1",
+        availability="available" if available else "not_covered",
+        **forecasts,
+    )
+    market = app_method_root / MARKET_DB_PATH
+    save_observations(market, [observation])
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/screening/latest")
+        assert "9999" in {
+            row["ticker"] for row in response.json()["external_assessment_securities"]
+        }
+        response = client.get("/api/securities/9999")
+        assert response.status_code == 200
+        detail = response.json()
+    assert detail["stock_analysis"] is None
+    assert detail["external_assessment"]["minkabu"]["latest"] == observation.model_dump(mode="json")
+    out = tmp_path / "export"
+    export_read_models(app_method_root, out)
+    saved = json.loads((out / "views/security--9999.json").read_text())
+    assert saved["external_assessment"]["minkabu"] == detail["external_assessment"]["minkabu"]

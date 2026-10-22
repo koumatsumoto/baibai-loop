@@ -42,7 +42,10 @@ def _write_workspace_file(path: Path, payload: object) -> None:
 def _load_mapping(path: Path, *, label: str) -> dict[str, object]:
     if not path.exists():
         raise ResearchWorkspaceDataError(f"{label} not found: {path}")
-    raw = safe_load(path.read_text(encoding="utf-8"))
+    try:
+        raw = safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise ValueError(f"invalid {label} YAML: {path}: {error}") from error
     if not isinstance(raw, Mapping):
         raise ResearchWorkspaceDataError(f"{label} root must be a mapping: {path}")
     return dict(raw)

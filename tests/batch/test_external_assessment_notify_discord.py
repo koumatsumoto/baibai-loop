@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
 
-from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.observability import external_assessment_discord as notify
 
 SUCCESS = (
@@ -264,196 +262,224 @@ def test_notification_imports_with_system_python_without_site_packages():
     assert result.returncode == 0, result.stderr
 
 
-def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
-    tmp_path, monkeypatch
-):
-    path = tmp_path / "github-output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
-    daily.write_publication_outputs(
-        {
-            "expected_pairs": 8,
-            "observations": 6,
-            "rows_added": 6,
-            "state_counts": {
-                "success": 4,
-                "normal_null": 2,
-                "failure": 2,
-                "unattempted": 0,
-            },
-            "ticker": "private-ticker",
-            "private_payload": "private-body",
-            "run_id": "private-batch",
-        }
-    )
-    assert path.read_text() == (
-        "external_assessment_expected_pairs=8\nexternal_assessment_typed_pairs=6\nexternal_assessment_known_failure_pairs=2\n"
-        "external_assessment_normal_null_pairs=2\nexternal_assessment_unattempted_pairs=0\nexternal_assessment_rows_added=6\n"
-    )
-
-
-def test_full_terminal_missing_counters_remain_unknown_without_reconstruction(
-    tmp_path, monkeypatch
-):
-    path = tmp_path / "github-output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
-    daily.write_publication_outputs(
-        {"expected_pairs": 8, "observations": 6, "readback": "verified"}
-    )
-    assert path.read_text() == (
-        "external_assessment_expected_pairs=8\nexternal_assessment_typed_pairs=6\nexternal_assessment_known_failure_pairs=unknown\n"
-        "external_assessment_normal_null_pairs=unknown\nexternal_assessment_unattempted_pairs=unknown\nexternal_assessment_rows_added=unknown\n"
-    )
-
-
-def test_invalid_report_count_shape_cannot_leak_into_outputs(tmp_path, monkeypatch):
-    path = tmp_path / "github-output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
-    daily.write_publication_outputs(
-        {
-            "expected_pairs": True,
-            "observations": "private-secret",
-            "rows_added": -1,
-            "state_counts": {"failure": "private-body", "normal_null": False},
-        }
-    )
-    assert path.read_text().count("=unknown\n") == 6
-
-
-@pytest.mark.parametrize("has_states", [True, False])
-def test_publish_main_emits_actual_report_only_after_existing_publisher_returns(
-    tmp_path, monkeypatch, has_states
-):
-    from baibai_batch.jobs import external_assessment_publication as external_assessment_publication
-    from baibai_batch.storage import publication_lease
-
-    p = daily.make_plan(
-        run_id="synthetic-publish",
-        tickers=("7203",),
-        universe_binding="synthetic",
-        collector_binding=daily.external_assessment_collector_binding(),
-    )
-    report = {"expected_pairs": 2, "observations": 1, "readback": "verified"}
-    if has_states:
-        report.update(rows_added=1, state_counts={"success": 0, "normal_null": 1, "failure": 1})
-    called = []
-
-    def publish(*args, **kwargs):
-        called.append(True)
-        return report
-
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: object())
-    monkeypatch.setattr(daily, "read_plan", lambda *args: p)
-    monkeypatch.setattr(daily, "read_terminal", lambda *args: None)
-    monkeypatch.setattr(external_assessment_publication, "publish_and_verify", publish)
-    monkeypatch.setattr(publication_lease, "_load_handle", lambda *args: object())
-    output = tmp_path / "output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    assert (
-        daily.main(
-            [
-                "publish",
-                "--run-id",
-                p.run_id,
-                "--directory",
-                str(tmp_path / "publish"),
-                "--lease-handle",
-                str(tmp_path / "lease"),
-            ]
-        )
-        == 0
-    )
-    assert called == [True]
-    written = output.read_text()
-    assert "external_assessment_expected_pairs=2\nexternal_assessment_typed_pairs=1\n" in written
-    assert (
-        f"external_assessment_known_failure_pairs={'1' if has_states else 'unknown'}\n" in written
-    )
-    assert "synthetic-publish" not in written
-
-
-def test_acquire_main_does_not_write_publication_outputs(tmp_path, monkeypatch):
-    p = daily.make_plan(
-        run_id="synthetic-acquire",
-        tickers=("7203",),
-        universe_binding="synthetic",
-        collector_binding=daily.external_assessment_collector_binding(),
-    )
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: object())
-    monkeypatch.setattr(daily, "read_plan", lambda *args: p)
-    monkeypatch.setattr(daily, "acquire_cohort", lambda *args: {"status": "already_published"})
-    output = tmp_path / "output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    assert daily.main(["acquire", "--run-id", p.run_id, "--cohort", "0"]) == 0
-    assert not output.exists()
-
-
-def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existing_secret():
+def test_source_notice_is_rendered_after_release_and_only_final_job_has_webhook():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
         (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
-    assert workflow["on"]["workflow_dispatch"]["inputs"]["operation"]["options"] == [
-        "collect_and_publish",
-        "publish_confirmed_partial",
-    ]
-    jobs = workflow["jobs"]
-    notifiers = {
-        name: job
-        for name, job in jobs.items()
-        if any(
-            "baibai_batch.observability.external_assessment_discord" in step.get("run", "")
-            for step in job["steps"]
-        )
-    }
-    assert len(notifiers) == 1
-    notify_job = next(iter(notifiers.values()))
-    assert notify_job["needs"] == ["plan", "acquire", "publish"]
-    assert "strategy" not in notify_job
-    assert "always()" in notify_job["if"]
-    assert "workflow_dispatch" in notify_job["if"]
-    assert "refs/heads/main" in notify_job["if"]
-    assert "DISCORD_WEBHOOK_URL" not in workflow.get("env", {})
-    assert "DISCORD_WEBHOOK_URL" not in notify_job.get("env", {})
-    notify_steps = [
+    steps = workflow["jobs"]["publish"]["steps"]
+    release = next(i for i, step in enumerate(steps) if step.get("id") == "lease-release")
+    notice = next(i for i, step in enumerate(steps) if "--sources-report" in step.get("run", ""))
+    assert release < notice
+    assert steps[notice]["if"] == "${{ always() }}"
+    assert "--render-only" in steps[notice]["run"]
+    assert all("DISCORD_WEBHOOK_URL" not in step.get("env", {}) for step in steps)
+    final = next(
         step
-        for step in notify_job["steps"]
-        if "baibai_batch.observability.external_assessment_discord" in step.get("run", "")
-    ]
-    assert len(notify_steps) == 1
-    step = notify_steps[0]
-    assert step["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
-    assert step["env"]["PYTHONPATH"] == "batch/src"
-    serialized = json.dumps(notify_job)
-    for private in (
-        "R2_ACCOUNT_ID",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-        "batch_id",
-        "master_asof",
-    ):
-        assert private not in serialized
-    assert "python3 -m baibai_batch.observability.external_assessment_discord" in step["run"]
-    assert "--terminal-status" in step["run"]
-    assert "--publication-mode" in step["run"]
-    assert "needs.plan.outputs.terminal_status" in step["run"]
-    assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["publish"]["if"]
-    assert "!cancelled()" in jobs["publish"]["if"]
-    assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["acquire"]["if"]
-    assert "needs.plan.outputs.operation == 'collect_and_publish'" in jobs["acquire"]["if"]
-    for counter in notify.COUNTERS:
-        assert f"--{counter.replace('_', '-')}" in step["run"]
-        assert (
-            f"steps.publish.outputs.external_assessment_{counter}"
-            in jobs["publish"]["outputs"][counter]
+        for step in workflow["jobs"]["notify"]["steps"]
+        if "--message-json" in step.get("run", "")
+    )
+    assert final["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
+
+
+def test_status_function_is_only_evaluated_in_step_condition_for_source_notice():
+    repository = Path(__file__).resolve().parents[2]
+    workflow = yaml.load(
+        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    for job in ("publish", "notify"):
+        steps = workflow["jobs"][job]["steps"]
+        cancellation = next(step for step in steps if step.get("id") == "cancellation")
+        assert cancellation["if"] == "${{ cancelled() }}"
+        assert "cancelled=true" in cancellation["run"]
+        notice = next(step for step in steps if "--cancelled" in step.get("run", ""))
+        assert "steps.cancellation.outputs.cancelled || 'false'" in notice["run"]
+        assert all("cancelled()" not in step.get("run", "") for step in steps)
+
+
+def test_render_only_passes_safe_message_and_never_posts(tmp_path, monkeypatch):
+    output = tmp_path / "output"
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "source": "monex",
+                        "status": "published",
+                        "expected_pairs": 1,
+                        "observations": 1,
+                        "rows_added": None,
+                        "release_id": "private-release",
+                        "plan_sha256": "private-plan",
+                        "ticker": "private-ticker",
+                        "value": 987654,
+                        "html": "<html>private</html>",
+                        "state_counts": {
+                            "success": 1,
+                            "normal_null": 0,
+                            "failure": 0,
+                            "unattempted": 0,
+                        },
+                    }
+                ]
+            }
         )
-    cancellation = next(step for step in notify_job["steps"] if step.get("id") == "cancellation")
-    assert cancellation["if"] == "${{ cancelled() }}"
-    assert "steps.cancellation.outputs.cancelled" in step["run"]
-    for job in jobs.values():
-        for job_step in job["steps"]:
-            assert not re.search(
-                r"\$\{\{[^}]*\b(?:always|success|failure|cancelled)\s*\(",
-                job_step.get("run", ""),
-            )
+    )
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    def forbidden(*args):
+        pytest.fail("render-only must not send")
+
+    assert (
+        notify.main(
+            [
+                "--render-only",
+                "--sources-report",
+                str(report),
+                "--publish-result",
+                "failure",
+            ],
+            transport=forbidden,
+        )
+        == 0
+    )
+    key, prepared = output.read_text().rstrip("\n").split("=", 1)
+    assert key == "message_json"
+    message = json.loads(prepared)
+    assert "private" not in message
+    assert "987654" not in message
+    assert "html" not in message
+    assert "追加row=不明" in message
+    assert message.startswith("[DEGRADED]")
+    monkeypatch.delenv("GITHUB_OUTPUT")
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
+    )
+    sent = []
+
+    def transport(url, body, timeout):
+        sent.append(json.loads(body)["content"])
+        return 200
+
+    assert notify.main(["--message-json", prepared], transport=transport) == 0
+    assert sent == [message]
+
+
+def test_source_render_keeps_private_payload_and_invalid_counts_out_of_notice(tmp_path):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "source": "monex",
+                        "status": "published",
+                        "expected_pairs": 2,
+                        "rows_added": None,
+                        "ticker": "private-ticker",
+                        "private_payload": "private-body",
+                        "state_counts": {
+                            "success": True,
+                            "normal_null": "private-count",
+                            "failure": 1,
+                        },
+                    }
+                ]
+            }
+        )
+    )
+    text = notify.render_sources(report, lease_release="success", cancelled="false")
+    assert "private" not in text
+    assert "typed=不明" in text
+    assert "正常null=不明" in text
+    assert "追加row=不明" in text
+
+
+def test_single_final_sender_runs_even_when_publish_never_started_or_output_is_missing():
+    repository = Path(__file__).resolve().parents[2]
+    workflow = yaml.load(
+        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    publisher = workflow["jobs"]["publish"]
+    assert publisher["outputs"] == {"message_json": "${{ steps.notice.outputs.message_json }}"}
+    prepare = next(step for step in publisher["steps"] if step.get("id") == "notice")
+    assert "--render-only" in prepare["run"]
+    final = workflow["jobs"]["notify"]
+    assert "always()" in final["if"]
+    assert "needs.publish.result" not in final["if"]
+    assert "notification_attempted" not in final["if"]
+    sender = next(step for step in final["steps"] if "--message-json" in step.get("run", ""))
+    assert sender["env"]["SOURCE_NOTICE_JSON"] == "${{ needs.publish.outputs.message_json }}"
+    assert '--message-json "$SOURCE_NOTICE_JSON"' in sender["run"]
+    assert "--render-only" not in sender["run"]
+
+
+@pytest.mark.parametrize("prepared", ["", "null", "[]", "{}", '"invalid message"'])
+@pytest.mark.parametrize(
+    ("publish_result", "acquire_result", "cancelled"),
+    [
+        ("success", "failure", "false"),
+        ("failure", "failure", "false"),
+        ("cancelled", "success", "false"),
+        ("success", "success", "true"),
+    ],
+)
+def test_missing_or_corrupt_message_output_produces_one_unknown_notice(
+    monkeypatch, prepared, publish_result, acquire_result, cancelled
+):
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
+    )
+    sent = []
+
+    def transport(url, body, timeout):
+        sent.append(json.loads(body)["content"])
+        raise TimeoutError("synthetic response lost after POST")
+
+    args = [
+        "--message-json",
+        prepared,
+        "--publish-result",
+        publish_result,
+        "--acquire-result",
+        acquire_result,
+        "--cancelled",
+        cancelled,
+    ]
+    assert notify.main(args, transport=transport) == 0
+    assert len(sent) == 1
+    assert "source別結果不明" in sent[0]
+    assert "未反映とは断定不可" in sent[0]
+    assert "公開なし" not in sent[0]
+    is_cancelled = cancelled == "true" or publish_result == "cancelled"
+    assert sent[0].startswith("[CANCELLED]" if is_cancelled else "[FAILED]")
+
+
+def test_final_cancellation_keeps_the_prepared_publication_evidence(monkeypatch):
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
+    )
+    prepared = "[OK] external assessment\nmonex: 公開確認済み; 追加row=1"
+    sent = []
+
+    def transport(url, body, timeout):
+        sent.append(json.loads(body)["content"])
+        return 200
+
+    assert (
+        notify.main(
+            [
+                "--message-json",
+                json.dumps(prepared),
+                "--publish-result",
+                "cancelled",
+            ],
+            transport=transport,
+        )
+        == 0
+    )
+    assert sent == [prepared.replace("[OK]", "[CANCELLED]", 1)]

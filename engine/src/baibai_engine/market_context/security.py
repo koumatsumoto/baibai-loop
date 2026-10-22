@@ -109,40 +109,6 @@ def _price_block(
             else None
         ),
         "bar_count": len(bars),
-        "bollinger_20bar": _bollinger_20bar(bars),
-    }
-
-
-def _bollinger_20bar(bars: Sequence[PriceBar]) -> dict[str, object]:
-    """Describe the last 20 observed closes, not value or reversal probability."""
-    window = bars[-20:]
-    result: dict[str, object] = {
-        "status": "insufficient_history",
-        "window_bars": len(window),
-        "window_start_date": window[0].traded_at.isoformat() if window else None,
-        "window_end_date": window[-1].traded_at.isoformat() if window else None,
-        "z_score": None,
-        "position": None,
-    }
-    if len(window) < 20:
-        return result
-    prices = [bar.price for bar in window]
-    if any(not math.isfinite(price) or price <= 0 for price in prices):
-        return {**result, "status": "invalid_price"}
-    mean = statistics.fmean(prices)
-    sigma = statistics.pstdev(prices)
-    if sigma == 0:
-        return {**result, "status": "zero_variance"}
-    current = prices[-1]
-    return {
-        **result,
-        "status": "available",
-        "z_score": (current - mean) / sigma,
-        "position": "above_upper"
-        if current > mean + 2 * sigma
-        else "below_lower"
-        if current < mean - 2 * sigma
-        else "within_bands",
     }
 
 
@@ -205,15 +171,24 @@ def _sector_block(
     endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
     if endpoints is None:
         return None
-    peers = (
-        []
-        if master is None
-        else [
+    if prepared is not None:
+        peers = [
             peer
-            for peer, security in master.securities.items()
-            if peer != ticker and security["is_common_stock"] and security["sector_33"] == sector
+            for peer in prepared.common_stock_tickers_by_sector.get(sector, ())
+            if peer != ticker
         ]
-    )
+    else:
+        peers = (
+            []
+            if master is None
+            else [
+                peer
+                for peer, security in master.securities.items()
+                if peer != ticker
+                and security["is_common_stock"]
+                and security["sector_33"] == sector
+            ]
+        )
     if not peers:
         return None
     returns = []

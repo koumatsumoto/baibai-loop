@@ -5,12 +5,14 @@ from contextlib import closing
 from datetime import UTC, timedelta
 
 import pytest
+import yaml
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
 from baibai_engine.research.proposal import ProposalConflictError, ProposalError
 from baibai_engine.research.proposal_query import get_investment_proposal
 from baibai_engine.research.proposal_service import InvestmentProposalService
 from baibai_engine.research.selection import selection_sha256
+from baibai_engine.research.workspace_cli import main
 
 
 @pytest.fixture
@@ -80,6 +82,34 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
         completed_at=PUBLISHED,
     )
     assert completed.status == "completed"
+
+
+def test_cli_yaml_output_failure_preserves_successful_publication(
+    case, tmp_path, monkeypatch, capsys
+):
+    proposal = reviewed_proposal(case)
+    draft = tmp_path / "proposal.yaml"
+    draft.write_text(yaml.safe_dump(proposal.payload()))
+
+    def fail_output(*_args, **_kwargs):
+        raise yaml.YAMLError("synthetic publication output failure")
+
+    monkeypatch.setattr("baibai_engine.research.workspace_cli.yaml.safe_dump", fail_output)
+    with pytest.raises(yaml.YAMLError, match="synthetic publication output failure"):
+        main(
+            [
+                "proposal-publish",
+                str(draft),
+                "--db",
+                str(case.app),
+                "--sqlite-path",
+                str(case.market),
+            ],
+            now=PUBLISHED,
+        )
+    assert capsys.readouterr().out == ""
+    stored = get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
+    assert stored == proposal.model_copy(update={"published_at": PUBLISHED})
 
 
 def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gates(case):

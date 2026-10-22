@@ -46,9 +46,7 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選ぶ。そのsnapshotにいないtickerを古いsnapshotから復活させず、未来分類を使わない。価格はcutoff以下のraw closeを保存済み価格調整係数の後方累積で揃え、closeがnullの価格調整eventも落とさない。現金配当込みreturnではない。価格の観測日、requested cutoff、master snapshotの日は同一とは限らないため、各基準日を見て読む。
 
-個別価格contextの`price.bollinger_20bar`は、同じ調整済み終値の直近20観測bar（当該barを含む）をSMAと価格の母標準偏差（ddof=0）で記述する。平均±2σを厳密に超えた場合だけ上下の超過とし、接触は非超過とする。現在の窓に対する位置を示し、新たなバンド交差の発生を検出するものではない。リターンの実現volatilityや価格の順位百分位とは別の量で、割安・過熱、反転確率、企業価値や投資成果を示さない。20は観測本数であり連続営業日や20暦日ではない。欠測を補間せず、実際の窓の開始・終了日と本数を保持する。20本未満、ゼロ分散、窓内の非正・非有限価格では理由付きでz-scoreと位置をnullにし、他の評価・調査の資格を落とさない。`available`は計算可能という意味であり、古い最終barの日付をrequested cutoffへ更新したり、鮮度を保証したりしない。
-
-この補助情報は共有の個別価格contextと生のticker-profile、Researchの新規固定入力へ載せる。Webの型付き表示には追加せず、Screeningの候補理由・資格・順位やER/FVへ接続しない。新しいsource・storeは持たず、Research再開は保存snapshotを投影し、BB欄のない既存snapshotへ現在値を補わない。日付cutoffで再計算しても後日訂正前の価格vintageを保証するものではない。
+個別価格のSMA20/50/200・BB20・Wilder RSI14は、同じ保存価格basisを利用する独立した[Technical Analysis](./technical-analysis.md)が所有し、市場・業種・個別相対を扱うMarket Contextから分けて読む。Researchでは内部snapshotの`securities_context[ticker].technical_analysis`を固定入力とし、解釈と四領域の統合は[Stock Assessment](./stock-assessment.md#analysis-domain-integration)に従う。新規読取の`price`にBBを混在させず、旧固定snapshotのBB欄は当時のまま保持し、現在のtechnical値を後付けしない。
 
 既存CLIは次の領域計算を参照する。
 
@@ -109,6 +107,18 @@ registryは現在のL2定義の正本であり、追加・退役・改名でsour
 
 同じvalidatorはapplication storeの判断履歴も別の契約として検証する。旧schemaの本文はstored_onlyとして保持し、退役系列の引用はwarningとする。候補一覧発行はContextを読まないため、その失敗を候補一覧停止と読み替えない。実行条件は[CIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)、変更手順は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
+### 松井証券内の信用買建評価損益率
+
+`jp.matsui_margin_long_evaluation_pnl`は[松井証券の公開ページ](https://www.matsui.co.jp/market/)の「信用残速報（松井証券内）」にある「買い残 / 評価損益率」をpercentで読む一系列である。公表値と原符号を保持し、紹介文の算式から符号を補正しない。母集団は松井証券内の信用買建で、対象口座・建玉範囲・加重方法の詳細は未確認である。原ページの権利落ち日にみなし数値を使う常設注記を、当日が権利落ち日である判定に読み替えない。
+
+Collectionの`matsui-margin`は通常の日次取得対象であり、一runにつき現在ページを1 GETする。取得窓を全日付巡回せず、browser fallback・取得処理の再試行・新たな認証を追加しない。原HTMLには元ラベル・月日曜日・売り残等の未使用値・注記も残し、受領時刻と受領JST日を既存document storeへ保持する。request keyは受領JST日で、観測日ではない。過去日を指定しても当時のページは再現できず、`--all-history`は未対応である。
+
+公開欄に年がないため、L2は保存原本の受領JST日−14日〜当日（両端含む）で表示月日・曜日が一致する一意候補を観測日とする。当日表示を除外しない。該当候補なし・曜日不一致・日付や値の不良は未評価とする。14日は運用上の許容幅であり、HTTP Dateによる公表年の証明や、古い同月日系列の再配信を排除する保証ではない。出力の`year_inferred`とnotesへ推定根拠・母集団・原注記を残し、週末の再掲で観測日や鮮度を進めない。
+
+既存`read_documents`がrequest keyごとの最新保存原本を選び、L2が同じ観測日の最新保存原本へまとめる。最新原本の抽出不良を旧値で埋めず、この系列のReadingを`source_unreadable`・値なしとし、他系列は継続する。履歴の同観測日の最新保存原本が値不良ならその日は欠測とする。読めない古い日付の原本は系列へ再構成しない。`vintage_at`は選択保存原本の受領時刻であり、公表・初回既知・最新取得時刻ではない。同じrequest keyの同一本文再受領は既存writerが保存を省く。現在の保存原本から再計算する契約を維持し、`known_at`を適用した過去時点再現とは扱わない。
+
+用途は信用需給の背景情報に限る。二市場の信用残・日証金貸借・投資主体別フローとは母集団が異なり、同一系列に接続しない。市場全体、底値、追証人数の直接観測、売買scoreや動的閾値として使わず、価格下落や既存信用残と独立した悪材料として加算しない。公開再配布の仕組みは追加しない。初回の本番取得・保存原本の読取確認は[指標観測とregistryの修正](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従い、synthetic回帰を実データ取得の成功とは扱わない。
+
 ### データソース registry
 
 外部provider・source URL・要求selectorは[Collection source catalog](../../engine/src/baibai_engine/collection/economic/sources.yaml)、L2系列ID・出力単位・読み取る列・数式は[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)が所有する。取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/collection/economic/provider_specs.py)と各[provider](../../engine/src/baibai_engine/collection/economic/providers/)に従う。複数L2系列が一つのsourceを共有してよい。下表はsourceを選ぶときの用途と制約を示す。
@@ -128,6 +138,7 @@ registryは現在のL2定義の正本であり、追加・退役・改名でsour
 | `boj_timeseries` | 日銀の時系列統計 | `SURVEY_DATES`は対象期間。月次は月初、四半期は最終月の月初を内部の代表日とするが、実際の観測日や公表日時とは扱わない（[公式API仕様](https://www.stat-search.boj.or.jp/info/api_manual_en.pdf)） |
 | `mof_jgb` | 日本国債金利 | 公表CSVの全列・和暦・欠測を保存する。L2が当月ファイルを履歴より優先し、欠測訂正も反映する |
 | `tsr_bankruptcies` | 日本の企業倒産 | 公表ページが参照する月次履歴の既知値を取得する。欠月を補間せず、履歴の短さや古さはReadingで表示する。未解釈・矛盾する月次値は取得失敗とする |
+| `matsui_margin` | 松井証券内の信用買建評価損益率 | 現在ページ1 GET/run。原HTMLを保持し、L2が買建一系列を背景情報として読む。観測年の推定と受領vintageは[専用契約](#松井証券内の信用買建評価損益率)に従う |
 | `spglobal_pmi` | 日本・米国の製造業/サービスPMI | 公式PDFを読む。release manifest更新は[下記](#pmi-release-manifestの更新)。遮断時だけbrowserを使う |
 | `umich_sca` | 米消費者態度 | 公表元の月次表の全列・空欄を原本として保存し、L2で対象列を数値化する。欠測への訂正で古い数値を復活させない |
 | `yahoo` | 金属先物・MOVE・Russell2000・SOX等 | 登録URLのchartを取得し、timestamp・OHLCV等の配列・metadata・nullを保存する。L2で終値を読む |

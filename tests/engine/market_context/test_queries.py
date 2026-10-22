@@ -19,8 +19,10 @@ from baibai_engine.market_context.master import read_master_snapshot
 from baibai_engine.market_context.prices import PriceBar, read_price_bars
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.sector import _rank_to_percentiles, sector_relative_strength
-from baibai_engine.market_context.security import _bollinger_20bar, build_security_market_context
+from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.market_context.technical import bollinger_20bar
+from baibai_engine.market_context.technical_query import technical_analysis
 from baibai_engine.research.market_context.models import StoredAssessment
 from baibai_engine.research.market_context.query import assessment_payload as read_context
 from baibai_engine.research.market_context.query import latest_assessment_payload
@@ -168,8 +170,14 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
     )
     price = security(path, ticker="1321")["price"]
     assert price["gap_from_52w_high"] == 0
-    assert price["bollinger_20bar"] == {
+    assert technical_analysis(path, ticker="1321", as_of=ASOF)["bollinger_20bar"] == {
         "status": "zero_variance",
+        "middle_band": 100.0,
+        "sigma": 0.0,
+        "upper_band": 100.0,
+        "lower_band": 100.0,
+        "bandwidth": 0.0,
+        "percent_b": None,
         "window_bars": 20,
         "window_start_date": days[0],
         "window_end_date": ASOF.isoformat(),
@@ -203,7 +211,7 @@ def test_bollinger_observed_window_arithmetic(closes, status, z_score, position)
         PriceBar(ASOF - timedelta(days=3 * (len(closes) - i - 1)), value, None)
         for i, value in enumerate(closes)
     ]
-    result = _bollinger_20bar(observed)
+    result = bollinger_20bar(observed)
     assert result["status"] == status
     assert result["position"] == position
     assert result["z_score"] == (pytest.approx(z_score) if z_score is not None else None)
@@ -215,12 +223,18 @@ def test_bollinger_observed_window_arithmetic(closes, status, z_score, position)
 def test_bollinger_uses_last_twenty_observed_bars_and_preserves_stale_dates(tmp_path):
     path = tmp_path / "market.sqlite"
     insert_daily_bars_from_closes(path, "AAAA", [1000] + [100] * 19 + [120], end_date=ASOF)
-    original = security(path)["price"]["bollinger_20bar"]
+    original = technical_analysis(path, ticker="AAAA", as_of=ASOF)["bollinger_20bar"]
     assert original["z_score"] == pytest.approx(19**0.5)
     assert original["window_bars"] == 20
     assert original["window_start_date"] == (ASOF - timedelta(days=19)).isoformat()
-    assert security(path, as_of=ASOF + timedelta(days=2))["price"]["bollinger_20bar"] == original
-    assert security(path, as_of=ASOF + timedelta(days=30))["price"]["bollinger_20bar"] == original
+    assert (
+        technical_analysis(path, ticker="AAAA", as_of=ASOF + timedelta(days=2))["bollinger_20bar"]
+        == original
+    )
+    assert (
+        technical_analysis(path, ticker="AAAA", as_of=ASOF + timedelta(days=30))["bollinger_20bar"]
+        == original
+    )
     connection = open_connection(path)
     try:
         connection.execute(
@@ -232,7 +246,7 @@ def test_bollinger_uses_last_twenty_observed_bars_and_preserves_stale_dates(tmp_
     finally:
         connection.close()
     price = security(path)["price"]
-    assert price["bollinger_20bar"] == original
+    assert technical_analysis(path, ticker="AAAA", as_of=ASOF)["bollinger_20bar"] == original
     assert price["close"] == 120
 
 

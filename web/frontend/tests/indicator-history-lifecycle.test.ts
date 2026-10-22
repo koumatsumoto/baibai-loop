@@ -162,3 +162,27 @@ it('does not render the previous series history during a new selection', () => {
   expect(text(detail)).not.toContain('US CPI')
   expect(elements(detail).some(e => typeof e.type === 'function' && e.type.name === 'FullChart')).toBe(false)
 })
+
+it('opens the dialog with materialized reading JSON from before observation notes were added', () => {
+  hooks.values.set(0, { groups: [], reports: [], reading: null })
+  const dialog = elements(MarketContextPage()).find(e => typeof e.type === 'function' && e.type.name === 'IndicatorDialog')!
+  const render = dialog.type as (props: Record<string, unknown>) => ReactNode
+  const reading = JSON.parse(`{
+    "series_id": "us.cpi_yoy", "name": "CPI", "category": "inflation",
+    "geography": "us", "frequency": "monthly", "unit": "percent",
+    "latest_value": 2.4, "observed_at": "2026-10-01", "staleness_days": 21,
+    "stale": false, "staleness_warn_days": 45,
+    "next_print_estimate": null, "print_due_in_days": null,
+    "window_years": 10, "window_observations": 120, "expected_observations": 120,
+    "insufficient_history": false, "statistic": "level", "statistic_unit": "percent",
+    "statistic_value": 2.4, "percentile": 0.5, "z_score": 0,
+    "short_trend": null, "long_trend": null, "flags": [], "read_semantics": null
+  }`)
+  const detail = render({ ...dialog.props, row: {
+    series: { name: 'CPI', series_id: 'us.cpi_yoy', unit: 'percent', tradingview_symbol: null },
+    reading, failedFetch: null, statuses: [],
+  }, history: null, historyLoading: false, historyError: false, period: 'max', granularity: 'monthly' })
+  expect(text(detail)).toContain('CPI')
+  expect(text(detail)).toContain('2026-10-01')
+  expect(text(detail)).not.toContain('選択保存原本の受領時刻')
+})

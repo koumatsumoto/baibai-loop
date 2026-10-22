@@ -7,7 +7,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-DOCUMENT_PROVIDERS = frozenset({"spglobal_pmi", "tsr_bankruptcies"})
+DOCUMENT_PROVIDERS = frozenset({"spglobal_pmi", "tsr_bankruptcies", "matsui_margin"})
 
 SOURCE_CATALOG = Path(__file__).with_suffix(".yaml")
 

@@ -148,6 +148,13 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertAlmostEqual(price["return_5d"], 1.01**5 - 1, places=9)
             self.assertEqual(price["bar_count"], 30)
             self.assertAlmostEqual(price["avg_turnover_20d_oku"], 2.0, places=9)
+            self.assertNotIn("bollinger_20bar", price)
+            technical = profile["technical_analysis"]
+            self.assertEqual(technical["rsi_14bar"]["value"], 100)
+            self.assertEqual(technical["moving_averages"]["sma_20bar"]["status"], "available")
+            self.assertEqual(
+                technical["moving_averages"]["sma_200bar"]["status"], "insufficient_history"
+            )
             relative = profile["relative"]
             assert isinstance(relative, dict)
             assert isinstance(relative["relative_5d"], float)

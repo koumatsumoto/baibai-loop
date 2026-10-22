@@ -78,7 +78,7 @@ def test_tse_identity_accepts_an_omitted_market_segment(ticker, market):
     text = html(ticker).replace(f"(東証グロース : {ticker})", f"(東証{market}:{ticker})")
     result = observation(ticker, text=text)
     assert result.ticker == ticker
-    assert result.parser_version == "kabumap-quants-2"
+    assert result.parser_version == "kabumap-quants-3"
     assert result.fetched_at_utc == RECEIVED
 
 
@@ -95,10 +95,47 @@ def test_omitted_market_segment_does_not_accept_ambiguous_identity():
         observation("8301", text=text + '<span id="stockCode">(東証:8301)</span>')
 
 
-@pytest.mark.parametrize("bad", ["11/10", "-1/10", "5/5", "NaN/10", "1.5/10"])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "11/10",
+        "-1/10",
+        "5/5",
+        "NaN/10",
+        "1.5/10",
+        "1 0/10",
+        "1/1 0",
+        "1<br>0/10",
+        "<strong>1 </strong><span>0</span>/10",
+    ],
+)
 def test_changed_numeric_score_is_not_normal_null(bad):
     with pytest.raises(ParseError, match="changed_quants_score"):
         observation(text=html(cheap=bad))
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [
+        ("<strong>0</strong>", 0),
+        ("<strong>1</strong><span>0</span>", 10),
+        ("<strong>NA</strong>", None),
+        ("<strong>--</strong>", None),
+    ],
+)
+def test_score_markup_and_outer_whitespace_preserve_tokens(cell, expected):
+    text = html(cheap=f"<br> \n{cell} <br>/\n 10\t <br>")
+    text = text.replace("<strong>42</strong>/100", " \n<strong>42</strong> /\n 100\t ")
+    result = observation(text=text)
+    assert result.undervaluation_score == expected
+    assert result.composite_score == 42
+
+
+@pytest.mark.parametrize("score", ["4 2/100", "42/1 00", "4<br>2/100"])
+def test_composite_score_does_not_join_numeric_tokens(score):
+    text = html().replace("<strong>42</strong>/100", score)
+    with pytest.raises(ParseError, match="changed_quants_score"):
+        observation(text=text)
 
 
 @pytest.mark.parametrize(

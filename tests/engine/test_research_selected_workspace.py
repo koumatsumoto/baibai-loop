@@ -393,6 +393,27 @@ def test_cli_inputs_required_and_old_flags_are_removed(tmp_path, capsys):
     assert not (tmp_path / "workspace").exists()
 
 
+@pytest.mark.parametrize("command", ["status", "proposal-check", "proposal-publish"])
+def test_malformed_yaml_is_a_cli_data_error_without_writes(tmp_path, capsys, command):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    malformed = workspace / "manifest.yaml"
+    malformed.write_text("field: [\n")
+    db = tmp_path / "absent-app"
+    source = malformed.read_bytes()
+    arguments = (
+        ["status", "--workspace", str(workspace)]
+        if command == "status"
+        else [command, str(malformed)]
+    )
+    assert main([*arguments, "--db", str(db)], now=NOW) == 3
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "invalid_source"
+    assert result["reason"]
+    assert malformed.read_bytes() == source
+    assert not db.exists()
+
+
 def test_previous_analysis_day_current_research_and_formal_assessment_are_separate(tmp_path):
     from tests.helpers.screening_run import screening_run_payload, stock_analysis
 

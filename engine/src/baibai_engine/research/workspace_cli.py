@@ -324,9 +324,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 from .proposal import InvestmentProposal, proposal_draft_sha256
                 from .proposal_service import InvestmentProposalService
 
-                proposal = InvestmentProposal.model_validate(
-                    safe_load(args.draft.read_text(encoding="utf-8"))
-                )
+                try:
+                    payload = safe_load(args.draft.read_text(encoding="utf-8"))
+                except yaml.YAMLError as error:
+                    raise ValueError(f"invalid proposal YAML: {args.draft}: {error}") from error
+                proposal = InvestmentProposal.model_validate(payload)
                 service = InvestmentProposalService(
                     args.db,
                     sqlite_path=args.sqlite_path,

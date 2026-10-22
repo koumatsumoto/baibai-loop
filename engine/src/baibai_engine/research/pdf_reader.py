@@ -194,10 +194,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(hit.context)
         return 0
 
+    empty_pages = []
     for page_number in selection:
         print(f"=== page {page_number}")
-        print(reader.pages[page_number - 1].extract_text() or "")
-    return 0
+        text = reader.pages[page_number - 1].extract_text() or ""
+        print(text)
+        if not text.strip():
+            empty_pages.append(page_number)
+    if empty_pages:
+        print(
+            f"no searchable extracted text on pages: {empty_pages}; inspect the original PDF",
+            file=sys.stderr,
+        )
+    return 1 if len(empty_pages) == len(selection) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point

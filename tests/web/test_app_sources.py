@@ -185,6 +185,19 @@ class TestDbScreeningSource:
         assert run.screening_rules_hash == RULES_HASH
         assert run.er_model_version == "expected-return-v1"
 
+    def test_latest_run_rereads_after_a_new_publication(self, app_method_root: Path) -> None:
+        source = self.make_source(app_method_root)
+        original = source.latest_run()
+        assert original is not None
+        store = ScreeningRunStore(app_method_root / "stores/screening/runs.sqlite")
+        store.publish_run(screening_run_payload(as_of="2026-08-01"), rules=load_screening_rules())
+
+        current = source.latest_run()
+
+        assert current is not None
+        assert current.as_of == date(2026, 8, 1)
+        assert current.run_revision_id != original.run_revision_id
+
 
 class TestDbMarketPriceSource:
     """The daily-delta reads, whose behaviour is `test_market_read_api.py`'s.

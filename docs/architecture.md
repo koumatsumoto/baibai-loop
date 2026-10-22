@@ -15,7 +15,7 @@ Baibai Loopの目的は、割安銘柄を発見し、割安幅と条件付き収
 
 ## 1. 情報層と分析領域
 
-設計の主軸は情報の生成責務である。L1 Collectionが外部の元データを保持し、L2がその入力を機械的に処理し、L3が結果を統合・解釈して判断や提案を作る。Valuation・Market Context・External Assessmentは主にL2の分析結果を整理する区分であり、各々が独立したL1/L2/L3一式を持つ縦割りsubsystemではない。[三分析領域](./domain-language.md#analysis-domains)と層を区別し、具体的な所有は[下表](#repository-map)に示す。
+設計の主軸は情報の生成責務である。L1 Collectionが外部の元データを保持し、L2がその入力を機械的に処理し、L3が結果を統合・解釈して判断や提案を作る。Valuation・Market Context・External Assessment・Technical Analysisは主にL2の分析結果を整理する区分であり、各々が独立したL1/L2/L3一式を持つ縦割りsubsystemではない。[四分析領域](./domain-language.md#analysis-domains)と層を区別し、具体的な所有は[下表](#repository-map)に示す。
 
 中心ユースケースは、保存入力から決定的な日次機会発見を行うScreeningと、候補・分析結果・一次資料を使う有限Researchである。注文・約定・入出金など人間が確認するbroker factとPortfolio/Positionは分析層とは別の業務である。
 
@@ -47,13 +47,16 @@ flowchart LR
     read --> valuation[Valuation L2]
     read --> context[Market Context L2]
     read --> external[External Assessment L2]
+    read --> technical[Technical Analysis L2]
     research[Research L3] --> valuation
     research --> context
     research --> external
+    research --> technical
     research --> position[Portfolio / Position]
     screening[Screening] --> valuation
     screening --> context
     valuation --> market[共通market L2]
+    technical --> market
     context --> market
     context --> collection[Collection L1]
     external --> collection
@@ -62,7 +65,7 @@ flowchart LR
     collection --> sources[外部source]
 ```
 
-矢印は入力・読取の依存を示す。Collectionは分析領域やResearchに依存せず、共通market L2と各分析領域は保存入力を読む。三領域は相互やResearch・Screening・UIへ逆依存しない。Researchは領域の公開読取入口を呼び、UI向け`read_api`を内部業務入力にしない。ScreeningはValuationとMarket Contextの結果を組み立て、候補探索・候補一覧を所有する。External AssessmentはResearchと公開読取の参考入力であり、候補一覧の推薦・順序には使わない。
+矢印は入力・読取の依存を示す。Collectionは分析領域やResearchに依存せず、共通market L2と各分析領域は保存入力を読む。四領域は相互やResearch・Screening・UIへ逆依存しない。Researchは領域の公開読取入口を呼び、UI向け`read_api`を内部業務入力にしない。ScreeningはValuationとMarket Contextの結果を組み立て、候補探索・候補一覧を所有する。External AssessmentはResearchと公開読取の参考入力であり、候補一覧の推薦・順序には使わない。
 
 Webのengine入口は`read_api`、Batchは`batch_api`/`read_api`である。Batchは判断や書込条件を複製せず、既存serviceへ委譲する。Collectionがsource別の取得・原本契約を、L2が変換と計算を所有し、物理保存には共有`storage`を使う。共有storageは純粋契約と技術helperだけを参照し、分析・AI・UI・取得serviceへ依存しない。純粋な型・算術は保存や取得を読み込まない。
 
@@ -83,12 +86,15 @@ Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依
 | Valuation / L2 | FinancialSnapshot、倍率/機械ER/FV、ER較正文脈 | `valuation/metrics`が保存L1と共通market L2から財務/TTM/倍率・自己レンジを計算する。企業固有の仮定による`valuation/scenario`はResearchの条件付き評価に使う | Stock Analysisと領域読取、`read_api/valuation`・`read_api/er_calibration_context`。[Valuation](./reference/valuation-metrics.md#machine-valuation) |
 | Market Context / L2 | Market Snapshot、Security Market Context、Reading | `market_context/{history,prices,margin,sector,snapshot,security}`が市場・個別相対、`indicators`がL2系列定義、`reading`が経済原本の選択・計算・統計を所有する | `reading/query`と`read_api/market_context`。経済SQLiteにはL2系列を保存しない。[Market Context](./reference/market-context.md#market-context-reads) |
 | External Assessment / L2 | 提示値の抽出、出所別比較・欠測 | `external_assessment/acquisition`がbounded取得をraw captureとnormalizationへつなぎ、`normalization`・`analysis`が抽出・比較する。HTTP/MCP transportと原本契約はCollectionに置く | 解析済み観測はmarket SQLite/LakeのL2、`external_assessment/query`・`read_api/external_assessment`から読む。[入力](./reference/data-sources.md#external-assessment) |
+| Technical Analysis / L2 | SMA20/50/200、BB20±2σ、Wilder RSI14 | 保存済み価格から価格位置・勢い・変動幅と、価格basis・時点・履歴・seedの文脈を計算する。価値判断や売買条件を決めない | Research内部snapshotの独立した`securities_context[ticker].technical_analysis` block。読取YAMLへの投影は[Technical Analysis](./reference/technical-analysis.md#読取とresearchへの接続)、L3の解釈は[Stock Assessment](./reference/stock-assessment.md#analysis-domain-integration) |
 | Screening | Stock Analysis、CandidateReason、候補文脈と候補一覧 | `screening/metrics/snapshot`がL2結果を組み立て、`discovery`が同runの候補文脈を確定し、`calibration`が較正を行う | runs storeとcalibration snapshot。`screening`の公開入口と`batch_api`。[Screening](./reference/screening-runtime.md) |
 | Research / L3 | Research selection、MarketContextAssessment、Stock Assessment/Review、Investment Proposal | 保存済み分析結果・出典・保有を統合し、一銘柄ずつ解釈・仮定・判断・提案を作る。transportには依存しない | applicationの判断履歴。[Research](../.agents/skills/research/SKILL.md) |
 | Portfolio/Position | Ledger、Reservation、Holding、Outcome | 人間確認済みbroker factを記録し、保有と資本を再構築する。分析層とは別の業務 | application。Positionの事実記録・読取service。[Portfolio](./portfolio-management.md) |
 | Operation/task | Operation Session、調査進行、運用task | 明示開始・対象・成果・完了/未完了を記録する。AI完了を採用・約定に変換しない | application。`research/operation`と`tasks`のservice |
 
-Collection内の名前付き取得元は、経済統計（provider-native record・文書body）、J-Quants（native HTTP JSON page）、EDINET（一覧応答・CSV/XBRL ZIP bytes）、JPX（HTTP body・workbook等）、TradingView（SDK `CallToolResult`）、公開株式Web（HTML body bytes）である。保持する範囲・identityは各[入力契約](./reference/data-sources.md)と[market lake契約](./reference/market-lake.md)に従う。provider familyのfolderはコードの整理単位であり、familyごとの物理DBや全source共通のruntime registryではない。新しい外部参考評価元は名前付き取得・原本契約と対応するL2 normalizationを拡張し、全sourceを一つの人工schemaに押し込まない。BB20は保存済み価格から読取時に作る[共有の個別価格context](./reference/market-context.md#market-context-reads)のL2計算として実装済みであり、新しいsource・storeや経済Reading registry項目は持たない。RSIは未実装・未採用の将来案であり、追加の採否は別途検討する。
+Collection内の名前付き取得元は、経済統計（provider-native record・文書body）、J-Quants（native HTTP JSON page）、EDINET（一覧応答・CSV/XBRL ZIP bytes）、JPX（HTTP body・workbook等）、TradingView（SDK `CallToolResult`）、公開株式Web（HTML body bytes）である。保持する範囲・identityは各[入力契約](./reference/data-sources.md)と[market lake契約](./reference/market-lake.md)に従う。provider familyのfolderはコードの整理単位であり、familyごとの物理DBや全source共通のruntime registryではない。新しい外部参考評価元は名前付き取得・原本契約と対応するL2 normalizationを拡張し、全sourceを一つの人工schemaに押し込まない。Technical Analysisは保存済み価格を使い、新しいsource・storeや経済Reading registry項目は持たない。SMA20はBB中心線と共用し、MAは現在の位置・並び・乖離を扱う。クロス・傾き・EMAは初期範囲に含めない。
+
+Researchは四領域の重要な支持・相反を既存のAssessment所見・investment case・反証とProposal理由へつなぐ。数値添付だけで統合済みとせず、technicalだけでPmax・gate・sell条件を変更しない。欠測で他領域を一律停止せず、blockのない旧snapshotへ後付け再計算しない。
 
 L1の定期取得とL2の定期・読取時処理を、L3の明示開始と区別する。一つのOperationは新規または保有の単一scopeとし、保存capacityに従って開始時に対象を固定する。0件・部分完了・未完了も記録し、弱い候補で枠を埋めず、一銘柄ずつ提案する。AIの完了、人間の採用、注文、約定は別の事実・状態である。成果物間の関係は[Decision flow](./domain-language.md#decision-flow)、開始・発行の条件は各skillが所有する。
 

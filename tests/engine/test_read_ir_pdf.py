@@ -302,3 +302,31 @@ def test_full_hit_pages_exclude_nonmatching_pages_and_pair_numbers_with_bodies(
     assert out.index(first) < out.index(second)
     assert "=== page 3" not in out
     assert texts[2] not in out
+
+
+@pytest.mark.parametrize("arguments", [[], ["--pages", "2,1"]])
+def test_whole_page_read_warns_and_fails_when_selected_text_is_empty(
+    tmp_path, monkeypatch, capsys, arguments
+):
+    path, calls = _mock_pdf(tmp_path, monkeypatch, [None, " \n"])
+
+    assert main([str(path), *arguments]) == 1
+
+    selected = [2, 1] if arguments else [1]
+    assert calls == selected
+    output = capsys.readouterr()
+    assert f"no searchable extracted text on pages: {selected}" in output.err
+    assert "inspect the original PDF" in output.err
+    for number in selected:
+        assert f"=== page {number}" in output.out
+
+
+def test_whole_page_read_keeps_readable_pages_and_names_empty_pages(tmp_path, monkeypatch, capsys):
+    path, calls = _mock_pdf(tmp_path, monkeypatch, [None, "年度見出し\n営業利益200"])
+
+    assert main([str(path), "--pages", "2,1"]) == 0
+
+    assert calls == [2, 1]
+    output = capsys.readouterr()
+    assert "=== page 2\n年度見出し\n営業利益200" in output.out
+    assert "no searchable extracted text on pages: [1]" in output.err

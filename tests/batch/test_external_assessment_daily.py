@@ -113,7 +113,9 @@ def plan(*, tickers=("7203",), sources=("monex",), cohort_size=50, **kwargs):
         sources=sources,
         cohort_size=cohort_size,
         universe_binding=json.dumps({"master_asof": "2026-10-11", "sha256": "synthetic-master"}),
-        collector_binding=external_assessment_collector_binding(),
+        collector_binding=external_assessment_collector_binding(
+            source=sources[0] if len(sources) == 1 else None
+        ),
         **kwargs,
     )
 
@@ -320,12 +322,29 @@ def test_published_terminal_suppresses_refetch_when_checkpoint_payloads_are_abse
 
 
 def test_old_binding_plan_with_pending_acquisition_is_rejected(monkeypatch):
-    p = replace(plan(), collector_binding="previous-collector")
+    from baibai_batch.jobs import external_assessment_sources as sources
+
+    p = replace(plan(), run_id="monex-old-binding", collector_binding="previous-collector")
     store = FakeObjectStore()
     staging.save_new_plan(store, p)
     store.events.clear()
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
-    assert daily.main(["plan", "--run-id", p.run_id, "--master-asof", ASOF.isoformat()]) == 1
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: store)
+    assert (
+        sources.main(
+            [
+                "acquire",
+                "--source",
+                "monex",
+                "--run-id",
+                p.run_id,
+                "--master-asof",
+                ASOF.isoformat(),
+                "--directory",
+                "/tmp/source-old-binding",
+            ]
+        )
+        == 1
+    )
     assert not any(operation == "PUT" for operation, _ in store.events)
 
 
@@ -377,16 +396,13 @@ def test_normal_fifty_pair_cohort_uploads_one_raw_bundle_then_stage(monkeypatch)
     assert store.puts == before
 
 
-def test_acquisition_reads_only_its_cohort_and_cli_does_not_rescan(monkeypatch, capsys):
+def test_acquisition_reads_only_its_own_cohort(monkeypatch):
     p = plan(tickers=("6758", "7203"), cohort_size=1)
     store = FakeObjectStore()
-    staging.save_new_plan(store, p)
     seed_stage(store, p, new_result(p, 1))
     calls = wire_success(monkeypatch, store, p)
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
     store.events.clear()
-    assert daily.main(["acquire", "--run-id", p.run_id, "--cohort", "0"]) == 0
-    assert json.loads(capsys.readouterr().out)["cohort_complete"] is True
+    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
     assert calls == ["6758"]
     assert not any(key == staging.stage_key(p, 1) for _, key in store.events)
     assert store.events.count(("HEAD", staging.stage_key(p, 0))) == 1

@@ -65,7 +65,7 @@ def pair(client, limiter, *, ticker="7203", source="monex", **kwargs):
     )
 
 
-def test_cold_bucket_has_no_credit_and_refills_two_per_second(clock):
+def test_cold_start_and_each_request_are_spaced_half_a_second(clock):
     limiter = source_http.HostRateLimiter()
     sent = []
     for _ in range(4):
@@ -75,27 +75,21 @@ def test_cold_bucket_has_no_credit_and_refills_two_per_second(clock):
     assert all(index + 1 <= 2 * (at - 100) for index, at in enumerate(sent))
 
 
-def test_idle_credit_is_capped_and_actual_sends_obey_every_window(clock):
+def test_idle_time_never_creates_a_burst(clock):
     limiter = source_http.HostRateLimiter()
     clock.seconds += 10
     sent = []
-    for _ in range(20):
+    for _ in range(8):
         limiter.wait(MONEX, deadline=200)
         sent.append(clock.seconds)
-    assert sent[:4] == [110] * 4
-    assert sent[4] == 110.5
-    for first in range(len(sent)):
-        for last in range(first, len(sent)):
-            assert last - first + 1 <= 4 + 2 * (sent[last] - sent[first])
+    assert sent == [110 + index * 0.5 for index in range(8)]
 
 
-def test_three_fixed_hosts_have_independent_buckets(clock):
+def test_rakuten_outer_and_iframe_share_one_source_clock(clock):
     limiter = source_http.HostRateLimiter()
-    for url in (MONEX, OFFICIAL, IFRAME):
+    for url, expected in ((MONEX, 100.5), (OFFICIAL, 100.5), (IFRAME, 101), (OFFICIAL, 101.5)):
         limiter.wait(url, deadline=200)
-        assert clock.seconds == 100.5
-    limiter.wait(MONEX, deadline=200)
-    assert clock.seconds == 101
+        assert clock.seconds == expected
 
 
 @pytest.mark.parametrize(
@@ -127,15 +121,15 @@ def test_pairs_share_one_host_bucket_and_default_two_second_delay_is_removed(clo
     assert all(kwargs["allow_redirects"] is False for _, _, kwargs in client.calls)
 
 
-def test_rakuten_two_hosts_use_shared_limiter_without_old_within_pair_delay(clock):
+def test_rakuten_two_http_starts_are_half_a_second_apart(clock):
     client = Session(clock, [(200, official_html(), {}), (200, rakuten_html(), {})])
     result = pair(client, source_http.HostRateLimiter(), source="rakuten")
     assert result.requests == 2
-    assert [at for at, _, _ in client.calls] == [100.5, 100.5]
+    assert [at for at, _, _ in client.calls] == [100.5, 101.0]
     assert result.outcomes[0].status == "observed"
 
 
-def test_new_cohort_or_process_cold_start_never_recreates_unused_credit(clock):
+def test_new_cohort_or_process_waits_half_a_second_before_its_first_start(clock):
     first = source_http.HostRateLimiter()
     clock.seconds += 10
     first.wait(MONEX, deadline=200)
@@ -164,14 +158,18 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v13_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v13"
-    assert source_http.HOST_REQUEST_RATE_PER_SECOND == 2
-    assert source_http.HOST_REQUEST_BURST_CREDITS == 4
-    binding = collection.collector_binding()
-    assert binding == "1e5e2c432cd4638a7f8dcc4cb7872aeb1107c4465efa3fb81118cc58508311d2"
-    monkeypatch.setattr(source_http, "HOST_REQUEST_RATE_PER_SECOND", 3)
-    assert collection.collector_binding() != binding
+def test_source_binding_includes_strict_spacing_and_only_its_parser(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v14"
+    assert source_http.SOURCE_REQUEST_INTERVAL_SECONDS == 0.5
+    monex_binding = collection.collector_binding(source="monex")
+    minkabu_binding = collection.collector_binding(source="minkabu")
+    monkeypatch.setattr(collection.minkabu, "PARSER_VERSION", "changed-minkabu")
+    assert collection.collector_binding(source="monex") == monex_binding
+    assert collection.collector_binding(source="minkabu") != minkabu_binding
+    monkeypatch.setitem(source_http.SOURCE_HOSTS, "minkabu", ("changed.example",))
+    assert collection.collector_binding(source="monex") == monex_binding
+    monkeypatch.setattr(source_http, "SOURCE_REQUEST_INTERVAL_SECONDS", 0.75)
+    assert collection.collector_binding(source="monex") != monex_binding
 
 
 @pytest.mark.parametrize(
@@ -181,20 +179,16 @@ def test_v13_binding_includes_fixed_rate_policy(monkeypatch):
         "https://minkabu.jp/stock/7203/analyst_consensus",
     ],
 )
-def test_additional_sources_share_two_requests_per_second_and_four_credit_burst(clock, url):
-    bucket = source_http.HostRateLimiter()
-    bucket.wait(url, deadline=120)
-    first = clock.seconds
-    bucket.wait(url, deadline=120)
-    assert clock.seconds - first == pytest.approx(0.5)
+def test_additional_sources_keep_strict_spacing_after_idle(clock, url):
+    limiter = source_http.HostRateLimiter()
+    limiter.wait(url, deadline=120)
+    assert clock.seconds == 100.5
     clock.seconds += 10
-    bucket.wait(url, deadline=120)
+    limiter.wait(url, deadline=120)
     after_idle = clock.seconds
-    for _ in range(3):
-        bucket.wait(url, deadline=120)
-        assert clock.seconds == after_idle
-    bucket.wait(url, deadline=120)
-    assert clock.seconds - after_idle == pytest.approx(0.5)
+    for index in range(1, 5):
+        limiter.wait(url, deadline=120)
+        assert clock.seconds == after_idle + 0.5 * index
 
 
 def test_token_wait_timeout_is_unattempted_with_no_http(clock):
@@ -224,6 +218,7 @@ def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_receive
         on_received_html=originals.append,
     )
     assert result.requests == 2
+    assert [at for at, _, _ in client.calls] == [100.5, 101.0]
     assert result.outcomes[0].status == "observed"
     assert result.observations[0].availability == "not_covered"
     assert [url for _, url, _ in client.calls] == [

@@ -39,6 +39,25 @@ factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外�
 
 resolved valuationは価格factを参照する。unresolvedでは価格もnullでよく、valuation_metricや正の起点利益を要求しない。財務根拠が未確定なら所見と理由を独立確認しuncertain/unsupportedの評価を完成させる。欠損を0やverifiedへ変換しない。
 
+<a id="analysis-domain-integration"></a>
+
+## 四領域を企業評価へつなぐ
+
+四領域は異なる問いへの入力として独立して読み、重要な支持・相反・不足を既存の評価へ統合する。
+
+| 領域 | 評価へつなぐ問い |
+| --- | --- |
+| Valuation | どの事業・資本配分が価値を生むか。その仮定と実現までの期間は何か |
+| Market Context | 環境の水準・変化が事業・資金・要求収益・流動性へどう伝わるか |
+| External Assessment | 外部予測と自己仮定のどこが異なり、どの根拠で採用・反証・保留するか |
+| Technical Analysis | 保存済み価格の位置・勢い・変動幅が、価値差の実現や行動時期の仮説に何を示すか |
+
+Technical Analysisは固定入力の読取投影`domain-inputs.yaml`にある`securities[ticker].technical_analysis`を使う。内部snapshotとの対応は[Technical Analysis](./technical-analysis.md#読取とresearchへの接続)に従う。初期範囲はSMA20/50/200、BB20±2σ、保存済み全履歴を用いるWilder RSI14である。SMAは現在価格との位置・並び・乖離を読み、クロス・傾き・EMAを推測しない。BBの中心線はSMA20と共通で、帯内外の位置と幅は価格分布の記述であり、将来の到達確率や反転の保証ではない。RSIは価格変化の勢いとして扱い、閾値だけで割安・割高や売買を確定しない。gain/lossがともに0のRSI=50は計算上のconventionであり、独立した中立判断の証拠ではない。
+
+価格basis・観測日・履歴開始・bar数・seed情報を確認し、valuationの未調整価格や評価期間と同じものとして混ぜない。SMA/BBの観測窓とRSIの保存履歴、企業価値の実現期間は別である。欠測・短い履歴・basisや時点の不整合は利用限界として残し、他領域を一律停止しない。blockのない旧snapshotへ後付け再計算しない。
+
+重要なtechnical所見と他領域との相反は、`findings.hypotheses / value_gap_explanation / unresolved_questions`、`investment_case`、`conclusion.strongest_countercase`のうち関係する既存欄へ理由と反証条件を記す。例えば価値差がある一方で弱い価格局面が続くなら、価値仮説を維持する根拠と実現遅延・未確認事項を分け、[Proposal](./investment-proposal.md)で待つか今買うかを比較する。価格下落を価値毀損、上昇を価値創出へ直結させず、価値の前提を変えるなら別の事業・財務根拠を示す。数値を添付しただけで統合済みとせず、全指標へのコメント、新schema・score・専用framework・必須専門validatorは増やさない。
+
 <a id="scenario-arithmetic"></a>
 
 ## Valuationと純粋算術
@@ -188,6 +207,8 @@ AIを含む技術・産業構造変化も、materialな場合だけ通常のcalc
 <a id="independent-second-pass"></a>
 
 ## 独立Review
+
+[四領域の統合](#analysis-domain-integration)では、採用した観測の時点・価格basis・期間が比較条件に合うか、価格局面を企業価値へ読み替えていないかを確認する。MA・BB・RSI・騰落率は同じ価格履歴を加工した情報であり、独立した支持票として重ねない。重要な相反を無視した結論や、technical数値の添付だけで済ませた説明を検出し、確認範囲と限界は既存の`review_scope / strongest_countercase`へ残す。
 
 全公開Stock Assessmentに、review_id、独立passのidentity/role/time、exact core hash、primary_source_check、checked_source_ids、review_scope、最強反証を持つReviewを組み合わせる。resolved valuationではBase/Downside各1件のterminal/cashを独立に再計算する。unresolvedでは`recalculated_projections`を空にし、ゼロの価値や例示の投影を検算済みとして埋めない。原本の比較表では行・年度見出し・当期/前期列を合わせて照合し、期間内入金と終期の配当権利を別に検算する。作者値をscaffoldでコピーして検算としない。照合許容差は0.0001円。source・単位・hash不一致は公開できない。
 

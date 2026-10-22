@@ -113,7 +113,7 @@ read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下の
 
 信用残高の観測日は `margin_balance_date` とする。週次・日次のいずれも原典の残高日を保持し、週末日や公表日へ置き換えない。
 
-価格、財務、銘柄master、calendar、信用・空売り、JPX規制、EDINET、上場廃止・現金公開買付けとcoverageを読む。現行table/columnはschema、lake datasetは`baibai-engine lake inventory`を参照する。
+価格、財務、銘柄master、calendar、信用・空売り、JPX規制、EDINET、上場廃止・現金公開買付けとcoverageを読む。現行table/columnはschema、lake datasetの収録集合は[固定releaseの解決と読み取り](./market-lake.md#fixed-release-read)を参照する。
 
 値の意味は[valuation metrics](./valuation-metrics.md)、sourceの選択は[data sources](./data-sources.md)、PIT・coverage・hydrateは[market lake](./market-lake.md)に従う。
 

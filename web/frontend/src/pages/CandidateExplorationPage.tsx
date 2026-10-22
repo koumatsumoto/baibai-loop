@@ -14,7 +14,11 @@ export function CandidateExplorationPage() {
   const [data, setData] = useState<ScreeningView | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    fetchJson<ScreeningView>('/api/screening/latest').then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '候補を読み込めませんでした'))
+    const controller = new AbortController()
+    fetchJson<ScreeningView>('/api/screening/latest', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setData(value) })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '候補を読み込めませんでした') })
+    return () => controller.abort()
   }, [])
   if (error) return <PageState message={error} title="候補探索" />
   if (!data) return <LoadingPage label="候補を読み込んでいます" />

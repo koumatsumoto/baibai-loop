@@ -769,6 +769,8 @@ class ReadingSeriesView(BaseModel):
     short_trend: ReadingTrendView | None
     long_trend: ReadingTrendView | None
     flags: list[str]
+    vintage_at: datetime | None = None
+    notes: list[str] = Field(default_factory=list)
 
 
 class IndicatorFetchHealthView(BaseModel):
@@ -822,6 +824,9 @@ class AssessmentExcerptView(BaseModel):
 class IndicatorPointView(BaseModel):
     observed_at: date
     value: float
+    quality_flags: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    vintage_at: datetime | None = None
 
 
 class IndicatorSeriesView(BaseModel):

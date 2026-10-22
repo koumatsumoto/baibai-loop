@@ -339,31 +339,34 @@ class _RequestLimit(Exception):
     pass
 
 
-def collector_binding() -> str:
-    """Bind a resumable plan to acquisition policy and the actual parser versions."""
+def collector_binding(*, source: Source | None = None) -> str:
+    """Bind only the selected source's parser and shared transport policy."""
+    parsers = {
+        "monex": monex.PARSER_VERSION,
+        "rakuten": rakuten.PARSER_VERSION,
+        "kabumap": kabumap.PARSER_VERSION,
+        "minkabu": minkabu.PARSER_VERSION,
+    }
+    if source is not None and source not in parsers:
+        raise ValueError("unsupported external assessment source")
+    selected = tuple(parsers) if source is None else (source,)
+    limits = {"monex": 1, "rakuten": 2, "kabumap": 1, "minkabu": 2}
     policy = {
         "format": PAIR_ACQUISITION_POLICY_VERSION,
-        "monex_parser": monex.PARSER_VERSION,
-        "rakuten_parser": rakuten.PARSER_VERSION,
-        "kabumap_parser": kabumap.PARSER_VERSION,
-        "minkabu_parser": minkabu.PARSER_VERSION,
-        "minkabu_request_headers": source_http.MINKABU_PUBLIC_HEADERS,
+        "parsers": {name: parsers[name] for name in selected},
+        "request_headers": {
+            name: source_http.MINKABU_PUBLIC_HEADERS if name == "minkabu" else {}
+            for name in selected
+        },
         "request_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
-        "initial_pair_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
         "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,
         "request_timeout_seconds": DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
-        "source_request_limits": {"monex": 1, "rakuten": 2, "kabumap": 1, "minkabu": 2},
-        "daily_host_rate": {
-            "hosts": source_http.RATE_LIMITED_HOSTS,
-            "requests_per_second": source_http.HOST_REQUEST_RATE_PER_SECOND,
-            "burst_credits": source_http.HOST_REQUEST_BURST_CREDITS,
-            "initial_credits": 0,
-            "actual_concurrency": 1,
-            "maximum_concurrency": 2,
-        },
+        "source_request_limits": {name: limits[name] for name in selected},
+        "source_start_interval_seconds": source_http.SOURCE_REQUEST_INTERVAL_SECONDS,
+        "source_hosts": {name: source_http.SOURCE_HOSTS[name] for name in selected},
     }
     return hashlib.sha256(
-        json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        json.dumps(policy, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
 
 

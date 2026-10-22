@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import type { IndicatorGroupView, ReadingSeriesView, ReadingView, IndicatorFetchHealthView, IndicatorSeriesView } from '../src/api/types'
+import type { IndicatorPointView, IndicatorGroupView, ReadingSeriesView, ReadingView, IndicatorFetchHealthView, IndicatorSeriesView } from '../src/api/types'
 import { buildIndicatorGroups, filterIndicatorGroups, indicatorHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory } from '../src/lib/indicators'
 
 const marketContextPageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/MarketContextPage.tsx'), 'utf8')
@@ -43,6 +43,8 @@ function readingSeries(overrides: Partial<ReadingSeriesView> = {}): ReadingSerie
     print_due_in_days: 22,
     window_years: 10,
     window_observations: 120,
+    vintage_at: null,
+    notes: [],
     expected_observations: 120,
     insufficient_history: false,
     statistic: 'level',
@@ -55,6 +57,10 @@ function readingSeries(overrides: Partial<ReadingSeriesView> = {}): ReadingSerie
     flags: [],
     ...overrides,
   }
+}
+
+function point(observed_at: string, value: number): IndicatorPointView {
+  return { observed_at, value, quality_flags: [], notes: [], vintage_at: null }
 }
 
 function panelSeries(overrides: Partial<IndicatorSeriesView> = {}): IndicatorSeriesView {
@@ -100,7 +106,7 @@ describe('seriesWindowSummary', () => {
   })
 
   it('reports the latest value but no delta for a single point', () => {
-    expect(seriesWindowSummary([{ observed_at: '2026-07-01', value: 4.5 }])).toEqual({
+    expect(seriesWindowSummary([point('2026-07-01', 4.5)])).toEqual({
       latest: 4.5,
       delta: null,
     })
@@ -108,9 +114,9 @@ describe('seriesWindowSummary', () => {
 
   it('reports the signed change from first to last point', () => {
     const points = [
-      { observed_at: '2026-01-01', value: 4.0 },
-      { observed_at: '2026-04-01', value: 4.2 },
-      { observed_at: '2026-07-01', value: 3.6 },
+      point('2026-01-01', 4.0),
+      point('2026-04-01', 4.2),
+      point('2026-07-01', 3.6),
     ]
     const summary = seriesWindowSummary(points)
     expect(summary.latest).toBe(3.6)
@@ -127,16 +133,16 @@ describe('lazy series history', () => {
   it('filters and aggregates one daily history in the browser', () => {
     const series = panelSeries({
       points: [
-        { observed_at: '2024-12-31', value: 1 },
-        { observed_at: '2025-01-02', value: 2 },
-        { observed_at: '2025-01-31', value: 3 },
-        { observed_at: '2026-01-31', value: 4 },
+        point('2024-12-31', 1),
+        point('2025-01-02', 2),
+        point('2025-01-31', 3),
+        point('2026-01-31', 4),
       ],
     })
 
     expect(transformSeriesHistory(series, '1y', 'monthly').points).toEqual([
-      { observed_at: '2025-01-31', value: 3 },
-      { observed_at: '2026-01-31', value: 4 },
+      point('2025-01-31', 3),
+      point('2026-01-31', 4),
     ])
   })
 })
@@ -149,9 +155,9 @@ describe('history calendar-year boundaries', () => {
   ] as const)('clamps a leap-day %s window to February month-end', (period, before, boundary) => {
     const series = panelSeries({
       points: [
-        { observed_at: before, value: 1 },
-        { observed_at: boundary, value: 2 },
-        { observed_at: '2024-02-29', value: 3 },
+        point(before, 1),
+        point(boundary, 2),
+        point('2024-02-29', 3),
       ],
     })
     expect(transformSeriesHistory(series, period, 'daily').points).toEqual(series.points.slice(1))

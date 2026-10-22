@@ -226,6 +226,7 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
 function IndicatorDialog({ row, history: fetchedHistory, historyLoading, historyError, period, granularity, onClose }: { row: IndicatorRow | null; history: IndicatorSeriesView | null; historyLoading: boolean; historyError: boolean; period: IndicatorHistoryPeriod; granularity: IndicatorHistoryGranularity; onClose: () => void }) {
   if (row === null) return null
   const { reading, failedFetch } = row
+  const notes = reading?.notes ?? []
   // A new selection renders before its effect clears the previous request result.
   const history = fetchedHistory?.series_id === row.series.series_id ? fetchedHistory : null
   const series = history === null ? row.series : transformSeriesHistory(history, period, granularity)
@@ -241,6 +242,10 @@ function IndicatorDialog({ row, history: fetchedHistory, historyLoading, history
           </DialogDescription>
         </DialogHeader>
         <StatusBadges row={row} />
+        {notes.length > 0 && <div className="space-y-1 text-xs text-muted-foreground">
+          {notes.map(note => <p key={note}>{note}</p>)}
+          {reading?.vintage_at && <p>選択保存原本の受領時刻：{formatJstDateTime(reading.vintage_at)}</p>}
+        </div>}
         {failedFetch !== null && (
           <Alert variant="destructive">
             <CircleAlert />
