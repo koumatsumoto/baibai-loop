@@ -175,15 +175,15 @@ def test_daily_denial_or_rate_limit_stops_before_next_ticker(connect, monkeypatc
     assert not any(key.startswith(RAW_PREFIX) for key in store.objects)
 
 
-def test_daily_plan_defaults_to_three_sources_and_accepts_an_explicit_subset():
+def test_daily_plan_defaults_to_four_sources_and_accepts_an_explicit_subset():
     p = make_plan(
         run_id="synthetic",
         tickers=("130A", "8306"),
         universe_binding="fixed",
         collector_binding=collection.collector_binding(),
     )
-    assert p.sources == ("monex", "rakuten", "kabumap")
-    assert len(p.cohorts[0].pairs) == 6
+    assert p.sources == ("monex", "rakuten", "kabumap", "minkabu")
+    assert len(p.cohorts[0].pairs) == 8
     assert plan(sources=("monex", "rakuten")).sources == ("monex", "rakuten")
 
 
