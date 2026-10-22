@@ -2,6 +2,44 @@
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 
+export interface AnalystForecastHistory {
+  latest: AnalystForecastObservation | null
+  previous: AnalystForecastObservation | null
+}
+
+/**
+ * Visible Minkabu analyst fields, separate from its combined/crowd prediction.
+ */
+export interface AnalystForecastObservation {
+  ticker: string
+  fetched_at_utc: string
+  snapshot_date: string
+  distributor: 'minkabu'
+  origin: string | null
+  source_url: string
+  parser_version: string
+  contract_version: '1'
+  display_as_of_date: string
+  rating_label: string | null
+  strong_buy_count: number | null
+  buy_count: number | null
+  neutral_count: number | null
+  sell_count: number | null
+  strong_sell_count: number | null
+  target_price_yen: number | null
+  target_horizon_months: 12 | null
+  forecast_period_label: string | null
+  analyst_forecast_as_of_date: string | null
+  company_forecast_as_of_date: string | null
+  analyst_revenue_million_yen: number | null
+  analyst_net_income_million_yen: number | null
+  analyst_eps_yen: number | null
+  company_revenue_million_yen: number | null
+  company_net_income_million_yen: number | null
+  company_eps_yen: number | null
+  share_basis: string | null
+}
+
 export interface AnalystRatingAssessment {
   distributor: string
   inputs: AnalystRatingHistory
@@ -279,6 +317,7 @@ export interface ExternalAssessment {
   quants_scores: QuantsScoreAssessment[]
   tradingview: TradingViewAssessment
   origin_groups: OriginGroup[]
+  minkabu: AnalystForecastHistory
 }
 
 export interface ExternalAssessmentSecurityView {
