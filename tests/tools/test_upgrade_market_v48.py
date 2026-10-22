@@ -81,3 +81,35 @@ def test_unreviewed_source_stays_untouched_and_no_candidate_remains(tmp_path, da
         upgrade(source, output)
     assert source.read_bytes() == before
     assert not output.exists()
+
+
+def test_materialize_upgrade_is_explicit_and_ordered():
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/cloud-materialize.yml").read_text())
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers["workflow_dispatch"]["inputs"]["upgrade_market_v48"]["default"] is False
+    steps = workflow["jobs"]["materialize"]["steps"]
+    prepare = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Prepare attended market schema 48 copy"
+    )
+    hydrate = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Hydrate market store from the L1 release"
+    )
+    publish = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Publish attended schema 48 machine bundle"
+    )
+    render = next(
+        i for i, step in enumerate(steps) if step.get("name") == "Materialize read models"
+    )
+    assert prepare < hydrate < publish < render
+    assert steps[prepare]["if"] == steps[publish]["if"] == "${{ inputs.upgrade_market_v48 }}"
