@@ -13,6 +13,7 @@ from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.market_context.technical_query import technical_analysis
 from baibai_engine.research.market_context.projection import assessment_projection
 from baibai_engine.research.market_context.query import latest_assessment
 from baibai_engine.research.selection import (
@@ -54,6 +55,9 @@ def collect_research_inputs(
         },
         securities_context={
             ticker: {
+                "technical_analysis": technical_analysis(
+                    market_path, ticker=ticker, as_of=research_as_of
+                ),
                 "market_context": build_security_market_context(
                     sqlite_path=market_path,
                     ticker=ticker,

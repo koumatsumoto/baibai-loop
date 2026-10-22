@@ -67,11 +67,8 @@ def test_security_route_and_export_preserve_context_and_store_bytes(
         asof_date=date.fromisoformat(context["as_of"]),
         self_range_window_bars=VALUATION_HISTORY_SESSIONS,
     )
-    assert expected["price"]["bollinger_20bar"]["status"] == "available"
+    assert "bollinger_20bar" not in expected["price"]
     assert "bollinger_20bar" not in context["price"]
-    expected["price"] = {
-        key: value for key, value in expected["price"].items() if key != "bollinger_20bar"
-    }
     assert context == {
         "as_of": context["as_of"],
         **expected,

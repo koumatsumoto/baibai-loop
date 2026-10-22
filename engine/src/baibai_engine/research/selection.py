@@ -134,11 +134,16 @@ class ResearchInputsSnapshot(_Contract):
     @model_validator(mode="after")
     def contexts(self) -> Self:
         if any(
-            set(row) != {"market_context", "external_assessment"}
+            set(row)
+            not in (
+                {"market_context", "external_assessment"},
+                {"market_context", "external_assessment", "technical_analysis"},
+            )
             for row in self.securities_context.values()
         ):
             raise ValueError(
-                "security context requires only market_context and external_assessment"
+                "security context requires market_context/external_assessment and optional "
+                "technical_analysis for retained snapshots"
             )
         return self
 
