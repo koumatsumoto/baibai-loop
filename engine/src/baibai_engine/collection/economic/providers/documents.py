@@ -37,8 +37,6 @@ def fetch_source_documents(
         )
     elif source.provider == "matsui_margin":
         # This is a current page, never a day-by-day history traversal.
-        yield MatsuiMarginSource().fetch_document(
-            source, session=context.session, context=context
-        )
+        yield MatsuiMarginSource().fetch_document(source, session=context.session, context=context)
     else:
         raise IndicatorsProviderError(f"unsupported document source provider: {source.provider}")
