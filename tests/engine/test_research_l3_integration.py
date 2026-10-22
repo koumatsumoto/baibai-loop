@@ -334,6 +334,9 @@ def _assessment_payload(case):
         )
         document["conclusion"]["stance"] = "unsupported"
         hypotheses[0].update(result="refuted", reason="合成一次資料で恒常収益源が失われた。")
+        for risk in document["permanent_loss_risks"]:
+            if risk["axis"] == "structural_decline":
+                risk.update(assessment="adverse", summary="合成一次資料で恒常収益源の喪失を確認。")
         findings["value_gap_explanation"] = "価格上昇・古い外部目標は恒常収益源の喪失を覆さない。"
     if case.scenario == "unknown":
         document["valuation"] = dict(
@@ -350,6 +353,14 @@ def _assessment_payload(case):
         hypotheses[1].update(
             result="unresolved", reason="変動負債の借換条件が不明で金利伝達を確定できない。"
         )
+        hypotheses[0]["reason"] = "継続収益は確認したが、借換条件は未確認。"
+        for risk in document["permanent_loss_risks"]:
+            if risk["axis"] == "debt_repayment":
+                risk.update(
+                    assessment="unknown",
+                    evidence_status="unverified",
+                    summary="借換の確約条件が未確認で、返済可能性は未確定。",
+                )
         findings["value_gap_explanation"] = (
             "借換条件が重要な不足で価値差は未確定。価格指標では補えない。"
         )
@@ -558,9 +569,12 @@ def test_changed_evidence_or_reason_cannot_promote_with_original_review(
     case = _prepare_case(tmp_path, monkeypatch)
     changed = deepcopy(case.document)
     if change == "source_basis":
-        changed["input_snapshot"]["sources"][2]["used_for"] += (
-            "; basisの再確認で採用根拠が変わった。"
+        source = next(
+            source
+            for source in changed["input_snapshot"]["sources"]
+            if source["source_id"] == "technical-fixed"
         )
+        source["used_for"] += "; basisの再確認で採用根拠が変わった。"
     elif change == "hypothesis_reason":
         changed["findings"]["hypotheses"][1]["reason"] = "変動負債への伝達を追加確認した。"
     else:
@@ -571,7 +585,7 @@ def test_changed_evidence_or_reason_cannot_promote_with_original_review(
     )
     # 元Reviewを保持する。update_review_hashで拒否条件を消してはならない。
     (case.prepared.workspace / "1234/assessment-draft.yaml").write_text(yaml.safe_dump(changed))
-    with pytest.raises(ResearchWorkspaceDataError, match="stale|hash"):
+    with pytest.raises(ResearchWorkspaceDataError, match=r"stale|hash"):
         promote(workspace=case.prepared.workspace, ticker="1234", db_path=case.app, now=PROMOTED)
     with closing(connect_read_only(case.app)) as connection:
         assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
