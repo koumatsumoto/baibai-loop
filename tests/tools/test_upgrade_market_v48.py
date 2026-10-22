@@ -111,5 +111,19 @@ def test_materialize_upgrade_is_explicit_and_ordered():
     render = next(
         i for i, step in enumerate(steps) if step.get("name") == "Materialize read models"
     )
-    assert prepare < hydrate < publish < render
+    capture = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Capture three live Minkabu examples before the attended cutover"
+    )
+    lease = next(
+        i for i, step in enumerate(steps) if step.get("name") == "Acquire publication lease"
+    )
+    originals = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Import and publish the confirmed Minkabu originals"
+    )
+    assert capture < lease < prepare < hydrate < originals < publish < render
+    assert steps[capture]["if"] == steps[originals]["if"] == "${{ inputs.upgrade_market_v48 }}"
     assert steps[prepare]["if"] == steps[publish]["if"] == "${{ inputs.upgrade_market_v48 }}"

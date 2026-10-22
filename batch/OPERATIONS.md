@@ -774,17 +774,20 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 1. 他のpublicationと競合しない時間帯を選び、対象codeのmain反映とstore反映を一組にする。
    既存`cloud-publish`とpublication leaseを使い、切替中に旧codeのbatchを別環境で動かさない。
-2. workflowはfresh pullした47をread-onlyで開き、`tools/cutover/upgrade_market_v48.py`で別の48へ全行をコピーする。
+2. lease取得前に既知の3銘柄（7203/4436/8306）を通常collectorで取得する。未確認・parse失敗・403/429なら本番切替前に停止する。原応答captureはrunnerのprivate一時領域だけに置き、公開artifactへ出さない。
+   workflowはfresh pullした47をread-onlyで開き、`tools/cutover/upgrade_market_v48.py`で別の48へ全行をコピーする。
    旧schemaのtable/index定義、全表の件数と双方向の値一致、foreign keyとintegrityを確認する。
    原本bytes・受領時刻・Lake origin・非Lakeの派生値を保持し、予想表は空で追加する。provider再取得はしない。
-3. 現行Lakeを48へhydrateした後、既存`push-machine`のbackup・ETag条件・bundle receiptで反映する。
-   runs/indicatorsは同じlease内でfresh pullした無変更の内容を同時に戻す。applicationとLake原本は変更しない。
+3. 現行Lakeを48へhydrateした後、同じ3銘柄のcaptureを正規importし、元の受領時刻のL1原本とL2予想を既存`publish-lake`で追記・公開する。再取得しない。
+   続いて既存`push-machine`のbackup・ETag条件・bundle receiptで反映する。
+   runs/indicatorsは同じlease内でfresh pullした無変更の内容を同時に戻す。applicationを変更せず、既存Lake原本の履歴も保持する。
    続けて通常のmaterializeを行い、各stepの成否とlease解放を確認する。
 4. 反映済み48に対して移行入力を再指定しない。store反映後にmaterializeだけ失敗した場合は、
    次回は`upgrade_market_v48=false`で再実行する。部分machine pushでは既存の部分push復旧手順に従う。
    未確認のbackupへの上書きやuser_versionだけの変更をしない。
 5. 切替受入後に一回限りのtool・専用test・workflow入力/stepを撤去し、通常経路に互換分岐を残さない。
-   みんかぶの初回実取得・固定releaseへの保存結果は別に確認する。schema切替成功を取得済みとは数えない。
+   3銘柄の初回実取得・原本/観測の新規件数・固定release公開と、schema切替の各stepを別に確認する。schema切替成功だけを取得済みとは数えない。
+   一回限りの取得・Lake公開・machine pushを含むためjob上限は一時的に90分とし、lease TTL120分以内に保つ。撤去時に通常materializeの30分へ戻す。
    本番画面の目視確認は今回の完了条件ではない。
 
 ### 日次取得と固定コホートの再開

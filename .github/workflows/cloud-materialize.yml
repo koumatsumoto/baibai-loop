@@ -20,7 +20,8 @@ concurrency:
 jobs:
   materialize:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Temporary headroom for the attended copy + machine push; below the lease TTL.
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,6 +44,12 @@ jobs:
       # nothing published rather than a data failure part-way through a run.
       - name: Provision DuckDB httpfs extension
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+
+      - name: Capture three live Minkabu examples before the attended cutover
+        if: ${{ inputs.upgrade_market_v48 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/private-minkabu"
+          uv run baibai-engine external-assessment collect --source minkabu --tickers 7203 4436 8306 --output "$RUNNER_TEMP/private-minkabu/responses.json"
 
       - name: Acquire publication lease
         id: lease-acquire
@@ -80,6 +87,17 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
+
+      - name: Import and publish the confirmed Minkabu originals
+        if: ${{ inputs.upgrade_market_v48 }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
+        run: |
+          uv run baibai-engine external-assessment import --input "$RUNNER_TEMP/private-minkabu/responses.json" --db stores/market/market.sqlite
+          batch/scripts/r2_transfer.sh publish-lake
 
       # Only the explicit attended operation promotes the converted store. Normal
       # materialize and daily runs never migrate a schema. The pulled bundle's other
