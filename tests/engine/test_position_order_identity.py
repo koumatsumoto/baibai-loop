@@ -128,7 +128,7 @@ def test_order_id_consumes_only_its_reserved_quantity(
 def test_proposal_fill_rejects_conflicting_order_and_reservation_ids(tmp_path: Path):
     service = _service(tmp_path)
     first = _open(service, "synthetic-order-1")
-    _open(service, "synthetic-order-2")
+    second = _open(service, "synthetic-order-2")
     before = service.load_with_head()
     with pytest.raises(ValueError, match="different orders"):
         build_broker_fact_draft(
@@ -146,6 +146,35 @@ def test_proposal_fill_rejects_conflicting_order_and_reservation_ids(tmp_path: P
             now=AT,
         )
     assert service.load_with_head() == before
+
+    def unavailable_reference(_reference: str) -> str:
+        pytest.fail("a unique saved order must supply its existing decision binding")
+
+    draft, _ = build_broker_fact_draft(
+        service,
+        unavailable_reference,
+        decision_reference=REFERENCE,
+        status="filled",
+        occurred_on=AT.date(),
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal(900),
+        order_id="synthetic-order-2",
+        execution_id="synthetic-fill",
+        now=AT,
+    )
+    assert draft is not None
+    fill = draft.replacement.events[-1]
+    assert isinstance(fill, ExecutionEvent)
+    assert fill.reservation_id == second
+    apply_draft(service, draft, human_confirmed=True)
+    document = service.load()
+    state = replay_events_through(document.events, document.as_of)
+    assert set(state.active_reservations) == {first}
+    assert state.active_reservations[first].remaining_quantity == 100
+    assert state.reserved_cash_yen == 100_000
+    assert state.available_cash_yen == 810_000
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 100
 
 
 @pytest.mark.parametrize(
