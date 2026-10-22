@@ -264,6 +264,50 @@ def test_proposal_order_id_cannot_bypass_remaining_or_guard(
     assert service.load_with_head() == before
 
 
+@pytest.mark.parametrize("date_only", [False, True])
+@pytest.mark.parametrize("explicit_reservation", [False, True])
+def test_distinct_orders_can_fill_at_the_same_occurrence_without_execution_ids(
+    tmp_path: Path, date_only: bool, explicit_reservation: bool
+):
+    service = _service(tmp_path, cash=200_000)
+    reservation_ids = [_open(service, f"synthetic-order-{index}") for index in (1, 2)]
+    filled_at = AT + timedelta(minutes=10)
+    occurrence: dict[str, date | datetime] = (
+        {"occurred_on": filled_at.date()} if date_only else {"occurred_at": filled_at}
+    )
+
+    def unavailable_reference(_reference: str) -> str:
+        pytest.fail("the explicit saved order must supply its existing decision binding")
+
+    for index, reservation_id in enumerate(reservation_ids, start=1):
+        report = {
+            "decision_reference": REFERENCE,
+            "status": "filled",
+            "ticker": "1234",
+            "quantity": 100,
+            "price_yen": Decimal(900),
+            "order_id": f"synthetic-order-{index}",
+            "now": filled_at,
+        }
+        if explicit_reservation:
+            report["reservation_id"] = reservation_id
+        draft, _ = build_broker_fact_draft(service, unavailable_reference, **report, **occurrence)
+        assert draft is not None
+        assert draft.replacement.events[-1].reservation_id == reservation_id
+        apply_draft(service, draft, human_confirmed=True)
+        assert build_broker_fact_draft(service, unavailable_reference, **report, **occurrence) == (
+            None,
+            (),
+        )
+
+    document = service.load()
+    state = replay_events_through(document.events, document.as_of)
+    assert not state.active_reservations
+    assert state.reserved_cash_yen == 0
+    assert state.available_cash_yen == 20_000
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 200
+
+
 @pytest.mark.parametrize("status", ["cancelled", "expired"])
 @pytest.mark.parametrize("date_only", [True, False])
 def test_distinct_orders_can_report_terminal_facts_at_the_same_occurrence(
