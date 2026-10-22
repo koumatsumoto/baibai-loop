@@ -8,6 +8,7 @@ import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { ResearchNav } from '../components/ResearchNav'
+import { AssessmentReturnLink } from '../components/ReadingNavigation'
 import { ReviewedAssessmentContent } from '../components/ReviewedAssessmentContent'
 import { SectionCard } from '../components/SectionCard'
 import { UpdatedAtBadge } from '../components/UpdatedAtBadge'
@@ -31,13 +32,17 @@ export function StockAssessmentPage() {
       })
     return () => controller.abort()
   }, [assessmentId])
-  if (error) return <PageState message={error} title="銘柄評価" />
-  if (!data) return <LoadingPage label="銘柄評価を読み込んでいます" />
+  if (error) return <><AssessmentReturnLink /><PageState message={error} title="銘柄評価" /></>
+  if (!data || data.revision.assessment_id !== assessmentId) return <><AssessmentReturnLink /><LoadingPage label="銘柄評価を読み込んでいます" /></>
+  return <SavedStockAssessment data={data} />
+}
+
+export function SavedStockAssessment({ data }: { data: StockAssessmentDetailView }) {
   const ticker = data.revision.ticker
-  return <PageShell above={<ResearchNav />} title={`${ticker} · 保存した銘柄評価`} lead="この評価版の事業理解・根拠・価値見積りです。提案時や現在の価格・資金へ付け替えません。" width="reading" meta={<div className="flex flex-wrap gap-2"><Badge variant="outline">{STANCE_LABELS[data.revision.stance] ?? data.revision.stance}</Badge><AsOfBadge value={data.revision.as_of} /><UpdatedAtBadge value={data.revision.published_at} /></div>}>
+  return <PageShell above={<div className="grid gap-2"><ResearchNav /><AssessmentReturnLink ticker={ticker} /></div>} title={`${ticker} · 保存した銘柄評価`} lead="この評価版の事業理解・根拠・価値見積りです。提案時や現在の価格・資金へ付け替えません。" width="reading" meta={<div className="flex flex-wrap gap-2"><Badge variant="outline">{STANCE_LABELS[data.revision.stance] ?? data.revision.stance}</Badge><AsOfBadge value={data.revision.as_of} /><UpdatedAtBadge value={data.revision.published_at} /></div>}>
     <SectionCard padded title="企業評価の根拠"><p className="mb-4 text-sm">原評価の購入上限（Pmax・丸め前） <YenAmount value={data.revision.pmax_original_yen} /></p><ReviewedAssessmentContent document={data.document} projection={data.projection} review={data.review} /></SectionCard>
-    <SectionCard padded title="独立 Review"><p className="break-all text-xs">Assessment: {data.revision.assessment_id} · Review: {data.revision.review_id}</p><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(data.review, null, 2)}</pre></SectionCard>
-    <Link className="text-sm underline" to={`/securities/${ticker}`}>最新の銘柄情報・評価を見る →</Link>
-    <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>
+    <details className="min-w-0 rounded border p-4"><summary className="min-h-11 cursor-pointer py-2 text-sm">この固定評価・Reviewの識別子</summary><div className="mt-3 grid gap-2 break-all text-xs"><p>Assessment: {data.revision.assessment_id}</p><p>Review: {data.revision.review_id}</p><p>core hash: {data.core_sha256}</p></div></details>
+    <Link className="inline-flex min-h-11 w-fit items-center text-sm underline" to={`/securities/${ticker}`}>最新の銘柄情報・評価を見る（この固定版とは別） →</Link>
+    <AssessmentReturnLink ticker={ticker} />
   </PageShell>
 }
