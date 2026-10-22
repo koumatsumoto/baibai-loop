@@ -346,6 +346,7 @@ def collector_binding() -> str:
         "rakuten_parser": rakuten.PARSER_VERSION,
         "kabumap_parser": kabumap.PARSER_VERSION,
         "minkabu_parser": minkabu.PARSER_VERSION,
+        "minkabu_request_headers": source_http.MINKABU_PUBLIC_HEADERS,
         "request_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
         "initial_pair_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
         "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,

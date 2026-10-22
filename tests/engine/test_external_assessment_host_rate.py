@@ -164,12 +164,12 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v9_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v9"
+def test_v10_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v10"
     assert source_http.HOST_REQUEST_RATE_PER_SECOND == 2
     assert source_http.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
-    assert binding == "7b9688aa1e92d642aeaf71f1e197626ee26388e5fc7e8e1ab1e3ed506ff6fb7d"
+    assert binding == "83efc91682cbc8e9171e13fdee214709fe8474f7f80463736c8761ea1cce7bf9"
     monkeypatch.setattr(source_http, "HOST_REQUEST_RATE_PER_SECOND", 3)
     assert collection.collector_binding() != binding
 
@@ -227,6 +227,9 @@ def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_receive
         "https://minkabu.jp/stock/130A/analyst_consensus",
         "https://minkabu.jp/stock/130A",
     ]
+    assert all(
+        kwargs["headers"] == source_http.MINKABU_PUBLIC_HEADERS for _, _, kwargs in client.calls
+    )
     assert len(originals) == 1
     assert decode_attempt(originals) == result.observations[0]
     assert originals[0].requested_url.endswith("/130A")
@@ -252,3 +255,23 @@ def test_minkabu_404_with_unconfirmed_profile_is_failure_not_normal_null(clock):
     assert result.observations == ()
     assert result.outcomes[0].status == "parse_failure"
     assert result.outcomes[0].reason == "unconfirmed_no_analyst_coverage"
+
+
+def test_minkabu_identifies_actual_client_without_changing_other_sources(clock):
+    from tests.engine.test_minkabu import html
+
+    client = Session(clock, [(200, html(), {}), (200, monex_html(), {})])
+    limiter = source_http.HostRateLimiter()
+    assert pair(client, limiter, source="minkabu").outcomes[0].status == "observed"
+    assert client.calls[0][2]["headers"] == {
+        "User-Agent": "baibai-loop-public-research/1.0",
+        "Accept": "text/html",
+    }
+    assert pair(client, limiter, source="monex").outcomes[0].status == "observed"
+    assert "headers" not in client.calls[1][2]
+
+
+def test_minkabu_header_policy_is_bound_to_fixed_plan(monkeypatch):
+    before = collection.collector_binding()
+    monkeypatch.setitem(source_http.MINKABU_PUBLIC_HEADERS, "Accept", "application/xhtml+xml")
+    assert collection.collector_binding() != before

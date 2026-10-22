@@ -11,4 +11,4 @@ QUANTS_SCORE_DATASET = "external_assessment.quants_score_observations"
 ANALYST_FORECAST_TABLE = "external_assessment_analyst_forecast_observations"
 ANALYST_FORECAST_DATASET = "external_assessment.analyst_forecast_observations"
 
-PAIR_ACQUISITION_POLICY_VERSION = "external-assessment-pair-acquisition-v9"
+PAIR_ACQUISITION_POLICY_VERSION = "external-assessment-pair-acquisition-v10"
