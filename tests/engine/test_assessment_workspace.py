@@ -132,6 +132,20 @@ def test_scaffold_export_collision_has_no_workspace_write(case):
     assert exported.read_text() == "existing authored file"
 
 
+@pytest.mark.parametrize("force", [False, True])
+@pytest.mark.parametrize("alias", [False, True])
+def test_scaffold_export_cannot_replace_its_new_publication_identity(case, force, alias):
+    _db, workspace, _ = case
+    exported = workspace / "1234/assessment-publication.yaml"
+    if alias:
+        linked = workspace.parent / "identity-export.yaml"
+        linked.symlink_to(exported)
+        exported = linked
+    with pytest.raises(ResearchWorkspaceConflictError, match="publication identity"):
+        scaffold(case, out=exported, force=force)
+    assert not (workspace / "1234").exists()
+
+
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), True])
 def test_nonfinite_or_boolean_cached_price_does_not_create_draft(case, monkeypatch, invalid):
     monkeypatch.setattr(
