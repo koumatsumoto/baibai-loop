@@ -761,35 +761,15 @@ uv run baibai-engine external-assessment import --input /tmp/private-external-as
 
 import対象は明示した既存の隔離作業コピーであり、current market schemaに整合させる。CLIは新規DBの初期化も旧schemaの移行も行わない。新形式`equity-web-source-capture-v1`はHTTP 200で受領した原応答の正確なID・時刻・encoding・body bytesと、正常観測に選ばれたattempt IDだけを保持する。以前の正規化観測stageはimport入力として拒否し、旧ファイルは変更しない。importは全原応答を保持した後、選択attemptを保存原本から再解析してL2へ不可変追記する。選択attemptの解析失敗時、原応答は残り得るがL2は部分追記しない。成功時は原応答と観測の新規挿入件数を確認し、再投入では両方0を確認する。partialまたは失敗時はsafe summaryで未試行・HTTP障害・parse障害を正常nullと区別し、captureを保持する。captureはtransportや制御結果の再生を主張しない。schema・破損・保存障害は取得欠測へ置き換えず、コピーの整合を直してから再投入する。
 
-本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#external-assessment-query)を参照する。
+取得元別workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#external-assessment-query)を参照する。
 
 <a id="market-v48-cutover"></a>
 
-### みんかぶ導入時の market 47 → 48 切替
+### みんかぶ導入時の market 47 → 48 切替記録
 
-みんかぶの原本source制約と新しいL2表を追加するため、codeだけの反映では既存schema 47を読めない。
-本番切替の前に、固定masterの対象全銘柄について取得・対象外・失敗・未試行を集計し、未解決の取得経路やparser不備がないことを確認する。[source契約](../docs/reference/data-sources.md#external-assessment-acquisition)に従う原提供元の期間衝突による拒否は、理由付きの不採用として区別し、失敗件数0を切替条件にしない。以下の3銘柄preflightは切替直前の疎通確認であり、全銘柄検証の代わりにはしない。403/429で停止した全件検証を、少数の公開画面やCI成功で完了扱いにしない。
-日次や通常readerに暗黙migrationは追加しない。最終HEADのCIと切替toolの検証を終えてから、
-`cloud-materialize`の明示入力`upgrade_market_v48=true`を使い、一度だけ担当者が切り替える。
-通常のmaterializeではこの入力はfalseであり、machine storeを公開しない。
+market47→48は2026-10-22 UTCに切替を完了した。[code反映 PR #1564](https://github.com/koumatsumoto/baibai-loop/pull/1564)と[固定commitの切替tool](https://github.com/koumatsumoto/baibai-loop/blob/1ada671bab4cb26158ccfce085bd05fe8afa6157/tools/cutover/upgrade_market_v48.py)を使い、旧行・原本bytes・受領時刻・Lake originを保持した。受領済みの同じ3銘柄captureを正規importし、固定Lakeの原本・観測readback、3 storeのbackup・ETag条件・bundle receipt、remote market48を確認した。
 
-1. 他のpublicationと競合しない時間帯を選び、対象codeのmain反映とstore反映を一組にする。
-   既存`cloud-publish`とpublication leaseを使い、切替中に旧codeのbatchを別環境で動かさない。
-2. lease取得前に既知の3銘柄（7203/4436/8306）を通常collectorで取得する。未確認・parse失敗・403/429なら本番切替前に停止する。原応答captureはrunnerのprivate一時領域だけに置き、公開artifactへ出さない。
-   workflowはfresh pullした47をread-onlyで開き、`tools/cutover/upgrade_market_v48.py`で別の48へ全行をコピーする。
-   旧schemaのtable/index定義、全表の件数と双方向の値一致、foreign keyとintegrityを確認する。
-   原本bytes・受領時刻・Lake origin・非Lakeの派生値を保持し、予想表は空で追加する。provider再取得はしない。
-3. 現行Lakeを48へhydrateした後、同じ3銘柄のcaptureを正規importし、元の受領時刻のL1原本とL2予想を既存`publish-lake`で追記・公開する。再取得しない。
-   続いて既存`push-machine`のbackup・ETag条件・bundle receiptで反映する。
-   runs/indicatorsは同じlease内でfresh pullした無変更の内容を同時に戻す。applicationを変更せず、既存Lake原本の履歴も保持する。
-   続けて通常のmaterializeを行い、各stepの成否とlease解放を確認する。
-4. 反映済み48に対して移行入力を再指定しない。store反映後にmaterializeだけ失敗した場合は、
-   次回は`upgrade_market_v48=false`で再実行する。Lake公開だけ成功してremote marketが47のままなら、実際のcurrent releaseとmachineの反映状態を確認し、fresh pullした47の変換とcurrent Lakeのhydrateから再開する。部分machine pushでは既存の部分push復旧手順に従う。
-   未確認のbackupへの上書きやuser_versionだけの変更をしない。
-5. 切替受入後に一回限りのtool・専用test・workflow入力/stepを撤去し、通常経路に互換分岐を残さない。
-   3銘柄の初回実取得・原本/観測の新規件数・固定release公開と、schema切替の各stepを別に確認する。schema切替成功だけを取得済みとは数えない。
-   一回限りの取得・Lake公開・machine pushを含むためjob上限は一時的に90分とし、lease TTL120分以内に保つ。撤去時に通常materializeの30分へ戻す。
-   本番画面の目視確認は今回の完了条件ではない。
+[通常materialize](https://github.com/koumatsumoto/baibai-loop/actions/runs/39796315631)の成功、servingの3銘柄の元受領時刻とMinkabu観測、最終meta公開、lease解放を確認済み。一回限りのtool・専用test・workflow入力/stepは撤去し、通常materializeの上限を30分へ戻した。日次・通常readerは旧schemaを移行しない。今回の3銘柄受入を全銘柄取得の完了と扱わず、通常の取得・公開は次節、部分pushの復旧は[R2安全境界](#r2-transferの安全境界)に従う。私的な原本captureや移行証拠を公開repositoryへ保存しない。
 
 ### 取得元別の日次取得と固定コホートの再開
 
