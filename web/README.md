@@ -13,7 +13,7 @@
 
 materialized JSONとfrontend assetは生成しますが、application DBやdomain storeは書きません。store authorityは[architecture](../docs/architecture.md#store-authority)を参照してください。
 
-調査・提案の保存履歴は現在のScreeningから独立して読めます。`/api/stock-assessments`は保存済みStock Assessmentの一覧、`/api/investment-proposals`は保存済みInvestment Proposalの一覧です。`/api/operations`の`research`はResearch selectionのscope・capacity・固定対象・選定理由・run参照と、Assessment Reviewまでの進行、提案参照を投影します。0件選択、成果未記録、調査未完了、企業評価完了、提案工程完了を区別します。判断と取引の関係は[Decision flow](../docs/domain-language.md#decision-flow)を参照してください。
+調査・提案の保存履歴は現在のScreeningから独立して読めます。`/api/stock-assessments`は保存済みStock Assessmentの一覧、`/api/investment-proposals`は保存済みInvestment Proposalの一覧です。`/api/operations`の`research`はResearch selectionのscope・capacity・固定対象・選定理由・run参照と、Assessment Reviewまでの進行、提案参照を投影します。調査進行中/終了、0件選択、対象ごとの成果未記録/調査未完了/企業評価・Review完了、保存提案の参照有無を分けて表示し、提案参照だけで具体条件まで完成したと扱いません。判断と取引の関係は[Decision flow](../docs/domain-language.md#decision-flow)を参照してください。
 表示分類は`config/market-context-panel.yaml`、consumer契約を持つevidenceは`reports/published/`から読みます。APIとserving R2 keyの対応は`contracts/routes.json`が所有します。
 
 銘柄一覧・詳細・履歴の機械anchorは表示対象runの保存済みStock Analysisから読み、候補入りを照会条件にしません。企業固有のStock Assessmentとの区別と欠測の意味は[Valuation metrics](../docs/reference/valuation-metrics.md#machine-valuation)を参照してください。
@@ -48,7 +48,7 @@ write-capableなcanonical R2 bindingを付けません。新routeはmaterializer
 fixed-release読取と完全性確認は[market lake](../docs/reference/market-lake.md#shared-raw-read)、
 secret設定・rotation・撤回・利用側受入は[運用手順](../batch/OPERATIONS.md#shared-read-setup)を参照してください。
 
-Dashboardは資産・保有・予約・運用成績を表示する。「調査・提案」では提案を先に置き、候補探索・市場環境を二次ナビゲーションで読む。Tasksは期限付き用件・イベントの閲覧を保つ。調査と提案の進行は保存済みOperationから表示する。新規・保有の固定対象、完了/調査未完了を区別し、Investment Proposal詳細は保存した比較範囲・条件・未完了理由・参照を表示する。提案工程完了を人間採否・注文・約定の成立として表示しない。
+Dashboardは資産・保有・予約・運用成績を表示する。「調査・提案」では提案を先に置き、候補探索・市場環境を二次ナビゲーションで読む。Tasksは期限付き用件・イベントを表示し、Operationの閲覧は「調査・提案」へ集約する。固定対象情報のない保存済みOperationも種別・開始・保存状態・IDの簡略履歴として残し、成果の完成を推測しない。新規・保有の固定対象、完了/調査未完了を区別し、Investment Proposal詳細は保存した比較範囲・条件・未完了理由・参照を表示する。調査終了を人間採否・注文・約定の成立として表示しない。
 `/api/dashboard.available_cash_yen`は台帳上の未予約現金で、売却代金を約定時にgrossで計上する。証券会社の受渡済み資金・発注可能額ではない。`/api/operations.outcomes[].portfolio_twr_pct`は記録済みの費用・税だけを反映し、未報告分のゼロ確定を示さない。画面も同じ範囲で説明する。
 Investment Proposalの評価リンクは、その提案が固定参照したStock AssessmentとAssessment Reviewの本文・原評価へ進みます。改訂後の評価を読む「最新の銘柄情報」は別リンクとし、当時の根拠を最新評価で置き換えません。`/api/investment-proposals/{proposal_id}/current-preview`は取得時刻付きの現在再試算で、保存提案や人間が確認したbroker事実を更新しません。
 

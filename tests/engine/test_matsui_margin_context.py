@@ -271,6 +271,69 @@ def test_bad_latest_observation_revision_is_a_gap_not_an_older_value(tmp_path):
     ]
 
 
+def test_later_unpublished_observation_does_not_hide_an_earlier_requested_day(tmp_path):
+    path = tmp_path / "data.sqlite"
+    day = date(2026, 10, 22)
+    first = document(when=datetime(2026, 10, 22, 8, tzinfo=UTC), body=html("10/22(木)", "-10"))
+    later = document(when=datetime(2026, 10, 23, 8, tzinfo=UTC), body=html(value="未公表"))
+    save(path, first, later)
+    (value,) = IndicatorsService(path).get_range(SERIES_ID, start=day, end=day).observations
+    assert value.value == -10
+    assert value.observed_at == day
+    assert value.vintage_at == first.fetched_at
+    payload = reading_snapshot(path, asof=day)
+    row = next(item for item in payload["series"] if item["series_id"] == SERIES_ID)
+    assert row["latest_value"] == -10
+    assert row["observed_at"] == day.isoformat()
+    assert row["flags"] == ["year_inferred"]
+    empty_day = date(2026, 10, 21)
+    assert (
+        IndicatorsService(path).get_range(SERIES_ID, start=empty_day, end=empty_day).observations
+        == ()
+    )
+
+
+def test_latest_in_range_unpublished_observation_is_unavailable(tmp_path):
+    path = tmp_path / "data.sqlite"
+    first = document(when=datetime(2026, 10, 22, 8, tzinfo=UTC), body=html("10/22(木)", "-10"))
+    bad = document(when=datetime(2026, 10, 23, 8, tzinfo=UTC), body=html(value="未公表"))
+    later = document(when=datetime(2026, 10, 26, 8, tzinfo=UTC), body=html("10/26(月)", "-15"))
+    save(path, first, bad, later)
+    with pytest.raises(UnavailableObservationError):
+        IndicatorsService(path).get_range(SERIES_ID, start=date(2026, 10, 22), end=DAY)
+    payload = reading_snapshot(path, asof=DAY)
+    row = next(item for item in payload["series"] if item["series_id"] == SERIES_ID)
+    assert row["latest_value"] is None
+    assert row["flags"] == ["source_unreadable"]
+
+
+def test_later_unpublished_correction_to_requested_day_cannot_restore_old_value(tmp_path):
+    path = tmp_path / "data.sqlite"
+    day = date(2026, 10, 22)
+    first = document(when=datetime(2026, 10, 22, 8, tzinfo=UTC), body=html("10/22(木)", "-10"))
+    correction = document(
+        when=datetime(2026, 10, 23, 8, tzinfo=UTC), body=html("10/22(木)", "未公表")
+    )
+    later = document(when=datetime(2026, 10, 26, 8, tzinfo=UTC), body=html("10/26(月)", "-15"))
+    save(path, first, correction, later)
+    with pytest.raises(UnavailableObservationError):
+        IndicatorsService(path).get_range(SERIES_ID, start=day, end=day)
+    payload = reading_snapshot(path, asof=day)
+    row = next(item for item in payload["series"] if item["series_id"] == SERIES_ID)
+    assert row["latest_value"] is None
+    assert row["flags"] == ["source_unreadable"]
+
+
+def test_latest_unresolvable_date_still_fails_closed_for_an_earlier_range(tmp_path):
+    path = tmp_path / "data.sqlite"
+    day = date(2026, 10, 22)
+    first = document(when=datetime(2026, 10, 22, 8, tzinfo=UTC), body=html("10/22(木)", "-10"))
+    bad = document(when=datetime(2026, 10, 23, 8, tzinfo=UTC), body=html("10/23(木)", "-11"))
+    save(path, first, bad)
+    with pytest.raises(UnavailableObservationError, match="observation date has no unique match"):
+        IndicatorsService(path).get_range(SERIES_ID, start=day, end=day)
+
+
 def test_matsui_is_scheduled_once_with_daily_sources_and_has_no_history_archive():
     sources = load_sources()
     parsed = _parse_economic_sources(json.dumps([asdict(item) for item in sources.values()]))

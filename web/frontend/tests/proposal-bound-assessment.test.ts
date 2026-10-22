@@ -89,6 +89,22 @@ describe('保存した提案と評価', () => {
     expect(html).toContain('href="/stocks/stock-assessments/stock-assessment-original"')
     expect(html).not.toContain('最新評価の根拠')
   })
+  it('提案から開く固定根拠に出発元を付け、最新情報のリンクと区別する', () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ProposalItemContent, { item, proposalId: 'original-proposal' })))
+    expect(html).toContain('href="/stocks/stock-assessments/stock-assessment-original?proposal=original-proposal"')
+    expect(html).toContain('href="/securities/1234"')
+    expect(html).toContain('最新の銘柄情報・評価を見る（提案当時とは別）')
+    expect(html.indexOf('この行動を提案した理由')).toBeLessThan(html.indexOf('保存した提案条件'))
+    expect(html.indexOf('保存した提案条件')).toBeLessThan(html.indexOf('この提案が参照した評価・独立Review'))
+  })
+  it('完成した経済的見送りに架空の注文条件や未調査の表示を足さない', () => {
+    const html = render(ProposalItemContent, { ...item, action: 'no_action', rationale: '要求する見返りに届かないため現金を維持する', terms: null, order_readiness: 'not_applicable' })
+    expect(html).toContain('見送り')
+    expect(html).toContain('要求する見返りに届かないため現金を維持する')
+    expect(html).not.toContain('調査未完了')
+    expect(html).not.toContain('保存した提案条件')
+    expect(html).not.toContain('判断を保留する不足')
+  })
   it('合成例の個社経路・比較不能な外部相違・反証を保存sourceとReviewへ辿れる', () => {
     const syntheticDocument = {
       ...document,
@@ -138,7 +154,7 @@ describe('保存した提案と評価', () => {
   it('参照Review本文が欠けたときは反証節でも表示不足を明示する', () => {
     const html = render(ProposalAssessmentDetails, { ...item, assessment_review: null })
     expect(html).toContain('独立Review本文を表示できません。保存した評価版のReviewを確認してください。')
-    expect(html).toContain('参照した Review 本文を表示できません。保存 ID から確認してください。')
+    expect(html.match(/独立Review本文を表示できません/g)).toHaveLength(1)
     expect(html).not.toContain('独立Reviewの最も強い反対仮説')
   })
   it('価値未解決をBase/Downsideの架空表示へ変換しない', () => {

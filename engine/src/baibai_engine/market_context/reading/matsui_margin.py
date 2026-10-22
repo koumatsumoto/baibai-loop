@@ -136,8 +136,16 @@ def read_matsui_margin_documents(
             continue  # Unreadable older dates are gaps, never reconstructed.
         selected.setdefault(observed_at, (document, section))
 
+    # Observation range is independent of receipt time: keep later corrections
+    # to an in-range observation, but do not parse values for later observations.
+    in_range = sorted((day, entry) for day, entry in selected.items() if start <= day <= end)
+    latest_in_range = max(
+        (document for _, (document, _) in in_range),
+        key=lambda item: (item.fetched_at, item.request_key),
+        default=None,
+    )
     values: list[ObservationRecord] = []
-    for observed_at, (document, section) in sorted(selected.items()):
+    for observed_at, (document, section) in in_range:
         try:
             observation = reading_observation(
                 series,
@@ -146,33 +154,32 @@ def read_matsui_margin_documents(
                 vintage_at=document.fetched_at,
             )
         except ValueError as error:
-            if document is ordered[0]:
+            if document is latest_in_range:
                 raise UnavailableObservationError(f"Matsui latest saved source: {error}") from error
             continue
-        if start <= observed_at <= end:
-            values.append(
-                replace(
-                    observation,
-                    source_url=document.source_url,
-                    quality_flags=("year_inferred",),
-                    notes=(
-                        (
-                            f"原ラベル：{_TITLE} / 買い残 / 評価損益率。"
-                            "母集団は松井証券内の信用買建。対象口座・建玉範囲・加重方法の詳細は未確認。"
-                            "単位はpercent（原表示％）、公表値の符号を保持する。"
-                        ),
-                        (
-                            f"観測日の年は受領JST日{document.request_key}の当日〜過去14日で"
-                            f"原表示「{section.tokens[1]}」の月日・曜日と一致する一意候補から推定"
-                            "（year_inferred）。14日は運用許容幅で、真の年や古い同月日再配信の排除を保証しない。"
-                        ),
-                        *section.notes,
-                        (
-                            "vintage_atは選択保存原本の受領時刻。公表時刻・初回既知時刻・最新取得時刻ではない。"
-                            "known_atは適用しない。市場全体・追証人数・底値判定には使わず、"
-                            "価格下落や信用残と独立した悪材料として加算しない。"
-                        ),
+        values.append(
+            replace(
+                observation,
+                source_url=document.source_url,
+                quality_flags=("year_inferred",),
+                notes=(
+                    (
+                        f"原ラベル：{_TITLE} / 買い残 / 評価損益率。"
+                        "母集団は松井証券内の信用買建。対象口座・建玉範囲・加重方法の詳細は未確認。"
+                        "単位はpercent（原表示％）、公表値の符号を保持する。"
                     ),
-                )
+                    (
+                        f"観測日の年は受領JST日{document.request_key}の当日〜過去14日で"
+                        f"原表示「{section.tokens[1]}」の月日・曜日と一致する一意候補から推定"
+                        "（year_inferred）。14日は運用許容幅で、真の年や古い同月日再配信の排除を保証しない。"
+                    ),
+                    *section.notes,
+                    (
+                        "vintage_atは選択保存原本の受領時刻。公表時刻・初回既知時刻・最新取得時刻ではない。"
+                        "known_atは適用しない。市場全体・追証人数・底値判定には使わず、"
+                        "価格下落や信用残と独立した悪材料として加算しない。"
+                    ),
+                ),
             )
+        )
     return tuple(values)

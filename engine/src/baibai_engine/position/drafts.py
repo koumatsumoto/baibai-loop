@@ -141,7 +141,7 @@ def build_broker_fact_draft(
             if decision_reference is None:
                 if (
                     execution_id is None
-                    and order_id is None
+                    and (order_id is None or status == "filled")
                     and not requested_ids
                     and any(
                         isinstance(event, (ExecutionEvent, ReservationEvent))
@@ -152,8 +152,9 @@ def build_broker_fact_draft(
                     )
                 ):
                     raise ValueError(
-                        "direct-fact report without broker identity needs its saved manual-fact "
-                        "reference; select the existing fact or explicitly identify a new fact"
+                        "direct-fact report without a saved broker identity needs its "
+                        "saved manual-fact reference; select the existing fact or explicitly "
+                        "identify a new fact"
                     )
                 decision_reference = f"manual-fact-{uuid4()}"
             binding_addition = DecisionReferenceBinding(
