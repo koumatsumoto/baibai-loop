@@ -222,10 +222,33 @@ def publish(batch, **kwargs):
 def source_notice(report, tmp_path, monkeypatch, *, publish_result):
     path = tmp_path / "notice-source-report.json"
     path.write_text(json.dumps(report))
+    output = tmp_path / "notice-message-output"
+    output.write_text("")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    def forbid(*args):
+        pytest.fail("publisher renders without sending")
+
+    assert (
+        notify.main(
+            [
+                "--render-only",
+                "--sources-report",
+                str(path),
+                "--publish-result",
+                publish_result,
+                "--lease-release-outcome",
+                "success",
+            ],
+            transport=forbid,
+        )
+        == 0
+    )
+    prepared = output.read_text().rstrip("\n").split("=", 1)[1]
+    monkeypatch.delenv("GITHUB_OUTPUT")
     monkeypatch.setenv(
         "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
     )
-    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "notice-attempt-output"))
     messages = []
 
     def transport(url, body, timeout):
@@ -234,20 +257,7 @@ def source_notice(report, tmp_path, monkeypatch, *, publish_result):
         messages.append(payload["content"])
         return 200
 
-    assert (
-        notify.main(
-            [
-                "--sources-report",
-                str(path),
-                "--publish-result",
-                publish_result,
-                "--lease-release-outcome",
-                "success",
-            ],
-            transport=transport,
-        )
-        == 0
-    )
+    assert notify.main(["--message-json", prepared], transport=transport) == 0
     assert len(messages) == 1
     assert "synthetic-secret" not in messages[0]
     return messages[0]

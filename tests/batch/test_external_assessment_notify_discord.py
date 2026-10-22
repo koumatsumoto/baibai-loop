@@ -262,7 +262,7 @@ def test_notification_imports_with_system_python_without_site_packages():
     assert result.returncode == 0, result.stderr
 
 
-def test_source_notifier_runs_after_lease_release_and_uses_only_step_secret():
+def test_source_notice_is_rendered_after_release_and_only_final_job_has_webhook():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
         (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
@@ -273,7 +273,14 @@ def test_source_notifier_runs_after_lease_release_and_uses_only_step_secret():
     notice = next(i for i, step in enumerate(steps) if "--sources-report" in step.get("run", ""))
     assert release < notice
     assert steps[notice]["if"] == "${{ always() }}"
-    assert steps[notice]["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
+    assert "--render-only" in steps[notice]["run"]
+    assert all("DISCORD_WEBHOOK_URL" not in step.get("env", {}) for step in steps)
+    final = next(
+        step
+        for step in workflow["jobs"]["notify"]["steps"]
+        if "--message-json" in step.get("run", "")
+    )
+    assert final["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
 
 
 def test_status_function_is_only_evaluated_in_step_condition_for_source_notice():
@@ -292,22 +299,73 @@ def test_status_function_is_only_evaluated_in_step_condition_for_source_notice()
         assert all("cancelled()" not in step.get("run", "") for step in steps)
 
 
-def test_source_notice_marks_attempt_before_post_even_when_response_is_lost(tmp_path, monkeypatch):
+def test_render_only_passes_safe_message_and_never_posts(tmp_path, monkeypatch):
     output = tmp_path / "output"
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "source": "monex",
+                        "status": "published",
+                        "expected_pairs": 1,
+                        "observations": 1,
+                        "rows_added": None,
+                        "release_id": "private-release",
+                        "plan_sha256": "private-plan",
+                        "ticker": "private-ticker",
+                        "value": 987654,
+                        "html": "<html>private</html>",
+                        "state_counts": {
+                            "success": 1,
+                            "normal_null": 0,
+                            "failure": 0,
+                            "unattempted": 0,
+                        },
+                    }
+                ]
+            }
+        )
+    )
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    def forbidden(*args):
+        pytest.fail("render-only must not send")
+
+    assert (
+        notify.main(
+            [
+                "--render-only",
+                "--sources-report",
+                str(report),
+                "--publish-result",
+                "failure",
+            ],
+            transport=forbidden,
+        )
+        == 0
+    )
+    key, prepared = output.read_text().rstrip("\n").split("=", 1)
+    assert key == "message_json"
+    message = json.loads(prepared)
+    assert "private" not in message
+    assert "987654" not in message
+    assert "html" not in message
+    assert "追加row=不明" in message
+    assert message.startswith("[DEGRADED]")
+    monkeypatch.delenv("GITHUB_OUTPUT")
     monkeypatch.setenv(
         "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
     )
-    calls = []
+    sent = []
 
-    def transport(*args):
-        assert output.read_text() == "attempted=true\n"
-        calls.append(True)
-        raise TimeoutError("synthetic response lost")
+    def transport(url, body, timeout):
+        sent.append(json.loads(body)["content"])
+        return 200
 
-    assert notify.main(["--publish-result", "cancelled"], transport=transport) == 0
-    assert calls == [True]
-    assert output.read_text() == "attempted=true\n"
+    assert notify.main(["--message-json", prepared], transport=transport) == 0
+    assert sent == [message]
 
 
 def test_source_render_keeps_private_payload_and_invalid_counts_out_of_notice(tmp_path):
@@ -340,16 +398,88 @@ def test_source_render_keeps_private_payload_and_invalid_counts_out_of_notice(tm
     assert "追加row=不明" in text
 
 
-def test_fallback_only_runs_when_internal_notice_has_not_attempted_delivery():
+def test_single_final_sender_runs_even_when_publish_never_started_or_output_is_missing():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
         (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
     publisher = workflow["jobs"]["publish"]
-    assert publisher["outputs"]["notification_attempted"] == "${{ steps.notice.outputs.attempted }}"
-    assert any(step.get("id") == "notice" for step in publisher["steps"])
-    fallback = workflow["jobs"]["notify"]["if"]
-    assert "always()" in fallback
-    assert "needs.publish.outputs.notification_attempted != 'true'" in fallback
-    assert "needs.publish.result == 'skipped'" not in fallback
+    assert publisher["outputs"] == {"message_json": "${{ steps.notice.outputs.message_json }}"}
+    prepare = next(step for step in publisher["steps"] if step.get("id") == "notice")
+    assert "--render-only" in prepare["run"]
+    final = workflow["jobs"]["notify"]
+    assert "always()" in final["if"]
+    assert "needs.publish.result" not in final["if"]
+    assert "notification_attempted" not in final["if"]
+    sender = next(step for step in final["steps"] if "--message-json" in step.get("run", ""))
+    assert sender["env"]["SOURCE_NOTICE_JSON"] == "${{ needs.publish.outputs.message_json }}"
+    assert '--message-json "$SOURCE_NOTICE_JSON"' in sender["run"]
+    assert "--render-only" not in sender["run"]
+
+
+@pytest.mark.parametrize("prepared", ["", "null", "[]", "{}", '"invalid message"'])
+@pytest.mark.parametrize(
+    ("publish_result", "acquire_result", "cancelled"),
+    [
+        ("success", "failure", "false"),
+        ("failure", "failure", "false"),
+        ("cancelled", "success", "false"),
+        ("success", "success", "true"),
+    ],
+)
+def test_missing_or_corrupt_message_output_produces_one_unknown_notice(
+    monkeypatch, prepared, publish_result, acquire_result, cancelled
+):
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
+    )
+    sent = []
+
+    def transport(url, body, timeout):
+        sent.append(json.loads(body)["content"])
+        raise TimeoutError("synthetic response lost after POST")
+
+    args = [
+        "--message-json",
+        prepared,
+        "--publish-result",
+        publish_result,
+        "--acquire-result",
+        acquire_result,
+        "--cancelled",
+        cancelled,
+    ]
+    assert notify.main(args, transport=transport) == 0
+    assert len(sent) == 1
+    assert "source別結果不明" in sent[0]
+    assert "未反映とは断定不可" in sent[0]
+    assert "公開なし" not in sent[0]
+    is_cancelled = cancelled == "true" or publish_result == "cancelled"
+    assert sent[0].startswith("[CANCELLED]" if is_cancelled else "[FAILED]")
+
+
+def test_final_cancellation_keeps_the_prepared_publication_evidence(monkeypatch):
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
+    )
+    prepared = "[OK] external assessment\nmonex: 公開確認済み; 追加row=1"
+    sent = []
+
+    def transport(url, body, timeout):
+        sent.append(json.loads(body)["content"])
+        return 200
+
+    assert (
+        notify.main(
+            [
+                "--message-json",
+                json.dumps(prepared),
+                "--publish-result",
+                "cancelled",
+            ],
+            transport=transport,
+        )
+        == 0
+    )
+    assert sent == [prepared.replace("[OK]", "[CANCELLED]", 1)]
