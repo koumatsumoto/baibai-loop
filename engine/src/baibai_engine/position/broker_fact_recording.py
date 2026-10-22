@@ -482,7 +482,10 @@ def _fill_suffix(
 ) -> str:
     if occurred_on is None:
         return _event_suffix(
-            decision_reference, "sell-filled" if side == "sell" else "filled", ticker, occurred_at
+            decision_reference,
+            "sell-filled" if side == "sell" else "filled",
+            f"{ticker}:{reservation_id}" if reservation_id is not None else ticker,
+            occurred_at,
         )
     raw = f"{decision_reference}|{side}|{ticker}|date:{occurred_on.isoformat()}|{reservation_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
