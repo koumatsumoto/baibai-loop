@@ -52,7 +52,7 @@ resolved valuationは価格factを参照する。unresolvedでは価格もnull�
 | External Assessment | 外部予測と自己仮定のどこが異なり、どの根拠で採用・反証・保留するか |
 | Technical Analysis | 保存済み価格の位置・勢い・変動幅が、価値差の実現や行動時期の仮説に何を示すか |
 
-Technical Analysisは固定入力の`securities_context[ticker].technical_analysis`を使う。初期範囲はSMA20/50/200、BB20±2σ、保存済み全履歴を用いるWilder RSI14である。SMAは現在価格との位置・並び・乖離を読み、クロス・傾き・EMAを推測しない。BBの中心線はSMA20と共通で、帯内外の位置と幅は価格分布の記述であり、将来の到達確率や反転の保証ではない。RSIは価格変化の勢いとして扱い、閾値だけで割安・割高や売買を確定しない。gain/lossがともに0のRSI=50は計算上のconventionであり、独立した中立判断の証拠ではない。
+Technical Analysisは固定入力の読取投影`domain-inputs.yaml`にある`securities[ticker].technical_analysis`を使う。内部snapshotとの対応は[Technical Analysis](./technical-analysis.md#読取とresearchへの接続)に従う。初期範囲はSMA20/50/200、BB20±2σ、保存済み全履歴を用いるWilder RSI14である。SMAは現在価格との位置・並び・乖離を読み、クロス・傾き・EMAを推測しない。BBの中心線はSMA20と共通で、帯内外の位置と幅は価格分布の記述であり、将来の到達確率や反転の保証ではない。RSIは価格変化の勢いとして扱い、閾値だけで割安・割高や売買を確定しない。gain/lossがともに0のRSI=50は計算上のconventionであり、独立した中立判断の証拠ではない。
 
 価格basis・観測日・履歴開始・bar数・seed情報を確認し、valuationの未調整価格や評価期間と同じものとして混ぜない。SMA/BBの観測窓とRSIの保存履歴、企業価値の実現期間は別である。欠測・短い履歴・basisや時点の不整合は利用限界として残し、他領域を一律停止しない。blockのない旧snapshotへ後付け再計算しない。
 

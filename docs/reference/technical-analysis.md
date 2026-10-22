@@ -47,6 +47,8 @@ uv run baibai-engine technical-analysis show --ticker 7203 --asof 2026-10-16
 
 `--db`は既存market SQLiteを指定できる。取得・更新・注文は行わず、store未作成も計算不能指標を持つ読取結果として返し、DBを作らない。破損・旧schema・価格調整factor不正を正常な欠測へ隠さない。
 
-ticker-profileは独立した`technical_analysis`を返す。新規Research固定入力の各銘柄は`market_context / external_assessment / technical_analysis`を保持し、Valuationと別の材料として投影する。旧`price.bollinger_20bar`への恒久aliasは設けない。旧保存snapshotの2キーや当時のBB欄は書換えず、そのまま再開できる。未知の領域キーは引き続き拒否する。WebのMarket Context用DTOへ混ぜず、新しいWeb画面を本読取追加の前提にしない。
+ticker-profileは独立した`technical_analysis`を返す。新規Research固定入力の各銘柄は`market_context / external_assessment / technical_analysis`を保持し、Valuationと別の材料として投影する。Research内部snapshotの`securities_context[ticker].technical_analysis`は、人間が読む`domain-inputs.yaml`では`securities[ticker].technical_analysis`へ投影される。旧`price.bollinger_20bar`への恒久aliasは設けない。旧保存snapshotの2キーや当時のBB欄は書換えず、そのまま再開できる。未知の領域キーは引き続き拒否する。WebのMarket Context用DTOへ混ぜず、新しいWeb画面を本読取追加の前提にしない。
 
-200日線付近の価格を成長・本源価値・大底と認定しない。価格だけが下がった場合と財務・事業価値が毀損した場合をValuation・Researchで別に確認する。BB下側や低RSIを買い、上側や高RSIを売りと自動解釈しない。トレンド継続、価格水準の変更、疎な取引も対照にする。詳細なL3統合・候補発見や調査優先度の改善・予測効果の検証は、L2算術の成功とは別の課題である。
+200日線付近の価格を成長・本源価値・大底と認定しない。価格だけが下がった場合と財務・事業価値が毀損した場合をValuation・Researchで別に確認する。BB下側や低RSIを買い、上側や高RSIを売りと自動解釈しない。トレンド継続、価格水準の変更、疎な取引も対照にする。
+
+L2読取・Research固定入力への接続と、既存の評価・Review・提案欄へ所見をつなぐ初期L3案内を実装した。詳細L3統合の保存SelectionからProposalへの直接投影・source追跡・四領域が相反する場合のE2E検証は未完了で、[後続Issue #1567](https://github.com/koumatsumoto/baibai-loop/issues/1567)が扱う。候補発見や調査優先度の改善・予測効果の検証も、L2算術の成功とは別の課題である。
