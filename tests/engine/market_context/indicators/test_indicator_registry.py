@@ -335,9 +335,15 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 else:
                     self.assertEqual(provider_spec(series.provider).name, series.provider)
 
-    def test_every_registered_series_declares_a_complete_plausible_range(self) -> None:
+    def test_registered_ranges_leave_the_matsui_publication_unbounded(self) -> None:
         for series in load_definitions().series:
             with self.subTest(series_id=series.series_id):
+                if series.provider == "matsui_margin":
+                    # Keep the published sign/value without assuming a denominator
+                    # or an economic cutoff from the introductory formula.
+                    self.assertIsNone(series.plausible_min)
+                    self.assertIsNone(series.plausible_max)
+                    continue
                 self.assertIsNotNone(series.plausible_min)
                 self.assertIsNotNone(series.plausible_max)
 

@@ -528,6 +528,9 @@ export interface IndicatorGroupView {
 export interface IndicatorPointView {
   observed_at: string
   value: number
+  quality_flags: string[]
+  notes: string[]
+  vintage_at: string | null
 }
 
 export interface IndicatorSeriesView {
@@ -875,6 +878,8 @@ export interface ReadingSeriesView {
   short_trend: ReadingTrendView | null
   long_trend: ReadingTrendView | null
   flags: string[]
+  vintage_at: string | null
+  notes: string[]
 }
 
 export interface ReadingTrendView {

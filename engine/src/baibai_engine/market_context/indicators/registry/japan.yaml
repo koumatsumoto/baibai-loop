@@ -1,4 +1,14 @@
 series:
+  - series_id: jp.matsui_margin_long_evaluation_pnl
+    name: 松井証券内 信用買建評価損益率
+    category: credit
+    geography: japan
+    frequency: daily
+    unit: percent
+    reading_key: long_evaluation_pnl_percent
+    source_id: matsui-margin
+    notes: 松井証券内の買い残の評価損益率（公表値・原符号）。対象口座・建玉範囲・加重方法の詳細は未確認。権利落ち日はみなし数値。市場全体・追証人数・底値判定ではなく背景情報に限定。観測年は受領JST当日〜過去14日の月日・曜日から推定。
+    aliases: [松井信用評価損益率, 松井買建評価損益率]
   - series_id: usd_jpy
     name: USD/JPY
     category: fx

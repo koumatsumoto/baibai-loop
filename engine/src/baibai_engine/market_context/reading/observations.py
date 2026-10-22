@@ -9,6 +9,10 @@ from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 
+class UnavailableObservationError(ValueError):
+    """A selected source receipt cannot support this series; do not use older values."""
+
+
 def reading_observation(
     series: SeriesDefinition,
     *,

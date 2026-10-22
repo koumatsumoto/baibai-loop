@@ -11,6 +11,7 @@ from typing import Literal
 from baibai_engine.foundation.redaction import redact_credentials
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.master import MasterSnapshot
+from baibai_engine.market_context.reading.observations import UnavailableObservationError
 from baibai_engine.market_context.reading.query import (
     READING_RULES_PATH,
     reading_snapshot,
@@ -131,16 +132,32 @@ def indicator_series(
             start or date.min,
             end or date.max,
         )
+    except UnavailableObservationError:
+        # The Reading carries the reason. Its chart must not resurrect an older value.
+        observations = ()
     except sqlite3.OperationalError as error:
         if not is_unwritten_store(error, path):
             raise
         return None
     finally:
         connection.close()
-    points = [
+    points: list[dict[str, object]] = [
         {
             "observed_at": observation.observed_at.isoformat(),
             "value": observation.value,
+            **(
+                {
+                    "quality_flags": list(observation.quality_flags),
+                    "notes": list(observation.notes),
+                    "vintage_at": (
+                        None
+                        if observation.vintage_at is None
+                        else observation.vintage_at.isoformat()
+                    ),
+                }
+                if observation.notes
+                else {}
+            ),
         }
         for observation in observations
     ]

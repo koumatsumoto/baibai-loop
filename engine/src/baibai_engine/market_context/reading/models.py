@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from baibai_engine.market_context.indicators.observations import ObservationRecord
@@ -72,6 +72,8 @@ class SeriesReading:
     short_trend: SeriesTrend | None
     long_trend: SeriesTrend | None
     flags: tuple[str, ...]
+    vintage_at: datetime | None = None
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -131,6 +133,8 @@ def series_payload(reading: SeriesReading) -> dict[str, object]:
         "short_trend": _trend_payload(reading.short_trend),
         "long_trend": _trend_payload(reading.long_trend),
         "flags": list(reading.flags),
+        "vintage_at": None if reading.vintage_at is None else reading.vintage_at.isoformat(),
+        "notes": list(reading.notes),
     }
 
 
