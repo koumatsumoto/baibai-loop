@@ -205,15 +205,22 @@ def _sector_block(
     endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
     if endpoints is None:
         return None
-    peers = (
-        []
-        if master is None
-        else [
+    if prepared is not None:
+        peers = [
             peer
-            for peer, security in master.securities.items()
-            if peer != ticker and security["is_common_stock"] and security["sector_33"] == sector
+            for peer in prepared.common_stock_tickers_by_sector.get(sector, ())
+            if peer != ticker
         ]
-    )
+    else:
+        peers = (
+            []
+            if master is None
+            else [
+                peer
+                for peer, security in master.securities.items()
+                if peer != ticker and security["is_common_stock"] and security["sector_33"] == sector
+            ]
+        )
     if not peers:
         return None
     returns = []

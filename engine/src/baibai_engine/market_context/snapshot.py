@@ -60,13 +60,14 @@ class _Series:
 
 @dataclass(frozen=True, slots=True)
 class PreparedMarketContext:
-    """単一exportの市場短期系列・master・benchmarkだけを共有する。"""
+    """単一exportの市場短期系列・master・同業候補・benchmarkを共有する。"""
 
     sqlite_path: Path
     asof_date: date
     history_weeks: int
     start: date
     master: MasterSnapshot | None
+    common_stock_tickers_by_sector: dict[str, tuple[str, ...]]
     series_by_ticker: dict[str, _Series]
     benchmark_ticker: str
     benchmark_start: date
@@ -85,12 +86,21 @@ def prepare_market_context_inputs(
     """既存masterを引き継ぎ、同じ生成の全体/個別viewへ渡す。永続cacheなし。"""
     start = asof_date - timedelta(days=7 * (history_weeks - 1) + _POINT_LOOKBACK_CALENDAR_DAYS)
     benchmark_series = _load_benchmark_series(sqlite_path, asof_date, ticker=benchmark_ticker)
+    sector_tickers: dict[str, list[str]] = {}
+    if master is not None:
+        for ticker, security in master.securities.items():
+            sector = security["sector_33"]
+            if security["is_common_stock"] and isinstance(sector, str):
+                sector_tickers.setdefault(sector, []).append(ticker)
     return PreparedMarketContext(
         sqlite_path=sqlite_path.resolve(),
         asof_date=asof_date,
         history_weeks=history_weeks,
         start=start,
         master=master,
+        common_stock_tickers_by_sector={
+            sector: tuple(tickers) for sector, tickers in sector_tickers.items()
+        },
         series_by_ticker=_load_series(sqlite_path, start=start, end=asof_date),
         benchmark_ticker=benchmark_ticker,
         # Keep the original benchmark loader's window, including sparse histories.
