@@ -76,6 +76,7 @@ def test_python_quality_gates_share_one_runner() -> None:
         "Tests with coverage",
         "Bandit",
         "Dependency audit",
+        "Build dependency audit",
     } <= names
     assert not names.intersection(_by_name("ci.yml", "tradingview_oauth_smoke"))
 
@@ -101,20 +102,32 @@ def test_each_scanner_still_asks_its_full_question(
     assert _by_name(workflow, job)[step]["run"] == command
 
 
-def test_the_python_dependency_audit_suppresses_nothing() -> None:
-    run = str(_by_name("ci.yml", "quality")["Dependency audit"]["run"])
+@pytest.mark.parametrize(("workflow", "job"), [("ci.yml", "quality"), ("security.yml", "audit")])
+def test_the_python_dependency_audit_suppresses_nothing(workflow: str, job: str) -> None:
+    by_name = _by_name(workflow, job)
+    run = str(by_name["Dependency audit"]["run"])
 
     assert "uv run pip-audit" in run
     assert "--all-groups" in run
     assert "--ignore-vuln" not in run
     assert "|| true" not in run
+    build_run = str(by_name["Build dependency audit"]["run"])
+    assert 'config["build-system"]["requires"]' in build_run
+    assert "uv run pip-audit" in build_run
+    assert "--ignore-vuln" not in build_run
+    assert "|| true" not in build_run
+    # Separate steps need an explicit status condition to survive the prior failure.
+    for scanner in ("Dependency audit", "Build dependency audit"):
+        assert by_name[scanner]["if"] == "${{ !cancelled() }}"
+    assert "build-requirements.txt" not in run
+    assert "uv export" not in build_run
 
 
 def test_scanners_are_asked_even_after_an_earlier_gate_fails() -> None:
     """Sharing the runner does not skip scanners after another gate fails."""
     by_name = _by_name("ci.yml", "quality")
 
-    for scanner in ("Bandit", "Dependency audit"):
+    for scanner in ("Bandit", "Dependency audit", "Build dependency audit"):
         assert by_name[scanner]["if"] == "${{ !cancelled() }}"
 
 
@@ -176,6 +189,7 @@ def test_weekly_sweep_asks_only_what_a_pull_request_cannot() -> None:
         "Sync",
         "Workflow trust boundary",
         "Dependency audit",
+        "Build dependency audit",
         "UI dependency audit",
         "Worker dependency audit",
     }
