@@ -37,7 +37,9 @@ def html(ticker="7203", *, eps="4.5", with_forecast=True):
     <html><head><title>架空会社 ({ticker}) : アナリスト予想</title>
     <link rel="canonical" href="{minkabu.public_url(ticker)}"></head><body>
     <div><h2>目標株価</h2><span>99999円</span>総合予想・個人予想</div>
+    <div class="md_card_ti theme_buy">
     <h2>アナリスト予想<br><span>(2026/10/22)</span></h2>
+    <a class="md_picksPlate">買い</a><span class="fsxxl">100</span></div>
     <table><tr><th>強気買い</th><th>買い</th><th>中立</th><th>売り</th><th>強気売り</th></tr>
     <tr><td></td><td></td><td></td><td></td><td></td></tr>
     <tr><td>2人</td><td>1人</td><td>3人</td><td>0人</td><td>0人</td></tr></table>
@@ -240,3 +242,61 @@ def test_later_no_coverage_does_not_leave_previous_forecast_as_latest(tmp_path):
     assert history.latest == later
     assert history.previous == earlier
     assert read_observations(db, "130A", NOW).minkabu.latest == earlier
+
+
+def current_card_only_html(ticker="7203"):
+    page = html(ticker, with_forecast=False)
+    start = page.index("<table><tr><th></th><th>3ヶ月前")
+    end = page.index("</table>", start) + len("</table>")
+    page = page[:start] + page[end:]
+    page = page.replace('<span class="fsxxl">100</span>', '<span class="fsxxl">---</span>')
+    return page.replace(
+        "</body>",
+        """
+    <div id="v-analyst-consensus"><table>
+    <tr><th></th><th>2026年3月期</th><th>2027年3月期アナリスト予想</th><th>2027年3月期会社予想</th></tr>
+    <tr><th>売上高</th><td>80</td><td>123</td><td>120</td></tr>
+    <tr><th>純利益</th><td>1</td><td>-4</td><td>5</td></tr>
+    <tr><th>営業利益</th><td>2</td><td>---</td><td>6</td></tr>
+    <tr><th>経常利益</th><td>3</td><td>---</td><td>7</td></tr>
+    </table><p>単位：百万円</p>
+    <performance-trends-chart data-value="0"></performance-trends-chart></div></body>""",
+    )
+
+
+def test_current_rating_without_target_or_comparison_table_keeps_visible_annual_forecasts():
+    row = parse(current_card_only_html())
+    assert row.rating_label == "買い"
+    assert row.target_price_yen is None
+    assert row.availability == "available"
+    assert row.forecast_period_label == "2027年3月期"
+    assert row.analyst_revenue_million_yen == 123
+    assert row.company_revenue_million_yen == 120
+    assert row.analyst_net_income_million_yen == -4
+    assert row.company_net_income_million_yen == 5
+    assert row.analyst_eps_yen is None
+    assert row.company_eps_yen is None
+    assert row.analyst_forecast_as_of_date is None
+    assert row.company_forecast_as_of_date is None
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ('class="md_card_ti theme_buy"', 'class="unrelated"'),
+        ('class="fsxxl"', 'class="unrelated"'),
+        ("単位：百万円", "単位：千円"),
+        ("2027年3月期会社予想", "2028年3月期会社予想"),
+        ("2027年3月期", "2027年13月期"),
+        ("<td>123</td>", "<td>unrecognized</td>"),
+        ("<th>純利益</th>", "<th>unknown</th>"),
+    ],
+)
+def test_current_card_and_annual_values_require_explicit_identity_units_and_cells(old, new):
+    with pytest.raises(ParseError):
+        parse(current_card_only_html().replace(old, new))
+
+
+def test_visible_history_priority_does_not_infer_hidden_rounding_from_card():
+    text = html().replace('<span class="fsxxl">100</span>', '<span class="fsxxl">99</span>')
+    assert parse(text).target_price_yen == 100

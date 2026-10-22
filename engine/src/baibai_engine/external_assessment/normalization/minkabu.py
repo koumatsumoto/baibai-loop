@@ -15,7 +15,7 @@ from baibai_engine.external_assessment.normalization import (
 )
 from baibai_engine.external_assessment.observations.models import AnalystForecastObservation
 
-PARSER_VERSION = "minkabu-analyst-2"
+PARSER_VERSION = "minkabu-analyst-3"
 RATING_LABELS = ("強気買い", "買い", "中立", "売り", "強気売り")
 COUNT_FIELDS = ("strong_buy_count", "buy_count", "neutral_count", "sell_count", "strong_sell_count")
 FORECAST_FIELDS = {
@@ -66,6 +66,45 @@ def _table(page: Element, first_row: list[str]) -> list[list[str]]:
     if len(matches) != 1:
         raise ParseError("changed_analyst_forecast")
     return matches[0]
+
+
+def _annual_forecast(page: Element, *, include_values: bool) -> dict[str, object]:
+    """Use visible annual forecasts only; absence of comparison dates remains unknown."""
+    sections = page.find("div", id="v-analyst-consensus")
+    if not sections:
+        return {}
+    if len(sections) != 1:
+        raise ParseError("changed_analyst_forecast")
+    tables = sections[0].find("table")
+    if len(tables) != 1:
+        raise ParseError("changed_analyst_forecast")
+    rows = [_cells(row) for row in tables[0].find("tr")]
+    if not rows:
+        raise ParseError("changed_analyst_forecast")
+    columns: dict[str, int] = {}
+    periods: set[str] = set()
+    for index, label in enumerate(rows[0]):
+        match = re.fullmatch(r"([0-9]{4}年([0-9]{1,2})月期)(アナリスト予想|会社予想)", label)
+        if match is None:
+            continue
+        if not 1 <= int(match[2]) <= 12 or match[3] in columns:
+            raise ParseError("changed_analyst_forecast")
+        periods.add(match[1])
+        columns[match[3]] = index
+    if len(periods) != 1 or set(columns) != {"アナリスト予想", "会社予想"}:
+        raise ParseError("changed_analyst_forecast")
+    values: dict[str, object] = {"forecast_period_label": periods.pop()}
+    if not include_values:
+        return values
+    if "単位：百万円" not in compact(sections[0].text):
+        raise ParseError("changed_analyst_forecast")
+    for label, metric in (("売上高", "revenue_million_yen"), ("純利益", "net_income_million_yen")):
+        selected = [row for row in rows[1:] if row and row[0] == label]
+        if len(selected) != 1 or len(selected[0]) != len(rows[0]):
+            raise ParseError("changed_analyst_forecast")
+        for source, field in (("アナリスト予想", "analyst"), ("会社予想", "company")):
+            values[f"{field}_{metric}"] = _number(selected[0][columns[source]])
+    return values
 
 
 def parse_html(
@@ -126,17 +165,43 @@ def parse_html(
         if re.fullmatch(r"[0-9]+人", cell) is None:
             raise ParseError("changed_analyst_forecast")
         values[field] = int(cell[:-1])
-    history = _table(page, ["", "3ヶ月前", "1ヶ月前", "1週間前", "最新"])
-    if (
-        len(history) != 3
-        or any(len(row) != 5 for row in history)
-        or history[1][0] != "評価"
-        or history[2][0] != "予想株価"
-        or history[1][-1] not in RATING_LABELS
-    ):
+    # Read the identified analyst card even when no historical target exists.
+    cards = [
+        node
+        for node in page.find("div")
+        if node.has_class("md_card_ti")
+        and any(compact(h.text).startswith("アナリスト予想(") for h in node.find("h2"))
+    ]
+    if len(cards) != 1:
         raise ParseError("changed_analyst_forecast")
-    values["rating_label"] = history[1][-1]
-    values["target_price_yen"] = _number(history[2][-1])
+    labels = [compact(n.text) for n in cards[0].find("a") if n.has_class("md_picksPlate")]
+    prices = [compact(n.text) for n in cards[0].find("span") if n.has_class("fsxxl")]
+    if len(labels) != 1 or labels[0] not in RATING_LABELS or len(prices) != 1:
+        raise ParseError("changed_analyst_forecast")
+    values["rating_label"] = labels[0]
+    values["target_price_yen"] = _number(prices[0])
+    # Keep the existing latest-table value when present. The visible analyst card
+    # and table can differ by one yen; do not infer their hidden rounding policy.
+    histories = [
+        [_cells(row) for row in table.find("tr")]
+        for table in page.find("table")
+        if table.find("tr")
+        and _cells(table.find("tr")[0]) == ["", "3ヶ月前", "1ヶ月前", "1週間前", "最新"]
+    ]
+    if len(histories) > 1:
+        raise ParseError("changed_analyst_forecast")
+    if histories:
+        history = histories[0]
+        if (
+            len(history) != 3
+            or any(len(row) != 5 for row in history)
+            or history[1][0] != "評価"
+            or history[2][0] != "予想株価"
+            or history[1][-1] not in RATING_LABELS
+        ):
+            raise ParseError("changed_analyst_forecast")
+        values["rating_label"] = history[1][-1]
+        values["target_price_yen"] = _number(history[2][-1])
     if "「アナリストの予想株価」は、予想時点から1年後の株価を予想しています。" in compact(
         page.text
     ):
@@ -172,22 +237,11 @@ def parse_html(
             field = FORECAST_FIELDS[row[0]]
             values[f"analyst_{field}"] = _number(row[4])
             values[f"company_{field}"] = _number(row[5])
-        # Explicit absolute fiscal label from the visible annual table, not calendar-year inference.
-        annual = page.find("div", id="v-analyst-consensus")
-        labels = {
-            compact(cell.text).removesuffix("アナリスト予想")
-            for node in annual
-            for cell in node.find("th")
-            if re.fullmatch(r"[0-9]{4}年[0-9]{1,2}月期アナリスト予想", compact(cell.text))
-        }
-        if len(labels) == 1:
-            label = labels.pop()
-            year = re.match(r"[0-9]{4}", label)
-            assert year is not None
-            if not any(compact(h.text) == year[0] + "年の業績予想" for h in section.find("h3")):
-                raise ParseError("changed_analyst_forecast")
-            values["forecast_period_label"] = label
-        elif labels:
+    annual = _annual_forecast(page, include_values=not sections)
+    values.update(annual)
+    if sections and "forecast_period_label" in annual:
+        year = str(annual["forecast_period_label"])[:4]
+        if not any(compact(h.text) == year + "年の業績予想" for h in sections[0].find("h3")):
             raise ParseError("changed_analyst_forecast")
     return AnalystForecastObservation.model_validate(
         {

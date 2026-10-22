@@ -164,12 +164,12 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v10_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v10"
+def test_v11_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v11"
     assert source_http.HOST_REQUEST_RATE_PER_SECOND == 2
     assert source_http.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
-    assert binding == "83efc91682cbc8e9171e13fdee214709fe8474f7f80463736c8761ea1cce7bf9"
+    assert binding == "04a38e0228da0ed72c94647205d6ab01d56cde9f3039bd2424bc7290fe478770"
     monkeypatch.setattr(source_http, "HOST_REQUEST_RATE_PER_SECOND", 3)
     assert collection.collector_binding() != binding
 
