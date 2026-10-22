@@ -16,15 +16,18 @@ status: active
 
 <a id="analysis-domains"></a>
 
-## 三つの分析領域
+## 四つの分析領域
 
 | 領域 | 中心となる問い |
 | --- | --- |
 | Valuation / 独自価値評価 | 自分たちの前提で、この株にどれだけの価値・収益を見込むか |
 | Market Context / 市場環境 | 経済・金利等の環境と市場全体・業種・個別相対はどのような状態か |
 | External Assessment / 外部参考評価 | 外部の媒体・評価者はこの株をどう評価して提示しているか |
+| Technical Analysis / 価格分析 | 保存済み価格の位置・勢い・変動幅はどのような状態か |
 
-情報の生成責務はL1 Collectionの外部入力保持、L2の決定的な解析、L3 Researchの統合・解釈・判断に分ける。上の三領域は主にL2の分析結果を整理する区分で、それぞれが独立した三層一式を持つ意味ではない。Market Context AssessmentはResearchが所有するL3判断成果物で、領域全体と同義ではない。Readingは登録指標系列を機械的に読むL2であり、Market SnapshotやSecurity Market Contextとは別の結果である。境界・保存責務は[architecture](./architecture.md)が所有する。
+情報の生成責務はL1 Collectionの外部入力保持、L2の決定的な解析、L3 Researchの統合・解釈・判断に分ける。上の四領域は主にL2の分析結果を整理する区分で、それぞれが独立した三層一式を持つ意味ではない。Market Context AssessmentはResearchが所有するL3判断成果物で、領域全体と同義ではない。Readingは登録指標系列を機械的に読むL2であり、Market SnapshotやSecurity Market Contextとは別の結果である。境界・保存責務は[architecture](./architecture.md)が所有する。
+
+Technical AnalysisのSMA・BB・RSIは保存済み価格から導出するL2であり、Market Contextの市場・業種・個別相対とは独立した入力である。価格局面と企業価値を区別し、四領域の支持・相反を評価・反証・行動理由へつなぐのはL3 Researchの責務とする。
 
 Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を固定すると算術は決定的に再現できるが、前提は観測にならず、結果は条件付き見積りである。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
 
@@ -42,6 +45,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Candidate Discovery Method | method | approach集合、common eligibility、順位とunion ruleを束ねるversioned method identity |
 | Valuation Approach | method component | Valuation内で価値機会を発見する探索観点 |
 | External Assessment | L2 analysis | 外部媒体の受領原本から抽出した提示値と出所別の機械比較。企業の独自FV・採否判断と別結果 |
+| Technical Analysis | L2 analysis | 保存済み価格のSMA・BB・RSIによる価格位置・勢い・変動幅。企業価値・採否判断と別結果 |
 | Machine Valuation | rebuildable estimate | 保存済みStock Analysisの機械ER・業種中央値/自己レンジanchor |
 | Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Stock Assessmentが内包する |
 | Screening Run | artifact | ある`as_of`に対するscreening一回分 |
@@ -102,6 +106,7 @@ Portfolio Ledger -> Portfolio Outcome
 実現結果 -> Calibration -> 次のmethod改善
 
 保存済み価格・master -> Market Snapshot / Security Market Context
+保存済み価格 -> Technical Analysis（SMA・BB・RSI）-> Researchの独立入力
 外部媒体の提示値 -> External Assessmentの出所別比較・欠測 -> 判断の参考
 Collectionの保存経済原本 -> 登録L2系列の選択・計算 -> Reading（機械的な統計・鮮度・変化）
 保存済み観測・Reading・市場/個別状態・一次資料

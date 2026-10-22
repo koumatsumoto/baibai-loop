@@ -55,8 +55,10 @@ def scaffold_proposal(
                 rationale=rationale,
                 review_conditions=(
                     "根拠・入力・見直し条件を今回の内容Reviewで確認する。",
-                    "technicalを使う場合は再確認条件と時点・basis・期間の整合、"
-                    "価格局面と企業価値の混同、同じ価格情報の多重票を確認する。",
+                    (
+                        "technicalを使う場合は再確認条件と時点・basis・期間の整合、"
+                        "価格局面と企業価値の混同、同じ価格情報の多重票を確認する。"
+                    ),
                 ),
                 blockers=(
                     GateReason(

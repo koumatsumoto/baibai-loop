@@ -7,7 +7,7 @@ status: active
 
 # Baibai Loop docs
 
-Valuation・Market Context・External Assessmentの意味は[domain-language](./domain-language.md#analysis-domains)、現行実装の責務は[architecture](./architecture.md#repository-map)、完了した情報層の切替・受入記録は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)が所有する。
+Valuation・Market Context・External Assessment・Technical Analysisの意味は[domain-language](./domain-language.md#analysis-domains)、現行実装の責務は[architecture](./architecture.md#repository-map)、完了した情報層の切替・受入記録は[Issue #1543](https://github.com/koumatsumoto/baibai-loop/issues/1543)が所有する。
 
 ## 初めて読むとき
 

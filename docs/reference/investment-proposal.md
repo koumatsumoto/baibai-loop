@@ -29,7 +29,7 @@ related_docs:
 
 比較理由には[投資目的とリスク許容](../doctrine.md#investment-strategy)に沿って、価値を生む経済経路、重要な観測と個社への伝達、Base/Downside・反証・実現までの時間を現金維持や他の完成案と比べて書く。同じBase年率でも倍率上昇と業績回復への依存を分け、外部評価との重要な相違を採用・反証・保留または参考とした理由へ辿れるようにする。比較不能な観測や未完了対象を有利/不利な確定判断に変えず、Pmax内というだけで買付を決めない。企業別の根拠を比較欄へ全文コピーせず、[原価格の成立条件](./stock-assessment.md#valuation-context)と参照評価を示す。
 
-[四領域の統合](./stock-assessment.md#analysis-domain-integration)を踏まえ、重要なtechnical所見が今買う・待つ・見送る理由とどう関係するかを既存の`items[].rationale / comparison`へ、見直す観測・条件を`items[].review_conditions`へ書く。価値差と価格局面が相反する場合も、その判断と限界を説明する。technicalだけでPmax・購入gate・sell条件を変更せず、欠測だけで他領域や提案を一律停止しない。technical理由は参照Assessmentの保存所見に基づけ、ProposalAuthoringContextへtechnical blockが直接渡ることを前提にしない。
+[四領域の統合](./stock-assessment.md#analysis-domain-integration)を踏まえ、重要なtechnical所見が今買う・待つ・見送る理由とどう関係するかを既存の`items[].rationale / comparison`へ、見直す観測・条件を`items[].review_conditions`へ書く。価値差と価格局面が相反する場合も、その判断と限界を説明する。technicalだけでPmax・購入gate・sell条件を変更せず、欠測だけで他領域や提案を一律停止しない。technical理由は参照Assessmentの保存所見に基づけ、ProposalAuthoringContextへtechnical blockが直接渡ることを前提にしない。保存Selectionからの直接投影・source追跡・四領域が相反する場合のE2E検証は[後続Issue #1567](https://github.com/koumatsumoto/baibai-loop/issues/1567)で扱う。
 
 ## 条件付き購入
 

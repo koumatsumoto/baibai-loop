@@ -15,7 +15,7 @@ Baibai Loopの目的は、割安銘柄を発見し、割安幅と条件付き収
 
 ## 1. 情報層と分析領域
 
-設計の主軸は情報の生成責務である。L1 Collectionが外部の元データを保持し、L2がその入力を機械的に処理し、L3が結果を統合・解釈して判断や提案を作る。Valuation・Market Context・External Assessment・Technical Analysisは主にL2の分析結果を整理する区分であり、各々が独立したL1/L2/L3一式を持つ縦割りsubsystemではない。分析領域と層を区別し、具体的な所有は[下表](#repository-map)に示す。
+設計の主軸は情報の生成責務である。L1 Collectionが外部の元データを保持し、L2がその入力を機械的に処理し、L3が結果を統合・解釈して判断や提案を作る。Valuation・Market Context・External Assessment・Technical Analysisは主にL2の分析結果を整理する区分であり、各々が独立したL1/L2/L3一式を持つ縦割りsubsystemではない。[四分析領域](./domain-language.md#analysis-domains)と層を区別し、具体的な所有は[下表](#repository-map)に示す。
 
 中心ユースケースは、保存入力から決定的な日次機会発見を行うScreeningと、候補・分析結果・一次資料を使う有限Researchである。注文・約定・入出金など人間が確認するbroker factとPortfolio/Positionは分析層とは別の業務である。
 
