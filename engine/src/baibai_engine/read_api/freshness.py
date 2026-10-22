@@ -18,6 +18,7 @@ from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.read_contracts import NATIVE_PROVIDERS
 from baibai_engine.market_context.reading.documents import read_document_series
+from baibai_engine.market_context.reading.observations import UnavailableObservationError
 
 from .sqlite import connect_read_only, read_application_rows, read_rows
 
@@ -46,17 +47,22 @@ def indicator_latest_observed_at(path: Path) -> date | None:
     def document_latest() -> str | None:
         with closing(connect_read_only(path)) as connection:
             connection.execute("BEGIN")
-            return max(
-                (
-                    value.observed_at.isoformat()
-                    for series in definitions
-                    if series.provider in DOCUMENT_PROVIDERS
-                    for value in read_document_series(
+            latest: str | None = None
+            for series in definitions:
+                if series.provider not in DOCUMENT_PROVIDERS:
+                    continue
+                try:
+                    observations = read_document_series(
                         connection, series, start=date.min, end=date.max
                     )
-                ),
-                default=None,
-            )
+                except UnavailableObservationError:
+                    # Reading/chart withhold this series too. Its receipt is not
+                    # a successful observation and must not block other stores.
+                    continue
+                for value in observations:
+                    observed_at = value.observed_at.isoformat()
+                    latest = max(latest, observed_at) if latest is not None else observed_at
+            return latest
 
     # Request dates and acquisition times are not observation dates. Use the
     # same document interpretation as the chart, without an old scalar fallback.
