@@ -85,6 +85,9 @@ def scaffold_assessment(
     )
     directory = _research_ticker_dir(workspace, ticker)
     path = directory / "assessment-draft.yaml"
+    identity_path = directory / "assessment-publication.yaml"
+    if out is not None and out.resolve() == identity_path.resolve():
+        raise ResearchWorkspaceConflictError("assessment export conflicts with publication identity")
     if path.exists() and not force:
         raise ResearchWorkspaceConflictError("assessment draft exists; use --force")
     if out is not None and out.exists() and out.resolve() != path and not force:
@@ -188,7 +191,6 @@ def scaffold_assessment(
             "refresh": None,
         }
     path.parent.mkdir(parents=True, exist_ok=True)
-    identity_path = directory / "assessment-publication.yaml"
     identity = (
         _load_mapping(identity_path, label="assessment publication")
         if identity_path.exists()
