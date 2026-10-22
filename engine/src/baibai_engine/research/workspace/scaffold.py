@@ -49,6 +49,8 @@ _ASSESSMENT_DRAFT_HEADER = (
     "理由をcalculationへ記す。価格に合わせて率を下げない。\n"
     "# 外部値の対象期・株式basis・元前提が不明なら推定しない。"
     "比較不能な参考値だけで企業評価を一律保留にしない。\n"
+    "# 追加の企業レポートはResearch skillの公開レポート参照手順を使う。"
+    "SRCの独自予想・会社計画・フィスコの有償企業調査を区別する。\n"
     "# 重要な根拠不足はcase・risk・stanceに残し、"
     "企業価値を評価できない場合にvaluationを理由付き unresolved とする。\n"
 )

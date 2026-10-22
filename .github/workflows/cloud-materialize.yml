@@ -2,6 +2,12 @@ name: cloud-materialize
 
 on:
   workflow_dispatch:
+    inputs:
+      upgrade_market_v48:
+        description: "Attended one-time market 47 to 48 conversion; preserve all rows"
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -14,7 +20,8 @@ concurrency:
 jobs:
   materialize:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Temporary headroom for the attended copy + machine push; below the lease TTL.
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,6 +45,12 @@ jobs:
       - name: Provision DuckDB httpfs extension
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
+      - name: Capture three live Minkabu examples before the attended cutover
+        if: ${{ inputs.upgrade_market_v48 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/private-minkabu"
+          uv run baibai-engine external-assessment collect --source minkabu --tickers 7203 4436 8306 --output "$RUNNER_TEMP/private-minkabu/responses.json"
+
       - name: Acquire publication lease
         id: lease-acquire
         env:
@@ -55,6 +68,13 @@ jobs:
           batch/scripts/r2_transfer.sh pull-machine
           batch/scripts/r2_transfer.sh pull-app
 
+      - name: Prepare attended market schema 48 copy
+        if: ${{ inputs.upgrade_market_v48 }}
+        run: |
+          uv run python -m tools.cutover.upgrade_market_v48 --source stores/market/market.sqlite --output "$RUNNER_TEMP/market-v48.sqlite"
+          mv stores/market/market.sqlite "$RUNNER_TEMP/market-v47.sqlite"
+          mv "$RUNNER_TEMP/market-v48.sqlite" stores/market/market.sqlite
+
       # The market store arrives holding only what the lake does not own — the coverage
       # ledger and the operator-derived tables. Filling the rest from the current release
       # is what makes it the store every reader already expects. It fails closed on the
@@ -67,6 +87,28 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
+
+      - name: Import and publish the confirmed Minkabu originals
+        if: ${{ inputs.upgrade_market_v48 }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
+        run: |
+          uv run baibai-engine external-assessment import --input "$RUNNER_TEMP/private-minkabu/responses.json" --db stores/market/market.sqlite
+          batch/scripts/r2_transfer.sh publish-lake
+
+      # Only the explicit attended operation promotes the converted store. Normal
+      # materialize and daily runs never migrate a schema. The pulled bundle's other
+      # two stores are unchanged, and the existing push keeps backups and ETag checks.
+      - name: Publish attended schema 48 machine bundle
+        if: ${{ inputs.upgrade_market_v48 }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh push-machine
 
       - name: Materialize read models
         run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" --batch manual
@@ -93,3 +135,4 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+

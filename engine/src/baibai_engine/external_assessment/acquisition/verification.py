@@ -12,6 +12,8 @@ from typing import cast
 from pydantic import ValidationError
 
 from baibai_engine.external_assessment.observations.contract import (
+    ANALYST_FORECAST_COLUMNS,
+    ANALYST_FORECAST_TABLE,
     ANALYST_RATING_COLUMNS,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
@@ -20,12 +22,14 @@ from baibai_engine.external_assessment.observations.contract import (
     QUANTS_SCORE_TABLE,
 )
 from baibai_engine.external_assessment.observations.models import (
+    AnalystForecastObservation,
     AnalystRatingObservation,
     ModelValuationObservation,
     Observation,
     QuantsScoreObservation,
 )
 from baibai_engine.storage.lake.datasets import (
+    EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS,
@@ -51,6 +55,8 @@ def verify_observations(database: Path, observations: Sequence[Observation]) -> 
         for item in observations:
             if isinstance(item, ModelValuationObservation):
                 table, columns = MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS
+            elif isinstance(item, AnalystForecastObservation):
+                table, columns = ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS
             elif isinstance(item, QuantsScoreObservation):
                 table, columns = QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS
             else:
@@ -71,6 +77,11 @@ def history_digests(
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
         for dataset, table, columns in (
+            (
+                EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
+                ANALYST_FORECAST_TABLE,
+                ANALYST_FORECAST_COLUMNS,
+            ),
             (
                 EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS,
                 MODEL_VALUATION_TABLE,
@@ -126,6 +137,7 @@ def verify_release_history(
     """Verify selected months in primary-key order, including their older receipts."""
     actual_history = {}
     for dataset, model in (
+        (EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS, AnalystForecastObservation),
         (EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS, ModelValuationObservation),
         (EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS, AnalystRatingObservation),
         (EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS, QuantsScoreObservation),

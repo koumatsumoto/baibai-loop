@@ -2,6 +2,7 @@
 
 from baibai_engine.external_assessment.observations.models import QUANTS_METRICS, VALUATION_METRICS
 
+from .identity import ANALYST_FORECAST_TABLE as ANALYST_FORECAST_TABLE
 from .identity import ANALYST_RATING_TABLE as ANALYST_RATING_TABLE
 from .identity import MODEL_VALUATION_TABLE as MODEL_VALUATION_TABLE
 from .identity import QUANTS_SCORE_TABLE as QUANTS_SCORE_TABLE
@@ -71,3 +72,38 @@ def _ddl(table: str, columns: tuple[Column, ...]) -> str:
 MODEL_VALUATION_DDL = _ddl(MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS)
 ANALYST_RATING_DDL = _ddl(ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS)
 QUANTS_SCORE_DDL = _ddl(QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS)
+
+
+ANALYST_FORECAST_COLUMNS: tuple[Column, ...] = (
+    *_COMMON_COLUMNS,
+    ("availability", "TEXT", False, 0),
+    ("display_as_of_date", "TEXT", True, 0),
+    ("rating_label", "TEXT", True, 0),
+    *(
+        (name, "INTEGER", True, 0)
+        for name in (
+            "strong_buy_count",
+            "buy_count",
+            "neutral_count",
+            "sell_count",
+            "strong_sell_count",
+            "target_horizon_months",
+        )
+    ),
+    ("target_price_yen", "REAL", True, 0),
+    *(
+        (name, "TEXT", True, 0)
+        for name in (
+            "forecast_period_label",
+            "analyst_forecast_as_of_date",
+            "company_forecast_as_of_date",
+            "share_basis",
+        )
+    ),
+    *(
+        (f"{subject}_{metric}", "REAL", True, 0)
+        for subject in ("analyst", "company")
+        for metric in ("revenue_million_yen", "net_income_million_yen", "eps_yen")
+    ),
+)
+ANALYST_FORECAST_DDL = _ddl(ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS)

@@ -27,7 +27,9 @@ def add_acquisition_commands(commands: argparse._SubParsersAction[argparse.Argum
     )
     acquisition.add_argument("--output", type=Path, required=True)
     acquisition.add_argument("--tickers", nargs="+")
-    acquisition.add_argument("--source", choices=("monex", "rakuten", "kabumap"), action="append")
+    acquisition.add_argument(
+        "--source", choices=("monex", "rakuten", "kabumap", "minkabu"), action="append"
+    )
     acquisition.add_argument("--request-budget", type=int, default=9)
     acquisition.add_argument("--time-limit-seconds", type=float, default=60)
     acquisition.add_argument("--request-timeout-seconds", type=float, default=10)

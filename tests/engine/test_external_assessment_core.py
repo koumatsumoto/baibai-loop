@@ -172,7 +172,7 @@ def test_unknown_or_changed_basis_has_no_delta(field, change, reason):
     assert metric.reason == reason
     assert metric.delta is None
     assert result.model_valuations[0].inputs.latest == latest
-    assert result.method_version == "same-series-v3"
+    assert result.method_version == "same-series-v4"
 
 
 def test_same_value_recovery_and_count_change_are_distinct_from_increase():

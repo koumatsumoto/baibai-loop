@@ -4,7 +4,7 @@ EQUITY_WEB_SOURCE_RESPONSES_DDL = """
 CREATE TABLE IF NOT EXISTS equity_web_source_responses(
   receipt_id TEXT NOT NULL PRIMARY KEY,
   attempt_id TEXT NOT NULL,
-  source TEXT NOT NULL CHECK(source IN ('monex', 'rakuten', 'kabumap')),
+  source TEXT NOT NULL CHECK(source IN ('monex', 'rakuten', 'kabumap', 'minkabu')),
   requested_ticker TEXT NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('page', 'iframe')),
   parent_receipt_id TEXT,

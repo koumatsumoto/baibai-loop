@@ -13,6 +13,7 @@ from baibai_engine.external_assessment.observations.models import (
 from baibai_engine.external_assessment.tradingview.observations import FIELDS
 
 from .models import (
+    AnalystForecastHistory,
     AnalystRatingAssessment,
     AnalystRatingHistory,
     ExternalAssessment,
@@ -134,12 +135,18 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
     if cutoff > evaluated_at:
         raise ValueError("analysis cutoff cannot be later than evaluation time")
     all_series: tuple[
-        ModelValuationHistory | AnalystRatingHistory | QuantsScoreHistory | TradingViewHistory, ...
+        ModelValuationHistory
+        | AnalystRatingHistory
+        | QuantsScoreHistory
+        | TradingViewHistory
+        | AnalystForecastHistory,
+        ...,
     ] = (
         *history.model_valuations,
         *history.analyst_ratings,
         *history.quants_scores,
         history.tradingview,
+        history.minkabu,
     )
     for series in all_series:
         for row in (series.latest, series.previous):
@@ -281,6 +288,7 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
         model_valuations=tuple(models),
         analyst_ratings=tuple(ratings),
         quants_scores=tuple(scores),
+        minkabu=history.minkabu,
         tradingview=TradingViewAssessment(
             inputs=tv,
             availability=availability,

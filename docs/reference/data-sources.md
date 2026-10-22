@@ -162,14 +162,27 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 値の有無、比較basisの確認、予想の増分価値、予想の正しさは別の段階である。正常nullと、値はあるが対象期等が未確認の場合をともに「価値なし」としない。一方、未確認のmetadataを埋めるまで全調査を止めず、その外部値を使わない根拠付き判断も完成できる。銀行のEBITDA・FCFのように評価対象として適さない指標を、一律の欠落要件にしない。
 
-常時の追加予想取得や外部ratingによる順位加点は行わない。候補外の相違は既存Selectionで必要な範囲を調べ、外部coverageのある企業だけを有利にする新lane・票数scoreを作らない。新項目の自動化は、具体的な判断への寄与と手動確認の費用が示された場合に別途判断する。[固定8社の検証・採否](../../reports/studies/2026-10-22-decision-quality-closure/report.md)は当時の利用可能性と限界を記録したもので、将来の有効性を否定するものではない。
+日次で取得する外部予想は受領履歴として保持し、外部ratingによる順位加点は行わない。候補外の相違は既存Selectionで必要な範囲を調べ、外部coverageのある企業だけを有利にする新lane・票数scoreを作らない。新項目の自動化は、具体的な判断への寄与と手動確認の費用が示された場合に別途判断する。[固定8社の検証・採否](../../reports/studies/2026-10-22-decision-quality-closure/report.md)は当時の利用可能性と限界を記録したもので、将来の有効性を否定するものではない。
+
+<a id="public-research-reports"></a>
+
+### Research時に読む公開企業レポート
+
+[証券リサーチセンターのレポート検索](https://holistic-r.org/report/)と[フィスコ企業調査レポート一覧](https://www.fisco.co.jp/service/report/)を、選択済み銘柄の追加調査先として使う。どちらも公開原本をログインなしで読めるが、全銘柄の連続した評価系列ではない。日次batchへ追加せず、企業の予想・事業仮説・リスクを調べるResearch時に必要な原本だけ参照する。2社を毎回そろえること、同じ資料の反復取得、レポートのない銘柄の除外は要求しない。
+
+- **証券リサーチセンター（SRC）**: 自社の業績予想と会社計画を区別したレポートを提供する。原本のCE/E等の凡例と対象期を確認し、予想理由・修正理由・事業KPIを自分の仮定と対照する。上場直後の紹介だけの銘柄やカバー終了もあるため、検索結果があるだけで最新予想を得たとしない。協賛運営とissuer自身の予想を区別し、レポートの主張を独立に確定した事実へ昇格させない。
+- **フィスコ**: 事業、成長要因、収益構造、リスクを調べる参考資料。対象企業から報酬を受けて作成する企業調査レポートは、発行企業から独立した賛成票として数えない。会社計画の転載とフィスコの分析・見通しを分け、重要な実績や事業上の主張は[一次性と独立性](./business-model-research.md#claim-triangulation)に従って検証する。
+
+名称変更・持株会社化も含めて銘柄コードと本文の対象企業を照合し、検索一覧から実際のPDFへ進む。発行日、対象決算期、訂正・更新、カバー終了の記載と、実際に読んだページを確認する。過去のレポートは事業の履歴や過去予想の対照には使えるが、現在予想として引き継がない。検索snippetや一覧だけなら本文実読とは記録せず、原本に到達できない場合は未確認として一次資料へ戻る。
+
+採用した原本はStock Assessmentの既存sourceへ直接HTTPS URL、発行主体、発行日と実受領時刻、用途を記し、該当するfindings・case・calculationからsource IDを参照する。外部予想は「その主体が提示した予想」であって実績factではない。独自予想を自己Baseへ採用するなら、その前提と不採用の反証を説明する。原本の全文・表を公開Issueや報告へ転載しない。新しいstore、必須artifact、全市場クローラ、日次ratingや自動加点はこの参照経路に設けない。
 
 <!-- 歴史reportからの引用anchorを保持する。runtimeの旧名aliasではない。 -->
 <a id="external-assessment-acquisition"></a>
 
 ## 公開brokerページの観測
 
-`equity_web.source_responses`はマネックス・楽天・株マップの公開HTML応答を、受領UTC時刻・選択encoding・HTTP clientが渡したbody bytesとともに保持するL1原本である。wire bytesや取得全体の成功証明ではない。楽天はouter pageと同じ試行のiframeを別receiptとして結ぶ。取得jobは同じreceipt identityをprivate raw bundle v2へ渡し、publisherがbundleを検証してmarket SQLiteへ原本ごとに取り込み、固定Lake releaseへ公開する。旧診断用raw bundle v1はこの経路で拒否し、過去分をcanonical L1再構築の保証とは扱わない。
+`equity_web.source_responses`はマネックス・楽天・株マップ・みんかぶの公開HTML応答を、受領UTC時刻・選択encoding・HTTP clientが渡したbody bytesとともに保持するL1原本である。wire bytesや取得全体の成功証明ではない。楽天はouter pageと同じ試行のiframeを別receiptとして結ぶ。取得jobは同じreceipt identityをprivate raw bundle v2へ渡し、publisherがbundleを検証してmarket SQLiteへ原本ごとに取り込み、固定Lake releaseへ公開する。旧診断用raw bundle v1はこの経路で拒否し、過去分をcanonical L1再構築の保証とは扱わない。
 
 `external_assessment/acquisition`は既存の公開ページ取得adapter名であり、個人投資家の売買動向を表すdomain名ではない。`external_assessment/normalization`が同じparser version・同一性確認・正常null規則で受領HTMLを決定的にL2観測へ変換する。publisherは選択attemptをcanonical原本から再読込・再解析し、stageのtyped観測と一致したものだけをL2へ保存する。配信画面で受信できた値を保存する。マネックスの公開Scouter Lite理論株価表から、目標株価コンセンサスとPER会社予想・PERアナリスト予想・PBRのモデル価格を取得する。目標株価の原データとモデル価格の算出主体は別々に記録する。ロックされたsummaryや割安・割高の目盛りから判断を作らない。
 
@@ -181,13 +194,23 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 楽天の保存観測が対象時点までにない場合も、External Assessmentは`distributor=rakuten`・`inputs.latest=null`・比較状態`not_observed` / 理由`no_observation`を返す。これは取得未試行・未確認shell・技術障害等のどれかを推測する結果ではなく、読取storeに観測がないという意味である。正常nullは元受領時刻を持つ観測行と`missing` / `latest_missing`で区別し、画面とResearch入力にも同じ結果を渡す。取得の具体的な失敗理由はprivate cohort stageで確認する。後日の取得失敗は既存観測を消さないため、表示値は受領時刻付きの最新保存観測であり、現在値や最新試行成功を保証しない。
 
-受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#external-assessment-query)、比較の意味は[外部参考評価](#external-assessment)に従う。現adapterでは`share_basis`・評価対象期間・レーティング尺度が未確認のnullであり、数値deltaは基本的に`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
+受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#external-assessment-query)、比較の意味は[外部参考評価](#external-assessment)に従う。比較に必要な`share_basis`・評価対象期間・レーティング尺度が未確認の系列では、未確認の項目をnullに保ち、数値deltaは`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
 
 現行の抽出済みtyped観測はDB上のL2履歴として読取に使う。日次の固定pair取得では公開HTTP 200のbody bytesとencodingを文字decodeより前に捕捉し、bounded pairの終了後に標準tar.gzへまとめる。raw bundle v2のupload成功後だけ、選択したattempt IDとbundle keyを持つtyped cohort stageをcommitする。raw append・圧縮・upload失敗時はstageをcommitしない。hard killがcommit前に起きれば未確定GETは繰り返され得るので、各解析命令の前に永続保存されたとは主張しない。private bundleは公開前の短期handoffであり、publisherのL1公開・読戻し成功後に初めて長期原本として使える。HTTP成功の原応答と、銘柄同一性・値が確認できたtyped観測は別であり、parse失敗や未確認の共通ページを正常観測へ変えない。過去に保存しなかった本文は取得当時の原応答として復元できない。日付別保持・候補確認・読戻しは[batch運用](../../batch/OPERATIONS.md#日次取得と固定コホートの再開)に従う。
 
 保持済みL1だけを指定して再解析する場合は、既存のmarket SQLiteで`external-assessment rebuild-raw --db <DB> --attempt-id <UUID>`を使う。`--attempt-id`は複数指定でき、選んだ試行すべてが完全かつ妥当な時だけ、対応する銘柄・受信時刻のL2行を同一transactionで置換する。楽天は同じ試行のouter pageと明示的に結ばれたiframeが必要である。取得失敗や応答のない試行、過去の診断用tarはこの再解析から復元しない。
 
 手動の限定取得・保存済み原応答captureの再投入は[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)、保存と照会は[market lake](./market-lake.md#external-assessment-query)を参照する。
+
+### みんかぶのアナリスト予想
+
+みんかぶの公開 `analyst_consensus` ページから、証券アナリスト欄の評価ラベル・5区分の人数・12か月目標株価、表示されている最新の売上高・純利益・EPS予想と会社予想を保持する。ページ上部の総合目標値、個人投稿、機械診断は取得対象に混ぜない。 取得時は実際のツール名を示す `User-Agent: baibai-loop-public-research/1.0` と `Accept: text/html` を明示する。ブラウザ偽装、認証Cookieの転用、制限応答後のUA変更は行わない。グラフ内部の値ではなく公開表の表示値を読み、丸めを逆算しない。 目標株価は比較表の最新欄を優先し、表がなければ専用の「アナリスト予想」カードを読む。カードと表に1円差がある実例を確認しているため、丸め方を推測して補正しない。比較表がなくても現在の評価・人数を保持し、業績の年次表だけにある明示予想はその表示値を読む。年次表だけからEPSや予想更新日を作らない。空欄・ダッシュは欠測、明示0は0として区別する。予想ページの404だけを正常欠損にはしない。同じ銘柄の公開本体ページが明示する「アナリスト 対象外」をidentity付きで確認できた場合に限り、`availability=not_covered`・予想値と表示基準日なしの観測を保持する。専用のアナリスト欄が一意で表示が「アナリスト対象外」と完全一致し、リンクなしのspan、または同じ銘柄の `/stock/<ticker>/analyst_consensus` への相対自己リンクである場合だけ受理する。別銘柄・外部hostへのリンクや複数欄、周辺文章の対象外表示は根拠にしない。403・429・5xxでは本体ページへ迂回せず、そのHTTP結果を障害として扱う。
+
+`external_assessment.analyst_forecast_observations`は既存market storeのL2履歴であり、`equity_web.source_responses`の同じattemptから再構築できる。読取結果の`minkabu.latest / previous`は実受領cutoff以内の直近2観測。表示の基準日・会社予想の日付・実受領時刻を分ける。画面の「1週間前」「1か月前」は今回取得した比較欄であり、その過去日に受領した履歴へ変換しない。同値の再受領も予想修正とは扱わない。
+
+決算期ラベルは年度表に明示されたものだけを取り込み、対象月のない「2027年」等から期末日を推定しない。売上高・純利益は百万円、EPS・目標株価は円として表の単位を照合する。元アナリストの集計提供元・株数basis・指標ごとの予想人数が確認できないものは未知のまま保持し、rating内訳の人数を利益予想の寄与者数へ流用しない。他媒体から独立した評価とはまだ断定せず、自動的な数値差や一致票へしない。
+
+予想ページの404、銘柄同一性未確認、構造変更、HTTP失敗は正常な「予想なし」と区別する。ページ内の一部の予想欠測は有効なratingを消さない。一方、比較表と年度表の対象期が衝突する場合は`conflicting_forecast_period`として観測全体を不採用にし、原本を保持する。業績欄だけを通常欠測へ落としたりratingだけを公開したりせず、年を推定補正しない。公開ページがある少数例だけで全銘柄のcoverageを保証しない。
 
 ## TradingViewの市場期待
 
@@ -217,4 +240,5 @@ J-Quants `eq/master` の取得応答は`jquants.source_pages`にL1原本とし�
 業種名から商品種類を推測しない。対象市場の選択はこの判定とは別に行う。
 旧派生列だけのマスターから原本項目を復元しない。切替時は取得済み原本があれば再利用し、
 原本のない基準日は取得可能な範囲を明示して新規取得し、原本とL2を検証してからcodeとstoreを一組で切り替える。
+
 

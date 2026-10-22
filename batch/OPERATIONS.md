@@ -755,6 +755,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 ```bash
 uv run baibai-engine external-assessment collect --output /tmp/private-external-assessment/responses.json
 uv run baibai-engine external-assessment collect --source kabumap --tickers 130A 8306 --output /tmp/private-external-assessment/quants-responses.json
+uv run baibai-engine external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/minkabu-responses.json
 uv run baibai-engine external-assessment import --input /tmp/private-external-assessment/responses.json --db /tmp/private-external-assessment/market.sqlite
 ```
 
@@ -762,13 +763,41 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#external-assessment-query)を参照する。
 
+<a id="market-v48-cutover"></a>
+
+### みんかぶ導入時の market 47 → 48 切替
+
+みんかぶの原本source制約と新しいL2表を追加するため、codeだけの反映では既存schema 47を読めない。
+本番切替の前に、固定masterの対象全銘柄について取得・対象外・失敗・未試行を集計し、未解決の取得経路やparser不備がないことを確認する。[source契約](../docs/reference/data-sources.md#external-assessment-acquisition)に従う原提供元の期間衝突による拒否は、理由付きの不採用として区別し、失敗件数0を切替条件にしない。以下の3銘柄preflightは切替直前の疎通確認であり、全銘柄検証の代わりにはしない。403/429で停止した全件検証を、少数の公開画面やCI成功で完了扱いにしない。
+日次や通常readerに暗黙migrationは追加しない。最終HEADのCIと切替toolの検証を終えてから、
+`cloud-materialize`の明示入力`upgrade_market_v48=true`を使い、一度だけ担当者が切り替える。
+通常のmaterializeではこの入力はfalseであり、machine storeを公開しない。
+
+1. 他のpublicationと競合しない時間帯を選び、対象codeのmain反映とstore反映を一組にする。
+   既存`cloud-publish`とpublication leaseを使い、切替中に旧codeのbatchを別環境で動かさない。
+2. lease取得前に既知の3銘柄（7203/4436/8306）を通常collectorで取得する。未確認・parse失敗・403/429なら本番切替前に停止する。原応答captureはrunnerのprivate一時領域だけに置き、公開artifactへ出さない。
+   workflowはfresh pullした47をread-onlyで開き、`tools/cutover/upgrade_market_v48.py`で別の48へ全行をコピーする。
+   旧schemaのtable/index定義、全表の件数と双方向の値一致、foreign keyとintegrityを確認する。
+   原本bytes・受領時刻・Lake origin・非Lakeの派生値を保持し、予想表は空で追加する。provider再取得はしない。
+3. 現行Lakeを48へhydrateした後、同じ3銘柄のcaptureを正規importし、元の受領時刻のL1原本とL2予想を既存`publish-lake`で追記・公開する。再取得しない。
+   続いて既存`push-machine`のbackup・ETag条件・bundle receiptで反映する。
+   runs/indicatorsは同じlease内でfresh pullした無変更の内容を同時に戻す。applicationを変更せず、既存Lake原本の履歴も保持する。
+   続けて通常のmaterializeを行い、各stepの成否とlease解放を確認する。
+4. 反映済み48に対して移行入力を再指定しない。store反映後にmaterializeだけ失敗した場合は、
+   次回は`upgrade_market_v48=false`で再実行する。Lake公開だけ成功してremote marketが47のままなら、実際のcurrent releaseとmachineの反映状態を確認し、fresh pullした47の変換とcurrent Lakeのhydrateから再開する。部分machine pushでは既存の部分push復旧手順に従う。
+   未確認のbackupへの上書きやuser_versionだけの変更をしない。
+5. 切替受入後に一回限りのtool・専用test・workflow入力/stepを撤去し、通常経路に互換分岐を残さない。
+   3銘柄の初回実取得・原本/観測の新規件数・固定release公開と、schema切替の各stepを別に確認する。schema切替成功だけを取得済みとは数えない。
+   一回限りの取得・Lake公開・machine pushを含むためjob上限は一時的に90分とし、lease TTL120分以内に保つ。撤去時に通常materializeの30分へ戻す。
+   本番画面の目視確認は今回の完了条件ではない。
+
 ### 日次取得と固定コホートの再開
 
 `cloud-external-assessment.yml`はmain限定で毎日19:13 JSTに日次取得し、同じ入口で手動受入・再開も行う。上の限定collectorと分け、保存済み全普通株の取得をpublication lease外で行う。scheduled runは元のGitHub run作成時刻からcron対象日と`external-assessment-daily-YYYY-MM-DD`のbatch IDを決め、queue遅延や翌日のrerunで対象を別日へ進めない。実行時点が15:30 JSTより前なら取得・公開前にskipする。
 
 初回に最新L1のreleaseを固定し、日次取得ではそのJPXカレンダーで対象営業日のexact-date masterを選ぶ。休日も取得し、連続したカレンダーで直近営業日を確認してその保存済みmasterを使う。手動では従来どおりmaster日付を明示する。calendarと必要なmaster年partition以外をこの計画段階で取得・hydrateせず、新しいmasterをproviderから取得しない。calendarの対象日・連続性、普通株のproduction floor、分類、master日付・release bindingが不足する場合はprovider通信前に停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では保存済みplanを読み、別universeへ置換しない。受領日時とJST受領日は実通信から保持し、休日や翌日の再開をmaster日付・cron対象日へ付け替えない。
 
-既定・最大50銘柄のcohortを直列のmatrix jobへ分ける。通常の3媒体では50×（Monex 1HTTP＋楽天2HTTP＋株マップ1HTTP）で最大200HTTPとなる。取得は銘柄ごとにplanの媒体順で回し、別hostの待機枠を使う。保存planとstageのpair順は従来の媒体順を保持する。別のHTTP数groupや細粒度matrixは作らない。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。全4hostは平均2HTTP/秒・最大4creditのtoken bucketをcohort内の全pair・再試行で共有し、実送信直前にtokenを消費する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは直列1件、process開始時のcreditは0で、再起動によるcredit付与はない。HTTP Sessionはcohort内で再利用し、各pair開始時にcookieを空にする。限定CLIの2秒間隔と通常のTLS/proxy経路は維持する。
+既定・最大50銘柄のcohortを直列のmatrix jobへ分ける。通常の4媒体では50×（Monex 1HTTP＋楽天2HTTP＋株マップ1HTTP＋みんかぶ最大2HTTP）で最大300HTTPとなる。取得は銘柄ごとにplanの媒体順で回し、別hostの待機枠を使う。保存planとstageのpair順は従来の媒体順を保持する。別のHTTP数groupや細粒度matrixは作らない。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。全5hostは平均2HTTP/秒・最大4creditのtoken bucketをcohort内の全pair・再試行で共有し、実送信直前にtokenを消費する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは直列1件、process開始時のcreditは0で、再起動によるcredit付与はない。HTTP Sessionはcohort内で再利用し、各pair開始時にcookieを空にする。限定CLIの2秒間隔と通常のTLS/proxy経路は維持する。
 
 pair取得は120秒以内、HTTP timeoutは30秒以内とする。取得jobは4時間のsoft budgetに次pair・保存の15分余裕を残し、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
 
@@ -776,7 +805,7 @@ pair取得は120秒以内、HTTP timeoutは30秒以内とする。取得jobは4�
 
 確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/external-assessment/<batch_id>/cohort-NNNN.json`へ`external-assessment-cohort-stage-v2`で保存する。成功・正常null・既知失敗・未記録を区別し、実受領UTC時刻を変更しない。通常終了・soft budget・retry上限など制御された停止では、raw bundleの保存を確認してから確定結果をcohort stageとして一度だけ条件付きPUTする。取得前の永続予約、inflight状態、永続429 retry/cooldownは持たない。
 
-planは既存stageを一度走査し、未記録pairを持つcohortだけをmatrixへ渡す。acquireは対象cohortのstageだけを読み、完了済みならprovider通信0・PUT0で返す。部分再開では保存済みの成功・正常null・失敗と元受領時刻を保ち、未記録pairだけを取得する。hard kill前に未commitのGETは再取得されうる。通常cohort最大200HTTPの再取得を受け入れ、HTTP exactly-onceを保証しない。結果が一件も確定しないsoft stopでは空stageを保存しない。
+planは既存stageを一度走査し、未記録pairを持つcohortだけをmatrixへ渡す。acquireは対象cohortのstageだけを読み、完了済みならprovider通信0・PUT0で返す。部分再開では保存済みの成功・正常null・失敗と元受領時刻を保ち、未記録pairだけを取得する。hard kill前に未commitのGETは再取得されうる。通常cohort最大300HTTPの再取得を受け入れ、HTTP exactly-onceを保証しない。結果が一件も確定しないsoft stopでは空stageを保存しない。
 
 初回PUTは`If-None-Match`、部分再開は読取世代の`If-Match`で更新する。PUT応答不明・ETag欠落・CAS競合では実際のstageを読んで確定済み結果を採用し、新しい受信値で既存結果を上書きしない。保存が確認できない場合は失敗とし、競合stageに未記録pairが残る場合も未完了と報告する。通常の成功PUTではContent-MD5と応答ETagを検証し、取得用storeのPUT直後HEADを省く。保存済みobjectのHEAD→GET→HEADとSHA256/世代検証は維持する。
 
@@ -784,15 +813,15 @@ planは既存stageを一度走査し、未記録pairを持つcohortだけをmatr
 
 待機がbudgetへ収まらない、有効な待機値が表現不能、5回使い切った後の429、403では新規通信を止め、最後に確定した失敗と未記録pairをpartial stageへ保存する。失敗は同planで再取得しない。operatorが原因を確認して同batchを再開する場合も未記録pairだけを取得する。失敗pairを改めて取得する必要があれば、重複取得範囲を明示して別batchを計画する。retry専用matrix・再dispatchにまたがる残り回数や待機期限は作らない。
 
-追加取得のcollector bindingはparser・host・pair上限を含むv7である。旧checkpoint形式は新readerで実行時変換せず、未公開の旧batchは旧revisionで確認・完結させるか、レビュー済みの個別切替を行う。新batchへ旧checkpointを読み替えない。今回のcode変更だけで本番の旧stage移行済みとは扱わない。verified terminalは追加取得のbinding確認より先に認識し、元の完全/部分公開結果のままno-opで返す。
+追加取得のcollector bindingはparser・host・pair上限・みんかぶの明示request headerを含む。実行revisionの`collector_binding()`を正本とし、保存planのbindingと照合する。旧checkpoint形式は新readerで実行時変換せず、未公開の旧batchは旧revisionで確認・完結させるか、レビュー済みの個別切替を行う。新batchへ旧checkpointを読み替えない。今回のcode変更だけで本番の旧stage移行済みとは扱わない。verified terminalは追加取得のbinding確認より先に認識し、元の完全/部分公開結果のままno-opで返す。
 
 ### 公開HTML原本のcohort handoff bundle
 
-HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stageより先に保存する。対象は既存collectorが要求した公開Monex、楽天outer、確認済みIFIS iframe、株マップの銘柄診断に限り、新しい取得は加えない。HTTP転送圧縮展開後・文字decode前のbytesを捕捉し、manifestにreceipt UUID・attempt UUID・媒体・要求ticker・page/iframeと親receipt・URL・encoding・実受領UTC・HTTP status・本文SHA256/bytes・archive memberを記録する。Cookie・認証header・全response headerは保存しない。旧診断用format v1はv2の原本読取で拒否し、旧本文からcanonical identityを補わない。
+HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stageより先に保存する。対象は既存collectorが要求した公開Monex、楽天outer、確認済みIFIS iframe、株マップの銘柄診断、みんかぶの証券アナリスト予想と、404時に対象外を確認する同一銘柄の公開本体ページに限る。SRC/FISCOの企業レポートはこの日次取得へ加えず、Research時の参照とする。HTTP転送圧縮展開後・文字decode前のbytesを捕捉し、manifestにreceipt UUID・attempt UUID・媒体・要求ticker・page/iframeと親receipt・URL・encoding・実受領UTC・HTTP status・本文SHA256/bytes・archive memberを記録する。Cookie・認証header・全response headerは保存しない。旧診断用format v1はv2の原本読取で拒否し、旧本文からcanonical identityを補わない。
 
 受信した本文は文字decode前にcallbackへ渡す。各attemptの最大2本文をpair deadline外でprivateなlocal fileへspoolし、cohort終了時にarchiveを作ってimmutable bundleをuploadする。成功したuploadのkeyと選択attempt IDを含めてからtyped stageを条件付きcommitする。raw append・finalize・upload失敗はstage commitを止める。stage PUTが曖昧な場合は既存の読戻しで実際に保存された競合stageを採用し、上書きしない。commit前のhard killでは未確定GETを再実行し得るため、解析の各命令より前に永続保存済みとは主張しない。完了済みstage/terminalは再取得・raw補完しない。
 
-keyは既存rootの`external-assessment/raw/utc-date/<bundle作成UTC日>/bundles/<batch_id>/cohort-NNNN-<bundle UUID>.tar.gz`とする。manifestの各本文の実受領時刻はbundle作成日へ付け替えない。本文共有用のhash-indexや独自containerは持たず、3媒体と429 retryのsynthetic fixtureで全bytes復元と容量を検証する。200のparse失敗本文も保持するが、typed failureをnormalnullへ変えない。非200・未受領本文のreceiptは作らず、応答なしの試行はattempt IDだけを残す。限定`collect` CLIも同じ原応答callbackからprivate captureを作る。
+keyは既存rootの`external-assessment/raw/utc-date/<bundle作成UTC日>/bundles/<batch_id>/cohort-NNNN-<bundle UUID>.tar.gz`とする。manifestの各本文の実受領時刻はbundle作成日へ付け替えない。本文共有用のhash-indexや独自containerは持たず、各媒体と429 retryのsynthetic fixtureで全bytes復元と容量を検証する。200のparse失敗本文も保持するが、typed failureをnormalnullへ変えない。非200・未受領本文のreceiptは作らず、応答なしの試行はattempt IDだけを残す。限定`collect` CLIも同じ原応答callbackからprivate captureを作る。
 
 raw rootは引き続き`external-assessment/raw/`であり、R2標準lifecycleの期限方針はこの変更では触らない。この単一prefixへ`Expiration: {Days: 3}`を設定する方針とし、deploymentでは実設定を確認する。適用時の実保持は通常概ね3〜4日で、厳密な72時間TTLではない（[R2公式仕様](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)）。v2 bundleはstageより先にdurable uploadされる短期handoffであり、stage commitだけで公開済みL1とは扱わない。publisherが原本をmarket SQLiteへ取り込み、固定Lake releaseを読戻して初めて長期L1として確認する。旧rootの移動・削除やlifecycle操作を日次取得へ加えない。
 
@@ -1109,3 +1138,4 @@ market lake credentialは新しいbucket-scoped Object Read only tokenを作り�
 旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。market lakeの共有読取を止める場合は
 `(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
 既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。
+

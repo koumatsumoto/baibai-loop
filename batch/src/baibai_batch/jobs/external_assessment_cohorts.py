@@ -15,6 +15,7 @@ from typing import Literal, cast
 from baibai_batch.storage.canonical_json import canonical_json
 from baibai_batch.storage.external_assessment_identity import PLAN_FORMAT
 from baibai_engine.batch_api import (
+    ExternalAssessmentAnalystForecastObservation,
     ExternalAssessmentAnalystRatingObservation,
     ExternalAssessmentCollectionOutcome,
     ExternalAssessmentModelValuationObservation,
@@ -88,7 +89,9 @@ class RunPlan:
             or not self.sources
             or any(type(source) is not str for source in self.sources)
             or len(set(self.sources)) != len(self.sources)
-            or any(source not in {"monex", "rakuten", "kabumap"} for source in self.sources)
+            or any(
+                source not in {"monex", "rakuten", "kabumap", "minkabu"} for source in self.sources
+            )
         ):
             raise ValueError("plan requires distinct supported sources")
 
@@ -114,7 +117,7 @@ def make_plan(
     universe_binding: str,
     collector_binding: str,
     cohort_size: int = DEFAULT_COHORT_TICKERS,
-    sources: Sequence[ExternalAssessmentSource] = ("monex", "rakuten", "kabumap"),
+    sources: Sequence[ExternalAssessmentSource] = ("monex", "rakuten", "kabumap", "minkabu"),
 ) -> RunPlan:
     if any(type(ticker) is not str or _TICKER.fullmatch(ticker) is None for ticker in tickers):
         raise ValueError("plan requires canonical ASCII tickers")
@@ -150,6 +153,8 @@ def _has_value(observation: ExternalAssessmentObservation) -> bool:
                 "industry_average_score",
             )
         )
+    if isinstance(observation, ExternalAssessmentAnalystForecastObservation):
+        return observation.rating_label is not None or observation.target_price_yen is not None
     return observation.rating is not None
 
 
@@ -166,7 +171,7 @@ class PairEntry:
     def __post_init__(self) -> None:
         if (
             not isinstance(cast("object", self.source), str)
-            or self.source not in {"monex", "rakuten", "kabumap"}
+            or self.source not in {"monex", "rakuten", "kabumap", "minkabu"}
             or not isinstance(cast("object", self.state), str)
             or self.state not in _STATES
         ):
@@ -198,6 +203,8 @@ class PairEntry:
                 if self.source == "monex"
                 else ExternalAssessmentQuantsScoreObservation
                 if self.source == "kabumap"
+                else ExternalAssessmentAnalystForecastObservation
+                if self.source == "minkabu"
                 else ExternalAssessmentAnalystRatingObservation
             )
             if (
@@ -489,6 +496,8 @@ def load_result(plan: RunPlan, value: object) -> CohortResult:
                 if entry["source"] == "monex"
                 else ExternalAssessmentQuantsScoreObservation
                 if entry["source"] == "kabumap"
+                else ExternalAssessmentAnalystForecastObservation
+                if entry["source"] == "minkabu"
                 else ExternalAssessmentAnalystRatingObservation
             )
             observation = model.model_validate(entry["observation"])

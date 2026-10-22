@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from baibai_engine.external_assessment.observations.identity import (
+    ANALYST_FORECAST_DATASET,
     ANALYST_RATING_DATASET,
     MODEL_VALUATION_DATASET,
     QUANTS_SCORE_DATASET,
@@ -457,6 +458,12 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ),
         ReleaseDatasetPolicy(
             dataset=MODEL_VALUATION_DATASET,
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
+            dataset=ANALYST_FORECAST_DATASET,
             required=False,
             carries_history=True,
             require_complete_coverage=False,

@@ -16,10 +16,10 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
 from baibai_engine.market_context.master import read_master_snapshot
-from baibai_engine.market_context.prices import read_price_bars
+from baibai_engine.market_context.prices import PriceBar, read_price_bars
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.sector import _rank_to_percentiles, sector_relative_strength
-from baibai_engine.market_context.security import build_security_market_context
+from baibai_engine.market_context.security import _bollinger_20bar, build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.research.market_context.models import StoredAssessment
 from baibai_engine.research.market_context.query import assessment_payload as read_context
@@ -166,11 +166,74 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
         ]
         is None
     )
-    assert security(path, ticker="1321")["price"]["gap_from_52w_high"] == 0
+    price = security(path, ticker="1321")["price"]
+    assert price["gap_from_52w_high"] == 0
+    assert price["bollinger_20bar"] == {
+        "status": "zero_variance",
+        "window_bars": 20,
+        "window_start_date": days[0],
+        "window_end_date": ASOF.isoformat(),
+        "z_score": None,
+        "position": None,
+    }
     earlier = read_price_bars(
         path, start=ASOF - timedelta(days=90), end=date.fromisoformat(days[-3])
     )["1321"]
     assert all(bar.price == 200 for bar in earlier)
+
+
+@pytest.mark.parametrize(
+    ("closes", "status", "z_score", "position"),
+    [
+        ([], "insufficient_history", None, None),
+        ([100] * 19, "insufficient_history", None, None),
+        ([100] * 20, "zero_variance", None, None),
+        ([100] * 19 + [120], "available", 19**0.5, "above_upper"),
+        ([100] * 19 + [80], "available", -(19**0.5), "below_lower"),
+        ([100] * 16 + [110] * 4, "available", 2, "within_bands"),
+        ([100] * 16 + [90] * 4, "available", -2, "within_bands"),
+        ([100] * 19 + [0], "invalid_price", None, None),
+        ([100] * 19 + [-1], "invalid_price", None, None),
+        ([float("inf")] + [100] * 19, "invalid_price", None, None),
+        ([float("nan")] + [100] * 19, "invalid_price", None, None),
+    ],
+)
+def test_bollinger_observed_window_arithmetic(closes, status, z_score, position):
+    observed = [
+        PriceBar(ASOF - timedelta(days=3 * (len(closes) - i - 1)), value, None)
+        for i, value in enumerate(closes)
+    ]
+    result = _bollinger_20bar(observed)
+    assert result["status"] == status
+    assert result["position"] == position
+    assert result["z_score"] == (pytest.approx(z_score) if z_score is not None else None)
+    assert result["window_bars"] == len(closes)
+    assert result["window_start_date"] == (observed[0].traded_at.isoformat() if observed else None)
+    assert result["window_end_date"] == (ASOF.isoformat() if observed else None)
+
+
+def test_bollinger_uses_last_twenty_observed_bars_and_preserves_stale_dates(tmp_path):
+    path = tmp_path / "market.sqlite"
+    insert_daily_bars_from_closes(path, "AAAA", [1000] + [100] * 19 + [120], end_date=ASOF)
+    original = security(path)["price"]["bollinger_20bar"]
+    assert original["z_score"] == pytest.approx(19**0.5)
+    assert original["window_bars"] == 20
+    assert original["window_start_date"] == (ASOF - timedelta(days=19)).isoformat()
+    assert security(path, as_of=ASOF + timedelta(days=2))["price"]["bollinger_20bar"] == original
+    assert security(path, as_of=ASOF + timedelta(days=30))["price"]["bollinger_20bar"] == original
+    connection = open_connection(path)
+    try:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars (ticker, traded_at, close, adjustment_factor) "
+            "VALUES ('AAAA', ?, 9999, 0.5)",
+            ((ASOF + timedelta(days=31)).isoformat(),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    price = security(path)["price"]
+    assert price["bollinger_20bar"] == original
+    assert price["close"] == 120
 
 
 def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tmp_path):

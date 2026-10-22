@@ -22,6 +22,372 @@
     "views/tasks.json": "#/$defs/TasksView"
   },
   "$defs": {
+    "AnalystForecastHistory": {
+      "additionalProperties": false,
+      "properties": {
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalystForecastObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalystForecastObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AnalystForecastHistory",
+      "type": "object",
+      "required": [
+        "latest",
+        "previous"
+      ]
+    },
+    "AnalystForecastObservation": {
+      "additionalProperties": false,
+      "description": "Visible Minkabu analyst fields, separate from its combined/crowd prediction.",
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "fetched_at_utc": {
+          "format": "date-time",
+          "title": "Fetched At Utc",
+          "type": "string"
+        },
+        "snapshot_date": {
+          "format": "date",
+          "title": "Snapshot Date",
+          "type": "string"
+        },
+        "distributor": {
+          "const": "minkabu",
+          "default": "minkabu",
+          "title": "Distributor",
+          "type": "string"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "source_url": {
+          "minLength": 1,
+          "title": "Source Url",
+          "type": "string"
+        },
+        "parser_version": {
+          "minLength": 1,
+          "title": "Parser Version",
+          "type": "string"
+        },
+        "contract_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "availability": {
+          "default": "available",
+          "enum": [
+            "available",
+            "not_covered"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "display_as_of_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display As Of Date"
+        },
+        "rating_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating Label"
+        },
+        "strong_buy_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strong Buy Count"
+        },
+        "buy_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Buy Count"
+        },
+        "neutral_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Neutral Count"
+        },
+        "sell_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sell Count"
+        },
+        "strong_sell_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strong Sell Count"
+        },
+        "target_price_yen": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Price Yen"
+        },
+        "target_horizon_months": {
+          "anyOf": [
+            {
+              "const": 12,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Horizon Months"
+        },
+        "forecast_period_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forecast Period Label"
+        },
+        "analyst_forecast_as_of_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Analyst Forecast As Of Date"
+        },
+        "company_forecast_as_of_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Forecast As Of Date"
+        },
+        "analyst_revenue_million_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Analyst Revenue Million Yen"
+        },
+        "analyst_net_income_million_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Analyst Net Income Million Yen"
+        },
+        "analyst_eps_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Analyst Eps Yen"
+        },
+        "company_revenue_million_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Revenue Million Yen"
+        },
+        "company_net_income_million_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Net Income Million Yen"
+        },
+        "company_eps_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Eps Yen"
+        },
+        "share_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Share Basis"
+        }
+      },
+      "required": [
+        "ticker",
+        "fetched_at_utc",
+        "snapshot_date",
+        "distributor",
+        "origin",
+        "source_url",
+        "parser_version",
+        "contract_version",
+        "availability",
+        "display_as_of_date",
+        "rating_label",
+        "strong_buy_count",
+        "buy_count",
+        "neutral_count",
+        "sell_count",
+        "strong_sell_count",
+        "target_price_yen",
+        "target_horizon_months",
+        "forecast_period_label",
+        "analyst_forecast_as_of_date",
+        "company_forecast_as_of_date",
+        "analyst_revenue_million_yen",
+        "analyst_net_income_million_yen",
+        "analyst_eps_yen",
+        "company_revenue_million_yen",
+        "company_net_income_million_yen",
+        "company_eps_yen",
+        "share_basis"
+      ],
+      "title": "AnalystForecastObservation",
+      "type": "object"
+    },
     "AnalystRatingAssessment": {
       "additionalProperties": false,
       "properties": {
@@ -1514,7 +1880,7 @@
           "type": "string"
         },
         "method_version": {
-          "default": "same-series-v3",
+          "default": "same-series-v4",
           "title": "Method Version",
           "type": "string"
         },
@@ -1548,6 +1914,9 @@
           },
           "title": "Origin Groups",
           "type": "array"
+        },
+        "minkabu": {
+          "$ref": "#/$defs/AnalystForecastHistory"
         }
       },
       "required": [
@@ -1559,7 +1928,8 @@
         "analyst_ratings",
         "quants_scores",
         "tradingview",
-        "origin_groups"
+        "origin_groups",
+        "minkabu"
       ],
       "title": "ExternalAssessment",
       "type": "object"

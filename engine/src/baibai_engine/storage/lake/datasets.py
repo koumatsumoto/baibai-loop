@@ -8,6 +8,8 @@ from typing import Literal
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from baibai_engine.external_assessment.observations.contract import (
+    ANALYST_FORECAST_COLUMNS,
+    ANALYST_FORECAST_TABLE,
     ANALYST_RATING_COLUMNS,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
@@ -16,6 +18,7 @@ from baibai_engine.external_assessment.observations.contract import (
     QUANTS_SCORE_TABLE,
 )
 from baibai_engine.external_assessment.observations.identity import (
+    ANALYST_FORECAST_DATASET,
     ANALYST_RATING_DATASET,
     MODEL_VALUATION_DATASET,
     QUANTS_SCORE_DATASET,
@@ -749,7 +752,24 @@ EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
     ),
 )
 
+EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS = LakeDataset(
+    name=ANALYST_FORECAST_DATASET,
+    layer="l2_processed",
+    sqlite_table=ANALYST_FORECAST_TABLE,
+    date_column="snapshot_date",
+    coverage_authority="unproven",
+    columns=tuple(
+        LakeColumn(
+            name, kind, {"TEXT": _TEXT, "REAL": _REAL, "INTEGER": _INTEGER}[kind], nullable, pk
+        )
+        for name, kind, nullable, pk in ANALYST_FORECAST_COLUMNS
+    ),
+)
+
 LAKE_DATASETS = {
+    EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS.name: (
+        EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS
+    ),
     JQUANTS_SOURCE_PAGES.name: JQUANTS_SOURCE_PAGES,
     EDINET_LIST_RESPONSES.name: EDINET_LIST_RESPONSES,
     JPX_SOURCE_BUNDLES.name: JPX_SOURCE_BUNDLES,

@@ -7,12 +7,13 @@ from datetime import datetime
 from tests.batch.external_assessment_response_fixtures import response
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 from tests.engine.test_kabumap import html as kabumap_html
+from tests.engine.test_minkabu import html as minkabu_html
 
 from baibai_batch.jobs.external_assessment_cohorts import RunPlan
 from baibai_batch.storage.external_assessment_raw import RawBundle
 from baibai_batch.storage.lake_publish import ObjectStore
 from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, Source
-from baibai_engine.external_assessment.normalization import kabumap, monex, rakuten
+from baibai_engine.external_assessment.normalization import kabumap, minkabu, monex, rakuten
 
 
 def pair_responses(
@@ -35,6 +36,17 @@ def pair_responses(
                 ticker,
                 body.encode(),
                 url=monex.public_url(ticker),
+                received_at_utc=received_at_utc,
+            ),
+        )
+    if source == "minkabu":
+        body = "<html>invalid public page</html>" if malformed else minkabu_html(ticker)
+        return (
+            response(
+                source,
+                ticker,
+                body.encode(),
+                url=minkabu.public_url(ticker),
                 received_at_utc=received_at_utc,
             ),
         )

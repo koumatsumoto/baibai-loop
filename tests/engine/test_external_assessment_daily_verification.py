@@ -22,6 +22,7 @@ from baibai_engine.external_assessment.acquisition.verification import (
     verify_observations,
 )
 from baibai_engine.external_assessment.observations.contract import (
+    ANALYST_FORECAST_TABLE,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
@@ -582,12 +583,17 @@ def test_readback_compares_definition_provenance_and_source_metadata_not_only_nu
             verify_observations(database, [item])
 
 
-def test_history_digests_cover_both_tables_and_old_rows_without_mutating_other_tables(tmp_path):
+def test_history_digests_cover_all_tables_and_old_rows_without_mutating_other_tables(tmp_path):
     database = tmp_path / "market.sqlite"
     seed_database(database, count=1)
     other_before = other_dataset_digest(database)
     empty = history_digests(database)
-    assert set(empty) == {MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE}
+    assert set(empty) == {
+        MODEL_VALUATION_TABLE,
+        ANALYST_RATING_TABLE,
+        QUANTS_SCORE_TABLE,
+        ANALYST_FORECAST_TABLE,
+    }
     assert set(empty.values()) == {hashlib.sha256(b"").hexdigest()}
     save_observations(database, [model(), rating()])
     initial = history_digests(database)

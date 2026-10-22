@@ -20,6 +20,12 @@ import requests
 from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, Role, Source
 from baibai_engine.collection.equity_web.receipts import validate_response
 
+# Identify the actual tool, not a browser or a different client.
+MINKABU_PUBLIC_HEADERS = {
+    "User-Agent": "baibai-loop-public-research/1.0",
+    "Accept": "text/html",
+}
+
 MIN_REQUEST_INTERVAL_SECONDS = 2.0
 # Pair policy changes require a version review in external_assessment/observations/identity.py.
 HOST_REQUEST_RATE_PER_SECOND = 2.0
@@ -29,6 +35,7 @@ RATE_LIMITED_HOSTS = (
     "www.rakuten-sec.co.jp",
     "rakuten-sec.ifis.co.jp",
     "jp.kabumap.com",
+    "minkabu.jp",
 )
 
 
@@ -201,7 +208,10 @@ def receive_html(
     on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
 ) -> tuple[str, datetime, str | None]:
     # Redirects would add unbudgeted requests and can redirect to login pages.
-    with session.get(url, timeout=timeout, allow_redirects=False) as response:
+    request_options: dict[str, Any] = {}
+    if source == "minkabu":
+        request_options["headers"] = MINKABU_PUBLIC_HEADERS
+    with session.get(url, timeout=timeout, allow_redirects=False, **request_options) as response:
         if response.status_code != 200:
             if response.status_code == 429:
                 # PairSession records full body completion before a possibly
