@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from tests.batch.external_assessment_response_fixtures import response
+from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
+from tests.engine.test_kabumap import html as kabumap_html
+from tests.engine.test_minkabu import html as minkabu_html
+
 from baibai_batch.jobs.external_assessment_cohorts import RunPlan
 from baibai_batch.storage.external_assessment_raw import RawBundle
 from baibai_batch.storage.lake_publish import ObjectStore
 from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, Source
 from baibai_engine.external_assessment.normalization import kabumap, minkabu, monex, rakuten
-from tests.batch.external_assessment_response_fixtures import response
-from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
-from tests.engine.test_kabumap import html as kabumap_html
-from tests.engine.test_minkabu import html as minkabu_html
 
 
 def pair_responses(

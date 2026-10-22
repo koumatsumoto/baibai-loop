@@ -4,9 +4,9 @@ import sqlite3
 from contextlib import closing
 
 import pytest
+from tools.cutover.upgrade_market_v48 import prior_schema_sql, upgrade
 
 from baibai_engine.storage.observations.schema import validate_current_schema
-from tools.cutover.upgrade_market_v48 import prior_schema_sql, upgrade
 
 
 def old_store(path):
@@ -77,7 +77,7 @@ def test_unreviewed_source_stays_untouched_and_no_candidate_remains(tmp_path, da
         )
         connection.commit()
     before = source.read_bytes()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="source (must be|schema differs)"):
         upgrade(source, output)
     assert source.read_bytes() == before
     assert not output.exists()

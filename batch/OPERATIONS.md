@@ -763,6 +763,8 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#external-assessment-query)を参照する。
 
+<a id="market-v48-cutover"></a>
+
 ### みんかぶ導入時の market 47 → 48 切替
 
 みんかぶの原本source制約と新しいL2表を追加するため、codeだけの反映では既存schema 47を読めない。

@@ -7,6 +7,13 @@ import uuid
 from contextlib import closing
 
 import pytest
+from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
+from tests.batch.test_external_assessment_publication import RECEIVED
+from tests.batch.test_external_assessment_publication import publication as publication
+from tests.batch.test_external_assessment_raw import Session
+from tests.batch.test_external_assessment_raw import connect as connect
+from tests.engine.test_external_assessment_sources import monex_html
+from tests.engine.test_minkabu import html as minkabu_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs import external_assessment_publication as publisher
@@ -33,13 +40,6 @@ from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
-from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
-from tests.batch.test_external_assessment_publication import RECEIVED
-from tests.batch.test_external_assessment_publication import publication as publication
-from tests.batch.test_external_assessment_raw import Session
-from tests.batch.test_external_assessment_raw import connect as connect
-from tests.engine.test_external_assessment_sources import monex_html
-from tests.engine.test_minkabu import html as minkabu_html
 
 
 def _plan(previous, *, run_id, tickers=("7203",), sources=("monex",), cohort_size=50):
