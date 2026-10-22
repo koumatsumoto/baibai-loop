@@ -791,7 +791,7 @@ import対象は明示した既存の隔離作業コピーであり、current mar
    一回限りの取得・Lake公開・machine pushを含むためjob上限は一時的に90分とし、lease TTL120分以内に保つ。撤去時に通常materializeの30分へ戻す。
    本番画面の目視確認は今回の完了条件ではない。
 
-### 取得元別の日次取得と固定コホートの再開
+### 日次取得と固定コホートの再開
 
 `cloud-external-assessment.yml`はmain限定で毎日19:13 JSTに実行する。手動では`source`に`monex / rakuten / kabumap / minkabu`を指定し、その取得元だけを実行・再開できる。`all`は4取得元を選ぶ。通常daily・TradingViewとは独立し、schema cutoverやlive取得の受入を代行しない。
 
@@ -803,13 +803,13 @@ scheduled runは元のGitHub run作成時刻から対象日を固定し、`exter
 
 同sourceのHTTP開始は最低0.5秒を空ける。楽天outer/IFIS iframe、みんかぶ本体/fallback、全retryをそれぞれ同sourceへ合算し、idle後のburstを許可しない。新processの最初も0.5秒待つ。異なる取得元は独立に進められる。同sourceのlocal取得をActionsと重ねない。限定CLIの既存2秒間隔・通常TLS/proxy経路は維持する。
 
-### source別stageの確定と再開
+### cohort stageの確定と再開
 
 stageは既存`coordination/external-assessment/<sourceを含むbatch ID>/cohort-NNNN.json`へ保存する。50銘柄単位の原本bundleを先に保存し、成功・正常null・既知失敗・未試行を条件付きstage PUTで確定する。既存entryと元受領時刻を上書きせず、未試行pairだけを再開する。hard kill前の未確定GETは再取得され得る。取得前予約・inflight台帳・永続retry予算を追加しない。
 
 429はprocess内で初回＋最大5retry。Retry-Afterの受信完了UTC基準の期限を尊重し、不正・未指定なら5/10/20/40/80秒＋0～1秒jitterを使う。HTTP内部retryと重ねない。待機が残予算に収まらない、表現不能な期限、retry上限、403では当該sourceを止める。他sourceは続ける。保存した失敗pairは同planで再取得せず、明示再開でも未試行pairだけを取得する。失敗pair自体を再取得する場合は別labelのplanを使う。
 
-旧multi-source planを分割・移行・新しいsource planとして再利用しない。現行source入口はsource不一致を拒否する。旧CLIも未公開multi-source planの取得・公開を拒否し、既存terminalの歴史的no-opだけを保持する。未公開の旧batchは旧revisionで内容と原本保持期限を確認して明示処置し、新しいsource別batchへ旧checkpointを読み替えない。collector binding変更で未完了planを拒否した場合も、手書きhash置換をせず同様に扱う。sealed terminalは以前の検証結果として維持する。
+旧multi-source planを分割・移行・新しいsource planとして再利用しない。現行source入口はsource不一致を拒否する。旧`external_assessment_daily` CLIは`status / audit / terminal --run-id <exact ID>`の読取専用とし、plan作成・取得・公開・scheduled ID生成の入口を持たない。取得・公開は`external_assessment_sources`へ統一し、既存terminalの歴史参照だけを残す。未公開の旧batchは旧revisionで内容と原本保持期限を確認して明示処置し、新しいsource別batchへ旧checkpointを読み替えない。collector binding変更で未完了planを拒否した場合も、手書きhash置換をせず同様に扱う。sealed terminalは以前の検証結果として維持する。
 
 ### 公開HTML原本のcohort handoff bundle
 
@@ -829,7 +829,7 @@ uv run python -m baibai_batch.storage.external_assessment_raw --as-of 2026-10-12
 
 本文再検証では既存runtime認証と`read_raw_bundle(store, bundle_key)`を使い、manifestと復元したcanonical receipt・bytesのsize/SHA256・親子関係を照合する。archiveをfilesystemへ展開せず、本文や再解析値をstdoutへ出さない。必要なサンプルの期限外保持はraw root外の明示したprivate領域へ手動コピーし、専用pin/GC管理は追加しない。
 
-### readyなsourceのまとめ公開・停止後の運用
+### 公開・成功確認・停止後の運用
 
 通常scheduledは、入口で固定したexactな4source planだけを調べ、全pair確定かつ403/429なしのready planを一度に公開する。matrix全体の成功は要求せず、停止/未完了sourceはそのまま残す。任意の最新planをLISTして拾わない。手動で1sourceを指定した場合は他sourceを取得・公開しない。
 
@@ -841,7 +841,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 公開jobはまずexact source plan/stage/terminalをread-onlyで確認する。全sourceが既存terminalで閉じている場合はstage/raw再読・lease・hydrateを省く。readyなsourceがある場合だけ既存`cloud-publish`内でpublication leaseを取得し、fresh pull/hydrateする。選んだplanごとのrawを再解析してtyped stageとの一致を確認し、全選択原本の検証後にL2を適用する。変更partition/月/receipt digestのunionを一回のLake export・pointer CAS・remote readbackで検証する。期限切れlease、origin、raw/typed/history不整合では停止する。破損した選択sourceの自動隔離は行わず、正常sourceだけの手動実行で切り分ける。
 
-source別の既存terminalは、共通releaseのreadback完了後にそれぞれ保存する。集約plan・集約terminalは作らない。一部terminal保存後の停止ではsealed sourceは`previously_verified`でno-op、未sealed sourceはfresh hydrateからidempotentに再適用する。pointer成功後のterminal失敗を未反映と断定しない。障害時には追加row 0でも再export/readbackが起き得る。
+source別の既存terminalは、共通releaseのreadback完了後にそれぞれ保存する。集約plan・集約terminalは作らない。一部terminal保存後の停止ではsealed sourceは`previously_verified`でno-op、未sealed sourceはfresh hydrateからidempotentに再適用する。pointer成功後のterminal失敗を未反映と断定しない。今回の開始時にterminalがなく、例外後に検証済みterminalを回収できたsourceは今回の公開として示し、回収できない追加row数は不明にする。次回再開だけ以前の検証・追加row 0とする。障害時には追加row 0でも再export/readbackが起き得る。
 
 403/429や未完了sourceを自動的に閉じない。確定typedだけで閉じる場合は同source・同label/masterで`operation=publish_confirmed_partial`を明示する。この操作は`source=all`を拒否し、取得jobを実行せず、保存plan/typedがなければ止める。部分公開workflow全体が同sourceの取得jobと同じconcurrency groupをterminal確定まで保持し、取得中のplanを並行して閉じない。公開jobは引き続き別の`cloud-publish` groupとpublication leaseを保持する。失敗・未試行を正常nullへ変えず、既存部分terminalとして同batchを閉じる。
 
@@ -853,7 +853,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 **成功確認**: sourceごとの固定pair・typed・正常null・失敗・未試行、完全/部分公開、release ID/hash、readback、lease解放を分けて確認する。1件の403で残り全件を失敗とせず、未試行数を保持する。保存済み観測の受領時刻を最新実行時刻へ更新しない。Lake公開とWeb serving更新は別で、Webは通常daily/materializeで反映する。新規取得の成功をschema切替やCI緑だけで証明しない。
 
-通知はsource別結果を既存Discord宛先へrun単位で1件送り、以前の検証・今回の公開・取得元停止・未完了・公開結果不明を区別する。terminal保存だけ失敗した場合、保存済みterminalで確認できるsourceだけ成功を示す。不明な件数を0で補わず、値・HTML・private ID・例外本文を通知しない。lease解放失敗も公開到達点と併記する。setup等で結果fileが作れなければ結果不明とする。
+通知はsource別結果を既存Discord宛先へrun単位で1件送り、以前の検証・今回の公開・取得元停止・未完了・公開結果不明を区別する。terminal保存だけ失敗した場合、保存済みterminalで確認できるsourceだけ成功を示す。不明な件数を0で補わず、値・HTML・private ID・例外本文を通知しない。lease解放失敗も公開到達点と併記する。setup等で結果fileが作れなければ結果不明とする。通知POST直前に`notification_attempted`をstep/job outputで伝え、内部通知を開始していない場合だけ終端jobがfallbackする。queue中取消・setup失敗もfallback対象とし、POSTの応答不明時には重複送信しない。これは配送成功の印ではなく試行の印であり、取消時のrunner→job output転送が失われる境界は実Actionsで未検証。新しい永続通知stateや配送のexactly-once保証は追加しない。
 
 まとめ公開はscheduled取得job群の終了を待つため遅いsourceによる待ちが残る。取得は独立して保存され、必要ならreadyなsourceだけを手動公開できる。通常公開の回数削減は全upload量の比例削減を意味しない。料金・所要時間は通常runのsource取得、private handoff、hydrate、export、readbackを分けて確認する。未公開raw bundleの期限切れでは復元を保証しない。新しい性能試験のための本番取得は行わない。
 

@@ -189,12 +189,31 @@ def test_failed_bundle_acknowledgement_prevents_stage_commit(monkeypatch, capsys
     assert "synthetic.invalid" not in output.err
 
 
-def test_cli_only_disables_put_head_for_private_acquisition(monkeypatch):
+def test_source_cli_only_disables_put_head_for_private_acquisition(monkeypatch, tmp_path):
+    from baibai_batch.jobs import external_assessment_sources as sources
+
     configured = []
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: configured.append(kwargs))
-    monkeypatch.setattr(daily, "read_plan", lambda *args: plan())
-    monkeypatch.setattr(daily, "acquire_cohort", lambda *args: {"status": "already_published"})
-    assert daily.main(["acquire", "--run-id", "synthetic", "--cohort", "0"]) == 0
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: configured.append(kwargs))
+    monkeypatch.setattr(daily, "initialize", lambda *args, **kwargs: plan())
+    monkeypatch.setattr(
+        sources, "acquire_source", lambda *args, **kwargs: {"status": "already_published"}
+    )
+    assert (
+        sources.main(
+            [
+                "acquire",
+                "--source",
+                "monex",
+                "--run-id",
+                "monex-synthetic",
+                "--master-asof",
+                "2026-10-11",
+                "--directory",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
     assert configured == [{"bucket": "baibai-stores", "verify_put_with_head": False}]
 
 

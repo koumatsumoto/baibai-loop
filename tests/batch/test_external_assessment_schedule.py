@@ -14,12 +14,14 @@ from tests.batch.test_external_assessment_daily import (
     completed_pair,
     plan,
     seed_stage,
+    wire_success,
 )
 from tests.engine.test_external_assessment_daily_verification import build_master_lake
 from tests.engine.test_external_assessment_pair_collection import Session
 from tests.engine.test_external_assessment_sources import monex_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
+from baibai_batch.jobs import external_assessment_sources as sources
 from baibai_batch.jobs.external_assessment_cohorts import new_result
 from baibai_batch.jobs.schedule import (
     EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME,
@@ -47,6 +49,7 @@ def clock(monkeypatch, value):
             return value.astimezone(tz)
 
     monkeypatch.setattr(daily, "datetime", FixedDatetime)
+    monkeypatch.setattr(sources, "datetime", FixedDatetime)
 
 
 @pytest.mark.parametrize(
@@ -136,32 +139,16 @@ def test_unavailable_calendar_or_exact_master_creates_no_plan(tmp_path, monkeypa
     assert not store.put_keys
 
 
-def test_scheduled_status_and_plan_reuse_the_original_id_before_any_new_lake_reads(
-    tmp_path, monkeypatch
-):
-    p = replace(
-        plan(),
-        run_id="external-assessment-daily-2026-10-11",
-        universe_binding=json.dumps({"master_asof": FRIDAY.isoformat()}),
-    )
+def test_saved_plan_history_status_never_refreezes_its_universe(monkeypatch, capsys):
+    p = replace(plan(), run_id="external-assessment-daily-monex-2026-10-11")
     store = FakeObjectStore()
     staging.save_new_plan(store, p)
+    store.events.clear()
     monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
-    monkeypatch.setattr(
-        daily,
-        "external_assessment_calendar_master_asof",
-        lambda *args, **kwargs: pytest.fail("refreeze"),
-    )
-    clock(monkeypatch, datetime(2026, 10, 12, 10, 13, tzinfo=UTC))
-    output = tmp_path / "output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    args = ["--scheduled", "--run-created-at", CREATED.isoformat()]
-    assert daily.main(["status", *args]) == 0
-    assert outputs(output)["run_id"] == p.run_id
-    assert outputs(output)["eligible"] == "true"
-    assert daily.main(["plan", *args]) == 0
-    assert outputs(output)["cohorts"] == "[0]"
-    assert all(key.startswith(staging.prefix(p.run_id)) for _, key in store.events)
+    monkeypatch.setattr(daily, "initialize", lambda *args, **kwargs: pytest.fail("refreeze"))
+    assert daily.main(["status", "--run-id", p.run_id]) == 0
+    assert json.loads(capsys.readouterr().out) == {"plan_exists": True}
+    assert all(key == staging.prefix(p.run_id) + "/plan.json" for _, key in store.events)
 
 
 def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monkeypatch):
@@ -185,35 +172,25 @@ def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monk
     assert all("/year=2025/" in key for key in master_reads)
 
 
-def test_before_close_scheduled_run_does_not_touch_store_or_provider(tmp_path, monkeypatch):
+def test_before_close_source_prepare_does_not_touch_store_or_provider(tmp_path, monkeypatch):
     clock(monkeypatch, datetime(2026, 10, 12, 6, 29, tzinfo=UTC))
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: pytest.fail("before-close R2"))
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: pytest.fail("before-close R2"))
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    assert daily.main(["status", "--scheduled", "--run-created-at", CREATED.isoformat()]) == 0
-    assert outputs(output) == {"eligible": "false"}
+    assert (
+        sources.main(["prepare", "--source", "monex", "--run-created-at", CREATED.isoformat()]) == 0
+    )
+    assert outputs(output)["eligible"] == "false"
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        ["plan", "--scheduled"],
-        ["acquire", "--scheduled", "--run-created-at", CREATED.isoformat()],
-        ["plan", "--scheduled", "--run-created-at", CREATED.isoformat(), "--run-id", "override"],
-        [
-            "plan",
-            "--scheduled",
-            "--run-created-at",
-            CREATED.isoformat(),
-            "--master-asof",
-            "2026-10-09",
-        ],
-        ["status", "--run-created-at", CREATED.isoformat(), "--run-id", "manual"],
-    ],
-)
-def test_invalid_scheduled_or_manual_arguments_never_open_store(monkeypatch, args):
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: pytest.fail("invalid input R2"))
-    assert daily.main(args) == 1
+@pytest.mark.parametrize("command", ["plan", "acquire", "publish", "publish-confirmed-partial"])
+def test_old_write_commands_and_scheduled_identity_cannot_open_store(monkeypatch, command):
+    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: pytest.fail("old writer R2"))
+    with pytest.raises(SystemExit) as error:
+        daily.main(
+            [command, "--scheduled", "--source", "monex", "--run-created-at", CREATED.isoformat()]
+        )
+    assert error.value.code == 2
 
 
 def test_holiday_receipt_keeps_actual_day_and_same_plan_resume_never_repeats_http(monkeypatch):
@@ -246,30 +223,19 @@ def test_holiday_receipt_keeps_actual_day_and_same_plan_resume_never_repeats_htt
     assert store.objects[staging.stage_key(p, 0)][0] == before
 
 
-def test_plan_matrix_omits_completed_cohorts_without_a_second_checkpoint_scan(
-    tmp_path, monkeypatch
-):
+def test_source_runner_skips_completed_cohorts_and_complete_resume_has_no_http_or_put(monkeypatch):
     p = plan(tickers=("6758", "7203"), cohort_size=1)
     store = FakeObjectStore()
-    staging.save_new_plan(store, p)
-    first = completed_pair(p, new_result(p, 0), "6758", "observed")
-    seed_stage(store, p, first)
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
-    output = tmp_path / "output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    args = ["plan", "--run-id", p.run_id, "--master-asof", "2026-10-11"]
-    assert daily.main(args) == 0
-    assert outputs(output)["cohorts"] == "[1]"
-    second = completed_pair(p, new_result(p, 1), "7203", "normal_null")
-    seed_stage(store, p, second)
-    before = {key: payload for key, (payload, _) in store.objects.items()}
-    store.events.clear()
-    store.puts.clear()
-    assert daily.main(args) == 0
-    assert outputs(output)["cohorts"] == "[]"
-    assert sum(kind == "GET" and "/cohort-" in key for kind, key in store.events) == 2
-    assert not store.puts
-    assert {key: payload for key, (payload, _) in store.objects.items()} == before
+    seed_stage(store, p, completed_pair(p, new_result(p, 0), "6758", "observed"))
+    calls = wire_success(monkeypatch, store, p)
+    report = sources.acquire_source(store, p, source="monex")
+    assert calls == ["7203"]
+    assert report["status"] == "acquired"
+    before = list(store.puts)
+    repeated = sources.acquire_source(store, p, source="monex")
+    assert repeated["provider_requests"] == 0
+    assert calls == ["7203"]
+    assert store.puts == before
 
 
 @pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])

@@ -1,25 +1,36 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 
 import pytest
-from tests.batch.test_external_assessment_publication import publication as publication
+from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, seed_stage
 
 from baibai_batch.jobs import external_assessment_daily as daily
+from baibai_batch.jobs.external_assessment_cohorts import new_result
 from baibai_batch.storage import external_assessment_staging as staging
 
 
-@pytest.mark.parametrize("old_binding", [False, True])
-def test_active_old_multi_source_cli_plan_is_refused_without_changing_handoff(
-    publication, monkeypatch, old_binding
-):
-    store, original, *_ = publication
-    p = replace(original, universe_binding=json.dumps({"master_asof": "2026-10-09"}))
-    if old_binding:
-        p = replace(p, collector_binding="old-binding")
+@pytest.mark.parametrize("command", ["plan", "acquire", "publish", "publish-confirmed-partial"])
+def test_legacy_cli_has_no_write_entry_even_for_saved_plans(monkeypatch, command):
+    monkeypatch.setattr(
+        daily, "Boto3R2Store", lambda **kwargs: pytest.fail("write entry opened R2")
+    )
+    with pytest.raises(SystemExit) as error:
+        daily.main([command, "--run-id", "external-assessment-daily-2026-10-11"])
+    assert error.value.code == 2
+
+
+def test_legacy_status_and_audit_are_read_only(monkeypatch, capsys):
+    p = plan(sources=("monex", "rakuten"))
+    store = FakeObjectStore()
     staging.save_new_plan(store, p)
+    seed_stage(store, p, new_result(p, 0))
+    before = dict(store.objects)
+    store.puts.clear()
     monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
-    before = {key: value.body for key, value in store.values.items()}
-    assert daily.main(["plan", "--run-id", p.run_id, "--master-asof", "2026-10-09"]) == 1
-    assert {key: value.body for key, value in store.values.items()} == before
+    assert daily.main(["status", "--run-id", p.run_id]) == 0
+    assert json.loads(capsys.readouterr().out) == {"plan_exists": True}
+    assert daily.main(["audit", "--run-id", p.run_id]) == 0
+    assert json.loads(capsys.readouterr().out)["state_counts"]["unattempted"] == 2
+    assert store.objects == before
+    assert store.puts == []

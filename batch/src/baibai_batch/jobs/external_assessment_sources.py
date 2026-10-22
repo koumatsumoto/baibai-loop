@@ -21,7 +21,10 @@ from baibai_batch.jobs.external_assessment_publication import (
     publish_plans_and_verify,
 )
 from baibai_batch.jobs.schedule import external_assessment_target_date
-from baibai_batch.storage.external_assessment_identity import SCHEDULED_BATCH_PREFIX
+from baibai_batch.storage.external_assessment_identity import (
+    PARTIAL_TERMINAL_FORMAT,
+    SCHEDULED_BATCH_PREFIX,
+)
 from baibai_batch.storage.external_assessment_staging import (
     prefix,
     read_plan,
@@ -242,7 +245,8 @@ def publish_ready(
             )
             for result in cast("list[dict[str, object]]", common.pop("plans")):
                 reports[cast("str", result["source"])] = result
-        except Exception:
+        except Exception as error:
+            print(f"Source publication failed; type={type(error).__name__}", file=sys.stderr)
             # Publication may already have advanced; only individual saved terminals
             # prove completed readback. Never roll back or label every source unsent.
             success = False
@@ -258,7 +262,16 @@ def publish_ready(
                 except Exception:
                     terminal = None
                 reports[source] = (
-                    {**terminal_result(terminal), "source": source}
+                    {
+                        **item.accounting,
+                        **terminal,
+                        "source": source,
+                        "status": "partially_published"
+                        if terminal["format"] == PARTIAL_TERMINAL_FORMAT
+                        else "published",
+                        "rows_added": None,
+                        "source_responses_added": None,
+                    }
                     if terminal is not None
                     else {**item.accounting, "source": source, "status": "publication_unconfirmed"}
                 )

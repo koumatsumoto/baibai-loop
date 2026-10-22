@@ -64,7 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def render_sources(path: Path, *, lease_release: str, cancelled: str) -> str:
+def render_sources(
+    path: Path, *, lease_release: str, cancelled: str, publish_result: str = "skipped"
+) -> str:
     """Only allowlisted source names, states and aggregate counts leave the runner."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -146,6 +148,9 @@ def render_sources(path: Path, *, lease_release: str, cancelled: str) -> str:
             if degraded
             else OUTCOME_OK
         )
+        if publish_result == "failure":
+            outcome = OUTCOME_DEGRADED if published else OUTCOME_FAILED
+            lines.append("公開処理step失敗・上記のterminal確認済み到達点を保持して確認")
         if lease_release == "failure":
             outcome = OUTCOME_DEGRADED if published else OUTCOME_FAILED
             lines.append("lease解放失敗・上記の公開到達点を保持して確認")
@@ -166,7 +171,10 @@ def render_sources(path: Path, *, lease_release: str, cancelled: str) -> str:
 def render_message(args: argparse.Namespace) -> str:
     if args.sources_report is not None:
         return render_sources(
-            args.sources_report, lease_release=args.lease_release_outcome, cancelled=args.cancelled
+            args.sources_report,
+            lease_release=args.lease_release_outcome,
+            cancelled=args.cancelled,
+            publish_result=args.publish_result,
         )
     previous = args.terminal_status != "pending" and args.plan_result == "success"
     if previous:
@@ -235,6 +243,11 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     args = build_parser().parse_args(argv)
     message = render_message(args)
     print(message, flush=True)
+    # Mark before POST: a lost response may already have delivered the message.
+    # The fallback must not repeat a possibly completed external send.
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with Path(output).open("a", encoding="utf-8") as stream:
+            print("attempted=true", file=stream)
     failure = deliver(
         os.environ.get(WEBHOOK_ENV_VAR, ""),
         message,
