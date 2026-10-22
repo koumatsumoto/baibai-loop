@@ -15,7 +15,7 @@ from baibai_engine.external_assessment.normalization import (
 )
 from baibai_engine.external_assessment.observations.models import AnalystForecastObservation
 
-PARSER_VERSION = "minkabu-analyst-4"
+PARSER_VERSION = "minkabu-analyst-5"
 RATING_LABELS = ("強気買い", "買い", "中立", "売り", "強気売り")
 COUNT_FIELDS = ("strong_buy_count", "buy_count", "neutral_count", "sell_count", "strong_sell_count")
 FORECAST_FIELDS = {
@@ -133,9 +133,14 @@ def parse_html(
         ]
         if (
             len(boxes) != 1
-            or boxes[0].tag != "span"
-            or "href" in boxes[0].attrs
             or compact(boxes[0].text) != "アナリスト対象外"
+            or not (
+                (boxes[0].tag == "span" and "href" not in boxes[0].attrs)
+                or (
+                    boxes[0].tag == "a"
+                    and boxes[0].attrs.get("href") == f"/stock/{ticker}/analyst_consensus"
+                )
+            )
         ):
             raise ParseError("unconfirmed_no_analyst_coverage")
         return AnalystForecastObservation.model_validate(

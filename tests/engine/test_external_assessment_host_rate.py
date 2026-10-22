@@ -164,12 +164,12 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v12_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v12"
+def test_v13_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "external-assessment-pair-acquisition-v13"
     assert source_http.HOST_REQUEST_RATE_PER_SECOND == 2
     assert source_http.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
-    assert binding == "271f78d6caf2f5d91076bd7ad44fbd651423e821bcaa29e5ec334bd054df326f"
+    assert binding == "1e5e2c432cd4638a7f8dcc4cb7872aeb1107c4465efa3fb81118cc58508311d2"
     monkeypatch.setattr(source_http, "HOST_REQUEST_RATE_PER_SECOND", 3)
     assert collection.collector_binding() != binding
 
@@ -206,13 +206,16 @@ def test_token_wait_timeout_is_unattempted_with_no_http(clock):
     assert client.calls == []
 
 
-def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_received_200(clock):
+@pytest.mark.parametrize("linked", [False, True])
+def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_received_200(
+    clock, linked
+):
     from tests.engine.test_minkabu import no_coverage_html
 
     from baibai_engine.external_assessment.normalization.decode import decode_attempt
 
     originals = []
-    client = Session(clock, [(404, "not found", {}), (200, no_coverage_html(), {})])
+    client = Session(clock, [(404, "not found", {}), (200, no_coverage_html(linked=linked), {})])
     result = pair(
         client,
         source_http.HostRateLimiter(),

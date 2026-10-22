@@ -157,15 +157,18 @@ def test_analysis_rejects_future_or_different_security():
             analyze(history, evaluated_at=NOW)
 
 
-def no_coverage_html(ticker="130A"):
+def no_coverage_html(ticker="130A", *, linked=False):
+    tag = "a" if linked else "span"
+    href = f' href="/stock/{ticker}/analyst_consensus"' if linked else ""
     return f'''<html><head><title>合成会社 ({ticker}) : 株価</title>
     <link rel="canonical" href="{minkabu.profile_url(ticker)}"></head><body>
     <span class="md_box"><p class="label">個人予想</p><span>対象外</span></span>
-    <span class="ly_col md_box"><p class="label">アナリスト</p>
-    <span class="md_picksPlate theme_none">対象外</span></span></body></html>'''
+    <{tag} class="ly_col md_box"{href}><p class="label">アナリスト</p>
+    <span class="md_picksPlate theme_none">対象外</span></{tag}></body></html>'''
 
 
-def test_explicit_identified_no_coverage_is_not_zero_or_an_http_error(tmp_path):
+@pytest.mark.parametrize("linked", [False, True])
+def test_explicit_identified_no_coverage_is_not_zero_or_an_http_error(tmp_path, linked):
     from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
     from baibai_engine.external_assessment.normalization.decode import decode_attempt
 
@@ -179,7 +182,7 @@ def test_explicit_identified_no_coverage_is_not_zero_or_an_http_error(tmp_path):
         minkabu.profile_url("130A"),
         NOW,
         "utf-8",
-        no_coverage_html().encode(),
+        no_coverage_html(linked=linked).encode(),
     )
     row = decode_attempt([response])
     assert row.availability == "not_covered"
@@ -208,6 +211,61 @@ def test_404_or_incidental_missing_text_never_proves_no_coverage(old, new):
             ticker="130A",
             source_url=minkabu.profile_url("130A"),
             fetched_at_utc=NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        "/stock/7203/analyst_consensus",
+        "https://other.example/stock/130A/analyst_consensus",
+        "//other.example/stock/130A/analyst_consensus",
+        "https://minkabu.jp/stock/130A/analyst_consensus",
+        "/stock/130A/analyst_consensus?other=1",
+        "/stock/130A/analyst_consensus#other",
+        "/stock/130A",
+        "",
+    ],
+)
+def test_linked_no_coverage_requires_exact_same_ticker_relative_link(href):
+    text = no_coverage_html(linked=True).replace(
+        'href="/stock/130A/analyst_consensus"', f'href="{href}"'
+    )
+    with pytest.raises(ParseError, match="unconfirmed_no_analyst_coverage"):
+        minkabu.parse_html(
+            text, ticker="130A", source_url=minkabu.profile_url("130A"), fetched_at_utc=NOW
+        )
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("130A", "7203"),
+        ("アナリスト</p>", "個人予想</p>"),
+        ("対象外", "対象外（推定）"),
+        ('class="ly_col md_box"', 'class="unrelated"'),
+        (' href="/stock/130A/analyst_consensus"', ""),
+        ('<a class="ly_col md_box"', '<div class="ly_col md_box"'),
+    ],
+)
+def test_linked_no_coverage_keeps_identity_card_and_exact_text_checks(old, new):
+    with pytest.raises(ParseError):
+        minkabu.parse_html(
+            no_coverage_html(linked=True).replace(old, new),
+            ticker="130A",
+            source_url=minkabu.profile_url("130A"),
+            fetched_at_utc=NOW,
+        )
+
+
+@pytest.mark.parametrize("linked", [False, True])
+@pytest.mark.parametrize("other_text", ["対象外", "買い"])
+def test_duplicate_or_conflicting_analyst_cards_do_not_prove_no_coverage(linked, other_text):
+    other = f'<span class="md_box"><p class="label">アナリスト</p>{other_text}</span>'
+    text = no_coverage_html(linked=linked).replace("</body>", other + "</body>")
+    with pytest.raises(ParseError, match="unconfirmed_no_analyst_coverage"):
+        minkabu.parse_html(
+            text, ticker="130A", source_url=minkabu.profile_url("130A"), fetched_at_utc=NOW
         )
 
 
