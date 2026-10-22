@@ -26,6 +26,7 @@ status: active
 | 機械ER/FV、保存済み照会、valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
 | Candidate Discovery・候補一覧 | [screening-runtime](./screening-runtime.md) |
 | Market Context、市場/個別相対、経済指標・Reading・assessment・保存履歴 | [Market Context](./market-context.md) |
+| SMA20/50/200、Bollinger Bands20、Wilder RSI14と保存価格の時点 | [Technical Analysis](./technical-analysis.md) |
 | 外部参考評価・原評価元・尺度・欠測 | [data-sources](./data-sources.md#external-assessment)・[保存済み照会](./market-lake.md#external-assessment-query) |
 | 情報源の選択と取得失敗 | [data-sources](./data-sources.md) |
 | 信用残高の公表制度変更と移行 | [margin-publication-transition](./margin-publication-transition.md) |

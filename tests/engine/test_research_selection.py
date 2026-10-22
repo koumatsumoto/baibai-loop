@@ -105,6 +105,18 @@ def test_snapshot_requires_exact_coverage_and_no_duplicate_analysis(modify):
         parse_selection(raw)
 
 
+def test_technical_context_allows_old_snapshot_but_rejects_unknown_domain_keys():
+    old = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
+    assert "technical_analysis" not in parse_selection(old).inputs.securities_context["1234"]
+    old["inputs"]["securities_context"]["1234"]["technical_analysis"] = {"bar_count": 0}
+    assert parse_selection(old).inputs.securities_context["1234"]["technical_analysis"] == {
+        "bar_count": 0
+    }
+    old["inputs"]["securities_context"]["1234"]["technical_score"] = 1
+    with pytest.raises(ValueError, match="security context"):
+        parse_selection(old)
+
+
 def test_normalization_todo_text_and_legacy_rejection():
     draft = draft_for(selection(now=NOW, tickers=("285A",), scope="specified_stocks")).model_dump(
         mode="json"
