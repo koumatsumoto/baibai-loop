@@ -755,6 +755,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 ```bash
 uv run baibai-engine external-assessment collect --output /tmp/private-external-assessment/responses.json
 uv run baibai-engine external-assessment collect --source kabumap --tickers 130A 8306 --output /tmp/private-external-assessment/quants-responses.json
+uv run baibai-engine external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/minkabu-responses.json
 uv run baibai-engine external-assessment import --input /tmp/private-external-assessment/responses.json --db /tmp/private-external-assessment/market.sqlite
 ```
 
@@ -768,7 +769,7 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 初回に最新L1のreleaseを固定し、日次取得ではそのJPXカレンダーで対象営業日のexact-date masterを選ぶ。休日も取得し、連続したカレンダーで直近営業日を確認してその保存済みmasterを使う。手動では従来どおりmaster日付を明示する。calendarと必要なmaster年partition以外をこの計画段階で取得・hydrateせず、新しいmasterをproviderから取得しない。calendarの対象日・連続性、普通株のproduction floor、分類、master日付・release bindingが不足する場合はprovider通信前に停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では保存済みplanを読み、別universeへ置換しない。受領日時とJST受領日は実通信から保持し、休日や翌日の再開をmaster日付・cron対象日へ付け替えない。
 
-既定・最大50銘柄のcohortを直列のmatrix jobへ分ける。通常の3媒体では50×（Monex 1HTTP＋楽天2HTTP＋株マップ1HTTP）で最大200HTTPとなる。取得は銘柄ごとにplanの媒体順で回し、別hostの待機枠を使う。保存planとstageのpair順は従来の媒体順を保持する。別のHTTP数groupや細粒度matrixは作らない。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。全4hostは平均2HTTP/秒・最大4creditのtoken bucketをcohort内の全pair・再試行で共有し、実送信直前にtokenを消費する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは直列1件、process開始時のcreditは0で、再起動によるcredit付与はない。HTTP Sessionはcohort内で再利用し、各pair開始時にcookieを空にする。限定CLIの2秒間隔と通常のTLS/proxy経路は維持する。
+既定・最大50銘柄のcohortを直列のmatrix jobへ分ける。通常の4媒体では50×（Monex 1HTTP＋楽天2HTTP＋株マップ1HTTP＋みんかぶ1HTTP）で最大250HTTPとなる。取得は銘柄ごとにplanの媒体順で回し、別hostの待機枠を使う。保存planとstageのpair順は従来の媒体順を保持する。別のHTTP数groupや細粒度matrixは作らない。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。全5hostは平均2HTTP/秒・最大4creditのtoken bucketをcohort内の全pair・再試行で共有し、実送信直前にtokenを消費する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは直列1件、process開始時のcreditは0で、再起動によるcredit付与はない。HTTP Sessionはcohort内で再利用し、各pair開始時にcookieを空にする。限定CLIの2秒間隔と通常のTLS/proxy経路は維持する。
 
 pair取得は120秒以内、HTTP timeoutは30秒以内とする。取得jobは4時間のsoft budgetに次pair・保存の15分余裕を残し、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
 
@@ -788,7 +789,7 @@ planは既存stageを一度走査し、未記録pairを持つcohortだけをmatr
 
 ### 公開HTML原本のcohort handoff bundle
 
-HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stageより先に保存する。対象は既存collectorが要求した公開Monex、楽天outer、確認済みIFIS iframe、株マップの銘柄診断に限り、新しい取得は加えない。HTTP転送圧縮展開後・文字decode前のbytesを捕捉し、manifestにreceipt UUID・attempt UUID・媒体・要求ticker・page/iframeと親receipt・URL・encoding・実受領UTC・HTTP status・本文SHA256/bytes・archive memberを記録する。Cookie・認証header・全response headerは保存しない。旧診断用format v1はv2の原本読取で拒否し、旧本文からcanonical identityを補わない。
+HTTP 200本文はprivateな標準tar.gz（format v2）へまとめてtyped stageより先に保存する。対象は既存collectorが要求した公開Monex、楽天outer、確認済みIFIS iframe、株マップの銘柄診断、みんかぶの証券アナリスト予想に限る。SRC/FISCOの企業レポートはこの日次取得へ加えず、Research時の参照とする。HTTP転送圧縮展開後・文字decode前のbytesを捕捉し、manifestにreceipt UUID・attempt UUID・媒体・要求ticker・page/iframeと親receipt・URL・encoding・実受領UTC・HTTP status・本文SHA256/bytes・archive memberを記録する。Cookie・認証header・全response headerは保存しない。旧診断用format v1はv2の原本読取で拒否し、旧本文からcanonical identityを補わない。
 
 受信した本文は文字decode前にcallbackへ渡す。各attemptの最大2本文をpair deadline外でprivateなlocal fileへspoolし、cohort終了時にarchiveを作ってimmutable bundleをuploadする。成功したuploadのkeyと選択attempt IDを含めてからtyped stageを条件付きcommitする。raw append・finalize・upload失敗はstage commitを止める。stage PUTが曖昧な場合は既存の読戻しで実際に保存された競合stageを採用し、上書きしない。commit前のhard killでは未確定GETを再実行し得るため、解析の各命令より前に永続保存済みとは主張しない。完了済みstage/terminalは再取得・raw補完しない。
 

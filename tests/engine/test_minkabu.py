@@ -70,7 +70,8 @@ def test_visible_analyst_fields_not_combined_target_or_chart_data():
     assert row.analyst_net_income_million_yen == -4
     assert row.analyst_eps_yen == 4.5
     assert row.company_eps_yen == 6
-    assert row.origin is None and row.share_basis is None
+    assert row.origin is None
+    assert row.share_basis is None
     assert row.fetched_at_utc == NOW
     assert row.company_forecast_as_of_date.isoformat() == "2026-09-17"
 
