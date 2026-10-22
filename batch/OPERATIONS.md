@@ -125,7 +125,7 @@ batch/scripts/pull.sh
 ```bash
 uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
 # 個別銘柄の入力を確認する場合
-uv run baibai-engine screening ticker-profile --ticker TICKER
+uv run baibai-engine screening ticker-profile --ticker TICKER --asof YYYY-MM-DD
 ```
 
 **成功確認**: `verify-cache-coverage`が対象日の必要入力を満たし、個別確認では
@@ -207,7 +207,7 @@ uv run baibai-engine lake hydrate \
 ### application DB を反映する
 
 **前提**: 空の作業領域へ`batch/scripts/r2_transfer.sh pull-app`でクラウド正本を取得し、取得したDBと`stores/.r2-generations/baibai.sqlite.etag`を一組として保持する（世代directoryを変更した場合も同じ組を使う）。取得済み作業コピーで判断・確認済み事実・運用状態を更新し、schema cutoverを含むcodeはmainへ入れる。
-既存fileへのpullは未公開変更を守るため停止する。コピー更新が必要ならwriterを止め、`uv run baibai-engine db backup`でWAL込みのsnapshotを検証して退避した後、空の作業領域へ取得し直す。DBだけを別世代へ差し替えてsidecarを流用しない。
+既存fileへのpullは未公開変更を守るため停止する。コピー更新が必要ならwriterを止め、`uv run baibai-engine db backup --db stores/application/baibai.sqlite`でWAL込みのsnapshotを検証して退避した後、空の作業領域へ取得し直す。DBだけを別世代へ差し替えてsidecarを流用しない。
 
 **実行**:
 
@@ -265,7 +265,7 @@ restore_backup=
 if test -f stores/application/baibai.sqlite; then
   restore_backup="$(
     set -o pipefail
-    uv run baibai-engine db backup | \
+    uv run baibai-engine db backup --db stores/application/baibai.sqlite | \
       uv run python -c 'import sys, yaml; print(yaml.safe_load(sys.stdin)["path"])'
   )" || exit 1
   test "$restore_backup" != None && test -f "$restore_backup" || exit 1
@@ -329,7 +329,7 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
   cp "$target" "$restore_stage"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
   mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine position ledger
+  uv run baibai-engine position ledger --db stores/application/baibai.sqlite
 )
 ```
 
@@ -348,7 +348,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
   mv stores/application/baibai.sqlite "$failed_restore"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
   mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine position ledger
+  uv run baibai-engine position ledger --db stores/application/baibai.sqlite
 )
 ```
 
