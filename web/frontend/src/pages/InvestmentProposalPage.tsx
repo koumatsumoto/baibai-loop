@@ -163,9 +163,9 @@ export function InvestmentProposalPage() {
     {data.items.map(item => <div className="grid min-w-0 gap-3" key={item.ticker}><ProposalItemContent item={item} proposalId={data.proposal_id} savedQuote={quotes.find(quote => quote.ticker === item.ticker)} /><ProposalAssessmentDetails item={item} proposalId={data.proposal_id} /></div>)}
     {data.unfinished_research.length > 0 && <SectionCard padded title="調査未完了" description="完成した経済的な見送りと区別した、提案当時の不足です。">{data.unfinished_research.map(item => <div className="mb-3 text-sm" key={item.ticker}><p>{item.ticker} · {item.unfinished_reason}</p><p className="break-all text-xs text-muted-foreground">{item.references.join(' · ')}</p></div>)}</SectionCard>}
     <SectionCard padded title="発行時の資金・範囲・警告"><p className="text-sm">保存した利用可能 cash {text(data.saved_inputs.available_cash_yen)}円 · 入力確認時点 {text(data.saved_inputs.checked_at)}</p>{data.warnings.length > 0 && <p className="mt-2 break-words text-xs">当時の警告: {data.warnings.map(proposalWarningLabel).join(' / ')}</p>}<details className="mt-3"><summary className="cursor-pointer text-sm">保存した入力・比較範囲・資本集中</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify({ inputs: data.saved_inputs, research_scope: data.research_scope, portfolio_exposure: data.portfolio_exposure, liquidity_context: data.liquidity_context }, null, 2)}</pre></details></SectionCard>
-    <CurrentProposalPreviewPanel key={data.proposal_id} proposalId={data.proposal_id} />
     <ProposalReviewContent review={data.review} proposalId={data.proposal_id} draftSha256={data.draft_sha256} />
     {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この提案が参照した市場環境評価を見る →</Link>}
+    <CurrentProposalPreviewPanel key={data.proposal_id} proposalId={data.proposal_id} />
     <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>
   </PageShell>
 }
