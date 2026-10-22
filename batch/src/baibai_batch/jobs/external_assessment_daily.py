@@ -22,8 +22,6 @@ from baibai_batch.jobs.external_assessment_cohorts import (
     record_outcome,
     summarize,
 )
-from baibai_batch.jobs.schedule import external_assessment_target_date
-from baibai_batch.storage.external_assessment_identity import SCHEDULED_BATCH_PREFIX
 from baibai_batch.storage.external_assessment_raw import RawBundle
 from baibai_batch.storage.external_assessment_staging import (
     CohortStage,
@@ -34,12 +32,10 @@ from baibai_batch.storage.external_assessment_staging import (
     read_terminal,
     save_new_plan,
     terminal_result,
-    terminal_status,
 )
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_batch.storage.publish_market_lake import _resolve_serving_release, _serving_pointer
 from baibai_engine.batch_api import (
-    MARKET_DB_PATH,
     EquityWebSourceResponse,
     ExternalAssessmentCollectionResult,
     ExternalAssessmentHostRateLimiter,
@@ -306,202 +302,31 @@ def acquire_cohort(
     return _cohort_report(plan, stage, stop_reason, started, timings, provider_requests)
 
 
-def write_outputs(
-    plan: RunPlan | None,
-    terminal: dict[str, object] | None = None,
-    *,
-    cohort_indices: tuple[int, ...] | None = None,
-    run_id: str | None = None,
-) -> None:
-    values = {
-        "run_id": plan.run_id if plan is not None else run_id or "",
-        "eligible": "true",
-        "exists": str(plan is not None).lower(),
-        "cohorts": (
-            json.dumps(
-                list(cohort_indices)
-                if cohort_indices is not None
-                else [cohort.index for cohort in plan.cohorts]
-            )
-            if plan and terminal is None
-            else "[]"
-        ),
-        "terminal_status": terminal_status(terminal) if terminal is not None else "pending",
-    }
-    if output := os.environ.get("GITHUB_OUTPUT"):
-        with Path(output).open("a", encoding="utf-8") as stream:
-            for key, value in values.items():
-                print(f"{key}={value}", file=stream)
-    if terminal is not None:
-        write_publication_outputs(terminal_result(terminal))
-
-
-def write_publication_outputs(report: dict[str, object]) -> None:
-    """Expose only measured aggregates; normal_null means all metric values null."""
-    states = report.get("state_counts")
-    states = states if isinstance(states, dict) else {}
-    counters = {
-        "expected_pairs": report.get("expected_pairs"),
-        "typed_pairs": report.get("observations"),
-        "known_failure_pairs": states.get("failure"),
-        "normal_null_pairs": states.get("normal_null"),
-        "unattempted_pairs": states.get("unattempted"),
-        "rows_added": report.get("rows_added"),
-    }
-    if output := os.environ.get("GITHUB_OUTPUT"):
-        with Path(output).open("a", encoding="utf-8") as stream:
-            for key, value in counters.items():
-                safe = str(value) if type(value) is int and value >= 0 else "unknown"
-                print(f"external_assessment_{key}={safe}", file=stream)
-
-
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "command",
-        choices=("status", "plan", "acquire", "audit", "publish", "publish-confirmed-partial"),
-    )
-    parser.add_argument("--run-id")
-    parser.add_argument("--source", choices=("monex", "rakuten", "kabumap", "minkabu"))
-    parser.add_argument("--scheduled", action="store_true")
-    parser.add_argument("--run-created-at", type=datetime.fromisoformat)
-    parser.add_argument("--master-asof", type=date.fromisoformat)
-    parser.add_argument("--cohort", type=int)
-    parser.add_argument("--db", type=Path, default=MARKET_DB_PATH)
-    parser.add_argument("--directory", type=Path)
-    parser.add_argument("--lease-handle", type=Path)
-    parser.add_argument("--require-existing-plan", action="store_true")
+    parser = argparse.ArgumentParser(description="Read-only fixed-plan history and audit")
+    parser.add_argument("command", choices=("status", "audit", "terminal"))
+    parser.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
     try:
-        plan: RunPlan | None
-        report: dict[str, object]
-        observation_date = None
-        if args.scheduled:
-            if (
-                args.command not in {"status", "plan"}
-                or args.run_created_at is None
-                or args.run_id is not None
-                or args.master_asof is not None
-                or args.require_existing_plan
-            ):
-                raise ValueError("scheduled plan/status requires only the original run clock")
-            observation_date, eligible = external_assessment_target_date(
-                args.run_created_at, datetime.now(UTC)
-            )
-            args.run_id = f"{SCHEDULED_BATCH_PREFIX}{observation_date.isoformat()}"
-            if not eligible:
-                if output := os.environ.get("GITHUB_OUTPUT"):
-                    with Path(output).open("a", encoding="utf-8") as stream:
-                        print("eligible=false", file=stream)
-                print(json.dumps({"status": "before_close", "run_id": args.run_id}))
-                return 0
-        elif args.run_id is None or args.run_created_at is not None:
-            raise ValueError("manual external assessment commands require a stable run id")
-        store = Boto3R2Store(
-            bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
-            verify_put_with_head=args.command != "acquire",
-        )
-        if args.command == "plan":
-            if args.source is None and read_plan(store, args.run_id) is None:
-                raise ValueError("new plans require --source; use external_assessment_sources")
-            if args.master_asof is None and observation_date is None:
-                raise ValueError("saved master date required")
-            plan = initialize(
-                store,
-                run_id=args.run_id,
-                master_asof=args.master_asof,
-                mirror=args.directory,
-                require_existing=args.require_existing_plan,
-                observation_date=observation_date,
-                source=args.source,
-            )
-        else:
-            plan = read_plan(store, args.run_id)
-        if (
-            plan is not None
-            and len(plan.sources) != 1
-            and args.command not in {"status", "audit"}
-            and read_terminal(store, plan) is None
-        ):
-            raise ValueError(
-                "old multi-source plans cannot resume or publish; "
-                "use explicit old-revision disposition"
-            )
+        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        plan = read_plan(store, args.run_id)
         if args.command == "status":
-            write_outputs(
-                plan, read_terminal(store, plan) if plan is not None else None, run_id=args.run_id
-            )
-            print(json.dumps({"plan_exists": plan is not None}))
-            return 0
-        if plan is None:
+            report: dict[str, object] = {"plan_exists": plan is not None}
+        elif plan is None:
             raise ValueError("external assessment fixed plan is missing")
-        if args.command == "plan":
-            terminal = read_terminal(store, plan)
-            saved = (
-                read_stages(store, plan)
-                if terminal is None and not args.require_existing_plan
-                else {}
-            )
-            cohorts = tuple(
-                cohort.index
-                for cohort in plan.cohorts
-                if not args.require_existing_plan
-                and (
-                    cohort.index not in saved
-                    or any(
-                        entry.state == "unattempted"
-                        for entry in saved[cohort.index][0].result.entries
-                    )
-                )
-            )
-            if terminal is None and cohorts:
-                require_binding(plan)
-            write_outputs(plan, terminal, cohort_indices=cohorts)
-            report = (
-                terminal_result(terminal)
-                if terminal is not None
-                else {
-                    "tickers": len(plan.tickers),
-                    "cohorts": len(plan.cohorts),
-                    "expected_pairs": len(plan.tickers) * len(plan.sources),
-                }
-            )
-        elif args.command == "acquire":
-            if args.cohort is None:
-                raise ValueError("cohort required")
-            report = acquire_cohort(store, plan, args.cohort)
         elif args.command == "audit":
-            stages = read_stages(store, plan)
-            report = summarize(plan, [stage.result for stage, _ in stages.values()])
+            report = summarize(
+                plan, [stage.result for stage, _ in read_stages(store, plan).values()]
+            )
         else:
             terminal = read_terminal(store, plan)
-            if terminal is not None:
-                report = terminal_result(terminal)
-            else:
-                if args.directory is None or args.lease_handle is None:
-                    raise ValueError("private publish directory and lease handle required")
-                from baibai_batch.jobs.external_assessment_publication import publish_and_verify
-                from baibai_batch.storage.publication_lease import _load_handle
-
-                report = publish_and_verify(
-                    store,
-                    plan,
-                    handle=_load_handle(args.lease_handle),
-                    sqlite_path=args.db,
-                    mirror=args.db.parents[1],
-                    directory=args.directory,
-                    confirmed_partial=args.command == "publish-confirmed-partial",
-                )
-            write_publication_outputs(report)
+            if terminal is None:
+                raise ValueError("external assessment terminal is missing")
+            report = terminal_result(terminal)
         print(json.dumps(report, sort_keys=True))
-        if args.command == "acquire":
-            if report.get("status") in {"already_published", "already_partially_published"}:
-                return 0
-            if not report["cohort_complete"] or report["stop_reason"]:
-                return 1
         return 0
     except Exception as error:
-        print(f"External assessment daily failed; type={type(error).__name__}", file=sys.stderr)
+        print(f"External assessment history failed; type={type(error).__name__}", file=sys.stderr)
         return 1
 
 

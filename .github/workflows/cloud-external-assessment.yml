@@ -127,6 +127,8 @@ jobs:
 
   publish:
     needs: [plan, acquire]
+    outputs:
+      notification_attempted: ${{ steps.notice.outputs.attempted }}
     if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.eligible == 'true' }}
     runs-on: ubuntu-latest
     # The existing publication lease expires after 120 minutes.
@@ -204,6 +206,7 @@ jobs:
         if: ${{ cancelled() }}
         run: printf 'cancelled=true\n' >> "$GITHUB_OUTPUT"
       - name: Notify the measured per-source publication results
+        id: notice
         if: ${{ always() }}
         continue-on-error: true
         env:
@@ -213,7 +216,7 @@ jobs:
 
   notify:
     needs: [plan, acquire, publish]
-    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.outputs.eligible != 'false' && needs.publish.result == 'skipped' }}
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.outputs.eligible != 'false' && needs.publish.outputs.notification_attempted != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

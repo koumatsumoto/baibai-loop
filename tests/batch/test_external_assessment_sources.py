@@ -18,7 +18,13 @@ from tests.engine.test_external_assessment_sources import official_html, rakuten
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs import external_assessment_publication as publication_module
 from baibai_batch.jobs import external_assessment_sources as sources
-from baibai_batch.jobs.external_assessment_cohorts import make_plan, new_result, record_outcome
+from baibai_batch.jobs.external_assessment_cohorts import (
+    make_plan,
+    new_result,
+    plan_bytes,
+    record_outcome,
+)
+from baibai_batch.observability import external_assessment_discord as notify
 from baibai_batch.observability.external_assessment_discord import render_sources
 from baibai_batch.storage import external_assessment_staging as staging
 from baibai_batch.storage.lake_publish import LakePublishError
@@ -164,14 +170,14 @@ def test_one_source_403_stops_its_unattempted_pairs_while_other_source_acquires(
 
 @pytest.fixture
 def independent_plans(publication):
-    store, original, handle, database, mirror, directory = publication
+    store, _original, handle, database, mirror, directory = publication
     selected = []
     for source in ("monex", "rakuten"):
         p = make_plan(
             run_id=f"{source}-independent",
             sources=(source,),
             tickers=("6758", "7203"),
-            universe_binding=original.universe_binding,
+            universe_binding=json.dumps({"master_asof": "2026-10-09"}),
             collector_binding=external_assessment_collector_binding(source=source),
         )
         journal = new_result(p, 0)
@@ -213,8 +219,42 @@ def publish(batch, **kwargs):
     )
 
 
+def source_notice(report, tmp_path, monkeypatch, *, publish_result):
+    path = tmp_path / "notice-source-report.json"
+    path.write_text(json.dumps(report))
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
+    )
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "notice-attempt-output"))
+    messages = []
+
+    def transport(url, body, timeout):
+        payload = json.loads(body)
+        assert payload["allowed_mentions"] == {"parse": []}
+        messages.append(payload["content"])
+        return 200
+
+    assert (
+        notify.main(
+            [
+                "--sources-report",
+                str(path),
+                "--publish-result",
+                publish_result,
+                "--lease-release-outcome",
+                "success",
+            ],
+            transport=transport,
+        )
+        == 0
+    )
+    assert len(messages) == 1
+    assert "synthetic-secret" not in messages[0]
+    return messages[0]
+
+
 def test_two_independent_plans_share_one_release_and_keep_individual_terminals(
-    independent_plans, monkeypatch
+    independent_plans, monkeypatch, tmp_path
 ):
     store, selected, _, database, _, _ = independent_plans
     before = external_assessment_history_digests(database)
@@ -231,6 +271,9 @@ def test_two_independent_plans_share_one_release_and_keep_individual_terminals(
     assert calls == [True]
     assert [row["status"] for row in report["sources"]] == ["published", "published"]
     assert [row["rows_added"] for row in report["sources"]] == [2, 2]
+    message = source_notice(report, tmp_path, monkeypatch, publish_result="success")
+    assert message.startswith("[OK]")
+    assert "以前の" not in message
     terminals = [
         staging.read_terminal(store, staging.read_plan(store, item["run_id"])) for item in selected
     ]
@@ -242,6 +285,9 @@ def test_two_independent_plans_share_one_release_and_keep_individual_terminals(
     assert ok
     assert calls == [True]
     assert all(row["readback"] == "previously_verified" for row in repeated["sources"])
+    repeated_notice = source_notice(repeated, tmp_path, monkeypatch, publish_result="skipped")
+    assert repeated_notice.startswith("[SKIPPED]")
+    assert "追加row=0" in repeated_notice
 
 
 def test_blocked_source_does_not_prevent_another_exact_plan_publication(independent_plans):
@@ -276,7 +322,7 @@ def test_blocked_source_does_not_prevent_another_exact_plan_publication(independ
 
 
 def test_terminal_write_failure_keeps_sealed_source_and_retry_imports_remaining_idempotently(
-    independent_plans, monkeypatch
+    independent_plans, monkeypatch, tmp_path
 ):
     store, selected, _, database, _, _ = independent_plans
     write = publication_module.put_private
@@ -289,8 +335,17 @@ def test_terminal_write_failure_keeps_sealed_source_and_retry_imports_remaining_
     monkeypatch.setattr(publication_module, "put_private", fail_second)
     first, ok = publish(independent_plans)
     assert not ok
-    assert first["sources"][0]["status"] == "already_published"
+    assert first["sources"][0]["status"] == "published"
+    assert first["sources"][0]["readback"] == "verified"
+    assert first["sources"][0]["rows_added"] is None
+    assert first["sources"][0]["source_responses_added"] is None
     assert first["sources"][1]["status"] == "publication_unconfirmed"
+    first_notice = source_notice(first, tmp_path, monkeypatch, publish_result="failure")
+    assert first_notice.startswith("[DEGRADED]")
+    assert "step失敗" in first_notice
+    assert "追加row=不明" in first_notice
+    assert "monex: 公開確認済み" in first_notice
+    assert "以前の" not in first_notice
     key = staging.prefix(selected[0]["run_id"]) + "/published.json"
     sealed = store.values[key].body
     history = external_assessment_history_digests(database)
@@ -299,8 +354,80 @@ def test_terminal_write_failure_keeps_sealed_source_and_retry_imports_remaining_
     assert ok
     assert second["sources"][0]["status"] == "already_published"
     assert second["sources"][1]["rows_added"] == 0
+    second_notice = source_notice(second, tmp_path, monkeypatch, publish_result="success")
+    assert "monex: 以前の公開確認済み" in second_notice
+    assert "rakuten: 公開確認済み" in second_notice
     assert store.values[key].body == sealed
     assert external_assessment_history_digests(database) == history
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_terminal_written_before_exception_is_current_publication_with_unknown_additions(
+    independent_plans, monkeypatch, tmp_path, partial
+):
+    store, selected, handle, database, mirror, directory = independent_plans
+    one = (store, selected[:1], handle, database, mirror, directory)
+    original = publication_module.put_private
+
+    def saved_then_lost(*args, **kwargs):
+        original(*args, **kwargs)
+        raise LakePublishError("synthetic terminal acknowledgement lost")
+
+    monkeypatch.setattr(publication_module, "put_private", saved_then_lost)
+    report, ok = publish(one, confirmed_partial=partial)
+    assert not ok
+    row = report["sources"][0]
+    assert row["status"] == ("partially_published" if partial else "published")
+    assert row["readback"] == "verified"
+    assert row["rows_added"] is None
+    assert row["source_responses_added"] is None
+    message = source_notice(report, tmp_path, monkeypatch, publish_result="failure")
+    assert message.startswith("[DEGRADED]")
+    assert "step失敗" in message
+    assert "追加row=不明" in message
+    assert "以前の" not in message
+    assert "未公開" not in message
+    monkeypatch.setattr(publication_module, "put_private", original)
+    repeated, ok = publish(one, name="terminal-read-only-retry")
+    assert ok
+    assert repeated["sources"][0]["status"] == (
+        "already_partially_published" if partial else "already_published"
+    )
+    assert repeated["sources"][0]["readback"] == "previously_verified"
+    assert repeated["sources"][0]["rows_added"] == 0
+    repeated_notice = source_notice(repeated, tmp_path, monkeypatch, publish_result="skipped")
+    assert repeated_notice.startswith("[SKIPPED]")
+    assert "追加row=0" in repeated_notice
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_source_publish_cli_writes_current_result_only_after_publisher_returns(
+    monkeypatch, tmp_path, success
+):
+    path = tmp_path / "source-report.json"
+    expected = {"sources": [{"source": "monex", "status": "published", "rows_added": None}]}
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: object())
+    monkeypatch.setattr(sources, "_load_handle", lambda *args: object())
+
+    def publish(*args, **kwargs):
+        assert not path.exists()
+        return expected, success
+
+    monkeypatch.setattr(sources, "publish_ready", publish)
+    assert sources.main(
+        [
+            "publish",
+            "--selection-json",
+            '[{"source":"monex","run_id":"monex-current"}]',
+            "--directory",
+            str(tmp_path / "readback"),
+            "--lease-handle",
+            str(tmp_path / "lease"),
+            "--report-output",
+            str(path),
+        ]
+    ) == (0 if success else 1)
+    assert json.loads(path.read_text()) == expected
 
 
 def test_corrupt_selected_raw_does_not_publish_any_terminal(independent_plans):
@@ -371,26 +498,66 @@ def test_explicit_partial_closes_only_one_source_and_preserves_unattempted_pairs
     assert repeated["sources"][0]["status"] == "already_partially_published"
 
 
-def test_sealed_source_inspection_reads_no_stage_or_raw(independent_plans, monkeypatch, tmp_path):
-    store, selected, *_ = independent_plans
-    _, ok = publish(independent_plans)
+@pytest.mark.parametrize("partial", [False, True])
+@pytest.mark.parametrize("old_binding", [False, True])
+def test_sealed_source_inspection_and_acquire_read_no_stage_http_lease_or_db(
+    independent_plans, monkeypatch, tmp_path, partial, old_binding
+):
+    store, selected, handle, database, mirror, directory = independent_plans
+    selected = selected[:1]
+    one = (store, selected, handle, database, mirror, directory)
+    p = staging.read_plan(store, selected[0]["run_id"])
+    if old_binding:
+        checkpoint, _ = staging.read_stage(store, p, 0)
+        p = replace(p, collector_binding="previous-collector")
+        rebound = replace(checkpoint, result=replace(checkpoint.result, plan_sha256=p.plan_sha256))
+        store.store_object(staging.prefix(p.run_id) + "/plan.json", plan_bytes(p))
+        store.store_object(staging.stage_key(p, 0), staging.stage_bytes(p, rebound))
+    _, ok = publish(one, confirmed_partial=partial)
     assert ok
+    terminal_key = staging.prefix(p.run_id) + "/published.json"
+    sealed_bytes = store.values[terminal_key].body
+    store.put_keys.clear()
+    store.get_keys.clear()
+    store.head_keys.clear()
 
     def forbid(*args, **kwargs):
-        pytest.fail("sealed source must not read stages or require a fresh market")
+        pytest.fail("sealed source cannot touch stage/HTTP/lease/DB/current release")
 
-    monkeypatch.setattr(sources, "read_stages", forbid)
-    monkeypatch.setattr(sources, "prepare_publication", forbid)
-    monkeypatch.setattr(sources, "publish_plans_and_verify", forbid)
+    for name in ("read_stages", "prepare_publication", "publish_plans_and_verify", "_load_handle"):
+        monkeypatch.setattr(sources, name, forbid)
+    for name in (
+        "acquire_cohort",
+        "require_binding",
+        "_serving_pointer",
+        "external_assessment_collect_pair",
+    ):
+        monkeypatch.setattr(daily, name, forbid)
+    monkeypatch.setattr(sources.requests, "Session", forbid)
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: store)
+    expected = "already_partially_published" if partial else "already_published"
     ready, reports = sources.inspect_ready(store, selected)
     assert ready == []
-    assert all(row["status"] == "already_published" for row in reports.values())
-    report, ok = publish(independent_plans, name="unused-no-hydrate")
+    assert reports["monex"]["status"] == expected
+    report, ok = publish(one, name="unused-no-hydrate")
     assert ok
-    assert all(row["readback"] == "previously_verified" for row in report["sources"])
-
-    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: store)
-    monkeypatch.setattr(sources, "_load_handle", forbid)
+    assert report["sources"][0]["readback"] == "previously_verified"
+    assert (
+        sources.main(
+            [
+                "acquire",
+                "--source",
+                "monex",
+                "--run-id",
+                p.run_id,
+                "--master-asof",
+                "2026-10-09",
+                "--directory",
+                str(tmp_path / "unused-cache"),
+            ]
+        )
+        == 0
+    )
     outputs = tmp_path / "outputs"
     result_path = tmp_path / "source-results.json"
     monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
@@ -407,10 +574,11 @@ def test_sealed_source_inspection_reads_no_stage_or_raw(independent_plans, monke
         == 0
     )
     assert outputs.read_text() == "ready=false\n"
-    assert all(
-        row["readback"] == "previously_verified"
-        for row in json.loads(result_path.read_text())["sources"]
-    )
+    assert json.loads(result_path.read_text())["sources"][0]["status"] == expected
+    assert store.values[terminal_key].body == sealed_bytes
+    assert store.put_keys == []
+    assert set(store.get_keys) <= {staging.prefix(p.run_id) + "/plan.json", terminal_key}
+    assert not (tmp_path / "unused-cache").exists()
 
 
 def test_source_notice_never_reports_old_values_as_new_success(tmp_path):
@@ -460,18 +628,42 @@ def test_workflow_has_four_source_jobs_and_one_serial_publisher():
     assert "inputs.operation == 'publish_confirmed_partial'" in group["group"]
     assert "format('external-assessment-acquire-{0}', inputs.source)" in group["group"]
     assert "format('external-assessment-run-{0}', github.run_id)" in group["group"]
+    plan_job = data["jobs"]["plan"]
+    assert plan_job["outputs"]["source_runs"] == "${{ steps.plan.outputs.source_runs }}"
+    assert plan_job["outputs"]["master_asof"] == "${{ steps.plan.outputs.master_asof }}"
     acquire = data["jobs"]["acquire"]
     assert acquire["strategy"]["fail-fast"] == "false"
     assert set(acquire["strategy"]["matrix"]) == {"include"}
+    assert (
+        acquire["strategy"]["matrix"]["include"]
+        == "${{ fromJSON(needs.plan.outputs.source_runs) }}"
+    )
+    assert acquire["env"]["SOURCE_RUN_ID"] == "${{ matrix.run_id }}"
+    assert acquire["env"]["MASTER_ASOF"] == "${{ needs.plan.outputs.master_asof }}"
+    assert "needs.plan.outputs.operation == 'collect_and_publish'" in acquire["if"]
+    acquire_run = next(
+        step["run"]
+        for step in acquire["steps"]
+        if "external_assessment_sources acquire" in step.get("run", "")
+    )
+    assert '--run-id "$SOURCE_RUN_ID"' in acquire_run
+    assert '--master-asof "$MASTER_ASOF"' in acquire_run
     assert acquire["concurrency"]["group"] == "external-assessment-acquire-${{ matrix.source }}"
     publisher = data["jobs"]["publish"]
     assert publisher["concurrency"]["group"] == "cloud-publish"
     assert "always()" in publisher["if"]
+    assert "!cancelled()" in publisher["if"]
+    assert publisher["env"]["SOURCE_RUNS"] == "${{ needs.plan.outputs.source_runs }}"
+    assert publisher["env"]["MASTER_ASOF"] == "${{ needs.plan.outputs.master_asof }}"
     assert "needs.acquire.result" not in publisher["if"]
     assert "cohort" not in str(acquire["strategy"]["matrix"])
     steps = publisher["steps"]
     ready = next(step for step in steps if step.get("id") == "ready")
     assert "external_assessment_sources inspect" in ready["run"]
+    publish_step = next(step for step in steps if step.get("id") == "publish")
+    for step in (ready, publish_step):
+        assert '--selection-json "$SOURCE_RUNS"' in step["run"]
+        assert '--master-asof "$MASTER_ASOF"' in step["run"]
     for step in steps:
         if any(
             token in step.get("run", "")

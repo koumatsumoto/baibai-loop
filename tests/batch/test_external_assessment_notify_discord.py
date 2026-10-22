@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.observability import external_assessment_discord as notify
 
 SUCCESS = (
@@ -263,131 +262,6 @@ def test_notification_imports_with_system_python_without_site_packages():
     assert result.returncode == 0, result.stderr
 
 
-def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
-    tmp_path, monkeypatch
-):
-    path = tmp_path / "github-output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
-    daily.write_publication_outputs(
-        {
-            "expected_pairs": 8,
-            "observations": 6,
-            "rows_added": 6,
-            "state_counts": {
-                "success": 4,
-                "normal_null": 2,
-                "failure": 2,
-                "unattempted": 0,
-            },
-            "ticker": "private-ticker",
-            "private_payload": "private-body",
-            "run_id": "private-batch",
-        }
-    )
-    assert path.read_text() == (
-        "external_assessment_expected_pairs=8\nexternal_assessment_typed_pairs=6\nexternal_assessment_known_failure_pairs=2\n"
-        "external_assessment_normal_null_pairs=2\nexternal_assessment_unattempted_pairs=0\nexternal_assessment_rows_added=6\n"
-    )
-
-
-def test_full_terminal_missing_counters_remain_unknown_without_reconstruction(
-    tmp_path, monkeypatch
-):
-    path = tmp_path / "github-output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
-    daily.write_publication_outputs(
-        {"expected_pairs": 8, "observations": 6, "readback": "verified"}
-    )
-    assert path.read_text() == (
-        "external_assessment_expected_pairs=8\nexternal_assessment_typed_pairs=6\nexternal_assessment_known_failure_pairs=unknown\n"
-        "external_assessment_normal_null_pairs=unknown\nexternal_assessment_unattempted_pairs=unknown\nexternal_assessment_rows_added=unknown\n"
-    )
-
-
-def test_invalid_report_count_shape_cannot_leak_into_outputs(tmp_path, monkeypatch):
-    path = tmp_path / "github-output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
-    daily.write_publication_outputs(
-        {
-            "expected_pairs": True,
-            "observations": "private-secret",
-            "rows_added": -1,
-            "state_counts": {"failure": "private-body", "normal_null": False},
-        }
-    )
-    assert path.read_text().count("=unknown\n") == 6
-
-
-@pytest.mark.parametrize("has_states", [True, False])
-def test_publish_main_emits_actual_report_only_after_existing_publisher_returns(
-    tmp_path, monkeypatch, has_states
-):
-    from baibai_batch.jobs import external_assessment_publication as external_assessment_publication
-    from baibai_batch.storage import publication_lease
-
-    p = daily.make_plan(
-        run_id="synthetic-publish",
-        sources=("monex",),
-        tickers=("7203",),
-        universe_binding="synthetic",
-        collector_binding=daily.external_assessment_collector_binding(),
-    )
-    report = {"expected_pairs": 2, "observations": 1, "readback": "verified"}
-    if has_states:
-        report.update(rows_added=1, state_counts={"success": 0, "normal_null": 1, "failure": 1})
-    called = []
-
-    def publish(*args, **kwargs):
-        called.append(True)
-        return report
-
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: object())
-    monkeypatch.setattr(daily, "read_plan", lambda *args: p)
-    monkeypatch.setattr(daily, "read_terminal", lambda *args: None)
-    monkeypatch.setattr(external_assessment_publication, "publish_and_verify", publish)
-    monkeypatch.setattr(publication_lease, "_load_handle", lambda *args: object())
-    output = tmp_path / "output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    assert (
-        daily.main(
-            [
-                "publish",
-                "--run-id",
-                p.run_id,
-                "--directory",
-                str(tmp_path / "publish"),
-                "--lease-handle",
-                str(tmp_path / "lease"),
-            ]
-        )
-        == 0
-    )
-    assert called == [True]
-    written = output.read_text()
-    assert "external_assessment_expected_pairs=2\nexternal_assessment_typed_pairs=1\n" in written
-    assert (
-        f"external_assessment_known_failure_pairs={'1' if has_states else 'unknown'}\n" in written
-    )
-    assert "synthetic-publish" not in written
-
-
-def test_acquire_main_does_not_write_publication_outputs(tmp_path, monkeypatch):
-    p = daily.make_plan(
-        run_id="synthetic-acquire",
-        sources=("monex",),
-        tickers=("7203",),
-        universe_binding="synthetic",
-        collector_binding=daily.external_assessment_collector_binding(),
-    )
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: object())
-    monkeypatch.setattr(daily, "read_plan", lambda *args: p)
-    monkeypatch.setattr(daily, "acquire_cohort", lambda *args: {"status": "already_published"})
-    output = tmp_path / "output"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    assert daily.main(["acquire", "--run-id", p.run_id, "--cohort", "0"]) == 0
-    assert not output.exists()
-
-
 def test_source_notifier_runs_after_lease_release_and_uses_only_step_secret():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
@@ -416,3 +290,66 @@ def test_status_function_is_only_evaluated_in_step_condition_for_source_notice()
         notice = next(step for step in steps if "--cancelled" in step.get("run", ""))
         assert "steps.cancellation.outputs.cancelled || 'false'" in notice["run"]
         assert all("cancelled()" not in step.get("run", "") for step in steps)
+
+
+def test_source_notice_marks_attempt_before_post_even_when_response_is_lost(tmp_path, monkeypatch):
+    output = tmp_path / "output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv(
+        "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
+    )
+    calls = []
+
+    def transport(*args):
+        assert output.read_text() == "attempted=true\n"
+        calls.append(True)
+        raise TimeoutError("synthetic response lost")
+
+    assert notify.main(["--publish-result", "cancelled"], transport=transport) == 0
+    assert calls == [True]
+    assert output.read_text() == "attempted=true\n"
+
+
+def test_source_render_keeps_private_payload_and_invalid_counts_out_of_notice(tmp_path):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "source": "monex",
+                        "status": "published",
+                        "expected_pairs": 2,
+                        "rows_added": None,
+                        "ticker": "private-ticker",
+                        "private_payload": "private-body",
+                        "state_counts": {
+                            "success": True,
+                            "normal_null": "private-count",
+                            "failure": 1,
+                        },
+                    }
+                ]
+            }
+        )
+    )
+    text = notify.render_sources(report, lease_release="success", cancelled="false")
+    assert "private" not in text
+    assert "typed=不明" in text
+    assert "正常null=不明" in text
+    assert "追加row=不明" in text
+
+
+def test_fallback_only_runs_when_internal_notice_has_not_attempted_delivery():
+    repository = Path(__file__).resolve().parents[2]
+    workflow = yaml.load(
+        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    publisher = workflow["jobs"]["publish"]
+    assert publisher["outputs"]["notification_attempted"] == "${{ steps.notice.outputs.attempted }}"
+    assert any(step.get("id") == "notice" for step in publisher["steps"])
+    fallback = workflow["jobs"]["notify"]["if"]
+    assert "always()" in fallback
+    assert "needs.publish.outputs.notification_attempted != 'true'" in fallback
+    assert "needs.publish.result == 'skipped'" not in fallback

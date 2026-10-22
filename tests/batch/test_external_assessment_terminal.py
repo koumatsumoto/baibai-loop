@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from dataclasses import replace
 from datetime import date
 
@@ -203,47 +202,25 @@ def test_terminal_rejects_duplicate_top_level_and_nested_json_fields():
 
 @pytest.mark.parametrize("old_binding", [False, True])
 @pytest.mark.parametrize("partial", [False, True])
-def test_terminal_plan_acquire_and_both_publish_commands_do_not_touch_checkpoint_or_l1(
-    tmp_path, monkeypatch, partial, old_binding
+def test_historical_terminal_cli_reads_no_checkpoint_lease_db_or_l1(
+    monkeypatch, capsys, partial, old_binding
 ):
-    from baibai_batch.jobs import external_assessment_publication as external_assessment_publication
-    from baibai_batch.storage import publication_lease
-
     p = plan()
     if old_binding:
         p = replace(p, collector_binding="previous-collector")
     value = terminal(p, partial=partial)
-    original = deepcopy(value)
     store = saved_terminal(p, value)
     monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("sealed batch must not touch HTTP, checkpoint, lease, DB or L1")
+        pytest.fail("history CLI cannot acquire, refreeze, or read stages/L1")
 
     monkeypatch.setattr(daily, "read_stages", forbidden)
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", forbidden)
-    monkeypatch.setattr(daily, "_serving_pointer", forbidden)
-    monkeypatch.setattr(external_assessment_publication, "publish_and_verify", forbidden)
-    monkeypatch.setattr(publication_lease, "_load_handle", forbidden)
-    path = tmp_path / "outputs"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(path))
-    assert (
-        daily.main(
-            ["plan", "--run-id", p.run_id, "--master-asof", "2026-10-09", "--require-existing-plan"]
-        )
-        == 0
-    )
-    output = dict(line.split("=", 1) for line in path.read_text().splitlines())
-    assert output["cohorts"] == "[]"
-    assert output["terminal_status"] == staging.terminal_status(value)
-    assert output["external_assessment_rows_added"] == "0"
-    assert output["external_assessment_normal_null_pairs"] == ("1" if partial else "unknown")
-    for command in ("acquire", "publish", "publish-confirmed-partial"):
-        arguments = [command, "--run-id", p.run_id]
-        if command == "acquire":
-            arguments += ["--cohort", "0"]
-        assert daily.main(arguments) == 0
-    assert staging.read_terminal(store, p) == original
+    monkeypatch.setattr(daily, "initialize", forbidden)
+    monkeypatch.setattr(daily, "acquire_cohort", forbidden)
+    assert daily.main(["terminal", "--run-id", p.run_id]) == 0
+    assert json.loads(capsys.readouterr().out) == staging.terminal_result(value)
+    assert staging.read_terminal(store, p) == value
     assert store.put_keys == []
     allowed = {staging.prefix(p.run_id) + suffix for suffix in ("/plan.json", "/published.json")}
     assert set(store.get_keys) <= allowed
