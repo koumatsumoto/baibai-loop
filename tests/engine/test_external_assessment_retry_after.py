@@ -248,4 +248,3 @@ def test_invalid_calendar_or_second_is_malformed_not_leap_second(clock, header):
     result = collect(Session(clock, header=header))
     assert result.retry_after_not_before_utc is None
     assert result.retry_after_unrepresentable is False
-

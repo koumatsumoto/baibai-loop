@@ -2,6 +2,12 @@ name: cloud-materialize
 
 on:
   workflow_dispatch:
+    inputs:
+      upgrade_market_v48:
+        description: "Attended one-time market 47 to 48 conversion; preserve all rows"
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -55,6 +61,13 @@ jobs:
           batch/scripts/r2_transfer.sh pull-machine
           batch/scripts/r2_transfer.sh pull-app
 
+      - name: Prepare attended market schema 48 copy
+        if: ${{ inputs.upgrade_market_v48 }}
+        run: |
+          uv run python -m tools.cutover.upgrade_market_v48 --source stores/market/market.sqlite --output "$RUNNER_TEMP/market-v48.sqlite"
+          mv stores/market/market.sqlite "$RUNNER_TEMP/market-v47.sqlite"
+          mv "$RUNNER_TEMP/market-v48.sqlite" stores/market/market.sqlite
+
       # The market store arrives holding only what the lake does not own — the coverage
       # ledger and the operator-derived tables. Filling the rest from the current release
       # is what makes it the store every reader already expects. It fails closed on the
@@ -67,6 +80,17 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
+
+      # Only the explicit attended operation promotes the converted store. Normal
+      # materialize and daily runs never migrate a schema. The pulled bundle's other
+      # two stores are unchanged, and the existing push keeps backups and ETag checks.
+      - name: Publish attended schema 48 machine bundle
+        if: ${{ inputs.upgrade_market_v48 }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh push-machine
 
       - name: Materialize read models
         run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" --batch manual
@@ -93,3 +117,4 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+

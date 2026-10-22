@@ -310,4 +310,3 @@ for columns, model in (
     assert {column[0] for column in columns} == set(model.model_fields)
 """
     subprocess.run([sys.executable, "-c", code], check=True, env=os.environ.copy())
-

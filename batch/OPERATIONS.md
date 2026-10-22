@@ -763,6 +763,28 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#external-assessment-query)を参照する。
 
+### みんかぶ導入時の market 47 → 48 切替
+
+みんかぶの原本source制約と新しいL2表を追加するため、codeだけの反映では既存schema 47を読めない。
+日次や通常readerに暗黙migrationは追加しない。最終HEADのCIと切替toolの検証を終えてから、
+`cloud-materialize`の明示入力`upgrade_market_v48=true`を使い、一度だけ担当者が切り替える。
+通常のmaterializeではこの入力はfalseであり、machine storeを公開しない。
+
+1. 他のpublicationと競合しない時間帯を選び、対象codeのmain反映とstore反映を一組にする。
+   既存`cloud-publish`とpublication leaseを使い、切替中に旧codeのbatchを別環境で動かさない。
+2. workflowはfresh pullした47をread-onlyで開き、`tools/cutover/upgrade_market_v48.py`で別の48へ全行をコピーする。
+   旧schemaのtable/index定義、全表の件数と双方向の値一致、foreign keyとintegrityを確認する。
+   原本bytes・受領時刻・Lake origin・非Lakeの派生値を保持し、予想表は空で追加する。provider再取得はしない。
+3. 現行Lakeを48へhydrateした後、既存`push-machine`のbackup・ETag条件・bundle receiptで反映する。
+   runs/indicatorsは同じlease内でfresh pullした無変更の内容を同時に戻す。applicationとLake原本は変更しない。
+   続けて通常のmaterializeを行い、各stepの成否とlease解放を確認する。
+4. 反映済み48に対して移行入力を再指定しない。store反映後にmaterializeだけ失敗した場合は、
+   次回は`upgrade_market_v48=false`で再実行する。部分machine pushでは既存の部分push復旧手順に従う。
+   未確認のbackupへの上書きやuser_versionだけの変更をしない。
+5. 切替受入後に一回限りのtool・専用test・workflow入力/stepを撤去し、通常経路に互換分岐を残さない。
+   みんかぶの初回実取得・固定releaseへの保存結果は別に確認する。schema切替成功を取得済みとは数えない。
+   本番画面の目視確認は今回の完了条件ではない。
+
 ### 日次取得と固定コホートの再開
 
 `cloud-external-assessment.yml`はmain限定で毎日19:13 JSTに日次取得し、同じ入口で手動受入・再開も行う。上の限定collectorと分け、保存済み全普通株の取得をpublication lease外で行う。scheduled runは元のGitHub run作成時刻からcron対象日と`external-assessment-daily-YYYY-MM-DD`のbatch IDを決め、queue遅延や翌日のrerunで対象を別日へ進めない。実行時点が15:30 JSTより前なら取得・公開前にskipする。
