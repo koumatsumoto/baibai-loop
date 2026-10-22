@@ -63,8 +63,7 @@ def _table(page: Element, first_row: list[str]) -> Element:
     matches = [
         table
         for table in page.find("table")
-        if table.find("tr")
-        and [compact(cell) for cell in _cells(table.find("tr")[0])] == first_row
+        if table.find("tr") and [compact(cell) for cell in _cells(table.find("tr")[0])] == first_row
     ]
     if len(matches) != 1:
         raise ParseError("changed_analyst_forecast")
@@ -94,7 +93,9 @@ def _annual_forecast(page: Element, *, include_values: bool) -> dict[str, object
     columns: dict[str, int] = {}
     periods: set[str] = set()
     for index, label in enumerate(rows[0]):
-        match = re.fullmatch(r"([0-9]{4}年([0-9]{1,2})月期)(アナリスト予想|会社予想)", compact(label))
+        match = re.fullmatch(
+            r"([0-9]{4}年([0-9]{1,2})月期)(アナリスト予想|会社予想)", compact(label)
+        )
         if match is None:
             continue
         if not 1 <= int(match[2]) <= 12 or match[3] in columns:
@@ -242,9 +243,11 @@ def parse_html(
             for node in table.find("tr")[0].children
             if isinstance(node, Element) and node.tag in {"th", "td"}
         ]
-        if [
-            (_span(header, "colspan"), _span(header, "rowspan")) for header in headers
-        ] != [(1, 2), (4, 1), (1, 1)] or any(
+        if [(_span(header, "colspan"), _span(header, "rowspan")) for header in headers] != [
+            (1, 2),
+            (4, 1),
+            (1, 1),
+        ] or any(
             (_span(cell, "colspan"), _span(cell, "rowspan")) != (1, 1)
             for row in table.find("tr")[1:]
             for cell in row.children

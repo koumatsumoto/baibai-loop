@@ -422,10 +422,14 @@ def test_numeric_outer_whitespace_and_adjacent_spans_keep_displayed_values():
     assert row.rating_label == "買い"
     assert row.analyst_forecast_as_of_date.isoformat() == "2026-10-22"
     assert row.company_forecast_as_of_date.isoformat() == "2026-09-17"
-    text = current_card_only_html().replace(
-        '<span class="fsxxl">---</span>',
-        '<span class="fsxxl"> \n<span>1</span><span>00</span>\t </span>',
-    ).replace("<td>123</td>", "<td> \n<span>1</span><span>23</span>\t </td>")
+    text = (
+        current_card_only_html()
+        .replace(
+            '<span class="fsxxl">---</span>',
+            '<span class="fsxxl"> \n<span>1</span><span>00</span>\t </span>',
+        )
+        .replace("<td>123</td>", "<td> \n<span>1</span><span>23</span>\t </td>")
+    )
     row = parse(text)
     assert row.target_price_yen == 100
     assert row.analyst_revenue_million_yen == 123
@@ -433,7 +437,7 @@ def test_numeric_outer_whitespace_and_adjacent_spans_keep_displayed_values():
 
 
 @pytest.mark.parametrize(
-    "analyst_span,company_span",
+    ("analyst_span", "company_span"),
     [
         ("3", "2"),
         ("5", "1"),
@@ -456,7 +460,7 @@ def test_detailed_forecast_requires_analyst_and_company_column_groups(analyst_sp
 
 
 @pytest.mark.parametrize(
-    "analyst_span,blank_rowspan",
+    ("analyst_span", "blank_rowspan"),
     [("4", "2"), ("04", "02"), (" 4 ", " 2 "), ("\n04\t", "\n02\t")],
 )
 def test_detailed_forecast_equivalent_spans_preserve_values_and_dates(analyst_span, blank_rowspan):

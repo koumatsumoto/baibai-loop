@@ -321,9 +321,7 @@ def test_whole_page_read_warns_and_fails_when_selected_text_is_empty(
         assert f"=== page {number}" in output.out
 
 
-def test_whole_page_read_keeps_readable_pages_and_names_empty_pages(
-    tmp_path, monkeypatch, capsys
-):
+def test_whole_page_read_keeps_readable_pages_and_names_empty_pages(tmp_path, monkeypatch, capsys):
     path, calls = _mock_pdf(tmp_path, monkeypatch, [None, "年度見出し\n営業利益200"])
 
     assert main([str(path), "--pages", "2,1"]) == 0
