@@ -84,7 +84,9 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
     assert completed.status == "completed"
 
 
-def test_cli_yaml_output_failure_preserves_successful_publication(case, tmp_path, monkeypatch, capsys):
+def test_cli_yaml_output_failure_preserves_successful_publication(
+    case, tmp_path, monkeypatch, capsys
+):
     proposal = reviewed_proposal(case)
     draft = tmp_path / "proposal.yaml"
     draft.write_text(yaml.safe_dump(proposal.payload()))

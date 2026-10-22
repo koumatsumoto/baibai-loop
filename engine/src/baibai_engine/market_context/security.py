@@ -218,7 +218,9 @@ def _sector_block(
             else [
                 peer
                 for peer, security in master.securities.items()
-                if peer != ticker and security["is_common_stock"] and security["sector_33"] == sector
+                if peer != ticker
+                and security["is_common_stock"]
+                and security["sector_33"] == sector
             ]
         )
     if not peers:

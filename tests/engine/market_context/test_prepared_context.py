@@ -159,7 +159,9 @@ def test_sector_candidates_keep_common_peers_and_each_tickers_exact_endpoints(
         assert shared == plain
         sector = shared["relative"]["sector"]
         assert sector["peer_count"] == peer_count
-        assert sector["comparison_start_date"] == (ASOF - timedelta(days=start_days_ago)).isoformat()
+        assert (
+            sector["comparison_start_date"] == (ASOF - timedelta(days=start_days_ago)).isoformat()
+        )
         if ticker == "AAAA":
             assert sector["peer_median_return_20d"] == pytest.approx(
                 (100 + 349**2) / (100 + 329**2) - 1
