@@ -18,6 +18,7 @@ from tests.helpers.screening_run import screening_run_payload
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
+from baibai_engine.collection.economic.documents import SourceDocument, store_document
 from baibai_engine.collection.economic.records import store_snapshot
 from baibai_engine.collection.economic.store import open_connection, record_source_run
 from baibai_engine.market_context.indicators.definitions import load_definitions
@@ -143,6 +144,51 @@ def test_build_meta_freshness_ignores_unreferenced_source(
 
     assert view.indicators_as_of == date(2026, 7, 17)
     assert view.data_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
+
+
+def test_export_keeps_unreadable_matsui_as_a_series_gap(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    _seed_economic_sources(app_method_root)
+    database = app_method_root / "stores/market_context/indicators.sqlite"
+    with closing(open_connection(database)) as connection, connection:
+        # Collection retains a successful HTTP receipt even when the publisher's
+        # current HTML no longer contains the expected margin section.
+        store_document(
+            connection,
+            SourceDocument(
+                source_id="matsui-margin",
+                request_key="2026-07-21",
+                source_url="https://www.matsui.co.jp/market/",
+                content_type="text/html",
+                fetched_at=datetime(2026, 7, 21, 3, tzinfo=UTC),
+                payload=b"<html>changed page</html>",
+                metadata={"receipt_jst_date": "2026-07-21"},
+            ),
+        )
+
+    output = tmp_path / "export"
+    export_module.export_read_models(app_method_root, output)
+
+    views = output / "views"
+    context = json.loads((views / "market-context.json").read_text(encoding="utf-8"))
+    matsui = next(
+        row
+        for row in context["reading"]["series"]
+        if row["series_id"] == "jp.matsui_margin_long_evaluation_pnl"
+    )
+    assert matsui["latest_value"] is None
+    assert matsui["flags"] == ["source_unreadable"]
+    assert matsui["notes"]
+    chart = json.loads(
+        (views / "indicator-series--jp.matsui_margin_long_evaluation_pnl.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert chart["points"] == []
+    meta = json.loads((views / "meta.json").read_text(encoding="utf-8"))
+    assert meta["indicators_as_of"] == "2026-07-17"
+    assert meta["screening_as_of"] == "2026-07-08"
 
 
 def test_build_meta_takes_the_latest_business_record_timestamp(
