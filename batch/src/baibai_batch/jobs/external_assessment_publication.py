@@ -6,7 +6,9 @@ import json
 import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from baibai_batch.jobs.external_assessment_cohorts import RunPlan, summarize
 from baibai_batch.storage.external_assessment_identity import (
@@ -165,21 +167,18 @@ def _import_confirmed_originals(
     return source_inserted, source_months, selected_digests, tuple(typed)
 
 
-def publish_and_verify(
-    store: ObjectStore,
-    plan: RunPlan,
-    *,
-    handle: PublicationLeaseHandle,
-    sqlite_path: Path,
-    mirror: Path,
-    directory: Path,
-    confirmed_partial: bool = False,
-) -> dict[str, object]:
-    """New publication requires the lease; sealed batches return their original receipt."""
-    saved_terminal = read_terminal(store, plan)
-    if saved_terminal is not None:
-        return terminal_result(saved_terminal)
-    verify_held(store, handle)
+@dataclass(frozen=True)
+class PreparedPublication:
+    plan: RunPlan
+    stages: dict[int, tuple[CohortStage, str]]
+    accounting: dict[str, object]
+    confirmed_partial: bool
+
+
+def prepare_publication(
+    store: ObjectStore, plan: RunPlan, *, confirmed_partial: bool = False
+) -> PreparedPublication:
+    """Validate one exact plan's handoff without importing or publishing anything."""
     stages = read_stages(store, plan)
     results = [stage.result for stage, _ in stages.values()]
     if not confirmed_partial and any(
@@ -196,6 +195,69 @@ def publish_and_verify(
         raise ValueError(
             "external assessment partial publication requires confirmed typed observations"
         )
+    return PreparedPublication(plan, stages, accounting, confirmed_partial)
+
+
+def publish_and_verify(
+    store: ObjectStore,
+    plan: RunPlan,
+    *,
+    handle: PublicationLeaseHandle,
+    sqlite_path: Path,
+    mirror: Path,
+    directory: Path,
+    confirmed_partial: bool = False,
+) -> dict[str, object]:
+    """The single-plan entry shares the same publication/readback implementation."""
+    terminal = read_terminal(store, plan)
+    if terminal is not None:
+        return terminal_result(terminal)
+    result = publish_plans_and_verify(
+        store,
+        [prepare_publication(store, plan, confirmed_partial=confirmed_partial)],
+        handle=handle,
+        sqlite_path=sqlite_path,
+        mirror=mirror,
+        directory=directory,
+    )
+    return {
+        **cast("list[dict[str, object]]", result["plans"])[0],
+        **{key: value for key, value in result.items() if key != "plans"},
+    }
+
+
+def publish_plans_and_verify(
+    store: ObjectStore,
+    prepared: Sequence[PreparedPublication],
+    *,
+    handle: PublicationLeaseHandle,
+    sqlite_path: Path,
+    mirror: Path,
+    directory: Path,
+) -> dict[str, object]:
+    """Apply independent plans, seal one release, then write each existing terminal.
+
+    There is no aggregate plan or aggregate commit marker. All selected originals
+    are checked before L2 changes, and all readback completes before any terminal.
+    """
+    if not prepared or len({item.plan.run_id for item in prepared}) != len(prepared):
+        raise ValueError("publication requires distinct exact plans")
+    verify_held(store, handle)
+    plans: list[dict[str, object]] = []
+    pending: list[PreparedPublication] = []
+    for item in prepared:
+        saved_terminal = read_terminal(store, item.plan)
+        if saved_terminal is None:
+            pending.append(item)
+        else:
+            plans.append({**terminal_result(saved_terminal), "source": item.plan.sources[0]})
+    if not pending:
+        return {
+            "plans": plans,
+            "uploaded_bytes": 0,
+            "uploaded_objects": 0,
+            "publication_transfers": None,
+        }
     previous = _serving_pointer(store).pointer
     if previous is None:
         raise LakePublishError("external assessment publication requires an existing L1 release")
@@ -208,11 +270,29 @@ def publish_and_verify(
         raise LakePublishError("external assessment publication requires a fresh current hydrate")
     directory.mkdir(mode=0o700)
     verify_held(store, handle)
-    source_inserted, source_months, selected_digests, observations = _import_confirmed_originals(
-        store, plan, stages, sqlite_path
-    )
-    coverage = receipt_date_coverage(plan, observations)
-    inserted = external_assessment_save_observations(sqlite_path, observations)
+    source_inserted = 0
+    source_months: set[tuple[int, int]] = set()
+    selected_digests: dict[str, str] = {}
+    per_plan: list[tuple[PreparedPublication, int, tuple[ExternalAssessmentObservation, ...]]] = []
+    all_observations: list[ExternalAssessmentObservation] = []
+    for item in pending:
+        added, months, digests, observations = _import_confirmed_originals(
+            store, item.plan, item.stages, sqlite_path
+        )
+        if selected_digests.keys() & digests.keys():
+            raise ValueError("receipt identity shared by independent plans")
+        selected_digests.update(digests)
+        source_months.update(months)
+        source_inserted += added
+        per_plan.append((item, added, observations))
+        all_observations.extend(observations)
+    inserted = 0
+    plan_insertions: dict[str, int] = {}
+    for item, _, observations in per_plan:
+        count = external_assessment_save_observations(sqlite_path, observations)
+        plan_insertions[item.plan.run_id] = count
+        inserted += count
+    observations = tuple(all_observations)
     changed = {
         (
             VALUATION_DATASET
@@ -293,28 +373,43 @@ def publish_and_verify(
             partitions=changed,
         )
     verify_held(store, handle)
-    terminal: dict[str, object] = {
-        "format": (PARTIAL_TERMINAL_FORMAT if confirmed_partial else PUBLISHED_FORMAT),
-        "plan_sha256": plan.plan_sha256,
-        "release_id": after.release_id,
-        "release_manifest_sha256": after.manifest_sha256,
-        "expected_pairs": len(plan.tickers) * len(plan.sources),
-        "observations": len(observations),
-        "readback": "verified",
-    }
-    if confirmed_partial:
-        terminal["state_counts"] = accounting["state_counts"]
-        terminal["receipt_date_coverage"] = coverage
-    key = prefix(plan.run_id) + "/published.json"
-    saved = read_private(store, key)
-    if saved is not None and json.loads(saved.payload)["plan_sha256"] != plan.plan_sha256:
-        raise ValueError("external assessment published batch binding mismatch")
-    if saved is None or json.loads(saved.payload) != terminal:
-        put_private(
-            store,
-            key,
-            json.dumps(terminal, sort_keys=True).encode(),
-            previous_etag=saved.etag if saved else None,
+    for item, added, own_observations in per_plan:
+        plan = item.plan
+        terminal: dict[str, object] = {
+            "format": PARTIAL_TERMINAL_FORMAT if item.confirmed_partial else PUBLISHED_FORMAT,
+            "plan_sha256": plan.plan_sha256,
+            "release_id": after.release_id,
+            "release_manifest_sha256": after.manifest_sha256,
+            "expected_pairs": len(plan.tickers) * len(plan.sources),
+            "observations": len(own_observations),
+            "readback": "verified",
+        }
+        coverage = receipt_date_coverage(plan, own_observations)
+        if item.confirmed_partial:
+            terminal["state_counts"] = item.accounting["state_counts"]
+            terminal["receipt_date_coverage"] = coverage
+        verify_held(store, handle)
+        key = prefix(plan.run_id) + "/published.json"
+        saved = read_private(store, key)
+        if saved is not None and json.loads(saved.payload)["plan_sha256"] != plan.plan_sha256:
+            raise ValueError("external assessment published batch binding mismatch")
+        if saved is None or json.loads(saved.payload) != terminal:
+            put_private(
+                store,
+                key,
+                json.dumps(terminal, sort_keys=True).encode(),
+                previous_etag=saved.etag if saved else None,
+            )
+        plans.append(
+            {
+                **item.accounting,
+                **terminal,
+                "source": plan.sources[0],
+                "status": "partially_published" if item.confirmed_partial else "published",
+                "receipt_date_coverage": coverage,
+                "rows_added": plan_insertions[plan.run_id],
+                "source_responses_added": added,
+            }
         )
     reachable = {
         obj.key: obj.bytes
@@ -338,12 +433,7 @@ def publish_and_verify(
         for obj in part.objects
     }
     return {
-        **accounting,
-        **terminal,
-        "status": "partially_published" if confirmed_partial else "published",
-        "receipt_date_coverage": coverage,
-        "rows_added": inserted,
-        "source_responses_added": source_inserted,
+        "plans": plans,
         "uploaded_bytes": publication.uploaded_bytes if publication else 0,
         "uploaded_objects": publication.uploaded_objects if publication else 0,
         "publication_transfers": publication.transfers.as_dict() if publication else None,

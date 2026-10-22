@@ -50,7 +50,9 @@ def _plan(previous, *, run_id, tickers=("7203",), sources=("monex",), cohort_siz
         sources=sources,
         cohort_size=cohort_size,
         universe_binding=previous.universe_binding,
-        collector_binding=external_assessment_collector_binding(),
+        collector_binding=external_assessment_collector_binding(
+            source=sources[0] if len(sources) == 1 else None
+        ),
     )
 
 

@@ -27,30 +27,24 @@ MINKABU_PUBLIC_HEADERS = {
 }
 
 MIN_REQUEST_INTERVAL_SECONDS = 2.0
-# Pair policy changes require a version review in external_assessment/observations/identity.py.
-HOST_REQUEST_RATE_PER_SECOND = 2.0
-HOST_REQUEST_BURST_CREDITS = 4.0
-RATE_LIMITED_HOSTS = (
-    "scouter.monex.co.jp",
-    "www.rakuten-sec.co.jp",
-    "rakuten-sec.ifis.co.jp",
-    "jp.kabumap.com",
-    "minkabu.jp",
-)
+# Every request start, including iframe/fallback/retry, shares its source clock.
+SOURCE_REQUEST_INTERVAL_SECONDS = 0.5
+SOURCE_HOSTS = {
+    "monex": ("scouter.monex.co.jp",),
+    "rakuten": ("www.rakuten-sec.co.jp", "rakuten-sec.ifis.co.jp"),
+    "kabumap": ("jp.kabumap.com",),
+    "minkabu": ("minkabu.jp",),
+}
+_HOST_SOURCES = {host: source for source, hosts in SOURCE_HOSTS.items() for host in hosts}
 
 
 class HostRateLimiter:
-    """Fixed per-host token buckets shared by serial daily pairs and retries.
-
-    All hosts start with zero credits. A new cohort/process loses unused credits;
-    it never creates restart burst credit. Actual acquisition stays serial (one
-    request at a time), within the requested maximum concurrency of two.
-    """
+    """Strict source-wide request-start spacing; a cold process has no burst."""
 
     def __init__(self) -> None:
-        started = time.monotonic()
-        self._credits = dict.fromkeys(RATE_LIMITED_HOSTS, 0.0)
-        self._updated = dict.fromkeys(RATE_LIMITED_HOSTS, started)
+        self._next_start = dict.fromkeys(
+            _HOST_SOURCES.values(), time.monotonic() + SOURCE_REQUEST_INTERVAL_SECONDS
+        )
 
     def wait(self, url: str | bytes, *, deadline: float) -> None:
         if threading.current_thread() is not threading.main_thread():
@@ -61,26 +55,18 @@ class HostRateLimiter:
             parsed = urlsplit(url)
         except ValueError:
             raise ValueError("host rate limiter requires a fixed public HTTPS host") from None
-        if parsed.scheme != "https" or parsed.netloc not in RATE_LIMITED_HOSTS:
+        if parsed.scheme != "https" or parsed.netloc not in _HOST_SOURCES:
             raise ValueError("host rate limiter requires a fixed public HTTPS host")
-        host = parsed.netloc
-        rate = HOST_REQUEST_RATE_PER_SECOND
-        burst = HOST_REQUEST_BURST_CREDITS
+        source = _HOST_SOURCES[parsed.netloc]
         while True:
             now = time.monotonic()
-            remaining = deadline - now
-            if remaining <= 0:
+            wait = max(0.0, self._next_start[source] - now)
+            if now + wait >= deadline:
                 raise TimeLimit
-            credits = min(
-                burst,
-                self._credits[host] + (now - self._updated[host]) * rate,
-            )
-            self._updated[host] = now
-            self._credits[host] = credits
-            if credits >= 1.0:
-                self._credits[host] -= 1.0
+            if wait == 0:
+                self._next_start[source] = now + SOURCE_REQUEST_INTERVAL_SECONDS
                 return
-            time.sleep(min((1.0 - credits) / rate, remaining))
+            time.sleep(wait)
 
 
 class TimeLimit(Exception):

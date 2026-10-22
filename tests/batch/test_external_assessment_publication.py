@@ -535,10 +535,13 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
 def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
-    assert workflow["concurrency"]["group"] == "external-assessment-acquire"
-    assert workflow["concurrency"]["cancel-in-progress"] == "false"
+    assert "publish_confirmed_partial" in workflow["concurrency"]["group"]
+    assert "github.run_id" in workflow["concurrency"]["group"]
     acquire_job = workflow["jobs"]["acquire"]
-    assert acquire_job["strategy"]["max-parallel"] == "1"
+    assert acquire_job["strategy"]["max-parallel"] == "4"
+    assert acquire_job["strategy"]["fail-fast"] == "false"
+    assert acquire_job["concurrency"]["group"] == "external-assessment-acquire-${{ matrix.source }}"
+    assert "include" in acquire_job["strategy"]["matrix"]
     assert int(acquire_job["timeout-minutes"]) < 360
     publisher_job = workflow["jobs"]["publish"]
     assert publisher_job["concurrency"]["group"] == "cloud-publish"
@@ -550,9 +553,10 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     )
     assert lease < hydrate < publish
     assert "--lease-handle" in runs[publish]
-    assert 'external_assessment_daily "$publish_command"' in runs[publish]
-    assert "publish_command=publish" in runs[publish]
-    assert "publish_command=publish-confirmed-partial" in runs[publish]
+    assert "external_assessment_sources publish" in runs[publish]
+    assert "--selection-json" in runs[publish]
+    assert "--confirmed-partial" in runs[publish]
+    assert "needs.acquire.result" not in publisher_job["if"]
     assert int(publisher_job["timeout-minutes"]) < 120
     assert "refs/heads/main" in workflow["jobs"]["plan"]["if"]
     assert not any(

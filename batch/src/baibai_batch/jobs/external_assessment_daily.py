@@ -43,6 +43,7 @@ from baibai_engine.batch_api import (
     EquityWebSourceResponse,
     ExternalAssessmentCollectionResult,
     ExternalAssessmentHostRateLimiter,
+    ExternalAssessmentSource,
     LakeObjectCache,
     external_assessment_calendar_master_asof,
     external_assessment_collect_pair,
@@ -58,7 +59,9 @@ RETRY_BACKOFF_SECONDS = (5, 10, 20, 40, 80)
 
 
 def require_binding(plan: RunPlan) -> None:
-    if plan.collector_binding != external_assessment_collector_binding():
+    if plan.collector_binding != external_assessment_collector_binding(
+        source=plan.sources[0] if len(plan.sources) == 1 else None
+    ):
         raise ValueError("external assessment collector binding changed; do not reuse this batch")
 
 
@@ -81,6 +84,7 @@ def initialize(
     mirror: Path | None,
     require_existing: bool = False,
     observation_date: date | None = None,
+    source: ExternalAssessmentSource | None = None,
 ) -> RunPlan:
     if (master_asof is None) == (observation_date is None):
         raise ValueError(
@@ -88,6 +92,8 @@ def initialize(
         )
     existing = read_plan(store, run_id)
     if existing is not None:
+        if source is not None and existing.sources != (source,):
+            raise ValueError("saved plan source differs; old multi-source plans cannot be reused")
         saved_master = date.fromisoformat(json.loads(existing.universe_binding)["master_asof"])
         if master_asof is not None and saved_master != master_asof:
             raise ValueError("external assessment saved master assertion changed")
@@ -121,7 +127,8 @@ def initialize(
         run_id=run_id,
         tickers=tickers,
         universe_binding=binding,
-        collector_binding=external_assessment_collector_binding(),
+        collector_binding=external_assessment_collector_binding(source=source),
+        sources=(source,) if source is not None else ("monex", "rakuten", "kabumap", "minkabu"),
     )
     if len(plan.cohorts) > 256:
         raise ValueError("external assessment cohort count exceeds the supported Actions matrix")
@@ -168,6 +175,8 @@ def acquire_cohort(
     index: int,
     *,
     soft_budget_seconds: float = SOFT_BUDGET_SECONDS,
+    session: requests.Session | None = None,
+    rate_limiter: ExternalAssessmentHostRateLimiter | None = None,
 ) -> dict[str, object]:
     """Collect missing pairs, upload captured originals, then commit confirmed outcomes.
 
@@ -190,10 +199,10 @@ def acquire_cohort(
     original = stage
     provider_requests = 0
     stop_reason = None
-    rate_limiter = ExternalAssessmentHostRateLimiter()
+    rate_limiter = rate_limiter or ExternalAssessmentHostRateLimiter()
     with ExitStack() as resources:
         bundle = resources.enter_context(RawBundle(plan.run_id, index))
-        session = resources.enter_context(requests.Session())
+        session = session if session is not None else resources.enter_context(requests.Session())
         # Rotate hosts while keeping the saved source-major entry order unchanged.
         # Stable sorting retains the plan's source order within each ticker.
         for entry in sorted(original.result.entries, key=lambda entry: entry.ticker):
@@ -353,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=("status", "plan", "acquire", "audit", "publish", "publish-confirmed-partial"),
     )
     parser.add_argument("--run-id")
+    parser.add_argument("--source", choices=("monex", "rakuten", "kabumap", "minkabu"))
     parser.add_argument("--scheduled", action="store_true")
     parser.add_argument("--run-created-at", type=datetime.fromisoformat)
     parser.add_argument("--master-asof", type=date.fromisoformat)
@@ -392,6 +402,8 @@ def main(argv: list[str] | None = None) -> int:
             verify_put_with_head=args.command != "acquire",
         )
         if args.command == "plan":
+            if args.source is None and read_plan(store, args.run_id) is None:
+                raise ValueError("new plans require --source; use external_assessment_sources")
             if args.master_asof is None and observation_date is None:
                 raise ValueError("saved master date required")
             plan = initialize(
@@ -401,9 +413,20 @@ def main(argv: list[str] | None = None) -> int:
                 mirror=args.directory,
                 require_existing=args.require_existing_plan,
                 observation_date=observation_date,
+                source=args.source,
             )
         else:
             plan = read_plan(store, args.run_id)
+        if (
+            plan is not None
+            and len(plan.sources) != 1
+            and args.command not in {"status", "audit"}
+            and read_terminal(store, plan) is None
+        ):
+            raise ValueError(
+                "old multi-source plans cannot resume or publish; "
+                "use explicit old-revision disposition"
+            )
         if args.command == "status":
             write_outputs(
                 plan, read_terminal(store, plan) if plan is not None else None, run_id=args.run_id

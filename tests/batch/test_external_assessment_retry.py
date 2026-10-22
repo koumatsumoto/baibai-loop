@@ -120,6 +120,10 @@ def test_initial_plus_five_retry_stops_and_saved_failure_is_not_retried(
     report = daily.acquire_cohort(store, p, 0)
     assert len(client.calls) == report["provider_requests"] == limit
     assert report["stop_reason"] == "rate_limited_retry_exhausted"
+    assert all(
+        (later[1] - earlier[1]).total_seconds() >= 0.5
+        for earlier, later in zip(client.calls, client.calls[1:], strict=False)
+    )
     saved = staging.read_stage(store, p, 0)[0]
     assert saved.result.entries[0].reason == "rate_limited"
     before = list(store.puts)

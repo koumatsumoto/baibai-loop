@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[3]
             "cloud-external-assessment.yml",
             "publish",
             "pull-market",
-            "publish_command=publish",
+            "external_assessment_sources publish",
         ),
         (
             "cloud-tradingview-snapshot.yml",

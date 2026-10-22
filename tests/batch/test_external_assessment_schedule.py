@@ -273,23 +273,16 @@ def test_plan_matrix_omits_completed_cohorts_without_a_second_checkpoint_scan(
 
 
 @pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
-def test_workflow_reuses_plan_commands_and_resolved_id_without_a_second_entrypoint(tmp_path, event):
+def test_workflow_pins_original_clock_and_passes_inputs_through_env(tmp_path, event):
     workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
     assert workflow["on"]["schedule"] == [{"cron": "13 10 * * *"}]
     assert (
         EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME.hour,
         EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME.minute,
     ) == (10, 13)
-    jobs = workflow["jobs"]
-    assert jobs["plan"]["permissions"] == {"contents": "read", "actions": "read"}
-    assert workflow["permissions"] == {"contents": "read"}
-    assert "schedule" in jobs["notify"]["if"]
-    assert "needs.plan.outputs.eligible != 'false'" in jobs["notify"]["if"]
-    for job in ("acquire", "publish"):
-        assert (
-            jobs[job]["env"]["EXTERNAL_ASSESSMENT_BATCH_ID"] == "${{ needs.plan.outputs.batch_id }}"
-        )
-    steps = {step.get("id"): step for step in jobs["plan"]["steps"] if step.get("id")}
+    job = workflow["jobs"]["plan"]
+    assert job["permissions"] == {"contents": "read", "actions": "read"}
+    steps = {step.get("id"): step for step in job["steps"] if step.get("id")}
     assert "actions/runs/$GITHUB_RUN_ID" in steps["clock"]["run"]
     fake_uv = tmp_path / "uv"
     fake_uv.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" >> "$ARGUMENTS"\n')
@@ -300,21 +293,21 @@ def test_workflow_reuses_plan_commands_and_resolved_id_without_a_second_entrypoi
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "ARGUMENTS": str(arguments),
         "GITHUB_EVENT_NAME": event,
-        "EXTERNAL_ASSESSMENT_BATCH_ID": "manual-fixed",
-        "EXTERNAL_ASSESSMENT_MASTER_ASOF": "2026-10-09",
-        "EXTERNAL_ASSESSMENT_OPERATION": "collect_and_publish",
-        "RUNNER_TEMP": str(tmp_path),
-        "EXTERNAL_ASSESSMENT_RUN_CREATED_AT": CREATED.isoformat(),
+        "SOURCE": "monex",
+        "BATCH_ID": "manual-fixed",
+        "MASTER_ASOF": "2026-10-09",
+        "RUN_CREATED_AT": CREATED.isoformat(),
+        "OPERATION": "collect_and_publish",
     }
-    for step in ("status", "plan"):
-        subprocess.run(["bash", "-euo", "pipefail", "-c", steps[step]["run"]], env=env, check=True)
+    subprocess.run(["bash", "-euo", "pipefail", "-c", steps["plan"]["run"]], env=env, check=True)
     args = arguments.read_text().splitlines()
+    assert "external_assessment_sources" in " ".join(args)
+    assert "monex" in args
     if event == "schedule":
-        assert args.count("--scheduled") == 2
-        assert args.count(CREATED.isoformat()) == 2
+        assert "--run-created-at" in args
+        assert CREATED.isoformat() in args
         assert "manual-fixed" not in args
-        assert "--master-asof" not in args
     else:
-        assert args.count("manual-fixed") == 2
-        assert "--scheduled" not in args
-        assert "2026-10-09" in args
+        assert "manual-fixed" in args
+        assert "--master-asof" in args
+        assert "--run-created-at" not in args

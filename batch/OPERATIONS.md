@@ -791,29 +791,25 @@ import対象は明示した既存の隔離作業コピーであり、current mar
    一回限りの取得・Lake公開・machine pushを含むためjob上限は一時的に90分とし、lease TTL120分以内に保つ。撤去時に通常materializeの30分へ戻す。
    本番画面の目視確認は今回の完了条件ではない。
 
-### 日次取得と固定コホートの再開
+### 取得元別の日次取得と固定コホートの再開
 
-`cloud-external-assessment.yml`はmain限定で毎日19:13 JSTに日次取得し、同じ入口で手動受入・再開も行う。上の限定collectorと分け、保存済み全普通株の取得をpublication lease外で行う。scheduled runは元のGitHub run作成時刻からcron対象日と`external-assessment-daily-YYYY-MM-DD`のbatch IDを決め、queue遅延や翌日のrerunで対象を別日へ進めない。実行時点が15:30 JSTより前なら取得・公開前にskipする。
+`cloud-external-assessment.yml`はmain限定で毎日19:13 JSTに実行する。手動では`source`に`monex / rakuten / kabumap / minkabu`を指定し、その取得元だけを実行・再開できる。`all`は4取得元を選ぶ。通常daily・TradingViewとは独立し、schema cutoverやlive取得の受入を代行しない。
 
-初回に最新L1のreleaseを固定し、日次取得ではそのJPXカレンダーで対象営業日のexact-date masterを選ぶ。休日も取得し、連続したカレンダーで直近営業日を確認してその保存済みmasterを使う。手動では従来どおりmaster日付を明示する。calendarと必要なmaster年partition以外をこの計画段階で取得・hydrateせず、新しいmasterをproviderから取得しない。calendarの対象日・連続性、普通株のproduction floor、分類、master日付・release bindingが不足する場合はprovider通信前に停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では保存済みplanを読み、別universeへ置換しない。受領日時とJST受領日は実通信から保持し、休日や翌日の再開をmaster日付・cron対象日へ付け替えない。
+scheduled runは元のGitHub run作成時刻から対象日を固定し、`external-assessment-daily-<source>-YYYY-MM-DD`をexact batch IDとする。手動の`batch_id`はlabelであり、保存IDは`<source>-<label>`となる。scheduledの1sourceだけを再開・部分公開する場合は`batch_id`へ既存の`external-assessment-daily-<source>-YYYY-MM-DD`をそのまま指定する。このreserved IDは同source・既存plan必須で、欠落時に手動masterで再作成しない。通常の手動labelへnamespaceを重ねない。同labelでもsource別plan/stageを混ぜない。実行時点が15:30 JSTより前なら取得・公開前にskipする。
 
-既定・最大50銘柄のcohortを直列のmatrix jobへ分ける。通常の4媒体では50×（Monex 1HTTP＋楽天2HTTP＋株マップ1HTTP＋みんかぶ最大2HTTP）で最大300HTTPとなる。取得は銘柄ごとにplanの媒体順で回し、別hostの待機枠を使う。保存planとstageのpair順は従来の媒体順を保持する。別のHTTP数groupや細粒度matrixは作らない。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。全5hostは平均2HTTP/秒・最大4creditのtoken bucketをcohort内の全pair・再試行で共有し、実送信直前にtokenを消費する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは直列1件、process開始時のcreditは0で、再起動によるcredit付与はない。HTTP Sessionはcohort内で再利用し、各pair開始時にcookieを空にする。限定CLIの2秒間隔と通常のTLS/proxy経路は維持する。
+各sourceのplanは保存済みrelease/calendar/masterの固定ticker集合、`sources=(source,)`、そのsourceのparser/request条件と共通transport policyに束縛する。元の受領UTC/JST日をmaster日・cron日へ付け替えない。calendar/master/floor不足はprovider通信前に停止する。planの作成や再開で新しいmasterを取得しない。
 
-pair取得は120秒以内、HTTP timeoutは30秒以内とする。取得jobは4時間のsoft budgetに次pair・保存の15分余裕を残し、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
+取得matrixは最大4 jobで、job数をcohort数×4へ増やさない。各jobは50銘柄cohortを順に確定する。同sourceのscheduled/manual/rerunは`external-assessment-acquire-<source>`で直列化し、別sourceの失敗では取消さない。各source jobでHTTP Session・rate limiter・4時間soft budgetを共有する。次pairと保存の15分余裕を残し、process上限270分、job上限300分を維持する。pairは120秒、HTTPは30秒以内。
 
-### cohort stageの確定と再開
+同sourceのHTTP開始は最低0.5秒を空ける。楽天outer/IFIS iframe、みんかぶ本体/fallback、全retryをそれぞれ同sourceへ合算し、idle後のburstを許可しない。新processの最初も0.5秒待つ。異なる取得元は独立に進められる。同sourceのlocal取得をActionsと重ねない。限定CLIの既存2秒間隔・通常TLS/proxy経路は維持する。
 
-確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/external-assessment/<batch_id>/cohort-NNNN.json`へ`external-assessment-cohort-stage-v2`で保存する。成功・正常null・既知失敗・未記録を区別し、実受領UTC時刻を変更しない。通常終了・soft budget・retry上限など制御された停止では、raw bundleの保存を確認してから確定結果をcohort stageとして一度だけ条件付きPUTする。取得前の永続予約、inflight状態、永続429 retry/cooldownは持たない。
+### source別stageの確定と再開
 
-planは既存stageを一度走査し、未記録pairを持つcohortだけをmatrixへ渡す。acquireは対象cohortのstageだけを読み、完了済みならprovider通信0・PUT0で返す。部分再開では保存済みの成功・正常null・失敗と元受領時刻を保ち、未記録pairだけを取得する。hard kill前に未commitのGETは再取得されうる。通常cohort最大300HTTPの再取得を受け入れ、HTTP exactly-onceを保証しない。結果が一件も確定しないsoft stopでは空stageを保存しない。
+stageは既存`coordination/external-assessment/<sourceを含むbatch ID>/cohort-NNNN.json`へ保存する。50銘柄単位の原本bundleを先に保存し、成功・正常null・既知失敗・未試行を条件付きstage PUTで確定する。既存entryと元受領時刻を上書きせず、未試行pairだけを再開する。hard kill前の未確定GETは再取得され得る。取得前予約・inflight台帳・永続retry予算を追加しない。
 
-初回PUTは`If-None-Match`、部分再開は読取世代の`If-Match`で更新する。PUT応答不明・ETag欠落・CAS競合では実際のstageを読んで確定済み結果を採用し、新しい受信値で既存結果を上書きしない。保存が確認できない場合は失敗とし、競合stageに未記録pairが残る場合も未完了と報告する。通常の成功PUTではContent-MD5と応答ETagを検証し、取得用storeのPUT直後HEADを省く。保存済みobjectのHEAD→GET→HEADとSHA256/世代検証は維持する。
+429はprocess内で初回＋最大5retry。Retry-Afterの受信完了UTC基準の期限を尊重し、不正・未指定なら5/10/20/40/80秒＋0～1秒jitterを使う。HTTP内部retryと重ねない。待機が残予算に収まらない、表現不能な期限、retry上限、403では当該sourceを止める。他sourceは続ける。保存した失敗pairは同planで再取得せず、明示再開でも未試行pairだけを取得する。失敗pair自体を再取得する場合は別labelのplanを使う。
 
-429 retryはprocess内だけで行う。`Retry-After`の秒数またはHTTP-dateを受信完了UTC基準の期限へ変換し、期限を短縮しない。headerがないか不正なら5・10・20・40・80秒のbackoffに0～1秒のjitterを加える。初回に加えて最大5回のpair再試行を許可し、HTTPライブラリの内部retryは無効のままとする。楽天はouter→公式iframeを再検証するため、初回＋5回で最大12HTTPとなる。待機はpair deadline外だがjobのsoft budgetに含め、待機中は他pairを開始しない。
-
-待機がbudgetへ収まらない、有効な待機値が表現不能、5回使い切った後の429、403では新規通信を止め、最後に確定した失敗と未記録pairをpartial stageへ保存する。失敗は同planで再取得しない。operatorが原因を確認して同batchを再開する場合も未記録pairだけを取得する。失敗pairを改めて取得する必要があれば、重複取得範囲を明示して別batchを計画する。retry専用matrix・再dispatchにまたがる残り回数や待機期限は作らない。
-
-追加取得のcollector bindingはparser・host・pair上限・みんかぶの明示request headerを含む。実行revisionの`collector_binding()`を正本とし、保存planのbindingと照合する。旧checkpoint形式は新readerで実行時変換せず、未公開の旧batchは旧revisionで確認・完結させるか、レビュー済みの個別切替を行う。新batchへ旧checkpointを読み替えない。今回のcode変更だけで本番の旧stage移行済みとは扱わない。verified terminalは追加取得のbinding確認より先に認識し、元の完全/部分公開結果のままno-opで返す。
+旧multi-source planを分割・移行・新しいsource planとして再利用しない。現行source入口はsource不一致を拒否する。旧CLIも未公開multi-source planの取得・公開を拒否し、既存terminalの歴史的no-opだけを保持する。未公開の旧batchは旧revisionで内容と原本保持期限を確認して明示処置し、新しいsource別batchへ旧checkpointを読み替えない。collector binding変更で未完了planを拒否した場合も、手書きhash置換をせず同様に扱う。sealed terminalは以前の検証結果として維持する。
 
 ### 公開HTML原本のcohort handoff bundle
 
@@ -833,30 +829,33 @@ uv run python -m baibai_batch.storage.external_assessment_raw --as-of 2026-10-12
 
 本文再検証では既存runtime認証と`read_raw_bundle(store, bundle_key)`を使い、manifestと復元したcanonical receipt・bytesのsize/SHA256・親子関係を照合する。archiveをfilesystemへ展開せず、本文や再解析値をstdoutへ出さない。必要なサンプルの期限外保持はraw root外の明示したprivate領域へ手動コピーし、専用pin/GC管理は追加しない。
 
-### 公開・成功確認・停止後の運用
+### readyなsourceのまとめ公開・停止後の運用
 
-code/store切替、レビュー・CI・private handoff・費用/所要時間の受入を確認してからmainのworkflowを実行する。新credential・serverは不要だが、開発テストは本番取得・R2書込・通知の受入証拠ではない。再開は元runのrerun、または保存planと同じmaster日付・batch IDでdispatchする。
+通常scheduledは、入口で固定したexactな4source planだけを調べ、全pair確定かつ403/429なしのready planを一度に公開する。matrix全体の成功は要求せず、停止/未完了sourceはそのまま残す。任意の最新planをLISTして拾わない。手動で1sourceを指定した場合は他sourceを取得・公開しない。
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \
-  -f batch_id="$external_assessment_batch_id" -f master_asof="$external_assessment_master_asof"
+  -f source=monex -f batch_id="$external_assessment_batch_label" \
+  -f master_asof="$external_assessment_master_asof"
 ```
 
-**成功確認**: 固定cohort・pairのaccountingと未記録0を確認し、success・normalnull・parse/HTTP失敗を区別する。全pairの試行完了は全指標の値ありを意味しない。通常公開は全cohort・pairの確定が必要で、403/429を含むbatchは明示的な部分公開を使う。publisherだけ既存`cloud-publish` concurrencyとpublication leaseへ入り、最新cloudをfresh pull/hydrateしてから元受領時刻のstageを適用する。欠落cohort、期限切れ・置換lease、古いhydrate originは公開前に拒否し、pointer切替直前にもleaseを確認する。leaseとpointerの二つのkeyを原子的なfencingとはみなさない。workflowの公開job上限110分は既存lease TTL120分より短い。
+公開jobはまずexact source plan/stage/terminalをread-onlyで確認する。全sourceが既存terminalで閉じている場合はstage/raw再読・lease・hydrateを省く。readyなsourceがある場合だけ既存`cloud-publish`内でpublication leaseを取得し、fresh pull/hydrateする。選んだplanごとのrawを再解析してtyped stageとの一致を確認し、全選択原本の検証後にL2を適用する。変更partition/月/receipt digestのunionを一回のLake export・pointer CAS・remote readbackで検証する。期限切れlease、origin、raw/typed/history不整合では停止する。破損した選択sourceの自動隔離は行わず、正常sourceだけの手動実行で切り分ける。
 
-公開前に参照されたraw bundleを1件ずつ検証し、同じreceipt IDの原本をmarket SQLiteへ独立transactionで取り込む。選択attemptは保存済み原本を読み直して再解析し、typed stageとの一致を全件確かめてからL2を更新する。後続bundleの不備では、それまでの有効なL1は残るが、L2と公開pointerは変更しない。再試行で同じ原本は追加row 0となり、異なる内容の同一IDは拒否する。HTTP 200のparse失敗は原本だけを残し、非200や応答なしの本文は作らない。
+source別の既存terminalは、共通releaseのreadback完了後にそれぞれ保存する。集約plan・集約terminalは作らない。一部terminal保存後の停止ではsealed sourceは`previously_verified`でno-op、未sealed sourceはfresh hydrateからidempotentに再適用する。pointer成功後のterminal失敗を未反映と断定しない。障害時には追加row 0でも再export/readbackが起き得る。
 
-公開後は今回専用のprivate mirrorから固定releaseの変更されたExternal Assessment L1/L2のUTC/JST年月partitionを読み、原本のmetadata・本文bytesとtyped観測の全列、変更月内の既存・追加履歴digestを照合して`readback: verified`を記録する。原本の月全履歴は行順に逐次hashし、全HTMLを一括保持しない。新upload objectはpublisherがremoteから全bytesを読戻してSHAを検証し、その取得fileを固定releaseのSHA照合・履歴検証にも使う。未取得の変更月objectはremoteから取得し、別runやexport元fileを流用しない。無変更partitionはmanifest object identityで確認する。同stageの再投入は追加row 0である。JST日付は元UTCから導出し、日跨ぎを単一日の全銘柄coverageとしない。公開失敗後は次回も最新正本をhydrateし、readback失敗を完了扱いしない。
+403/429や未完了sourceを自動的に閉じない。確定typedだけで閉じる場合は同source・同label/masterで`operation=publish_confirmed_partial`を明示する。この操作は`source=all`を拒否し、取得jobを実行せず、保存plan/typedがなければ止める。部分公開workflow全体が同sourceの取得jobと同じconcurrency groupをterminal確定まで保持し、取得中のplanを並行して閉じない。公開jobは引き続き別の`cloud-publish` groupとpublication leaseを保持する。失敗・未試行を正常nullへ変えず、既存部分terminalとして同batchを閉じる。
 
-停止したbatchを確定済み観測だけで閉じるとoperatorが明示的に選ぶ場合は、同じ保存batch ID/master日付に`operation=publish_confirmed_partial`を指定する。この入口は取得jobを実行せず、保存planとtyped観測がなければ拒否する。最新正本のfresh hydrateと同じlease/readback契約で確定typedだけを公開し、欠落cohort・未記録pairを正常nullや確定失敗へ変えず、元stageを保持する。部分terminalは4状態件数・元JST受信日/source別typed件数を残し、全件完了と区別して同batchを閉じる。旧5状態terminalは現行readerでは受け付けない。過去の証拠は元revisionで確認し、現行checkpointへ読み替えない。
+```bash
+gh workflow run cloud-external-assessment.yml --ref main \
+  -f source=minkabu -f batch_id="$external_assessment_batch_label" \
+  -f master_asof="$external_assessment_master_asof" -f operation=publish_confirmed_partial
+```
 
-完全/部分verified terminalの再実行はstage・DB・lease・L1を読み直さず、`previously_verified`・provider通信0・追加row 0を返す。過去の検証結果であり、今回の新公開や現在世代の再検証ではない。terminalに保存されていない集計値を0で補わない。
+**成功確認**: sourceごとの固定pair・typed・正常null・失敗・未試行、完全/部分公開、release ID/hash、readback、lease解放を分けて確認する。1件の403で残り全件を失敗とせず、未試行数を保持する。保存済み観測の受領時刻を最新実行時刻へ更新しない。Lake公開とWeb serving更新は別で、Webは通常daily/materializeで反映する。新規取得の成功をschema切替やCI緑だけで証明しない。
 
-終端`notify` jobは既存secret `DISCORD_WEBHOOK_URL`の宛先へrun単位で1件通知する。成功・既知失敗を含む公開・部分公開・以前の完全/部分公開・取得未完了・公開確認失敗・取消を区別し、確認済みの固定pair・typed・既知失敗・normalnull・未記録・追加row件数と実行linkを載せる。matrix失敗時やterminalに保存されていない集計値は不明とし、通知用のR2読取は加えない。銘柄別値・HTML・private batch ID・認証情報・error本文は通知しない。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job成功だけで実配送済みとは判断せず、workflow履歴も確認する。
+通知はsource別結果を既存Discord宛先へrun単位で1件送り、以前の検証・今回の公開・取得元停止・未完了・公開結果不明を区別する。terminal保存だけ失敗した場合、保存済みterminalで確認できるsourceだけ成功を示す。不明な件数を0で補わず、値・HTML・private ID・例外本文を通知しない。lease解放失敗も公開到達点と併記する。setup等で結果fileが作れなければ結果不明とする。
 
-正常な初回cohortではraw bundleとstageをこの順に各1 PUTする。private読取はplanの一度のstage走査、各acquireの自cohort読取、publishの確定stage走査に限定し、各acquireで全cohortを再走査しない。部分再開・競合・失敗では操作数が変わる。summaryの`provider_requests`は今回の実HTTP件数、`http_requests`/`response_content_bytes`は採用stageの累計で、wire bytesは未計測である。`elapsed_seconds`は今回の総時間、`collection_elapsed_seconds`はHTTP・host制限待機・解析、`storage_elapsed_seconds`はprivate読取・local spool・raw/stage保存を示す。429 backoffは総時間に含む。完了stageの取得時間とprovider件数は0で、過去runの時間を補わない。
-
-R2費用確認ではprivate stage/raw、lease、pull/hydrate、L1 export/upload/readbackを分けて実測する。既存TransferReportはpublish層の範囲であり、private handoffやSDK retry、wire bytesを含むrun総計ではない。公開済みのL1原本とL2履歴はraw expirationによって削除しない。未公開のbundleが期限切れになれば、その原本の投入・再構築は保証できない。公開/readback後も固定planと小さなterminalを保持し、同batchを再取得へ戻さない。今回の最適化だけで全runの料金・所要時間を確定したとは扱わない。
+まとめ公開はscheduled取得job群の終了を待つため遅いsourceによる待ちが残る。取得は独立して保存され、必要ならreadyなsourceだけを手動公開できる。通常公開の回数削減は全upload量の比例削減を意味しない。料金・所要時間は通常runのsource取得、private handoff、hydrate、export、readbackを分けて確認する。未公開raw bundleの期限切れでは復元を保証しない。新しい性能試験のための本番取得は行わない。
 
 <a id="store-identity-recovery"></a>
 

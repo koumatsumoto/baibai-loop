@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -328,6 +327,7 @@ def test_publish_main_emits_actual_report_only_after_existing_publisher_returns(
 
     p = daily.make_plan(
         run_id="synthetic-publish",
+        sources=("monex",),
         tickers=("7203",),
         universe_binding="synthetic",
         collector_binding=daily.external_assessment_collector_binding(),
@@ -374,6 +374,7 @@ def test_publish_main_emits_actual_report_only_after_existing_publisher_returns(
 def test_acquire_main_does_not_write_publication_outputs(tmp_path, monkeypatch):
     p = daily.make_plan(
         run_id="synthetic-acquire",
+        sources=("monex",),
         tickers=("7203",),
         universe_binding="synthetic",
         collector_binding=daily.external_assessment_collector_binding(),
@@ -387,73 +388,15 @@ def test_acquire_main_does_not_write_publication_outputs(tmp_path, monkeypatch):
     assert not output.exists()
 
 
-def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existing_secret():
+def test_source_notifier_runs_after_lease_release_and_uses_only_step_secret():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
         (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
-    assert workflow["on"]["workflow_dispatch"]["inputs"]["operation"]["options"] == [
-        "collect_and_publish",
-        "publish_confirmed_partial",
-    ]
-    jobs = workflow["jobs"]
-    notifiers = {
-        name: job
-        for name, job in jobs.items()
-        if any(
-            "baibai_batch.observability.external_assessment_discord" in step.get("run", "")
-            for step in job["steps"]
-        )
-    }
-    assert len(notifiers) == 1
-    notify_job = next(iter(notifiers.values()))
-    assert notify_job["needs"] == ["plan", "acquire", "publish"]
-    assert "strategy" not in notify_job
-    assert "always()" in notify_job["if"]
-    assert "workflow_dispatch" in notify_job["if"]
-    assert "refs/heads/main" in notify_job["if"]
-    assert "DISCORD_WEBHOOK_URL" not in workflow.get("env", {})
-    assert "DISCORD_WEBHOOK_URL" not in notify_job.get("env", {})
-    notify_steps = [
-        step
-        for step in notify_job["steps"]
-        if "baibai_batch.observability.external_assessment_discord" in step.get("run", "")
-    ]
-    assert len(notify_steps) == 1
-    step = notify_steps[0]
-    assert step["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
-    assert step["env"]["PYTHONPATH"] == "batch/src"
-    serialized = json.dumps(notify_job)
-    for private in (
-        "R2_ACCOUNT_ID",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-        "batch_id",
-        "master_asof",
-    ):
-        assert private not in serialized
-    assert "python3 -m baibai_batch.observability.external_assessment_discord" in step["run"]
-    assert "--terminal-status" in step["run"]
-    assert "--publication-mode" in step["run"]
-    assert "needs.plan.outputs.terminal_status" in step["run"]
-    assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["publish"]["if"]
-    assert "!cancelled()" in jobs["publish"]["if"]
-    assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["acquire"]["if"]
-    assert "needs.plan.outputs.operation == 'collect_and_publish'" in jobs["acquire"]["if"]
-    for counter in notify.COUNTERS:
-        assert f"--{counter.replace('_', '-')}" in step["run"]
-        assert (
-            f"steps.publish.outputs.external_assessment_{counter}"
-            in jobs["publish"]["outputs"][counter]
-        )
-    cancellation = next(step for step in notify_job["steps"] if step.get("id") == "cancellation")
-    assert cancellation["if"] == "${{ cancelled() }}"
-    assert "steps.cancellation.outputs.cancelled" in step["run"]
-    for job in jobs.values():
-        for job_step in job["steps"]:
-            assert not re.search(
-                r"\$\{\{[^}]*\b(?:always|success|failure|cancelled)\s*\(",
-                job_step.get("run", ""),
-            )
+    steps = workflow["jobs"]["publish"]["steps"]
+    release = next(i for i, step in enumerate(steps) if step.get("id") == "lease-release")
+    notice = next(i for i, step in enumerate(steps) if "--sources-report" in step.get("run", ""))
+    assert release < notice
+    assert steps[notice]["if"] == "${{ always() }}"
+    assert steps[notice]["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
