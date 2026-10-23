@@ -336,7 +336,7 @@ def test_refresh_can_use_exact_older_material_and_supersede_current_latest(prior
 def test_refresh_reader_rechecks_prior_review_arithmetic_without_inherited_review_chain(
     prior, connection
 ):
-    from baibai_engine.storage.application.json import canonical_json
+    from baibai_engine.foundation.json import canonical_json
 
     draft, review = authored_refresh(prior)
     refreshed = publish_reviewed_assessment(
@@ -430,7 +430,7 @@ def test_same_day_refresh_publish_rejects_checks_before_the_prior_pair(
 @pytest.mark.parametrize("fault", ["assessed_at", "checked_at"])
 def test_same_day_refresh_read_rechecks_authoritative_prior_time(connection, fault):
     from baibai_engine.research.assessment import assessment_core_hash
-    from baibai_engine.storage.application.json import canonical_json
+    from baibai_engine.foundation.json import canonical_json
 
     prior = same_day_prior(connection)
     draft, review = same_day_refresh(

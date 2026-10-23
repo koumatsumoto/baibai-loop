@@ -18,11 +18,11 @@ from pydantic import (
 )
 
 from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.price_grid import common_stock_limit_is_valid, floor_common_stock_limit
 from baibai_engine.research.assessment import AssessmentRef
 from baibai_engine.research.selection import ResearchTarget
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.scenario import finite_decimal
 
 INVESTMENT_PROPOSAL_SCHEMA_VERSION = 3

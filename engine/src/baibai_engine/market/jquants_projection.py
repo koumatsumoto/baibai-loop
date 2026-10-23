@@ -7,19 +7,17 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.collection.jquants.receipts import read_complete_request
-from baibai_engine.market.margin_publication import LEGACY_WEEKLY_LAST_BALANCE_DATE
-from baibai_engine.storage.observations.ingest.jquants import (
+from baibai_engine.market.jquants_writer import (
     store_jquants_all_issues_daily_margin,
+    store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_margin_alerts,
+    store_jquants_market_calendar,
     store_jquants_master,
     store_jquants_short_sale_reports,
     store_jquants_weekly_margin,
 )
-from baibai_engine.storage.observations.jquants import (
-    store_jquants_daily_bars,
-    store_jquants_market_calendar,
-)
+from baibai_engine.market.margin_publication import LEGACY_WEEKLY_LAST_BALANCE_DATE
 from baibai_engine.storage.observations.schema import connect_current
 
 

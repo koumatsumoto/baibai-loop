@@ -30,8 +30,8 @@ from baibai_engine.collection.economic.acquisition import (
     LATEST_FETCH_LOOKBACK_DAYS,
 )
 from baibai_engine.collection.economic.sources import load_sources
+from baibai_engine.market.jquants_writer import store_jquants_market_calendar
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 
 JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)

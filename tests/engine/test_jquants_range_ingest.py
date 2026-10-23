@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.storage.observations.jquants import (
+from baibai_engine.market.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_market_calendar,
 )

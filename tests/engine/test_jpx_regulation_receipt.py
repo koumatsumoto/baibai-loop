@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
+from baibai_engine.market.jpx_rebuild import store_jpx_regulations
 
 
 def test_regulation_receipt_uses_the_supplied_acquisition_instant(tmp_path: Path) -> None:

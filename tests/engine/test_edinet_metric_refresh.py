@@ -18,9 +18,9 @@ from baibai_engine.collection.edinet.models import EdinetAcquisitionError, Edine
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.edinet_selection import select_document_candidates
 from baibai_engine.screening.cli.edinet_cli import refresh_edinet_metrics_command
-from baibai_engine.storage.observations.ingest.edinet import store_edinet_metrics
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 

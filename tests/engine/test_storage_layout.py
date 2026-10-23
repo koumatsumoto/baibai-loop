@@ -13,6 +13,7 @@ for prefix in (
     'baibai_engine.external_assessment',
     'baibai_engine.market',
     'baibai_engine.market_context',
+    'baibai_engine.technical_analysis',
     'baibai_engine.valuation',
     'baibai_engine.screening',
     'baibai_engine.position',
@@ -50,20 +51,20 @@ assert tv_contract.TABLE == 'tradingview_forecast_snapshots'
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_storage_reader_does_not_load_provider_or_writer_implementations():
+def test_market_readers_do_not_load_provider_or_writer_implementations():
     code = """
 import sys
 from baibai_engine.market import edinet_models, jpx_models, jquants_models, jquants_decode
-from baibai_engine.storage.observations import reader
+from baibai_engine.market import jpx_reader, jquants_reader, margin_reader
 for prefix in (
-    'baibai_engine.market.providers',
+    'baibai_engine.market.jquants_writer',
+    'baibai_engine.market.jpx_rebuild',
     'baibai_engine.market.edinet_metrics',
-    'baibai_engine.storage.observations.ingest',
-    'baibai_engine.storage.observations.jquants',
+    'baibai_engine.market.edinet_list_rebuild',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
-assert reader.JPXEarningsCalendarEntry is jpx_models.JPXEarningsCalendarEntry
-assert reader.JQuantsProviderError is jquants_decode.JQuantsProviderError
+assert jpx_reader.JPXEarningsCalendarEntry is jpx_models.JPXEarningsCalendarEntry
+assert jquants_reader.JQuantsProviderError is jquants_decode.JQuantsProviderError
 """
     subprocess.run([sys.executable, "-c", code], check=True)
 
@@ -73,7 +74,7 @@ def test_edinet_decoding_and_sqlite_reads_do_not_load_http_client():
 import sys
 from baibai_engine.market import edinet_decode
 from baibai_engine.market.edinet_metrics import store
-from baibai_engine.market.providers import edinet_csv
+from baibai_engine.market.edinet_metrics import csv as edinet_csv
 for prefix in (
     'baibai_engine.market.edinet_refresh',
     'requests',

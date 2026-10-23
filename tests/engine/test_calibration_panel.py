@@ -54,7 +54,7 @@ from baibai_engine.screening.calibration.store import (
     write_panel,
 )
 from baibai_engine.screening.discovery.candidates import candidate_discovery_method_hash
-from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
+from baibai_engine.screening.metric_builder import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
@@ -1236,7 +1236,7 @@ class DerivedCacheIdentityTests(unittest.TestCase):
 
 
 def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
-    from baibai_engine.storage.application.json import canonical_json
+    from baibai_engine.foundation.json import canonical_json
 
     sqlite_path = tmp_path / "market.sqlite"
     build_calibration_fixture_sqlite(sqlite_path)

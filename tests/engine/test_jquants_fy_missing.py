@@ -3,8 +3,8 @@
 from datetime import date
 
 from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
 
 

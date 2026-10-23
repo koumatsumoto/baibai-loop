@@ -8,7 +8,7 @@ from tests.engine.test_candidate_discovery import _analysis, _discover
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.calibration.panel import rules_content_hash
 from baibai_engine.screening.discovery import candidates as discovery
-from baibai_engine.screening.metrics.snapshot import build_metrics
+from baibai_engine.screening.metric_builder import build_metrics
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.schema import DerivedMetrics

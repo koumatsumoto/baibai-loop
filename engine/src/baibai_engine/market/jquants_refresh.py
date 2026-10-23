@@ -9,33 +9,43 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from baibai_engine.collection.jquants.http import JQuantsHTTP, JQuantsSource
 from baibai_engine.collection.jquants.receipts import acquire_request
+from baibai_engine.foundation.time import JST
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
-from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_reader import (
+    JQuantsReader,
+    count_fin_summaries,
+    fin_summaries_covered,
+    read_eq_master_exact,
+    read_market_calendar,
+)
 from baibai_engine.market.margin_publication import (
+    ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+    MARGIN_PUBLICATION_TRADING_DAYS,
+    _publication_trading_day,
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
 )
-from baibai_engine.market.store import (
+from baibai_engine.market.margin_reader import read_all_issues_daily_margin, read_weekly_margin
+from baibai_engine.market.price_reader import (
     count_daily_bars,
     daily_bars_covered,
     latest_daily_bar_date,
     latest_stored_daily_bar_date,
-    read_market_calendar,
 )
 from baibai_engine.storage.observations.coverage import merge_date_ranges, missing_intervals
-from baibai_engine.storage.observations.jquants_contract import SHORT_SALE_REPORT_SOURCE
-from baibai_engine.storage.observations.reader import (
-    count_fin_summaries,
-    fin_summaries_covered,
-    read_all_issues_daily_margin,
-    read_eq_master_exact,
-    read_weekly_margin,
+from baibai_engine.storage.observations.jquants_contract import (
+    ALL_ISSUES_DAILY_MARGIN_SOURCE,
+    SHORT_SALE_REPORT_SOURCE,
+    WEEKLY_MARGIN_SOURCE,
+    all_issues_daily_margin_coverage_key,
+    weekly_margin_coverage_key,
 )
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
@@ -218,3 +228,239 @@ class JQuantsRefresh:
                 planned = merge_date_ranges([*repairs, (start, end)])
         self._fetch_days("short_sale_reports", planned)
         return len(self._reader.get_mkt_short_sale_report_range(start, end))
+
+
+def final_legacy_week_requires_refresh(sqlite_path: Path) -> bool:
+    """Whether the final weekly balance still lacks a non-empty clean snapshot."""
+    if not sqlite_path.exists():
+        return True
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return True
+    try:
+        row = conn.execute(
+            "SELECT status, record_count FROM source_coverage "
+            "WHERE source = ? AND coverage_key = ?",
+            (
+                WEEKLY_MARGIN_SOURCE,
+                weekly_margin_coverage_key(LEGACY_WEEKLY_LAST_BALANCE_DATE),
+            ),
+        ).fetchone()
+    finally:
+        conn.close()
+    return row is None or row[0] != "ok" or int(row[1] or 0) == 0
+
+
+def weekly_margin_empty_requires_refresh(
+    sqlite_path: Path,
+    week_end: date,
+    *,
+    asof: date,
+) -> bool:
+    """Whether an empty weekly snapshot was fetched before publication was due.
+
+    Empty is a valid final answer for a week the exchange skipped, but only after
+    the second-trading-day publication point.  Older code could ask sooner and
+    persist that temporary empty response as clean coverage.  The fetch timestamp
+    distinguishes that state from an empty response observed after publication.
+    """
+    if not sqlite_path.exists():
+        return False
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return False
+    try:
+        coverage = conn.execute(
+            "SELECT status, record_count, fetched_at_utc FROM source_coverage "
+            "WHERE source = ? AND coverage_key = ?",
+            (WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key(week_end)),
+        ).fetchone()
+        if coverage is None or coverage[0] != "ok" or int(coverage[1] or 0) != 0:
+            return False
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
+                (week_end.isoformat(), asof.isoformat()),
+            )
+        ]
+    finally:
+        conn.close()
+    publication_day = _publication_trading_day(
+        trading_days,
+        week_end,
+        trading_day_lag=MARGIN_PUBLICATION_TRADING_DAYS,
+    )
+    if publication_day is None or publication_day > asof:
+        return False
+    try:
+        fetched_at = datetime.fromisoformat(str(coverage[2]))
+    except (TypeError, ValueError):
+        return True
+    if fetched_at.tzinfo is None:
+        return True
+    return fetched_at.astimezone(JST).date() <= publication_day
+
+
+def weekly_margin_candidate_dates(
+    sqlite_path: Path,
+    start: date,
+    end: date,
+    *,
+    publication_asof: date | None = None,
+) -> list[date]:
+    """The last stored trading day of each week in `[start, end]`, ascending.
+
+    The exchange's balance date is that day in most weeks and an earlier one when
+    the week's later days were closed — and some weeks have no balance date at all,
+    even weeks the market traded. Rather than encode that calendar, this proposes
+    one candidate per week and lets the fetch record an empty answer as the week's
+    fact. When `publication_asof` is supplied, candidates whose second-trading-day
+    publication is still in the future are withheld from the daily bootstrap.
+    """
+    balance_end = min(end, LEGACY_WEEKLY_LAST_BALANCE_DATE)
+    if not sqlite_path.exists() or start > balance_end:
+        return []
+    calendar_end = max(balance_end, publication_asof or balance_end)
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+            "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            (start.isoformat(), calendar_end.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+    trading_days: list[date] = []
+    for (value,) in rows:
+        try:
+            day = date.fromisoformat(str(value))
+        except ValueError:
+            continue
+        trading_days.append(day)
+    last_of_week: dict[tuple[int, int], date] = {}
+    for day in (candidate for candidate in trading_days if candidate <= balance_end):
+        year, week, _ = day.isocalendar()
+        last_of_week[(year, week)] = day
+    # A week that is still running has a last stored trading day that moves forward
+    # each day, so proposing it spends one call per run on a date that is not a
+    # balance date; nothing is lost by waiting, because the publication lag means a
+    # balance date is not usable until two trading days after the week closes. The
+    # week is in progress only when `end` reaches the newest day the store knows —
+    # a window that ends in the past has a complete final week and must keep it.
+    newest = max(last_of_week.values(), default=None)
+    stored_latest = _latest_stored_trading_day(conn_path=sqlite_path)
+    if (
+        newest is not None
+        and stored_latest is not None
+        and balance_end.isocalendar()[:2] == stored_latest.isocalendar()[:2]
+    ):
+        last_of_week.pop(newest.isocalendar()[:2], None)
+    candidates = sorted(last_of_week.values())
+    if publication_asof is None:
+        return candidates
+    return [
+        candidate
+        for candidate in candidates
+        if (
+            publication_day := _publication_trading_day(
+                trading_days,
+                candidate,
+                trading_day_lag=MARGIN_PUBLICATION_TRADING_DAYS,
+            )
+        )
+        is not None
+        and publication_day <= publication_asof
+    ]
+
+
+def all_issues_daily_margin_candidate_dates(
+    sqlite_path: Path,
+    start: date,
+    asof: date,
+) -> list[date]:
+    """Unfetched daily balance dates that have a later trading-day publication."""
+    start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
+    if not sqlite_path.exists() or start >= asof:
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+                (start.isoformat(), asof.isoformat()),
+            )
+        ]
+        covered = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT coverage_key FROM source_coverage "
+                "WHERE source = ? AND status = 'ok' AND record_count > 0",
+                (ALL_ISSUES_DAILY_MARGIN_SOURCE,),
+            )
+        }
+    finally:
+        conn.close()
+    # Publication is on the following business day, so the newest trading day has
+    # not yet become available. An empty all-issues response cannot describe a
+    # complete business-day snapshot and remains a retry target.
+    return [
+        day for day in trading_days[:-1] if all_issues_daily_margin_coverage_key(day) not in covered
+    ]
+
+
+def all_issues_daily_margin_backfill_candidate_dates(
+    sqlite_path: Path,
+    start: date,
+    end: date,
+) -> list[date]:
+    """Every uncovered balance date in an inclusive historical backfill window."""
+    start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
+    if not sqlite_path.exists() or start > end:
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+                (start.isoformat(), end.isoformat()),
+            )
+        ]
+        covered = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT coverage_key FROM source_coverage "
+                "WHERE source = ? AND status = 'ok' AND record_count > 0",
+                (ALL_ISSUES_DAILY_MARGIN_SOURCE,),
+            )
+        }
+    finally:
+        conn.close()
+    return [day for day in trading_days if all_issues_daily_margin_coverage_key(day) not in covered]
+
+
+def _latest_stored_trading_day(*, conn_path: Path) -> date | None:
+    conn = connect_current(conn_path)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] is None:
+        return None
+    try:
+        return date.fromisoformat(str(row[0]))
+    except ValueError:
+        return None

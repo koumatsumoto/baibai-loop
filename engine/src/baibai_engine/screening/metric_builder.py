@@ -10,6 +10,7 @@ from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.price_basis import asof_basis_closes
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market_context.history import (
     PRICE_HISTORY_WINDOW_DAYS,
@@ -20,12 +21,8 @@ from baibai_engine.market_context.history import (
     realized_volatility,
     turnover_spike,
 )
-from baibai_engine.market_context.margin import (
-    MarginBalance,
-    margin_supply_demand,
-)
+from baibai_engine.market_context.margin import MarginBalance, margin_supply_demand
 from baibai_engine.market_context.sector import sector_relative_strength
-from baibai_engine.price_basis import asof_basis_closes
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.schema import DerivedMetrics
 from baibai_engine.valuation.metrics.financial_snapshot import build_financial_snapshot
@@ -34,10 +31,7 @@ from baibai_engine.valuation.metrics.history import (
     build_valuation_history,
 )
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
-from baibai_engine.valuation.metrics.relative import (
-    VALUATION_METRICS,
-    relative_valuation,
-)
+from baibai_engine.valuation.metrics.relative import VALUATION_METRICS, relative_valuation
 
 # metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ位置 / sigma_gap に
 # 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と

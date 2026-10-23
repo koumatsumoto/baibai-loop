@@ -24,7 +24,6 @@ from baibai_engine.market.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_engine.market.store import read_portfolio_market_inputs
 from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.decision_references import resolve_buy_reference
@@ -57,12 +56,12 @@ from baibai_engine.position.ledger import (
     snapshot_to_payload,
 )
 from baibai_engine.position.ledger_read import LedgerConflictError
-from baibai_engine.position.market_source import market_basis_is_confirmed
-from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
-from baibai_engine.position.outcome_store import (
-    PortfolioOutcomePublication,
-    PortfolioOutcomeStore,
+from baibai_engine.position.market_source import (
+    market_basis_is_confirmed,
+    read_portfolio_market_inputs,
 )
+from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
+from baibai_engine.position.outcome_store import PortfolioOutcomePublication, PortfolioOutcomeStore
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.storage.observations.read import connect_read_only

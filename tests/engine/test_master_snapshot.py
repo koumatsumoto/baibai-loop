@@ -19,14 +19,17 @@ from baibai_engine.collection.jquants.http import JQuantsHTTP
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_reader import (
+    JQuantsReader,
+    read_eq_master_asof,
+    read_eq_master_exact,
+)
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_engine.market.jquants_writer import store_jquants_master
 from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
 from baibai_engine.screening.cli.cache import backfill_master_command, bootstrap_cache_command
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
-from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
-from baibai_engine.storage.observations.reader import read_eq_master_asof, read_eq_master_exact
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
@@ -307,7 +310,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.storage.observations.ingest.jquants.record_source_coverage",
+                    "baibai_engine.market.jquants_writer.record_source_coverage",
                     side_effect=sqlite3.OperationalError("injected coverage failure"),
                 ),
                 self.assertRaises(sqlite3.OperationalError),

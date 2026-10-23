@@ -11,15 +11,10 @@ from pathlib import Path
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.jquants_reader import read_financial_documents
+from baibai_engine.market.price_basis import asof_basis_closes, asof_basis_prices
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.price_basis import asof_basis_closes, asof_basis_prices
-from baibai_engine.storage.observations.reader import read_financial_documents
-
-# 配当・株数の基準はValuationのcarryと同じにする。較正と本番が異なる量を扱わないよう、
-# 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
-from baibai_engine.valuation.metrics.dividends import (
-    _dividend_basis_requires_resolution,
-)
+from baibai_engine.valuation.metrics.dividends import _dividend_basis_requires_resolution
 from baibai_engine.valuation.metrics.periods import _latest_consistent_actual, _period_days
 
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon

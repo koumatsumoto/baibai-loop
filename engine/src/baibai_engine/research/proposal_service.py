@@ -10,6 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.sessions import latest_eligible_close_date
@@ -48,7 +49,6 @@ from baibai_engine.research.proposal_inputs import (
 from baibai_engine.research.proposal_policy import validate_proposal_policy
 from baibai_engine.research.proposal_query import load_investment_proposal
 from baibai_engine.research.proposal_warnings import build_proposal_warnings
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 

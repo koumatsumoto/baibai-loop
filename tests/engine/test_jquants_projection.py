@@ -7,7 +7,7 @@ import json
 import sqlite3
 from datetime import UTC, date, datetime
 
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+import pyarrow.parquet as pq
 import pytest
 import requests
 from tests.helpers.lake_policy import narrow_release_policy
@@ -22,6 +22,7 @@ from baibai_engine.market import master_snapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.margin_reader import read_margin_alerts
 from baibai_engine.storage.lake.datasets import JQUANTS_MARGIN_ALERTS
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
@@ -29,7 +30,6 @@ from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSourc
 from baibai_engine.storage.lake.reader import resolve_release
 from baibai_engine.storage.lake.release import create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.reader import read_margin_alerts
 from baibai_engine.storage.observations.schema import open_connection
 
 DAY = "2026-10-16"

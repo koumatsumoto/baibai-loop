@@ -6,9 +6,9 @@ import pyarrow.parquet as pq
 import pytest
 
 from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_engine.market.jquants_writer import store_jquants_short_sale_reports
+from baibai_engine.market.margin_reader import read_short_sale_reports
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
-from baibai_engine.storage.observations.reader import read_short_sale_reports
 
 
 @pytest.mark.parametrize("missing", [False, True])

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 
+from baibai_engine.market.jquants_reader import read_eq_master_asof
 from baibai_engine.market.master_snapshot import MIN_COMMON_STOCK_MASTER_ROWS, masters_from_payloads
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.universe import ELIGIBLE_MARKETS
@@ -25,7 +26,6 @@ from baibai_engine.storage.lake.reader import (
     selected_partitions,
 )
 from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
-from baibai_engine.storage.observations.reader import read_eq_master_asof
 
 
 def frozen_universe(database: Path, master_asof: date) -> tuple[tuple[str, ...], str]:

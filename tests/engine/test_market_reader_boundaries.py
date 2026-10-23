@@ -10,13 +10,13 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import insert_financial_record
 
+from baibai_engine.market import jpx_reader, jquants_reader
 from baibai_engine.market.edinet_metrics import store as edinet_store
 from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.store import read_daily_bars, read_daily_bars_for_tickers
+from baibai_engine.market.price_reader import read_daily_bars, read_daily_bars_for_tickers
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.panel import _coverage_floors
-from baibai_engine.storage.observations import reader as observation_reader
 from baibai_engine.storage.observations.coverage import (
     record_range_source_coverage,
     record_source_coverage,
@@ -114,8 +114,8 @@ def test_bar_readers_share_decoding_and_corrupt_row_behavior(tmp_path, scoped, c
     [
         (edinet_store, "read_edinet_documents", "edinet_documents"),
         (edinet_store, "read_edinet_metrics", "edinet_metrics"),
-        (observation_reader, "read_jpx_regulations", "jpx_regulation_flags"),
-        (observation_reader, "read_jpx_earnings_calendar_snapshot", "jpx_earnings_calendar"),
+        (jpx_reader, "read_jpx_regulations", "jpx_regulation_flags"),
+        (jpx_reader, "read_jpx_earnings_calendar_snapshot", "jpx_earnings_calendar"),
     ],
 )
 def test_snapshot_query_failure_is_not_a_cache_miss(
@@ -149,8 +149,8 @@ def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeyp
     path = tmp_path / "existing.sqlite"
     path.touch()
     conn = sqlite3.connect(":memory:")
-    monkeypatch.setattr(observation_reader, "connect_current", lambda path: conn)
+    monkeypatch.setattr(jquants_reader, "connect_current", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        observation_reader.read_eq_master_exact(path, date(2026, 10, 15))
+        jquants_reader.read_eq_master_exact(path, date(2026, 10, 15))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         conn.execute("SELECT 1")

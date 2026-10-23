@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.screening.metrics.snapshot import (
+from baibai_engine.screening.metric_builder import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 
-from .technical_query import technical_analysis
+from .query import technical_analysis
 
 
 def build_parser() -> argparse.ArgumentParser:

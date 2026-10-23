@@ -65,7 +65,7 @@ DOMAINS: Mapping[str, Domain] = {
         summary="economic observations and mechanical market readings",
     ),
     "technical-analysis": Domain(
-        module="baibai_engine.market_context.technical_cli",
+        module="baibai_engine.technical_analysis.cli",
         summary="read-only SMA20/50/200, BB20 and Wilder RSI14 from retained adjusted prices",
     ),
     "collection": Domain(

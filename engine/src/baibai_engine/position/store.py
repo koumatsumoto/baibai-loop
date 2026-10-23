@@ -10,20 +10,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.position.decision_references import (
     DecisionReferenceBinding,
     add_manual_fact_binding,
 )
-from baibai_engine.position.ledger import (
-    LedgerEvent,
-    PortfolioLedgerDocument,
-)
+from baibai_engine.position.ledger import LedgerEvent, PortfolioLedgerDocument
 from baibai_engine.position.ledger_read import (
     LedgerConflictError,
     ledger_append_head,
     load_ledger_in_transaction,
 )
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database

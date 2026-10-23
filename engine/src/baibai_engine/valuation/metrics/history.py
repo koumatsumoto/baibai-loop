@@ -7,8 +7,8 @@ from datetime import date
 from math import sqrt
 from statistics import mean
 
+from baibai_engine.market.price_basis import asof_basis_closes
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.price_basis import asof_basis_closes
 
 from .models import FinancialSnapshot
 

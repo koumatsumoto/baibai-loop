@@ -16,7 +16,7 @@ from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.market.edinet_selection import select_document_candidates
-from baibai_engine.storage.observations.reader import has_jpx_regulation_data, read_jpx_regulations
+from baibai_engine.market.jpx_reader import has_jpx_regulation_data, read_jpx_regulations
 from baibai_engine.storage.observations.schema import open_connection
 
 

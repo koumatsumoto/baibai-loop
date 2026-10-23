@@ -12,12 +12,12 @@ import pytest
 from tests.engine.test_financial_documents import documents
 from tests.helpers.lake_policy import narrow_release_policy
 
+from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.models import canonical_lake_model_bytes
 from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
