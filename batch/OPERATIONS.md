@@ -472,7 +472,7 @@ gh workflow run cloud-materialize.yml --ref main
 gh workflow run web.yml --ref main
 ```
 
-二つを続けて発行せず、先の成功確認後に次へ進む。Webのdeploy stepと対象画面を確認し、古いtreeのdeploy skipを配信成功としない。local生成はpython -m baibai_web.materializeを使い、store/schema失敗の生成物を公開しない。
+二つを続けて発行せず、先の成功確認後に次へ進む。Webのdeploy stepの成功と配信対象のcommitを照合し、古いtreeのdeploy skipを配信成功としない。認証後の画面確認やユーザーによる手動確認は必要時の補助とし、完了条件に含めない。local生成はpython -m baibai_web.materializeを使い、store/schema失敗の生成物を公開しない。
 
 ## Password rotation
 
