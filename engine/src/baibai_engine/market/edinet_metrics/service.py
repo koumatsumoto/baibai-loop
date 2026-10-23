@@ -1,4 +1,4 @@
-"""EDINET metricの抽出と保存。原CSVから抽出意味revision付きで保存する。"""
+"""EDINET metricの取得・抽出・保存。原CSVから抽出意味revision付きで保存する。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 from baibai_engine.market.edinet_metrics.planning import (
     MetricExtractionPlan,
@@ -35,6 +36,68 @@ class EdinetMetricReader(Protocol):
     def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
 
     def read_csv_zip(self, doc_id: str) -> bytes: ...
+
+
+class EdinetMetricAcquisition(Protocol):
+    def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
+
+    def download_csv_zip(self, doc_id: str) -> bytes: ...
+
+
+def refresh_edinet_metrics_command(
+    *,
+    asof_date: date,
+    lookback_days: int,
+    reader: EdinetMetricReader,
+    acquisition: EdinetMetricAcquisition,
+    sqlite_path: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    out = stdout if stdout is not None else sys.stdout
+    try:
+        cursor = asof_date - timedelta(days=lookback_days)
+        while cursor <= asof_date:
+            acquisition.list_documents(cursor)
+            cursor += timedelta(days=1)
+    except (
+        EdinetAcquisitionError,
+        EDINETProviderError,
+        SQLiteSchemaError,
+        sqlite3.Error,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"EDINET source preparation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    plan = prepare_edinet_metric_plan(
+        asof_date=asof_date,
+        lookback_days=lookback_days,
+        reader=reader,
+        sqlite_path=sqlite_path,
+        stdout=out,
+    )
+    if plan is None:
+        return 1
+    try:
+        for candidate in plan.archive_candidates:
+            acquisition.download_csv_zip(candidate.doc_id)
+    except (
+        EdinetAcquisitionError,
+        EDINETProviderError,
+        SQLiteSchemaError,
+        sqlite3.Error,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"EDINET archive acquisition failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return extract_edinet_metrics_from_plan(
+        asof_date=asof_date,
+        plan=plan,
+        reader=reader,
+        sqlite_path=sqlite_path,
+        stdout=out,
+    )
 
 
 def extract_edinet_metrics_command(

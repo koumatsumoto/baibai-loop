@@ -16,11 +16,13 @@ from tests.engine.test_screening_cli import (
 
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+from baibai_engine.market.edinet_metrics.service import (
+    extract_edinet_metrics_command,
+    refresh_edinet_metrics_command,
+)
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.edinet_selection import select_document_candidates
-from baibai_engine.screening.cli.edinet_cli import refresh_edinet_metrics_command
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 
