@@ -191,10 +191,15 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
         },
     }
     assert security["machine_valuation"]["run_revision_id"] == "run-synthetic"
-    assert security["machine_valuation"]["estimate"] == asdict(machine)
+    estimate = security["machine_valuation"]["estimate"]
+    assert estimate == asdict(machine)
+    estimate_keys = {
+        "er_reversion_annual": "reversion_annual",
+        "er_carry_annual": "carry_annual",
+    }
     for key, expected in numbers.items():
         if key != "per_forward_sector_gap":
-            assert security["machine_valuation"]["estimate"][key] == expected
+            assert estimate[estimate_keys.get(key, key)] == expected
     assert inputs["securities"]["5678"]["forecast_sources"] == {
         "earnings_forecast_source": None,
         "dividend_forecast_source": None,
