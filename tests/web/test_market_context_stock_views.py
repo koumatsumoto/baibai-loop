@@ -110,7 +110,15 @@ def test_export_batches_keep_all_json_and_reread_prices_next_export(
     ):
         mocker.patch(f"{module}.datetime", wraps=datetime).now.return_value = now
     market = _seed_market(app_method_root)
-    tickers = ["0001", "0002", "2331", "2332", *[str(4000 + index) for index in range(61)]]
+    # ledger fixtureの未解消予約8929もexport対象なので、合計65銘柄に揃える。
+    tickers = [
+        "0001",
+        "0002",
+        "2331",
+        "2332",
+        *[str(4000 + index) for index in range(60)],
+        "8929",
+    ]
     for ticker in tickers[4:]:
         insert_daily_bars_from_closes(
             market,
