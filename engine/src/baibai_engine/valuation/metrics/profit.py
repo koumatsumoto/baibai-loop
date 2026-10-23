@@ -82,13 +82,18 @@ def build_normalized_profit_signals(
 ) -> NormalizedProfitSignals:
     """Build the preregistered 3/5-FY EPS anchors without filling missing years.
 
-    Each anchor averages full-year per-share earnings across years, which is a mean of
-    per-share values rather than a sum, so the years may carry different share counts.
+    Only FY observations may establish the split-reference basis, including when a
+    caller supplies a mixed stream. Each anchor averages full-year per-share earnings
+    across years rather than summing them, so the years may carry different share counts.
     Fiscal labels cannot replace completed full-year periods. Ineligible years stay
     in the sequence and cannot be skipped in favor of older, convenient earnings.
     """
     available = sorted(
-        (summary for summary in summaries if summary.disclosed_at <= asof_date),
+        (
+            summary
+            for summary in summaries
+            if summary.fiscal_period == "FY" and summary.disclosed_at <= asof_date
+        ),
         key=lambda item: item.disclosed_at,
     )
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)

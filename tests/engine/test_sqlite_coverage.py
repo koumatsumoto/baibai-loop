@@ -256,9 +256,7 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = self._store_with_a_stale_balance(tmp)
-            config = ScreeningConfig(
-                "token", None, cache_dir=Path(tmp) / "cache", sqlite_cache_dir=sqlite_path.parent
-            )
+            config = ScreeningConfig("token", None, sqlite_cache_dir=sqlite_path.parent)
             reached: list[date] = []
 
             def fake_run(asof_date: date, *args: object, **kwargs: object) -> int:

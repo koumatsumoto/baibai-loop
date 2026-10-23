@@ -85,8 +85,16 @@ def test_panel_normalized_per_uses_same_fy_references_as_production(tmp_path, is
         close=100.0,
         ttm_rules=rules.ttm,
     )
+    mixed = build_normalized_profit_signals(
+        [row for row in reader.get_fin_summary_range(start, asof) if row.ticker == "9001"],
+        [event for event in events if event.ticker == "9001"],
+        asof,
+        close=100.0,
+        ttm_rules=rules.ttm,
+    )
     panel = build_panel(asof, sqlite_path=database, rules=rules)
     target = next(row for row in panel.rows if row.ticker == "9001")
+    assert mixed == production
 
     if issuance:
         # The FY-only reference cannot distinguish issuance from the intervening

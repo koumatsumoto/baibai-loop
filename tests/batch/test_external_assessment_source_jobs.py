@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,13 +29,23 @@ from baibai_batch.jobs.external_assessment_cohorts import (
 from baibai_batch.observability import external_assessment_discord as notify
 from baibai_batch.observability.external_assessment_discord import render_sources
 from baibai_batch.storage import external_assessment_staging as staging
+from baibai_batch.storage import publish_market_lake as lake_publisher
 from baibai_batch.storage.lake_publish import LakePublishError
+from baibai_batch.storage.publication_lease import acquire, release
 from baibai_engine.batch_api import (
     ExternalAssessmentCollectionOutcome,
+    LakeObjectCache,
+    LocalMirrorSource,
+    create_market_snapshot,
+    equity_web_history_digests,
     external_assessment_collector_binding,
     external_assessment_decode_attempt,
     external_assessment_history_digests,
+    hydrate_market_store,
+    lake_session,
+    read_lake_store_origin,
 )
+from baibai_engine.storage.lake.hydrate import dehydrate_market_store
 
 
 def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch):
@@ -331,10 +343,26 @@ def test_blocked_source_does_not_prevent_another_exact_plan_publication(independ
     assert not any("minkabu-blocked/published.json" in key for key in store.put_keys)
 
 
-def test_terminal_write_failure_keeps_sealed_source_and_retry_imports_remaining_idempotently(
+def test_terminal_write_failure_resumes_from_fresh_hydrate_without_duplicate_history(
     independent_plans, monkeypatch, tmp_path
 ):
-    store, selected, _, database, _, _ = independent_plans
+    store, selected, handle, database, mirror, directory = independent_plans
+    before = lake_publisher._serving_pointer(store).pointer
+    assert before is not None
+    # pull-market restores store-local acquisition coverage; the Lake owns the
+    # published rows. Keep the remote machine snapshot from before this attempt.
+    metadata_snapshot = directory / "market-metadata.sqlite"
+    create_market_snapshot(database, metadata_snapshot)
+    base = lake_publisher._resolve_serving_release(store, mirror, before)
+    dehydrate_market_store(metadata_snapshot, release=base)
+    with closing(sqlite3.connect(metadata_snapshot)) as connection:
+        coverage = connection.execute(
+            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+        ).fetchall()
+    assert coverage
+    store.store_object(
+        "market.sqlite", metadata_snapshot.read_bytes(), content_type="application/octet-stream"
+    )
     write = publication_module.put_private
 
     def fail_second(store, key, *args, **kwargs):
@@ -356,19 +384,82 @@ def test_terminal_write_failure_keeps_sealed_source_and_retry_imports_remaining_
     assert "追加row=不明" in first_notice
     assert "monex: 公開確認済み" in first_notice
     assert "以前の" not in first_notice
+    published = lake_publisher._serving_pointer(store).pointer
+    assert published is not None
+    assert published != before
     key = staging.prefix(selected[0]["run_id"]) + "/published.json"
     sealed = store.values[key].body
     history = external_assessment_history_digests(database)
+    source_history = equity_web_history_digests(database, months={(2026, 9)})
+
+    # A new runner pulls the unchanged machine snapshot, then fills its empty
+    # Lake tables from the exact graph already published to MemoryR2.
+    fresh_database = directory / "fresh-market.sqlite"
+    store.download_file("market.sqlite", fresh_database)
+    with closing(sqlite3.connect(fresh_database)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (0,)
+    fresh_mirror = directory / "fresh-mirror"
+    fixed = lake_publisher._resolve_serving_release(store, fresh_mirror, published)
+    for manifest in fixed.dataset_manifests.values():
+        for partition in manifest.partitions:
+            for obj in partition.objects:
+                lake_publisher._fetch(store, fresh_mirror, obj.key, expected_sha256=obj.sha256)
+    with lake_session() as session:
+        hydrated = hydrate_market_store(
+            session,
+            release=fixed,
+            cache=LakeObjectCache(root=fresh_mirror, source=LocalMirrorSource(fresh_mirror)),
+            store=fresh_database,
+            dataset_names=fixed.dataset_names(),
+        )
+    assert (hydrated.release_id, hydrated.release_manifest_sha256) == (
+        published.release_id,
+        published.manifest_sha256,
+    )
+    origin = read_lake_store_origin(fresh_database)
+    assert origin is not None
+    assert (origin.release_id, origin.release_manifest_sha256) == (
+        published.release_id,
+        published.manifest_sha256,
+    )
+    assert external_assessment_history_digests(fresh_database) == history
+    assert equity_web_history_digests(fresh_database, months={(2026, 9)}) == source_history
+    with closing(sqlite3.connect(fresh_database)) as connection:
+        assert (
+            connection.execute(
+                "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+            ).fetchall()
+            == coverage
+        )
+    release(store, handle)
+    new_handle, _ = acquire(store, "operator")
+
     monkeypatch.setattr(publication_module, "put_private", write)
-    second, ok = publish(independent_plans, name="retry-readback")
-    assert ok
+    resume_errors = []
+    publish_plans = sources.publish_plans_and_verify
+
+    def diagnose_resume(*args, **kwargs):
+        try:
+            return publish_plans(*args, **kwargs)
+        except Exception as error:
+            resume_errors.append(f"{type(error).__name__}: {error}")
+            raise
+
+    monkeypatch.setattr(sources, "publish_plans_and_verify", diagnose_resume)
+    restarted = (store, selected, new_handle, fresh_database, fresh_mirror, directory)
+    second, ok = publish(restarted, name="retry-readback")
+    assert ok, (second, resume_errors)
     assert second["sources"][0]["status"] == "already_published"
+    assert second["sources"][1]["status"] == "published"
+    assert second["sources"][1]["readback"] == "verified"
     assert second["sources"][1]["rows_added"] == 0
+    assert second["sources"][1]["source_responses_added"] == 0
     second_notice = source_notice(second, tmp_path, monkeypatch, publish_result="success")
     assert "monex: 以前の公開確認済み" in second_notice
     assert "rakuten: 公開確認済み" in second_notice
     assert store.values[key].body == sealed
-    assert external_assessment_history_digests(database) == history
+    assert external_assessment_history_digests(fresh_database) == history
+    assert equity_web_history_digests(fresh_database, months={(2026, 9)}) == source_history
 
 
 @pytest.mark.parametrize("partial", [False, True])

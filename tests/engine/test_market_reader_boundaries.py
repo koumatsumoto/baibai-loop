@@ -11,15 +11,18 @@ import pytest
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.market.edinet_metrics import store as edinet_store
+from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.store import read_daily_bars, read_daily_bars_for_tickers
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.panel import _coverage_floors
 from baibai_engine.storage.observations import reader as observation_reader
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
+from baibai_engine.storage.observations.coverage import (
+    record_range_source_coverage,
+    record_source_coverage,
+)
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
-from baibai_engine.tasks.earnings_schedule import read_published_earnings_dates
 
 
 @pytest.mark.parametrize(
@@ -36,13 +39,22 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
             conn, {"Code": "13010", "DiscDate": "2026-01-30", "DiscNo": "statement"}
         )
         conn.execute("INSERT INTO jpx_earnings_calendar VALUES ('2026-02-03', '1301')")
+        record_source_coverage(
+            conn,
+            source="jpx_earnings_calendar",
+            coverage_key="get_earnings_calendar_snapshot:current",
+            coverage_start="2026-02-03",
+            coverage_end="2026-02-03",
+            fetched_at_utc="2026-02-02T00:00:00Z",
+            record_count=1,
+        )
     before = path.read_bytes()
     start, end = date(2026, 1, 1), date(2026, 2, 2)
 
     assert month_end_asof_grid(path, start=start, end=end, min_tickers=1) == [date(2026, 1, 30)]
     assert days_with_bars(path, [end], min_tickers=1) == {end}
     assert _coverage_floors(path, end) == (date(2026, 1, 30), date(2026, 1, 30))
-    assert read_published_earnings_dates(path, end) == {"1301": date(2026, 2, 3)}
+    assert read_next_earnings_dates(path, end) == {"1301": date(2026, 2, 3)}
     assert unreadable_store_reason(path) is None
     assert path.read_bytes() == before
 
@@ -110,7 +122,7 @@ def test_snapshot_query_failure_is_not_a_cache_miss(
     tmp_path, monkeypatch, module, reader_name, source, missing_coverage
 ):
     path = tmp_path / "existing.sqlite"
-    path.touch()
+    open_connection(path).close()
     conn = sqlite3.connect(":memory:")
     if not missing_coverage:
         conn.execute(

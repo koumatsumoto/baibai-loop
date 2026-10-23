@@ -248,17 +248,30 @@ def test_review_binds_conditions_cash_scope_and_projection(case):
         service.publish(changed)
 
 
-def test_warning_or_exposure_tampering_not_accepted_by_new_review(case):
+@pytest.mark.parametrize("change", ["warning", "exposure", "terms_warning"])
+def test_warning_or_exposure_tampering_not_accepted_by_new_review(case, change):
     proposal = reviewed_proposal(case)
     raw = proposal.payload()
-    raw["warnings"] = ["made-up-warning"]
+    if change == "warning":
+        raw["warnings"] = ["made-up-warning"]
+    elif change == "exposure":
+        raw["portfolio_exposure"]["ticker"]["prospective_pct"] = "99"
+    else:
+        assert raw["items"][0]["terms"]["warnings"]
+        raw["items"][0]["terms"]["warnings"] = []
     from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
 
-    raw["review"]["draft_sha256"] = proposal_draft_sha256(InvestmentProposal.model_validate(raw))
-    with pytest.raises(ProposalConflictError, match="warning/exposure"):
+    changed = InvestmentProposal.model_validate(raw)
+    raw["review"]["draft_sha256"] = proposal_draft_sha256(changed)
+    changed = InvestmentProposal.model_validate(raw)
+    assert changed.review.draft_sha256 == proposal_draft_sha256(changed)
+    before = _counts(case.app)
+    message = "terms warnings" if change == "terms_warning" else "warning/exposure"
+    with pytest.raises(ProposalConflictError, match=message):
         InvestmentProposalService(
             case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-        ).publish(InvestmentProposal.model_validate(raw))
+        ).publish(changed)
+    assert _counts(case.app) == before
 
 
 def test_injected_failure_after_binding_rolls_back_proposal_items_and_binding(case, monkeypatch):

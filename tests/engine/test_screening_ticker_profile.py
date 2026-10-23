@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import io
+import sqlite3
 import tempfile
 import unittest
-from contextlib import closing
+from contextlib import closing, redirect_stderr
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -352,6 +353,30 @@ class BuildTickerProfileTests(unittest.TestCase):
 
 
 class TickerProfileCliTests(unittest.TestCase):
+    def test_corrupt_earnings_schedule_is_reported_without_emitting_a_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            path = root / "market.sqlite"
+            _insert_reference_rows(path)
+            with closing(open_connection(path)) as connection, connection:
+                connection.execute(
+                    "UPDATE source_coverage SET record_count = 2 "
+                    "WHERE source = 'jpx_earnings_calendar'"
+                )
+            output, error = io.StringIO(), io.StringIO()
+            with redirect_stderr(error):
+                result = ticker_profile_command(
+                    ticker="AAAA",
+                    asof=_ASOF.isoformat(),
+                    sqlite_path=path,
+                    runs_db_path=root / "runs.sqlite",
+                    app_db_path=root / "app.sqlite",
+                    stdout=output,
+                )
+            self.assertEqual(result, 1)
+            self.assertIn("row count mismatch", error.getvalue())
+            self.assertEqual(output.getvalue(), "")
+
     def test_parser_accepts_ticker_profile_arguments(self) -> None:
         args = build_parser().parse_args(
             ["ticker-profile", "--ticker", "8303", "--asof", "2026-06-08"]
@@ -510,6 +535,43 @@ def _dated_profile(root, asof):
         runs_db_path=root / "runs.sqlite",
         app_db_path=root / "app.sqlite",
     )
+
+
+@pytest.mark.parametrize("store", ["absent-file", "empty-file", "unwritten-header"])
+def test_unwritten_market_store_has_no_profile_earnings_event(tmp_path, store):
+    path = tmp_path / "market.sqlite"
+    if store == "empty-file":
+        sqlite3.connect(path).close()
+    elif store == "unwritten-header":
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("PRAGMA user_version = 0")
+    before = path.read_bytes() if path.exists() else None
+    profile = _dated_profile(tmp_path, _ASOF)
+    assert profile["events"]["next_earnings_date"] is None
+    assert profile["price"] is None
+    assert profile["technical_analysis"]["bar_count"] == 0
+    assert (path.read_bytes() if path.exists() else None) == before
+    assert not (tmp_path / "runs.sqlite").exists()
+    assert not (tmp_path / "app.sqlite").exists()
+
+
+@pytest.mark.parametrize("state", ["missing", "stale"])
+def test_unavailable_earnings_schedule_preserves_price_and_technical_facts(tmp_path, state):
+    path = tmp_path / "market.sqlite"
+    _insert_bars(path, "AAAA", [100.0] * 30, end=_ASOF)
+    _insert_reference_rows(path)
+    with closing(open_connection(path)) as connection, connection:
+        if state == "missing":
+            connection.execute("DELETE FROM source_coverage WHERE source = 'jpx_earnings_calendar'")
+        else:
+            connection.execute(
+                "UPDATE source_coverage SET fetched_at_utc = '2026-05-01T00:00:00Z' "
+                "WHERE source = 'jpx_earnings_calendar'"
+            )
+    profile = _dated_profile(tmp_path, _ASOF)
+    assert profile["events"]["next_earnings_date"] is None
+    assert profile["price"]["bar_count"] == 30
+    assert profile["technical_analysis"]["moving_averages"]["sma_20bar"]["status"] == "available"
 
 
 @pytest.mark.parametrize("missing", [None, "start", "end"])

@@ -29,8 +29,15 @@ RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
 def html(ticker="130A", *, cheap="1/10"):
     rows = "".join(
         f'<li class="scoreBase"><span class="scoreName">{label}</span>'
-        f'<span class="scoreFigure">{cheap if label == "割安性" else "3/10"}</span></li>'
-        for label in kabumap.LABELS
+        f'<span class="scoreFigure">{score}</span></li>'
+        for label, score in (
+            ("市場トレンド", "6/10"),
+            ("割安性", cheap),
+            ("企業規模", "3/10"),
+            ("成長性", "2/10"),
+            ("財務健全性", "5/10"),
+            ("テクニカル", "4/10"),
+        )
     )
     return (
         '<meta charset="SHIFT_JIS">'
@@ -58,7 +65,14 @@ def test_identity_na_factors_scales_and_explicit_date_are_separate_from_receipt(
     assert isinstance(result, QuantsScoreObservation)
     assert result.origin == "Quants Research"
     assert result.distributor == "kabumap"
-    assert result.undervaluation_score == 1
+    assert (
+        result.growth_score,
+        result.undervaluation_score,
+        result.size_score,
+        result.technical_score,
+        result.financial_health_score,
+        result.market_trend_score,
+    ) == (2, 1, 3, 4, 5, 6)
     assert result.score_scale_max == 10
     assert result.composite_score == 42
     assert result.industry_average_score == 52

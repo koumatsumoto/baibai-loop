@@ -3,17 +3,21 @@ from __future__ import annotations
 import io
 import sqlite3
 import unittest
-from contextlib import closing, redirect_stderr
+from contextlib import closing, redirect_stderr, redirect_stdout
 from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from baibai_engine.tasks.cli import main as task_main
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
+from baibai_engine.storage.observations.ingest.jpx import store_jpx_earnings_calendar_snapshot
+from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.task_cli import main as task_main
 from baibai_engine.tasks.earnings_reconcile import (
     reconcile_earnings_dates,
 )
-from baibai_engine.tasks.earnings_schedule import read_published_earnings_dates
 from baibai_engine.tasks.models import Task
+from baibai_engine.tasks.service import TaskService
 
 TODAY = date(2026, 7, 31)
 
@@ -182,66 +186,120 @@ class ReconcileEarningsDatesTest(unittest.TestCase):
         self.assertIsNone(results[0].drift_days)
 
 
-class PublishedEarningsDatesTest(unittest.TestCase):
-    def test_absent_and_unwritten_stores_are_not_a_published_empty_schedule(self) -> None:
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "market.sqlite"
-            self.assertIsNone(read_published_earnings_dates(path, TODAY))
-            self.assertFalse(path.exists())
-            sqlite3.connect(path).close()
-            self.assertIsNone(read_published_earnings_dates(path, TODAY))
-            with closing(sqlite3.connect(path)) as connection:
-                connection.execute(
-                    "CREATE TABLE jpx_earnings_calendar(ticker TEXT, announcement_date TEXT)"
-                )
-                connection.commit()
-            self.assertEqual(read_published_earnings_dates(path, TODAY), {})
+def _store_schedule(path: Path, *, fetched_at: str = "2026-07-31T00:00:00Z") -> None:
+    store_jpx_earnings_calendar_snapshot(
+        path,
+        JPXEarningsCalendarSnapshot(
+            entries=(JPXEarningsCalendarEntry("4716", date(2026, 9, 18)),),
+            source_urls=(),
+            raw_record_count=1,
+            excluded_record_count=0,
+            superseded_record_count=0,
+        ),
+        fetched_at_utc=fetched_at,
+    )
 
-    def test_schema_errors_and_corrupt_stores_are_not_reported_as_unpublished(self) -> None:
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "market.sqlite"
-            with closing(sqlite3.connect(path)) as connection:
-                connection.execute("CREATE TABLE another_table(value TEXT)")
-                connection.commit()
-            original = path.read_bytes()
-            with self.assertRaisesRegex(sqlite3.OperationalError, "no such table"):
-                read_published_earnings_dates(path, TODAY)
-            self.assertEqual(path.read_bytes(), original)
-            path.write_bytes(b"not a sqlite database")
-            with self.assertRaises(sqlite3.DatabaseError):
-                read_published_earnings_dates(path, TODAY)
-            self.assertEqual(path.read_bytes(), b"not a sqlite database")
 
-    def test_cli_reports_the_read_error_without_creating_a_task_store(self) -> None:
+class TaskEarningsCliTest(unittest.TestCase):
+    def test_unknown_or_stale_schedule_does_not_succeed_as_a_published_empty_schedule(self) -> None:
+        for state in ("missing", "empty-file", "unwritten-header", "uncovered", "stale"):
+            with self.subTest(state=state), TemporaryDirectory() as directory:
+                path = Path(directory) / "market.sqlite"
+                if state == "empty-file":
+                    sqlite3.connect(path).close()
+                elif state == "unwritten-header":
+                    with closing(sqlite3.connect(path)) as connection, connection:
+                        connection.execute("PRAGMA user_version = 0")
+                elif state == "uncovered":
+                    open_connection(path).close()
+                elif state == "stale":
+                    _store_schedule(path, fetched_at="2026-07-01T00:00:00Z")
+                tasks = Path(directory) / "application.sqlite"
+                before = path.read_bytes() if path.exists() else None
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    result = task_main(
+                        ["--db", str(tasks), "reconcile-earnings", "--sqlite-path", str(path)],
+                        today=TODAY,
+                    )
+                self.assertEqual(result, 1)
+                self.assertIn("current earnings schedule unavailable", stderr.getvalue())
+                self.assertFalse(tasks.exists())
+                self.assertEqual(path.read_bytes() if path.exists() else None, before)
+
+    def test_cli_reports_read_errors_without_creating_a_task_store(self) -> None:
+        for state, message in (
+            ("corrupt_file", "not a database"),
+            ("partial_schema", "obsolete market SQLite schema"),
+            ("corrupt_snapshot", "row count mismatch"),
+        ):
+            with self.subTest(state=state), TemporaryDirectory() as directory:
+                path = Path(directory) / "market.sqlite"
+                if state == "corrupt_file":
+                    path.write_bytes(b"not a sqlite database")
+                elif state == "partial_schema":
+                    with closing(sqlite3.connect(path)) as connection, connection:
+                        connection.execute("CREATE TABLE another_table(value TEXT)")
+                else:
+                    _store_schedule(path)
+                    with closing(sqlite3.connect(path)) as connection, connection:
+                        connection.execute("UPDATE source_coverage SET record_count = 2")
+                before = path.read_bytes()
+                tasks = Path(directory) / "application.sqlite"
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    result = task_main(
+                        ["--db", str(tasks), "reconcile-earnings", "--sqlite-path", str(path)],
+                        today=TODAY,
+                    )
+                self.assertEqual(result, 1)
+                self.assertIn(message, stderr.getvalue())
+                self.assertNotIn("schedule unavailable", stderr.getvalue())
+                self.assertFalse(tasks.exists())
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_verified_schedule_drives_reconciliation_without_changing_either_store(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "market.sqlite"
-            path.write_bytes(b"not a sqlite database")
+            _store_schedule(path)
             tasks = Path(directory) / "application.sqlite"
-            stderr = io.StringIO()
-            with redirect_stderr(stderr):
+            task = TaskService(tasks).add(
+                title="4716 を 1Q 後に再評価する",
+                kind="follow-up",
+                ticker="4716",
+                due_date=date(2026, 9, 25),
+                event_label="4716 1Q決算",
+                event_date=date(2026, 9, 25),
+                created_at=TODAY,
+            )
+            market_before, tasks_before = path.read_bytes(), tasks.read_bytes()
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
                 result = task_main(
                     ["--db", str(tasks), "reconcile-earnings", "--sqlite-path", str(path)],
                     today=TODAY,
                 )
-            self.assertEqual(result, 1)
-            self.assertIn("not a database", stderr.getvalue())
-            self.assertNotIn("no earnings schedule stored", stderr.getvalue())
-            self.assertFalse(tasks.exists())
-
-    def test_invalid_stored_date_is_not_silently_removed_from_the_schedule(self) -> None:
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "market.sqlite"
-            with closing(sqlite3.connect(path)) as connection:
-                connection.execute(
-                    "CREATE TABLE jpx_earnings_calendar(ticker TEXT, announcement_date TEXT)"
-                )
-                connection.executemany(
-                    "INSERT INTO jpx_earnings_calendar VALUES (?, ?)",
-                    [("4716", "2026-09-18"), ("3608", "2026-99-99")],
-                )
-                connection.commit()
-            with self.assertRaisesRegex(ValueError, "invalid earnings date for 3608"):
-                read_published_earnings_dates(path, TODAY)
+            self.assertEqual(result, 0)
+            report, payload = stdout.getvalue().split("\n", 1)
+            self.assertIn("reconcile-earnings\tupdate\t4716", report)
+            self.assertEqual(
+                safe_load(payload),
+                {
+                    "schedule_window_end": "2026-09-18",
+                    "reconciliations": [
+                        {
+                            "task_id": task.task_id,
+                            "ticker": "4716",
+                            "current_event_date": "2026-09-25",
+                            "published_event_date": "2026-09-18",
+                            "drift_days": -7,
+                            "outcome": "update",
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(path.read_bytes(), market_before)
+            self.assertEqual(tasks.read_bytes(), tasks_before)
 
 
 if __name__ == "__main__":

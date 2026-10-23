@@ -133,9 +133,26 @@ def test_future_run_and_missing_candidate_header_are_invalid(tmp_path):
         context(path)
     with closing(sqlite3.connect(path)) as db, db:
         db.execute("UPDATE screening_run SET payload=?", (original,))
-        db.execute("UPDATE screening_run SET run_at=?", ((NOW + timedelta(seconds=1)).isoformat(),))
+        future = (NOW + timedelta(seconds=1)).isoformat()
+        db.execute(
+            "UPDATE screening_run SET run_at=?, payload=json_set(payload,'$.run_at',?)",
+            (future, future),
+        )
     with pytest.raises(ValueError, match="cutoff"):
         context(path, "specified_stocks", ("1234",), "fixed")
+
+
+def test_research_rejects_a_run_with_mismatched_saved_identity(tmp_path):
+    path = tmp_path / "runs"
+    publish(path)
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute("UPDATE screening_run SET payload=json_set(payload,'$.asof_date','2026-10-12')")
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="canonical identity"):
+        context(path, "specified_stocks", ("1234",))
+
+    assert path.read_bytes() == before
 
 
 def test_gap_does_not_bypass_broken_source(tmp_path):

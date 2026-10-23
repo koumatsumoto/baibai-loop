@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import sys
 from contextlib import closing
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,8 +18,10 @@ from baibai_engine.external_assessment.models import (
     ObservationHistory,
 )
 from baibai_engine.external_assessment.observations.models import (
+    AnalystForecastObservation,
     AnalystRatingObservation,
     ModelValuationObservation,
+    QuantsScoreObservation,
 )
 from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.external_assessment.store import ObservationConflictError, save_observations
@@ -91,6 +93,83 @@ def test_replay_exact_time_and_new_receive_keep_history(tmp_path):
     assert history.analyst_ratings[0].latest == rating()
     assert first.snapshot_date.isoformat() == "2026-10-11"
     assert first.fetched_at_utc.microsecond == 123456
+
+
+def test_sql_encoding_keeps_each_observation_contract_and_exact_time_spelling(tmp_path):
+    db = tmp_path / "market.sqlite"
+    received = datetime.fromisoformat("2026-10-11T01:30:00.123456+09:00")
+    updated = datetime.fromisoformat("2026-10-10T15:00:00+09:00")
+    cases = (
+        (
+            valuation(received, consensus_target=0, consensus_target_updated_at_utc=updated),
+            "external_assessment_model_valuation_observations",
+            {
+                "consensus_target": 0,
+                "consensus_target_updated_at_utc": "2026-10-10T06:00:00.000000+00:00",
+                "per_company_forecast": None,
+            },
+        ),
+        (
+            rating(received, rating_count=0, rating_updated_at_utc=updated),
+            "external_assessment_analyst_rating_observations",
+            {
+                "rating": 3.5,
+                "rating_count": 0,
+                "rating_updated_at_utc": "2026-10-10T06:00:00.000000+00:00",
+            },
+        ),
+        (
+            QuantsScoreObservation(
+                ticker="1234",
+                fetched_at_utc=received,
+                source_url="https://example.invalid/quants/1234",
+                parser_version="synthetic-1",
+                score_as_of_date=date(2026, 10, 9),
+                growth_score=0,
+            ),
+            "external_assessment_quants_score_observations",
+            {"score_as_of_date": "2026-10-09", "growth_score": 0, "undervaluation_score": None},
+        ),
+        (
+            AnalystForecastObservation(
+                ticker="1234",
+                fetched_at_utc=received,
+                source_url="https://example.invalid/forecasts/1234",
+                parser_version="synthetic-1",
+                display_as_of_date=date(2026, 10, 9),
+                analyst_forecast_as_of_date=date(2026, 10, 8),
+                target_price_yen=0,
+                forecast_period_label="2027/03",
+                analyst_eps_yen=-2.5,
+            ),
+            "external_assessment_analyst_forecast_observations",
+            {
+                "display_as_of_date": "2026-10-09",
+                "analyst_forecast_as_of_date": "2026-10-08",
+                "company_forecast_as_of_date": None,
+                "target_price_yen": 0,
+                "forecast_period_label": "2027/03",
+                "analyst_eps_yen": -2.5,
+                "company_eps_yen": None,
+            },
+        ),
+    )
+    observations = [observation for observation, _, _ in cases]
+    assert save_observations(db, observations) == 4
+    assert save_observations(db, observations) == 0
+    with closing(sqlite3.connect(db)) as conn:
+        conn.row_factory = sqlite3.Row
+        for _, table, metrics in cases:
+            row = conn.execute(f"SELECT * FROM {table}").fetchone()
+            assert row is not None
+            expected = {
+                "ticker": "1234",
+                "fetched_at_utc": "2026-10-10T16:30:00.123456+00:00",
+                "snapshot_date": "2026-10-11",
+                **metrics,
+            }
+            # The oracle is raw SQLite values, not the shared row encoder or its columns.
+            assert {name: row[name] for name in expected} == expected
 
 
 def test_conflicting_replay_rolls_back_entire_multi_dataset_batch(tmp_path):
@@ -293,7 +372,7 @@ def test_models_and_analysis_reject_unknown_time_or_future_input():
 def test_leaf_contract_import_does_not_import_io_services():
     code = """
 import sys
-from baibai_engine.external_assessment.observations import contract, models
+from baibai_engine.external_assessment.observations import contract, models, rows
 for name in (
     'baibai_engine.external_assessment.store',
     'baibai_engine.external_assessment.reader',
@@ -306,6 +385,7 @@ for columns, model in (
     (contract.MODEL_VALUATION_COLUMNS, models.ModelValuationObservation),
     (contract.ANALYST_RATING_COLUMNS, models.AnalystRatingObservation),
     (contract.QUANTS_SCORE_COLUMNS, models.QuantsScoreObservation),
+    (contract.ANALYST_FORECAST_COLUMNS, models.AnalystForecastObservation),
 ):
     assert {column[0] for column in columns} == set(model.model_fields)
 """

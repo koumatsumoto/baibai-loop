@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 
+from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.screening.sqlite_coverage.jpx import (
     _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
@@ -35,10 +36,14 @@ def test_calendar_snapshot_requires_explicit_fetch_timezone(
             fetched_at_utc=fetched_at,
             record_count=1,
         )
-    snapshot = read_jpx_earnings_calendar_snapshot(
-        path, date(2026, 10, 14), allow_stale=allow_stale
-    )
-    assert (snapshot is not None) is readable
+    if readable:
+        assert (
+            read_jpx_earnings_calendar_snapshot(path, date(2026, 10, 14), allow_stale=allow_stale)
+            is not None
+        )
+    else:
+        with pytest.raises(JPXProviderError, match="fetched_at lacks timezone"):
+            read_jpx_earnings_calendar_snapshot(path, date(2026, 10, 14), allow_stale=allow_stale)
     with closing(open_connection(path)) as connection:
         issues = []
         _append_jpx_earnings_calendar_issues(

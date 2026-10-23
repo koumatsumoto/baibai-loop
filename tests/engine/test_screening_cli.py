@@ -50,7 +50,7 @@ from baibai_engine.screening.cli.cache import (
     bootstrap_cache_command,
 )
 from baibai_engine.screening.cli.providers import ProviderBundle
-from baibai_engine.screening.cli.run import _index_next_earnings, run_command
+from baibai_engine.screening.cli.run import run_command
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunReader
@@ -449,7 +449,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     # raw close は 899 円。自己株 10% でも normalized PER は
                     # treasury-adjusted market cap / gross shares (=809.1 円) へ戻さない。
@@ -506,7 +506,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -547,7 +547,7 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(Path(tmpdir))
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -580,7 +580,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -609,7 +609,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", None, cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", None)
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=None,
@@ -635,7 +635,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=_FailingEDINETReader(),
@@ -661,8 +661,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                cache_dir = Path(".cache/screening")
-                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -703,7 +702,7 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(business_day=False),
                     edinet=FakeEDINETReader(),
@@ -719,7 +718,7 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -1892,32 +1891,6 @@ class ScreeningCliTests(unittest.TestCase):
                     "SELECT extractor_revision FROM edinet_metrics WHERE asof_date = '2026-04-25'"
                 ).fetchone()[0]
             self.assertEqual(revision, EDINET_METRIC_REVISION)
-
-
-class IndexNextEarningsTests(unittest.TestCase):
-    def test_picks_earliest_future_announcement_per_ticker(self) -> None:
-        records = [
-            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 5, 13)),
-            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 8, 13)),
-            JPXEarningsCalendarEntry(ticker="2914", announcement_date=date(2026, 5, 8)),
-        ]
-        result = _index_next_earnings(records, date(2026, 4, 25))
-        self.assertEqual(result, {"1301": date(2026, 5, 13), "2914": date(2026, 5, 8)})
-
-    def test_skips_announcements_before_asof(self) -> None:
-        records = [
-            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 4, 20)),
-            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 5, 13)),
-        ]
-        result = _index_next_earnings(records, date(2026, 4, 25))
-        self.assertEqual(result, {"1301": date(2026, 5, 13)})
-
-    def test_keeps_alphanumeric_ticker(self) -> None:
-        records = [
-            JPXEarningsCalendarEntry(ticker="130A", announcement_date=date(2026, 5, 13)),
-        ]
-        result = _index_next_earnings(records, date(2026, 4, 25))
-        self.assertEqual(result, {"130A": date(2026, 5, 13)})
 
 
 def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:

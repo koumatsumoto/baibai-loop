@@ -14,9 +14,10 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.collection.economic.store import initialize_database
+from baibai_engine.market.price_models import PriceBar
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
 from baibai_engine.market_context.master import read_master_snapshot
-from baibai_engine.market_context.prices import PriceBar, read_price_bars
+from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.sector import _rank_to_percentiles, sector_relative_strength
 from baibai_engine.market_context.security import build_security_market_context

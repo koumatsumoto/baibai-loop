@@ -280,10 +280,11 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         (0.0, 12.0, "forecast_annual"),
         (None, 12.0, "forecast_annual"),
         (12.0, 0.0, "forecast_annual"),
+        (None, None, "unavailable"),
     ],
 )
-def test_saved_normalized_dps_does_not_change_candidate_context_or_raw_values(
-    actual, forecast, basis
+def test_saved_dps_reaches_research_without_changing_candidates_or_raw_values(
+    tmp_path, actual, forecast, basis
 ):
     row = stock_analysis(
         "1234",
@@ -307,12 +308,36 @@ def test_saved_normalized_dps_does_not_change_candidate_context_or_raw_values(
     row_without_dps = copy.deepcopy(row)
     del row_without_dps["metrics"]["dps_actual_annual"]
     del row_without_dps["metrics"]["dps_forecast_annual"]
-    selection = build_candidate_contexts([row_without_dps], **kwargs)
-    assert before == selection
+    without_dps = build_candidate_contexts([row_without_dps], **kwargs)
+    assert before == without_dps
     assert row["metrics"]["dps_actual_annual"] == actual
     assert row["metrics"]["dps_forecast_annual"] == forecast
     assert row["metrics"]["dividend_basis"] == basis
     assert row["metrics"]["er_annual"] == 0.05
+
+    path = tmp_path / "runs.sqlite"
+    selected = selection(
+        now=datetime.fromisoformat("2026-09-19T18:00:00+09:00"),
+        tickers=("1234", "5678"),
+        runs=path,
+        rows=[row, {**row_without_dps, "ticker": "5678"}],
+    )
+    saved = type(selected).model_validate_json(selected.model_dump_json())
+    snapshot_before = saved.model_dump(mode="json")
+    # Normal Research reads the frozen analysis, even after its mutable run store is gone.
+    path.unlink()
+    projected = project_research_inputs(saved)["securities"]
+    recorded = projected["1234"]["machine_valuation"]["estimate"]
+    assert recorded["dps_actual_annual"] == actual
+    assert recorded["dps_forecast_annual"] == forecast
+    assert recorded["dividend_basis"] == basis
+    assert recorded["er_annual"] == 0.05
+    unrecorded = projected["5678"]["machine_valuation"]["estimate"]
+    assert unrecorded["dps_actual_annual"] is None
+    assert unrecorded["dps_forecast_annual"] is None
+    assert "dps_actual_annual" not in saved.inputs.analysis.analyses["5678"]["metrics"]
+    assert "dps_forecast_annual" not in saved.inputs.analysis.analyses["5678"]["metrics"]
+    assert saved.model_dump(mode="json") == snapshot_before
 
 
 def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):

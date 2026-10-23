@@ -30,10 +30,6 @@ class RunStoreConflictError(ValueError):
     """Raised when immutable publication identity is reused with different content."""
 
 
-class RunStoreAmbiguousError(ValueError):
-    """Raised when a convenience query cannot identify one immutable revision."""
-
-
 @dataclass(frozen=True, slots=True)
 class PublicationResult:
     publication_id: str
@@ -438,7 +434,6 @@ __all__ = [
     "DEFAULT_RUN_STORE_PATH",
     "PruneResult",
     "PublicationResult",
-    "RunStoreAmbiguousError",
     "RunStoreConflictError",
     "ScreeningRunStore",
     "connect_rw",

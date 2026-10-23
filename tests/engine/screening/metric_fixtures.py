@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from enum import Enum
 
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.price_models import JQuantsDailyBar
+
+
+class _DefaultProfit(Enum):
+    FROM_EPS = "from_eps"
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
@@ -51,15 +56,19 @@ def _summary(
     dividend_year_end: float | None = None,
     dividend_total_annual: float | None = None,
     average_shares: float | None = None,
-    profit: float | None = None,
+    profit: float | _DefaultProfit | None = _DefaultProfit.FROM_EPS,
     total_assets: float | None = None,
     equity_to_asset_ratio: float | None = None,
 ) -> JQuantsFinancialSummary:
     # fixture では株数一定の簡略条件として EPS x 期末自己株控除後株数で利益を作る。
     # 実開示の EPS 分母は期中平均株数などであり、一般の恒等式ではない。
-    # 別の利益値を試す test は `profit` を明示する。
-    if profit is None and eps_ttm is not None:
-        profit = eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
+    # 省略時だけ生成する。明示した None は利益未観測のまま保持する。
+    if isinstance(profit, _DefaultProfit):
+        profit = (
+            eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
+            if eps_ttm is not None
+            else None
+        )
     # Calculation-ready fixture; native document/period resolution has separate tests.
     return JQuantsFinancialSummary(
         ticker=code,

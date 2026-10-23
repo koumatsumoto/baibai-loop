@@ -9,12 +9,14 @@ from functools import partial
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review
+from tests.helpers.research_selection import selection
 
 from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.assessment_store import AssessmentStoreService
+from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.proposal_query import get_investment_proposal, preview_current_terms
 from baibai_engine.research.proposal_scaffold import scaffold_proposal
 from baibai_engine.research.proposal_service import InvestmentProposalService
@@ -41,13 +43,33 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
     resolve = partial(resolve_buy_reference, db_path=case.app)
     documents = {case.pair.assessment_id: case.pair.document, pair.assessment_id: pair.document}
     first_proposal = None
+    first_completed = None
+    operation = case.operation
     for index, (ticker, quantity, cash) in enumerate(
         (("1234", 300, 500000), ("5678", 200, 200000))
     ):
         now = PUBLISHED + timedelta(minutes=index)
+        if index:
+            # A new explicit request follows the first proposal's completion and
+            # human report. The already held/reserved ticker is not selected again.
+            selected = selection(now=now, tickers=(ticker,), scope="specified_stocks")
+            operation = case.operations.start(
+                session_kind="capital-allocation",
+                as_of=selected.research_as_of,
+                started_at=now,
+                payload=OperationPayload(
+                    checkpoint="人間報告後の新しい明示依頼",
+                    artifacts=(selected.model_dump(mode="json"),),
+                ),
+            )
+            operation = case.operations.record_assessment(
+                operation.operation_id, pair.assessment_id, now=now
+            )
+            assert operation.operation_id != case.operation.operation_id
+            assert case.operations.get(case.operation.operation_id) == first_completed
         proposal_id = f"investment-proposal-00000000-0000-4000-8000-{index + 7:012x}"
         raw = scaffold_proposal(
-            operation_id=case.operation.operation_id,
+            operation_id=operation.operation_id,
             proposal_id=proposal_id,
             db_path=case.app,
             sqlite_path=case.market,
@@ -96,11 +118,29 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
         if index == 0:
             first_proposal = published
         else:
+            assert published.research_scope.operation_id == operation.operation_id
+            assert [target.ticker for target in published.research_scope.targets] == ["5678"]
             assert published.inputs.active_reservations or published.inputs.positions
             if candidate_factors:
                 assert published.portfolio_exposure.common_factors[0].key == "cycle"
             else:
                 assert "5678" in published.portfolio_exposure.common_factor_unclassified_tickers
+        operation = case.operations.record_proposal(
+            operation.operation_id, published.proposal_id, now=now
+        )
+        completed = case.operations.complete(
+            operation.operation_id,
+            operation.payload.model_copy(
+                update={
+                    "result": "具体条件まで提案を完成した。",
+                    "next": "本人の採否・broker操作と報告を待つ。",
+                }
+            ),
+            completed_at=now,
+        )
+        assert completed.status == "completed"
+        if index == 0:
+            first_completed = completed
         buy_item = next(item for item in published.items if item.ticker == ticker)
         assert buy_item.terms.notional_yen == 1000 * quantity
         draft, _ = build_broker_fact_draft(
@@ -140,6 +180,10 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             assert fill is not None
             apply_draft(store, fill, human_confirmed=True)
     assert first_proposal is not None
+    assert first_completed is not None
+    assert case.operations.active() is None
+    assert case.operations.get(first_completed.operation_id) == first_completed
+    assert [target.ticker for target in first_proposal.research_scope.targets] == ["1234", "5678"]
     state = replay_events_through(store.load().events, store.load().as_of)
     assert state.available_cash_yen == 0
     with closing(sqlite3.connect(case.market)) as connection, connection:

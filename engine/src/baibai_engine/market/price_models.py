@@ -1,7 +1,8 @@
-"""Provider price and action values; no adjustment calculations or acquisition."""
+"""Pure price and action values; no adjustment calculations or acquisition."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass as stdlib_dataclass
 from datetime import date
 from math import isfinite
 
@@ -11,6 +12,13 @@ from pydantic.dataclasses import dataclass
 from baibai_engine.collection.identifiers import normalize_ticker
 
 MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
+
+
+@stdlib_dataclass(frozen=True, slots=True)
+class PriceBar:
+    traded_at: date
+    price: float
+    turnover_value: float | None
 
 
 def validate_finite(value: float | None) -> float | None:

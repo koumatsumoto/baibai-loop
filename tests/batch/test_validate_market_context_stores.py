@@ -182,6 +182,45 @@ def test_validate_published_contexts_fails_when_a_stored_revision_cannot_be_read
     assert "cannot be read" in report.failures[0]
 
 
+def test_context_validation_collects_identity_failures_and_keeps_retired_warnings(
+    tmp_path: Path,
+) -> None:
+    application_db = tmp_path / "app.sqlite"
+    for suffix in ("wrong-date", "wrong-publication", "readable-history"):
+        seed_history(
+            application_db,
+            historical_context_payload(context_id=f"macro-context-2026-07-19-{suffix}"),
+        )
+    with closing(sqlite3.connect(application_db)) as connection, connection:
+        connection.execute(
+            "UPDATE market_context_assessment SET as_of='2026-07-18' WHERE context_id=?",
+            ("macro-context-2026-07-19-wrong-date",),
+        )
+        connection.execute(
+            "UPDATE market_context_assessment SET published_at='2026-07-20T12:00:00+09:00' "
+            "WHERE context_id=?",
+            ("macro-context-2026-07-19-wrong-publication",),
+        )
+    before = application_db.read_bytes()
+
+    report = validate_published_contexts(
+        application_db,
+        definitions=IndicatorDefinitions(series=()),
+    )
+
+    assert not report.valid
+    assert report.documents == 3
+    assert {failure.split(": cannot be read:", 1)[0] for failure in report.failures} == {
+        "macro-context-2026-07-19-wrong-date",
+        "macro-context-2026-07-19-wrong-publication",
+    }
+    assert all("publication identity differs" in failure for failure in report.failures)
+    assert len(report.warnings) == 1
+    assert report.warnings[0].startswith("macro-context-2026-07-19-readable-history:")
+    assert "cites retired series: us.10y" in report.warnings[0]
+    assert application_db.read_bytes() == before
+
+
 def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

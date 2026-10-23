@@ -6,29 +6,12 @@ import sqlite3
 import uuid
 from collections.abc import Sequence
 from contextlib import closing
-from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from baibai_engine.collection.equity_web.receipts import read_responses
 from baibai_engine.external_assessment.normalization.decode import decode_attempt
-from baibai_engine.external_assessment.observations.contract import (
-    ANALYST_FORECAST_COLUMNS,
-    ANALYST_FORECAST_TABLE,
-    ANALYST_RATING_COLUMNS,
-    ANALYST_RATING_TABLE,
-    MODEL_VALUATION_COLUMNS,
-    MODEL_VALUATION_TABLE,
-    QUANTS_SCORE_COLUMNS,
-    QUANTS_SCORE_TABLE,
-)
-from baibai_engine.external_assessment.observations.models import (
-    AnalystForecastObservation,
-    AnalystRatingObservation,
-    ModelValuationObservation,
-    Observation,
-    QuantsScoreObservation,
-)
+from baibai_engine.external_assessment.observations.rows import observation_row
 from baibai_engine.storage.observations.schema import validate_current_schema
 
 
@@ -46,31 +29,6 @@ def _selected_attempts(attempt_ids: Sequence[str]) -> tuple[str, ...]:
     if len(set(selected)) != len(selected):
         raise ValueError("duplicate attempt ID")
     return selected
-
-
-def _row(observation: Observation) -> tuple[str, tuple[str, ...], tuple[Any, ...]]:
-    if isinstance(observation, ModelValuationObservation):
-        table, columns = MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS
-    elif isinstance(observation, AnalystRatingObservation):
-        table, columns = ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS
-    elif isinstance(observation, AnalystForecastObservation):
-        table, columns = ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS
-    elif isinstance(observation, QuantsScoreObservation):
-        table, columns = QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS
-    else:
-        raise TypeError("unsupported external assessment observation")
-    names = tuple(column[0] for column in columns)
-    payload = observation.model_dump()
-    values = tuple(
-        value.isoformat(timespec="microseconds")
-        if isinstance(value, datetime)
-        else value.isoformat()
-        if isinstance(value, date)
-        else value
-        for name in names
-        for value in (payload[name],)
-    )
-    return table, names, values
 
 
 def rebuild_attempts(sqlite_path: Path, *, attempt_ids: Sequence[str]) -> int:
@@ -94,7 +52,9 @@ def rebuild_attempts(sqlite_path: Path, *, attempt_ids: Sequence[str]) -> int:
                 ]
                 if not receipt_ids:
                     raise ValueError("selected attempt is not retained")
-                table, names, values = _row(decode_attempt(read_responses(conn, receipt_ids)))
+                table, names, values = observation_row(
+                    decode_attempt(read_responses(conn, receipt_ids))
+                )
                 key = (table, values[0], values[1])
                 if key in keys:
                     raise ValueError("selected attempts produce a duplicate output key")
