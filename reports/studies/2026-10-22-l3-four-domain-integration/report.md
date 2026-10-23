@@ -1,11 +1,11 @@
 ---
-title: "四領域のAssessment・Review・Proposal合成結合検証"
-summary: "#1567の現行Assessment参照案と、判断理由・固定入力・旧Review拒否の合成回帰。実銘柄受入は未完了。"
+title: "四領域のAssessment・Review・Proposal結合検証"
+summary: "#1567の現行Assessment参照案、CIの保存契約回帰、固定3銘柄の限定的な意味検証と隔離保存読戻し。"
 doc_type: report
 status: active
 ---
 
-# 四領域の合成結合検証
+# 四領域の結合検証
 
 [Issue #1567](https://github.com/koumatsumoto/baibai-loop/issues/1567)のうち、保存済み四領域から
 Assessment・Review・Proposalまでの接続を検証する。初期L2と執筆案内は#1530側であり、
@@ -57,15 +57,76 @@ negative caseは採用sourceのbasis説明、仮説理由、最強反証を変�
 
 ## 検証状態と限界
 
-本変更のローカルfocused test・suiteは実行しない。対象commitのGitHub CIで検証し、
-その結果を確認するまでは成功扱いにしない。
+合成回帰は [PR #1568](https://github.com/koumatsumoto/baibai-loop/pull/1568) の固定HEAD
+`f83b6a0d3d86b50b5d08fc8fc65cefa07cdb8f51` の
+[GitHub CI](https://github.com/koumatsumoto/baibai-loop/actions/runs/39817134898)で成功した。
+全suite 6083 passed / 8 skipped、coverage 90.00%。ローカルtestsuiteは実行していない。
 
 合成の独立役identity、primary確認、手書き再計算goldenは保存契約の試験入力であり、
 別の人間/AIが原典・経済的因果・反証を独立Reviewした証明ではない。
 文章の件数や特定語句をvalidatorで必須化せず、判断品質・予測力・利益改善をこの回帰で主張しない。
 新しい重要根拠を評価本文へ記録しなかったことまではhashで検出できない。
 
-実銘柄受入は未実施であり、本Issue全体を完了としない。rootが受入済みの互換release ID・manifest SHA、
-code SHA・run・Research日・known_atを固定してから、事前固定の7203・8306・4783を公開資料だけで
-検証する。新しいみんかぶ観測等の不足を別releaseから補完せず、個人保有は読まない。
-固定releaseが後日保存世代である場合は厳密な当時点vintageの再現と区別し、少数例を将来利益の実証にしない。
+## 固定3銘柄の実入力検証（2026-10-23）
+
+実入力の意味を作者が検討し、別の検証担当が原稿と根拠・算術をレビューした。
+合成の手書きgoldenとは別の確認だが、独立した投資専門家の保証や予測精度の実証ではない。
+
+- code: `48b1d3d8cc002781973524dbdedab29a9daec106`
+- release: `20261022T163903Z-4d0a9394-ea4dc4078732`
+- run: `run-revision-b917cfedc7cd498c991e980d882429fc`、価格cutoffは2026-10-21
+- Research日: 2026-10-23、Selection input_known_at: `2026-10-23T12:15:40.663086+09:00`
+- Operation: `research-op-630d42519b1b4033acbca4ea5286e5c4`
+- Selection SHA256: `b1446e30f0a42d7645ec73be593d31e3f3a65ff85928f3f01d6ec77088b2e2bd`
+
+固定releaseから正規hydrateし、隔離application DBでprepare・評価/Review保存・Proposal公開・exact読戻しを行った。
+このSelectionは保存経路の固定ケースであり、現在のマクロ環境から新しく選んだ推奨候補ではない。
+後着の企業別リサーチ質問は作者ノートへ分離し、保存済みSelectionへ挿入しなかった。
+10月22日受領の外部評価や10月23日再計算を、10月21日に利用可能だった情報と偽らない。
+
+| ケース | 統合で変わった判断 | 保存した行動 |
+| --- | --- | --- |
+| NCD 4783 | 低PERと現金の多さだけで価値を加算しない。会社の資金方針、顧客集中、労務費、既知ESOP、配当権利と終価を条件付きシナリオへ接続。外部未カバーは悪評価ではなく、RSI/BBも価値の裏付けではない | 条件付き比較後の `no_action`。割安仮説は uncertain のまま |
+| トヨタ 7203 | 営業利益と純利益の方向が異なる。会社/外部の売上予想はほぼ同じでも純利益は約15.3%異なり、金融損益・税・株数basisの確認課題となる。外部強気は独立の買い票ではない | 正常利益・金融事業の橋渡し未完了による、評価参照付き `defer` |
+| MUFG 8306 | 金利上昇効果は会社計画の前提へ既に含まれる。追加加算せず、預金調達費・信用費用・OCI・規制資本を対照。generic cash-minus-debtを余剰株主資産としない | 利益・規制資本・分配の橋渡し未完了による、評価参照付き `defer` |
+
+NCDのBaseは36か月、作者の要求率10%、売上340億円・営業利益32億円、終期PER10倍等の条件付き仮定。
+株価2483円に対する年率約6.45%、条件付きPmax約2250円となるが、会社予想や唯一の適正価格ではない。
+PER8〜12倍で年率約−0.20〜12.36%へ変わり、採否は反転し得る。強い確信や指値買いへ読み替えない。
+配当方針・将来cash conversion・開始cashの仮定を原稿で分離し、cash不足感度と配当権利の二重計上を確認した。
+
+3件とも一次資料確認は `partially_verified`。関連箇所を実読した範囲であり、有報全頁の精読、
+価格履歴からの全指標独立再構築、将来の持続利益の確定は主張しない。
+
+## 保存結果と境界
+
+- Proposal: `investment-proposal-4fe4572d-7eee-40ef-a997-1a073a16cee9`
+- draft SHA256: `a06265bd12ceb7b7ef0f65a7c4afbe4bfbfd2f87dc14e282ead854a29950e91a`
+- Review: `proposal-review-b82a65d9-8912-4796-8f0b-40dc857cba25`
+- 隔離保存日時: `2026-10-23T13:21:02.864954+09:00`
+
+正規checkは `valid=true` / `review_binding=match` / blockersなし。
+読戻しは作者原稿と比較し、serviceの公開日時と同一時刻のUTC表記正規化を除き、本文・inputs・scope・Review・exact評価参照が一致した。
+Proposal発行前後のAssessment/Review・ledgerは不変。予約・注文・約定は0。
+
+Proposal contextが未import台帳を受け付けないため、隔離DBだけに明示的な開発用合成opening balance 1円を入れた。
+本人資産ではなく、経済的見送り理由でもない。このDBやProposalを本番へコピーしない。
+実口座の提案、マクロ起点の新しい候補選定、未来の利益改善、未解決2社の価値評価完成は、本検証の完了に含めない。
+
+判断理由と一次資料の照合履歴は [Issue #1567](https://github.com/koumatsumoto/baibai-loop/issues/1567) に残す。
+較正の欠損と過去入力の適用限界は [#1569](https://github.com/koumatsumoto/baibai-loop/issues/1569) で別に判定する。
+新schema・保存層・自動score・必須コメント欄は追加しない。既存の全文参照と明示的な不足記録で有限ケースを追跡できたため、
+SelectionをProposalへ再投影する追加設計は引き続き保留する。
+
+一次資料の主要参照：
+[NCD 決算短信（2026-08-07）](https://www2.jpx.co.jp/disc/47830/140120260805510616.pdf)、
+[NCD 中期計画（2026-05-15）](https://www.ncd.co.jp/ir/management/plan/pdf/vision2029.pdf)、
+NCD保存有報 `S100YEMH`（2026-06-19、type1原本SHA `45b0c26da66b2a7ea5359c60b3de2ef2db631010f332b0d8a0ea77de7b08dd8b`）、
+[トヨタ FY2027 Q1 summary](https://global.toyota/pages/global_toyota/ir/financial-results/2027_1q_summary_en.pdf)、
+[トヨタ説明資料](https://global.toyota/pages/global_toyota/ir/financial-results/2027_1q_presentation_2_en.pdf)、
+[MUFG Q1ハイライト](https://www.mufg.jp/dam/ir/fs/2026/pdf/highlights2606_ja.pdf)、
+[MUFG経営戦略](https://www.mufg.jp/profile/strategy/index.html?link_id=gnavi_profile_internal_strategy)。
+動的ページの現在内容を過去snapshotの代用にはしない。参照範囲と時点は各Assessmentに記録した。
+
+隔離Operationは `2026-10-23T13:26:59.817353+09:00` に正規completeし、終端 `completed` と作者指定payloadの完全一致を確認した。
+この終了は調査手順の終了であり、人間の採否・本番反映・注文の意味を付与しない。
