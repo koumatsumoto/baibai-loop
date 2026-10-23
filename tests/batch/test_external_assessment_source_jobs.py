@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -34,6 +36,7 @@ from baibai_engine.batch_api import (
     ExternalAssessmentCollectionOutcome,
     LakeObjectCache,
     LocalMirrorSource,
+    create_market_snapshot,
     equity_web_history_digests,
     external_assessment_collector_binding,
     external_assessment_decode_attempt,
@@ -42,7 +45,7 @@ from baibai_engine.batch_api import (
     lake_session,
     read_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.lake.hydrate import dehydrate_market_store
 
 
 def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch):
@@ -343,8 +346,23 @@ def test_blocked_source_does_not_prevent_another_exact_plan_publication(independ
 def test_terminal_write_failure_resumes_from_fresh_hydrate_without_duplicate_history(
     independent_plans, monkeypatch, tmp_path
 ):
-    store, selected, handle, database, _, directory = independent_plans
+    store, selected, handle, database, mirror, directory = independent_plans
     before = lake_publisher._serving_pointer(store).pointer
+    assert before is not None
+    # pull-market restores store-local acquisition coverage; the Lake owns the
+    # published rows. Keep the remote machine snapshot from before this attempt.
+    metadata_snapshot = directory / "market-metadata.sqlite"
+    create_market_snapshot(database, metadata_snapshot)
+    base = lake_publisher._resolve_serving_release(store, mirror, before)
+    dehydrate_market_store(metadata_snapshot, release=base)
+    with closing(sqlite3.connect(metadata_snapshot)) as connection:
+        coverage = connection.execute(
+            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+        ).fetchall()
+    assert coverage
+    store.store_object(
+        "market.sqlite", metadata_snapshot.read_bytes(), content_type="application/octet-stream"
+    )
     write = publication_module.put_private
 
     def fail_second(store, key, *args, **kwargs):
@@ -374,10 +392,12 @@ def test_terminal_write_failure_resumes_from_fresh_hydrate_without_duplicate_his
     history = external_assessment_history_digests(database)
     source_history = equity_web_history_digests(database, months={(2026, 9)})
 
-    # A new runner has neither the imported SQLite rows nor the previous mirror.
-    # Reconstruct both from the exact graph already published to MemoryR2.
+    # A new runner pulls the unchanged machine snapshot, then fills its empty
+    # Lake tables from the exact graph already published to MemoryR2.
     fresh_database = directory / "fresh-market.sqlite"
-    open_connection(fresh_database).close()
+    store.download_file("market.sqlite", fresh_database)
+    with closing(sqlite3.connect(fresh_database)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (0,)
     fresh_mirror = directory / "fresh-mirror"
     fixed = lake_publisher._resolve_serving_release(store, fresh_mirror, published)
     for manifest in fixed.dataset_manifests.values():
@@ -404,13 +424,28 @@ def test_terminal_write_failure_resumes_from_fresh_hydrate_without_duplicate_his
     )
     assert external_assessment_history_digests(fresh_database) == history
     assert equity_web_history_digests(fresh_database, months={(2026, 9)}) == source_history
+    with closing(sqlite3.connect(fresh_database)) as connection:
+        assert connection.execute(
+            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+        ).fetchall() == coverage
     release(store, handle)
     new_handle, _ = acquire(store, "operator")
 
     monkeypatch.setattr(publication_module, "put_private", write)
+    resume_errors = []
+    publish_plans = sources.publish_plans_and_verify
+
+    def diagnose_resume(*args, **kwargs):
+        try:
+            return publish_plans(*args, **kwargs)
+        except Exception as error:
+            resume_errors.append(f"{type(error).__name__}: {error}")
+            raise
+
+    monkeypatch.setattr(sources, "publish_plans_and_verify", diagnose_resume)
     restarted = (store, selected, new_handle, fresh_database, fresh_mirror, directory)
     second, ok = publish(restarted, name="retry-readback")
-    assert ok
+    assert ok, (second, resume_errors)
     assert second["sources"][0]["status"] == "already_published"
     assert second["sources"][1]["status"] == "published"
     assert second["sources"][1]["readback"] == "verified"

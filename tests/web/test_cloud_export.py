@@ -630,7 +630,7 @@ def test_every_materialized_contract_key_is_written(app_method_root: Path, tmp_p
     run = ScreeningRunReader(app_method_root / "stores/screening/runs.sqlite").latest_run()
     assert run is not None
     identifiers = {
-        "as_of": run.as_of.isoformat(),
+        "as_of": run.as_of_date,
         "series_id": "us.10y",
         "context_id": context.context_id,
         "ticker": assessment.document.input_snapshot.ticker,
