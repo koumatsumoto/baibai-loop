@@ -12,7 +12,7 @@ date: 2026-08-11
 
 価値tier: T1 — 上場廃止で観測不能になった長期 return を成立済み公開買付けの現金対価で実値化し、買収プレミアムを全損・中立代入へ落とす較正誤差を減らす。
 
-事前登録は [`preregistration.md`](./preregistration.md)。置換規則・比較方法・停止条件はそこで固定済みで、本書は実行結果だけを載せる。機械 artifact は [`comparison.yaml`](./comparison.yaml)。
+事前登録は [`preregistration.md`](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/reports/studies/2026-08-11-capital-control-exit-values/preregistration.md)。置換規則・比較方法・停止条件はそこで固定済みで、本書は実行結果だけを載せる。機械 artifact は [`comparison.yaml`](./comparison.yaml)。
 
 ## 結論
 
