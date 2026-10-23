@@ -32,6 +32,9 @@ def main() -> int:
         failed = [str(row["source_id"]) for row in rows if row["status"] == "failed"]
         ok = sum(row["status"] == "ok" for row in rows)
         message += f"source 成功={ok}; 失敗={len(failed)}\n"
+        history = sum(row.get("history_recovery_required") is True for row in rows)
+        if history:
+            message += f"全履歴の限定回復待ち={history} source（通常runでは再開しない）\n"
         if failed:
             message += "失敗source: " + sanitize_one_line(", ".join(failed), 1000) + "\n"
     except (ValueError, KeyError, TypeError):

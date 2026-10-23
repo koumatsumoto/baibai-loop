@@ -23,8 +23,13 @@ from .providers.native import fetch_native_records
 from .records import store_snapshot, stored_days
 from .refresh_policy import (
     DEFAULT_LATEST_LOOKBACK_DAYS as DEFAULT_LATEST_LOOKBACK_DAYS,
+)
+from .refresh_policy import (
     LATEST_FETCH_LOOKBACK_DAYS as LATEST_FETCH_LOOKBACK_DAYS,
+)
+from .refresh_policy import (
     recent_start,
+    recovery_ranges,
     source_policy,
 )
 from .sources import DOCUMENT_PROVIDERS, SourceDefinition, load_sources
@@ -77,11 +82,13 @@ def refresh_sources(
                 if source_id not in catalog:
                     raise ValueError(f"unknown economic source: {source_id}")
                 source = catalog[source_id]
-                if recent and source_policy(source).mode == "current_only":
-                    if end != datetime.now(ZoneInfo("Asia/Tokyo")).date():
-                        raise ValueError("current-only source cannot recover a historical date")
+                if (
+                    recent and source_policy(source).mode == "current_only"
+                    and end != datetime.now(ZoneInfo("Asia/Tokyo")).date()
+                ):
+                    raise ValueError("current-only source cannot recover a historical date")
                 first = (
-                    recent_start(connection, source, end)
+                    recent_start(source, end)
                     if recent
                     else start
                     if start is not None
@@ -90,6 +97,13 @@ def refresh_sources(
                 received = _refresh_source(
                     connection, source, start=first, end=end, context=context
                 )
+                if recent:
+                    for missing_start, missing_end in recovery_ranges(connection, source, end):
+                        received += _refresh_source(
+                            connection, source, start=missing_start, end=missing_end,
+                            context=context, recheck_existing=False,
+                        )
+                        first = min(first, missing_start)
                 outcomes.append(SourceRefreshSuccess(source_id, first, end, received))
             except Exception as error:
                 outcomes.append(SourceRefreshFailure(source_id, redact_credentials(str(error))))
@@ -120,6 +134,7 @@ def _refresh_source(
     start: date,
     end: date,
     context: FetchContext,
+    recheck_existing: bool = True,
 ) -> int:
     started = datetime.now(UTC)
     received = 0
@@ -135,6 +150,7 @@ def _refresh_source(
                 context=context,
                 existing=existing,
                 force=context.purpose == "rebuild",
+                recheck_existing=recheck_existing,
             ):
                 if document.source_id != source.source_id:
                     raise ValueError(f"provider returned a document for {document.source_id}")

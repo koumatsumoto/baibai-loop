@@ -56,7 +56,6 @@ RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 
 
 def test_acquire_workflow_timeout_can_start_a_harmless_command():
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     commands = [
         shlex.split(line.strip())
         for step in yaml.safe_load(

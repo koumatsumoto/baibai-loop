@@ -6,7 +6,7 @@ from baibai_engine.collection.economic.acquisition import (
     SourceRefreshSuccess,
     refresh_sources,
 )
-from baibai_engine.collection.economic.refresh_policy import recent_start, source_policy
+from baibai_engine.collection.economic.refresh_policy import recent_start, recovery_ranges, source_policy
 from baibai_engine.collection.economic.sources import load_sources
 from baibai_engine.collection.economic.store import initialize_database, record_source_run
 
@@ -47,7 +47,7 @@ def test_recovery_does_not_hide_a_failed_old_range_behind_a_narrow_new_success(t
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
         attempt(conn, date(2024, 1, 1), date(2024, 2, 1), "failed")
         attempt(conn, date(2026, 9, 1), END)
-        assert recent_start(conn, source, END) == date(2024, 1, 1)
+        assert recovery_ranges(conn, source, END)[0][0] == date(2024, 1, 1)
 
 
 def test_recovery_uses_contiguous_success_ranges_and_finds_internal_gaps(tmp_path):
@@ -55,9 +55,10 @@ def test_recovery_uses_contiguous_success_ranges_and_finds_internal_gaps(tmp_pat
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
         attempt(conn, date(2024, 1, 1), date(2024, 2, 1))
         attempt(conn, date(2024, 3, 1), END)
-        assert recent_start(conn, source, END) == date(2024, 2, 2)
+        assert recovery_ranges(conn, source, END) == ((date(2024, 2, 2), date(2024, 2, 29)),)
         attempt(conn, date(2024, 1, 15), date(2024, 3, 3))
-        assert recent_start(conn, source, END) == END - timedelta(days=370)
+        assert recent_start(source, END) == END - timedelta(days=370)
+        assert recovery_ranges(conn, source, END) == ()
 
 
 def test_first_recent_refresh_is_distinct_from_explicit_history_rebuild(tmp_path, monkeypatch):
@@ -95,3 +96,28 @@ def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch):
     )
     assert isinstance(outcomes[0], SourceRefreshFailure)
     assert "current-only" in outcomes[0].message
+
+
+def test_failed_all_history_attempt_does_not_reopen_itself_during_recent_refresh(tmp_path):
+    from baibai_engine.collection.economic.records import store_snapshot
+
+    source = load_sources()["fred-payems"]
+    with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
+        attempt(conn, date(1900, 1, 1), END, "failed")
+        store_snapshot(conn, source_id=source.source_id, observed_at=date(1900, 1, 1),
+                       fetched_at=datetime(2026, 10, 23, tzinfo=UTC), records=[])
+        assert recent_start(source, END) == END - timedelta(days=370)
+        assert recovery_ranges(conn, source, END) == ()
+        assert conn.execute("SELECT status FROM economic_source_runs").fetchone()[0] == "failed"
+
+
+def test_partially_received_native_days_are_not_reacquired_as_missing_history(tmp_path):
+    from baibai_engine.collection.economic.records import store_snapshot
+
+    source = load_sources()["fred-payems"]
+    with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
+        attempt(conn, date(2024, 1, 1), date(2024, 1, 31))
+        attempt(conn, date(2024, 3, 1), END)
+        store_snapshot(conn, source_id=source.source_id, observed_at=date(2024, 2, 1),
+                       fetched_at=datetime(2026, 10, 23, tzinfo=UTC), records=[])
+        assert recovery_ranges(conn, source, END) == ((date(2024, 2, 2), date(2024, 2, 29)),)

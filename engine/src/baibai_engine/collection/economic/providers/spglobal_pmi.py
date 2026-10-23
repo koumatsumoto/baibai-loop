@@ -44,6 +44,7 @@ class SpGlobalPmiSource:
         context: FetchContext | None,
         existing: Mapping[str, SourceDocument],
         force: bool,
+        recheck_existing: bool = True,
     ) -> Iterator[SourceDocument]:
         manifest = load_manifest(MANIFEST_PATH)
         releases = manifest.get(source.provider_series_id)
@@ -59,6 +60,13 @@ class SpGlobalPmiSource:
                 "observed_at": key,
                 "release_observed_at": entry.release_observed_at.isoformat(),
             }
+            stored = existing.get(key)
+            if (
+                not recheck_existing and not force and stored is not None
+                and stored.source_url == entry.url and stored.metadata == metadata
+                and stored.content_type == "application/pdf"
+            ):
+                continue
             body = fetch_pdf_bytes(entry.url, session=session, context=context)
             yield SourceDocument(
                 source_id=source.source_id,

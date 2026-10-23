@@ -6,6 +6,8 @@ a change. A recent check is not a history rebuild or a bound on outage recovery.
 
 from __future__ import annotations
 
+import calendar
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -60,33 +62,103 @@ def acquisition_groups() -> tuple[str, ...]:
     )
 
 
-def recent_start(connection: sqlite3.Connection, source: SourceDefinition, end: date) -> date:
-    """Recheck recent values and recover gaps since this source's first attempt.
-
-    Successful *ranges*, including confirmed empty dates, are coverage. The latest
-    observed value alone cannot establish coverage. Failed attempts anchor recovery
-    too; a later narrow success must not hide an older failed or uncovered interval.
-    A source with no previous attempt starts with the recent window; deep seeding
-    remains the explicit all-history operation.
-    """
+def recent_start(source: SourceDefinition, end: date) -> date:
+    """The revision-check window never implicitly resumes a failed history rebuild."""
     policy = source_policy(source)
     if policy.mode == "current_only":
         return end
-    first = end - timedelta(days=policy.lookback_days)
+    return end - timedelta(days=policy.lookback_days)
+
+
+def recovery_ranges(
+    connection: sqlite3.Connection, source: SourceDefinition, end: date
+) -> tuple[tuple[date, date], ...]:
+    """Recover unreceived intervals in the established ongoing collection range.
+
+    A successful range establishes coverage and an ongoing collection anchor. A
+    failed ordinary-size range can anchor an initial outage too. A failed broad
+    backfill never extends that anchor; its failure remains recorded for explicit
+    recovery. Individual committed native days/PDF months cover partial successes,
+    so a failed range does not imply that all its originals are missing.
+    """
+    if source_policy(source).mode == "current_only":
+        return ()
+    recent = recent_start(source, end)
+    last = recent - timedelta(days=1)
     rows = connection.execute(
         "SELECT range_start, range_end, status FROM economic_source_runs "
         "WHERE source_id = ? AND range_start <= ? ORDER BY range_start, range_end",
         (source.source_id, end.isoformat()),
     ).fetchall()
-    if not rows:
-        return first
-    cursor = date.fromisoformat(rows[0][0])
+    anchors: list[date] = []
+    covered: list[tuple[date, date]] = []
     for start_raw, end_raw, status in rows:
-        if status != "ok":
+        start, finish = date.fromisoformat(start_raw), date.fromisoformat(end_raw)
+        if status == "ok":
+            anchors.append(start)
+            covered.append((start, finish))
+        elif (finish - start).days <= source_policy(source).lookback_days:
+            anchors.append(start)
+    if not anchors or min(anchors) > last:
+        return ()
+    first = min(anchors)
+    return _missing_ranges(connection, source, first, last, covered)
+
+
+def explicit_recovery_ranges(
+    connection: sqlite3.Connection, source: SourceDefinition, end: date
+) -> tuple[tuple[date, date], ...]:
+    """Expose unfinished broad acquisitions without restarting them in a daily run."""
+    pending: list[tuple[date, date]] = []
+    for start_raw, end_raw in connection.execute(
+        "SELECT DISTINCT range_start, range_end FROM economic_source_runs "
+        "WHERE source_id = ? AND status = 'failed' AND range_start <= ?",
+        (source.source_id, end.isoformat()),
+    ):
+        first, last = date.fromisoformat(start_raw), min(end, date.fromisoformat(end_raw))
+        if (last - first).days > source_policy(source).lookback_days:
+            pending.extend(_missing_ranges(connection, source, first, last, []))
+    return tuple(sorted(set(pending)))
+
+
+def _missing_ranges(
+    connection: sqlite3.Connection, source: SourceDefinition, first: date, last: date,
+    covered: list[tuple[date, date]],
+) -> tuple[tuple[date, date], ...]:
+    covered.extend(
+        (date.fromisoformat(row[0]), date.fromisoformat(row[1]))
+        for row in connection.execute(
+            "SELECT range_start, range_end FROM economic_source_runs "
+            "WHERE source_id = ? AND status = 'ok' AND range_start <= ? AND range_end >= ?",
+            (source.source_id, last.isoformat(), first.isoformat()),
+        )
+    )
+    for (observed,) in connection.execute(
+        "SELECT DISTINCT observed_at FROM economic_source_records "
+        "WHERE source_id = ? AND observed_at BETWEEN ? AND ?",
+        (source.source_id, first.isoformat(), last.isoformat()),
+    ):
+        day = date.fromisoformat(observed)
+        covered.append((day, day))
+    if source.provider == "spglobal_pmi":
+        for (metadata,) in connection.execute(
+            "SELECT metadata FROM economic_source_documents WHERE source_id = ?",
+            (source.source_id,),
+        ):
+            month = date.fromisoformat(json.loads(metadata)["observed_at"])
+            covered.append((month, month.replace(day=calendar.monthrange(month.year, month.month)[1])))
+    cursor = first
+    missing: list[tuple[date, date]] = []
+    for start, finish in sorted(covered):
+        if finish < cursor:
             continue
-        start, last = date.fromisoformat(start_raw), date.fromisoformat(end_raw)
-        if start > cursor:
+        if start > last:
             break
-        if last >= cursor:
-            cursor = last + timedelta(days=1)
-    return min(first, cursor)
+        if start > cursor:
+            missing.append((cursor, min(last, start - timedelta(days=1))))
+        cursor = max(cursor, finish + timedelta(days=1))
+        if cursor > last:
+            break
+    if cursor <= last:
+        missing.append((cursor, last))
+    return tuple(missing)

@@ -7,6 +7,10 @@ import pytest
 import yaml
 
 from baibai_batch.jobs.economic import acquire, receive
+from baibai_batch.storage.store_merge import MergeError
+from baibai_batch.storage.lake_publish import LakePublishError
+from baibai_batch.storage.economic_staging import load_handoff, save_handoff
+from tests.helpers.r2_store import MemoryR2Store
 from baibai_engine.collection.economic import acquisition
 from baibai_engine.collection.economic.handoff import export_receipts
 from baibai_engine.collection.economic.records import read_snapshots, store_snapshot
@@ -55,8 +59,11 @@ def test_readback_missing_a_received_row_is_a_failure(tmp_path):
     canonical = tmp_path / "canonical.sqlite"
     with closing(initialize_database(canonical)):
         pass
-    with pytest.raises(ValueError, match="readback"):
-        receive(a, canonical, "fred_csv", "fred-payems", verify=True)
+    before = canonical.read_bytes()
+    for _ in range(2):
+        with pytest.raises(MergeError, match="readback"):
+            receive(a, canonical, "fred_csv", "fred-payems", verify=True)
+        assert canonical.read_bytes() == before
 
 
 def test_handoff_contains_only_new_selected_receipts_and_preserves_a_b_a(tmp_path):
@@ -94,7 +101,7 @@ def test_failed_source_keeps_prior_data_and_does_not_hide_sibling_success(tmp_pa
     assert {row["status"] for row in report["sources"]} == {"ok", "failed"}
     with closing(initialize_database(database)) as conn:
         assert (
-            tuple(read_snapshots(conn, DAY, DAY, source_id="boj-cai"))[0].records[0]["value"]
+            next(read_snapshots(conn, DAY, DAY, source_id="boj-cai")).records[0]["value"]
             == "retained original"
         )
     with closing(initialize_database(directory / "receipts.sqlite")) as conn:
@@ -134,3 +141,19 @@ def test_each_provider_can_publish_without_waiting_for_the_acquisition_matrix():
     assert "pull-app" not in str(source)
     assert "push-machine" not in str(source)
     assert "--saved-economic" in str(workflow("cloud-daily-batch.yml"))
+
+
+def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
+    directory = handoff(tmp_path, "fred_csv", "fred-payems", "A")
+    store = MemoryR2Store()
+    stage = save_handoff(store, "42-1-fred_csv", directory)
+    downloaded = tmp_path / "downloaded"
+    load_handoff(store, stage, downloaded)
+    assert (downloaded / "receipts.sqlite").read_bytes() == (directory / "receipts.sqlite").read_bytes()
+    assert all(key.startswith("coordination/economic-sources/") for key in store.put_keys)
+    assert not any("artifact" in str(workflow(name)) for name in ("cloud-economic-source.yml", "cloud-economic-sources.yml"))
+    assert save_handoff(store, "42-1-fred_csv", directory) == stage
+    key = next(key for key in store.values if key.endswith(".sqlite"))
+    store.values[key].body = b"tampered"
+    with pytest.raises(LakePublishError, match="receipt"):
+        load_handoff(store, stage, tmp_path / "corrupt")

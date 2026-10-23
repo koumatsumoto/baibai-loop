@@ -44,14 +44,14 @@ gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 
 ### マクロ原本の独立更新
 
-`cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→受領artifact→正本反映・読戻しを独立させる。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。artifactは今回の経済受領だけを7日保持し、application・market storeや秘密を含めない。
+`cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領→正本反映・読戻しを独立させる。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。
 
 | acquisition group / provider | 取得方式と比較範囲 |
 | --- | --- |
 | boj / boj・boj_timeseries | XLSX全体または系列API。月次・四半期370日、日次14日 |
 | estat / estat・estat_dashboard | 指定系列の全体応答をfilter、370日。dashboard速報native行も保存し、L2のfinal_onlyとは分離 |
 | fred_csv | 全体CSVをfilter。日次14日、週次60日、月次・四半期370日 |
-| frb_h15 | 期間指定CSV、14日 |
+| frb_h15 | 期間指定CSV、14日。このgroupだけ既存browser fallbackを準備。現行Nikkeiは直接HTTP、PMIは直接PDFでbrowserを使わない |
 | cftc | 期間指定JSON、60日。上限到達は完全取得にしない |
 | ecb_fx・mof_jgb | 全体ファイルをfilter、14日 |
 | multpl | 全体のdated表をfilter、14日 |
@@ -65,14 +65,14 @@ gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 
 今回の数値は現行窓を保守的に維持する決定であり、全sourceの最低必要窓を実証したという意味ではない。PAYEMSの公表遅延＋通常2回改訂、GDPの四半期終了後3か月の公表を落とさないため、月次・四半期を一律「当月＋直前2完了月」へ縮めない。optionsの日別要求も14日から増やさない。全体配信では比較範囲を絞っても通信量削減を主張しない。
 
-`--recent`は通常窓に加え、既存source runの最初の試行以後に残った失敗・未確認区間を成功範囲のunionから回復する。初回は最近窓から開始し、初期history seed・古い年次改訂照合は明示的な`--all-history`で別に実行する。過去の全改訂や完全な当時PITの再現を保証しない。
+`--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗は通知の「全履歴の限定回復待ち」に出し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
 
 ```bash
 uv run baibai-engine collection economic groups
 gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
 ```
 
-限定再実行はgroupとその中のsource IDを指定する。取得の再実行は新しい取得結果との比較、publishだけの再実行は同じartifactの再受領になる。7日後にartifactが失効していれば取得から新runを開始する。取得失敗と反映成功は併存できる。通知の取得／正本反映・読戻しを別々に確認し、表示は最新正本を使う次のdailyまたは明示的なmaterializeで更新する。経済のwatchdogは全group対象の成功だけを数え、限定成功で全体の欠測を隠さない。
+限定再実行はgroupとその中のsource IDを指定する。取得の再実行は新しい取得結果との比較、publishだけの再実行は同じ非公開R2 handoffの再受領になる。handoffのない取得失敗は新runで再取得する。取得失敗と反映成功は併存できる。通知の取得／正本反映・読戻しを別々に確認し、表示は最新正本を使う次のdailyまたは明示的なmaterializeで更新する。経済のwatchdogは全group対象の成功だけを数え、限定成功で全体の欠測を隠さない。
 
 経済の公開だけがleaseと`cloud-publish`を使い、最新economic storeへ既存append-only unionを行う。市場hydrateやapplication書込はしない。同providerの次runは前runの公開まで待つ。J-Quantsの市場取得・TVのmaster補完と経済取得は同じacquire groupで直列化する。
 
