@@ -14,6 +14,39 @@ from baibai_engine.screening.metrics.snapshot import build_metrics
 
 
 class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
+    def test_missing_reported_profit_is_not_reconstructed_from_eps(self) -> None:
+        asof = date(2026, 6, 1)
+        values = dict(
+            eps_ttm=20.0,
+            shares_outstanding=100.0,
+            treasury_shares=10.0,
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
+        )
+        # Only omission requests the fixture's constant-share convenience value.
+        self.assertEqual(_summary("130A", date(2026, 5, 15), **values).profit, 1800.0)
+        for profit, quality, expected_eps in (
+            (None, TTMQuality.UNAVAILABLE, None),
+            (0.0, TTMQuality.EXACT, 0.0),
+        ):
+            with self.subTest(profit=profit):
+                row = _summary("130A", date(2026, 5, 15), profit=profit, **values)
+                self.assertEqual(row.profit, profit)
+                self.assertEqual(row.eps_ttm, 20.0)
+                snapshot = build_metrics(
+                    asof_date=asof,
+                    securities_by_ticker={"130A": _security()},
+                    bars_by_ticker={"130A": _daily_bars("130A", asof, 40)},
+                    summaries_by_ticker={"130A": [row]},
+                    edinet_by_ticker={},
+                ).financials["130A"]
+                self.assertIsNone(snapshot.per_trailing)
+                self.assertEqual(snapshot.ttm_quality_per_trailing, quality)
+                self.assertEqual(snapshot.eps, expected_eps)
+                self.assertIsNotNone(snapshot.per_forward)
+
     def test_completed_short_fiscal_year_outranks_earlier_quarter(self) -> None:
         earlier_quarter = _summary(
             "3823",

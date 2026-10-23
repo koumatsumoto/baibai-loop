@@ -65,17 +65,32 @@ def test_invalid_request_scope_time_and_reason_rejected(change):
 
 def test_draft_four_parses_but_canonical_and_new_write_reject_it(tmp_path):
     value = selection(now=NOW, tickers=("1000", "1001", "1002"))
-    raw = draft_for(value).model_dump(mode="json")
+    raw = value.model_dump(mode="json")
     raw["targets"].append(selected_target("1003").model_dump(mode="json"))
-    draft = ResearchSelectionDraft.model_validate(raw)
+    inputs = raw["inputs"]
+    gap = {**inputs["input_gaps"][0], "ticker": "1003"}
+    inputs["input_gaps"].append(gap)
+    inputs["analysis"]["unavailable"]["1003"] = gap["reason"]
+    inputs["securities_context"]["1003"] = {
+        "market_context": None,
+        "external_assessment": None,
+    }
+    draft = ResearchSelectionDraft.model_validate(
+        {
+            **draft_for(value).model_dump(mode="json"),
+            "targets": raw["targets"],
+            "input_gaps": inputs["input_gaps"],
+        }
+    )
     assert len(draft.targets) == 4
-    with pytest.raises(ValueError, match=r"validation error|capacity"):
+    with pytest.raises(ValueError, match="saved research capacity"):
         validate_capacity(4, ResearchCapacity())
-    with pytest.raises(ValueError, match=r"validation error|capacity"):
-        ResearchSelection.model_validate(
-            {**value.model_dump(mode="json"), "targets": raw["targets"]}
-        )
-    expanded = value.model_copy(update={"capacity": ResearchCapacity(max_deep_research_targets=4)})
+    with pytest.raises(ValueError, match="saved research capacity"):
+        ResearchSelection.model_validate(raw)
+    # A positive control proves that capacity is the only invalid dimension.
+    raw["capacity"]["max_deep_research_targets"] = 4
+    expanded = ResearchSelection.model_validate(raw)
+    assert len(expanded.targets) == 4
     with pytest.raises(ValueError, match="current capacity"):
         OperationService(tmp_path / "app").start(
             session_kind="capital-allocation",
