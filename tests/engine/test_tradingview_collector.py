@@ -18,8 +18,6 @@ from baibai_engine.external_assessment.tradingview.collector import (
     universe,
 )
 from baibai_engine.external_assessment.tradingview.observations import (
-    COLUMNS,
-    FIELDS,
     FetchError,
     normalize_batch,
 )
@@ -28,6 +26,28 @@ from baibai_engine.storage.observations.schema import open_connection
 
 DAY = date(2026, 9, 18)
 NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
+
+# Provider-native keys are fixed independently of the production field mapping.
+PROVIDER_ROW = {
+    "AnalystRating": None,
+    "recommendation_total": None,
+    "price_target_average": None,
+    "price_target_high": None,
+    "price_target_low": None,
+    "earnings_per_share_forecast_next_fq": None,
+    "earnings_per_share_forecast_next_fy": -5,
+    "revenue_forecast_next_fq": None,
+    "revenue_forecast_next_fy": None,
+    "price_earnings_fwd": None,
+    "price_sales_fwd": None,
+    "enterprise_value_ebitda_fwd": None,
+    "ebitda_estimate_fy": None,
+    "free_cash_flow_estimate_fy": None,
+    "capital_expenditures_estimate_fy": None,
+    "total_debt_estimate_fy": None,
+    "close": 100,
+    "currency": "JPY",
+}
 
 
 def _sdk(body: dict) -> CallToolResult:
@@ -49,11 +69,9 @@ def store(path: Path, count: int = 51) -> Path:
 
 def payload(symbols: list[str], *, missing: list[str] | None = None) -> dict:
     missing = missing or []
-    raw = dict.fromkeys(COLUMNS)
-    raw.update(close=100, currency="JPY", earnings_per_share_forecast_next_fy=-5)
     return {
         "success": True,
-        "data": {s: dict(raw) for s in symbols if s not in missing},
+        "data": {s: dict(PROVIDER_ROW) for s in symbols if s not in missing},
         "count": len(symbols) - len(missing),
         "missing": [{"symbol": s, "reason": "Quote data not found"} for s in missing],
         "missing_count": len(missing),
@@ -72,9 +90,30 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     calls = []
     pauses = []
 
-    async def fetch(symbols, _columns):
+    async def fetch(symbols, columns):
         calls.append(symbols)
-        return _sdk(payload(symbols, missing=symbols[1:2] if len(symbols) == 50 else []))
+        assert len(columns) == 18
+        assert set(columns) == PROVIDER_ROW.keys()
+        response = payload(symbols, missing=symbols[1:2] if len(symbols) == 50 else [])
+        for row in response["data"].values():
+            row.update(
+                AnalystRating="Buy",
+                recommendation_total=7,
+                price_target_average=170,
+                price_target_high=220,
+                price_target_low=130,
+                earnings_per_share_forecast_next_fq=-1.25,
+                revenue_forecast_next_fq=200_000,
+                revenue_forecast_next_fy=900_000,
+                price_earnings_fwd=13.5,
+                price_sales_fwd=2.5,
+                enterprise_value_ebitda_fwd=7.5,
+                ebitda_estimate_fy=300_000,
+                free_cash_flow_estimate_fy=-40_000,
+                capital_expenditures_estimate_fy=-50_000,
+                total_debt_estimate_fy=600_000,
+            )
+        return _sdk(response)
 
     async def sleep(interval):
         pauses.append(interval)
@@ -116,14 +155,48 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     assert state["unresolved"] == 1
     assert state["first_fetched_at_utc"] == NOW.isoformat()
     with closing(sqlite3.connect(path)) as conn, conn:
-        assert conn.execute(
-            "SELECT fetch_status, eps_forecast_next_fy, fetched_at_utc, estimate_currency "
-            "FROM tradingview_forecast_snapshots WHERE ticker='1000'"
-        ).fetchone() == ("ok", -5.0, NOW.isoformat(), None)
-        assert conn.execute(
+        conn.row_factory = sqlite3.Row
+        saved = conn.execute(
+            "SELECT * FROM tradingview_forecast_snapshots WHERE ticker='1000'"
+        ).fetchone()
+        assert saved is not None
+        assert dict(saved) == {
+            "snapshot_date": DAY.isoformat(),
+            "ticker": "1000",
+            "provider_symbol": "TSE:1000",
+            "fetched_at_utc": NOW.isoformat(),
+            "fetch_status": "ok",
+            "quote_at_utc": None,
+            "estimate_currency": None,
+            "estimate_unit": None,
+            "provider_updated_at_utc": None,
+            "target_period_label": None,
+            "target_period_end": None,
+            "analyst_rating": "Buy",
+            "recommendation_total": 7,
+            "price_target_average": 170,
+            "price_target_high": 220,
+            "price_target_low": 130,
+            "eps_forecast_next_fq": -1.25,
+            "eps_forecast_next_fy": -5,
+            "revenue_forecast_next_fq": 200_000,
+            "revenue_forecast_next_fy": 900_000,
+            "forward_pe": 13.5,
+            "forward_ps": 2.5,
+            "forward_ev_ebitda": 7.5,
+            "ebitda_estimate_fy": 300_000,
+            "free_cash_flow_estimate_fy": -40_000,
+            "capex_estimate_fy": -50_000,
+            "total_debt_estimate_fy": 600_000,
+            "quote_close": 100,
+            "quote_currency": "JPY",
+        }
+        missing = conn.execute(
             "SELECT fetch_status, recommendation_total FROM tradingview_forecast_snapshots "
             "WHERE ticker='1001'"
-        ).fetchone() == ("unresolved", None)
+        ).fetchone()
+        assert missing is not None
+        assert dict(missing) == {"fetch_status": "unresolved", "recommendation_total": None}
 
 
 def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None:
@@ -445,10 +518,14 @@ def test_exact_date_master_and_calendar_are_required(tmp_path: Path) -> None:
         asyncio.run(collect(path, DAY, forbidden, clock=lambda: NOW))
 
 
-def test_normal_null_is_not_unresolved() -> None:
-    result = normalize_batch(payload(["TSE:1000"]), ["TSE:1000"], NOW)
+@pytest.mark.parametrize("forecast", [None, 0, -5])
+def test_normal_null_zero_and_negative_forecast_are_not_unresolved(forecast) -> None:
+    data = payload(["TSE:1000"])
+    data["data"]["TSE:1000"]["earnings_per_share_forecast_next_fy"] = forecast
+    result = normalize_batch(data, ["TSE:1000"], NOW)
     assert result[0]["fetch_status"] == "ok"
     assert result[0]["recommendation_total"] is None
+    assert result[0]["eps_forecast_next_fy"] == forecast
 
 
 @pytest.mark.parametrize(
@@ -549,7 +626,7 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
         assert result["unresolved"] == 0
         assert result["status"] == ("saved" if failure is None else "partial")
         assert result["chunks_total"] == 2
-        assert result["columns_count"] == len(COLUMNS)
+        assert result["columns_count"] == 18
         assert result["interval_seconds"] == 15
         assert result["first_fetched_at_utc"] == (NOW + timedelta(seconds=1.23456)).isoformat()
         assert events[-1].phase == "complete"
@@ -568,21 +645,18 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
 
 
 @pytest.mark.parametrize(
-    ("field", "value", "reason"),
+    ("provider_field", "field", "value", "reason"),
     [
-        ("quote_close", float("nan"), "invalid_numeric"),
-        ("recommendation_total", -1, "invalid_analyst_count"),
-        ("quote_currency", 42, "invalid_text_type"),
+        ("close", "quote_close", float("nan"), "invalid_numeric"),
+        ("recommendation_total", "recommendation_total", -1, "invalid_analyst_count"),
+        ("currency", "quote_currency", 42, "invalid_text_type"),
     ],
 )
-def test_payload_diagnostics_use_canonical_field(field, value, reason):
-    from baibai_engine.external_assessment.tradingview.observations import (
-        FIELDS,
-        ProviderPayloadError,
-    )
+def test_payload_diagnostics_use_canonical_field(provider_field, field, value, reason):
+    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
 
     data = payload(["TSE:1000"])
-    data["data"]["TSE:1000"][FIELDS[field]] = value
+    data["data"]["TSE:1000"][provider_field] = value
     with pytest.raises(ProviderPayloadError) as caught:
         normalize_batch(data, ["TSE:1000"], NOW)
     assert (caught.value.reason, caught.value.field) == (reason, field)
@@ -650,8 +724,30 @@ def test_explicit_missing_receipt_does_not_depend_on_batch_composition(batch_siz
         response = payload(chunk, missing=[s for s in chunk if s == symbols[1]])
         rows.extend(normalize_batch(response, chunk, NOW))
     assert rows == normalize_batch(payload(symbols, missing=[symbols[1]]), symbols, NOW)
-    assert rows[1]["fetch_status"] == "unresolved"
-    assert all(rows[1][field] is None for field in FIELDS)
+    assert rows[1] == {
+        "ticker": "1001",
+        "provider_symbol": "TSE:1001",
+        "fetched_at_utc": NOW.isoformat(),
+        "fetch_status": "unresolved",
+        "analyst_rating": None,
+        "recommendation_total": None,
+        "price_target_average": None,
+        "price_target_high": None,
+        "price_target_low": None,
+        "eps_forecast_next_fq": None,
+        "eps_forecast_next_fy": None,
+        "revenue_forecast_next_fq": None,
+        "revenue_forecast_next_fy": None,
+        "forward_pe": None,
+        "forward_ps": None,
+        "forward_ev_ebitda": None,
+        "ebitda_estimate_fy": None,
+        "free_cash_flow_estimate_fy": None,
+        "capex_estimate_fy": None,
+        "total_debt_estimate_fy": None,
+        "quote_close": None,
+        "quote_currency": None,
+    }
 
 
 def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tmp_path):
