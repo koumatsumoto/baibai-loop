@@ -145,7 +145,7 @@ def test_node_audit_is_triggered_by_the_lockfiles_it_reads() -> None:
     """Scoping by trigger keeps an advisory from blocking unrelated web work.
 
     A published advisory turns this red on any run, so the run has to happen only
-    when a resolution actually changed. Advisories against a lockfile standing
+    when a resolution or the audit runtime changed. Advisories against a lockfile standing
     still are the weekly sweep's finding, not a merge gate's.
     """
     workflow = _workflow("node-audit.yml")
@@ -164,7 +164,7 @@ def test_node_audit_is_triggered_by_the_lockfiles_it_reads() -> None:
     assert set(jobs) == {"audit"}
     # Named exactly, not merely covered: `web/frontend/**` would also satisfy a containment
     # check while handing every UI change to a scanner that answers from outside.
-    assert patterns == [*lockfiles, ".github/workflows/node-audit.yml"]
+    assert patterns == [*lockfiles, ".github/workflows/node-audit.yml", ".node-version"]
     for ecosystem in ("UI dependency audit", "Worker dependency audit"):
         assert _by_name("node-audit.yml", "audit")[ecosystem]["if"] == "${{ !cancelled() }}"
 
