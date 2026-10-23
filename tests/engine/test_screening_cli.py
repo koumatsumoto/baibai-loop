@@ -449,7 +449,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     # raw close は 899 円。自己株 10% でも normalized PER は
                     # treasury-adjusted market cap / gross shares (=809.1 円) へ戻さない。
@@ -506,7 +506,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -547,7 +547,7 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(Path(tmpdir))
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -580,7 +580,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -609,7 +609,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", None, cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", None)
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=None,
@@ -635,7 +635,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=_FailingEDINETReader(),
@@ -661,8 +661,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
-                cache_dir = Path(".cache/screening")
-                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),
@@ -703,7 +702,7 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(business_day=False),
                     edinet=FakeEDINETReader(),
@@ -719,7 +718,7 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                config = ScreeningConfig("token", "key")
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
                     edinet=FakeEDINETReader(),

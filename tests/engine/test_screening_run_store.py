@@ -17,15 +17,12 @@ from baibai_engine.screening.discovery.projection import candidate_rows
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import (
-    RunStoreAmbiguousError,
     RunStoreConflictError,
     ScreeningRunReader,
     ScreeningRunStore,
-    connect_read_only,
     initialize_run_store,
 )
 from baibai_engine.screening.run_store import store as run_store
-from baibai_engine.screening.run_store.read import stored_run_page
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.screening.schema import ScreeningRunDocument, StockAnalysis
 from baibai_engine.screening.screening_run_serializer import (
@@ -182,8 +179,6 @@ def test_latest_same_day_cutoff_and_unknown_exact_do_not_fallback(tmp_path: Path
     assert reader.latest_run().run_revision_id == future.publication_id
     assert reader.latest_run_on(as_of=date(2026, 10, 14)).run_revision_id == empty.publication_id
     assert candidate_rows(reader.latest_run_on(as_of=date(2026, 10, 14)).stock_analyses) == ()
-    with pytest.raises(RunStoreAmbiguousError):
-        reader.resolve_run(as_of_date="2026-10-14")
     cutoff = datetime.fromisoformat("2026-10-14T01:00:00+00:00")
     assert (
         reader.analysis_run(as_of=date(2026, 10, 14), known_at=cutoff).run_revision_id
@@ -214,11 +209,7 @@ def test_latest_same_day_cutoff_and_unknown_exact_do_not_fallback(tmp_path: Path
     [None, {}, {"common_eligible": False, "reasons": [], "normalized_per_3fy_sector_gap": "0"}],
 )
 @pytest.mark.parametrize("damaged_ticker", ["1111", "2222"])
-@pytest.mark.parametrize("candidates_only", [False, True])
-@pytest.mark.parametrize("ticker", [None, "1111", "9999"])
-def test_paged_read_checks_whole_run_before_filters(
-    tmp_path: Path, candidate, candidates_only, ticker, damaged_ticker
-) -> None:
+def test_reader_checks_every_analysis(tmp_path: Path, candidate, damaged_ticker) -> None:
     path = tmp_path / "runs.sqlite"
     _publish(
         path,
@@ -230,18 +221,6 @@ def test_paged_read_checks_whole_run_before_filters(
             "UPDATE stock_analysis SET payload=json_set(payload,'$.candidate',json(?)) WHERE ticker=?",
             (json.dumps(candidate), damaged_ticker),
         )
-    with closing(connect_read_only(path)) as connection, connection:
-        connection.execute("BEGIN")
-        filters = {"run_revision_id": "run-a", "candidates_only": candidates_only}
-        if ticker is not None:
-            filters["ticker"] = ticker
-        with pytest.raises(
-            ValueError,
-            match=r"invalid|StockCandidateContext|CandidateDiscoverySummary",
-        ):
-            stored_run_page(
-                connection, kind="stock_analysis", filters=filters, after=None, limit=1, full=True
-            )
     with pytest.raises(
         ValueError,
         match=r"invalid|StockCandidateContext|CandidateDiscoverySummary",
@@ -290,22 +269,14 @@ def test_saved_candidate_shape_drift_is_invalid_not_empty(tmp_path: Path, mutati
                 "UPDATE screening_run SET payload=json_remove(payload,'$.candidate_discovery')"
             )
         connection.execute("UPDATE stock_analysis SET payload=?", (json.dumps(raw),))
-    with closing(connect_read_only(path)) as connection, connection:
-        connection.execute("BEGIN")
-        with pytest.raises(
-            ValueError,
-            match=r"invalid|StockCandidateContext|CandidateDiscoverySummary",
-        ):
-            stored_run_page(
-                connection,
-                kind="stock_analysis",
-                filters={"run_revision_id": "run-a", "candidates_only": True},
-                after=None,
-                limit=1,
-            )
+    with pytest.raises(
+        ValueError,
+        match=r"invalid|StockCandidateContext|CandidateDiscoverySummary",
+    ):
+        ScreeningRunReader(path).get_run("run-a")
 
 
-def test_pagination_preserves_ordinal_with_revision_and_candidates_filter(tmp_path: Path) -> None:
+def test_reader_preserves_saved_ordinal_before_candidate_projection(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
     _publish(
         path,
@@ -318,23 +289,10 @@ def test_pagination_preserves_ordinal_with_revision_and_candidates_filter(tmp_pa
         ),
         revision="run-a",
     )
-    with closing(connect_read_only(path)) as connection, connection:
-        connection.execute("BEGIN")
-        filters = {"run_revision_id": "run-a", "candidates_only": True}
-        first = stored_run_page(
-            connection, kind="stock_analysis", filters=filters, after=None, limit=1, full=True
-        )
-        second = stored_run_page(
-            connection,
-            kind="stock_analysis",
-            filters=filters,
-            after=[first[0]["ordinal"]],
-            limit=1,
-            full=True,
-        )
-    assert first[0]["ticker"] == "2222"
-    assert second[0]["ticker"] == "3333"
-    assert "candidate" in first[0]["payload"]
+    run = ScreeningRunReader(path).get_run("run-a")
+    assert run is not None
+    assert [row["ticker"] for row in run.stock_analyses] == ["2222", "1111", "3333"]
+    assert [row["ticker"] for row in candidate_rows(run.stock_analyses)] == ["2222", "3333"]
 
 
 def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
@@ -490,26 +448,6 @@ def test_run_readers_use_the_same_exact_instant_order(precise_clock_runs, query)
     assert path.read_bytes() == before
 
 
-@pytest.mark.parametrize("full", [False, True])
-def test_run_cursor_pages_preserve_exact_instant_order(precise_clock_runs, full):
-    path, revisions, clocks = precise_clock_runs
-    before = path.read_bytes()
-    rows, cursor = [], None
-    with closing(connect_read_only(path)) as connection, connection:
-        for _ in range(4):
-            page = stored_run_page(
-                connection, kind="screening_run", filters={}, after=cursor, limit=1, full=full
-            )
-            if not page:
-                break
-            rows.extend(page)
-            last = page[-1]
-            cursor = [last["asof_date"], last["page_time"], last["run_revision_id"]]
-    assert [row["run_revision_id"] for row in rows] == revisions
-    assert [row["run_at"] for row in rows] == clocks
-    assert path.read_bytes() == before
-
-
 def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_clock_runs):
     path, revisions, clocks = precise_clock_runs
     result = ScreeningRunStore(path).prune(keep=2)
@@ -539,9 +477,7 @@ def test_initialization_failure_rolls_back_run_schema_and_can_retry(tmp_path, mo
 
 
 @pytest.mark.parametrize("mutation", ["rank", "count"])
-def test_paged_read_uses_the_same_run_invariants_before_empty_filter(
-    tmp_path: Path, mutation: str
-) -> None:
+def test_reader_rejects_inconsistent_candidate_union(tmp_path: Path, mutation: str) -> None:
     path = tmp_path / "runs.sqlite"
     _publish(path, revision="run-a")
     with closing(sqlite3.connect(path)) as connection, connection:
@@ -556,17 +492,5 @@ def test_paged_read_uses_the_same_run_invariants_before_empty_filter(
                 "json_set(payload, '$.candidate_discovery.diagnostics.candidate_count', 0)"
             )
     message = "ranks must be contiguous" if mutation == "rank" else "diagnostics differ"
-    with (
-        closing(connect_read_only(path)) as connection,
-        connection,
-        pytest.raises(ValueError, match=message),
-    ):
-        stored_run_page(
-            connection,
-            kind="stock_analysis",
-            filters={"run_revision_id": "run-a", "ticker": "9999"},
-            after=None,
-            limit=1,
-        )
     with pytest.raises(ValueError, match=message):
         ScreeningRunReader(path).get_run("run-a")
