@@ -23,7 +23,7 @@ shape照合と、sectorのexact端点ごとのpeer return/median反復。根拠�
 「全table data scan」とは断定しない。元関数へdelegateし、実接続のschema/hydration、原本・
 publicationの読取検査を省略しない。本番code、required CIの閾値・worker数は変更しない。
 
-fixture生成と計測は別process。生成wall/CPU/peak RSS・入力hash/bytesと、export各段・securityの
+fixture生成と計測は別process。生成wall/CPU/peak RSS・入力hash/bytesと、export主要段・securityの
 外部評価/価格/相対/sector、SQLite connect/schema照合/medianのwall/CPU/call数を分ける。
 時間単位はns、inclusive時間は入れ子なので合算しない。SQLite/実schema照合はcaller別回数も出す。
 peer端点は回数のみ。現行_sector_blockはmedian成立時だけown端点を1回計算するため、peer試行数は
@@ -79,3 +79,6 @@ gh workflow run measure-materialize.yml --repo koumatsumoto/baibai-loop \
 生成先は`RUNNER_TEMP`だけ。計測判断後に一時workflowを撤去する。
 ローカルtest/lint/type/build/benchmark/application CLI・fixture生成、CI起動、PR作成は未実施。
 静的読取とgit差分確認のみで、検証成功・実測済みとは報告しない。
+
+
+主担当判断：この診断コードはmainへ統合しない。一時branchの既存ci.ymlを手動dispatchして使用し、結果と採否のみをIssue #1580へ残す。通常PR #1581のquality workflowは別で維持する。

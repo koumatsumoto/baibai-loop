@@ -221,13 +221,16 @@ def check_oracle(output: Path, case: str) -> None:
         price, relative = body["market_context"]["price"], body["market_context"]["relative"]
         base, slope = 1000 + 10 * (i % 17), 1 + i % 5
         own = (base + end * slope) / (base + start * slope) - 1
-        assert price["bar_count"] == bars and price["resolved_date"] == str(days[end])
+        assert price["bar_count"] == bars
+        assert price["resolved_date"] == str(days[end])
         assert price["close"] == base + end * slope
         assert math.isclose(price["return_20d"], own, abs_tol=1e-12)
         returns = sorted(
-            (1000 + 10 * (peer % 17) + end * (1 + peer % 5))
-            / (1000 + 10 * (peer % 17) + start * (1 + peer % 5))
-            - 1
+            (
+                (1000 + 10 * (peer % 17) + end * (1 + peer % 5))
+                / (1000 + 10 * (peer % 17) + start * (1 + peer % 5))
+                - 1
+            )
             for peer in range(count)
             if peer != i
             and peer % sectors == i % sectors
