@@ -1,70 +1,87 @@
-name: measure-materialize-1580
+name: compare-price-read-1580
 
-# Issue #1580の一時診断。主担当のreview後に手動起動し、計測判断後に撤去する。
 on:
   workflow_dispatch:
     inputs:
-      case:
-        description: "Finite synthetic case (start with small-concentrated)"
-        type: choice
-        default: small-concentrated
-        options:
-          - small-concentrated
-          - medium-concentrated
-          - medium-dispersed
-          - bounded-concentrated
-          - bounded-dispersed
-          - upper-concentrated
-          - upper-dispersed
+      candidate_sha:
+        description: "Reviewed candidate commit"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  measure:
+  compare:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       TZ: UTC
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+          ref: 417a1ba69c042b84aacb1f81397ffbbab8d2f20f
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: baseline/.python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           enable-cache: false
-      - name: Sync locked Python dependencies
-        run: uv sync --locked --all-groups
-      - name: Check diagnostic semantics and instrumentation
-        run: uv run --no-sync pytest -n 0 tests/tools/test_measure_materialize.py
-      - name: Generate isolated synthetic stores (separate process)
-        env:
-          UV_OFFLINE: "true"
-          MEASUREMENT_CASE: ${{ inputs.case }}
-        run: >-
-          timeout --signal=TERM --kill-after=15s 240s
-          uv run --no-sync python -m tools.diagnostics.measure_materialize fixture
-          --case "$MEASUREMENT_CASE" --work-dir "$RUNNER_TEMP/materialize-1580"
-      - name: Measure current export without source access
-        env:
-          UV_OFFLINE: "true"
-          MEASUREMENT_CASE: ${{ inputs.case }}
-        run: >-
-          timeout --signal=TERM --kill-after=15s 720s
-          uv run --no-sync python -m tools.diagnostics.measure_materialize measure
-          --case "$MEASUREMENT_CASE" --work-dir "$RUNNER_TEMP/materialize-1580"
-      - name: Preserve JSON evidence in logs and run summary
+      - name: Compare fixed inputs on the same runner
+        run: |
+          set -euo pipefail
+          cmp baseline/uv.lock candidate/uv.lock
+          for revision in baseline candidate; do
+            cp tools/diagnostics/measure_materialize.py "$revision/tools/diagnostics/measure_materialize.py"
+            (
+              cd "$revision"
+              uv sync --locked --all-groups
+              export GITHUB_SHA="$(git rev-parse HEAD)"
+              export UV_OFFLINE=true
+              timeout --signal=TERM --kill-after=15s 240s uv run --no-sync python -m tools.diagnostics.measure_materialize fixture --case upper-dispersed --work-dir "$RUNNER_TEMP/$revision"
+              timeout --signal=TERM --kill-after=15s 300s uv run --no-sync python -m tools.diagnostics.measure_materialize measure --case upper-dispersed --work-dir "$RUNNER_TEMP/$revision"
+            )
+          done
+      - name: Report output parity and measured costs
         if: ${{ always() }}
         run: |
-          report="$RUNNER_TEMP/materialize-1580/profile.json"
-          if test -f "$report"; then
-            cat "$report"
-            {
-              echo '```json'
-              cat "$report"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          reports = {}
+          for revision in ("baseline", "candidate"):
+              path = root / revision / "profile.json"
+              if path.exists():
+                  reports[revision] = json.loads(path.read_text())
+          print(json.dumps(reports, indent=2))
+          assert set(reports) == {"baseline", "candidate"}, "both measurements required"
+          before, after = reports["baseline"], reports["candidate"]
+          assert before["status"] == after["status"] == "measured"
+          assert before["fixture"]["inputs_sha256"] == after["fixture"]["inputs_sha256"], "fixture differs"
+          assert before["output"]["raw_tree_sha256"] == after["output"]["raw_tree_sha256"], "output differs"
+          assert before["oracle"] == after["oracle"] == "passed"
+          summary = {
+              "raw_output_parity": "passed",
+              "baseline_sha": before["source_commit"],
+              "candidate_sha": after["source_commit"],
+              "baseline_seconds": before["profile"]["stages"]["export.total"]["wall_ns"] / 1e9,
+              "candidate_seconds": after["profile"]["stages"]["export.total"]["wall_ns"] / 1e9,
+              "baseline_peak_rss_kib": before["peak_rss_after_export_kib"],
+              "candidate_peak_rss_kib": after["peak_rss_after_export_kib"],
+          }
+          print("COMPARISON_RESULT=" + json.dumps(summary))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+              output.write(json.dumps(summary, indent=2) + "\n")
+          PY

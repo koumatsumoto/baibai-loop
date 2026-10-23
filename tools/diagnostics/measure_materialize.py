@@ -317,7 +317,13 @@ class Probe:
                     "assessment",
                     "security.external_assessment",
                 ),
-                (db_sources, "build_security_market_context", "security.context"),
+                (
+                    db_sources,
+                    "build_security_market_contexts"
+                    if hasattr(db_sources, "build_security_market_contexts")
+                    else "build_security_market_context",
+                    "security.context",
+                ),
                 (security, "read_price_bars", "security.prices"),
                 (security, "_price_block", "security.price_block"),
                 (security, "_relative_block", "security.relative"),
