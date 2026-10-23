@@ -9,6 +9,7 @@ import pytest
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.market import store as market_store
+from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.position.market_source import (
     market_basis_is_confirmed,
     next_order_session,
@@ -23,6 +24,7 @@ from baibai_engine.read_api.market import (
 )
 from baibai_engine.screening.calibration.forward import latest_market_data_date
 from baibai_engine.screening.sqlite_coverage.core import _connect_readonly
+from baibai_engine.storage.observations.ingest.jpx import store_jpx_earnings_calendar_snapshot
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -68,33 +70,39 @@ def test_latest_unadjusted_closes_is_empty_without_file_or_tickers(tmp_path: Pat
 
 
 def _seed_earnings(path: Path, rows: list[tuple[str, str]]) -> None:
-    connection = open_connection(path)
-    try:
-        connection.executemany(
-            "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
-            [(announcement_date, ticker) for ticker, announcement_date in rows],
-        )
-        connection.commit()
-    finally:
-        connection.close()
+    store_jpx_earnings_calendar_snapshot(
+        path,
+        JPXEarningsCalendarSnapshot(
+            entries=tuple(
+                JPXEarningsCalendarEntry(ticker, date.fromisoformat(announcement_date))
+                for ticker, announcement_date in rows
+            ),
+            source_urls=(),
+            raw_record_count=len(rows),
+            excluded_record_count=0,
+            superseded_record_count=0,
+        ),
+        fetched_at_utc="2026-07-21T00:00:00+00:00",
+    )
 
 
-def test_next_earnings_dates_returns_earliest_announcement_on_or_after_asof(
+def test_next_earnings_dates_returns_requested_current_dates_on_or_after_asof(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "market.sqlite"
     _seed_earnings(
         database,
         [
-            ("2331", "2026-07-15"),  # before asof, ignored
-            ("2331", "2026-07-30"),  # earliest on/after asof wins
-            ("2331", "2026-10-30"),  # later, loses
+            ("2331", "2026-07-30"),
             ("4432", "2026-08-13"),
+            ("5555", "2026-07-15"),  # before asof, ignored
             ("9999", "2026-07-31"),  # not requested, stays out of the result
         ],
     )
 
-    result = next_earnings_dates(database, ["2331", "4432", "0000"], asof=date(2026, 7, 21))
+    result = next_earnings_dates(
+        database, ["2331", "4432", "5555", "0000"], asof=date(2026, 7, 21)
+    )
 
     assert result == {
         "2331": date(2026, 7, 30),
@@ -112,6 +120,28 @@ def test_next_earnings_dates_is_empty_without_file_tickers_or_future_dates(
     database = tmp_path / "market.sqlite"
     _seed_earnings(database, [("2331", "2026-07-15")])
     assert next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21)) == {}
+
+
+def test_optional_earnings_dates_do_not_require_coverage_for_unrelated_market_reads(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_bars(database, [("2331", "2026-07-21", 1000.0)])
+    assert next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21)) == {}
+    assert latest_unadjusted_closes(database, ["2331"]) == {"2331": (1000.0, date(2026, 7, 21))}
+
+
+def test_current_schedule_with_no_requested_ticker_is_a_normal_empty_view(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_earnings(database, [("4432", "2026-07-21")])
+    assert next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21)) == {}
+    assert next_earnings_dates(database, ["4432"], asof=date(2026, 7, 21)) == {"4432": date(2026, 7, 21)}
+
+
+def test_optional_earnings_view_does_not_publish_a_stale_schedule(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_earnings(database, [("2331", "2026-08-13")])
+    assert next_earnings_dates(database, ["2331"], asof=date(2026, 8, 3)) == {}
 
 
 def _seed_bars_with_factors(

@@ -29,7 +29,9 @@ from baibai_engine.market.financial_documents import (
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
+    JPXProviderError,
     JPXRegulationSnapshot,
+    index_calendar_announcements,
 )
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_models import (
@@ -874,7 +876,7 @@ def read_jpx_earnings_calendar_snapshot(
     *,
     allow_stale: bool = False,
 ) -> JPXEarningsCalendarSnapshot | None:
-    """Read the fresh JPX schedule snapshot."""
+    """Read current JPX coverage; unavailable returns None, corrupt success raises."""
     if not sqlite_path.exists():
         return None
     conn = connect_current(sqlite_path)
@@ -882,61 +884,57 @@ def read_jpx_earnings_calendar_snapshot(
         return None
     try:
         coverage = conn.execute(
-            "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+            "SELECT coverage_start, coverage_end, fetched_at_utc, "
             "record_count, status FROM source_coverage "
-            "WHERE source = 'jpx_earnings_calendar' LIMIT 1"
+            "WHERE source = 'jpx_earnings_calendar' "
+            "AND coverage_key = 'get_earnings_calendar_snapshot:current'"
         ).fetchone()
         if coverage is None:
             return None
-        coverage_key, coverage_start, coverage_end, fetched_at_text, record_count, status = coverage
-        if (
-            coverage_key != "get_earnings_calendar_snapshot:current"
-            or status != "ok"
-            or not coverage_start
-            or not coverage_end
-        ):
+        coverage_start, coverage_end, fetched_at_text, record_count, status = coverage
+        if status != "ok":
             return None
         try:
             recorded_start = date.fromisoformat(str(coverage_start))
             recorded_end = date.fromisoformat(str(coverage_end))
             fetched_at = datetime.fromisoformat(str(fetched_at_text).replace("Z", "+00:00"))
-        except ValueError:
-            return None
+            expected_count = int(record_count)
+        except (TypeError, ValueError) as error:
+            raise JPXProviderError(f"corrupt JPX earnings calendar coverage: {error}") from error
         if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
-            return None
-        if not allow_stale and weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
-            return None
+            raise JPXProviderError("corrupt JPX earnings calendar coverage: fetched_at lacks timezone")
         rows = conn.execute(
             "SELECT ticker, announcement_date FROM jpx_earnings_calendar "
             "ORDER BY announcement_date, ticker"
         ).fetchall()
-        if not rows or len(rows) != int(record_count or 0):
-            return None
+        if not rows or len(rows) != expected_count:
+            raise JPXProviderError("corrupt JPX earnings calendar snapshot: row count mismatch")
         try:
-            actual_start = date.fromisoformat(str(rows[0][1]))
-            actual_end = date.fromisoformat(str(rows[-1][1]))
-        except ValueError:
+            entries = tuple(
+                JPXEarningsCalendarEntry(
+                    ticker=str(ticker), announcement_date=date.fromisoformat(str(announcement_date))
+                )
+                for ticker, announcement_date in rows
+            )
+            index_calendar_announcements(entries)
+        except (TypeError, ValueError) as error:
+            raise JPXProviderError(f"corrupt JPX earnings calendar snapshot: {error}") from error
+        snapshot = JPXEarningsCalendarSnapshot(
+            entries=entries,
+            source_urls=(),
+            raw_record_count=len(entries),
+            excluded_record_count=0,
+            superseded_record_count=None,
+        )
+        if snapshot.min_date != recorded_start or snapshot.max_date != recorded_end:
+            raise JPXProviderError("corrupt JPX earnings calendar snapshot: date range mismatch")
+        if snapshot.max_date < asof_date:
             return None
-        if actual_start != recorded_start or actual_end != recorded_end or actual_end < asof_date:
+        if not allow_stale and weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
             return None
+        return snapshot
     finally:
         conn.close()
-    try:
-        entries = tuple(
-            JPXEarningsCalendarEntry(
-                ticker=str(ticker), announcement_date=date.fromisoformat(str(announcement_date))
-            )
-            for ticker, announcement_date in rows
-        )
-    except (TypeError, ValueError):
-        return None
-    return JPXEarningsCalendarSnapshot(
-        entries=entries,
-        source_urls=(),
-        raw_record_count=len(entries),
-        excluded_record_count=0,
-        superseded_record_count=None,
-    )
 
 
 def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSnapshot | None:

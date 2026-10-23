@@ -87,7 +87,7 @@ DOMAINS: Mapping[str, Domain] = {
         ),
     ),
     "task": Domain(
-        module="baibai_engine.tasks.cli",
+        module="baibai_engine.task_cli",
         summary="dated operation tasks — the canonical record of what is waiting on a date",
     ),
     "db": Domain(

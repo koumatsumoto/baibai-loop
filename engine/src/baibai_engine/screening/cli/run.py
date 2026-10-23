@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
@@ -12,7 +12,11 @@ from typing import TextIO
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
-from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXProviderError
+from baibai_engine.market.jpx_models import (
+    JPXProviderError,
+    index_calendar_announcements,
+    next_earnings_dates,
+)
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
@@ -21,7 +25,6 @@ from baibai_engine.screening.config import (
 )
 from baibai_engine.screening.earnings_lag import (
     build_earnings_lag,
-    index_calendar_announcements,
     tickers_without_calendar_rows,
 )
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
@@ -183,7 +186,7 @@ def run_command(
     summaries_by_ticker = group_summaries_by_ticker(summaries)
     normalized_fy_by_ticker = group_summaries_by_ticker(normalized_fy_summaries)
     normalized_split_bars_by_ticker = group_adjustment_events_by_ticker(normalized_split_bars)
-    next_earnings_by_ticker = _index_next_earnings(earnings_snapshot.entries, asof_date)
+    next_earnings_by_ticker = next_earnings_dates(earnings_snapshot.entries, asof_date)
     calendar_announcements = index_calendar_announcements(earnings_snapshot.entries)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker,
@@ -434,17 +437,3 @@ def _required_ttm_non_exact_count(financials: Iterable[FinancialSnapshot]) -> in
         for quality in (snapshot.ttm_quality_ocf_yield, snapshot.ttm_quality_p_s)
         if quality != TTMQuality.EXACT
     )
-
-
-def _index_next_earnings(
-    entries: Sequence[JPXEarningsCalendarEntry], asof_date: date
-) -> dict[str, date]:
-    # Show the soonest forthcoming earnings announcement (>= asof_date) per ticker.
-    by_ticker: dict[str, date] = {}
-    for entry in entries:
-        if entry.announcement_date < asof_date:
-            continue
-        previous = by_ticker.get(entry.ticker)
-        if previous is None or entry.announcement_date < previous:
-            by_ticker[entry.ticker] = entry.announcement_date
-    return by_ticker

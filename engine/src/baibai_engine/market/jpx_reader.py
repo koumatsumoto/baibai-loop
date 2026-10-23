@@ -9,11 +9,23 @@ from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
+    next_earnings_dates,
 )
 from baibai_engine.storage.observations.reader import (
     read_jpx_earnings_calendar_snapshot,
     read_jpx_regulations,
 )
+
+
+def read_next_earnings_dates(sqlite_path: Path, asof_date: date) -> dict[str, date] | None:
+    """Read verified current dates; None means unavailable, not a published empty set.
+
+    Coverage identity, source freshness and snapshot integrity belong to the stored
+    snapshot reader. Schema/query failures and corrupt snapshots propagate. This
+    optional read never acquires data or makes unrelated market sources mandatory.
+    """
+    snapshot = read_jpx_earnings_calendar_snapshot(sqlite_path, asof_date)
+    return None if snapshot is None else next_earnings_dates(snapshot.entries, asof_date)
 
 
 class JPXReader:

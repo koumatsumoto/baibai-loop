@@ -14,6 +14,7 @@ import yaml
 from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.store import latest_daily_bar_date
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
@@ -66,7 +67,7 @@ def ticker_profile_command(
             app_db_path=database_path(app_db_path),
             run_revision_id=run_revision_id,
         )
-    except (ValueError, sqlite3.Error) as exc:
+    except (ValueError, sqlite3.Error, JPXProviderError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
