@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
-from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
+from baibai_engine.collection.equity_web.models import EquityWebSourceResponse, Source
 from baibai_engine.external_assessment.normalization import (
     ParseError,
     kabumap,
@@ -13,6 +14,22 @@ from baibai_engine.external_assessment.normalization import (
     rakuten,
 )
 from baibai_engine.external_assessment.observations.models import Observation
+
+
+def parse_source_html(
+    html: str, *, source: Source, ticker: str, source_url: str, fetched_at_utc: datetime
+) -> Observation:
+    """Select the source parser without acquiring pages or rebinding receipts."""
+    parser = (
+        monex.parse_html
+        if source == "monex"
+        else minkabu.parse_html
+        if source == "minkabu"
+        else kabumap.parse_html
+        if source == "kabumap"
+        else rakuten.parse_html
+    )
+    return parser(html, ticker=ticker, source_url=source_url, fetched_at_utc=fetched_at_utc)
 
 
 def _html(response: EquityWebSourceResponse) -> str:
@@ -49,36 +66,18 @@ def decode_attempt(responses: Sequence[EquityWebSourceResponse]) -> Observation:
     page = roles["page"]
     if page.parent_receipt_id is not None:
         raise ParseError("parent_identity")
-    if source == "monex":
-        return monex.parse_html(
-            _html(page),
-            ticker=ticker,
-            source_url=page.requested_url,
-            fetched_at_utc=page.received_at_utc,
-        )
-    if source == "minkabu":
-        return minkabu.parse_html(
-            _html(page),
-            ticker=ticker,
-            source_url=page.requested_url,
-            fetched_at_utc=page.received_at_utc,
-        )
-    if source == "kabumap":
-        return kabumap.parse_html(
-            _html(page),
-            ticker=ticker,
-            source_url=page.requested_url,
-            fetched_at_utc=page.received_at_utc,
-        )
-    iframe = roles["iframe"]
-    if iframe.parent_receipt_id != page.receipt_id:
-        raise ParseError("parent_identity")
-    url = rakuten.iframe_url(_html(page), ticker=ticker, source_url=page.requested_url)
-    if url != iframe.requested_url:
-        raise ParseError("source_identity")
-    return rakuten.parse_html(
-        _html(iframe),
+    response = page
+    if source == "rakuten":
+        response = roles["iframe"]
+        if response.parent_receipt_id != page.receipt_id:
+            raise ParseError("parent_identity")
+        url = rakuten.iframe_url(_html(page), ticker=ticker, source_url=page.requested_url)
+        if url != response.requested_url:
+            raise ParseError("source_identity")
+    return parse_source_html(
+        _html(response),
+        source=source,
         ticker=ticker,
-        source_url=iframe.requested_url,
-        fetched_at_utc=iframe.received_at_utc,
+        source_url=response.requested_url,
+        fetched_at_utc=response.received_at_utc,
     )

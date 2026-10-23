@@ -7,12 +7,15 @@ import sys
 from collections.abc import Callable, Sequence
 
 from baibai_batch.jobs.daily import main as daily_main
-from baibai_batch.jobs.external_assessment import main as external_assessment_acquisition_main
 from baibai_batch.jobs.tradingview import main as tradingview_main
 from baibai_batch.validation.market_context_stores import (
     main as validate_market_context_stores_main,
 )
-from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_paths
+from baibai_engine.batch_api import (
+    StoreLayoutError,
+    external_assessment_acquisition_main,
+    reject_noncanonical_store_paths,
+)
 
 Command = Callable[[list[str] | None], int]
 

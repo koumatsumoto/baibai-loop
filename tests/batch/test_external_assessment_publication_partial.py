@@ -28,7 +28,9 @@ from baibai_engine.batch_api import (
     ExternalAssessmentCollectionOutcome,
     external_assessment_decode_attempt,
     external_assessment_history_digests,
-    external_assessment_verify_observations,
+)
+from baibai_engine.external_assessment.acquisition.verification import (
+    verify_observations as external_assessment_verify_observations,
 )
 
 

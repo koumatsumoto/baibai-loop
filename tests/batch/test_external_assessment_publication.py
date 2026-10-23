@@ -44,9 +44,11 @@ from baibai_engine.batch_api import (
     external_assessment_decode_attempt,
     external_assessment_history_digests,
     external_assessment_save_observations,
-    external_assessment_verify_observations,
     external_assessment_verify_release_history,
     lake_session,
+)
+from baibai_engine.external_assessment.acquisition.verification import (
+    verify_observations as external_assessment_verify_observations,
 )
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"

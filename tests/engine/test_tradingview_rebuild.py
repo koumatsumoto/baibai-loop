@@ -14,8 +14,8 @@ import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
+from baibai_engine.collection.tradingview.contract import BATCH_TOOL
 from baibai_engine.collection.tradingview.receipts import read_tool_results, retain_tool_result
-from baibai_engine.collection.tradingview.tool import BATCH_TOOL
 from baibai_engine.external_assessment.tradingview import cli
 from baibai_engine.external_assessment.tradingview.collector import (
     CollectionFailure,

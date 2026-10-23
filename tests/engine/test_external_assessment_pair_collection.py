@@ -16,6 +16,7 @@ from baibai_engine import batch_api
 from baibai_engine.collection.equity_web import http as source_http
 from baibai_engine.external_assessment.acquisition import collection
 from baibai_engine.external_assessment.normalization import monex, rakuten
+from baibai_engine.external_assessment.normalization.decode import decode_attempt
 
 
 class Clock:
@@ -264,6 +265,7 @@ def test_two_http_receipt_times_and_content_accounting_without_durable_callbacks
     assert received[1].role == "iframe"
     assert received[1].parent_receipt_id == received[0].receipt_id
     assert received[0].attempt_id == received[1].attempt_id == result.outcomes[0].attempt_id
+    assert decode_attempt(received) == result.observations[0]
     assert all(
         call[1]["allow_redirects"] is False and call[1]["timeout"] <= 30 for call in client.calls
     )

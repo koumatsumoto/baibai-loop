@@ -15,8 +15,8 @@ from zoneinfo import ZoneInfo
 
 from mcp.types import CallToolResult
 
+from baibai_engine.collection.tradingview.contract import BATCH_TOOL
 from baibai_engine.collection.tradingview.receipts import read_tool_results, retain_tool_result
-from baibai_engine.collection.tradingview.tool import BATCH_TOOL
 from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.external_assessment.tradingview.decode import decode_tool_result
 from baibai_engine.external_assessment.tradingview.diagnostics import (
