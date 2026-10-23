@@ -282,7 +282,6 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(workspace)
-                cache_dir = workspace / ".cache" / "screening"
                 sqlite_dir = workspace / "data" / "screening"
                 sqlite_path = sqlite_dir / "market.sqlite"
                 _populate_screening_fixture(sqlite_path, asof)
@@ -290,7 +289,6 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 config = ScreeningConfig(
                     "token",
                     "key",
-                    cache_dir=cache_dir,
                     sqlite_cache_dir=sqlite_dir,
                 )
                 providers = ProviderBundle(

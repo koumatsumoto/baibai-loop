@@ -16,15 +16,13 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from baibai_engine.batch_api import (
     DEFAULT_ECONOMIC_DB_PATH as DEFAULT_DB_PATH,
 )
 from baibai_engine.batch_api import (
     EconomicSchemaError,
     IndicatorDefinitions,
-    StoredAssessment,
+    assessment_by_id,
     assessment_series_ids,
     connect_read_only,
     database_path,
@@ -141,11 +139,7 @@ def validate_published_contexts(
     connection = connect_read_only(database)
     try:
         rows = connection.execute(
-            (
-                "SELECT context_id, schema_version, as_of, published_at, payload "
-                "FROM market_context_assessment "
-                "ORDER BY published_at, context_id"
-            ),
+            "SELECT context_id FROM market_context_assessment ORDER BY published_at, context_id"
         ).fetchall()
     finally:
         connection.close()
@@ -153,14 +147,8 @@ def validate_published_contexts(
     for row in rows:
         context_id = str(row["context_id"])
         try:
-            document = StoredAssessment.from_payload(json.loads(str(row["payload"])))
-            if (
-                document.context_id != context_id
-                or document.schema_version != row["schema_version"]
-                or document.as_of.isoformat() != row["as_of"]
-            ):
-                raise ValueError("publication identity differs")
-        except (ValidationError, ValueError, KeyError, TypeError) as exc:
+            document = assessment_by_id(database, context_id=context_id)
+        except (ValueError, KeyError, TypeError) as exc:
             failures.append(f"{context_id}: cannot be read: {exc}")
             continue
         retired = sorted(assessment_series_ids(document) - registry)

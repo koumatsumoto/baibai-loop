@@ -40,26 +40,9 @@ def _run(
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
         return None
     reader = ScreeningRunReader(runs_path)
-    run = reader.analysis_run(
+    return reader.analysis_run(
         as_of=research_as_of, known_at=known_at, run_revision_id=run_revision_id
     )
-    if run is None:
-        if run_revision_id is not None:
-            raise ValueError(f"unknown run_revision_id: {run_revision_id}")
-        return None
-    run_at = datetime.fromisoformat(run.run_at)
-    if (
-        run_at.utcoffset() is None
-        or run_at > known_at
-        or date.fromisoformat(run.as_of_date) > research_as_of
-    ):
-        raise ValueError("selected Screening Run is after the Research cutoff")
-    if run.payload.get("asof_date") != run.as_of_date or run.payload.get("run_at") != run.run_at:
-        raise ValueError("Screening Run header differs from its canonical identity")
-    tickers = [row.get("ticker") for row in run.stock_analyses]
-    if any(not isinstance(t, str) for t in tickers) or len(set(tickers)) != len(tickers):
-        raise ValueError("invalid Stock Analysis identities")
-    return run
 
 
 def load_analysis_snapshot(

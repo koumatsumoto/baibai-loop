@@ -128,13 +128,13 @@ from baibai_engine.market_context.indicators.definitions import (
 from baibai_engine.research.market_context.models import (
     ASSESSMENT_SCHEMA_VERSION,
     ASSESSMENT_STALE_DAYS,
-    StoredAssessment,
     require_aware,
 )
 from baibai_engine.research.market_context.projection import (
     assessment_projection,
     assessment_series_ids,
 )
+from baibai_engine.research.market_context.query import assessment_by_id
 from baibai_engine.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
 )
@@ -241,8 +241,8 @@ __all__ = [
     "LocalMirrorSource",
     "MarketSchemaError",
     "StoreLayoutError",
-    "StoredAssessment",
     "advance_lake_store_origin",
+    "assessment_by_id",
     "assessment_projection",
     "assessment_series_ids",
     "canonical_lake_model_bytes",

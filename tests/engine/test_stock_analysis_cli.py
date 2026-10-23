@@ -103,7 +103,7 @@ def test_committed_run_export_failure_reports_revision_and_run_show_recovers(
     monkeypatch.chdir(tmp_path)
     path = tmp_path / "runs.sqlite"
     output = tmp_path / "failed.yaml"
-    config = ScreeningConfig("synthetic-token", "synthetic-key", cache_dir=tmp_path / "cache")
+    config = ScreeningConfig("synthetic-token", "synthetic-key")
     providers = ProviderBundle(
         jquants=FakeJQuantsProvider(), edinet=FakeEDINETReader(), jpx=FakeJPXProvider()
     )
