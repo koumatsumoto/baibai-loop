@@ -57,6 +57,8 @@ buyはpmax・作者希望上限・closeを超えない価格を下方丸め、�
 
 重要な一次根拠でinvestment caseの重大なbreakを確認した場合はsellを優先する。valuation・quote・数量basisの不足でholdへ変えず、具体売却条件を作れなければsell判断と不足理由を保存する。初期の売却提案は全量で、端株や数量basis未確認を黙って丸めない。
 
+具体条件の不足は[`terms_unavailable_reasons`](../../engine/src/baibai_engine/research/proposal_conditions.py)が判定する。同銘柄にactive reservationがあればbuy/sellを問わず「既存注文の処理確認が必要」とし、経済sellと全量回収は維持する。[人間の注文報告](./portfolio-ledger.md#human-result-semantics)を台帳へ反映した新しい入力で具体termsを再確認する。既存注文の維持をreadyとして再確認する機能は持たない。
+
 intactでmaterialな反証が無いことを今回確認した場合は、旧valuation日・quote欠測・算術未確定でもinvestment_case_intactとしてholdを許す。これは当日の期待収益が十分という主張ではない。sufficient_remaining_rewardによるholdとinsufficientによるsellには、当日起点valuation・利用可能quote・権利単位と現在算術を要求する。仮説維持を主理由にするholdでも、残存見返りを明示する場合は同日算術を検証する。既知のinsufficientとholdを同時に主張しない。
 
 残存見返りは現在から保有して得る増分で判断する。受取済みcashと、権利確定済みで今売っても受け取れる未入金分を二重算入しない。旧horizonを残日数で割り直して年率を水増しせず、[差分refresh](./stock-assessment.md#assessment-refresh)で期間・今後分配を確認する。税・費用・遅延・下振れで結論が変わり得るなら不足と経済理由を示す。
@@ -73,7 +75,7 @@ scaffoldで入力snapshotとProposal/ReviewのIDを固定し、作者が行動�
 
 Review後の初回発行直前に実時刻を`published_at`へ設定し、prepared_at ≤ reviewed_at ≤ published_atを守る。Reviewの時刻や対象hashを、内容を再確認せずに付け替えない。Review hashにはreviewとpublished_at以外の全文を含め、cash、scope、価格・数量・対象日・前提、grid、warnings/exposureを束縛する。公開時はOperationの現在被覆と保存scope、exact評価pair、現在入力事実を再読照合する。checked_atの経過だけをdriftにせず、実入力値を比較する。入力が変わればsnapshotと独立Reviewを取り直す。
 
-同ID同内容は保存済みpublicationを返し、異内容はimmutable conflictとなる。Proposal本文、item indexと具体buyのdecision bindingを同transactionで保存する。hold/sell/no_action/deferにbuy bindingを作らず、公開でledgerを変更しない。保存後は固定scopeが当時の正本であり、Operationの進捗や最新候補へ付け替えない。
+同ID同内容は保存済みpublicationを返し、異内容はimmutable conflictとなる。保存読取と同ID同内容の再送に現在のterms適格性を追加適用せず、本文・hash・当時のreadyを保持する。Proposal本文、item indexと具体buyのdecision bindingを同transactionで保存する。hold/sell/no_action/deferにbuy bindingを作らず、公開でledgerを変更しない。保存後は固定scopeが当時の正本であり、Operationの進捗や最新候補へ付け替えない。
 
 `proposal-preview`は保存条件を保持したままcurrent_inputs・現在quote算術・保存limitの再検証・変化理由・現在warningを別に返す。保存termsやhashを現在値で上書きしない。現在gate不足はblocked理由を表示し、古い保存評価・当時の条件付き算術を悪い・失効と断定しない。
 
