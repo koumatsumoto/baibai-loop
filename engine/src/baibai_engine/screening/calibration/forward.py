@@ -38,7 +38,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v7"
+FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v8"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -740,10 +740,12 @@ def _resolve_total_return(
         selected.append(latest)
 
     # Missing annual documents are not zero-dividend observations. A known
-    # period starting after entry, or a break between selected fiscal periods,
+    # period starting later than the day after entry, or a break between FYs,
     # proves that this sum cannot represent all selected FY dividends. Use actual
     # period boundaries rather than assuming every issuer has twelve-month years.
-    previous_end = entry_date - timedelta(days=1)
+    # The selected FY window excludes entry_date itself. A fiscal period
+    # beginning the next day is contiguous, not a missing annual observation.
+    previous_end = entry_date
     for observation in selected:
         if (
             observation.period_start is not None
