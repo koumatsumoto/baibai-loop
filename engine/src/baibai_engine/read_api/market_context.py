@@ -17,7 +17,10 @@ from baibai_engine.market_context.reading.query import (
     reading_snapshot,
 )
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
-from baibai_engine.market_context.security import build_security_market_context
+from baibai_engine.market_context.security import (
+    build_security_market_context,
+    build_security_market_contexts,
+)
 from baibai_engine.market_context.snapshot import (
     PreparedMarketContext,
     build_market_snapshot,
@@ -214,6 +217,7 @@ __all__ = [
     "assessment_payload",
     "build_market_snapshot",
     "build_security_market_context",
+    "build_security_market_contexts",
     "indicator_fetch_health",
     "indicator_series",
     "indicator_series_names",

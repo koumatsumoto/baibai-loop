@@ -271,4 +271,33 @@ describe('保存した提案と評価', () => {
     expect(html).not.toContain('現在資金等での試算数量')
   })
 
+  it('現在の銘柄別警告を全体警告がなくても表示し、保存条件と混同しない', () => {
+    const preview = {
+      saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed',
+      current_inputs: { available_cash_yen: '350000' }, change_reasons: [],
+      warnings: [], portfolio_exposure: null,
+      items: [{
+        ticker: '1234', saved_action: 'buy', blockers: [], current_quote_calculation: null,
+        saved_limit_revalidation: { quantity: 300 },
+        current_terms_warnings: ['dry_powder_below_floor', 'prospective_sector_concentration_exceeds_warning:情報・通信業'],
+      }],
+    } as InvestmentProposalPreviewView
+    const before = JSON.stringify(preview)
+    const html = renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))
+    expect(html).toContain('この銘柄の現在条件に対する警告:')
+    expect(html).toContain('買付後の現金余力が警告水準を下回ります')
+    expect(html).toContain('買付後の業種集中度が警告水準を超えます（情報・通信業）')
+    expect(html).not.toContain('当時の条件に対する警告')
+    expect(html).not.toContain('現在の再試算に対する警告:')
+    expect(JSON.stringify(preview)).toBe(before)
+  })
+  it.each([undefined, []])('銘柄別警告が未記録または空なら空の警告見出しを出さない', (warnings) => {
+    const preview = {
+      saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'unchanged',
+      current_inputs: {}, change_reasons: [], warnings: [], portfolio_exposure: null,
+      items: [{ ticker: '1234', saved_action: 'hold', blockers: [], current_quote_calculation: null, saved_limit_revalidation: null, current_terms_warnings: warnings }],
+    } as InvestmentProposalPreviewView
+    expect(renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))).not.toContain('この銘柄の現在条件に対する警告:')
+  })
+
 })

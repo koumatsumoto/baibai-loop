@@ -10,7 +10,10 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.market_context.master import read_master_snapshot
-from baibai_engine.market_context.security import build_security_market_context
+from baibai_engine.market_context.security import (
+    build_security_market_context,
+    build_security_market_contexts,
+)
 from baibai_engine.market_context.snapshot import (
     build_market_snapshot,
     prepare_market_context_inputs,
@@ -68,13 +71,21 @@ def test_shared_generation_preserves_market_and_all_security_outputs(context_sto
     assert build_market_snapshot(
         sqlite_path=context_store, asof_date=ASOF
     ) == build_market_snapshot(sqlite_path=context_store, asof_date=ASOF, prepared=prepared)
-    for ticker in ("AAAA", "BBBB", "NEW1", "OLD1", "NONE", "ZZZZ"):
+    tickers = ("AAAA", "BBBB", "NEW1", "OLD1", "NONE", "ZZZZ")
+    batch = build_security_market_contexts(
+        sqlite_path=context_store,
+        tickers=tickers,
+        asof_date=ASOF,
+        self_range_window_bars=750,
+        prepared=prepared,
+    )
+    for ticker in tickers:
         arguments = dict(
             sqlite_path=context_store, ticker=ticker, asof_date=ASOF, self_range_window_bars=750
         )
         plain = build_security_market_context(**arguments)
         shared = build_security_market_context(**arguments, prepared=prepared)
-        assert plain == shared
+        assert plain == shared == batch[ticker]
     current = build_security_market_context(
         sqlite_path=context_store,
         ticker="AAAA",
@@ -149,6 +160,14 @@ def test_sector_candidates_keep_common_peers_and_each_tickers_exact_endpoints(
     )
     assert "PREF" not in prepared.common_stock_tickers_by_sector["機械"]
     assert prepared.common_stock_tickers_by_sector["情報・通信業"] == ("DDDD",)
+    batch = build_security_market_contexts(
+        sqlite_path=context_store,
+        tickers=("AAAA", "BBBB", "DDDD", "OLD1"),
+        asof_date=ASOF,
+        self_range_window_bars=750,
+        prepared=prepared,
+    )
+    assert batch["DDDD"]["relative"]["sector"] is None  # other sector has no peers
     # BBBB lacks AAAA's comparison day; OLD1 needs the existing long-history fallback.
     for ticker, start_days_ago, peer_count in (("AAAA", 21, 1), ("BBBB", 22, 2), ("OLD1", 520, 1)):
         arguments = dict(
@@ -156,7 +175,7 @@ def test_sector_candidates_keep_common_peers_and_each_tickers_exact_endpoints(
         )
         plain = build_security_market_context(**arguments)
         shared = build_security_market_context(**arguments, prepared=prepared)
-        assert shared == plain
+        assert shared == plain == batch[ticker]
         sector = shared["relative"]["sector"]
         assert sector["peer_count"] == peer_count
         assert (
