@@ -66,7 +66,8 @@ describe('保存した提案と評価', () => {
     const saved = { ...item, action: 'defer' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, conclusion: { ...document.conclusion, stance } } } }
     const html = render(ProposalAssessmentDetails, saved)
     expect(html).toMatch(new RegExp(`企業評価の結論</dt><dd[^>]*><p>${label}</p>`))
-    expect(html).toMatch(/投資仮説の成立性<\/dt><dd[^>]*><p>intact/)
+    expect(html).toMatch(/投資仮説の成立性<\/dt><dd[^>]*><p>維持されている/)
+    expect(document.investment_case.status).toBe('intact')
     expect(render(ProposalItemContent, saved)).toContain('判断保留')
   })
   it.each([
