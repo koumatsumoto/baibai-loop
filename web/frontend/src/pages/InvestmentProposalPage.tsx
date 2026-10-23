@@ -167,6 +167,6 @@ export function InvestmentProposalPage() {
     <ProposalReviewContent review={data.review} proposalId={data.proposal_id} draftSha256={data.draft_sha256} />
     {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この提案が参照した市場環境評価を見る →</Link>}
     <CurrentProposalPreviewPanel key={data.proposal_id} proposalId={data.proposal_id} />
-    <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>
+    <Link className="inline-flex min-h-11 w-fit items-center text-sm underline" to="/stocks">提案一覧に戻る</Link>
   </PageShell>
 }

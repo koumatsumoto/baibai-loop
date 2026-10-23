@@ -9,6 +9,6 @@ export function ResearchNav() {
       { key: 'proposals', to: '/stocks', label: '提案' },
       { key: 'explore', to: '/stocks/explore', label: '候補探索' },
       { key: 'market', to: '/market-context', label: '市場環境' },
-    ].map(item => <Link aria-current={active === item.key ? 'page' : undefined} className={cn('flex-1 rounded-md px-3 py-2.5 text-center font-medium transition-colors hover:bg-background/70', active === item.key && 'bg-background text-foreground shadow-sm')} key={item.key} to={item.to}>{item.label}</Link>)}
+    ].map(item => <Link aria-current={active === item.key ? 'page' : undefined} className={cn('flex min-h-11 flex-1 items-center justify-center rounded-md px-3 py-2.5 text-center font-medium transition-colors hover:bg-background/70', active === item.key && 'bg-background text-foreground shadow-sm')} key={item.key} to={item.to}>{item.label}</Link>)}
   </nav>
 }
