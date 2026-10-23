@@ -425,9 +425,12 @@ def test_terminal_write_failure_resumes_from_fresh_hydrate_without_duplicate_his
     assert external_assessment_history_digests(fresh_database) == history
     assert equity_web_history_digests(fresh_database, months={(2026, 9)}) == source_history
     with closing(sqlite3.connect(fresh_database)) as connection:
-        assert connection.execute(
-            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
-        ).fetchall() == coverage
+        assert (
+            connection.execute(
+                "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+            ).fetchall()
+            == coverage
+        )
     release(store, handle)
     new_handle, _ = acquire(store, "operator")
 
