@@ -72,7 +72,7 @@ uv run baibai-engine collection economic groups
 gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
 ```
 
-限定再実行はgroupとその中のsource IDを指定する。取得の再実行は新しい取得結果との比較、publishだけの再実行は同じ非公開R2 handoffの再受領になる。handoffのない取得失敗は新runで再取得する。取得失敗と反映成功は併存できる。通知の取得／正本反映・読戻しを別々に確認し、表示は最新正本を使う次のdailyまたは明示的なmaterializeで更新する。経済のwatchdogは全group対象の成功だけを数え、限定成功で全体の欠測を隠さない。
+限定再実行はgroupとその中のsource IDを指定する。取得の再実行は新しい取得結果との比較、publishだけの再実行は同じ非公開R2 handoffの再受領になる。handoffのない取得失敗は新runで再取得する。取得失敗と反映成功は併存できる。通知の取得／正本反映・読戻しを別々に確認し、取得開始は従来dailyと同じ07:43 UTCで、土日も実行する。各sourceの正本反映は独立して進め、全groupのterminal後に一日一回だけ既存materializeを合成する（部分失敗でも保存済み適格入力で表示更新する）。providerごとの全件materializeは行わない。これにより土日の受領も平日まで表示待ちにしない。旧dailyの長時間lockが残る間の公開queueと表示遅延は受入未確認であり、市場分離後に従来時刻と比較する。経済のwatchdogは全group対象の成功だけを数え、限定成功で全体の欠測を隠さない。
 
 経済の公開だけがleaseと`cloud-publish`を使い、最新economic storeへ既存append-only unionを行う。市場hydrateやapplication書込はしない。同providerの次runは前runの公開まで待つ。J-Quantsの市場取得・TVのmaster補完と経済取得は同じacquire groupで直列化する。
 

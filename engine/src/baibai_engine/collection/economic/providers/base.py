@@ -32,6 +32,10 @@ class ProviderFetchStoppedError(IndicatorsProviderError):
     """
 
 
+class ProviderRateLimitError(ProviderFetchStoppedError):
+    """Stop new requests to this provider after a rate-limit response."""
+
+
 class SourceWithheldError(IndicatorsProviderError):
     """An empty successful response or HTTP 403, kept distinct from other failures.
 
@@ -251,6 +255,8 @@ def _raise_for_response(response: requests.Response, url: str) -> None:
     try:
         response.raise_for_status()
     except requests.RequestException as exc:
+        if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+            raise ProviderRateLimitError(f"source rate-limited {url}") from exc
         if response.status_code == HTTPStatus.FORBIDDEN:
             # An edge bot-mitigation says "not you" this way as readily as it
             # says it with an empty body, so a provider that can try another

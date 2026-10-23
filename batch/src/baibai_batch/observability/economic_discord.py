@@ -19,13 +19,15 @@ from baibai_batch.observability.discord import (
 def main() -> int:
     env = os.environ
     acquired = env.get("ACQUIRE_RESULT", "unknown")
-    published = env.get("PUBLISH_RESULT", "unknown")
-    label = "OK" if acquired == published == "success" else "FAILED"
+    published = env.get("PUBLISH_RESULT") or "unknown"
+    released = env.get("LEASE_RELEASE_RESULT") or "unknown"
+    label = "OK" if acquired == published == released == "success" else "FAILED"
     message = (
         f"[{label}] economic {sanitize_one_line(env.get('GROUP', 'unknown'), 80)} "
         f"{sanitize_one_line(env.get('ASOF', 'unknown'), 20)}\n"
         f"取得={sanitize_one_line(acquired, 20)}; "
-        f"正本反映・読戻し={sanitize_one_line(published, 20)}; 表示更新=別工程\n"
+        f"正本反映・読戻し={sanitize_one_line(published, 20)}; "
+        f"lease解放={sanitize_one_line(released, 20)}; 表示更新=別工程\n"
     )
     try:
         rows = json.loads(env.get("ECONOMIC_REPORT_JSON", ""))["sources"]

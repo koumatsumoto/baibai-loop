@@ -121,3 +121,14 @@ def test_partially_received_native_days_are_not_reacquired_as_missing_history(tm
         store_snapshot(conn, source_id=source.source_id, observed_at=date(2024, 2, 1),
                        fetched_at=datetime(2026, 10, 23, tzinfo=UTC), records=[])
         assert recovery_ranges(conn, source, END) == ((date(2024, 2, 2), date(2024, 2, 29)),)
+
+
+def test_pmi_partial_pdf_months_cover_history_even_when_the_range_failed(tmp_path):
+    from baibai_engine.collection.economic.documents import SourceDocument, store_document
+    source = load_sources()["spglobal-jp-pmi-mfg"]
+    with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
+        record_source_run(conn, source_id=source.source_id, start=date(2025, 1, 1), end=date(2025, 10, 1), started_at=datetime(2025, 10, 1, tzinfo=UTC), status="failed", record_count=9)
+        for month in range(1, 10):
+            day = date(2025, month, 1)
+            store_document(conn, SourceDocument(source.source_id, day.isoformat(), "https://example.com/release.pdf", "application/pdf", datetime(2025, 10, 1, tzinfo=UTC), b"%PDF original", {"observed_at": day.isoformat()}))
+        assert recovery_ranges(conn, source, END) == ((date(2025, 10, 1), date(2025, 10, 17)),)

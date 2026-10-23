@@ -13,7 +13,7 @@ from baibai_engine.collection.economic.provider_specs import ProviderSpec
 from baibai_engine.collection.economic.sources import SourceDefinition
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-from .base import FetchContext, HttpSession, IndicatorsProviderError, fetch_bytes
+from .base import FetchContext, HttpSession, IndicatorsProviderError, ProviderRateLimitError, fetch_bytes
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 RELEASE_URL_RE = re.compile(
@@ -52,6 +52,7 @@ class SpGlobalPmiSource:
             raise IndicatorsProviderError(
                 f"spglobal_pmi has no release manifest for {source.provider_series_id!r}"
             )
+        failures: list[str] = []
         for entry in releases:
             if not start <= entry.observed_at <= end:
                 continue
@@ -67,7 +68,13 @@ class SpGlobalPmiSource:
                 and stored.content_type == "application/pdf"
             ):
                 continue
-            body = fetch_pdf_bytes(entry.url, session=session, context=context)
+            try:
+                body = fetch_pdf_bytes(entry.url, session=session, context=context)
+            except ProviderRateLimitError:
+                raise
+            except IndicatorsProviderError as error:
+                failures.append(str(error))
+                continue
             yield SourceDocument(
                 source_id=source.source_id,
                 request_key=key,
@@ -78,7 +85,15 @@ class SpGlobalPmiSource:
                 metadata=metadata,
             )
         # Report an unavailable recent range without throwing away known originals.
-        _require_current_manifest(source, releases, end=end)
+        try:
+            _require_current_manifest(source, releases, end=end)
+        except IndicatorsProviderError as error:
+            failures.append(str(error))
+        if failures:
+            raise IndicatorsProviderError(
+                f"spglobal_pmi incomplete: {len(failures)} document/manifest failures; "
+                + "; ".join(failures[:2])
+            )
 
 
 def fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | None) -> bytes:

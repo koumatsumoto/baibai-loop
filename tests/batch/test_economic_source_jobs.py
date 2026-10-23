@@ -125,7 +125,7 @@ def workflow(name):
 
 def test_each_provider_can_publish_without_waiting_for_the_acquisition_matrix():
     parent = workflow("cloud-economic-sources.yml")
-    assert parent["on"]["schedule"] == [{"cron": "23 8 * * *"}]
+    assert parent["on"]["schedule"] == [{"cron": "43 7 * * *"}]
     assert parent["jobs"]["source"]["uses"].endswith("/cloud-economic-source.yml")
     assert parent["jobs"]["source"]["strategy"]["fail-fast"] == "false"
     source = workflow("cloud-economic-source.yml")
@@ -157,3 +157,26 @@ def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
     store.values[key].body = b"tampered"
     with pytest.raises(LakePublishError, match="receipt"):
         load_handoff(store, stage, tmp_path / "corrupt")
+
+
+def test_lease_release_failure_does_not_misreport_completed_publication(monkeypatch, capsys):
+    from baibai_batch.observability import economic_discord
+    monkeypatch.setenv("ACQUIRE_RESULT", "success")
+    monkeypatch.setenv("PUBLISH_RESULT", "success")
+    monkeypatch.setenv("LEASE_RELEASE_RESULT", "failure")
+    monkeypatch.setattr(economic_discord, "deliver", lambda *a, **k: None)
+    assert economic_discord.main() == 0
+    text = capsys.readouterr().out
+    assert "正本反映・読戻し=success" in text
+    assert "lease解放=failure" in text
+    assert text.startswith("[FAILED]")
+
+
+def test_serving_composition_is_once_per_macro_run_and_includes_weekends():
+    parent = workflow("cloud-economic-sources.yml")
+    materialize = parent["jobs"]["materialize"]
+    assert materialize["uses"] == "./.github/workflows/cloud-materialize.yml"
+    assert "always()" in materialize["if"]
+    assert "needs.source.result == 'success'" not in materialize["if"]
+    assert "materialize" not in workflow("cloud-economic-source.yml")["jobs"]
+    assert parent["on"]["schedule"][0]["cron"].endswith("* * *")

@@ -93,6 +93,9 @@ jobs:
 
   publish:
     needs: acquire
+    outputs:
+      publication: ${{ steps.publish.outcome }}
+      lease_release: ${{ steps.lease-release.outcome }}
     if: ${{ always() && !cancelled() && needs.acquire.outputs.handoff != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -165,6 +168,7 @@ jobs:
           GROUP: ${{ inputs.group }}
           ASOF: ${{ inputs.asof }}
           ACQUIRE_RESULT: ${{ needs.acquire.result }}
-          PUBLISH_RESULT: ${{ needs.publish.result }}
+          PUBLISH_RESULT: ${{ needs.publish.outputs.publication }}
+          LEASE_RELEASE_RESULT: ${{ needs.publish.outputs.lease_release }}
           ECONOMIC_REPORT_JSON: ${{ needs.acquire.outputs.report }}
         run: python3 -m baibai_batch.observability.economic_discord
