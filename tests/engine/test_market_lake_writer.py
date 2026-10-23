@@ -9,14 +9,14 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+import pyarrow.parquet as pq
 import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tools.diagnostics.benchmark_l1_export import benchmark
 
-from baibai_engine.storage.lake import identity as identity_module
-from baibai_engine.storage.lake import writer as writer_module
+from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
+from baibai_engine.storage.lake import identity as identity_module, writer as writer_module
 from baibai_engine.storage.lake.datasets import require_lake_dataset
 from baibai_engine.storage.lake.immutable import install_immutable_bytes
 from baibai_engine.storage.lake.keys import canonical_object_key, current_release_pointer_key
@@ -33,7 +33,6 @@ from baibai_engine.storage.lake.writer import (
     validate_snapshot_parity,
 )
 from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
 

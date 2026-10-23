@@ -10,8 +10,8 @@ from baibai_engine.market.jpx_decode import (
     build_earnings_calendar_snapshot,
     parse_earnings_calendar_excel,
 )
-from baibai_engine.storage.observations.ingest.jpx import store_jpx_earnings_calendar_snapshot
-from baibai_engine.storage.observations.reader import read_jpx_earnings_calendar_snapshot
+from baibai_engine.market.jpx_reader import read_jpx_earnings_calendar_snapshot
+from baibai_engine.market.jpx_rebuild import store_jpx_earnings_calendar_snapshot
 
 
 @pytest.mark.parametrize("schedule", ["", "未定_Undecided", "10月中旬", "conflicting"])

@@ -8,8 +8,8 @@ from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.market.adjusted_prices import close_change_since
 from baibai_engine.market.jpx_reader import read_next_earnings_dates
-from baibai_engine.market_context.prices import close_change_since
 from baibai_engine.storage.observations.read import connect_read_only
 
 from .sqlite import read_rows as _read_rows

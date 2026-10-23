@@ -10,8 +10,9 @@ from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.time import JST
-from baibai_engine.market_context.master import read_master_snapshot
+from baibai_engine.market.jquants_reader import read_master_snapshot
 from baibai_engine.position.ledger import (
     ExecutionEvent,
     MarketPrice,
@@ -42,7 +43,6 @@ from baibai_engine.research.proposal import (
     SecurityClassification,
 )
 from baibai_engine.research.selection import ResearchSelection
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.valuation.scenario import finite_decimal
 

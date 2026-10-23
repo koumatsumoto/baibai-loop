@@ -7,7 +7,7 @@ from io import BytesIO
 import pytest
 from tests.engine.screening.metric_fixtures import _summary
 
-from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
+from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.valuation.metrics.financial_snapshot import build_financial_snapshot
 

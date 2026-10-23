@@ -4,16 +4,12 @@ import unittest
 from dataclasses import replace
 from datetime import date, timedelta
 
-from tests.engine.screening.metric_fixtures import (
-    _edinet_metric_record,
-    _security,
-    _summary,
-)
+from tests.engine.screening.metric_fixtures import _edinet_metric_record, _security, _summary
 
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.screening.metrics.snapshot import build_metrics
+from baibai_engine.screening.metric_builder import build_metrics
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.valuation.metrics.capital import (
     _closer_share_basis,

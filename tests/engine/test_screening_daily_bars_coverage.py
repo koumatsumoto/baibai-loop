@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.market.store import (
+from baibai_engine.market.price_reader import (
     daily_bars_covered,
     latest_daily_bar_date,
     latest_stored_daily_bar_date,

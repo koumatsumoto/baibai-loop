@@ -28,11 +28,18 @@ from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.calendar import JQuantsMarketCalendarDay
+from baibai_engine.market.jquants_reader import _read_calendar
+from baibai_engine.market.price_basis import share_unit_factor
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.price_reader import _read_ticker_bars
 from baibai_engine.market.sessions import latest_eligible_close_date
-from baibai_engine.price_basis import share_unit_factor
 from baibai_engine.storage.observations.read import connect_read_only
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, SQLiteSchemaError
+from baibai_engine.storage.observations.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    connect_current,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,3 +201,33 @@ def next_order_session(*, sqlite_path: Path, now: datetime) -> date | None:
         if is_business_day == 1:
             return expected
     return None
+
+
+def read_portfolio_market_inputs(
+    sqlite_path: Path,
+    tickers: tuple[str, ...],
+    start: date,
+    end: date,
+    *,
+    connection: sqlite3.Connection | None = None,
+) -> tuple[list[JQuantsMarketCalendarDay] | None, list[JQuantsDailyBar] | None]:
+    """Select calendar and scoped prices from one SQLite read snapshot.
+
+    Cash-only outcomes need a calendar, not artificial price coverage. A missing
+    input remains unavailable; this does not create an archive or replay proof.
+    A supplied connection belongs to the caller, including its read transaction.
+    """
+    owns_connection = connection is None
+    conn = connect_current(sqlite_path) if owns_connection else connection
+    if conn is None:
+        return None, None
+    try:
+        if owns_connection:
+            conn.execute("BEGIN")
+        calendar = _read_calendar(conn, start, end)
+        if calendar is None:
+            return None, None
+        return calendar, _read_ticker_bars(conn, tickers, start, end)
+    finally:
+        if owns_connection:
+            conn.close()

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
+from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 
 
 @pytest.mark.parametrize(

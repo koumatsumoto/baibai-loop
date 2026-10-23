@@ -15,7 +15,7 @@ from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.store import latest_daily_bar_date
+from baibai_engine.market.price_reader import latest_daily_bar_date
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
 from baibai_engine.screening.discovery.projection import candidate_rows

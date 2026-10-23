@@ -7,11 +7,11 @@ from datetime import date, timedelta
 import pyarrow.parquet as pq
 
 from baibai_engine.market.jquants_decode import normalize_market_calendar
-from baibai_engine.market.store import read_market_calendar
+from baibai_engine.market.jquants_reader import read_market_calendar
+from baibai_engine.market.jquants_writer import store_jquants_market_calendar
 from baibai_engine.read_api.market import market_calendar_business_day, previous_business_day
 from baibai_engine.storage.lake.datasets import JQUANTS_MARKET_CALENDAR
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 
 
 def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(tmp_path):

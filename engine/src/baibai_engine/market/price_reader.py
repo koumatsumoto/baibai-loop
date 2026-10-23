@@ -1,4 +1,4 @@
-"""Market価格とcalendarの読取。財務・銘柄・信用等はstorage.observations.readerが所有する。"""
+"""Read raw prices and action events over explicitly covered ranges."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.storage.observations.convert import optional_float
@@ -214,69 +213,6 @@ def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | N
     if row is None or row[0] is None:
         return None
     return date.fromisoformat(str(row[0]))
-
-
-def read_market_calendar(
-    sqlite_path: Path, start: date, end: date
-) -> list[JQuantsMarketCalendarDay] | None:
-    """Return market calendar days for `[start, end]`, or `None` if the
-    cache cannot serve the range.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        return _read_calendar(conn, start, end)
-    finally:
-        conn.close()
-
-
-def _read_calendar(
-    conn: sqlite3.Connection, start: date, end: date
-) -> list[JQuantsMarketCalendarDay] | None:
-    if not range_covered(conn, "jquants_market_calendar", start, end):
-        return None
-    rows = conn.execute(
-        "SELECT day, holiday_division IN ('1', '2') FROM jquants_market_calendar "
-        "WHERE day BETWEEN ? AND ? ORDER BY day",
-        (start.isoformat(), end.isoformat()),
-    ).fetchall()
-    return [
-        JQuantsMarketCalendarDay(day=date.fromisoformat(day), is_business_day=bool(flag))
-        for day, flag in rows
-    ]
-
-
-def read_portfolio_market_inputs(
-    sqlite_path: Path,
-    tickers: tuple[str, ...],
-    start: date,
-    end: date,
-    *,
-    connection: sqlite3.Connection | None = None,
-) -> tuple[list[JQuantsMarketCalendarDay] | None, list[JQuantsDailyBar] | None]:
-    """Select calendar and scoped prices from one SQLite read snapshot.
-
-    Cash-only outcomes need a calendar, not artificial price coverage. A missing
-    input remains unavailable; this does not create an archive or replay proof.
-    A supplied connection belongs to the caller, including its read transaction.
-    """
-    owns_connection = connection is None
-    conn = connect_current(sqlite_path) if owns_connection else connection
-    if conn is None:
-        return None, None
-    try:
-        if owns_connection:
-            conn.execute("BEGIN")
-        calendar = _read_calendar(conn, start, end)
-        if calendar is None:
-            return None, None
-        return calendar, _read_ticker_bars(conn, tickers, start, end)
-    finally:
-        if owns_connection:
-            conn.close()
 
 
 def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyBar]:

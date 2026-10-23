@@ -13,7 +13,7 @@ from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.screening.metrics.snapshot import build_metrics
+from baibai_engine.screening.metric_builder import build_metrics
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 

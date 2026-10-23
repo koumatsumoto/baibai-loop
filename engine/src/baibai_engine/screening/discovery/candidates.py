@@ -11,6 +11,7 @@ from types import MappingProxyType
 from typing import NamedTuple
 
 from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.screening.discovery.contracts import (
     APPROACH_IDS,
     CandidateDiscoveryMethodIdentity,
@@ -21,7 +22,6 @@ from baibai_engine.screening.discovery.contracts import (
 )
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.metrics.relative import (
     MIN_SECTOR_MEDIAN_POPULATION,
     normalized_earnings_sector_gaps,

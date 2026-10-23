@@ -10,12 +10,10 @@ from tempfile import TemporaryDirectory
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
-from baibai_engine.storage.observations.ingest.jpx import store_jpx_earnings_calendar_snapshot
+from baibai_engine.market.jpx_rebuild import store_jpx_earnings_calendar_snapshot
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_engine.task_cli import main as task_main
-from baibai_engine.tasks.earnings_reconcile import (
-    reconcile_earnings_dates,
-)
+from baibai_engine.tasks.earnings_reconcile import reconcile_earnings_dates
 from baibai_engine.tasks.models import Task
 from baibai_engine.tasks.service import TaskService
 

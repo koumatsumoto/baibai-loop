@@ -6,8 +6,8 @@ from io import BytesIO
 
 import pytest
 
+from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
 
 _CB = "jppfs_cor:ConvertibleBondTypeBondsWithSubscriptionRightsToShares"
 

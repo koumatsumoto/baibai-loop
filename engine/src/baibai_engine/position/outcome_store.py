@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.sqlite_read import read_rows
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database

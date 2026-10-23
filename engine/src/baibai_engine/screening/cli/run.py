@@ -20,15 +20,10 @@ from baibai_engine.market.jpx_models import (
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
-from baibai_engine.screening.config import (
-    ScreeningConfig,
-)
-from baibai_engine.screening.earnings_lag import (
-    build_earnings_lag,
-    tickers_without_calendar_rows,
-)
+from baibai_engine.screening.config import ScreeningConfig
+from baibai_engine.screening.earnings_lag import build_earnings_lag, tickers_without_calendar_rows
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
-from baibai_engine.screening.metrics.snapshot import (
+from baibai_engine.screening.metric_builder import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
@@ -86,7 +81,7 @@ def run_command(
     run_id = f"screening-{asof_date:%Y%m%d}"
     # CLI preflight owns source freshness; injected providers here supply the inputs.
 
-    # 窓の正本は metrics/snapshot.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
+    # 窓の正本は metric_builder.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
     # (較正リプレイと共有)。fin を bars と同じ 1200 日にしないのは、J-Quants Light
     # で ~26 chunk (各 1-3 分) の追加取得コストが支配的になるため。
     bars_start_date = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)

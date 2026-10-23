@@ -19,9 +19,9 @@ from pydantic import (
 )
 
 from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.selection_policy import ResearchCapacity, validate_capacity
-from baibai_engine.storage.application.json import canonical_json
 
 
 def _ticker(value: object) -> str:

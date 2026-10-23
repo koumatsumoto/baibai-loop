@@ -105,7 +105,7 @@ def test_observed_zero_balance_needs_no_share_conversion_but_missing_stays_missi
 def test_screening_assembles_margin_and_volume_on_one_basis():
     from tests.engine.screening.metric_fixtures import _security, _summary
 
-    from baibai_engine.screening.metrics.snapshot import build_metrics
+    from baibai_engine.screening.metric_builder import build_metrics
 
     start, action, end = date(2026, 1, 1), date(2026, 1, 20), date(2026, 1, 21)
     # Publish the share count after the action, not on an ambiguous disclosure boundary.

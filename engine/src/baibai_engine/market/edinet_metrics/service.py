@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 from baibai_engine.market.edinet_metrics.planning import (
     MetricExtractionPlan,
     can_reuse_edinet_metric,
@@ -21,13 +22,9 @@ from baibai_engine.market.edinet_metrics.store import (
     EDINETMetricBaselineError,
     read_edinet_metric_baseline,
 )
-from baibai_engine.market.edinet_models import (
-    EdinetMetricRecord,
-    EDINETProviderError,
-)
+from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.edinet_selection import select_document_candidates
-from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_engine.storage.observations.ingest.edinet import store_edinet_metrics
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 

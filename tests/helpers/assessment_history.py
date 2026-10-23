@@ -337,7 +337,7 @@ def _core_section(
 
 def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None) -> None:
     """Seed an immutable historical fixture without reviving an old publication writer."""
-    from baibai_engine.storage.application.json import canonical_json
+    from baibai_engine.foundation.json import canonical_json
     from baibai_engine.storage.application.write import connect_rw, initialize_database
 
     initialize_database(path)

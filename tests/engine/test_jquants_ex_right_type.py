@@ -7,17 +7,17 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
+from baibai_engine.market.adjusted_prices import close_change_since
 from baibai_engine.market.jquants_decode import (
     JQuantsProviderError,
     normalize_adjustment_factor_event,
     normalize_daily_bar,
 )
-from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
-from baibai_engine.market_context.prices import close_change_since
+from baibai_engine.market.jquants_writer import store_jquants_daily_bars
+from baibai_engine.market.price_reader import read_adjustment_factor_bars, read_daily_bars
 from baibai_engine.screening.calibration.forward import _load_ticker_adjustment_events
 from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
 
 
 @pytest.mark.parametrize(("kind", "factor"), [("1", 0.5), ("2", 2.0), ("3", 0.8), ("3", 1.0)])

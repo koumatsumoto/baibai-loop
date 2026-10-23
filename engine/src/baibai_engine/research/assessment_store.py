@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.assessment import (
     AssessmentEvaluation,
@@ -23,7 +24,6 @@ from baibai_engine.research.assessment import (
     evaluate_assessment,
     require_recorded_identity,
 )
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 

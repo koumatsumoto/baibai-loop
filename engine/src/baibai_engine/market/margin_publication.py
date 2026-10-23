@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from datetime import date
 
 # The weekly all-issues publication ends with the 2026-09-18 balance, published
@@ -37,3 +38,31 @@ __all__ = [
     "require_all_issues_daily_balance_date",
     "require_legacy_weekly_balance_date",
 ]
+
+
+# The legacy weekly series is published on the second trading day after its
+# balance date; the replacement daily series is published on the next trading day.
+MARGIN_PUBLICATION_TRADING_DAYS = 2
+ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS = 1
+
+
+def _publication_trading_day(
+    trading_days: list[date], balance_date: date, *, trading_day_lag: int
+) -> date | None:
+    publication = bisect_right(trading_days, balance_date) + trading_day_lag - 1
+    return trading_days[publication] if publication < len(trading_days) else None
+
+
+def _publication_has_happened(
+    trading_days: list[date], balance_date: date, *, asof: date, trading_day_lag: int
+) -> bool:
+    """Whether the balance date's publication day is a trading day strictly before `asof`.
+
+    Same comparison for both cadences: the publication lands in the late afternoon
+    while a decision prices at the close, so a balance published on `asof` is not
+    yet usable at `asof`'s price.
+    """
+    publication_day = _publication_trading_day(
+        trading_days, balance_date, trading_day_lag=trading_day_lag
+    )
+    return publication_day is not None and publication_day < asof

@@ -1,1 +1,0 @@
-"""観測sourceごとのSQLite writer。"""
