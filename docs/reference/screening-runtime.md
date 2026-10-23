@@ -38,7 +38,7 @@ uv run baibai-engine screening candidates show --run-revision-id run-revision-01
 
 ## Stock Analysis
 
-個別分析のbuild直後だけ`candidate=None`を許す。writerは全行に確定contextを付け、headerにmethod/diagnosticsを一度だけ保存する。通常readerは候補欠損を非候補へ補完しない。対象run全体のcandidate shapeを確認してから、候補や指定tickerの行を投影する。
+個別分析のbuild直後だけ`candidate=None`を許す。writerは全行に確定contextを付け、headerにmethod/diagnosticsを一度だけ保存する。通常readerは保存headerと索引の対象日・実行時刻の一致、実行時刻のtimezoneを検証し、候補欠損を非候補へ補完しない。対象run全体のcandidate shapeを確認してから、候補や指定tickerの行を投影する。
 
 `candidate.common_eligible`は比較母集団への資格、`reasons`はApproach順の候補理由、`normalized_per_3fy_sector_gap`はcommoneligible母集団で計算した値である。候補容量外でもcommoneligibleになり得る。gapのnullは計算不能であり、既知の0とは異なる。一般市場metricsの同名値へ差替えない。
 

@@ -205,6 +205,40 @@ def test_latest_same_day_cutoff_and_unknown_exact_do_not_fallback(tmp_path: Path
 
 
 @pytest.mark.parametrize(
+    ("damage", "message"),
+    [
+        ("asof_date", "canonical identity"),
+        ("run_at", "canonical identity"),
+        ("naive_run_at", "timezone-aware"),
+    ],
+)
+def test_reader_refuses_mismatched_header_and_naive_clock(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    path = tmp_path / "runs.sqlite"
+    _publish(path, revision="run-a")
+    with closing(sqlite3.connect(path)) as connection, connection:
+        if damage == "asof_date":
+            connection.execute("UPDATE screening_run SET asof_date='2026-10-13'")
+        elif damage == "run_at":
+            connection.execute(
+                "UPDATE screening_run SET run_at='2026-10-14T18:00:00.000001+09:00'"
+            )
+        else:
+            naive = "2026-10-14T18:00:00"
+            connection.execute(
+                "UPDATE screening_run SET run_at=?, payload=json_set(payload,'$.run_at',?)",
+                (naive, naive),
+            )
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match=message):
+        ScreeningRunReader(path).get_run("run-a")
+
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
     "candidate",
     [None, {}, {"common_eligible": False, "reasons": [], "normalized_per_3fy_sector_gap": "0"}],
 )

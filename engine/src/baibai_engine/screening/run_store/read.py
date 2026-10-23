@@ -123,11 +123,6 @@ class ScreeningRunReader:
                 ).fetchone()
                 if row is None:
                     raise ValueError(f"unknown run_revision_id: {run_revision_id}")
-                if (
-                    row["asof_date"] > as_of.isoformat()
-                    or datetime.fromisoformat(row["run_at"]) > known_at
-                ):
-                    raise ValueError("explicit analysis run is after the Research cutoff")
             else:
                 row = connection.execute(
                     "SELECT * FROM screening_run WHERE asof_date <= ? "
@@ -135,7 +130,13 @@ class ScreeningRunReader:
                     "ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
                     (as_of.isoformat(), run_clock(known_at.isoformat())),
                 ).fetchone()
-            return None if row is None else _run_from_row(connection, row)
+            run = None if row is None else _run_from_row(connection, row)
+            if run_revision_id is not None and run is not None and (
+                date.fromisoformat(run.as_of_date) > as_of
+                or datetime.fromisoformat(run.run_at) > known_at
+            ):
+                raise ValueError("explicit analysis run is after the Research cutoff")
+            return run
 
     def valuation_run(
         self, *, as_of: date, run_revision_id: str | None = None
@@ -162,6 +163,14 @@ class ScreeningRunReader:
 
 
 def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublication:
+    header = dict(decode_payload(row["payload"]))
+    as_of_date = str(row["asof_date"])
+    run_at = str(row["run_at"])
+    date.fromisoformat(as_of_date)
+    if datetime.fromisoformat(run_at).utcoffset() is None:
+        raise ValueError("Screening Run run_at must be timezone-aware")
+    if header.get("asof_date") != as_of_date or header.get("run_at") != run_at:
+        raise ValueError("Screening Run header differs from its canonical identity")
     stock_analyses = connection.execute(
         """
         SELECT payload FROM stock_analysis
@@ -169,15 +178,14 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
         """,
         (row["run_revision_id"],),
     ).fetchall()
-    header = dict(decode_payload(row["payload"]))
     analyses = tuple(dict(decode_payload(item[0])) for item in stock_analyses)
     validate_candidate_run(header, analyses)
     return RunPublication(
         run_revision_id=str(row["run_revision_id"]),
         public_run_id=str(row["public_run_id"]),
         run_date=str(row["run_date"]),
-        as_of_date=str(row["asof_date"]),
-        run_at=str(row["run_at"]),
+        as_of_date=as_of_date,
+        run_at=run_at,
         universe_size=int(row["universe_size"]),
         rules_ref=None if row["rules_ref"] is None else str(row["rules_ref"]),
         payload=header,
