@@ -8,10 +8,12 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.market.price_models import PriceBar
+
 from .benchmark import NIKKEI225_ETF_PROXY, compute_benchmark_trend
 from .history import trailing_return
 from .master import MasterSnapshot, read_master_snapshot
-from .prices import PriceBar, read_price_bars
+from .prices import read_price_bars
 from .snapshot import PreparedMarketContext
 
 _WEEK_52_WINDOW_BARS = 252

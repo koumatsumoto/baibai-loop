@@ -615,7 +615,7 @@ forbidden_modules = ["baibai_engine.market.providers", "baibai_engine.storage", 
 [[tool.importlinter.contracts]]
 name = "financial and price calculations use only pure observation inputs"
 type = "forbidden"
-source_modules = ["baibai_engine.valuation.metrics", "baibai_engine.market_context.history", "baibai_engine.market_context.margin"]
+source_modules = ["baibai_engine.valuation.metrics", "baibai_engine.market_context.history", "baibai_engine.market_context.margin", "baibai_engine.market_context.technical"]
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.providers", "baibai_engine.market.store",
   "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.market_context.prices",
