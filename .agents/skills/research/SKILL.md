@@ -31,7 +31,7 @@ Operationが対象・問い・唯一の入力snapshotを保持し、`domain-inpu
 
 ## 評価と独立Review
 
-1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD> --out <DRAFT>`で作る。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。
+1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。
 2. 事業・資本・分配・期間からmodelと要求率を選び、Base/Downsideと最強反証を組み立てる。数値計算には`research calculate <INPUTS>`を使える。PDFの抽出が空・崩れた場合は原ページへ戻り、記載なしやゼロとしない。
 3. `research assessment-evaluate <DRAFT>`で確認する。`research assessment-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`からReviewを準備し、作者と別の作業者が原典・仮定・算術・反証を検討する。作者の入力や出力のコピーを独立検算としない。
 4. `research assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`research assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。
