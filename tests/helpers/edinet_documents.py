@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.edinet_metrics.write import _edinet_document_rows
+from baibai_engine.market.edinet_list_rebuild import _edinet_document_rows
 from baibai_engine.storage.observations.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,
