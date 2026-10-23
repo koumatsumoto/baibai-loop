@@ -21,10 +21,13 @@ from .providers.documents import fetch_source_documents
 from .providers.jquants_options import OptionChainSource
 from .providers.native import fetch_native_records
 from .records import store_snapshot, stored_days
+from .refresh_policy import (
+    DEFAULT_LATEST_LOOKBACK_DAYS as DEFAULT_LATEST_LOOKBACK_DAYS,
+    LATEST_FETCH_LOOKBACK_DAYS as LATEST_FETCH_LOOKBACK_DAYS,
+    recent_start,
+    source_policy,
+)
 from .sources import DOCUMENT_PROVIDERS, SourceDefinition, load_sources
-
-DEFAULT_LATEST_LOOKBACK_DAYS = 370
-LATEST_FETCH_LOOKBACK_DAYS = {"daily": 14, "weekly": 60, "monthly": 370}
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +53,11 @@ def refresh_sources(
     db_path: Path = store.DEFAULT_DB_PATH,
     start: date | None,
     end: date,
+    recent: bool = False,
 ) -> tuple[SourceRefreshOutcome, ...]:
     """Refresh each named source once; None start explicitly requests its history."""
+    if recent and start is not None:
+        raise ValueError("recent refresh cannot have an explicit start")
     if start is not None and end < start:
         raise ValueError("end must be on or after start")
     catalog = load_sources()
@@ -64,14 +70,21 @@ def refresh_sources(
         )
     with (
         closing(store.open_connection(db_path)) as connection,
-        FetchContext(purpose="rebuild" if start is None else "refresh") as context,
+        FetchContext(purpose="rebuild" if start is None and not recent else "refresh") as context,
     ):
         for source_id in selected:
             try:
                 if source_id not in catalog:
                     raise ValueError(f"unknown economic source: {source_id}")
                 source = catalog[source_id]
-                first = start if start is not None else _history_start(source, end)
+                if recent and source_policy(source).mode == "current_only":
+                    if end != datetime.now(ZoneInfo("Asia/Tokyo")).date():
+                        raise ValueError("current-only source cannot recover a historical date")
+                first = (
+                    recent_start(connection, source, end)
+                    if recent
+                    else start if start is not None else _history_start(source, end)
+                )
                 received = _refresh_source(
                     connection, source, start=first, end=end, context=context
                 )

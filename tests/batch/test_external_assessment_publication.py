@@ -59,7 +59,7 @@ def test_acquire_workflow_timeout_can_start_a_harmless_command():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     commands = [
         shlex.split(line.strip())
-        for step in workflow["jobs"]["acquire"]["steps"]
+        for step in yaml.safe_load(WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text())["jobs"]["acquire"]["steps"]
         for line in step.get("run", "").splitlines()
         if line.strip().startswith("timeout ")
     ]
@@ -538,15 +538,15 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
 def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
-    assert "publish_confirmed_partial" in workflow["concurrency"]["group"]
-    assert "github.run_id" in workflow["concurrency"]["group"]
-    acquire_job = workflow["jobs"]["acquire"]
+    acquire_job = workflow["jobs"]["source"]
     assert acquire_job["strategy"]["max-parallel"] == "4"
     assert acquire_job["strategy"]["fail-fast"] == "false"
-    assert acquire_job["concurrency"]["group"] == "external-assessment-acquire-${{ matrix.source }}"
+    assert acquire_job["uses"] == "./.github/workflows/cloud-external-assessment-source.yml"
+    child = yaml.load(WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text(), Loader=yaml.BaseLoader)
+    assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
     assert "include" in acquire_job["strategy"]["matrix"]
-    assert int(acquire_job["timeout-minutes"]) < 360
-    publisher_job = workflow["jobs"]["publish"]
+    assert int(child["jobs"]["acquire"]["timeout-minutes"]) < 360
+    publisher_job = child["jobs"]["publish"]
     assert publisher_job["concurrency"]["group"] == "cloud-publish"
     runs = [step.get("run", "") for step in publisher_job["steps"]]
     lease = next(i for i, text in enumerate(runs) if "publication_lease acquire" in text)
@@ -564,7 +564,7 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     assert "refs/heads/main" in workflow["jobs"]["plan"]["if"]
     assert not any(
         "upload-artifact" in step.get("uses", "")
-        for job in workflow["jobs"].values()
+        for job in child["jobs"].values()
         for step in job["steps"]
     )
     assert check_workflow(WORKFLOW) == []

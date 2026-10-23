@@ -740,7 +740,7 @@ def test_the_watchdog_uses_only_checkout_as_an_external_action() -> None:
     ]
 
 
-def test_the_watchdog_fires_on_weekdays_after_the_batch_is_due() -> None:
+def test_the_watchdog_covers_daily_macro_and_weekday_market_schedules() -> None:
     workflow = yaml.load(WATCHDOG_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert isinstance(workflow, dict)
     daily = yaml.load(
@@ -754,5 +754,32 @@ def test_the_watchdog_fires_on_weekdays_after_the_batch_is_due() -> None:
     watchdog_minute, watchdog_hour, _, _, watchdog_days = watchdog_cron.split()
     batch_minute, batch_hour, _, _, batch_days = batch_cron.split()
 
-    assert watchdog_days == batch_days
+    assert watchdog_days == "*"
+    assert batch_days == "1-5"
+    assert "--weekdays-only" in str(workflow["jobs"]["watchdog"])
+    assert "--economic" in str(workflow["jobs"]["economic"])
     assert (int(watchdog_hour), int(watchdog_minute)) > (int(batch_hour), int(batch_minute))
+
+
+def test_limited_economic_success_cannot_cover_the_all_source_schedule(tmp_path, monkeypatch):
+    code, transport = _run_main(
+        tmp_path, monkeypatch,
+        _listing(_run(created_at=FIRED_AT - timedelta(hours=2), display_title="economic fred_csv fred-payems")),
+        argv=["--economic", "--check-date", "2026-08-03"],
+    )
+    assert code == 0
+    assert "cloud-economic-sources" in _delivered_message(transport)
+
+
+def test_all_economic_source_results_must_report_one_common_day():
+    runs = parse_runs(_listing(_run(created_at=FIRED_AT - timedelta(hours=2), batch_asof=None)))
+    def jobs(*args):
+        return {"jobs": [{"steps": [
+            {"name": "Economic result for 2026-08-03", "status": "completed"},
+            {"name": "Economic result for 2026-08-03", "status": "completed"},
+        ]}]}
+    resolved = resolve_run_results(
+        runs, repository="owner/repo", window_end=FIRED_AT, window_hours=20,
+        read_jobs=jobs, result_prefix="Economic result for ", repeated_source_results=True,
+    )
+    assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == STATE_HEALTHY

@@ -1,0 +1,142 @@
+name: cloud-economic-source
+
+on:
+  workflow_call:
+    inputs:
+      group:
+        required: true
+        type: string
+      source_id:
+        type: string
+        default: ''
+      asof:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# A second run of the same provider must compare against the preceding publication.
+concurrency:
+  group: economic-source-${{ inputs.group }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  acquire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: source-acquire-${{ inputs.group }}
+      queue: max
+      cancel-in-progress: false
+    outputs:
+      handoff: ${{ steps.upload.outputs.artifact-id }}
+      report: ${{ steps.acquire.outputs.report }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Pull only the economic source store
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh pull-indicators
+      - name: Acquire and export new receipts for this provider
+        id: acquire
+        env:
+          GROUP: ${{ inputs.group }}
+          SOURCE_ID: ${{ inputs.source_id }}
+          ASOF: ${{ inputs.asof }}
+          JQUANTS_API_KEY: ${{ inputs.group == 'jquants' && secrets.JQUANTS_API_KEY || '' }}
+          ESTAT_APP_ID: ${{ inputs.group == 'estat' && secrets.ESTAT_APP_ID || '' }}
+        run: uv run python -m baibai_batch.jobs.economic acquire --group "$GROUP" --source-id "$SOURCE_ID" --asof "$ASOF" --directory "$RUNNER_TEMP/economic-handoff"
+      - name: Preserve confirmed receipts even after a provider failure
+        id: upload
+        if: ${{ always() && steps.acquire.outcome != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: economic-${{ inputs.group }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/economic-handoff/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: acquire
+    if: ${{ always() && !cancelled() && needs.acquire.outputs.handoff != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.acquire.outputs.handoff }}
+          path: ${{ runner.temp }}/economic-handoff
+          merge-multiple: true
+      - name: Acquire publication lease
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$RUNNER_TEMP/economic-lease.json"
+      - name: Merge onto fresh canonical receipts, conditionally push, and read back
+        id: publish
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GROUP: ${{ inputs.group }}
+          SOURCE_ID: ${{ inputs.source_id }}
+        run: |
+          batch/scripts/r2_transfer.sh pull-indicators
+          uv run python -m baibai_batch.jobs.economic merge --group "$GROUP" --source-id "$SOURCE_ID" --directory "$RUNNER_TEMP/economic-handoff"
+          batch/scripts/r2_transfer.sh push-indicators
+          batch/scripts/r2_transfer.sh pull-indicators
+          uv run python -m baibai_batch.jobs.economic verify --group "$GROUP" --source-id "$SOURCE_ID" --directory "$RUNNER_TEMP/economic-handoff"
+      - name: Release publication lease
+        id: lease-release
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/economic-lease.json"
+      - name: Economic result for ${{ inputs.asof }}
+        run: echo 'Economic source publication and readback completed'
+
+  notify:
+    needs: [acquire, publish]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Notify the provider acquisition and publication outcomes
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PYTHONPATH: batch/src
+          GROUP: ${{ inputs.group }}
+          ASOF: ${{ inputs.asof }}
+          ACQUIRE_RESULT: ${{ needs.acquire.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          ECONOMIC_REPORT_JSON: ${{ needs.acquire.outputs.report }}
+        run: python3 -m baibai_batch.observability.economic_discord

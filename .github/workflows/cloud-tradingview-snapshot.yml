@@ -20,12 +20,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-publish
+  group: source-acquire-jquants
   queue: max
   cancel-in-progress: false
 
 jobs:
   snapshot:
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
     if: ${{ inputs.observation_master_asof == '' || github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60

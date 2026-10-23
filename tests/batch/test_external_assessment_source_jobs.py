@@ -719,58 +719,38 @@ def test_source_notice_never_reports_old_values_as_new_success(tmp_path):
     assert "正常null=不明" in text
 
 
-def test_workflow_has_four_source_jobs_and_one_serial_publisher():
+def test_workflow_publishes_each_source_without_waiting_for_its_siblings():
     path = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
-    data = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
-    group = data["concurrency"]
-    assert group["queue"] == "max"
-    assert group["cancel-in-progress"] == "false"
-    assert "inputs.operation == 'publish_confirmed_partial'" in group["group"]
-    assert "format('external-assessment-acquire-{0}', inputs.source)" in group["group"]
-    assert "format('external-assessment-run-{0}', github.run_id)" in group["group"]
-    plan_job = data["jobs"]["plan"]
-    assert plan_job["outputs"]["source_runs"] == "${{ steps.plan.outputs.source_runs }}"
-    assert plan_job["outputs"]["master_asof"] == "${{ steps.plan.outputs.master_asof }}"
-    acquire = data["jobs"]["acquire"]
-    assert acquire["strategy"]["fail-fast"] == "false"
-    assert set(acquire["strategy"]["matrix"]) == {"include"}
-    assert (
-        acquire["strategy"]["matrix"]["include"]
-        == "${{ fromJSON(needs.plan.outputs.source_runs) }}"
-    )
-    assert acquire["env"]["SOURCE_RUN_ID"] == "${{ matrix.run_id }}"
-    assert acquire["env"]["MASTER_ASOF"] == "${{ needs.plan.outputs.master_asof }}"
-    assert "needs.plan.outputs.operation == 'collect_and_publish'" in acquire["if"]
-    acquire_run = next(
-        step["run"]
-        for step in acquire["steps"]
-        if "external_assessment_sources acquire" in step.get("run", "")
-    )
-    assert '--run-id "$SOURCE_RUN_ID"' in acquire_run
-    assert '--master-asof "$MASTER_ASOF"' in acquire_run
-    assert acquire["concurrency"]["group"] == "external-assessment-acquire-${{ matrix.source }}"
-    publisher = data["jobs"]["publish"]
+    parent = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    assert "publish" not in parent["jobs"]
+    source = parent["jobs"]["source"]
+    assert source["needs"] == "plan"
+    assert source["strategy"]["fail-fast"] == "false"
+    assert source["strategy"]["matrix"]["include"] == "${{ fromJSON(needs.plan.outputs.source_runs) }}"
+    assert source["uses"] == "./.github/workflows/cloud-external-assessment-source.yml"
+    assert source["with"]["run_id"] == "${{ matrix.run_id }}"
+    child = yaml.load(path.with_name("cloud-external-assessment-source.yml").read_text(), Loader=yaml.BaseLoader)
+    assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
+    acquire = child["jobs"]["acquire"]
+    assert "inputs.operation == 'collect_and_publish'" in acquire["if"]
+    assert "cloud-publish" not in str(acquire)
+    publisher = child["jobs"]["publish"]
+    assert publisher["needs"] == "acquire"
     assert publisher["concurrency"]["group"] == "cloud-publish"
     assert "always()" in publisher["if"]
-    assert "!cancelled()" in publisher["if"]
-    assert publisher["env"]["SOURCE_RUNS"] == "${{ needs.plan.outputs.source_runs }}"
-    assert publisher["env"]["MASTER_ASOF"] == "${{ needs.plan.outputs.master_asof }}"
     assert "needs.acquire.result" not in publisher["if"]
-    assert "cohort" not in str(acquire["strategy"]["matrix"])
+    assert "inputs.run_id" in publisher["env"]["SOURCE_RUNS"]
+    assert publisher["env"]["MASTER_ASOF"] == "${{ inputs.master_asof }}"
     steps = publisher["steps"]
     ready = next(step for step in steps if step.get("id") == "ready")
     assert "external_assessment_sources inspect" in ready["run"]
-    publish_step = next(step for step in steps if step.get("id") == "publish")
-    for step in (ready, publish_step):
+    publish = next(step for step in steps if step.get("id") == "publish")
+    for step in (ready, publish):
         assert '--selection-json "$SOURCE_RUNS"' in step["run"]
         assert '--master-asof "$MASTER_ASOF"' in step["run"]
+        assert '--confirmed-partial' in step["run"]
     for step in steps:
-        if any(
-            token in step.get("run", "")
-            for token in (
-                "publication_lease acquire",
-                "r2_transfer.sh pull-market",
-                "external_assessment_sources publish",
-            )
-        ):
+        if any(token in step.get("run", "") for token in (
+            "publication_lease acquire", "r2_transfer.sh pull-market", "external_assessment_sources publish"
+        )):
             assert step["if"] == "${{ steps.ready.outputs.ready == 'true' }}"

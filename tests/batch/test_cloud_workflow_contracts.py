@@ -83,7 +83,13 @@ def _web_history_repo(tmp_path: Path) -> tuple[Path, str]:
     ["cloud-daily-batch.yml", "cloud-materialize.yml", "cloud-tradingview-snapshot.yml"],
 )
 def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -> None:
-    concurrency = _workflow(workflow_name)["concurrency"]
+    workflow = _workflow(workflow_name)
+    if workflow_name == "cloud-materialize.yml":
+        concurrency = workflow["concurrency"]
+    else:
+        assert workflow["concurrency"]["group"] == "source-acquire-jquants"
+        job = "daily" if workflow_name == "cloud-daily-batch.yml" else "snapshot"
+        concurrency = workflow["jobs"][job]["concurrency"]
 
     assert concurrency == {
         "group": "cloud-publish",
@@ -399,12 +405,12 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
         assert isinstance(jobs, dict)
         for job in jobs.values():
             assert isinstance(job, dict)
-            for step in job["steps"]:
+            for step in job.get("steps", []):
                 if str(step.get("uses", "")).startswith("astral-sh/setup-uv@"):
                     setup_steps.append(step)
 
     assert required == "==0.12.17"
-    assert len(setup_steps) == 9
+    assert len(setup_steps) == 12
     assert all("version" not in step.get("with", {}) for step in setup_steps)
 
 
@@ -424,7 +430,7 @@ def test_tradingview_secrets_are_scoped_to_only_the_acquisition_step(filename, a
         usages = []
         for job in workflow["jobs"].values():
             assert expression not in str(job.get("env", {}))
-            for step in job["steps"]:
+            for step in job.get("steps", []):
                 if secret in str(step):
                     usages.append(step["name"])
                     assert step["env"][secret] == expression

@@ -5,7 +5,15 @@ from __future__ import annotations
 from baibai_engine.collection.economic.acquisition import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
+    SourceRefreshFailure as EconomicSourceRefreshFailure,
+    refresh_sources as refresh_economic_sources,
 )
+from baibai_engine.collection.economic.handoff import export_receipts as export_economic_receipts
+from baibai_engine.collection.economic.refresh_policy import (
+    acquisition_groups as economic_acquisition_groups,
+    source_policy as economic_source_policy,
+)
+from baibai_engine.collection.economic.sources import load_sources as load_economic_sources
 from baibai_engine.collection.economic.records import (
     decode_records as decode_economic_source_records,
 )
@@ -171,6 +179,7 @@ __all__ = [
     "MARKET_SCHEMA_VERSION",
     "RUNS_DB_PATH",
     "EconomicSchemaError",
+    "EconomicSourceRefreshFailure",
     "EquityWebSourceResponse",
     "ExternalAssessmentAnalystForecastObservation",
     "ExternalAssessmentAnalystRatingObservation",
@@ -200,6 +209,9 @@ __all__ = [
     "create_lake_release",
     "create_market_snapshot",
     "decode_economic_source_records",
+    "economic_acquisition_groups",
+    "economic_source_policy",
+    "export_economic_receipts",
     "equity_web_history_digests",
     "equity_web_import_responses",
     "equity_web_read_responses",
@@ -224,10 +236,12 @@ __all__ = [
     "lake_session",
     "lake_verified_git_commit",
     "load_lake_model_json",
+    "load_economic_sources",
     "read_lake_store_origin",
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "resolve_release",
+    "refresh_economic_sources",
     "tradingview_failure_line",
     "tradingview_preflight",
     "tradingview_safe_progress",

@@ -82,7 +82,6 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "validate-input",
         "setup",
         "sync",
-        "browser-smoke",
         "pull",
         "batch",
         "upload-stores",
@@ -130,15 +129,10 @@ def test_scheduled_trigger_uses_cron_target_mode(steps_by_id: dict[str, dict]) -
     assert 'elif [[ -n "$MANUAL_ASOF" ]]' in batch_run
 
 
-def test_isolated_browser_smoke_runs_before_any_credential_bearing_step(
-    steps: list[dict], steps_by_id: dict[str, dict]
-) -> None:
-    ids = [step.get("id") for step in steps]
-    assert ids.index("sync") < ids.index("browser-smoke") < ids.index("pull")
-    smoke = steps_by_id["browser-smoke"]
-    assert "env" not in smoke
-    assert "BrowserFetcher" in smoke["run"]
-    assert "data:text/html" in smoke["run"]
+def test_daily_uses_saved_economic_inputs_and_has_no_browser_setup(steps_by_id):
+    assert "--saved-economic" in steps_by_id["batch"]["run"]
+    assert "ESTAT_APP_ID" not in steps_by_id["batch"]["env"]
+    assert "browser-smoke" not in steps_by_id
 
 
 def test_batch_step_writes_the_notice_and_finalizes_outputs_before_fatal_exit(
@@ -353,7 +347,7 @@ def test_data_credentials_are_absent_from_job_and_setup_steps(
         "lease-acquire": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "pull": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "hydrate": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
-        "batch": {"JQUANTS_API_KEY", "ESTAT_APP_ID", "EDINET_API_KEY"},
+        "batch": {"JQUANTS_API_KEY", "EDINET_API_KEY"},
         "publish-lake": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "upload-stores": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "publish-serving": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},

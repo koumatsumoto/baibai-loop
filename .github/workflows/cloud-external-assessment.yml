@@ -28,13 +28,6 @@ on:
 permissions:
   contents: read
 
-# Partial closure owns the same source group as acquisition until its terminal
-# is sealed. Ordinary runs use distinct groups; their acquisition jobs own it.
-concurrency:
-  group: ${{ inputs.operation == 'publish_confirmed_partial' && format('external-assessment-acquire-{0}', inputs.source) || format('external-assessment-run-{0}', github.run_id) }}
-  queue: max
-  cancel-in-progress: false
-
 jobs:
   plan:
     if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
@@ -84,150 +77,33 @@ jobs:
           if [ "$OPERATION" = publish_confirmed_partial ]; then args+=(--confirmed-partial); fi
           uv run python -m baibai_batch.jobs.external_assessment_sources prepare "${args[@]}"
 
-  acquire:
+  source:
     needs: plan
-    if: ${{ needs.plan.outputs.eligible == 'true' && needs.plan.outputs.operation == 'collect_and_publish' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
+    if: ${{ needs.plan.outputs.eligible == 'true' }}
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.source_runs) }}
-    concurrency:
-      group: external-assessment-acquire-${{ matrix.source }}
-      queue: max
-      cancel-in-progress: false
-    env:
-      SOURCE: ${{ matrix.source }}
-      SOURCE_RUN_ID: ${{ matrix.run_id }}
-      MASTER_ASOF: ${{ needs.plan.outputs.master_asof }}
-      OBSERVATION_DATE: ${{ needs.plan.outputs.observation_date }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - run: uv sync --locked
-      - name: Provision DuckDB httpfs extension
-        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
-      - name: Freeze and acquire one source with bounded cohort checkpoints
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          args=(--source "$SOURCE" --run-id "$SOURCE_RUN_ID" --directory "$RUNNER_TEMP/source-plan")
-          if [ -n "$OBSERVATION_DATE" ]; then args+=(--observation-date "$OBSERVATION_DATE");
-          else args+=(--master-asof "$MASTER_ASOF"); fi
-          timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_batch.jobs.external_assessment_sources acquire "${args[@]}"
+    uses: ./.github/workflows/cloud-external-assessment-source.yml
+    with:
+      source: ${{ matrix.source }}
+      run_id: ${{ matrix.run_id }}
+      master_asof: ${{ needs.plan.outputs.master_asof }}
+      observation_date: ${{ needs.plan.outputs.observation_date }}
+      operation: ${{ needs.plan.outputs.operation }}
+    secrets: inherit
 
-  publish:
-    needs: [plan, acquire]
-    outputs:
-      message_json: ${{ steps.notice.outputs.message_json }}
-    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.eligible == 'true' }}
-    runs-on: ubuntu-latest
-    # The existing publication lease expires after 120 minutes.
-    timeout-minutes: 110
-    concurrency:
-      group: cloud-publish
-      queue: max
-      cancel-in-progress: false
-    env:
-      SOURCE_RUNS: ${{ needs.plan.outputs.source_runs }}
-      MASTER_ASOF: ${{ needs.plan.outputs.master_asof }}
-      EXTERNAL_ASSESSMENT_OPERATION: ${{ needs.plan.outputs.operation }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - run: uv sync --locked
-      - name: Inspect exact source handoffs before leasing or hydration
-        id: ready
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          args=(--selection-json "$SOURCE_RUNS" --report-output "$RUNNER_TEMP/source-publication.json")
-          if [ -n "$MASTER_ASOF" ]; then args+=(--master-asof "$MASTER_ASOF"); fi
-          if [ "$EXTERNAL_ASSESSMENT_OPERATION" = publish_confirmed_partial ]; then args+=(--confirmed-partial); fi
-          uv run python -m baibai_batch.jobs.external_assessment_sources inspect "${args[@]}"
-      - name: Provision DuckDB httpfs extension
-        if: ${{ steps.ready.outputs.ready == 'true' }}
-        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
-      - name: Acquire the existing publication lease
-        id: lease-acquire
-        if: ${{ steps.ready.outputs.ready == 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$RUNNER_TEMP/external-assessment-publication-lease.json"
-      - name: Pull and hydrate the latest canonical release
-        if: ${{ steps.ready.outputs.ready == 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          batch/scripts/r2_transfer.sh pull-market
-          batch/scripts/r2_transfer.sh hydrate-market
-      - name: Import confirmed receipts and publish with remote readback
-        id: publish
-        if: ${{ steps.ready.outputs.ready == 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          args=(--selection-json "$SOURCE_RUNS" --directory "$RUNNER_TEMP/external-assessment-readback" --lease-handle "$RUNNER_TEMP/external-assessment-publication-lease.json" --report-output "$RUNNER_TEMP/source-publication.json")
-          if [ -n "$MASTER_ASOF" ]; then args+=(--master-asof "$MASTER_ASOF"); fi
-          if [ "$EXTERNAL_ASSESSMENT_OPERATION" = publish_confirmed_partial ]; then args+=(--confirmed-partial); fi
-          uv run python -m baibai_batch.jobs.external_assessment_sources publish "${args[@]}"
-      - name: Release publication lease
-        id: lease-release
-        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/external-assessment-publication-lease.json"
-      - name: Record cancellation for notification
-        id: cancellation
-        if: ${{ cancelled() }}
-        run: printf 'cancelled=true\n' >> "$GITHUB_OUTPUT"
-      - name: Prepare the safe per-source notification without sending
-        id: notice
-        if: ${{ always() }}
-        continue-on-error: true
-        env:
-          PYTHONPATH: batch/src
-        run: python3 -m baibai_batch.observability.external_assessment_discord --render-only --sources-report "$RUNNER_TEMP/source-publication.json" --plan-result success --publish-result "${{ steps.publish.outcome }}" --lease-release-outcome "${{ steps.lease-release.outcome }}" --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
-
-  notify:
-    needs: [plan, acquire, publish]
-    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.outputs.eligible != 'false' }}
+  notify-plan-failure:
+    needs: plan
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.result != 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Record cancellation for notification
-        id: cancellation
-        if: ${{ cancelled() }}
-        run: printf 'cancelled=true\n' >> "$GITHUB_OUTPUT"
-      - name: Send the one run notification
+      - name: Report a failed source plan
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-          SOURCE_NOTICE_JSON: ${{ needs.publish.outputs.message_json }}
-        run: python3 -m baibai_batch.observability.external_assessment_discord --message-json "$SOURCE_NOTICE_JSON" --plan-result "${{ needs.plan.result }}" --acquire-result "${{ needs.acquire.result }}" --publish-result "${{ needs.publish.result }}" --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
+        run: python3 -m baibai_batch.observability.external_assessment_discord --plan-result failure

@@ -30,9 +30,9 @@ gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。非営業日はScreeningをskipして旧runの値・ID・実計算時刻を保ち、経済原本と表示を更新する。
+過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。非営業日はScreeningをskipして旧runの値・ID・実計算時刻を保つ。経済原本の更新は独立した毎日の経済workflowが所有する。
 
-dailyは取得→Screening→独立指標refresh→全views exportを行う。Screening取得/計算失敗でも独立した後段は進める。exit 0はexport完了、exit 1は致命的失敗で公開停止、exit 3はexport完了だが一部工程が失敗した結果。R2公開は後段なので、export_readyやworkflow失敗だけで反映状態を断定しない。
+scheduled dailyは市場取得→Screening→全views exportを行い、`--saved-economic`で経済sourceを再取得しない。Screening取得/計算失敗でも独立した後段は進める。exit 0はexport完了、exit 1は致命的失敗で公開停止、exit 3はexport完了だが一部工程が失敗した結果。R2公開は後段なので、export_readyやworkflow失敗だけで反映状態を断定しない。
 
 取得期限はworkflowが生成・公開の余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。日次に移行・全期間backfill・較正再構築を代行させない。
 
@@ -41,6 +41,42 @@ dailyは取得→Screening→独立指標refresh→全views exportを行う。Sc
 ```bash
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 ```
+
+### マクロ原本の独立更新
+
+`cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→受領artifact→正本反映・読戻しを独立させる。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。artifactは今回の経済受領だけを7日保持し、application・market storeや秘密を含めない。
+
+| acquisition group / provider | 取得方式と比較範囲 |
+| --- | --- |
+| boj / boj・boj_timeseries | XLSX全体または系列API。月次・四半期370日、日次14日 |
+| estat / estat・estat_dashboard | 指定系列の全体応答をfilter、370日。dashboard速報native行も保存し、L2のfinal_onlyとは分離 |
+| fred_csv | 全体CSVをfilter。日次14日、週次60日、月次・四半期370日 |
+| frb_h15 | 期間指定CSV、14日 |
+| cftc | 期間指定JSON、60日。上限到達は完全取得にしない |
+| ecb_fx・mof_jgb | 全体ファイルをfilter、14日 |
+| multpl | 全体のdated表をfilter、14日 |
+| umich_sca | 全体CSVをfilter、370日 |
+| jquants / indices・flows・options | indicesは14日、flowsは公表日基準60日、optionsは日別要求14日。共通credentialと既存2req/sを維持 |
+| nikkei_indexes | 月別ページを取得後filter、14日 |
+| yahoo | 期間指定API、14日 |
+| spglobal_pmi | manifest内の対象PDFを再確認、370日。同URLも比較。新配信元・速報採用は #1477 の未完了範囲 |
+| tsr_bankruptcies | 全体JSON原本を再確認、370日の取得記録 |
+| matsui_margin | 現在ページを一回取得。当日の受領だけを記録し、過去を回復できた扱いにしない |
+
+今回の数値は現行窓を保守的に維持する決定であり、全sourceの最低必要窓を実証したという意味ではない。PAYEMSの公表遅延＋通常2回改訂、GDPの四半期終了後3か月の公表を落とさないため、月次・四半期を一律「当月＋直前2完了月」へ縮めない。optionsの日別要求も14日から増やさない。全体配信では比較範囲を絞っても通信量削減を主張しない。
+
+`--recent`は通常窓に加え、既存source runの最初の試行以後に残った失敗・未確認区間を成功範囲のunionから回復する。初回は最近窓から開始し、初期history seed・古い年次改訂照合は明示的な`--all-history`で別に実行する。過去の全改訂や完全な当時PITの再現を保証しない。
+
+```bash
+uv run baibai-engine collection economic groups
+gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
+```
+
+限定再実行はgroupとその中のsource IDを指定する。取得の再実行は新しい取得結果との比較、publishだけの再実行は同じartifactの再受領になる。7日後にartifactが失効していれば取得から新runを開始する。取得失敗と反映成功は併存できる。通知の取得／正本反映・読戻しを別々に確認し、表示は最新正本を使う次のdailyまたは明示的なmaterializeで更新する。経済のwatchdogは全group対象の成功だけを数え、限定成功で全体の欠測を隠さない。
+
+経済の公開だけがleaseと`cloud-publish`を使い、最新economic storeへ既存append-only unionを行う。市場hydrateやapplication書込はしない。同providerの次runは前runの公開まで待つ。J-Quantsの市場取得・TVのmaster補完と経済取得は同じacquire groupで直列化する。
+
+**#1585 の移行途中:** 外部評価はsource別reusable workflowへ移し、各sourceのexact plan・partial・terminal・fresh hydrate・readbackを維持する。市場dailyとTradingViewの長時間公開lockはまだ残る。市場原本のsource別import、既存の新しい投影を保護するreplay、EDINET一覧からmetrics／factsへの分岐、保存済みcalendar／barを前提にしたJ-Quants需給取得、保存入力だけを読むScreeningへの移行は未完了。`merge_market_store`をfact mergerへ転用しない。全体完了・本番受入はこの段階の完了と区別する。local dailyの複合入口は移行中の旧経路として残るため、経済workflowと重ねて実行しない。
 
 ## クラウド正本をローカルへ取得する
 

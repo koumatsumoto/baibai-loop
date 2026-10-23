@@ -14,6 +14,7 @@ from pathlib import Path
 from baibai_engine.foundation.env import load_project_env
 
 from .acquisition import SourceRefreshFailure, SourceRefreshSuccess, refresh_sources
+from .refresh_policy import acquisition_groups, source_policy
 from .sources import load_sources
 from .store import DEFAULT_DB_PATH, EconomicSchemaError
 
@@ -23,11 +24,14 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     listing = commands.add_parser("list", help="list registered external economic sources")
     listing.add_argument("--format", choices=("text", "json"), default="text")
+    commands.add_parser("groups", help="list shared provider/rate acquisition groups as JSON")
     refresh = commands.add_parser("refresh", help="acquire and save selected source records")
-    refresh.add_argument("source_ids", nargs="+")
+    refresh.add_argument("source_ids", nargs="*")
+    refresh.add_argument("--group", choices=acquisition_groups())
     window = refresh.add_mutually_exclusive_group(required=True)
     window.add_argument("--start", type=date.fromisoformat)
     window.add_argument("--all-history", action="store_true")
+    window.add_argument("--recent", action="store_true")
     refresh.add_argument("--end", type=date.fromisoformat, required=True)
     refresh.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     return parser
@@ -36,6 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "groups":
+            print(json.dumps([{"group": group} for group in acquisition_groups()]))
+            return 0
         if args.command == "list":
             sources = sorted(load_sources().values(), key=lambda item: item.source_id)
             if args.format == "json":
@@ -48,11 +55,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
             return 0
         load_project_env()
+        source_ids = args.source_ids
+        if args.group:
+            members = [
+                source.source_id
+                for source in load_sources().values()
+                if source_policy(source).acquisition_group == args.group
+            ]
+            if any(source_id not in members for source_id in source_ids):
+                raise ValueError("selected source does not belong to the acquisition group")
+            source_ids = source_ids or members
+        if not source_ids:
+            raise ValueError("select source IDs or an acquisition group")
         outcomes = refresh_sources(
-            args.source_ids,
+            source_ids,
             db_path=args.db,
-            start=None if args.all_history else args.start,
+            start=args.start,
             end=args.end,
+            recent=args.recent,
         )
     except (OSError, sqlite3.Error, ValueError, EconomicSchemaError) as error:
         print(f"error: {error}", file=sys.stderr)

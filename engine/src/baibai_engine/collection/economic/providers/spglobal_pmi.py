@@ -26,8 +26,7 @@ MANIFEST_GRACE_DAY = 10
 class SpGlobalPmiSource:
     """Acquire original monthly PDFs; interpreting their headline belongs to L2.
 
-    Ordinary refresh reuses a received body at the same manifest URL. A forced
-    all-history acquisition fetches every requested PDF, including corrections
+    Every selected-range refresh rechecks known manifest URLs, including corrections
     published at an unchanged URL. Already received documents survive a later
     download or manifest-coverage failure because the caller stores each yield.
     """
@@ -60,16 +59,6 @@ class SpGlobalPmiSource:
                 "observed_at": key,
                 "release_observed_at": entry.release_observed_at.isoformat(),
             }
-            stored = existing.get(key)
-            if (
-                not force
-                and stored is not None
-                and stored.source_id == source.source_id
-                and stored.source_url == entry.url
-                and stored.content_type == "application/pdf"
-                and stored.metadata == metadata
-            ):
-                continue
             body = fetch_pdf_bytes(entry.url, session=session, context=context)
             yield SourceDocument(
                 source_id=source.source_id,

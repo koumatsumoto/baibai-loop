@@ -265,7 +265,7 @@ def test_notification_imports_with_system_python_without_site_packages():
 def test_source_notice_is_rendered_after_release_and_only_final_job_has_webhook():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
-        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        (repository / ".github/workflows/cloud-external-assessment-source.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
     steps = workflow["jobs"]["publish"]["steps"]
@@ -286,7 +286,7 @@ def test_source_notice_is_rendered_after_release_and_only_final_job_has_webhook(
 def test_status_function_is_only_evaluated_in_step_condition_for_source_notice():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
-        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        (repository / ".github/workflows/cloud-external-assessment-source.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
     for job in ("publish", "notify"):
@@ -401,7 +401,7 @@ def test_source_render_keeps_private_payload_and_invalid_counts_out_of_notice(tm
 def test_single_final_sender_runs_even_when_publish_never_started_or_output_is_missing():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
-        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        (repository / ".github/workflows/cloud-external-assessment-source.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
     publisher = workflow["jobs"]["publish"]

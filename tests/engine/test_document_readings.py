@@ -163,13 +163,13 @@ def test_pmi_keeps_received_pdf_when_manifest_has_a_later_gap(tmp_path, monkeypa
 @pytest.mark.parametrize(
     ("force", "changed_url", "changed_metadata", "expected"),
     [
-        (False, False, False, 0),
+        (False, False, False, 1),
         (True, False, False, 1),
         (False, True, False, 1),
         (False, False, True, 1),
     ],
 )
-def test_pmi_reuses_raw_documents_or_refetches_explicitly(
+def test_pmi_rechecks_received_urls_in_ordinary_selected_range_refresh(
     monkeypatch, force, changed_url, changed_metadata, expected
 ):
     source = require_source("spglobal-jp-pmi-mfg")

@@ -31,7 +31,7 @@ def test_metadata_order_and_exclusive_writer():
     assert set(data["jobs"]) == {"snapshot"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
-        "group": "cloud-publish",
+        "group": "source-acquire-jquants",
         "queue": "max",
         "cancel-in-progress": "false",
     }

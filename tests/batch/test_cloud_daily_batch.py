@@ -1265,3 +1265,13 @@ def test_unidentified_delta_row_is_not_reported_as_no_change_or_a_complete_list(
     assert not notice.delta_measured
     assert notice.delta_unmeasured_reason == "view_unreadable"
     assert notice.entered == notice.exited == []
+
+
+def test_saved_economic_mode_does_not_reacquire_any_economic_source(tmp_path):
+    runner = _runner()
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "out", asof=ASOF,
+        runner=runner, refresh_economic=False,
+    )
+    assert result.exit_code == 0
+    assert not any("collection economic" in key for key in runner.call_keys())

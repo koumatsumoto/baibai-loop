@@ -716,7 +716,7 @@ pull_app() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -745,6 +745,9 @@ case "${1:-}" in
     ;;
   pull-runs)
     pull_keys runs.sqlite
+    ;;
+  pull-indicators)
+    pull_keys indicators.sqlite
     ;;
   seed-all)
     seed_keys market.sqlite runs.sqlite indicators.sqlite baibai.sqlite
