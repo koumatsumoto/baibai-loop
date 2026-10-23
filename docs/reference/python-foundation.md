@@ -10,6 +10,7 @@ source_paths:
   - "../../tests/"
   - "../../pyproject.toml"
   - "../../uv.lock"
+  - "../../.node-version"
   - "../../tools/setup-dev.sh"
 ---
 
@@ -17,7 +18,7 @@ source_paths:
 
 ## 1. Runtime policy
 
-対応環境は[architecture](../architecture.md)に従う。Pythonの許容範囲は`pyproject.toml`、実行patchは`.python-version`、Node.jsはWeb workflowを正本とする。
+対応環境は[architecture](../architecture.md)に従う。Pythonの許容範囲は`pyproject.toml`、実行patchは`.python-version`、Node.jsの実行patchは`.node-version`を正本とする。
 
 ## 2. Dependency policy
 
@@ -51,8 +52,10 @@ larger runner、storage、外部API、R2まで一律無料とは扱わず、追�
 
 ### 繰り返し使う開発環境の準備
 
-Linux / Bash、Python 3.11以上（bootstrap用）、uv、Web workflow指定majorのNode.jsとnpmを用意し、
+Linux / Bash、Python 3.11以上（bootstrap用）、uv、`.node-version`指定のNode.jsとnpmを用意し、
 対象revisionをcheckoutしてから実行する。scriptは配置場所からrepository rootを解決する。
+Nodeのpatch版は`.node-version`をWeb CI・依存監査・開発bootstrapで共有する。
+古い同一majorのcacheだけで修正版導入と扱わず、実際の版を確認する。
 
 ```bash
 bash tools/setup-dev.sh
