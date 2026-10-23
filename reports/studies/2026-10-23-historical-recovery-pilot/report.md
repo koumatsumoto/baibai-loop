@@ -23,6 +23,11 @@ Issue #1572。主担当が一次資料・固定母集団・現行契約を照合
 
 ## 固定母集団での位置
 
+母集団は[v43固定検証](../2026-10-23-v43-evidence-decision/report.md)と同じ19cohortで、生成済みforward v8を読んだ。
+元codeは48b1d3d8cc002781973524dbdedab29a9daec106、releaseは20261022T140937Z-9dd17236-9ebdc6c613e8、
+元入力SQLite SHA256は96999fc16e4be23b8e5f459b599a1449f464d14e49ccc8bc86942ede5c67edfc。最新mainで再buildしたとの意味ではない。
+集計はin_populationかつfinite er_annual、3y/5y、total_return欠損かつstale、asof < delisted_on <= target_dateを順に適用した。
+
 total-return欠損かつstale exitかつ窓内上場廃止metadataは3y3571行、5y4595行、合計8166行・326銘柄。
 全horizon10728行と別で、重複cohortを含む8166行を、8166個の独立標本とは扱わない。
 9437は11+11=22行、8586は14+14=28行に該当する。この2銘柄計50行は8166行の約0.61%で、全件復元率を推定する標本ではない。

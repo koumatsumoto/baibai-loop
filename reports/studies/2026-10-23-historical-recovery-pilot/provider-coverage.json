@@ -44,7 +44,12 @@
     "rows": 180,
     "matching_edinet_code": "E04779",
     "matches": 1,
-    "document_download": "verified_one_type1_zip"
+    "document_download": "verified_one_type1_zip",
+    "endpoint": "https://api.edinet-fsa.go.jp/api/v2/documents.json",
+    "query": {
+      "date": "2019-07-29",
+      "type": 2
+    }
   },
   "jpx": {
     "bytes": 13530,
@@ -52,6 +57,9 @@
     "sheet": "指定履歴",
     "physical_rows": 41,
     "designation_records": 17,
-    "sample_records_2019_2021": 8
-  }
+    "sample_records_2019_2021": 8,
+    "url": "https://www.jpx.co.jp/listing/measures/alert/tvdivq0000000i86-att/jp_History_2019-2023.xlsx"
+  },
+  "jquants_endpoint": "https://api.jquants.com/v2/fins/summary",
+  "jquants_query": "code only; one page per listed code"
 }
