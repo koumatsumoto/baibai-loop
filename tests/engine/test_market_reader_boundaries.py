@@ -122,7 +122,7 @@ def test_snapshot_query_failure_is_not_a_cache_miss(
     tmp_path, monkeypatch, module, reader_name, source, missing_coverage
 ):
     path = tmp_path / "existing.sqlite"
-    path.touch()
+    open_connection(path).close()
     conn = sqlite3.connect(":memory:")
     if not missing_coverage:
         conn.execute(

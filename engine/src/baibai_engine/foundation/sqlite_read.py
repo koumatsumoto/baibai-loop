@@ -30,7 +30,8 @@ def is_missing_table_error(error: sqlite3.OperationalError) -> bool:
     return "no such table" in str(error)
 
 
-def _database_is_unwritten(path: Path) -> bool:
+def is_unwritten_database(path: Path) -> bool:
+    """Classify an existing store by version 0 and absence of user tables, read-only."""
     with closing(connect_read_only(path)) as connection:
         version = int(connection.execute("PRAGMA user_version").fetchone()[0] or 0)
         table = connection.execute(
@@ -41,7 +42,7 @@ def _database_is_unwritten(path: Path) -> bool:
 
 def is_unwritten_store(error: sqlite3.OperationalError, path: Path) -> bool:
     """Only a missing table in a version-zero, table-free store means unpublished."""
-    return is_missing_table_error(error) and _database_is_unwritten(path)
+    return is_missing_table_error(error) and is_unwritten_database(path)
 
 
 def read_rows(
@@ -65,7 +66,12 @@ def read_rows(
 
 
 def read_store_if_written[T](path: Path, read: Callable[[], T]) -> T | None:
-    """Check absence before domain schema validation; every published read failure raises."""
-    if not path.is_file() or _database_is_unwritten(path):
+    """Absent/unwritten stores are optional; corrupt or partially missing stores raise."""
+    if not path.is_file():
         return None
-    return read()
+    try:
+        return read()
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error, path):
+            raise
+        return None

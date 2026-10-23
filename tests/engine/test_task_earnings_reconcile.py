@@ -202,14 +202,20 @@ def _store_schedule(path: Path, *, fetched_at: str = "2026-07-31T00:00:00Z") -> 
 
 class TaskEarningsCliTest(unittest.TestCase):
     def test_unknown_or_stale_schedule_does_not_succeed_as_a_published_empty_schedule(self) -> None:
-        for state in ("missing", "uncovered", "stale"):
+        for state in ("missing", "empty-file", "unwritten-header", "uncovered", "stale"):
             with self.subTest(state=state), TemporaryDirectory() as directory:
                 path = Path(directory) / "market.sqlite"
-                if state == "uncovered":
+                if state == "empty-file":
+                    sqlite3.connect(path).close()
+                elif state == "unwritten-header":
+                    with closing(sqlite3.connect(path)) as connection, connection:
+                        connection.execute("PRAGMA user_version = 0")
+                elif state == "uncovered":
                     open_connection(path).close()
                 elif state == "stale":
                     _store_schedule(path, fetched_at="2026-07-01T00:00:00Z")
                 tasks = Path(directory) / "application.sqlite"
+                before = path.read_bytes() if path.exists() else None
                 stderr = io.StringIO()
                 with redirect_stderr(stderr):
                     result = task_main(
@@ -219,8 +225,7 @@ class TaskEarningsCliTest(unittest.TestCase):
                 self.assertEqual(result, 1)
                 self.assertIn("current earnings schedule unavailable", stderr.getvalue())
                 self.assertFalse(tasks.exists())
-                if state == "missing":
-                    self.assertFalse(path.exists())
+                self.assertEqual(path.read_bytes() if path.exists() else None, before)
 
     def test_cli_reports_read_errors_without_creating_a_task_store(self) -> None:
         for state, message in (

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
@@ -25,9 +24,7 @@ def read_next_earnings_dates(sqlite_path: Path, asof_date: date) -> dict[str, da
     snapshot reader. Schema/query failures and corrupt snapshots propagate. This
     optional read never acquires data or makes unrelated market sources mandatory.
     """
-    snapshot = read_store_if_written(
-        sqlite_path, lambda: read_jpx_earnings_calendar_snapshot(sqlite_path, asof_date)
-    )
+    snapshot = read_jpx_earnings_calendar_snapshot(sqlite_path, asof_date)
     return None if snapshot is None else next_earnings_dates(snapshot.entries, asof_date)
 
 

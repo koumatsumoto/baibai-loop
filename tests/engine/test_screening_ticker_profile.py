@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import sqlite3
 import tempfile
 import unittest
 from contextlib import closing, redirect_stderr
@@ -534,6 +535,24 @@ def _dated_profile(root, asof):
         runs_db_path=root / "runs.sqlite",
         app_db_path=root / "app.sqlite",
     )
+
+
+@pytest.mark.parametrize("store", ["absent-file", "empty-file", "unwritten-header"])
+def test_unwritten_market_store_has_no_profile_earnings_event(tmp_path, store):
+    path = tmp_path / "market.sqlite"
+    if store == "empty-file":
+        sqlite3.connect(path).close()
+    elif store == "unwritten-header":
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("PRAGMA user_version = 0")
+    before = path.read_bytes() if path.exists() else None
+    profile = _dated_profile(tmp_path, _ASOF)
+    assert profile["events"]["next_earnings_date"] is None
+    assert profile["price"] is None
+    assert profile["technical_analysis"]["bar_count"] == 0
+    assert (path.read_bytes() if path.exists() else None) == before
+    assert not (tmp_path / "runs.sqlite").exists()
+    assert not (tmp_path / "app.sqlite").exists()
 
 
 @pytest.mark.parametrize("state", ["missing", "stale"])

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.date_utils import weekday_distance
+from baibai_engine.foundation.sqlite_read import is_unwritten_database
 from baibai_engine.foundation.time import JST
 from baibai_engine.market import master_snapshot as master_contract
 from baibai_engine.market.financial_documents import (
@@ -877,7 +878,7 @@ def read_jpx_earnings_calendar_snapshot(
     allow_stale: bool = False,
 ) -> JPXEarningsCalendarSnapshot | None:
     """Read current JPX coverage; unavailable returns None, corrupt success raises."""
-    if not sqlite_path.exists():
+    if not sqlite_path.exists() or is_unwritten_database(sqlite_path):
         return None
     conn = connect_current(sqlite_path)
     if conn is None:

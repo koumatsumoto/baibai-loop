@@ -9,7 +9,11 @@ import pytest
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.market import store as market_store
-from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
+from baibai_engine.market.jpx_models import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+)
 from baibai_engine.position.market_source import (
     market_basis_is_confirmed,
     next_order_session,
@@ -142,6 +146,17 @@ def test_optional_earnings_view_does_not_publish_a_stale_schedule(tmp_path: Path
     database = tmp_path / "market.sqlite"
     _seed_earnings(database, [("2331", "2026-08-13")])
     assert next_earnings_dates(database, ["2331"], asof=date(2026, 8, 3)) == {}
+
+
+def test_earnings_view_propagates_corrupt_successful_snapshot(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_earnings(database, [("2331", "2026-07-30")])
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("UPDATE source_coverage SET record_count = 2")
+    before = database.read_bytes()
+    with pytest.raises(JPXProviderError, match="row count mismatch"):
+        next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21))
+    assert database.read_bytes() == before
 
 
 def _seed_bars_with_factors(
