@@ -740,7 +740,7 @@ def _resolve_total_return(
         selected.append(latest)
 
     # Missing annual documents are not zero-dividend observations. A known
-    # period starting after entry, or a break between selected fiscal periods,
+    # period starting later than the day after entry, or a break between FYs,
     # proves that this sum cannot represent all selected FY dividends. Use actual
     # period boundaries rather than assuming every issuer has twelve-month years.
     # The selected FY window excludes entry_date itself. A fiscal period
