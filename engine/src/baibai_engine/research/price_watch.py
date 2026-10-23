@@ -79,7 +79,7 @@ def _date_argument(value: str) -> date:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m baibai_engine.research_watch",
+        prog="python -m baibai_engine.research.price_watch",
         description=(
             "Emit a read-only YAML watch for the latest published research assessment of every "
             "ticker, with supported, uncertain, or unsupported stance. "

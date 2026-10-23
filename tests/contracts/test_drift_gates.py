@@ -213,12 +213,13 @@ def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None
     """手順の途中に 1 行で置かれた command も、fenced block と同じ実行対象である。"""
 
     _skill(
-        tmp_path, "差分は `uv run python -m baibai_engine.research_watch --asof <A>` で確認する。\n"
+        tmp_path,
+        "差分は `uv run python -m baibai_engine.research.price_watch --asof <A>` で確認する。\n",
     )
     assert check_documented_commands.check(tmp_path) == [
         (
             ".agents/skills/demo/SKILL.md: "
-            "`uv run python -m baibai_engine.research_watch --asof <A>` omits required --sqlite-path"
+            "`uv run python -m baibai_engine.research.price_watch --asof <A>` omits required --sqlite-path"
         )
     ]
 
@@ -238,7 +239,7 @@ def test_documented_command_gate_rejects_the_removed_proposal_domain(
 def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -> None:
     _skill(
         tmp_path,
-        "```bash\nuv run python -m baibai_engine.research_watch \\\n"
+        "```bash\nuv run python -m baibai_engine.research.price_watch \\\n"
         "  --sqlite-path stores/market/market.sqlite --asof <A>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == []
