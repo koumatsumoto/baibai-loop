@@ -102,8 +102,7 @@ jobs:
         if: ${{ !cancelled() }}
         # The audited surface is the lockfile exported to requirements, not the runner's
         # installed set, so a CVE in the environment's own tooling cannot fail a repository
-        # whose dependencies are clean. `docs/reference/python-foundation.md` §8 holds the
-        # reasoning for this export pipeline.
+        # whose dependencies are clean.
         run: |
           uv export \
             --format requirements.txt \

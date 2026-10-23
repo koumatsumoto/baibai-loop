@@ -21,7 +21,7 @@ date: 2026-08-17
 
 そのうち**破綻型** — 上場維持基準への不適合・破産・民事再生・会社更生・債務超過・内部管理体制・開示義務違反・時価総額不足 — を、市場が最後に付けた終値で解決し `resolved_failure_exit` を与える。資金が戻らない退出には再投資規約が要らないので、買収型と違い規約を決めずに実値化できる。買収型の規約は[別途事前登録](../2026-08-17-acquisition-exit-reinvestment/preregistration.md)した。
 
-規則は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md#破綻型の実現-exit-値) が正本。
+規則は [`estimate-calibration.md`](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/estimate-calibration.md#破綻型の実現-exit-値) が正本。
 
 ## 2. 分類（`jpx_delistings.reason` 760 件）
 

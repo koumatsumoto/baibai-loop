@@ -1,18 +1,7 @@
 # Production methodology
 
-productionで採用するGit管理のnormative methodologyを置きます。
+採用済みのdated規則を置く。Screeningは`screening/rules/`、Readingは保存判断が引用する元の`macro/reading/`を読む。activeな選択先はengine loaderが所有し、別のcurrent copyやchecksum台帳を作らない。
 
-| 項目 | 内容 |
-| --- | --- |
-| 所有 | Reading、screening rules、research playbooksのdated revision |
-| 所有しない | 表示設定、実行時状態、historical evidence |
-| 入口 | CLIは持たず、engine loaderがactive revisionを読み取り専用で参照する |
-| 依存境界 | codeをimportせず、Web表示、cloud topology、実行時dataを持ち込まない |
-| 変更先 | Reading規則の元dated fileは`macro/reading`（保存判断の引用を保全し、別current copyを作らない）、screening閾値は`screening/rules`、research手順は`research/playbooks` |
-| 正本・test | [doctrine](../docs/doctrine.md)、[domain reference](../docs/reference/README.md)、[tests/engine](../tests/engine)、[tests/contracts](../tests/contracts) |
+意味を変える規則は明示PRで採用し、新revisionとして追加する。配置・説明の変更だけで過去判断が引用するpathや数値を変えない。reportからproductionを自動更新しない。
 
-methodは明示PRで採用し、reportから自動更新しません。dated revisionは上書きせず、対象loaderの契約に従って新しいrevisionを追加します。
-
-dated revisionの内容と履歴はGitで管理し、同じ内容のchecksum台帳を別途維持しません。playbookのIDとApproach mappingは[playbooks README](./research/playbooks/README.md)を参照してください。
-
-実行時状態は[stores](../stores/README.md)、表示設定は[web/config](../web/config)、採否の証拠は[reports](../reports/README.md)が所有します。
+調査の実行順は[Research skill](../.agents/skills/research/SKILL.md)、経済的な問いは[Stock Assessment](../docs/reference/stock-assessment.md)、判断の基準は[doctrine](../docs/doctrine.md)にある。

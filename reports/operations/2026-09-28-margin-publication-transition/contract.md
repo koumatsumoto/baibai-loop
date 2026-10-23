@@ -1,7 +1,7 @@
 # 信用残高日次化のClientV2契約確認（2026-09-28）
 
 この文書は確認当時の保存仕様・実測・進行状況を残す履歴である。現行の仕様と運用境界は
-[信用残高の公表移行](../../../docs/reference/margin-publication-transition.md)を参照する。
+[信用残高の公表移行](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/margin-publication-transition.md)を参照する。
 
 ## 判定と根拠
 

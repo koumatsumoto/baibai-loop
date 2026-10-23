@@ -126,7 +126,7 @@ corporate-action coverage の不足で blocked であり、この 2 銘柄を見
 - trailing / forward PER ratio は増益・回復・一時要因を区別せず、人手ラベル 2 件から threshold の
   有効性を評価できない。
 - 既存 `accruals_to_assets` もこの 2 件を分離しないが、単一 as-of を見た後の新 metric / gate 採用は
-  [`改善ループ`](../../../docs/reference/estimate-calibration.md#事前登録と-designconfirm) の事前登録と design / confirm 規律を満たさない。
+  [`改善ループ`](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/estimate-calibration.md#事前登録と-designconfirm) の事前登録と design / confirm 規律を満たさない。
 - 既存較正では forward PER 軸を外すより維持する方向であり、長期 authority は blocked である。
 
 したがって、`per_forward` 優先、reversion cap、selection rules、`accruals_to_assets` の扱いは変更しない。

@@ -19,7 +19,7 @@
 - 原評価元・株数basis・指標別の予想人数の完全な対応は未確認。rating人数をEPS等の人数へ転用せず、footerの複数provider列挙から原評価元を決めない。
 - 翌日以降の履歴は実受領から蓄積する。今回見えた1週間前等の比較値を当日の受領rowへbackfillしない。
 
-[公式のアナリスト予想説明](https://support.minkabu.jp/hc/ja/articles/360048893593-%E8%A8%BC%E5%88%B8%E3%82%A2%E3%83%8A%E3%83%AA%E3%82%B9%E3%83%88%E3%81%AB%E3%82%88%E3%82%8B%E4%BA%88%E6%83%B3%E6%A0%AA%E4%BE%A1%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6)と公開表の表示を対照した。集計ラベルから未公開の算式を逆算しない。常設の保存契約は[データソース](../../../docs/reference/data-sources.md#external-assessment-acquisition)が所有する。
+[公式のアナリスト予想説明](https://support.minkabu.jp/hc/ja/articles/360048893593-%E8%A8%BC%E5%88%B8%E3%82%A2%E3%83%8A%E3%83%AA%E3%82%B9%E3%83%88%E3%81%AB%E3%82%88%E3%82%8B%E4%BA%88%E6%83%B3%E6%A0%AA%E4%BE%A1%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6)と公開表の表示を対照した。集計ラベルから未公開の算式を逆算しない。常設の保存契約は[データソース](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/data-sources.md#external-assessment-acquisition)が所有する。
 
 ### Investing.com
 
@@ -44,7 +44,7 @@
 
 L1原本、型付き履歴、原本からの再構築、cutoff、固定cohortの直列取得、stage往復、固定release公開/読戻し、Research入力と生成Web契約まで接続する。公開後の変更partition読戻し対象から新しい予想datasetが漏れていた点は修正し、実receiverからstage/publicationまでの合成テストを追加した。
 
-market schemaは47から48へ変わる。旧DBをそのままhydrateしてコードだけを配備しない。[運用手順](../../../batch/OPERATIONS.md#market-v48-cutover)の明示的な一回限りのコピーで、既存値・原本・Lake originを保持して切り替える。通常reader/day jobにmigrationは追加しない。切替済みとはまだ扱わず、最終HEADのCIと本番stepを別々に確認する。
+market schemaは47から48へ変わる。旧DBをそのままhydrateしてコードだけを配備しない。[運用手順](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/batch/OPERATIONS.md#market-v48-cutover)の明示的な一回限りのコピーで、既存値・原本・Lake originを保持して切り替える。通常reader/day jobにmigrationは追加しない。切替済みとはまだ扱わず、最終HEADのCIと本番stepを別々に確認する。
 
 外部評価を独自FVへ自動投入せず、欠測を購入禁止にせず、媒体数を確信度に換算しない。会社予想と外部予想の相違は、既存の事業・利益・資本・時間の仮定を検証する材料にとどめる。
 
@@ -102,9 +102,9 @@ parser v3では専用アナリストカードから現在値を識別し、比�
 
 主担当が現実装と案を比較し、helper APIへページIDを増やさずCLI表示時の写像で物理ページ番号を保持する最小案を選んだ。指定順・重複・部分未一致・空テキスト・範囲エラー・改行保持をCIで検証する。空の抽出結果や検索未一致を資料中の不存在と扱わず、年度見出し・脚注・列順は引き続き原本表示で確認する。
 
-同じ[SRC151Aレポート（2026-09-18）](https://holistic-r.org/adm/wp-content/uploads/2026/09/151A260918.pdf)（全17ページ）について、物理1–17ページの範囲と固定語「業績予想」「リスク」を指定し、CLIによるテキスト抽出と出力を比較した。ヒットは2・11・12・14・15・16・17ページで、旧2コマンドと新1コマンド相当のCLI呼出しが返した7ページの本文はすべて一致した。実際の抽出回数は24→17回、stdoutは17,742→14,116文字（20.4%減）だった。これは旧方式の検索とページ再読の全出力をともに消費する場合の比較であり、token数・所要時間・誤り率の改善を測定したものではない。取得PDFのSHA-256は`a3e437c4ddb1ea3ca6e737a62a80f210b6882e44fe3796a4b3a7f0201b3ff109`。操作は[Research skill](../../../.agents/skills/research/SKILL.md#company-research)を参照する。
+同じ[SRC151Aレポート（2026-09-18）](https://holistic-r.org/adm/wp-content/uploads/2026/09/151A260918.pdf)（全17ページ）について、物理1–17ページの範囲と固定語「業績予想」「リスク」を指定し、CLIによるテキスト抽出と出力を比較した。ヒットは2・11・12・14・15・16・17ページで、旧2コマンドと新1コマンド相当のCLI呼出しが返した7ページの本文はすべて一致した。実際の抽出回数は24→17回、stdoutは17,742→14,116文字（20.4%減）だった。これは旧方式の検索とページ再読の全出力をともに消費する場合の比較であり、token数・所要時間・誤り率の改善を測定したものではない。取得PDFのSHA-256は`a3e437c4ddb1ea3ca6e737a62a80f210b6882e44fe3796a4b3a7f0201b3ff109`。操作は[Research skill](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/.agents/skills/research/SKILL.md#company-research)を参照する。
 
-後続のPR #1566（`e804aae0`）では、検索を伴わない通常のページ読取が空の抽出結果だけでも成功終了していた点を修正し、全選択ページが空の場合と一部だけ空の場合の回帰を追加した。結果別の読取手順は[Research skill](../../../.agents/skills/research/SKILL.md#company-research)を正本とし、上記の有効本文7ページの出力比較を空テキストの実PDF検証へ拡大解釈しない。追加回帰の成功は採用する最終統合HEADのCIで確認し、旧HEADの成功で代用しない。
+後続のPR #1566（`e804aae0`）では、検索を伴わない通常のページ読取が空の抽出結果だけでも成功終了していた点を修正し、全選択ページが空の場合と一部だけ空の場合の回帰を追加した。結果別の読取手順は[Research skill](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/.agents/skills/research/SKILL.md#company-research)を正本とし、上記の有効本文7ページの出力比較を空テキストの実PDF検証へ拡大解釈しない。追加回帰の成功は採用する最終統合HEADのCIで確認し、旧HEADの成功で代用しない。
 
 ### 全銘柄取得完了と自己リンク型の対象外表示
 

@@ -11,7 +11,7 @@ status: historical
 
 ## 目的・採用理由
 
-価値tierはT1。短いIPO価格履歴と必要財務履歴を混同した一律除外、機能廃止後の設定、機械推計と企業判断の要求率の混同を除く。推薦数・取引数・利益増を完了条件にしない。現在のルール分類、理由、適用先と根拠区分は[Screening reference](../../../docs/reference/screening-runtime.md#rule-purpose)が正本で、この記録は当時の比較・採否・検証だけを残す。
+価値tierはT1。短いIPO価格履歴と必要財務履歴を混同した一律除外、機能廃止後の設定、機械推計と企業判断の要求率の混同を除く。推薦数・取引数・利益増を完了条件にしない。現在のルール分類、理由、適用先と根拠区分は[Screening reference](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/screening-runtime.md#rule-purpose)が正本で、この記録は当時の比較・採否・検証だけを残す。
 
 上場6か月未満の除外は`b7bb0d4e`（2026-04-24）の「IPO直後の値動き特殊性」に由来し、`911a2515`で最古barによるproxyへ、`b10fc463`で分析層へ移った。182日の経済的最適性は確認できない。現在の4 Approachには20bar scope・必要な利益/資産/CF入力が別にあり、価格履歴の日数は実上場日や必要財務履歴ではない。親はfloor解除を採用した。短い価格履歴の不確実性を消す変更ではなく、Researchへcontextを渡す。
 

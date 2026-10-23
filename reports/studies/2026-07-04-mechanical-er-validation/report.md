@@ -6,7 +6,7 @@
 > この窓での水準差は他期間での保守性を保証せず、順序情報の外部検証完了ともいえない。
 > 再現 CLI・手動評価への接続説明も当時の履歴であり、現行の操作・判断規約ではない。
 
-[total return 版計測（2026-07-04）](../2026-07-04-estimate-calibration-total-return/report.md) を基準に、WU3 で導入した (a) BS 系 fact の carry-forward、(b) 機械 E[r]（成分分解付き年率見積り）の効果を較正リプレイ（43 cohort・total return 基準）で検証した記録。
+[total return 版計測（2026-07-04）](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/reports/studies/2026-07-04-estimate-calibration-total-return/report.md) を基準に、WU3 で導入した (a) BS 系 fact の carry-forward、(b) 機械 E[r]（成分分解付き年率見積り）の効果を較正リプレイ（43 cohort・total return 基準）で検証した記録。
 
 **再現手順**:
 
