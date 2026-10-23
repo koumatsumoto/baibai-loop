@@ -25,6 +25,8 @@ from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.research.market_context.models import StoredAssessment
 from baibai_engine.research.market_context.query import (
     assessment_payload as read_context,
+)
+from baibai_engine.research.market_context.query import (
     latest_assessment_payload,
 )
 from baibai_engine.storage.observations.schema import open_connection

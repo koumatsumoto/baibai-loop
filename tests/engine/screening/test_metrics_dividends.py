@@ -9,6 +9,8 @@ from tests.engine.screening.metric_fixtures import _daily_bars, _security, _spli
 from baibai_engine.market.price_models import JQuantsDailyBar
 from baibai_engine.screening.calibration.forward import (
     _asof_basis_dividend as _forward_asof_basis_dividend,
+)
+from baibai_engine.screening.calibration.forward import (
     _FYDividendObservation,
 )
 from baibai_engine.screening.metric_builder import build_metrics
@@ -641,9 +643,9 @@ def test_unrelated_payment_and_share_disagreements_do_not_veto_annual_dps(tmp_pa
     import sqlite3
     from contextlib import closing
 
-    from baibai_engine.screening.calibration.forward import _load_fy_dividends
-    from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
     from baibai_engine.market.jquants_reader import read_financial_documents
+    from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
+    from baibai_engine.screening.calibration.forward import _load_fy_dividends
 
     day = date(2026, 5, 15)
     path = tmp_path / "market.sqlite"

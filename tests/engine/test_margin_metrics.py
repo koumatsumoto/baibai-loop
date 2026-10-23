@@ -207,8 +207,8 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # the reader refuses. If the published list still named it, the newest entry
         # would read back empty and every axis would be None for the whole cohort
         # even though every earlier week is intact.
-        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
         from baibai_engine.market.margin_reader import published_margin_week_ends
+        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
         from baibai_engine.storage.observations.schema import open_connection
 
         with tempfile.TemporaryDirectory() as tmp:

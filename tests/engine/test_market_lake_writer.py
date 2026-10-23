@@ -16,7 +16,8 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tools.diagnostics.benchmark_l1_export import benchmark
 
 from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
-from baibai_engine.storage.lake import identity as identity_module, writer as writer_module
+from baibai_engine.storage.lake import identity as identity_module
+from baibai_engine.storage.lake import writer as writer_module
 from baibai_engine.storage.lake.datasets import require_lake_dataset
 from baibai_engine.storage.lake.immutable import install_immutable_bytes
 from baibai_engine.storage.lake.keys import canonical_object_key, current_release_pointer_key

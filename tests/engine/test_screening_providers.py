@@ -32,6 +32,8 @@ from baibai_engine.collection.edinet.models import EdinetAcquisitionError, Edine
 from baibai_engine.market import edinet_refresh as edinet_refresh_module
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_document_events import parse_doc_id
+from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
+from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
@@ -62,8 +64,6 @@ from baibai_engine.market.jquants_decode import (
     parse_jquants_code,
 )
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
-from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 
 
 def _SequenceBytesSession(contents: list[bytes]) -> FakeSession:

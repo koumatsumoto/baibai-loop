@@ -357,7 +357,7 @@ def test_calendar_query_failure_is_not_reported_as_missing_data(tmp_path, monkey
     def failed_coverage_query(conn, *_args):
         return conn.execute("SELECT * FROM missing_coverage_table").fetchone()
 
-    monkeypatch.setattr(market_store, "range_covered", failed_coverage_query)
+    monkeypatch.setattr(jquants_reader, "range_covered", failed_coverage_query)
     with pytest.raises(sqlite3.OperationalError, match="missing_coverage_table"):
         jquants_reader.read_market_calendar(database, date(2026, 7, 28), date(2026, 7, 28))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
