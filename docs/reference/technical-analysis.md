@@ -9,7 +9,7 @@ status: active
 
 Technical Analysisは、Valuation、Market Context、External Assessmentと区別して価格の位置・変動を読むL2である。保存済み価格だけを入力に、SMA20/50/200、Bollinger Bands20、Wilder RSI14を返す。企業価値、売買判断、候補順位、合成scoreは作らない。新しいsource・DB・経済Reading registryを持たず、L1へ派生指標を保存しない。
 
-算術は[`market_context/technical.py`](../../engine/src/baibai_engine/market_context/technical.py)、保存読取は[`technical_query.py`](../../engine/src/baibai_engine/market_context/technical_query.py)、公開facadeは[`read_api/technical_analysis.py`](../../engine/src/baibai_engine/read_api/technical_analysis.py)が所有する。package配置は既存の価格算術と共有し、分析結果は独立した`technical_analysis`として渡す。
+算術は[`technical_analysis/calculations.py`](../../engine/src/baibai_engine/technical_analysis/calculations.py)、保存読取は[`query.py`](../../engine/src/baibai_engine/technical_analysis/query.py)、公開facadeは[`read_api/technical_analysis.py`](../../engine/src/baibai_engine/read_api/technical_analysis.py)が所有する。package配置は既存の価格算術と共有し、分析結果は独立した`technical_analysis`として渡す。
 
 ## 入力・時点と不足
 
