@@ -1,4 +1,4 @@
-import { formatPct } from './format'
+import { formatNumber, formatPct } from './format'
 
 export function researchRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -50,4 +50,23 @@ export const RETURN_UNAVAILABLE_LABELS: Readonly<Record<string, string>> = {
   quote_missing_or_stale: '必要な時点の価格が未確認、または鮮度不足です',
   quantity_basis_unconfirmed: '保有数量の株式単位を確認する必要があります',
   corporate_action_unresolved: '株式単位と価格の整合を確認する必要があります',
+}
+
+/** Display only: preserve the exact Decimal strings in saved documents and calculations. */
+export function researchYenValue(value: unknown): string {
+  if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) return '未確認'
+  const number = Number(value)
+  return Number.isFinite(number) ? formatNumber(number, 2) : '未確認'
+}
+
+export const INVESTMENT_CASE_LABELS: Readonly<Record<string, string>> = {
+  intact: '維持されている', broken: '成立しない', uncertain: '未確定',
+}
+
+export const HYPOTHESIS_RESULT_LABELS: Readonly<Record<string, string>> = {
+  supported: '根拠が支持', refuted: '反証あり', unresolved: '未解決',
+}
+
+export const REALIZATION_TIMING_LABELS: Readonly<Record<string, string>> = {
+  known: '確認済み', uncertain: '未確定',
 }

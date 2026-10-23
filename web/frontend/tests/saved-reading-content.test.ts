@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { StockAssessmentDetailView } from '../src/api/types'
 import { AssessmentReviewContent } from '../src/components/ReviewedAssessmentContent'
 import { ProposalReviewContent } from '../src/pages/InvestmentProposalPage'
+import { researchYenValue } from '../src/lib/research'
 import { SavedStockAssessment } from '../src/pages/StockAssessmentPage'
 
 // Synthetic saved pair A and later pair B. No account/store or published research.
@@ -59,7 +60,7 @@ describe('保存判断の読書表示', () => {
   it('独立再計算は保存された値だけを示し、0を欠測に変えない', () => {
     const review = { ...assessment('A').review, recalculated_projections: [{ name: 'base', terminal_value_per_share_yen: '1000', cash_distribution_per_share_yen: '0' }], nonmaterial_unknown_reason: '少額債権の回収時期は価値差を左右しない' }
     const html = renderToStaticMarkup(createElement(AssessmentReviewContent, { review }))
-    expect(html).toContain('分配後の価値 1000 円')
+    expect(html).toContain('分配後の価値 1,000 円')
     expect(html).toContain('今後の累積分配 0 円')
     expect(html).toContain('少額債権の回収時期は価値差を左右しない')
     expect(html).not.toContain('Downside')
@@ -72,5 +73,33 @@ describe('保存判断の読書表示', () => {
     expect(html).toContain('人間の採用・注文・約定を示しません')
     expect(html).toContain('保存された未解決の所見なし')
     expect(html).not.toContain('人間確認済み')
+  })
+})
+
+
+describe('狭い画面でも保存本文の意味を保つ', () => {
+  it('企業名と条件付きPmax、既知の状態を日本語で表示する', () => {
+    const fixed = assessment('A')
+    fixed.document.findings = { ...fixed.document.findings as Record<string, unknown>, hypotheses: [{ statement: '金利の伝達', result: 'refuted', reason: '固定負債を確認', source_ids: ['issuer'] }], realization: { timing: 'uncertain' } }
+    const before = JSON.stringify(fixed)
+    const html = renderSaved(fixed)
+    for (const phrase of ['合成企業 · 1234 · 保存した銘柄評価', '条件付き購入上限', '購入の推奨、現在の注文条件を示しません', '維持されている', '反証あり', '時期 未確定', 'wrap-anywhere']) expect(html).toContain(phrase)
+    expect(JSON.stringify(fixed)).toBe(before)
+  })
+
+  it('長い数値は表示だけ丸め、0と欠測を区別する', () => {
+    const exact = '2694.969163526429267164050093'
+    expect(researchYenValue(exact)).toBe('2,694.97')
+    expect(researchYenValue('0')).toBe('0')
+    for (const value of [null, undefined, '', ' ', 'not-a-number', Infinity, {}]) expect(researchYenValue(value)).toBe('未確認')
+    expect(exact).toBe('2694.969163526429267164050093')
+    const review = { ...assessment('A').review, recalculated_projections: [{ name: 'base', terminal_value_per_share_yen: exact, cash_distribution_per_share_yen: '0' }] }
+    const before = JSON.stringify(review)
+    const html = renderToStaticMarkup(createElement(AssessmentReviewContent, { review }))
+    expect(html).toContain('分配後の価値 2,694.97 円')
+    expect(html).toContain('今後の累積分配 0 円')
+    expect(html).toContain('表示のみ小数2桁まで')
+    expect(html).toContain('wrap-anywhere')
+    expect(JSON.stringify(review)).toBe(before)
   })
 })
