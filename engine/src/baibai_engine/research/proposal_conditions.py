@@ -118,6 +118,13 @@ def terms_unavailable_reasons(
             )
         )
     if item.action == "sell":
+        if any(reservation.ticker == item.ticker for reservation in inputs.active_reservations):
+            reasons.append(
+                GateReason(
+                    code="active_reservation_exists",
+                    message="同銘柄の既存注文の処理確認が必要です。",
+                )
+            )
         position = next((row for row in inputs.positions if row.ticker == item.ticker), None)
         if (
             position is None
