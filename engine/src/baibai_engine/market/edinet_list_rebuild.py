@@ -18,7 +18,7 @@ from baibai_engine.market.edinet_list_projection import (
     project_document_list,
 )
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.storage.observations.convert import date_iso, first, to_str_or_none
+from baibai_engine.market.normalization import date_iso, first, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,

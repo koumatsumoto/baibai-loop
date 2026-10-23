@@ -9,6 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.market.financial_documents import required_disclosure_number
+from baibai_engine.market.jquants_contract import (
+    ALL_ISSUES_DAILY_MARGIN_SOURCE,
+    MARGIN_ALERT_OPERATION,
+    MARGIN_ALERT_SOURCE,
+    SHORT_SALE_REPORT_OPERATION,
+    SHORT_SALE_REPORT_SOURCE,
+    WEEKLY_MARGIN_SOURCE,
+    all_issues_daily_margin_coverage_key,
+    weekly_margin_coverage_key,
+)
 from baibai_engine.market.jquants_decode import normalize_ex_right_type, provider_record_payload
 from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
@@ -19,7 +29,7 @@ from baibai_engine.market.master_snapshot import (
     master_coverage_key,
     validate_master_snapshot,
 )
-from baibai_engine.storage.observations.convert import (
+from baibai_engine.market.normalization import (
     NormalizedRows,
     code_quality,
     date_iso,
@@ -31,16 +41,6 @@ from baibai_engine.storage.observations.coverage import (
     delete_date_range,
     record_range_source_coverage,
     record_source_coverage,
-)
-from baibai_engine.storage.observations.jquants_contract import (
-    ALL_ISSUES_DAILY_MARGIN_SOURCE,
-    MARGIN_ALERT_OPERATION,
-    MARGIN_ALERT_SOURCE,
-    SHORT_SALE_REPORT_OPERATION,
-    SHORT_SALE_REPORT_SOURCE,
-    WEEKLY_MARGIN_SOURCE,
-    all_issues_daily_margin_coverage_key,
-    weekly_margin_coverage_key,
 )
 from baibai_engine.storage.observations.schema import open_connection
 

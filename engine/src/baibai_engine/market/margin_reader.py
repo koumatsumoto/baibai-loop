@@ -6,6 +6,14 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
+from baibai_engine.market.jquants_contract import (
+    ALL_ISSUES_DAILY_MARGIN_SOURCE,
+    MARGIN_ALERT_SOURCE,
+    SHORT_SALE_REPORT_SOURCE,
+    WEEKLY_MARGIN_SOURCE,
+    all_issues_daily_margin_coverage_key,
+    weekly_margin_coverage_key,
+)
 from baibai_engine.market.jquants_models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsMarginAlert,
@@ -19,14 +27,6 @@ from baibai_engine.market.margin_publication import (
 )
 from baibai_engine.storage.observations.convert import optional_date, optional_float
 from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.jquants_contract import (
-    ALL_ISSUES_DAILY_MARGIN_SOURCE,
-    MARGIN_ALERT_SOURCE,
-    SHORT_SALE_REPORT_SOURCE,
-    WEEKLY_MARGIN_SOURCE,
-    all_issues_daily_margin_coverage_key,
-    weekly_margin_coverage_key,
-)
 from baibai_engine.storage.observations.schema import connect_current
 
 MarginCadence = Literal["weekly", "daily"]
