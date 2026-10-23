@@ -150,7 +150,9 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
     assert row["saved_terms"] == published.items[0].terms.model_dump(mode="json")
     expected = ["active_reservation_exists"] if blocked else []
     assert [reason["code"] for reason in row["blockers"]] == expected
-    assert [reason["code"] for reason in row["saved_limit_revalidation"]["hard_blockers"]] == expected
+    assert [
+        reason["code"] for reason in row["saved_limit_revalidation"]["hard_blockers"]
+    ] == expected
     assert preview.current_inputs.active_reservations[0].ticker == ticker
 
     if not blocked:
