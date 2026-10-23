@@ -35,6 +35,8 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 ## データ完全性
 
+歴史入力の回復可否と測定規約の具体例は[有限pilot](../../reports/studies/2026-10-23-historical-recovery-pilot/report.md)を参照する。原本の取得成功、権利・株数basisの接続、PIT入力の復元、数値較正への採用はそれぞれ別の判定である。
+
 panel は cohort as-of 以下の最新 `eq_master` snapshot を優先する。それがない場合、reader は最初の保存断面を `future_snapshot` と明示して診断用に読む。`exact_date` 以外の断面を当時の母集団と同一視せず、prior / future / unavailable の状態を diagnostics に残す。正式な較正文脈の生成では同日断面と母集団・入力の完全性を要求し、未来断面による診断を現行methodの実証へ昇格させない。
 
 `evidence_readiness`は、現在のsnapshotが保持するpanel / forward / diagnosticsの
@@ -44,7 +46,7 @@ snapshot identity や bytes は保持せず、将来の code で完全再実行�
 
 forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`、破綻型の上場廃止による `resolved_failure_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 3 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
-財務サマリーの購読窓は 10 年の移動窓であり、store が読み取りを許す最古の日付は日々進む。panel の履歴窓（正規化 EPS 2,200 日、株主還元 1,200 日）はこの下限で切られるので、下限に近い古い cohort ほど履歴が短く、必要な期数に届かない値は null で出る。窓が通り過ぎた行は table に残るが読まない。**下限は store が持つ最古の行ではなく coverage が答える範囲から取る。** 両者は同じ「履歴の始まり」を指しながら別の量であり、行の側を採ると source が出せない範囲を要求して全 cohort が構築不能になる。
+財務サマリーの履歴範囲はproviderの契約権限と取得済みcoverageに依存し、移動窓の下限は日々進む。10年は全プラン共通の保証ではなく、取得できた最古の行だけで契約名や完全性を推定しない。panel の履歴窓（正規化 EPS 2,200 日、株主還元 1,200 日）はこの下限で切られるので、下限に近い古い cohort ほど履歴が短く、必要な期数に届かない値は null で出る。窓が通り過ぎた行は table に残るが読まない。**下限は store が持つ最古の行ではなく coverage が答える範囲から取る。** 両者は同じ「履歴の始まり」を指しながら別の量であり、行の側を採ると source が出せない範囲を要求して全 cohort が構築不能になる。
 
 <a id="coverage-verdicts"></a>
 

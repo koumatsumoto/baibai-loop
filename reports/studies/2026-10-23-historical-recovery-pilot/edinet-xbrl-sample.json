@@ -1,0 +1,57 @@
+{
+  "doc_id": "S100GJSZ",
+  "received_at": "2026-10-23T06:03:24.007621+00:00",
+  "http_status": 200,
+  "content_type": "application/octet-stream",
+  "bytes": 826583,
+  "sha256": "5872592c0b6c0df51732814dcb41623b97fac0f9cc43a7579eaa41a74ed230a0",
+  "primary_file": "XBRL/PublicDoc/jpcrp030000-asr-001_E04779-000_2019-03-31_01_2019-07-29.xbrl",
+  "filing_date": "2019-07-29",
+  "edinet_code": "E04779",
+  "current_start": "2018-04-01",
+  "current_end": "2019-03-31",
+  "eps_tag": "jpcrp_cor:BasicEarningsLossPerShareIFRSSummaryOfBusinessResults",
+  "unitRef": "JPYPerShares",
+  "unit": "iso4217:JPY / xbrli:shares",
+  "decimals": "2",
+  "entity": "E04779-000",
+  "explicit_dimensions": [],
+  "eps": [
+    {
+      "contextRef": "Prior4YearDuration",
+      "startDate": "2014-04-01",
+      "endDate": "2015-03-31",
+      "value": "206.53",
+      "issuer_pdf_value": "206.53"
+    },
+    {
+      "contextRef": "Prior3YearDuration",
+      "startDate": "2015-04-01",
+      "endDate": "2016-03-31",
+      "value": "279.71",
+      "issuer_pdf_value": "279.71"
+    },
+    {
+      "contextRef": "Prior2YearDuration",
+      "startDate": "2016-04-01",
+      "endDate": "2017-03-31",
+      "value": "281.69",
+      "issuer_pdf_value": "281.69"
+    },
+    {
+      "contextRef": "Prior1YearDuration",
+      "startDate": "2017-04-01",
+      "endDate": "2018-03-31",
+      "value": "274.26",
+      "issuer_pdf_value": "274.26"
+    },
+    {
+      "contextRef": "CurrentYearDuration",
+      "startDate": "2018-04-01",
+      "endDate": "2019-03-31",
+      "value": "165.69",
+      "issuer_pdf_value": "165.69"
+    }
+  ],
+  "verified_scope": "document identifiers, period and five EPS values only; not full parser or correction history"
+}

@@ -1,0 +1,9 @@
+ticker	horizon	panel_present	in_population	finite_declared_ER	declared_forward_present	total_return_missing	missing_and_stale_exit	missing_stale_with_window_metadata
+9437	3y	11	11	11	11	11	11	11
+9437	5y	11	11	11	11	11	11	11
+8586	3y	14	14	14	14	14	14	14
+8586	5y	14	14	14	14	14	14	14
+6628	3y	19	17	6	6	0	0	0
+6628	5y	19	17	6	6	0	0	0
+1973	3y	19	19	17	17	12	0	0
+1973	5y	19	19	17	17	12	0	0
