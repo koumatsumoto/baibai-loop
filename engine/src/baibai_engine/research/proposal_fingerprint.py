@@ -7,8 +7,8 @@ from decimal import Decimal
 from hashlib import sha256
 from typing import Any
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.research.proposal import ProposalInputs
-from baibai_engine.storage.application.json import canonical_json
 
 
 def _fact_value(value: object) -> Any:

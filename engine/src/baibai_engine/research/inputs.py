@@ -13,7 +13,6 @@ from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
-from baibai_engine.market_context.technical_query import technical_analysis
 from baibai_engine.research.market_context.projection import assessment_projection
 from baibai_engine.research.market_context.query import latest_assessment
 from baibai_engine.research.selection import (
@@ -23,6 +22,7 @@ from baibai_engine.research.selection import (
     ResearchSelection,
     selection_targets,
 )
+from baibai_engine.technical_analysis.query import technical_analysis
 from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 from baibai_engine.valuation.query import (
     balance_sheet_from_analysis,

@@ -10,16 +10,13 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from tests.helpers.assessment_v1 import (
-    NOW,
-    assessment_id,
-    pair_payload,
-)
+from tests.helpers.assessment_v1 import NOW, assessment_id, pair_payload
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.research.assessment_store import publish_reviewed_assessment
 from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
 from baibai_engine.research.operation.models import OperationPayload
@@ -38,7 +35,6 @@ from baibai_engine.research.operation.service import (
 )
 from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
 from baibai_engine.research.proposal_query import load_investment_proposal
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 

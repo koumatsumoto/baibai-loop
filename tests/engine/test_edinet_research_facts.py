@@ -21,7 +21,10 @@ from baibai_engine.market.edinet_facts.selection import (
     latest_annual_filing,
     usable_document,
 )
-from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
+from baibai_engine.market.edinet_facts.service import (
+    extract_edinet_facts_command,
+    refresh_edinet_facts_command,
+)
 from baibai_engine.market.edinet_facts.store import (
     document_inventory,
     extraction_status,
@@ -32,7 +35,6 @@ from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.screening.cli import app
-from baibai_engine.screening.cli.edinet_cli import refresh_edinet_facts_command
 from baibai_engine.storage.observations.schema import open_connection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
@@ -434,9 +436,9 @@ def test_research_facts_stop_after_rate_limit_without_planning_later_documents(
     requested = []
     planned = []
 
-    from baibai_engine.screening.cli import edinet_cli
+    from baibai_engine.market.edinet_facts import service
 
-    original_plan = edinet_cli.plan_fact_item
+    original_plan = service.plan_fact_item
 
     def track_plan(doc, **kwargs):
         planned.append(doc["docID"])
@@ -448,7 +450,7 @@ def test_research_facts_stop_after_rate_limit_without_planning_later_documents(
             raise EdinetRateLimitError("rate limited")
         return _retain_xbrl(path, doc_id)
 
-    monkeypatch.setattr(edinet_cli, "plan_fact_item", track_plan)
+    monkeypatch.setattr(service, "plan_fact_item", track_plan)
     provider.download_xbrl_zip.side_effect = download
     output = io.StringIO()
     assert (

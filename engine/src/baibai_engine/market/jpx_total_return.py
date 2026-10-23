@@ -8,7 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market_context.observations import benchmark
+from baibai_engine.market import benchmark_observation as benchmark
 
 
 class BenchmarkObservationError(ValueError):

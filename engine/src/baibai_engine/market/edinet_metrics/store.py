@@ -14,8 +14,8 @@ from baibai_engine.market.edinet_decode import normalize_metric_record
 from baibai_engine.market.edinet_document_store import read_stored_documents
 from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.storage.observations.coverage import date_covered
 from baibai_engine.storage.observations.schema import connect_current
-from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
 
 class EDINETMetricBaselineError(RuntimeError):

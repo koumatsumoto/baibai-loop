@@ -10,7 +10,7 @@ date: 2026-08-17
 
 本書の「現行」は2026-08-17の比較対象を指す。旧module名・当時の採否と数値は履歴として残し、現在の算術は[Valuation metrics](../../../docs/reference/valuation-metrics.md)を参照する。
 
-[事前登録](./preregistration.md)に従い、81 cohort を横に並べて月次の倍率履歴を作り、それを anchor にした E[r] と現行 E[r] を比べた。**結論は H2 — 現行の anchor を維持する。**
+[事前登録](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/reports/studies/2026-08-17-self-range-vs-multiple-history/preregistration.md)に従い、81 cohort を横に並べて月次の倍率履歴を作り、それを anchor にした E[r] と現行 E[r] を比べた。**結論は H2 — 現行の anchor を維持する。**
 
 ## 1. 前提の確認
 

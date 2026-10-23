@@ -19,9 +19,9 @@ from baibai_batch.storage.merge_market_store import (
     merge_stores,
 )
 from baibai_engine.market.edinet_facts.models import filing_identity
+from baibai_engine.market.jquants_writer import store_jquants_short_sale_reports
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
@@ -961,7 +961,7 @@ def test_shared_clean_financial_claim_is_checked_before_target_wins(tmp_path, so
 
 @pytest.mark.parametrize("newer_side", ["source", "target"])
 def test_short_sale_partial_refetch_cannot_be_relabelled_complete_by_merge(tmp_path, newer_side):
-    from baibai_engine.storage.observations.reader import read_short_sale_reports
+    from baibai_engine.market.margin_reader import read_short_sale_reports
 
     stores = {name: _store(tmp_path / f"{name}.sqlite") for name in ("source", "target")}
     day = date(2026, 8, 1)

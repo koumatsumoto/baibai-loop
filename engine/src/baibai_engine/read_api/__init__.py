@@ -18,12 +18,8 @@ from baibai_engine.foundation.repository_layout import (
     repository_root_error,
 )
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market_context.master import read_master_snapshot as market_master_snapshot
-from baibai_engine.position.ledger import (
-    HoldingSnapshot,
-    PortfolioLedgerError,
-    PortfolioSnapshot,
-)
+from baibai_engine.market.jquants_reader import read_master_snapshot as market_master_snapshot
+from baibai_engine.position.ledger import HoldingSnapshot, PortfolioLedgerError, PortfolioSnapshot
 
 from .freshness import (
     application_db_updated_at,

@@ -11,7 +11,7 @@ from datetime import date
 import pytest
 from pydantic import TypeAdapter
 
-from baibai_engine.market_context.prices import read_price_bars
+from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
@@ -49,6 +49,7 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
     [
         "market_context.history",
         "market_context.margin",
+        "technical_analysis.calculations",
     ],
 )
 def test_market_context_calculation_cold_import_does_not_load_composition_or_io(module) -> None:
@@ -72,9 +73,9 @@ def test_market_context_calculation_cold_import_does_not_load_composition_or_io(
         "baibai_engine.research",
         "baibai_engine.read_api",
         "baibai_engine.storage",
-        "baibai_engine.market.providers",
-        "baibai_engine.market.store",
-        "baibai_engine.market_context.prices",
+        "baibai_engine.market.edinet_metrics.csv",
+        "baibai_engine.market.price_reader",
+        "baibai_engine.market.adjusted_prices",
     )
     assert not [name for name in modules if name.startswith(forbidden)]
 

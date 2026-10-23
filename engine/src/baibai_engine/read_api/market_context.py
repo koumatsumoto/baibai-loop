@@ -9,13 +9,10 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.redaction import redact_credentials
+from baibai_engine.market.jquants_reader import MasterSnapshot
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.master import MasterSnapshot
 from baibai_engine.market_context.reading.observations import UnavailableObservationError
-from baibai_engine.market_context.reading.query import (
-    READING_RULES_PATH,
-    reading_snapshot,
-)
+from baibai_engine.market_context.reading.query import READING_RULES_PATH, reading_snapshot
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.market_context.security import (
     build_security_market_context,
@@ -33,11 +30,7 @@ from baibai_engine.research.market_context.query import (
     list_assessment_payloads,
 )
 
-from .sqlite import (
-    connect_read_only,
-    is_unwritten_store,
-    read_rows,
-)
+from .sqlite import connect_read_only, is_unwritten_store, read_rows
 
 type IndicatorGranularity = Literal["daily", "weekly", "monthly", "yearly"]
 

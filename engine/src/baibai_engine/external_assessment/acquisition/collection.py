@@ -24,6 +24,7 @@ from baibai_engine.external_assessment.normalization import (
     monex,
     rakuten,
 )
+from baibai_engine.external_assessment.normalization.decode import parse_source_html
 from baibai_engine.external_assessment.observations.identity import (
     PAIR_ACQUISITION_POLICY_VERSION,
 )
@@ -196,9 +197,6 @@ def collect(
                         if source == "monex":
                             url = monex.public_url(ticker)
                             html, received, _ = receive(url, role="page")
-                            observation: Observation = monex.parse_html(
-                                html, ticker=ticker, source_url=url, fetched_at_utc=received
-                            )
                         elif source == "minkabu":
                             url = minkabu.public_url(ticker)
                             try:
@@ -210,15 +208,9 @@ def collect(
                                 # explicit public "対象外" display can become normal-null.
                                 url = minkabu.profile_url(ticker)
                                 html, received, _ = receive(url, role="page")
-                            observation = minkabu.parse_html(
-                                html, ticker=ticker, source_url=url, fetched_at_utc=received
-                            )
                         elif source == "kabumap":
                             url = kabumap.public_url(ticker)
                             html, received, _ = receive(url, role="page")
-                            observation = kabumap.parse_html(
-                                html, ticker=ticker, source_url=url, fetched_at_utc=received
-                            )
                         else:
                             url = rakuten.public_url(ticker)
                             html, _, page_receipt_id = receive(url, role="page")
@@ -226,9 +218,13 @@ def collect(
                             html, received, _ = receive(
                                 url, role="iframe", parent_receipt_id=page_receipt_id
                             )
-                            observation = rakuten.parse_html(
-                                html, ticker=ticker, source_url=url, fetched_at_utc=received
-                            )
+                        observation = parse_source_html(
+                            html,
+                            source=source,
+                            ticker=ticker,
+                            source_url=url,
+                            fetched_at_utc=received,
+                        )
                         observations.append(observation)
                         outcomes.append(
                             CollectionOutcome(

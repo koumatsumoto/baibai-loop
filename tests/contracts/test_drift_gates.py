@@ -5,12 +5,10 @@ from pathlib import Path
 
 import pytest
 from tools.quality.drift import (
-    check_cli_doc,
     check_cli_help,
     check_documented_commands,
     check_markdown_links,
     check_repository_paths,
-    check_skill_inventory,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,38 +41,6 @@ def test_markdown_link_gate_scans_store_docs(tmp_path: Path) -> None:
     assert check_markdown_links.check(tmp_path) == [
         "stores/README.md: missing Markdown link target ./missing.md"
     ]
-
-
-def test_cli_doc_gate_rejects_missing_and_phantom_commands(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        "[project]\n[project.scripts]\nbaibai-engine = 'pkg:main'\n", encoding="utf-8"
-    )
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    (docs / "architecture.md").write_text("## Stable CLI\n`baibai-web`\n", encoding="utf-8")
-    assert check_cli_doc.check(tmp_path) == [
-        "docs/architecture.md: missing CLI baibai-engine",
-        "docs/architecture.md: unknown CLI baibai-web",
-    ]
-
-
-def test_skill_inventory_gate_rejects_unexpected_and_missing_skills(tmp_path: Path) -> None:
-    canonical = tmp_path / ".agents" / "skills"
-    canonical.mkdir(parents=True)
-    (canonical / "decision-cycle").mkdir()
-    errors = check_skill_inventory.check(tmp_path)
-    assert any("expected exact inventory" in error for error in errors)
-    assert any("decision-cycle" in error for error in errors)
-
-
-def test_skill_inventory_gate_rejects_canonical_symlink(tmp_path: Path) -> None:
-    skill = tmp_path / ".agents" / "skills" / "decision-cycle"
-    external = tmp_path / "external.md"
-    skill.mkdir(parents=True)
-    external.write_text("secret\n", encoding="utf-8")
-    (skill / "SKILL.md").symlink_to(external)
-    errors = check_skill_inventory.check(tmp_path)
-    assert any("canonical skill tree must not contain symlinks" in error for error in errors)
 
 
 def test_markdown_link_gate_rejects_missing_anchor(tmp_path: Path) -> None:
@@ -247,12 +213,13 @@ def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None
     """手順の途中に 1 行で置かれた command も、fenced block と同じ実行対象である。"""
 
     _skill(
-        tmp_path, "差分は `uv run python -m baibai_engine.research_watch --asof <A>` で確認する。\n"
+        tmp_path,
+        "差分は `uv run python -m baibai_engine.research.price_watch --asof <A>` で確認する。\n",
     )
     assert check_documented_commands.check(tmp_path) == [
         (
             ".agents/skills/demo/SKILL.md: "
-            "`uv run python -m baibai_engine.research_watch --asof <A>` omits required --sqlite-path"
+            "`uv run python -m baibai_engine.research.price_watch --asof <A>` omits required --sqlite-path"
         )
     ]
 
@@ -272,7 +239,7 @@ def test_documented_command_gate_rejects_the_removed_proposal_domain(
 def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -> None:
     _skill(
         tmp_path,
-        "```bash\nuv run python -m baibai_engine.research_watch \\\n"
+        "```bash\nuv run python -m baibai_engine.research.price_watch \\\n"
         "  --sqlite-path stores/market/market.sqlite --asof <A>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == []
@@ -293,10 +260,10 @@ def test_markdown_link_gate_scans_dated_reports(tmp_path: Path) -> None:
     ("options", "valid"),
     [("--mirror stores", False), ("--root <MIRROR>", True), ("--root=<MIRROR>", True), ("", True)],
 )
-def test_inventory_reference_rejects_unknown_leaf_options(
+def test_operations_inventory_rejects_unknown_leaf_options(
     tmp_path: Path, options: str, valid: bool
 ) -> None:
-    path = tmp_path / "docs/reference/market-lake.md"
+    path = tmp_path / "batch/OPERATIONS.md"
     path.parent.mkdir(parents=True)
     path.write_text(f"```bash\nuv run baibai-engine lake inventory {options}\n```\n")
     errors = check_documented_commands.check(tmp_path)

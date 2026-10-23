@@ -33,7 +33,6 @@ from baibai_engine.collection.economic.sources import require_source
 from baibai_engine.collection.economic.store import open_read_only_connection
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
-from baibai_engine.storage.application.write import initialize_database as initialize_application
 
 IDS = ("jp.foreign_flows", "jp.topix", "vix")
 DAY = date(2026, 7, 24)
@@ -344,8 +343,6 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
     definitions = load_definitions()
     by_id = definitions.by_id()
     database = tmp_path / "indicators.sqlite"
-    application = tmp_path / "application.sqlite"
-    initialize_application(application)
     source_ids = [by_id[series_id].source_id for series_id in IDS]
 
     def full_response(sid, url):
@@ -401,6 +398,6 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
-    assert validate_stores(["--db", str(database), "--app-db", str(application)]) == 0
+    assert validate_stores(["--db", str(database)]) == 0
     assert "ok:" in capsys.readouterr().out
     assert len(wire.calls) == 6

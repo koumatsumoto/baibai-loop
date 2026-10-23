@@ -1,5 +1,7 @@
 """Physical L1 contract for received TradingView MCP tool results."""
 
+BATCH_TOOL = "mcp-tv-get-symbol-data-batch"
+
 TRADINGVIEW_SOURCE_RECEIPTS_DDL = """
 CREATE TABLE IF NOT EXISTS tradingview_source_receipts(
   receipt_id TEXT NOT NULL PRIMARY KEY,

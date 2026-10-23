@@ -452,3 +452,14 @@ def missing_intervals(
     if cursor <= end:
         gaps.append((cursor, end))
     return tuple(gaps)
+
+
+def date_covered(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
+    """True when a successful `source_coverage` row spans `on_date`."""
+    iso = on_date.isoformat()
+    cursor = conn.execute(
+        "SELECT 1 FROM source_coverage WHERE source = ? "
+        "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
+        (source, iso, iso),
+    )
+    return cursor.fetchone() is not None

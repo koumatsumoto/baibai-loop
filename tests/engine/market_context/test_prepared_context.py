@@ -9,7 +9,7 @@ import pytest
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.market_context.master import read_master_snapshot
+from baibai_engine.market.jquants_reader import read_master_snapshot
 from baibai_engine.market_context.security import (
     build_security_market_context,
     build_security_market_contexts,

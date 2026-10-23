@@ -10,6 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.foundation.time import JST
@@ -37,7 +38,6 @@ from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_s
 from baibai_engine.research.proposal_query import load_investment_proposal
 from baibai_engine.research.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.research.selection_query import verify_analysis_snapshot
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database

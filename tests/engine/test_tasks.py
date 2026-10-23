@@ -11,8 +11,8 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_tasks
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.read_api.sqlite import connect_read_only
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.task_cli import main as task_main
 from baibai_engine.tasks.models import Task

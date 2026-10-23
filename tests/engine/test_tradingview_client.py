@@ -9,7 +9,7 @@ import pytest
 from mcp.types import CallToolResult, TextContent
 
 from baibai_engine.collection.tradingview.client import fetch_batch
-from baibai_engine.collection.tradingview.tool import BATCH_TOOL
+from baibai_engine.collection.tradingview.contract import BATCH_TOOL
 from baibai_engine.external_assessment.tradingview.decode import decode_tool_result
 
 SCANNER_ERROR = (

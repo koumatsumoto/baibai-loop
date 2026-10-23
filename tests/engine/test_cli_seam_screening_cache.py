@@ -39,6 +39,7 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bar
 from baibai_engine.collection.edinet.archives import retain_source_archive
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.screening.cli import app
@@ -48,12 +49,9 @@ from baibai_engine.screening.cli.cache import (
 )
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.cli.valuation_catalyst_cli import backfill_edinet_identity_command
-from baibai_engine.screening.metrics.snapshot import (
+from baibai_engine.screening.metric_builder import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-)
-from baibai_engine.storage.observations.ingest.edinet import (
-    store_edinet_metrics,
 )
 from baibai_engine.storage.observations.schema import open_connection
 

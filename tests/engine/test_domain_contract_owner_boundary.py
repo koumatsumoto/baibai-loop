@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
     [
         "valuation.calibration.contracts",
         "valuation.calibration.query",
-        "market_context.observations.benchmark",
+        "market.benchmark_observation",
     ],
 )
 def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(module) -> None:
@@ -53,10 +53,16 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
         "baibai_engine.market",
         "baibai_engine.position",
     )
+    own_market_modules = (
+        {"baibai_engine.market", "baibai_engine.market.benchmark_observation"}
+        if module == "market.benchmark_observation"
+        else set()
+    )
     assert not [
         name
         for name in json.loads(result.stdout)
-        if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+        if name not in own_market_modules
+        and any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
     ]
 
 

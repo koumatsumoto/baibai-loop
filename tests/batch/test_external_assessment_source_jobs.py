@@ -41,11 +41,10 @@ from baibai_engine.batch_api import (
     external_assessment_collector_binding,
     external_assessment_decode_attempt,
     external_assessment_history_digests,
-    hydrate_market_store,
     lake_session,
     read_lake_store_origin,
 )
-from baibai_engine.storage.lake.hydrate import dehydrate_market_store
+from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
 
 
 def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch):

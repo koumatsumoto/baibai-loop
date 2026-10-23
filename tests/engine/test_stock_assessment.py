@@ -16,6 +16,7 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.research.assessment import (
     AssessmentRef,
     AssessmentReview,
@@ -35,7 +36,6 @@ from baibai_engine.research.assessment_store import (
     publish_reviewed_assessment,
     require_assessment_ref,
 )
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.schema import SCHEMA_SQL
 
 

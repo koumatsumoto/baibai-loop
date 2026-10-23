@@ -11,8 +11,9 @@ from datetime import date, timedelta
 from enum import StrEnum
 from pathlib import Path
 
+from baibai_engine.market.adjusted_prices import read_price_bars
+
 from .history import trailing_return
-from .prices import read_price_bars
 
 NIKKEI225_ETF_PROXY = "1321"
 

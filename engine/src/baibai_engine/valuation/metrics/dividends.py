@@ -16,11 +16,9 @@ from baibai_engine.market.financial_documents import (
     statement_basis,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.price_basis import cumulative_share_unit_factor_after, share_unit_factor
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.price_basis import cumulative_share_unit_factor_after, share_unit_factor
-from baibai_engine.valuation.metrics.capital import (
-    _normalize_summaries_to_asof_basis,
-)
+from baibai_engine.valuation.metrics.capital import _normalize_summaries_to_asof_basis
 from baibai_engine.valuation.metrics.models import (
     UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
     UNRESOLVED_DIVIDEND_BASIS,

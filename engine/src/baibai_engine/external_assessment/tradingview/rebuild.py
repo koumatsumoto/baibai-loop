@@ -8,8 +8,8 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.collection.tradingview.contract import BATCH_TOOL
 from baibai_engine.collection.tradingview.receipts import read_tool_results
-from baibai_engine.collection.tradingview.tool import BATCH_TOOL
 from baibai_engine.external_assessment.tradingview.collector import (
     SourceDataError,
     calendar_context,

@@ -19,11 +19,9 @@ from baibai_engine.market.edinet_list_projection import (
     document_list_rechecked_asof,
     project_document_list,
 )
+from baibai_engine.market.edinet_list_rebuild import store_edinet_document_projection
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.storage.observations.ingest.edinet import (
-    store_edinet_document_projection,
-)
 from baibai_engine.storage.observations.schema import open_connection
 
 _DAY = date(2026, 10, 15)

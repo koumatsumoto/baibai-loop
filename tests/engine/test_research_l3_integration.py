@@ -28,6 +28,7 @@ from baibai_engine.external_assessment.observations.models import (
 )
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.external_assessment.store import save_observations
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.assessment import (
@@ -57,7 +58,6 @@ from baibai_engine.research.workspace import (
     promote,
     resume_selected_workspace,
 )
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.read import connect_read_only
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")

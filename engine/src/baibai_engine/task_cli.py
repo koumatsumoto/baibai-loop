@@ -118,7 +118,7 @@ def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today
 
     This never writes. Both published dates and estimates can change. The comparison
     names the difference; an explicit `task edit` applies a reviewed change under
-    the task 規約 (ops-maintenance skill).
+    the task 規約 (batch/OPERATIONS.md).
     """
     published = read_next_earnings_dates(args.sqlite_path, today)
     if published is None:
