@@ -27,6 +27,7 @@ jobs:
   # Python gates share one dependency setup. The opt-in OAuth smoke is isolated
   # in its own credential-bearing environment.
   quality:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/verify/1580-sell-baseline' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -130,6 +131,24 @@ jobs:
           uv run pip-audit \
             -r /tmp/baibai-loop-build-requirements.txt
 
+  sell_reservation_baseline:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/verify/1580-sell-baseline' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - name: Sync
+        run: uv sync --locked --all-groups
+      - name: Sell reservation baseline assertions
+        env:
+          TMPDIR: /dev/shm
+        run: uv run pytest -n 4 --maxfail=0 -vv tests/engine/test_sell_reservation_readiness.py
 
   tradingview_oauth_smoke:
     needs: quality
