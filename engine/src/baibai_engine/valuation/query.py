@@ -29,6 +29,8 @@ class MachineValuation:
     assumptions: str | None
     market_price_yen: float | None
     dividend_yield: float | None
+    dps_actual_annual: float | None
+    dps_forecast_annual: float | None
     dividend_basis: str | None
     net_share_change_yoy: float | None
     carry_missing_assumption: str | None
@@ -50,6 +52,8 @@ def machine_valuation_from_analysis(analysis: Mapping[str, object]) -> MachineVa
         assumptions=_text(metrics.get("er_assumptions")),
         market_price_yen=_number(metrics.get("market_price_yen")),
         dividend_yield=_number(metrics.get("dividend_yield")),
+        dps_actual_annual=_number(metrics.get("dps_actual_annual")),
+        dps_forecast_annual=_number(metrics.get("dps_forecast_annual")),
         dividend_basis=_text(metrics.get("dividend_basis")),
         net_share_change_yoy=_number(metrics.get("net_share_change_yoy")),
         carry_missing_assumption=CARRY_MISSING_ASSUMPTION
