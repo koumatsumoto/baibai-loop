@@ -19,12 +19,12 @@ import yaml
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.benchmark_observation import BenchmarkObservation
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 from baibai_engine.market.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import (
