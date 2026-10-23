@@ -65,12 +65,7 @@ def read_rows(
 
 
 def read_store_if_written[T](path: Path, read: Callable[[], T]) -> T | None:
-    """Absent/unwritten stores are optional; corrupt or partially missing stores raise."""
-    if not path.is_file():
+    """Check absence before domain schema validation; every published read failure raises."""
+    if not path.is_file() or _database_is_unwritten(path):
         return None
-    try:
-        return read()
-    except sqlite3.OperationalError as error:
-        if not is_unwritten_store(error, path):
-            raise
-        return None
+    return read()

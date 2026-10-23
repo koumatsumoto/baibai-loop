@@ -20,7 +20,11 @@ from baibai_engine.storage.observations.ingest.jpx import (
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
 )
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.observations.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    open_connection,
+)
 
 
 @pytest.fixture
@@ -121,6 +125,22 @@ def test_optional_dates_require_current_successful_coverage(tmp_path: Path) -> N
     assert read_next_earnings_dates(path, date(2026, 5, 8)) is None
 
 
+@pytest.mark.parametrize("store", ["absent-file", "empty-file", "unwritten-header"])
+def test_optional_dates_treat_unwritten_storage_as_absent_without_initializing(
+    tmp_path: Path, store: str
+) -> None:
+    path = tmp_path / "market.sqlite"
+    if store == "empty-file":
+        sqlite3.connect(path).close()
+    elif store == "unwritten-header":
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("PRAGMA user_version = 0")
+        assert path.stat().st_size > 0
+    before = path.read_bytes() if path.exists() else None
+    assert read_next_earnings_dates(path, date(2026, 5, 8)) is None
+    assert (path.read_bytes() if path.exists() else None) == before
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -189,11 +209,26 @@ def test_legacy_coverage_does_not_override_current_schedule(calendar_path: Path)
     }
 
 
-def test_existing_partial_schema_is_not_unknown(tmp_path: Path) -> None:
+@pytest.mark.parametrize("store", ["unversioned-table", "versioned-empty", "obsolete-schema"])
+def test_existing_noncurrent_schema_is_not_unknown(tmp_path: Path, store: str) -> None:
     path = tmp_path / "market.sqlite"
+    if store == "obsolete-schema":
+        open_connection(path).close()
     with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute("CREATE TABLE another_table(value TEXT)")
+        if store == "unversioned-table":
+            connection.execute("CREATE TABLE another_table(value TEXT)")
+        else:
+            connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
     before = path.read_bytes()
     with pytest.raises(SQLiteSchemaError):
+        read_next_earnings_dates(path, date(2026, 5, 8))
+    assert path.read_bytes() == before
+
+
+def test_corrupt_file_is_not_unknown(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    before = b"not a SQLite database"
+    path.write_bytes(before)
+    with pytest.raises(sqlite3.DatabaseError):
         read_next_earnings_dates(path, date(2026, 5, 8))
     assert path.read_bytes() == before
