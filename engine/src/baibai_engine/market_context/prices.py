@@ -3,21 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.market import price_models
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.price_basis import asof_basis_closes, asof_basis_prices
 from baibai_engine.storage.observations.read import connect_read_only
-
-
-@dataclass(frozen=True, slots=True)
-class PriceBar:
-    traded_at: date
-    price: float
-    turnover_value: float | None
 
 
 def read_price_bars(
@@ -26,7 +19,7 @@ def read_price_bars(
     tickers: Sequence[str] | None = None,
     start: date,
     end: date,
-) -> dict[str, list[PriceBar]]:
+) -> dict[str, list[price_models.PriceBar]]:
     if tickers == ():
         return {}
     clause = ""
@@ -57,7 +50,7 @@ def read_price_bars(
                 float(turnover_value) if isinstance(turnover_value, int | float) else None,
             )
         )
-    bars: dict[str, list[PriceBar]] = {}
+    bars: dict[str, list[price_models.PriceBar]] = {}
     for ticker, entries in raw.items():
         valued = [
             (traded_at, close, turnover)
@@ -70,7 +63,7 @@ def read_price_bars(
             asof_date=end,
         )
         bars[ticker] = [
-            PriceBar(traded_at=traded_at, price=price, turnover_value=turnover)
+            price_models.PriceBar(traded_at=traded_at, price=price, turnover_value=turnover)
             for (traded_at, _, turnover), price in zip(valued, adjusted, strict=True)
         ]
     return bars

@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 
 type NextEarningsStatus = Literal["scheduled_date_reached", "scheduled", "estimated", "unknown"]
@@ -46,28 +45,6 @@ class EarningsLag:
     # None = 判定材料が無い: 予定日が未来 / カレンダー行が無い / 行に財務が無い。
     # False は「財務開示日が予定日の14日前以降」であり、同じ決算の発表確認ではない。
     stale_fin_flag: bool | None
-
-
-def index_calendar_announcements(
-    entries: Sequence[JPXEarningsCalendarEntry],
-) -> dict[str, date]:
-    """ticker ごとの発表予定日。
-
-    network 経路は ticker あたり 1 行を保証するが、cache の primary key は
-    ``(announcement_date, ticker)`` なので同じ ticker の 2 行を弾かない。黙って
-    どちらかが勝つと予定日の状態が静かに変わるので、見つけたら止める。
-    """
-
-    index: dict[str, date] = {}
-    for entry in entries:
-        seen = index.get(entry.ticker)
-        if seen is not None and seen != entry.announcement_date:
-            raise ValueError(
-                f"earnings calendar has conflicting rows for {entry.ticker}: "
-                f"{seen.isoformat()} and {entry.announcement_date.isoformat()}"
-            )
-        index[entry.ticker] = entry.announcement_date
-    return index
 
 
 def estimate_next_announcement(
@@ -248,7 +225,6 @@ __all__ = [
     "NextEarningsStatus",
     "build_earnings_lag",
     "estimate_next_announcement",
-    "index_calendar_announcements",
     "interpreted_next_earnings_status",
     "tickers_without_calendar_rows",
 ]

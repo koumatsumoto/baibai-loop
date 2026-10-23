@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.technical_query import technical_analysis
@@ -30,10 +31,7 @@ from baibai_engine.read_api.position import (
     summarize_portfolio,
 )
 from baibai_engine.screening.run_store import ScreeningRunReader
-from baibai_engine.storage.observations.reader import (
-    read_jpx_earnings_calendar_snapshot,
-    read_jpx_regulations,
-)
+from baibai_engine.storage.observations.reader import read_jpx_regulations
 from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 
 
@@ -190,17 +188,8 @@ def _load_stock_analysis_context(
 
 
 def _next_earnings_date(sqlite_path: Path, ticker: str, asof_date: date) -> str | None:
-    snapshot = read_jpx_earnings_calendar_snapshot(sqlite_path, asof_date)
-    if snapshot is None:
-        return None
-    next_date = min(
-        (
-            entry.announcement_date
-            for entry in snapshot.entries
-            if entry.ticker == ticker and entry.announcement_date >= asof_date
-        ),
-        default=None,
-    )
+    dates = read_next_earnings_dates(sqlite_path, asof_date)
+    next_date = None if dates is None else dates.get(ticker)
     return next_date.isoformat() if next_date is not None else None
 
 

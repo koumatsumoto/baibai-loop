@@ -1,4 +1,4 @@
-"""Task writer CLI."""
+"""Task CLI composition with optional market schedule reads outside the task domain."""
 
 from __future__ import annotations
 
@@ -13,9 +13,12 @@ import yaml
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-
-from .models import TaskKind, TaskStatus
-from .service import TaskService
+from baibai_engine.market.jpx_models import JPXProviderError
+from baibai_engine.market.jpx_reader import read_next_earnings_dates
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.tasks.earnings_reconcile import reconcile_earnings_dates
+from baibai_engine.tasks.models import TaskKind, TaskStatus
+from baibai_engine.tasks.service import TaskService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -104,7 +107,7 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
             _emit(service.edit(args.task_id, _edit_changes(args)).payload())
         else:  # pragma: no cover
             raise AssertionError(f"unreachable task command: {args.command}")
-    except (OSError, ValueError, sqlite3.Error) as error:
+    except (OSError, ValueError, sqlite3.Error, JPXProviderError, SQLiteSchemaError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
@@ -117,13 +120,10 @@ def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today
     names the difference; an explicit `task edit` applies a reviewed change under
     the task 規約 (ops-maintenance skill).
     """
-    from .earnings_reconcile import reconcile_earnings_dates
-    from .earnings_schedule import read_published_earnings_dates
-
-    published = read_published_earnings_dates(args.sqlite_path, today)
+    published = read_next_earnings_dates(args.sqlite_path, today)
     if published is None:
         print(
-            f"error: no earnings schedule stored in {args.sqlite_path}",
+            f"error: current earnings schedule unavailable in {args.sqlite_path}",
             file=sys.stderr,
         )
         return 1

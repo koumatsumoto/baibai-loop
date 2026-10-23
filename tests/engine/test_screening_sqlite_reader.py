@@ -16,7 +16,11 @@ from baibai_engine.market.edinet_metrics.store import (
     read_edinet_metric_baseline,
     read_edinet_metrics,
 )
-from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
+from baibai_engine.market.jpx_models import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+)
 from baibai_engine.market.store import read_daily_bars
 from baibai_engine.storage.observations.ingest.edinet import store_edinet_metrics
 from baibai_engine.storage.observations.ingest.jpx import store_jpx_earnings_calendar_snapshot
@@ -326,7 +330,7 @@ class ReadJPXEarningsCalendarTests(unittest.TestCase):
             self.assertEqual(snapshot.entries[0].ticker, "1301")
             self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 5, 15))
 
-    def test_returns_none_when_covered_whole_list_has_zero_rows(self) -> None:
+    def test_rejects_successful_whole_list_coverage_with_zero_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
@@ -345,7 +349,8 @@ class ReadJPXEarningsCalendarTests(unittest.TestCase):
                     ),
                 )
 
-            self.assertIsNone(read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8)))
+            with self.assertRaisesRegex(JPXProviderError, "row count mismatch"):
+                read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8))
 
 
 class ReadEDINETMetricBaselineTests(unittest.TestCase):

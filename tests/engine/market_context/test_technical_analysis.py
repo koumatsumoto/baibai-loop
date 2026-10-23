@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pytest
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.market_context.prices import PriceBar
+from baibai_engine.market.price_models import PriceBar
 from baibai_engine.market_context.technical import (
     bollinger_20bar,
     rsi_14bar,

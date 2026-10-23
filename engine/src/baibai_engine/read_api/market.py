@@ -8,6 +8,7 @@ from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market_context.prices import close_change_since
 from baibai_engine.storage.observations.read import connect_read_only
 
@@ -129,35 +130,14 @@ def latest_disclosure_dates_after(
 
 
 def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> dict[str, date]:
-    """Return each ticker's earliest scheduled JPX earnings announcement on/after ``asof``.
-
-    Reads the licensed market store's JPX earnings calendar read-only (physical table
-    ``jpx_earnings_calendar``, logical source ``jpx_earnings_calendar``). A missing
-    file or a ticker with no announcement on/after ``asof`` yields no entry, so callers
-    treat the earnings date as unknown rather than surfacing a stale schedule.
-    """
+    """Return requested current JPX dates; unavailable schedules yield no entries."""
 
     if not tickers:
         return {}
-    unique = list(dict.fromkeys(tickers))
-    placeholders = ",".join("?" for _ in unique)
-    # The f-string only expands "?" placeholders; every value is parameter-bound.
-    rows = read_rows(
-        path,
-        f"""
-            SELECT ticker, MIN(announcement_date) AS next_date
-            FROM jpx_earnings_calendar
-            WHERE ticker IN ({placeholders}) AND announcement_date >= ?
-            GROUP BY ticker
-            """,  # nosec B608
-        [*unique, asof.isoformat()],
-    )
-    result: dict[str, date] = {}
-    for row in rows:
-        if row[1] is None:
-            continue
-        result[str(row[0])] = date.fromisoformat(str(row[1]))
-    return result
+    dates = read_next_earnings_dates(path, asof)
+    if dates is None:
+        return {}
+    return {ticker: dates[ticker] for ticker in tickers if ticker in dates}
 
 
 __all__ = [
