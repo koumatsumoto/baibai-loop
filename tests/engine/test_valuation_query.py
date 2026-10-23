@@ -204,9 +204,17 @@ def test_unrecorded_forecast_sources_stay_missing(analysis):
     assert analysis == original
 
 
-@pytest.mark.parametrize("source", ["broken JSON", "null", "[]", {}])
-def test_malformed_saved_forecast_source_is_not_reported_as_unrecorded(source):
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        ("broken JSON", "Expecting value"),
+        ("null", "saved earnings_forecast_source must be a JSON object string"),
+        ("[]", "saved earnings_forecast_source must be a JSON object string"),
+        ({}, "saved earnings_forecast_source must be a JSON object string"),
+    ],
+)
+def test_malformed_saved_forecast_source_is_not_reported_as_unrecorded(source, message):
+    with pytest.raises(ValueError, match=message):
         forecast_sources_from_analysis({"metrics": {"earnings_forecast_source": source}})
 
 
