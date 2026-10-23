@@ -1,0 +1,65 @@
+{
+  "observed_at": "2026-10-23",
+  "requests": 5,
+  "http_status": 200,
+  "subscription_name_verified": false,
+  "jquants": [
+    {
+      "code": "8586",
+      "rows": 19,
+      "earliest_disclosed": "2016-10-26",
+      "latest_disclosed": "2021-02-05",
+      "pages": 1,
+      "remaining_cursor": false,
+      "fy_statement_end_years": [
+        2017,
+        2018,
+        2019,
+        2020
+      ]
+    },
+    {
+      "code": "4783",
+      "rows": 47,
+      "earliest_disclosed": "2016-10-28",
+      "latest_disclosed": "2026-08-07",
+      "pages": 1,
+      "remaining_cursor": false,
+      "fy_statement_end_years": [
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026
+      ]
+    }
+  ],
+  "edinet": {
+    "list_date": "2019-07-29",
+    "rows": 180,
+    "matching_edinet_code": "E04779",
+    "matches": 1,
+    "document_download": "verified_one_type1_zip",
+    "endpoint": "https://api.edinet-fsa.go.jp/api/v2/documents.json",
+    "query": {
+      "date": "2019-07-29",
+      "type": 2
+    }
+  },
+  "jpx": {
+    "bytes": 13530,
+    "sha256": "34d36a6f8cfba3f1e36d2f065bbc15fb1a584b677f02ed0fef4cba5723e5e58d",
+    "sheet": "指定履歴",
+    "physical_rows": 41,
+    "designation_records": 17,
+    "sample_records_2019_2021": 8,
+    "url": "https://www.jpx.co.jp/listing/measures/alert/tvdivq0000000i86-att/jp_History_2019-2023.xlsx"
+  },
+  "jquants_endpoint": "https://api.jquants.com/v2/fins/summary",
+  "jquants_query": "code only; one page per listed code"
+}
