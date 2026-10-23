@@ -220,7 +220,10 @@ from pathlib import Path
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.lake.reader import (
-    accepted_dataset, materialize_partitions, resolve_release, selected_partitions,
+    accepted_dataset,
+    materialize_partitions,
+    resolve_release,
+    selected_partitions,
 )
 
 source = LocalMirrorSource(Path("stores"))
@@ -228,7 +231,8 @@ release = resolve_release(source, "<RELEASE_ID>", manifest_sha256="<MANIFEST_SHA
 name = "edinet.documents"
 paths = materialize_partitions(
     LakeObjectCache(root=Path("stores"), source=source),
-    dataset=accepted_dataset(release, name), partitions=selected_partitions(release, name),
+    dataset=accepted_dataset(release, name),
+    partitions=selected_partitions(release, name),
 )
 with lake_session() as session:
     rows = session.connection.read_parquet([str(path) for path in paths]).fetchall()
