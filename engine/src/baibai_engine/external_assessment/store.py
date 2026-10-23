@@ -3,40 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date, datetime
 from pathlib import Path
-from typing import Any
 
-from baibai_engine.external_assessment.observations.contract import (
-    ANALYST_FORECAST_COLUMNS,
-    ANALYST_FORECAST_TABLE,
-    ANALYST_RATING_COLUMNS,
-    ANALYST_RATING_TABLE,
-    MODEL_VALUATION_COLUMNS,
-    MODEL_VALUATION_TABLE,
-    QUANTS_SCORE_COLUMNS,
-    QUANTS_SCORE_TABLE,
-)
-from baibai_engine.external_assessment.observations.models import (
-    AnalystForecastObservation,
-    AnalystRatingObservation,
-    ModelValuationObservation,
-    Observation,
-    QuantsScoreObservation,
-)
+from baibai_engine.external_assessment.observations.models import Observation
+from baibai_engine.external_assessment.observations.rows import observation_row
 from baibai_engine.storage.observations.schema import open_connection
 
 
 class ObservationConflictError(ValueError):
     """A replay changed an observation at the same immutable received-time key."""
-
-
-def _sql_value(value: Any) -> Any:
-    if isinstance(value, datetime):
-        return value.isoformat(timespec="microseconds")
-    if isinstance(value, date):
-        return value.isoformat()
-    return value
 
 
 def save_observations(sqlite_path: Path, observations: Sequence[Observation]) -> int:
@@ -49,19 +24,7 @@ def save_observations(sqlite_path: Path, observations: Sequence[Observation]) ->
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             for observation in observations:
-                if isinstance(observation, ModelValuationObservation):
-                    table, columns = MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS
-                elif isinstance(observation, AnalystRatingObservation):
-                    table, columns = ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS
-                elif isinstance(observation, AnalystForecastObservation):
-                    table, columns = ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS
-                elif isinstance(observation, QuantsScoreObservation):
-                    table, columns = QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS
-                else:
-                    raise TypeError("unsupported external assessment observation")
-                names = tuple(column[0] for column in columns)
-                payload = observation.model_dump()
-                values = tuple(_sql_value(payload[name]) for name in names)
+                table, names, values = observation_row(observation)
                 # Identifiers are leaf contract constants; observation values are bound.
                 existing = conn.execute(
                     f"SELECT {','.join(names)} FROM {table} WHERE ticker=? AND fetched_at_utc=?",  # nosec B608
