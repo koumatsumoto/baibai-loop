@@ -56,7 +56,7 @@ jobs:
         run: uv sync --locked --all-groups
 
       - name: Ruff format
-        run: uv run ruff format --check .
+        run: uv run ruff format --check --diff .
 
       - name: Ruff lint
         run: uv run ruff check .
