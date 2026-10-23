@@ -8,13 +8,14 @@ import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { ResearchNav } from '../components/ResearchNav'
+import { SavedAssessmentLink } from '../components/ReadingNavigation'
 import { AssessmentReviewContent, ReviewedAssessmentContent } from '../components/ReviewedAssessmentContent'
 import { SectionCard } from '../components/SectionCard'
 import { UpdatedAtBadge } from '../components/UpdatedAtBadge'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { formatJstStamp, formatNumber } from '../lib/format'
-import { savedAssessmentHref, useProposalReadingAnchor } from '../lib/reading-navigation'
+import { useProposalReadingAnchor } from '../lib/reading-navigation'
 import { ACTION_LABELS, RETURN_UNAVAILABLE_LABELS, proposalWarningLabel, researchRecord as record, researchReturnPct, researchText as text } from '../lib/research'
 
 function yen(value: string | number | null | undefined): string {
@@ -49,7 +50,7 @@ export function ProposalItemContent({ item, savedQuote, proposalId }: { item: In
     {item.action === 'defer' && <div className="grid gap-2 text-sm"><p className="font-medium">判断を保留する不足</p><ul className="list-inside list-disc">{item.blockers.map(reason => <li key={reason.code}>{reason.message}</li>)}</ul><p>再開条件: {item.resume_conditions.join(' / ')}</p></div>}
     <p className="text-sm">見直し条件: {item.review_conditions.join(' / ')}</p>
     <div className="grid gap-2 border-t pt-2">
-      {item.assessment_ref ? <Link className="inline-flex min-h-11 w-fit items-center text-sm underline" to={savedAssessmentHref(item.assessment_ref.assessment_id, proposalId)}>この提案が参照した評価・独立Reviewを読む →</Link> : <p className="text-sm text-muted-foreground">調査未完了のため、完成評価への参照はありません。</p>}
+      {item.assessment_ref ? <SavedAssessmentLink className="inline-flex min-h-11 w-fit items-center text-sm underline" assessmentId={item.assessment_ref.assessment_id} proposalId={proposalId} ticker={item.ticker}>この提案が参照した評価・独立Reviewを読む →</SavedAssessmentLink> : <p className="text-sm text-muted-foreground">調査未完了のため、完成評価への参照はありません。</p>}
       <Link className="inline-flex min-h-11 w-fit items-center text-sm underline" to={`/securities/${item.ticker}`}>最新の銘柄情報・評価を見る（提案当時とは別） →</Link>
     </div>
   </article>
@@ -64,7 +65,7 @@ export function ProposalAssessmentDetails({ item, proposalId }: { item: Investme
     <SectionCard padded title={`${item.ticker} · 保存評価の根拠`} description="この提案が参照した評価版です。最新評価へ付け替えません。">
       <p className="mb-4 break-all text-xs">Assessment: {item.assessment_ref.assessment_id} · Review: {item.assessment_ref.review_id}</p>
       {Object.keys(document).length > 0 ? <ReviewedAssessmentContent document={document} projection={projection} review={item.assessment_review} /> : <div className="grid gap-4"><p>参照評価の本文を表示できません。保存 ID から評価を確認してください。</p><AssessmentReviewContent review={item.assessment_review} />{item.assessment_review && <details><summary className="min-h-11 cursor-pointer py-2 text-sm">参照Reviewの保存JSON</summary><pre className="max-w-full overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(item.assessment_review, null, 2)}</pre></details>}</div>}
-      <Link className="mt-4 inline-flex min-h-11 items-center text-sm underline" to={savedAssessmentHref(item.assessment_ref.assessment_id, proposalId)}>保存した評価版を別ページで読む →</Link>
+      <SavedAssessmentLink className="mt-4 inline-flex min-h-11 items-center text-sm underline" assessmentId={item.assessment_ref.assessment_id} proposalId={proposalId} ticker={item.ticker}>保存した評価版を別ページで読む →</SavedAssessmentLink>
     </SectionCard>
   </details>
 }
@@ -166,6 +167,6 @@ export function InvestmentProposalPage() {
     <ProposalReviewContent review={data.review} proposalId={data.proposal_id} draftSha256={data.draft_sha256} />
     {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この提案が参照した市場環境評価を見る →</Link>}
     <CurrentProposalPreviewPanel key={data.proposal_id} proposalId={data.proposal_id} />
-    <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>
+    <Link className="inline-flex min-h-11 w-fit items-center text-sm underline" to="/stocks">提案一覧に戻る</Link>
   </PageShell>
 }

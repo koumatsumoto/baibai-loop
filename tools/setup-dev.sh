@@ -32,14 +32,13 @@ config = tomllib.loads(Path("pyproject.toml").read_text())
 uv = config["tool"]["uv"]["required-version"]
 if not re.fullmatch(r"==\d+\.\d+\.\d+", uv):
     raise SystemExit("Expected an exact [tool.uv].required-version")
-workflow = Path(".github/workflows/web.yml").read_text()
-versions = set(re.findall(r"^\s+node-version:\s*['\"]?(\d+)['\"]?\s*$", workflow, re.M))
-if len(versions) != 1:
-    raise SystemExit("Expected one Node.js major in the Web workflow")
-print(uv[2:], Path(".python-version").read_text().strip(), versions.pop())
+node = Path(".node-version").read_text().strip()
+if not re.fullmatch(r"\d+\.\d+\.\d+", node):
+    raise SystemExit("Expected an exact Node.js version in .node-version")
+print(uv[2:], Path(".python-version").read_text().strip(), node)
 PY
 )
-if [[ "$(node -p 'process.versions.node.split(".")[0]')" != "$required_node" ]]; then
+if [[ "$(node -p 'process.versions.node')" != "$required_node" ]]; then
   echo "Provision Node.js $required_node in the environment image, then retry." >&2
   exit 1
 fi

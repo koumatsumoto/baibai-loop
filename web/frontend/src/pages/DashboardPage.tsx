@@ -436,7 +436,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
             )}
           <div className="px-5 py-3 sm:px-6">
-            <Link className="text-sm font-medium underline underline-offset-4" to="/market-context">市場環境の根拠を見る</Link>
+            <Link className="inline-flex min-h-11 w-fit items-center text-sm font-medium underline underline-offset-4" to="/market-context">市場環境の根拠を見る</Link>
           </div>
         </div>
       )}
@@ -570,7 +570,7 @@ export function DashboardPage() {
 
       {data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
-      <Link className="text-sm font-medium underline underline-offset-4" to="/stocks">調査・提案を見る →</Link>
+      <Link className="inline-flex min-h-11 w-fit items-center text-sm font-medium underline underline-offset-4" to="/stocks">調査・提案を見る →</Link>
       {operationsError !== null
         ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{operationsError}</AlertDescription></Alert>
         : operations && <OutcomeCard outcomes={operations.outcomes} />}

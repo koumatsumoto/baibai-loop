@@ -269,7 +269,7 @@ def test_web_trigger_covers_published_trees_and_shared_contracts() -> None:
     push = triggers["push"]
     assert isinstance(pull_request, dict)
     assert isinstance(push, dict)
-    assert pull_request["paths"] == [*inputs, ".github/workflows/web.yml"]
+    assert pull_request["paths"] == [*inputs, ".github/workflows/web.yml", ".node-version"]
     assert push["paths"] == inputs
 
 
@@ -463,3 +463,22 @@ def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> Non
     for job in (quality, smoke):
         assert "TRADINGVIEW_OAUTH_STATE" not in str(job.get("env", {}))
         assert "TRADINGVIEW_SECRET_WRITER_TOKEN" not in str(job.get("env", {}))
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job"),
+    [("web.yml", "quality"), ("node-audit.yml", "audit"), ("security.yml", "audit")],
+)
+def test_node_runtime_uses_one_exact_repository_version(workflow_name: str, job: str) -> None:
+    version = (ROOT / ".node-version").read_text().strip()
+    assert len(version.split(".")) == 3
+    assert all(part.isdigit() for part in version.split("."))
+    setup = next(
+        step
+        for step in _steps(_workflow(workflow_name), job)
+        if str(step.get("uses", "")).startswith("actions/setup-node@")
+    )
+    assert setup["with"]["node-version-file"] == ".node-version"
+    assert "node-version" not in setup["with"]
+    if workflow_name != "security.yml":
+        assert ".node-version" in _workflow(workflow_name)["on"]["pull_request"]["paths"]
