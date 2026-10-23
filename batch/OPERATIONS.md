@@ -209,30 +209,11 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 ```bash
 uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
-uv run baibai-engine lake resolve --mirror stores \
+uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores \
   --release <RELEASE_ID> --manifest-sha256 <MANIFEST_SHA256>
 ```
 
-resolveはmanifestの解決で、data objectの検証や任意SQL実行ではない。ローカルmirrorからParquetを読む最小例:
-
-```python
-from pathlib import Path
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import (
-    accepted_dataset, materialize_partitions, resolve_release, selected_partitions,
-)
-
-source = LocalMirrorSource(Path("stores"))
-release = resolve_release(source, "<RELEASE_ID>", manifest_sha256="<MANIFEST_SHA256>")
-name = "edinet.documents"
-paths = materialize_partitions(
-    LakeObjectCache(root=Path("stores"), source=source),
-    dataset=accepted_dataset(release, name), partitions=selected_partitions(release, name),
-)
-with lake_session() as session:
-    rows = session.connection.read_parquet([str(path) for path in paths]).fetchall()
-```
+resolveはmanifestの解決で、data objectの検証や任意SQL実行ではない。
 
 objectのdigest・bytes・row数・schemaを通常readerで照合する。共有gatewayは/api/lake/current→release manifest→dataset manifest→列挙Parquetの順にraw GETする。gatewayのHTTP 200はdecode・整合の証明ではなく、照合は利用側が行う。固定objectが404なら分析を止め、再開は新しい分析としてcurrentから始める。
 
@@ -248,6 +229,28 @@ uv run baibai-engine lake hydrate \
 ```
 
 ローカルmirrorではbucketを付けない。不足・破損・容量不足なら停止し、途中でreleaseを替えない。hydrateは対象tableを置換するが、store-local coverageの取得記録は生成しない。旧contractのreleaseは元commitのcodeで読み、runtime互換を増やさない。
+
+完全mirrorからParquetを読む最小例:
+
+```python
+from pathlib import Path
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.reader import (
+    accepted_dataset, materialize_partitions, resolve_release, selected_partitions,
+)
+
+mirror = Path("<COMPLETE_LOCAL_MIRROR>")
+source = LocalMirrorSource(mirror)
+release = resolve_release(source, "<RELEASE_ID>", manifest_sha256="<MANIFEST_SHA256>")
+name = "edinet.documents"
+paths = materialize_partitions(
+    LakeObjectCache(root=mirror, source=source),
+    dataset=accepted_dataset(release, name), partitions=selected_partitions(release, name),
+)
+with lake_session() as session:
+    rows = session.connection.read_parquet([str(path) for path in paths]).fetchall()
+```
 
 <a id="edinet-research-query"></a>
 ### EDINET factsの書類選択

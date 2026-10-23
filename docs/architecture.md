@@ -4,14 +4,15 @@ Baibai Loopは、外部から受領した事実を保存し、機械分析から
 
 ## 情報の流れ
 
-```text
-外部source → Collection / L1 → 共通market・分析領域 / L2
-                                       ↓
-                                   Screening
-                                       ↓
-一次資料・保存分析・確認済み保有 → Research / L3 → 提案 → 人間
-                                      ↑                  ↓
-                                      └── Position / 台帳 ← 確認済み取引
+```mermaid
+flowchart LR
+    S[外部source] --> C[Collection / L1] --> D[共通market・四分析領域 / L2]
+    D --> R[Research / L3]
+    D -->|Valuation・Market Context| F[Screening]
+    F -->|候補文脈| R
+    I[一次資料・確認済み保有] --> R
+    R --> P[提案] --> H[人間]
+    H -->|確認済み取引| L[Position / 台帳] --> R
 ```
 
 L1は原本またはsource契約で明示したprovider-native表現と受領事実、L2はその入力を選択・正規化・計算した情報、L3は仮定を伴う解釈・評価・判断である。型付き行は原本の代わりにならず、仮定を決定的な式で計算しても観測事実にはならない。四分析領域はL2の責務区分であり、領域ごとにL1/L2/L3の一式やDBを作らない。
@@ -28,7 +29,7 @@ engineのdomainは`engine/src/baibai_engine/`に置く。意味を持つ処理�
 | `market_context/` | 経済Reading、市場・業種・個別の相対状態 |
 | `external_assessment/` | 外部提示値の抽出、出所・対象期・比較条件と欠測の整理 |
 | `technical_analysis/` | 保存価格による位置・勢い・変動幅の分析 |
-| `screening/` | L2結果の組立、価値仮説別の探索と候補文脈、歴史較正 |
+| `screening/` | Valuation・Market Contextから候補を組立、価値仮説別の探索と候補文脈、歴史較正 |
 | `research/` | 明示開始した有限調査、Stock Assessmentと独立Review、市場判断、Investment Proposal |
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
 | `storage/`・`foundation/` | 接続、schema、transaction、lakeと汎用基盤 |
