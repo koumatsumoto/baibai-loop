@@ -119,17 +119,3 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
         "sources": sources,
         "synthesis": synthesis,
     }
-
-
-def assessment_series_ids(record: StoredAssessment) -> frozenset[str]:
-    body = record.document
-    if record.schema_version in (5, 6):
-        return frozenset(
-            str(value) for item in body.get("inputs", []) for value in item.get("series_ids", [])
-        )
-    inputs = body.get("inputs", {})
-    result = {str(item["series_id"]) for item in inputs.get("indicator_series", [])}
-    result.update(
-        str(value) for section in body.get("core", []) for value in section.get("series_ids", [])
-    )
-    return frozenset(result)

@@ -106,17 +106,9 @@ from baibai_engine.foundation.repository_layout import (
     reject_noncanonical_store_paths,
     repository_root_error,
 )
-from baibai_engine.market_context.indicators.definitions import (
-    IndicatorDefinitions,
-    load_definitions,
-)
-from baibai_engine.research.market_context.projection import assessment_series_ids
-from baibai_engine.research.market_context.query import assessment_by_id
 from baibai_engine.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
 )
-from baibai_engine.storage.application.paths import database_path
-from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.equity_web_verification import (
     history_digests as equity_web_history_digests,
@@ -189,7 +181,6 @@ __all__ = [
     "ExternalAssessmentObservation",
     "ExternalAssessmentQuantsScoreObservation",
     "ExternalAssessmentSource",
-    "IndicatorDefinitions",
     "LakeBuildError",
     "LakeBuildReport",
     "LakeDatasetManifest",
@@ -205,13 +196,9 @@ __all__ = [
     "MarketSchemaError",
     "StoreLayoutError",
     "advance_lake_store_origin",
-    "assessment_by_id",
-    "assessment_series_ids",
     "canonical_lake_model_bytes",
-    "connect_read_only",
     "create_lake_release",
     "create_market_snapshot",
-    "database_path",
     "decode_economic_source_records",
     "equity_web_history_digests",
     "equity_web_import_responses",
@@ -236,7 +223,6 @@ __all__ = [
     "lake_release_manifest_key",
     "lake_session",
     "lake_verified_git_commit",
-    "load_definitions",
     "load_lake_model_json",
     "read_lake_store_origin",
     "reject_noncanonical_store_paths",

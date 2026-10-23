@@ -1,10 +1,4 @@
-"""Read-only validation of collected sources and saved market assessments.
-
-The source store retains uninterpreted inputs and acquisition outcomes. The
-application store carries immutable published context reports. This check
-validates each store on its own terms without treating source payloads as L2
-observations or rewriting reports that cite a retired series.
-"""
+"""Read-only validation of collected economic source payloads and metadata."""
 
 from __future__ import annotations
 
@@ -21,13 +15,7 @@ from baibai_engine.batch_api import (
 )
 from baibai_engine.batch_api import (
     EconomicSchemaError,
-    IndicatorDefinitions,
-    assessment_by_id,
-    assessment_series_ids,
-    connect_read_only,
-    database_path,
     decode_economic_source_records,
-    load_definitions,
     validate_economic_schema,
 )
 
@@ -46,17 +34,6 @@ class ValidationReport:
     @property
     def valid(self) -> bool:
         return self.violation_count == 0
-
-
-@dataclass(frozen=True, slots=True)
-class PublishedContextReport:
-    documents: int
-    failures: tuple[str, ...]
-    warnings: tuple[str, ...]
-
-    @property
-    def valid(self) -> bool:
-        return not self.failures
 
 
 def validate_store(
@@ -121,56 +98,11 @@ def validate_store(
     )
 
 
-def validate_published_contexts(
-    database: Path,
-    *,
-    definitions: IndicatorDefinitions | None = None,
-) -> PublishedContextReport:
-    """Load every current-contract report the way its consumers do, then look for drift.
-
-    Detect reports that current Context consumers can no longer load. candidate list publication
-    does not consume Context. A retired series may leave a report readable but its scorecard
-    unsettleable, so registry drift is reported separately.
-    """
-
-    registry = frozenset(series.series_id for series in (definitions or load_definitions()).series)
-    failures: list[str] = []
-    warnings: list[str] = []
-    connection = connect_read_only(database)
-    try:
-        rows = connection.execute(
-            "SELECT context_id FROM market_context_assessment ORDER BY published_at, context_id"
-        ).fetchall()
-    finally:
-        connection.close()
-
-    for row in rows:
-        context_id = str(row["context_id"])
-        try:
-            document = assessment_by_id(database, context_id=context_id)
-        except (ValueError, KeyError, TypeError) as exc:
-            failures.append(f"{context_id}: cannot be read: {exc}")
-            continue
-        retired = sorted(assessment_series_ids(document) - registry)
-        if retired:
-            warnings.append(f"{context_id}: cites retired series: {', '.join(retired)}")
-
-    return PublishedContextReport(
-        documents=len(rows),
-        failures=tuple(failures),
-        warnings=tuple(warnings),
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "validate collected source payloads and every saved market assessment "
-            "against the read path"
-        )
+        description="validate collected economic source payloads and record counts"
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
-    parser.add_argument("--app-db", type=Path)
     return parser
 
 
@@ -181,23 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     except (EconomicSchemaError, OSError, sqlite3.Error, ValueError) as exc:
         print(f"error: unable to validate economic source store {args.db}: {exc}", file=sys.stderr)
         return 1
-    exit_code = _render_store_report(report)
-
-    application_db = database_path(args.app_db)
-    if not application_db.is_file():
-        # A checkout without an application store has published nothing; absence is a
-        # valid state, not a missing report.
-        print(f"skip: no application store at {application_db}", flush=True)
-        return exit_code
-    try:
-        contexts = validate_published_contexts(application_db)
-    except (OSError, sqlite3.Error, ValueError) as exc:
-        print(
-            f"error: unable to read published market context assessments {application_db}: {exc}",
-            file=sys.stderr,
-        )
-        return 1
-    return max(exit_code, _render_context_report(contexts))
+    return _render_store_report(report)
 
 
 def _render_store_report(report: ValidationReport) -> int:
@@ -221,24 +137,6 @@ def _render_store_report(report: ValidationReport) -> int:
             f"- ... {report.violation_count - len(report.violations)} more",
             file=sys.stderr,
         )
-    return 1
-
-
-def _render_context_report(report: PublishedContextReport) -> int:
-    for warning in report.warnings:
-        print(f"warning: {warning}", file=sys.stderr)
-    if report.valid:
-        print(
-            f"ok: {report.documents} published market context assessment revisions read", flush=True
-        )
-        return 0
-    print(
-        f"error: {len(report.failures)} of {report.documents} published market context assessment "
-        "revisions cannot be read",
-        file=sys.stderr,
-    )
-    for failure in report.failures:
-        print(f"- {failure}", file=sys.stderr)
     return 1
 
 

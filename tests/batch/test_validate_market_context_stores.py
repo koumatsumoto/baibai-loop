@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.assessment_history import historical_context_payload, seed_history
 
 from baibai_batch.validation.market_context_stores import (
     main,
-    validate_published_contexts,
     validate_store,
 )
 from baibai_engine.collection.economic.documents import SourceDocument, store_document
@@ -21,16 +18,6 @@ from baibai_engine.collection.economic.store import (
     EconomicSchemaError,
     initialize_database,
     record_source_run,
-)
-from baibai_engine.market_context.indicators.definitions import (
-    IndicatorDefinitions,
-)
-from baibai_engine.research.market_context.models import (
-    ASSESSMENT_SCHEMA_VERSION,
-    StoredAssessment,
-)
-from baibai_engine.storage.application.write import (
-    initialize_database as initialize_application_database,
 )
 
 
@@ -118,154 +105,26 @@ def test_validate_store_refuses_a_store_on_another_schema(tmp_path: Path) -> Non
         validate_store(database)
 
 
-def _publish_report(path: Path) -> StoredAssessment:
-    document = StoredAssessment.from_payload(historical_context_payload())
-    seed_history(path, document.document, supersedes=None)
-    return document
-
-
-def test_validate_published_contexts_reads_every_current_contract_revision(
+def test_main_validates_sources_without_reading_the_application_store(
     tmp_path: Path,
-) -> None:
-    application_db = tmp_path / "app.sqlite"
-    _publish_report(application_db)
-
-    report = validate_published_contexts(application_db)
-
-    assert report.valid
-    assert report.documents == 1
-    assert report.warnings == ()
-
-
-def test_validate_published_contexts_warns_instead_of_failing_on_a_retired_series(
-    tmp_path: Path,
-) -> None:
-    """Retiring a series must stay a normal operation: the report still has to read."""
-
-    application_db = tmp_path / "app.sqlite"
-    _publish_report(application_db)
-
-    report = validate_published_contexts(
-        application_db,
-        definitions=IndicatorDefinitions(series=()),
-    )
-
-    assert report.valid
-    assert report.documents == 1
-    assert any("cites retired series: us.10y" in warning for warning in report.warnings)
-
-
-def test_validate_published_contexts_fails_when_a_stored_revision_cannot_be_read(
-    tmp_path: Path,
-) -> None:
-    application_db = tmp_path / "app.sqlite"
-    initialize_application_database(application_db)
-    payload = historical_context_payload()
-    del payload["summary"]
-    with closing(sqlite3.connect(application_db)) as connection, connection:
-        connection.execute(
-            "INSERT INTO market_context_assessment (context_id, schema_version, as_of, published_at, "
-            "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",
-            (
-                payload["context_id"],
-                ASSESSMENT_SCHEMA_VERSION,
-                payload["as_of"],
-                payload["published_at"],
-                json.dumps(payload),
-            ),
-        )
-
-    report = validate_published_contexts(application_db)
-
-    assert not report.valid
-    assert report.documents == 1
-    assert "cannot be read" in report.failures[0]
-
-
-def test_context_validation_collects_identity_failures_and_keeps_retired_warnings(
-    tmp_path: Path,
-) -> None:
-    application_db = tmp_path / "app.sqlite"
-    for suffix in ("wrong-date", "wrong-publication", "readable-history"):
-        seed_history(
-            application_db,
-            historical_context_payload(context_id=f"macro-context-2026-07-19-{suffix}"),
-        )
-    with closing(sqlite3.connect(application_db)) as connection, connection:
-        connection.execute(
-            "UPDATE market_context_assessment SET as_of='2026-07-18' WHERE context_id=?",
-            ("macro-context-2026-07-19-wrong-date",),
-        )
-        connection.execute(
-            "UPDATE market_context_assessment SET published_at='2026-07-20T12:00:00+09:00' "
-            "WHERE context_id=?",
-            ("macro-context-2026-07-19-wrong-publication",),
-        )
-    before = application_db.read_bytes()
-
-    report = validate_published_contexts(
-        application_db,
-        definitions=IndicatorDefinitions(series=()),
-    )
-
-    assert not report.valid
-    assert report.documents == 3
-    assert {failure.split(": cannot be read:", 1)[0] for failure in report.failures} == {
-        "macro-context-2026-07-19-wrong-date",
-        "macro-context-2026-07-19-wrong-publication",
-    }
-    assert all("publication identity differs" in failure for failure in report.failures)
-    assert len(report.warnings) == 1
-    assert report.warnings[0].startswith("macro-context-2026-07-19-readable-history:")
-    assert "cites retired series: us.10y" in report.warnings[0]
-    assert application_db.read_bytes() == before
-
-
-def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     database = tmp_path / "indicators.sqlite"
     _build_store(database)
-    application_db = tmp_path / "app.sqlite"
-    initialize_application_database(application_db)
-    payload = historical_context_payload()
-    payload["summary"] = "  "
-    with closing(sqlite3.connect(application_db)) as connection, connection:
-        connection.execute(
-            "INSERT INTO market_context_assessment (context_id, schema_version, as_of, published_at, "
-            "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",
-            (
-                payload["context_id"],
-                ASSESSMENT_SCHEMA_VERSION,
-                payload["as_of"],
-                payload["published_at"],
-                json.dumps(payload),
-            ),
-        )
+    application_db = tmp_path / "stores/application/baibai.sqlite"
+    application_db.parent.mkdir(parents=True)
+    application_db.write_bytes(b"unreadable application store")
+    monkeypatch.chdir(tmp_path)
 
-    exit_code = main(["--db", str(database), "--app-db", str(application_db)])
-
-    captured = capsys.readouterr()
-    assert exit_code == 1
-    assert "ok: schema v" in captured.out
-    assert "published market context assessment revisions cannot be read" in captured.err
-
-
-def test_main_skips_the_report_check_without_an_application_store(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A fresh checkout has published nothing; absence is a valid state."""
-
-    database = tmp_path / "indicators.sqlite"
-    _build_store(database)
-
-    exit_code = main(["--db", str(database), "--app-db", str(tmp_path / "absent.sqlite")])
+    exit_code = main(["--db", str(database)])
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "skip: no application store" in captured.out
+    assert "ok: schema v" in captured.out
+    assert "1 native records; 1 documents; 1 source runs" in captured.out
+    assert not captured.err
+    assert application_db.read_bytes() == b"unreadable application store"
 
 
 @pytest.mark.parametrize("damage", [None, "gzip", "shape", "count", "old_vintage"])
