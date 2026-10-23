@@ -219,7 +219,11 @@ def collect(
                                 url, role="iframe", parent_receipt_id=page_receipt_id
                             )
                         observation = parse_source_html(
-                            html, source=source, ticker=ticker, source_url=url, fetched_at_utc=received
+                            html,
+                            source=source,
+                            ticker=ticker,
+                            source_url=url,
+                            fetched_at_utc=received,
                         )
                         observations.append(observation)
                         outcomes.append(
