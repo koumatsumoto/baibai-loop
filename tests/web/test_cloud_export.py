@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
@@ -620,41 +619,38 @@ def test_export_treats_an_absent_app_store_as_empty_judgment(
     assert json.loads((output_dir / "views/dashboard.json").read_text(encoding="utf-8"))
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKER_SOURCE = REPO_ROOT / "web/edge/src/index.ts"
-EXPORTER_SOURCE = REPO_ROOT / "web/backend/src/baibai_web/materialize.py"
-# `view('x.json')` / `view(`x--${id}.json`)` — the Worker's whole `views/` surface.
-_WORKER_VIEW = re.compile(r"view\([`']([^`']+)[`']\)")
-_WORKER_RESEARCH_INDEX = re.compile(r"kind: 'research-index',\s*key: 'views/([^']+)'")
-# `views_dir / "x.json"` and `views_dir / f"x--{...}.json"` in the exporter.
-_EXPORTED_VIEW = re.compile(r'views_dir / f?"([^"]+)"')
+def test_every_materialized_contract_key_is_written(app_method_root: Path, tmp_path: Path) -> None:
+    """宣言された全view種別を実際に生成し、Workerの参照先欠落を検出する。"""
 
-
-def _view_shape(filename: str) -> str:
-    """Collapse an interpolated segment so both sides compare as the same view kind."""
-    return re.sub(r"\$?\{[^}]+\}", "*", filename)
-
-
-def _exported_views() -> set[str]:
-    source = EXPORTER_SOURCE.read_text(encoding="utf-8")
-    return {_view_shape(match) for match in _EXPORTED_VIEW.findall(source)}
-
-
-def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
-    """A route whose view the export never writes is a permanent 404 in production.
-
-    Workerが直接参照するviewとresearch indexのkeyがexporterの生成宣言に存在することを確認する。
-    静的なkeyの対応検証であり、全分岐の実行やR2への公開成功を証明するものではない。
-    """
-
-    source = WORKER_SOURCE.read_text(encoding="utf-8")
-    worker_views = {
-        _view_shape(match)
-        for match in [*_WORKER_VIEW.findall(source), *_WORKER_RESEARCH_INDEX.findall(source)]
+    contract_path = Path(__file__).resolve().parents[2] / "web/contracts/routes.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    _, _, assessment, proposal = seed_web_proposal(app_method_root)
+    context = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(app_method_root / "stores/application/baibai.sqlite", context.document)
+    run = ScreeningRunReader(app_method_root / "stores/screening/runs.sqlite").latest_run()
+    assert run is not None
+    identifiers = {
+        "as_of": run.as_of.isoformat(),
+        "series_id": "us.10y",
+        "context_id": context.context_id,
+        "ticker": assessment.document.input_snapshot.ticker,
+        "assessment_id": assessment.assessment_id,
+        "proposal_id": proposal.proposal_id,
     }
+    expected_keys = {
+        template.format(**identifiers)
+        for template in [
+            *contract["routes"].values(),
+            *contract["edge_routes"].values(),
+            *contract["patterns"].values(),
+        ]
+    }
+    output_dir = tmp_path / "export"
 
-    assert worker_views, "the Worker route table must map at least one view"
-    assert worker_views <= _exported_views(), sorted(worker_views - _exported_views())
+    export_module.export_read_models(app_method_root, output_dir)
+
+    actual_keys = {path.relative_to(output_dir).as_posix() for path in output_dir.rglob("*.json")}
+    assert expected_keys <= actual_keys, sorted(expected_keys - actual_keys)
 
 
 @pytest.mark.parametrize("count", [1, 10, 100])

@@ -1,8 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import routeContract from '../../contracts/routes.json'
 import { handleRequest } from '../src/index'
 
 const PASSWORD = '1234567890abcdefghijklmnopqrstuv'
+const PROPOSAL_ID = 'investment-proposal-00000000-0000-4000-8000-000000000001'
+const routeParameters: Record<string, string> = {
+  as_of: '2026-07-23',
+  series_id: 'us.10y',
+  context_id: 'market-context-assessment-2026-07-01-current',
+  ticker: '7203',
+  assessment_id: 'stock-assessment-00000000-0000-4000-8000-000000000001',
+  proposal_id: PROPOSAL_ID,
+}
+
+function expandRouteTemplate(template: string): string {
+  return template.replace(/\{([^}]+)\}/g, (_match, name: string) => {
+    const value = routeParameters[name]
+    if (value === undefined) throw new Error(`missing route-contract sample: ${name}`)
+    return value
+  })
+}
+
+const materializedRoutes = [
+  ...Object.entries(routeContract.routes),
+  ...Object.entries<string>(routeContract.edge_routes),
+  ...Object.entries(routeContract.patterns),
+].map(([path, key]) => [expandRouteTemplate(path), expandRouteTemplate(key)] as const)
 
 function environment(
   get: ReturnType<typeof vi.fn>,
@@ -88,38 +112,26 @@ describe('API authentication', () => {
 })
 
 describe('view routing', () => {
-  it.each([
-    ['/api/dashboard', 'views/dashboard.json'],
-    ['/api/tasks', 'views/tasks.json'],
-    ['/api/daily-delta', 'views/daily-delta.json'],
-    ['/api/screening/latest', 'views/screening_latest.json'],
-    ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
-    ['/api/operations', 'views/operations.json'],
-    ['/api/stock-assessments', 'views/stock-assessments.json'],
-    ['/api/investment-proposals', 'views/investment-proposals.json'],
-    ['/api/meta', 'views/meta.json'],
-    ['/api/market-context', 'views/market-context.json'],
-    ['/api/market-context/indicators/us.10y', 'views/indicator-series--us.10y.json'],
-    [
-      '/api/market-context/assessments/macro-context-2026-07-01-example',
-      'views/market-context-assessment--macro-context-2026-07-01-example.json',
-    ],
-    [
-      '/api/market-context/assessments/market-context-assessment-2026-07-01-current',
-      'views/market-context-assessment--market-context-assessment-2026-07-01-current.json',
-    ],
-    ['/api/securities/7203', 'views/security--7203.json'],
-    [
-      '/api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000001',
-      'views/investment-proposal--investment-proposal-00000000-0000-4000-8000-000000000001.json',
-    ],
-  ])('maps %s to the fixed key %s', async (path, expectedKey) => {
-    const body = path === '/api/stock-assessments' ? '{"assessments":[]}' : path === '/api/investment-proposals' ? '{"proposals":[]}' : '{"ok":true}'
-    const get = vi.fn().mockResolvedValue(objectBody(body))
+  it.each(materializedRoutes)('serves %s from the contract key %s', async (path, expectedKey) => {
+    const payload = { source: expectedKey, assessments: [], proposals: [] }
+    const get = vi.fn().mockResolvedValue(objectBody(JSON.stringify(payload)))
     const response = await handleRequest(request(path), environment(get))
 
     expect(response.status).toBe(200)
-    expect(get).toHaveBeenCalledWith(expectedKey)
+    expect(get.mock.calls).toEqual([[expectedKey]])
+    expect(await response.json()).toMatchObject(payload)
+  })
+
+  it('keeps historical market-context identifiers addressable', async () => {
+    const contextId = 'macro-context-2026-07-01-example'
+    const get = vi.fn().mockResolvedValue(objectBody())
+    const response = await handleRequest(
+      request(`/api/market-context/assessments/${contextId}`),
+      environment(get),
+    )
+
+    expect(response.status).toBe(200)
+    expect(get.mock.calls).toEqual([[`views/market-context-assessment--${contextId}.json`]])
   })
 
   it.each([
@@ -466,16 +478,25 @@ describe('Parquet download identity', () => {
 })
 
 describe('immutable research views and paginated indexes', () => {
-  const proposalId = 'investment-proposal-00000000-0000-4000-8000-000000000001'
-  const assessmentId = 'stock-assessment-00000000-0000-4000-8000-000000000001'
+  it('serves the saved proposal separately from its current preview', async () => {
+    const saved = { proposal_id: PROPOSAL_ID, items: [{ ticker: '7203', action: 'buy' }] }
+    const preview = { saved_proposal_id: PROPOSAL_ID, current_inputs: { cash_balance_yen: '0' } }
+    const savedKey = `views/investment-proposal--${PROPOSAL_ID}.json`
+    const previewKey = `views/investment-proposal-preview--${PROPOSAL_ID}.json`
+    const get = vi.fn().mockImplementation(async (key: string) => {
+      if (key === savedKey) return objectBody(JSON.stringify(saved))
+      if (key === previewKey) return objectBody(JSON.stringify(preview))
+      return null
+    })
+    const env = environment(get)
 
-  it.each([
-    [`/api/stock-assessments/${assessmentId}`, `views/stock-assessment--${assessmentId}.json`],
-    [`/api/investment-proposals/${proposalId}/current-preview`, `views/investment-proposal-preview--${proposalId}.json`],
-  ])('routes %s without replacing a saved view', async (path, key) => {
-    const get = vi.fn().mockResolvedValue(objectBody())
-    expect((await handleRequest(request(path), environment(get))).status).toBe(200)
-    expect(get).toHaveBeenCalledWith(key)
+    const current = await handleRequest(request(`/api/investment-proposals/${PROPOSAL_ID}/current-preview`), env)
+    expect(current.status).toBe(200)
+    expect(await current.json()).toEqual(preview)
+    const detail = await handleRequest(request(`/api/investment-proposals/${PROPOSAL_ID}`), env)
+    expect(detail.status).toBe(200)
+    expect(await detail.json()).toEqual(saved)
+    expect(get.mock.calls).toEqual([[previewKey], [savedKey]])
   })
 
   it('filters ticker/scope before paging and validates the cursor in that result', async () => {
