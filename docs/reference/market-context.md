@@ -46,6 +46,8 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選ぶ。そのsnapshotにいないtickerを古いsnapshotから復活させず、未来分類を使わない。価格はcutoff以下のraw closeを保存済み価格調整係数の後方累積で揃え、closeがnullの価格調整eventも落とさない。現金配当込みreturnではない。価格の観測日、requested cutoff、master snapshotの日は同一とは限らないため、各基準日を見て読む。
 
+Web materializeは同じexportの入力ファイルを使い、短期peer系列・master・benchmarkを`PreparedMarketContext`で共有する。個社の長期価格はsecurity loopの最大64銘柄ごとに既存`read_price_bars`でまとめて読み、単件と同じMarket Context組立へ渡す。長期barsは組立呼出し内だけで使い、sourceには現在batchの計算済みcontextだけを置いて次batchで置換する。次exportは新しいsourceから再読し、単件Research/local APIの意味、実connectionのschema検査、疎な価格でのbenchmark/peer追加読取を維持する。
+
 個別価格のSMA20/50/200・BB20・Wilder RSI14は、同じ保存価格basisを利用する独立した[Technical Analysis](./technical-analysis.md)が所有し、市場・業種・個別相対を扱うMarket Contextから分けて読む。Researchでは内部snapshotの`securities_context[ticker].technical_analysis`を固定入力とし、解釈と四領域の統合は[Stock Assessment](./stock-assessment.md#analysis-domain-integration)に従う。新規読取の`price`にBBを混在させず、旧固定snapshotのBB欄は当時のまま保持し、現在のtechnical値を後付けしない。
 
 既存CLIは次の領域計算を参照する。

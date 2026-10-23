@@ -33,43 +33,67 @@ def build_security_market_context(
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
     prepared: PreparedMarketContext | None = None,
 ) -> dict[str, object]:
+    return build_security_market_contexts(
+        sqlite_path=sqlite_path,
+        tickers=(ticker,),
+        asof_date=asof_date,
+        self_range_window_bars=self_range_window_bars,
+        benchmark_ticker=benchmark_ticker,
+        prepared=prepared,
+    )[ticker]
+
+
+def build_security_market_contexts(
+    *,
+    sqlite_path: Path,
+    tickers: Sequence[str],
+    asof_date: date,
+    self_range_window_bars: int,
+    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
+    prepared: PreparedMarketContext | None = None,
+) -> dict[str, dict[str, object]]:
+    """渡された有限集合の長期価格を一括読取し、barsを保持せず個別状態を返す。"""
     if prepared is not None and (
         prepared.sqlite_path != sqlite_path.resolve()
         or prepared.asof_date != asof_date
         or prepared.benchmark_ticker != benchmark_ticker
     ):
         raise ValueError("prepared market context does not match the requested scope")
-    bars = read_price_bars(
+    bars_by_ticker = read_price_bars(
         sqlite_path,
-        tickers=(ticker,),
+        tickers=tuple(tickers),
         start=asof_date - timedelta(days=_TICKER_LOOKBACK_CALENDAR_DAYS),
         end=asof_date,
-    ).get(ticker, [])
+    )
     master = (
         read_master_snapshot(sqlite_path, as_of=asof_date) if prepared is None else prepared.master
     )
-    security = None if master is None else master.securities.get(ticker)
-    sector = None if security is None else security.get("sector_33")
     benchmark = (
         compute_benchmark_trend(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
         if prepared is None
         else prepared.benchmark_trend
     )
-    return {
-        "master": security,
-        "price": _price_block(bars, self_range_window_bars=self_range_window_bars),
-        "relative": _relative_block(
-            sqlite_path,
-            ticker=ticker,
-            bars=bars,
-            sector=sector if isinstance(sector, str) else None,
-            master=master,
-            asof_date=asof_date,
-            benchmark_ticker=benchmark_ticker,
-            prepared=prepared,
-        ),
-        "benchmark_trend": None if benchmark is None else benchmark.to_dict(),
-    }
+    contexts: dict[str, dict[str, object]] = {}
+    for ticker in tickers:
+        bars = bars_by_ticker.get(ticker, [])
+        security = None if master is None else master.securities.get(ticker)
+        sector = None if security is None else security.get("sector_33")
+        contexts[ticker] = {
+            "master": security,
+            "price": _price_block(bars, self_range_window_bars=self_range_window_bars),
+            "relative": _relative_block(
+                sqlite_path,
+                ticker=ticker,
+                bars=bars,
+                sector=sector if isinstance(sector, str) else None,
+                master=master,
+                asof_date=asof_date,
+                benchmark_ticker=benchmark_ticker,
+                prepared=prepared,
+            ),
+            "benchmark_trend": None if benchmark is None else benchmark.to_dict(),
+        }
+    return contexts
 
 
 def _price_block(

@@ -74,6 +74,7 @@ _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
 _MARKET_CONTEXT_ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _INDICATOR_SERIES_ID_FORMAT = re.compile(r"[a-z0-9._-]{1,128}")
 _ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
+_SECURITY_BATCH_SIZE = 64
 
 
 ExportPreconditionError = MaterializationPreconditionError
@@ -246,23 +247,29 @@ def export_read_models(
         | set(prepared_security.revisions)
         | set(prepared_security.proposals)
     )
+    valid_tickers = []
     for ticker in tickers:
         if _TICKER_FORMAT.fullmatch(ticker) is None:
             _warn(f"ticker has an unexpected format: {ticker!r}; security view skipped")
             continue
-        security = build_security_detail(
-            ticker,
-            stores.ledger,
-            stores.research,
-            stores.screening,
-            stores.market,
-            prepared=prepared_security,
-            external_assessment=stores.external_assessment,
-        )
-        if security is None:
-            _warn(f"security view is unavailable for ticker {ticker}; skipped")
-            continue
-        written.append(_write_model(views_dir / f"security--{ticker}.json", security))
+        valid_tickers.append(ticker)
+    for offset in range(0, len(valid_tickers), _SECURITY_BATCH_SIZE):
+        batch_tickers = valid_tickers[offset : offset + _SECURITY_BATCH_SIZE]
+        stores.market.prepare_security_market_contexts(batch_tickers, as_of=prepared_security.today)
+        for ticker in batch_tickers:
+            security = build_security_detail(
+                ticker,
+                stores.ledger,
+                stores.research,
+                stores.screening,
+                stores.market,
+                prepared=prepared_security,
+                external_assessment=stores.external_assessment,
+            )
+            if security is None:
+                _warn(f"security view is unavailable for ticker {ticker}; skipped")
+                continue
+            written.append(_write_model(views_dir / f"security--{ticker}.json", security))
 
     if include_history:
         written.extend(

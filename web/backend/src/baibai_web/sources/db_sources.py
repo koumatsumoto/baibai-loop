@@ -51,6 +51,7 @@ from baibai_engine.read_api.market_context import (
     assessment_payload,
     build_market_snapshot,
     build_security_market_context,
+    build_security_market_contexts,
     latest_assessment_payload,
     list_assessment_payloads,
     prepare_market_context_inputs,
@@ -93,6 +94,7 @@ class DbMarketPriceSource:
         self._master_identities: Mapping[str, Mapping[str, object]] = {}
         self._master_snapshot: MasterSnapshot | None = None
         self._context_inputs: PreparedMarketContext | None = None
+        self._security_contexts: dict[tuple[date, str], dict[str, object]] = {}
 
     def exists(self) -> bool:
         return self._path.is_file()
@@ -123,6 +125,8 @@ class DbMarketPriceSource:
     def security_market_context(self, ticker: str, *, as_of: date) -> dict[str, object] | None:
         if not self.exists():
             return None
+        if (context := self._security_contexts.get((as_of, ticker))) is not None:
+            return context
         return {
             "as_of": as_of.isoformat(),
             **build_security_market_context(
@@ -132,6 +136,19 @@ class DbMarketPriceSource:
                 self_range_window_bars=VALUATION_HISTORY_SESSIONS,
                 prepared=self._prepared_context(as_of),
             ),
+        }
+
+    def prepare_security_market_contexts(self, tickers: Sequence[str], *, as_of: date) -> None:
+        """現在batchの計算済みcontextだけを置換し、長期barsは保持しない。"""
+        self._security_contexts = {
+            (as_of, ticker): {"as_of": as_of.isoformat(), **context}
+            for ticker, context in build_security_market_contexts(
+                sqlite_path=self._path,
+                tickers=tickers,
+                asof_date=as_of,
+                self_range_window_bars=VALUATION_HISTORY_SESSIONS,
+                prepared=self._prepared_context(as_of),
+            ).items()
         }
 
     def _prepared_context(self, as_of: date) -> PreparedMarketContext | None:
