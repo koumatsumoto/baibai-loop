@@ -150,8 +150,10 @@ def test_optional_dates_keep_existing_freshness_and_schedule_end_rules(calendar_
         ("UPDATE source_coverage SET coverage_end = NULL", "corrupt.*coverage"),
         ("UPDATE source_coverage SET fetched_at_utc = 'invalid'", "corrupt.*coverage"),
         (
-            "UPDATE jpx_earnings_calendar SET announcement_date = '2026-99-99' "
-            "WHERE ticker = '130A'",
+            (
+                "UPDATE jpx_earnings_calendar SET announcement_date = '2026-99-99' "
+                "WHERE ticker = '130A'"
+            ),
             "corrupt.*snapshot",
         ),
     ],

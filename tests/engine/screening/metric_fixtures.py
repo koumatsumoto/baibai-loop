@@ -56,7 +56,7 @@ def _summary(
     dividend_year_end: float | None = None,
     dividend_total_annual: float | None = None,
     average_shares: float | None = None,
-    profit: float | None | _DefaultProfit = _DefaultProfit.FROM_EPS,
+    profit: float | _DefaultProfit | None = _DefaultProfit.FROM_EPS,
     total_assets: float | None = None,
     equity_to_asset_ratio: float | None = None,
 ) -> JQuantsFinancialSummary:
