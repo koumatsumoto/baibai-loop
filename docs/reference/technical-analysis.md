@@ -51,4 +51,4 @@ ticker-profileは独立した`technical_analysis`を返す。新規Research固�
 
 200日線付近の価格を成長・本源価値・大底と認定しない。価格だけが下がった場合と財務・事業価値が毀損した場合をValuation・Researchで別に確認する。BB下側や低RSIを買い、上側や高RSIを売りと自動解釈しない。トレンド継続、価格水準の変更、疎な取引も対照にする。
 
-L2読取・Research固定入力への接続と、既存の評価・Review・提案欄へ所見をつなぐ初期L3案内を実装した。詳細L3統合の保存SelectionからProposalへの直接投影・source追跡・四領域が相反する場合のE2E検証は未完了で、[後続Issue #1567](https://github.com/koumatsumoto/baibai-loop/issues/1567)が扱う。候補発見や調査優先度の改善・予測効果の検証も、L2算術の成功とは別の課題である。
+L2読取・Research固定入力への接続と、既存の評価・Review・提案欄へ所見をつなぐL3案内を実装した。[四領域の結合検証](../../reports/studies/2026-10-22-l3-four-domain-integration/report.md)では、相反・欠測を含む固定入力から評価・Review・Proposalへの保存と読戻し、後発入力からの独立性を確認した。採用経路はReviewed Assessment全文の参照とexact ID/hash/Reviewの束縛であり、SelectionをProposalへ直接再投影する案は保留している。これは有限ケースの接続検証であり、候補発見・調査優先度・予測効果の改善や、本番の買付提案完成を意味しない。採否と確認限界は同報告と[Issue #1567](https://github.com/koumatsumoto/baibai-loop/issues/1567)を参照する。
