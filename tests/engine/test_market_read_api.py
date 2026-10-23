@@ -100,9 +100,7 @@ def test_next_earnings_dates_returns_requested_current_dates_on_or_after_asof(
         ],
     )
 
-    result = next_earnings_dates(
-        database, ["2331", "4432", "5555", "0000"], asof=date(2026, 7, 21)
-    )
+    result = next_earnings_dates(database, ["2331", "4432", "5555", "0000"], asof=date(2026, 7, 21))
 
     assert result == {
         "2331": date(2026, 7, 30),
@@ -135,7 +133,9 @@ def test_current_schedule_with_no_requested_ticker_is_a_normal_empty_view(tmp_pa
     database = tmp_path / "market.sqlite"
     _seed_earnings(database, [("4432", "2026-07-21")])
     assert next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21)) == {}
-    assert next_earnings_dates(database, ["4432"], asof=date(2026, 7, 21)) == {"4432": date(2026, 7, 21)}
+    assert next_earnings_dates(database, ["4432"], asof=date(2026, 7, 21)) == {
+        "4432": date(2026, 7, 21)
+    }
 
 
 def test_optional_earnings_view_does_not_publish_a_stale_schedule(tmp_path: Path) -> None:

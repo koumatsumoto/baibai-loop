@@ -902,7 +902,9 @@ def read_jpx_earnings_calendar_snapshot(
         except (TypeError, ValueError) as error:
             raise JPXProviderError(f"corrupt JPX earnings calendar coverage: {error}") from error
         if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
-            raise JPXProviderError("corrupt JPX earnings calendar coverage: fetched_at lacks timezone")
+            raise JPXProviderError(
+                "corrupt JPX earnings calendar coverage: fetched_at lacks timezone"
+            )
         rows = conn.execute(
             "SELECT ticker, announcement_date FROM jpx_earnings_calendar "
             "ORDER BY announcement_date, ticker"

@@ -221,9 +221,7 @@ def test_reader_refuses_mismatched_header_and_naive_clock(
         if damage == "asof_date":
             connection.execute("UPDATE screening_run SET asof_date='2026-10-13'")
         elif damage == "run_at":
-            connection.execute(
-                "UPDATE screening_run SET run_at='2026-10-14T18:00:00.000001+09:00'"
-            )
+            connection.execute("UPDATE screening_run SET run_at='2026-10-14T18:00:00.000001+09:00'")
         else:
             naive = "2026-10-14T18:00:00"
             connection.execute(

@@ -131,9 +131,13 @@ class ScreeningRunReader:
                     (as_of.isoformat(), run_clock(known_at.isoformat())),
                 ).fetchone()
             run = None if row is None else _run_from_row(connection, row)
-            if run_revision_id is not None and run is not None and (
-                date.fromisoformat(run.as_of_date) > as_of
-                or datetime.fromisoformat(run.run_at) > known_at
+            if (
+                run_revision_id is not None
+                and run is not None
+                and (
+                    date.fromisoformat(run.as_of_date) > as_of
+                    or datetime.fromisoformat(run.run_at) > known_at
+                )
             ):
                 raise ValueError("explicit analysis run is after the Research cutoff")
             return run
