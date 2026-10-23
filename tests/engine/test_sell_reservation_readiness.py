@@ -138,7 +138,9 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
         now=now,
     )
     assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
-    current_service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
+    current_service = InvestmentProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: now
+    )
     assert current_service.publish(published) == published
     assert case.app.read_bytes() == before
     assert preview.status == ("blocked" if blocked else "changed")
@@ -231,7 +233,9 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     concrete = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert concrete.items[0].position.quantity == 200
     service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
-    assert [reason.code for reason in service.check(concrete).blockers] == ["active_reservation_exists"]
+    assert [reason.code for reason in service.check(concrete).blockers] == [
+        "active_reservation_exists"
+    ]
     raw["items"][0].update(terms=None, terms_unavailable_reasons=[RESERVATION_REASON])
     incomplete = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     published = service.publish(incomplete)
@@ -251,7 +255,9 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     )
     assert cancelled is not None
     apply_draft(store, cancelled, human_confirmed=True)
-    current_service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
+    current_service = InvestmentProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: now
+    )
     with pytest.raises(ProposalConflictError, match="input facts changed"):
         current_service.check(concrete)
     context = build_proposal_context(
@@ -282,5 +288,7 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
         sqlite_path=case.market,
         now=now,
     )
-    assert [reason["code"] for reason in preview.items[0]["blockers"]] == ["order_terms_unconfirmed"]
+    assert [reason["code"] for reason in preview.items[0]["blockers"]] == [
+        "order_terms_unconfirmed"
+    ]
     assert preview.items[0]["saved_order_readiness"] == "needs_terms"
