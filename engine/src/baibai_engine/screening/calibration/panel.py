@@ -395,13 +395,7 @@ def build_panel(
 
     normalized_profit_by_ticker = {
         ticker: build_normalized_profit_signals(
-            # Production reads the FY stream. Additional quarterly share counts
-            # can resolve a split basis that production cannot resolve.
-            tuple(
-                row
-                for row in history_summaries_by_ticker.get(ticker, ())
-                if row.fiscal_period == "FY"
-            ),
+            history_summaries_by_ticker.get(ticker, ()),
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=metric_result.financials[ticker].market_price_yen,
