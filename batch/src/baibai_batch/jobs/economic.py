@@ -45,7 +45,9 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_economic_schema(conn)
     since = datetime.now(UTC)
-    outcomes = refresh_economic_sources(sources, db_path=database, start=None, end=asof, recent=True)
+    outcomes = refresh_economic_sources(
+        sources, db_path=database, start=None, end=asof, recent=True
+    )
     directory.mkdir(parents=True, exist_ok=True)
     export_economic_receipts(
         database, directory / "receipts.sqlite", source_ids=sources, since=since
@@ -57,7 +59,9 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
             row["status"] = "failed"
         else:
             row.update(
-                status="ok", start=outcome.start.isoformat(), end=outcome.end.isoformat(),
+                status="ok",
+                start=outcome.start.isoformat(),
+                end=outcome.end.isoformat(),
                 record_count=outcome.record_count,
             )
         rows.append(row)
@@ -124,7 +128,9 @@ def main(argv: list[str] | None = None) -> int:
             if args.asof is None:
                 raise ValueError("--asof is required")
             return acquire(args.group, args.source_id, args.asof, args.directory, args.db)
-        receive(args.directory, args.db, args.group, args.source_id, verify=args.command == "verify")
+        receive(
+            args.directory, args.db, args.group, args.source_id, verify=args.command == "verify"
+        )
     except (OSError, sqlite3.Error, ValueError, KeyError, EconomicSchemaError, MergeError) as error:
         print(f"economic handoff failed: {type(error).__name__}", file=sys.stderr)
         return 1

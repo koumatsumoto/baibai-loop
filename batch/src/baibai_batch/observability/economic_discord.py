@@ -39,8 +39,10 @@ def main() -> int:
     message += f"run: {run_url(env)}"
     print(message)
     failure = deliver(
-        env.get(WEBHOOK_ENV_VAR, ""), message,
-        timeout=DEFAULT_TIMEOUT_SECONDS, transport=_urllib_transport,
+        env.get(WEBHOOK_ENV_VAR, ""),
+        message,
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+        transport=_urllib_transport,
     )
     if failure is not None:
         print(f"economic notification failed: {failure}", file=sys.stderr)

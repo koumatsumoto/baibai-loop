@@ -83,7 +83,9 @@ def refresh_sources(
                 first = (
                     recent_start(connection, source, end)
                     if recent
-                    else start if start is not None else _history_start(source, end)
+                    else start
+                    if start is not None
+                    else _history_start(source, end)
                 )
                 received = _refresh_source(
                     connection, source, start=first, end=end, context=context

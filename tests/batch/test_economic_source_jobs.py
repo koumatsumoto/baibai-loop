@@ -19,7 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def snapshot(path, source, value, when=WHEN):
     with closing(initialize_database(path)) as conn, conn:
-        store_snapshot(conn, source_id=source, observed_at=DAY, fetched_at=when, records=[{"value": value}])
+        store_snapshot(
+            conn, source_id=source, observed_at=DAY, fetched_at=when, records=[{"value": value}]
+        )
 
 
 def handoff(tmp_path, group, source, value):
@@ -28,7 +30,9 @@ def handoff(tmp_path, group, source, value):
     directory = tmp_path / group
     directory.mkdir()
     export_receipts(database, directory / "receipts.sqlite", source_ids=[source], since=WHEN)
-    (directory / "result.json").write_text(json.dumps({"group": group, "sources": [{"source_id": source, "status": "ok"}]}))
+    (directory / "result.json").write_text(
+        json.dumps({"group": group, "sources": [{"source_id": source, "status": "ok"}]})
+    )
     return directory
 
 
@@ -41,7 +45,9 @@ def test_independent_handoffs_union_into_fresh_canonical_without_reverting_anoth
     receive(a, canonical, "fred_csv", "fred-payems", verify=False)
     receive(a, canonical, "fred_csv", "fred-payems", verify=True)
     with closing(initialize_database(canonical)) as conn:
-        assert {r[0] for r in conn.execute("SELECT DISTINCT source_id FROM economic_source_records")} == {"fred-payems", "mof-jgbcm-all", "fed-h15"}
+        assert {
+            r[0] for r in conn.execute("SELECT DISTINCT source_id FROM economic_source_records")
+        } == {"fred-payems", "mof-jgbcm-all", "fed-h15"}
 
 
 def test_readback_missing_a_received_row_is_a_failure(tmp_path):
@@ -67,7 +73,9 @@ def test_handoff_contains_only_new_selected_receipts_and_preserves_a_b_a(tmp_pat
         # read_snapshots selects the latest; the receipt history still holds B then A.
         assert rows[0].records == ({"value": "A"},)
         assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 2
-        assert {r[0] for r in conn.execute("SELECT DISTINCT source_id FROM economic_source_records")} == {"fed-h15"}
+        assert {
+            r[0] for r in conn.execute("SELECT DISTINCT source_id FROM economic_source_records")
+        } == {"fed-h15"}
 
 
 def test_failed_source_keeps_prior_data_and_does_not_hide_sibling_success(tmp_path, monkeypatch):
@@ -85,10 +93,23 @@ def test_failed_source_keeps_prior_data_and_does_not_hide_sibling_success(tmp_pa
     report = json.loads((directory / "result.json").read_text())
     assert {row["status"] for row in report["sources"]} == {"ok", "failed"}
     with closing(initialize_database(database)) as conn:
-        assert tuple(read_snapshots(conn, DAY, DAY, source_id="boj-cai"))[0].records[0]["value"] == "retained original"
+        assert (
+            tuple(read_snapshots(conn, DAY, DAY, source_id="boj-cai"))[0].records[0]["value"]
+            == "retained original"
+        )
     with closing(initialize_database(directory / "receipts.sqlite")) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM economic_source_records WHERE source_id='boj-cai'").fetchone()[0] == 0
-        assert conn.execute("SELECT status FROM economic_source_runs WHERE source_id='boj-cai'").fetchone()[0] == "failed"
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM economic_source_records WHERE source_id='boj-cai'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT status FROM economic_source_runs WHERE source_id='boj-cai'"
+            ).fetchone()[0]
+            == "failed"
+        )
 
 
 def workflow(name):

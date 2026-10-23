@@ -40,5 +40,6 @@ def export_receipts(
                     )
                     placeholders = ",".join("?" for _ in rows.description or ())
                     target.executemany(
-                        f"INSERT INTO {table} VALUES ({placeholders})", rows  # nosec B608
+                        f"INSERT INTO {table} VALUES ({placeholders})",
+                        rows,  # nosec B608
                     )

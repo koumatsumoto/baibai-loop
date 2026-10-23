@@ -59,7 +59,9 @@ def test_acquire_workflow_timeout_can_start_a_harmless_command():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     commands = [
         shlex.split(line.strip())
-        for step in yaml.safe_load(WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text())["jobs"]["acquire"]["steps"]
+        for step in yaml.safe_load(
+            WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text()
+        )["jobs"]["acquire"]["steps"]
         for line in step.get("run", "").splitlines()
         if line.strip().startswith("timeout ")
     ]
@@ -542,7 +544,10 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     assert acquire_job["strategy"]["max-parallel"] == "4"
     assert acquire_job["strategy"]["fail-fast"] == "false"
     assert acquire_job["uses"] == "./.github/workflows/cloud-external-assessment-source.yml"
-    child = yaml.load(WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text(), Loader=yaml.BaseLoader)
+    child = yaml.load(
+        WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
     assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
     assert "include" in acquire_job["strategy"]["matrix"]
     assert int(child["jobs"]["acquire"]["timeout-minutes"]) < 360

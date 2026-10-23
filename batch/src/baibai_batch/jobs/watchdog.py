@@ -398,7 +398,8 @@ def main(
                 raise WatchdogInputError("run listing must carry a workflow_runs array")
             # A limited successful rerun cannot stand in for all scheduled providers.
             payload["workflow_runs"] = [
-                row for row in payload["workflow_runs"]
+                row
+                for row in payload["workflow_runs"]
                 if isinstance(row, dict)
                 and str(row.get("display_title", "")).startswith("economic all all")
             ]

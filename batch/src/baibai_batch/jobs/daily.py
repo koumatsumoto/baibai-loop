@@ -885,7 +885,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="suppress step output; use the manifest/log files for detail",
     )
-    parser.add_argument("--saved-economic", action="store_true", help="read economic inputs without external acquisition")
+    parser.add_argument(
+        "--saved-economic",
+        action="store_true",
+        help="read economic inputs without external acquisition",
+    )
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     return parser
 

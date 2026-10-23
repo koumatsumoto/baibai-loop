@@ -23,7 +23,9 @@ _GROUPS = {
     "jquants_flows": "jquants",
     "jquants_indices": "jquants",
 }
-_BULK = frozenset({"boj", "ecb_fx", "fred_csv", "estat", "estat_dashboard", "mof_jgb", "umich_sca", "multpl"})
+_BULK = frozenset(
+    {"boj", "ecb_fx", "fred_csv", "estat", "estat_dashboard", "mof_jgb", "umich_sca", "multpl"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +55,9 @@ def source_policy(source: SourceDefinition) -> RefreshPolicy:
 
 
 def acquisition_groups() -> tuple[str, ...]:
-    return tuple(sorted({source_policy(source).acquisition_group for source in load_sources().values()}))
+    return tuple(
+        sorted({source_policy(source).acquisition_group for source in load_sources().values()})
+    )
 
 
 def recent_start(connection: sqlite3.Connection, source: SourceDefinition, end: date) -> date:

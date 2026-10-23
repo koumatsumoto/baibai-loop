@@ -15,8 +15,13 @@ END = date(2026, 10, 23)
 
 def attempt(conn, start, end, status="ok"):
     record_source_run(
-        conn, source_id="fred-payems", start=start, end=end,
-        started_at=datetime(2026, 10, 23, tzinfo=UTC), status=status, record_count=0,
+        conn,
+        source_id="fred-payems",
+        start=start,
+        end=end,
+        started_at=datetime(2026, 10, 23, tzinfo=UTC),
+        status=status,
+        record_count=0,
     )
 
 
@@ -30,7 +35,11 @@ def test_windows_preserve_revision_and_publication_lag_without_expanding_daily_o
     assert source_policy(catalog["jquants-trades-spec"]).lookback_days == 60
     assert source_policy(catalog["fred-payems"]).mode == "bulk_then_filter"
     assert source_policy(catalog["matsui-margin"]).mode == "current_only"
-    assert {source_policy(s).acquisition_group for s in catalog.values() if s.provider.startswith("jquants_")} == {"jquants"}
+    assert {
+        source_policy(s).acquisition_group
+        for s in catalog.values()
+        if s.provider.startswith("jquants_")
+    } == {"jquants"}
 
 
 def test_recovery_does_not_hide_a_failed_old_range_behind_a_narrow_new_success(tmp_path):
@@ -72,7 +81,17 @@ def test_first_recent_refresh_is_distinct_from_explicit_history_rebuild(tmp_path
 def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch):
     from baibai_engine.collection.economic import acquisition
 
-    monkeypatch.setattr(acquisition, "fetch_source_documents", lambda *a, **k: (_ for _ in ()).throw(AssertionError("historical page fetched")))
-    outcomes = refresh_sources(["matsui-margin"], db_path=tmp_path / "source.sqlite", start=None, end=date(2000, 1, 1), recent=True)
+    monkeypatch.setattr(
+        acquisition,
+        "fetch_source_documents",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("historical page fetched")),
+    )
+    outcomes = refresh_sources(
+        ["matsui-margin"],
+        db_path=tmp_path / "source.sqlite",
+        start=None,
+        end=date(2000, 1, 1),
+        recent=True,
+    )
     assert isinstance(outcomes[0], SourceRefreshFailure)
     assert "current-only" in outcomes[0].message

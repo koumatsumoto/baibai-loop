@@ -726,10 +726,14 @@ def test_workflow_publishes_each_source_without_waiting_for_its_siblings():
     source = parent["jobs"]["source"]
     assert source["needs"] == "plan"
     assert source["strategy"]["fail-fast"] == "false"
-    assert source["strategy"]["matrix"]["include"] == "${{ fromJSON(needs.plan.outputs.source_runs) }}"
+    assert (
+        source["strategy"]["matrix"]["include"] == "${{ fromJSON(needs.plan.outputs.source_runs) }}"
+    )
     assert source["uses"] == "./.github/workflows/cloud-external-assessment-source.yml"
     assert source["with"]["run_id"] == "${{ matrix.run_id }}"
-    child = yaml.load(path.with_name("cloud-external-assessment-source.yml").read_text(), Loader=yaml.BaseLoader)
+    child = yaml.load(
+        path.with_name("cloud-external-assessment-source.yml").read_text(), Loader=yaml.BaseLoader
+    )
     assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
     acquire = child["jobs"]["acquire"]
     assert "inputs.operation == 'collect_and_publish'" in acquire["if"]
@@ -748,9 +752,14 @@ def test_workflow_publishes_each_source_without_waiting_for_its_siblings():
     for step in (ready, publish):
         assert '--selection-json "$SOURCE_RUNS"' in step["run"]
         assert '--master-asof "$MASTER_ASOF"' in step["run"]
-        assert '--confirmed-partial' in step["run"]
+        assert "--confirmed-partial" in step["run"]
     for step in steps:
-        if any(token in step.get("run", "") for token in (
-            "publication_lease acquire", "r2_transfer.sh pull-market", "external_assessment_sources publish"
-        )):
+        if any(
+            token in step.get("run", "")
+            for token in (
+                "publication_lease acquire",
+                "r2_transfer.sh pull-market",
+                "external_assessment_sources publish",
+            )
+        ):
             assert step["if"] == "${{ steps.ready.outputs.ready == 'true' }}"

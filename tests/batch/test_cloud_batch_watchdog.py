@@ -763,8 +763,14 @@ def test_the_watchdog_covers_daily_macro_and_weekday_market_schedules() -> None:
 
 def test_limited_economic_success_cannot_cover_the_all_source_schedule(tmp_path, monkeypatch):
     code, transport = _run_main(
-        tmp_path, monkeypatch,
-        _listing(_run(created_at=FIRED_AT - timedelta(hours=2), display_title="economic fred_csv fred-payems")),
+        tmp_path,
+        monkeypatch,
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=2),
+                display_title="economic fred_csv fred-payems",
+            )
+        ),
         argv=["--economic", "--check-date", "2026-08-03"],
     )
     assert code == 0
@@ -773,13 +779,26 @@ def test_limited_economic_success_cannot_cover_the_all_source_schedule(tmp_path,
 
 def test_all_economic_source_results_must_report_one_common_day():
     runs = parse_runs(_listing(_run(created_at=FIRED_AT - timedelta(hours=2), batch_asof=None)))
+
     def jobs(*args):
-        return {"jobs": [{"steps": [
-            {"name": "Economic result for 2026-08-03", "status": "completed"},
-            {"name": "Economic result for 2026-08-03", "status": "completed"},
-        ]}]}
+        return {
+            "jobs": [
+                {
+                    "steps": [
+                        {"name": "Economic result for 2026-08-03", "status": "completed"},
+                        {"name": "Economic result for 2026-08-03", "status": "completed"},
+                    ]
+                }
+            ]
+        }
+
     resolved = resolve_run_results(
-        runs, repository="owner/repo", window_end=FIRED_AT, window_hours=20,
-        read_jobs=jobs, result_prefix="Economic result for ", repeated_source_results=True,
+        runs,
+        repository="owner/repo",
+        window_end=FIRED_AT,
+        window_hours=20,
+        read_jobs=jobs,
+        result_prefix="Economic result for ",
+        repeated_source_results=True,
     )
     assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == STATE_HEALTHY
