@@ -186,6 +186,77 @@ def test_absent_cf_and_document_metadata_stay_missing():
         assert cf["edinet"]["fcf_ttm"] is None
 
 
+def test_financial_forecast_sources_survive_stock_analysis_serialization():
+    financial = FinancialSnapshot(
+        latest_financial_disclosure_date=CUTOFF,
+        per_forward=10.0,
+        per_trailing=None,
+        pbr=0.8,
+        ev_ebitda=None,
+        p_s=None,
+        pcfr=None,
+        eps=None,
+        sales_ttm=None,
+        ocf_ttm=None,
+        market_price_yen=1000.0,
+        dps_actual_annual=40.0,
+        dps_forecast_annual=170.0,
+        dividend_yield=0.04,
+        dividend_basis="actual_reported",
+        earnings_forecast_source={
+            "status": "partially_unresolved",
+            "disclosure_number": "income-unknown",
+            "period_start": "2026-04-01",
+            "period_end": "2027-03-31",
+            "basis": "consolidated",
+            "target_basis": "consolidated",
+            "candidate_disclosure_numbers": "income-known,income-unknown",
+            "forecast_eps_source_records": "income-known,income-unknown",
+            "forecast_profit_source_records": None,
+        },
+        dividend_forecast_source={
+            "status": "confirmed",
+            "disclosure_number": "dividend-revision",
+            "period_start": "2027-04-01",
+            "period_end": "2028-03-31",
+            "basis": "issuer_dividend",
+            "target_basis": "issuer_dividend",
+            "dps_forecast_annual_source_records": "dividend-revision",
+        },
+    )
+    row = stock_analysis(
+        "1234",
+        metrics=build_stock_analysis_metrics(financial, derived=DerivedMetrics()),
+    )
+    assert forecast_sources_from_analysis(row) == {
+        "earnings_forecast_source": {
+            "status": "partially_unresolved",
+            "disclosure_number": "income-unknown",
+            "period_start": "2026-04-01",
+            "period_end": "2027-03-31",
+            "basis": "consolidated",
+            "target_basis": "consolidated",
+            "candidate_disclosure_numbers": "income-known,income-unknown",
+            "forecast_eps_source_records": "income-known,income-unknown",
+            "forecast_profit_source_records": None,
+        },
+        "dividend_forecast_source": {
+            "status": "confirmed",
+            "disclosure_number": "dividend-revision",
+            "period_start": "2027-04-01",
+            "period_end": "2028-03-31",
+            "basis": "issuer_dividend",
+            "target_basis": "issuer_dividend",
+            "dps_forecast_annual_source_records": "dividend-revision",
+        },
+    }
+    valuation = machine_valuation_from_analysis(row)
+    assert valuation.dps_actual_annual == 40.0
+    assert valuation.dps_forecast_annual == 170.0
+    assert valuation.dividend_yield == 0.04
+    assert valuation.dividend_basis == "actual_reported"
+
+
 @pytest.mark.parametrize(
     "analysis",
     [
