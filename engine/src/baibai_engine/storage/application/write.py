@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import tempfile
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -71,6 +72,7 @@ def backup_database(
 
     Older generations are pruned only once this one is written and verified, so a run
     that cannot produce a checkpoint never reduces the ones already held.
+    Until verification succeeds, the temporary file stays outside the generation set.
     """
     source_path = database_path(path)
     if not source_path.exists():
@@ -82,15 +84,23 @@ def backup_database(
     target_dir.mkdir(parents=True, exist_ok=True)
     stamp = instant.strftime("%Y%m%dT%H%M%S%f%z")
     target = target_dir / f"baibai-{stamp}.sqlite"
-    with (
-        closing(sqlite3.connect(source_path)) as source,
-        closing(sqlite3.connect(target)) as destination,
-    ):
-        source.backup(destination)
-        if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            raise sqlite3.DatabaseError("backup integrity_check failed")
-        if destination.execute("PRAGMA foreign_key_check").fetchall():
-            raise sqlite3.IntegrityError("backup foreign_key_check failed")
+    with tempfile.NamedTemporaryFile(
+        dir=target_dir, prefix=".baibai-", suffix=".sqlite", delete=False
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        with (
+            closing(sqlite3.connect(source_path)) as source,
+            closing(sqlite3.connect(temporary_path)) as destination,
+        ):
+            source.backup(destination)
+            if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise sqlite3.DatabaseError("backup integrity_check failed")
+            if destination.execute("PRAGMA foreign_key_check").fetchall():
+                raise sqlite3.IntegrityError("backup foreign_key_check failed")
+        temporary_path.replace(target)
+    finally:
+        temporary_path.unlink(missing_ok=True)
     prune_backups(target_dir, keep=keep)
     return target
 

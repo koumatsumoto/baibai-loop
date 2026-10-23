@@ -4,12 +4,7 @@ import unittest
 
 from baibai_engine.screening.schema import DerivedMetrics
 from baibai_engine.screening.stock_analysis_builder import expected_return_inputs
-from baibai_engine.valuation.estimates import (
-    REALIZATION_RATE_ANNUAL,
-    SHARE_COUNT_CLIP,
-    UPSIDE_CAP,
-    estimate_expected_return,
-)
+from baibai_engine.valuation.estimates import estimate_expected_return
 from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS, FinancialSnapshot
 
 
@@ -82,10 +77,10 @@ class EstimateExpectedReturnTest(unittest.TestCase):
         assert estimate is not None
         self.assertAlmostEqual(estimate.upside_blend, 0.375)
         self.assertAlmostEqual(estimate.upside_capped, 0.375)
-        self.assertAlmostEqual(estimate.reversion_annual, REALIZATION_RATE_ANNUAL * 0.375)
+        self.assertAlmostEqual(estimate.reversion_annual, 0.0375)
         # carry = 配当 3% + 株数減少の機械寄与 2% (clip 内)
         self.assertAlmostEqual(estimate.carry_annual, 0.03 + 0.02)
-        self.assertAlmostEqual(estimate.er_annual, estimate.reversion_annual + 0.05)
+        self.assertAlmostEqual(estimate.er_annual, 0.0875)
         self.assertEqual(estimate.anchor_metrics, "pbr,per_forward")
         # FV anchor: sector 側 = close x mean(1.2/0.8, 15/10) = 1000 x 1.5
         assert estimate.fv_sector_median_yen is not None
@@ -113,25 +108,30 @@ class EstimateExpectedReturnTest(unittest.TestCase):
         self.assertAlmostEqual(estimate.carry_annual, 0.02)
 
     def test_upside_is_capped_and_can_be_negative(self) -> None:
-        # deep discount: anchor 3 倍 → +200% だが cap で +50% に制限。
-        derived = _derived(sector_median_value={"pbr": 2.4, "per_forward": 30.0})
-        estimate = estimate_expected_return(expected_return_inputs(_financial(), derived))
-        assert estimate is not None
-        self.assertAlmostEqual(estimate.upside_capped, UPSIDE_CAP)
-        # 割高側: anchor が current より低ければ負の reversion。
-        derived = _derived(sector_median_value={"pbr": 0.4, "per_forward": 5.0})
-        estimate = estimate_expected_return(expected_return_inputs(_financial(), derived))
-        assert estimate is not None
-        self.assertLess(estimate.upside_blend, 0.0)
-        self.assertLess(estimate.reversion_annual, 0.0)
+        # Current method oracles are independent of the production policy constants.
+        for anchors, upside, capped, reversion, annual in (
+            ({"pbr": 2.4, "per_forward": 30.0}, 2.0, 0.5, 0.05, 0.10),
+            ({"pbr": 0.08, "per_forward": 1.0}, -0.9, -0.5, -0.05, 0.0),
+        ):
+            with self.subTest(upside=upside):
+                derived = _derived(sector_median_value=anchors)
+                estimate = estimate_expected_return(expected_return_inputs(_financial(), derived))
+                assert estimate is not None
+                self.assertAlmostEqual(estimate.upside_blend, upside)
+                self.assertAlmostEqual(estimate.upside_capped, capped)
+                self.assertAlmostEqual(estimate.reversion_annual, reversion)
+                self.assertAlmostEqual(estimate.er_annual, annual)
 
     def test_dilution_reduces_carry_and_is_clipped(self) -> None:
         derived = _derived(sector_median_value={"pbr": 1.0})
-        financial = _financial(per_forward=None, dividend_yield=0.02, net_share_change_yoy=0.30)
-        estimate = estimate_expected_return(expected_return_inputs(financial, derived))
-        assert estimate is not None
-        # 希薄化 30% は clip で -5% まで。carry = 0.02 - 0.05 = -0.03
-        self.assertAlmostEqual(estimate.carry_annual, 0.02 - SHARE_COUNT_CLIP)
+        for change, carry in ((0.30, -0.03), (-0.30, 0.07)):
+            with self.subTest(net_share_change_yoy=change):
+                financial = _financial(
+                    per_forward=None, dividend_yield=0.02, net_share_change_yoy=change
+                )
+                estimate = estimate_expected_return(expected_return_inputs(financial, derived))
+                assert estimate is not None
+                self.assertAlmostEqual(estimate.carry_annual, carry)
 
     def test_returns_none_without_any_anchor(self) -> None:
         estimate = estimate_expected_return(expected_return_inputs(_financial(), _derived()))

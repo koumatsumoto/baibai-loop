@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -47,26 +47,103 @@ def test_obsolete_database_requires_an_explicit_cutover(tmp_path: Path) -> None:
         initialize_database(path)
 
 
-def test_backup_captures_current_rows(tmp_path: Path) -> None:
+def test_backup_captures_uncheckpointed_wal_without_changing_source(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     initialize_database(path)
-    with closing(sqlite3.connect(path)) as connection, connection:
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA wal_autocheckpoint=0")
         connection.execute(
             "INSERT INTO ledger_meta "
             "(singleton, schema_version, portfolio_scope, as_of, payload) "
             "VALUES (1, 1, 'repository_only', '2026-08-29', '{}')"
         )
+        connection.commit()
+        wal = path.with_name(path.name + "-wal")
+        before = path.read_bytes(), wal.read_bytes()
+        assert before[1]
 
-    backup = backup_database(
-        path,
-        backup_dir=tmp_path / "backups",
-        now=datetime.fromisoformat("2026-08-29T12:00:00+09:00"),
-    )
+        backup = backup_database(
+            path,
+            backup_dir=tmp_path / "backups",
+            now=datetime.fromisoformat("2026-08-29T12:00:00+09:00"),
+        )
 
-    assert backup is not None
-    with closing(sqlite3.connect(backup)) as connection:
-        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-        assert connection.execute("SELECT count(*) FROM ledger_meta").fetchone()[0] == 1
+        assert (path.read_bytes(), wal.read_bytes()) == before
+        assert backup is not None
+        with closing(sqlite3.connect(backup)) as snapshot:
+            assert snapshot.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            assert snapshot.execute("SELECT count(*) FROM ledger_meta").fetchone()[0] == 1
+
+
+def test_failed_backup_validation_preserves_generations_and_next_success_retention(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "app.sqlite"
+    initialize_database(path)
+    backups = tmp_path / "backups"
+    instant = datetime.fromisoformat("2026-08-29T12:00:00+09:00")
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA wal_autocheckpoint=0")
+        generations = [
+            backup_database(path, backup_dir=backups, now=instant + timedelta(minutes=i), keep=2)
+            for i in range(2)
+        ]
+        assert all(generation is not None for generation in generations)
+        kept = {item: item.read_bytes() for item in backups.iterdir()}
+        # A restore candidate with a broken application reference must not become
+        # a retained generation, even though SQLite's structural check succeeds.
+        connection.execute(
+            "INSERT INTO stock_assessment_review VALUES "
+            "('orphan-review', 'missing-assessment', '2026-08-29T12:00:00+09:00', '{}')"
+        )
+        connection.commit()
+        wal = path.with_name(path.name + "-wal")
+        before = path.read_bytes(), wal.read_bytes()
+
+        with pytest.raises(sqlite3.IntegrityError, match="backup foreign_key_check failed"):
+            backup_database(path, backup_dir=backups, now=instant + timedelta(minutes=2), keep=2)
+
+        assert {item: item.read_bytes() for item in backups.iterdir()} == kept
+        assert (path.read_bytes(), wal.read_bytes()) == before
+        connection.execute("DELETE FROM stock_assessment_review")
+        connection.commit()
+        latest = backup_database(
+            path, backup_dir=backups, now=instant + timedelta(minutes=3), keep=2
+        )
+        assert set(backups.iterdir()) == {generations[1], latest}
+        assert generations[1] is not None
+        assert generations[1].read_bytes() == kept[generations[1]]
+        for item in backups.iterdir():
+            with closing(sqlite3.connect(item)) as snapshot:
+                assert snapshot.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+                assert snapshot.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_interrupted_backup_cleans_temporary_generation(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "app.sqlite"
+    initialize_database(path)
+    backups = tmp_path / "backups"
+    before = path.read_bytes()
+    original_connect = sqlite3.connect
+
+    class InterruptedBackup(sqlite3.Connection):
+        def backup(self, destination, **kwargs):
+            destination.execute("CREATE TABLE incomplete_checkpoint(value TEXT)")
+            assert list(backups.glob("baibai-*.sqlite")) == []
+            raise sqlite3.OperationalError("synthetic backup interruption")
+
+    def connect(database, *args, **kwargs):
+        if database == path:
+            kwargs["factory"] = InterruptedBackup
+        return original_connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    with pytest.raises(sqlite3.OperationalError, match="synthetic backup interruption"):
+        backup_database(path, backup_dir=backups)
+    assert list(backups.iterdir()) == []
+    assert path.read_bytes() == before
 
 
 def test_prune_backups_keeps_the_newest_files(tmp_path: Path) -> None:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import UTC, datetime, timedelta
+import sqlite3
+from contextlib import closing
+from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime
 from urllib.parse import parse_qs, urlsplit
 
@@ -19,7 +21,11 @@ from baibai_engine.collection.jquants.http import (
     JQuantsHTTP,
     page_records,
 )
+from baibai_engine.collection.jquants.receipts import read_complete_request, read_request_pages
 from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_engine.storage.observations.coverage import range_covered
+from baibai_engine.storage.observations.schema import open_connection
 
 RECEIVED_AT = datetime(2026, 10, 17, 12, tzinfo=UTC)
 
@@ -215,7 +221,7 @@ def wire(monkeypatch):
             assert kwargs["headers"]["x-api-key"] == "synthetic-test-key"
             status, headers, body = self.reply(url)
             return HTTPResponse(
-                body=io.BytesIO(body),
+                body=body if hasattr(body, "read") else io.BytesIO(body),
                 status=status,
                 headers={"Content-Type": "application/json", **headers},
                 preload_content=False,
@@ -312,7 +318,7 @@ def test_http_date_retry_after_precedes_default_backoff(wire, monkeypatch):
     assert wire.waits == [60]
 
 
-def test_read_timeout_has_finite_get_retry_budget(wire):
+def test_timeout_before_response_has_finite_get_retry_budget(wire):
     def reply(url):
         raise ReadTimeoutError(None, url, "synthetic timeout")
 
@@ -325,6 +331,79 @@ def test_read_timeout_has_finite_get_retry_budget(wire):
         client.close()
     assert len(wire.calls) == 6
     assert wire.waits == [30, 60, 120, 300, 600]
+
+
+def test_body_timeout_retains_complete_pages_and_explicit_retry_projects_once(wire, tmp_path):
+    class InterruptedBody(io.BytesIO):
+        prefix_read = False
+
+        def read(self, *args, **kwargs):
+            if not self.prefix_read:
+                self.prefix_read = True
+                return super().read(*args, **kwargs)
+            raise ReadTimeoutError(None, None, "synthetic-test-key in body timeout details")
+
+    target = date(2026, 10, 16)
+    first = payload(
+        [{"Code": "13010", "Date": target.isoformat(), "C": 100, "AdjFactor": 1.0}],
+        cursor="next",
+    )
+    second = payload([{"Code": "72030", "Date": target.isoformat(), "C": 200, "AdjFactor": 1.0}])
+    interrupted = InterruptedBody(second[:20])
+    wire.reply = lambda url: (
+        200,
+        {},
+        interrupted if "pagination_key" in parse_qs(urlsplit(url).query) else first,
+    )
+    database = tmp_path / "market.sqlite"
+    open_connection(database).close()
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    maintenance = JQuantsRefresh(database, None, client=client)
+    try:
+        with pytest.raises(JQuantsAcquisitionError, match="ConnectionError") as caught:
+            maintenance.ensure_daily_bars(target, target)
+        failed_id = caught.value.request_id
+        assert failed_id is not None
+        assert "synthetic-test-key" not in str(caught.value)
+        assert caught.value.__context__ is None
+        assert caught.value.__cause__ is None
+        assert interrupted.prefix_read
+        # Requests consumes the body after the adapter's retry boundary. A body
+        # timeout fails this request; it does not silently restart either GET.
+        assert len(wire.calls) == 2
+        assert wire.waits == []
+        with closing(sqlite3.connect(database)) as connection:
+            assert [page.body for page in read_request_pages(connection, failed_id)] == [first]
+            with pytest.raises(JQuantsAcquisitionError, match="incomplete"):
+                read_complete_request(connection, failed_id)
+            assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (0,)
+            assert not range_covered(connection, "jquants_daily_bars", target, target)
+
+        wire.reply = lambda url: (
+            200,
+            {},
+            second if "pagination_key" in parse_qs(urlsplit(url).query) else first,
+        )
+        assert maintenance.ensure_daily_bars(target, target) == 2
+    finally:
+        maintenance.close()
+
+    assert len(wire.calls) == 4
+    assert wire.waits == []
+    with closing(sqlite3.connect(database)) as connection:
+        (resumed_id,) = connection.execute(
+            "SELECT DISTINCT request_id FROM jquants_source_pages WHERE request_id != ?",
+            (failed_id,),
+        ).fetchone()
+        assert [page.body for page in read_complete_request(connection, resumed_id).pages] == [
+            first,
+            second,
+        ]
+        assert [page.body for page in read_request_pages(connection, failed_id)] == [first]
+        assert connection.execute(
+            "SELECT ticker, close FROM jquants_daily_bars ORDER BY ticker"
+        ).fetchall() == [("1301", 100.0), ("7203", 200.0)]
+        assert range_covered(connection, "jquants_daily_bars", target, target)
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])

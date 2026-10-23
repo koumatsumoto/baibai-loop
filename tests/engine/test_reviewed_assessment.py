@@ -1,7 +1,6 @@
 """F01/F02/F03/F06/F08: valuation and atomic Reviewed Assessment publication owners."""
 
 from contextlib import closing
-from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
 
@@ -10,14 +9,13 @@ from tests.helpers.assessment_v1 import (
     assessment_id,
     pair_payload,
     review_id,
+    update_review_hash,
 )
 
 from baibai_engine.research.assessment import StockAssessmentDocument, assessment_core_hash
 from baibai_engine.research.assessment_store import (
     AssessmentStoreService,
-    ResearchConflictError,
     ResearchValidationError,
-    load_latest_reviewed_assessment,
 )
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.valuation.scenario import (
@@ -95,45 +93,17 @@ def test_horizon_rejects_invalid_numbers(bad):
         project_return(projection(), price_yen=Decimal(1000), horizon_months=bad)
 
 
-def test_atomic_pair_retry_and_latest_unresolved(tmp_path):
-    db = tmp_path / "app.sqlite"
-    service = AssessmentStoreService(db, clock=lambda: NOW)
-    assessment, review = pair_payload()
-    service.publish_reviewed_assessment(assessment_id(), assessment, review)
-    unresolved, second_review = deepcopy(assessment), deepcopy(review)
-    unresolved["input_snapshot"]["facts"] = []
-    unresolved["conclusion"]["stance"] = "uncertain"
-    unresolved["valuation"] = dict(
-        status="unresolved",
-        market_price_fact_id=None,
-        horizon_months=None,
-        required_annual_return_pct=None,
-        base=None,
-        downside=None,
-        unresolved_reason="価格不明",
-    )
-    second_review["review_id"] = review_id(4)
-    second_review["recalculated_projections"] = []
-    second_review["reviewed_assessment_sha256"] = assessment_core_hash(
-        StockAssessmentDocument.model_validate(unresolved)
-    )
-    service.publish_reviewed_assessment(
-        assessment_id(3), unresolved, second_review, supersedes_id=assessment_id()
-    )
-    service.publish_reviewed_assessment(assessment_id(), assessment, review)
-    with closing(connect_read_only(db)) as connection, connection:
-        latest = load_latest_reviewed_assessment(connection, "1234")
-        assert latest.assessment_id == assessment_id(3)
-        assert latest.document.valuation.status == "unresolved"
-        assert latest.core_sha256 == second_review["reviewed_assessment_sha256"]
-    changed = deepcopy(review)
-    changed["strongest_countercase"] = "異なる内容"
-    with pytest.raises(ResearchConflictError):
-        service.publish_reviewed_assessment(assessment_id(), assessment, changed)
-
-
-@pytest.mark.parametrize("fault", ["hash", "terminal", "cash", "source", "unit"])
-def test_invalid_pair_never_publishes(tmp_path, fault):
+@pytest.mark.parametrize(
+    ("fault", "message"),
+    [
+        ("hash", "Assessment Review hash does not match assessment"),
+        ("terminal", "terminal_value_per_share_yen mismatch"),
+        ("cash", "cash_distribution_per_share_yen mismatch"),
+        ("source", "projection references unknown source"),
+        ("unit", "market_price requires unadjusted JPY_per_share basis"),
+    ],
+)
+def test_invalid_pair_never_publishes(tmp_path, fault, message):
     assessment, review = pair_payload()
     if fault == "hash":
         review["reviewed_assessment_sha256"] = "0" * 64
@@ -150,8 +120,11 @@ def test_invalid_pair_never_publishes(tmp_path, fault):
         assessment["valuation"]["base"]["source_ids"] = ["missing"]
     else:
         assessment["input_snapshot"]["facts"][0]["unit"] = "JPY"
+    if fault != "hash":
+        # Isolate semantic rejection from a stale Review hash.
+        update_review_hash(assessment, review)
     db = tmp_path / "app.sqlite"
-    with pytest.raises(ResearchValidationError):
+    with pytest.raises(ResearchValidationError, match=message):
         AssessmentStoreService(db, clock=lambda: NOW).publish_reviewed_assessment(
             assessment_id(), assessment, review
         )

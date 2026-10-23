@@ -413,6 +413,7 @@ def test_current_projection_same_day_guards_and_origin_context_are_separate():
 def test_atomic_pair_retry_and_latest_unresolved_has_no_supported_fallback(connection):
     first = publish(connection)
     document, review = pair_payload(review_number=4)
+    document["input_snapshot"]["facts"] = []
     document["conclusion"]["stance"] = "uncertain"
     document["valuation"] = dict(
         status="unresolved",
@@ -430,6 +431,7 @@ def test_atomic_pair_retry_and_latest_unresolved_has_no_supported_fallback(conne
     )
     assert publish(connection) == first
     assert load_latest_reviewed_assessment(connection, "1234") == second
+    assert second.document.input_snapshot.facts == ()
     stored = connection.execute(
         "SELECT payload FROM stock_assessment WHERE assessment_id = ?", (first.assessment_id,)
     ).fetchone()[0]
