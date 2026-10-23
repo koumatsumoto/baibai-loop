@@ -27,6 +27,7 @@ from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 from baibai_engine.valuation.query import (
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
+    forecast_sources_from_analysis,
     machine_valuation_from_analysis,
 )
 
@@ -90,6 +91,9 @@ def project_research_inputs(selection: ResearchSelection) -> dict[str, JsonValue
                 else snapshot.analysis_as_of.isoformat(),
                 "estimate": asdict(machine_valuation_from_analysis(analysis)),
             },
+            "forecast_sources": None
+            if analysis is None
+            else forecast_sources_from_analysis(analysis),
             "cash_flow": None if analysis is None else cash_flow_from_analysis(analysis),
             "balance_sheet": None if analysis is None else balance_sheet_from_analysis(analysis),
             **(

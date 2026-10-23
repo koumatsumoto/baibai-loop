@@ -61,6 +61,12 @@ ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成�
 
 `normalized_per_3fy`は連続3FYの実績EPS平均に基づく保存名であり、一時損益・景気循環を調整した正常利益ではない。企業固有の代表利益は一次資料と仮定から[Stock Assessment](./stock-assessment.md#scenario-arithmetic)で構成する。Current/Normalized Earningsの探索は業種gapとPERを優先し、CFは同順位時の補助であり、CF品質の選別済みとは扱わない。
 
+### Researchへ渡す会社予想の出所
+
+`valuation.query.forecast_sources_from_analysis`は、固定Stock Analysisの`earnings_forecast_source / dividend_forecast_source`をResearch入力の`securities[ticker].forecast_sources`へ渡す。保存JSON文字列をobjectへ展開して機械anchorの隣に置き、利益と配当の文書番号・対象期・basis・status・field別source・同日競合の候補を保存どおりに読む。対象期を揃えたりsourceを再選択したりせず、comma区切りのrecord名やnullも解釈し直さない。数値・実績/予想DPS・採用`dividend_basis`、候補選抜・E[r]は変えない。
+
+field欠落とnullはそのsnapshotに未保存であり、読取ではnullとし、固定入力の原形を変えない。不正な保存JSONやobject以外は未保存として隠さず読取エラーとする。現在storeや新規取得で補完せず、元run更新・削除後もOperationの固定snapshotだけから再投影する。既存workspaceの生成YAMLは[Researchの`--force`再開](../../.agents/skills/research/SKILL.md#1-選定してworkspaceを準備する)で再生成できる。これは原典へ戻る手間を減らす入口であり、予想の対象期・株式basis・普通/特別配当・持続性の一次資料確認と独立Reviewを代行しない。
+
 ### Researchへ渡すCF文脈
 
 `valuation.query.cash_flow_from_analysis`は保存済みStock Analysisの金額・利回り・品質を出所別に読む。J-QuantsのOCF TTMと、選択EDINET書類のOCF/capex/FCFは別系列であり、同一期間・連結範囲を保証しない。異なる系列のOCFとcapexを減算してFCFを作らない。

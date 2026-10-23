@@ -31,6 +31,7 @@ from baibai_engine.valuation.query import (
     anchor_gap_pct,
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
+    forecast_sources_from_analysis,
     machine_valuation_from_analysis,
 )
 
@@ -141,6 +142,7 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
         },
     }
     assert inputs["securities"]["9999"]["cash_flow"] is None
+    assert inputs["securities"]["9999"]["forecast_sources"] is None
     bs = security["balance_sheet"]
     assert bs["amount_unit"] == "JPY"
     assert bs["jquants"] == {
@@ -182,6 +184,30 @@ def test_absent_cf_and_document_metadata_stay_missing():
         assert cf["edinet"]["edinet_ocf_ttm"] is None
         assert cf["edinet"]["capex_ttm"] is None
         assert cf["edinet"]["fcf_ttm"] is None
+
+
+@pytest.mark.parametrize(
+    "analysis",
+    [
+        {},
+        {"metrics": None},
+        {"metrics": {}},
+        {"metrics": {"earnings_forecast_source": None, "dividend_forecast_source": None}},
+    ],
+)
+def test_unrecorded_forecast_sources_stay_missing(analysis):
+    original = copy.deepcopy(analysis)
+    assert forecast_sources_from_analysis(analysis) == {
+        "earnings_forecast_source": None,
+        "dividend_forecast_source": None,
+    }
+    assert analysis == original
+
+
+@pytest.mark.parametrize("source", ["broken JSON", "null", "[]", {}])
+def test_malformed_saved_forecast_source_is_not_reported_as_unrecorded(source):
+    with pytest.raises(ValueError):
+        forecast_sources_from_analysis({"metrics": {"earnings_forecast_source": source}})
 
 
 @pytest.mark.parametrize("bad", [None, True, "100", float("nan"), float("inf")])

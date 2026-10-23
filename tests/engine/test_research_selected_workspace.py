@@ -2,6 +2,8 @@
 
 import json
 import socket
+import sqlite3
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -78,6 +80,168 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_run(tmp_path):
     assert saved.inputs.analysis.run_revision_id == context["run_revision_id"]
     assert saved.inputs.analysis.analyses["1234"] == row
     assert runs.read_bytes() == original_run
+
+
+@pytest.mark.parametrize(
+    "unrecorded",
+    [{}, {"earnings_forecast_source": None, "dividend_forecast_source": None}],
+)
+def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monkeypatch, unrecorded):
+    from tests.helpers.screening_run import screening_run_payload, stock_analysis
+
+    from baibai_engine.read_api import stored_machine_valuation
+    from baibai_engine.research.inputs import project_research_inputs
+    from baibai_engine.screening.discovery.candidates import build_candidate_contexts
+    from baibai_engine.screening.run_store import ScreeningRunStore
+
+    monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
+    # Saved JSON is the input; expectations below are independent of the projection helper.
+    earnings = """{
+        "status": "partially_unresolved", "disclosure_number": "income-unknown",
+        "disclosed_at": "2026-09-06", "disclosed_time": null,
+        "document_type": "EarnForecastRevision", "period_start": "2026-04-01",
+        "period_end": "2027-03-31", "basis": "consolidated", "target_basis": "consolidated",
+        "candidate_disclosure_numbers": "income-known,income-unknown",
+        "forecast_eps_source_records": "income-known,income-unknown",
+        "forecast_profit_source_records": null,
+        "forecast_ordinary_profit_source_records": "income-known"
+    }"""
+    dividend = """{
+        "status": "confirmed", "disclosure_number": "dividend",
+        "disclosed_at": "2026-09-07", "disclosed_time": "15:00:00",
+        "document_type": "DividendForecastRevision", "period_start": "2027-04-01",
+        "period_end": "2028-03-31", "basis": "issuer_dividend", "target_basis": "issuer_dividend",
+        "dps_forecast_annual_source_records": "dividend"
+    }"""
+    numbers = {
+        "per_forward_sector_gap": -0.2,
+        "market_price_yen": 1000.0,
+        "er_annual": 0.05,
+        "er_reversion_annual": 0.01,
+        "er_carry_annual": 0.04,
+        "dividend_yield": 0.04,
+        "dps_actual_annual": 40.0,
+        "dps_forecast_annual": 170.0,
+        "dividend_basis": "actual_reported",
+    }
+    baseline = stock_analysis("1234", per_forward=10.0, metrics=numbers)
+    row = stock_analysis(
+        "1234",
+        per_forward=10.0,
+        metrics={
+            **numbers,
+            "earnings_forecast_source": earnings,
+            "dividend_forecast_source": dividend,
+        },
+    )
+    rules = load_screening_rules()
+    candidate_options = {
+        "rules": rules.candidate_discovery,
+        "required_jpx_flags": rules.universe.required_jpx_flags,
+    }
+    assert build_candidate_contexts([row], **candidate_options) == build_candidate_contexts(
+        [baseline], **candidate_options
+    )
+    runs = tmp_path / "runs"
+    value = selection(
+        now=NOW,
+        tickers=("1234", "5678"),
+        runs=runs,
+        rows=[row, stock_analysis("5678", metrics=unrecorded)],
+    )
+    machine = stored_machine_valuation(runs, ticker="1234", as_of=NOW.date()).valuation
+    assert machine is not None
+    original_run = runs.read_bytes()
+    prepared = prepare(tmp_path, value=value)
+    assert runs.read_bytes() == original_run
+    saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
+    assert saved is not None
+    fixed_snapshot = saved.model_dump_json()
+    inputs_path = prepared.workspace / "domain-inputs.yaml"
+    first = inputs_path.read_bytes()
+    inputs = yaml.safe_load(first)
+    security = inputs["securities"]["1234"]
+    assert security["forecast_sources"] == {
+        "earnings_forecast_source": {
+            "status": "partially_unresolved",
+            "disclosure_number": "income-unknown",
+            "disclosed_at": "2026-09-06",
+            "disclosed_time": None,
+            "document_type": "EarnForecastRevision",
+            "period_start": "2026-04-01",
+            "period_end": "2027-03-31",
+            "basis": "consolidated",
+            "target_basis": "consolidated",
+            "candidate_disclosure_numbers": "income-known,income-unknown",
+            "forecast_eps_source_records": "income-known,income-unknown",
+            "forecast_profit_source_records": None,
+            "forecast_ordinary_profit_source_records": "income-known",
+        },
+        "dividend_forecast_source": {
+            "status": "confirmed",
+            "disclosure_number": "dividend",
+            "disclosed_at": "2026-09-07",
+            "disclosed_time": "15:00:00",
+            "document_type": "DividendForecastRevision",
+            "period_start": "2027-04-01",
+            "period_end": "2028-03-31",
+            "basis": "issuer_dividend",
+            "target_basis": "issuer_dividend",
+            "dps_forecast_annual_source_records": "dividend",
+        },
+    }
+    assert security["machine_valuation"]["run_revision_id"] == "run-synthetic"
+    assert security["machine_valuation"]["estimate"] == asdict(machine)
+    for key, expected in numbers.items():
+        if key != "per_forward_sector_gap":
+            assert security["machine_valuation"]["estimate"][key] == expected
+    assert inputs["securities"]["5678"]["forecast_sources"] == {
+        "earnings_forecast_source": None,
+        "dividend_forecast_source": None,
+    }
+    assert saved.inputs.analysis.analyses["5678"]["metrics"] == unrecorded
+    assert saved.inputs.analysis.analyses["1234"]["metrics"]["earnings_forecast_source"] == earnings
+    assert saved.inputs.analysis.analyses["1234"]["metrics"]["dividend_forecast_source"] == dividend
+
+    def forbidden(*_a, **_kw):
+        pytest.fail("fixed forecast source projection reread a store")
+
+    with monkeypatch.context() as projection_only:
+        projection_only.setattr(sqlite3, "connect", forbidden)
+        assert project_research_inputs(saved) == inputs
+    monkeypatch.setattr(selected_prepare, "collect_research_inputs", forbidden)
+    ScreeningRunStore(runs).publish_run(
+        screening_run_payload(
+            as_of="2026-09-08",
+            stock_analyses=[
+                stock_analysis(
+                    "1234",
+                    metrics={"er_annual": 0.99, "earnings_forecast_source": '{"status":"changed"}'},
+                )
+            ],
+        ),
+        run_revision_id="replacement",
+        rules=rules,
+    )
+    for remove_run in (False, True):
+        if remove_run:
+            runs.unlink()
+        inputs_path.unlink()
+        resumed = resume_selected_workspace(
+            operation_id=prepared.operation_id,
+            db_path=tmp_path / "app",
+            workspace=prepared.workspace,
+            now=NOW + timedelta(days=2),
+            force=True,
+        )
+        assert resumed.selection_sha256 == prepared.selection_sha256
+        assert inputs_path.read_bytes() == first
+        reread = selection_binding(
+            OperationService(tmp_path / "app").get(prepared.operation_id).payload
+        )
+        assert reread is not None
+        assert reread.model_dump_json() == fixed_snapshot
+    assert saved.model_dump_json() == fixed_snapshot
 
 
 def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_path, monkeypatch):

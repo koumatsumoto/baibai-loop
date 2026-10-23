@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
@@ -67,6 +68,25 @@ def anchor_gap_pct(valuation: MachineValuation) -> float | None:
     if anchor is None or price is None or price == 0:
         return None
     return round((anchor / price - 1) * 100, 4)
+
+
+def forecast_sources_from_analysis(analysis: Mapping[str, object]) -> dict[str, object]:
+    """Decode saved trace objects for reading; keep fields and unresolved sources intact."""
+    raw = analysis.get("metrics")
+    metrics = raw if isinstance(raw, Mapping) else {}
+    sources: dict[str, object] = {}
+    for key in ("earnings_forecast_source", "dividend_forecast_source"):
+        value = metrics.get(key)
+        if value is None:
+            sources[key] = None
+            continue
+        if not isinstance(value, str):
+            raise ValueError(f"saved {key} must be a JSON object string")
+        source: object = json.loads(value)
+        if not isinstance(source, dict):
+            raise ValueError(f"saved {key} must be a JSON object string")
+        sources[key] = source
+    return sources
 
 
 def cash_flow_from_analysis(analysis: Mapping[str, object]) -> dict[str, object]:
