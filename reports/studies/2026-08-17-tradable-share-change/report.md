@@ -8,7 +8,7 @@ date: 2026-08-17
 
 # carry の株数項を自己株控除後で測り直す — 計測記録
 
-[事前登録](./preregistration.md)に従い、81 cohort を再構築して測った。**結論は H3 — 現行の `net_share_change_yoy` を維持し、`tradable_share_change_yoy` は fact として panel に残す。**
+[事前登録](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/reports/studies/2026-08-17-tradable-share-change/preregistration.md)に従い、81 cohort を再構築して測った。**結論は H3 — 現行の `net_share_change_yoy` を維持し、`tradable_share_change_yoy` は fact として panel に残す。**
 
 ## 1. 停止条件と outcome-free の前提確認
 
