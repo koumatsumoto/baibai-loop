@@ -113,7 +113,7 @@ planning baseline だった 20〜30 万円の単発注文を単純に日次 ADV 
 `20〜30万 / 5,000万 * 100 = 0.4〜0.6%`、0.3 億円で
 `20〜30万 / 3,000万 * 100 = 0.6667〜1.0%` になる。この注文額は 2026-07-14 の再現入力であり、
 将来の policy literal ではない。現在の planning baseline は
-[`portfolio-management.md#capital-guidance`](../../../docs/portfolio-management.md#capital-guidance)を正本とする。
+[`portfolio-management.md#capital-guidance`](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/portfolio-management.md#capital-guidance)を正本とする。
 また、この比率は執行可能性や market impact を示すものではない。
 
 ## 4. 結果

@@ -8,7 +8,7 @@ date: 2026-10-14
 
 # v26固定19月のschema4 ER文脈の受入
 
-refs [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481) / [#1516](https://github.com/koumatsumoto/baibai-loop/issues/1516)。意味の正本は[Estimate calibration](../../../docs/reference/estimate-calibration.md#er-level-distribution-context)。[最新artifact](../../published/er-level-calibration-latest.yaml)には生成済みschema4 previewの全field・元bytesを反映した。生成日は2026-10-14 JST、有効期限は2026-11-28。PR段階であり、本番公開・serving反映はしていない。
+refs [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481) / [#1516](https://github.com/koumatsumoto/baibai-loop/issues/1516)。意味の正本は[Estimate calibration](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/estimate-calibration.md#er-level-distribution-context)。[最新artifact](../../published/er-level-calibration-latest.yaml)には生成済みschema4 previewの全field・元bytesを反映した。生成日は2026-10-14 JST、有効期限は2026-11-28。PR段階であり、本番公開・serving反映はしていない。
 
 この受入完了は下記の固定 commit と v26 の生成物に限る。後続の計算 revision を採用した run に対する一致・受理を保証せず、元 artifact の hash を新 revision へ付け替えない。後続コードでの全ファイルレビューや本番切替の完了記録でもない。
 

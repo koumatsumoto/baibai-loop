@@ -1,9 +1,9 @@
 # R2 Bucket Lock の設定記録（2026-08-19）
 
-この記録の設定値・コマンド・未完了taskは2026-08-19時点のものです。現在の設定状態や後始末の完了を保証しません。現行の実装は `engine/src/baibai_engine/storage/lake/keys.py` と `engine/src/baibai_engine/storage/lake/retention.py`、運用手順は [market-lake](../../../docs/reference/market-lake.md) を参照してください。以下の旧パスと出力は当時の記録として保持します。
+この記録の設定値・コマンド・未完了taskは2026-08-19時点のものです。現在の設定状態や後始末の完了を保証しません。現行の実装は `engine/src/baibai_engine/storage/lake/keys.py` と `engine/src/baibai_engine/storage/lake/retention.py`、運用手順は [market-lake](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/market-lake.md) を参照してください。以下の旧パスと出力は当時の記録として保持します。
 
 `baibai-stores` の immutable prefix に age-based Bucket Lock（90 日）を設定した。
-設計と対象 prefix の正本は [`docs/reference/market-lake.md`](../../../docs/reference/market-lake.md)、
+設計と対象 prefix の正本は [`docs/reference/market-lake.md`](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/market-lake.md)、
 key の正本は `engine/src/baibai_engine/market/lake/keys.py`。
 
 実行環境: `wrangler 4.114.0`（`web/edge` の devDependency に pin）、OAuth 認証。

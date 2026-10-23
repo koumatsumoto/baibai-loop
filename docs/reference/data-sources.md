@@ -1,244 +1,112 @@
----
-title: "データソース"
-summary: "情報源の選択、取得できない場合の扱い、利用・保存の境界。"
-doc_type: reference
-status: active
-source_paths:
-  - "../../stores/"
-related_docs:
-  - "../architecture.md"
-  - "./market-context.md"
----
-
 # データソース
 
-## 選択規則
+数値・経済統計は原公表機関または出所を確認できる公式集約先、企業調査は一次開示、broker事実は人間の確認報告を使う。速報・地政学の補助はReuters・NHK・AP等の事実報道とし、意見記事と数値の一次確認を混同しない。有料媒体は現行運用では使わない。sourceのtierは用途であり、正確さや利用許諾の点数ではない。
 
-| 用途 | 採用する情報源 |
+取得と原本はCollection、選択・単位変換・計算はL2が所有する。取得toolの障害を原資料の不存在にせず、同じ公表元のAPI・CSV・索引を調べる。異なる時刻・定義のsourceを無説明に接続しない。主な取得先と能力は既存source catalog・provider、L2の列と式は各領域の定義が正本である。
+
+## 入手不能と利用条件
+
+一次統計の二次配信は、公式経路を確認してもsource側の継続的な問題で解決できず、同じ期間・定義・数値を複数経路で確認できた場合だけ一次未確認と明示して使う。失敗した一次inputと実読した二次inputを分け、判断は採用したsourceへ結ぶ。単一値・不一致・toolの一時障害では代用せず、AIが観測storeへ転記しない。Tier外の速報補助もその旨を示す。
+
+Web Archiveのcapture時刻は元資料の公表時刻ではなく、closestもcutoff以前を保証しない。原URL、公表日、archive URLとcapture時刻を分け、改定前内容を確定できなければ未確認とする。
+
+取得資料は契約・利用条件の範囲で個人・非公開運用に用いる。この文書は利用許諾を拡張せず、原本全文・転載表を公開Issueへ再配布しない。保存場所は[architecture](../architecture.md#store-authority)、固定releaseの操作は[OPERATIONS](../../batch/OPERATIONS.md#fixed-release-read)に従う。
+
+## J-QuantsとJPX
+
+J-Quantsはnative HTTP pageをL1として保存する。masterや財務summaryのtyped行は選択・正規化後のL2であり、HTTP bytesの代わりではない。未使用field・空欄・当期/翌期slotを原本に残し、旧flattened行から架空の原本を作らない。取得済み空と未取得・partial、件数とcoverageを区別する。
+
+masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
+
+財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。予想と実績の選択は[Valuation](valuation-metrics.md)が所有する。
+
+JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
+
+### 信用残のsourceと日付
+
+| source | 母集団と残高対象日 |
 | --- | --- |
-| 指標の数値・経済統計 | 原公表機関の一次情報、または出所を確認できる公式集約先 |
-| 地政学・速報の事実 | Tier 2の事実報道。意見記事・論説は判断根拠にしない |
-| 企業・市場の機械入力 | Collectionのsource契約・catalogと、対応するL2読取規則 |
-| 企業の個別調査 | 会社の一次開示、EDINET、TDnet、JPX等の対象資料 |
-| broker fact | 人間が確認して報告した注文・約定事実 |
+| margin-interest旧週次 | 全銘柄、2026-09-18残高まで。原則第2営業日に公表 |
+| margin-interest全銘柄日次 | 全銘柄、2026-09-25残高から。翌営業日公表 |
+| margin-alert | 日々公表銘柄等の選別されたsubset。全銘柄残高の代替ではない |
 
-Tierは用途の分類であり、正確さや利用許諾の点数ではない。原公表機関と集約先、公的予測と実績、市場の織り込みと観測値を区別する。
+margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日。後日訂正は公表・受領の文脈を保ち、公表前の当日残高を要求しない。subsetにないtickerを残高0にせず、全銘柄とunionして穴埋めしない。
 
-機械取得と原本fieldはCollectionのsource契約・providerが、単位変換や系列選択・計算はL2が所有する。指標の意味は[valuation metrics](./valuation-metrics.md)、経済原本・vintageとL2読取は[Market Context](./market-context.md)に従う。
+PubDateは正確なAPI利用可能時刻の証明ではない。現行servingは公表日より後のas-ofから使い、公表日当日は含めない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[Market Context](market-context.md#margin)に従う。
 
-<a id="スコアリング軸"></a>
+## 経済原本
 
-## 情報源の入口
+取得時刻は受領・改訂の順序で、公表vintageや当時の既知値とは限らない。正常bulk応答の空日と取得失敗を分ける。最新原本が空・欠測でも古い非null値へ戻らず、取得失敗では既存原本を消さない。取得成功とL2計算可能は別の事実である。L2定義の退役・改名だけでsource factを消さない。
 
-### Tier 1・Tier 1準拠
-
-| 対象 | 公式の入口 |
+| source | 読む時に残す制約 |
 | --- | --- |
-| 日本の金融政策・金融統計 | [日本銀行](https://www.boj.or.jp/statistics/) |
-| 日本のGDP・景気 | [内閣府経済社会総合研究所](https://www.esri.cao.go.jp/)・[内閣府](https://www.cao.go.jp/) |
-| 日本の物価・雇用・賃金 | [統計局](https://www.stat.go.jp/)・[厚生労働省](https://www.mhlw.go.jp/)・[統計ダッシュボードAPI](https://dashboard.e-stat.go.jp/static/api) |
-| 日本の生産・商業 | [経済産業省](https://www.meti.go.jp/) |
-| 日本の貿易・国債 | [財務省](https://www.mof.go.jp/)・[国債金利](https://www.mof.go.jp/jgbs/reference/interest_rate/index.htm) |
-| 日本株の市場情報 | [JPX](https://www.jpx.co.jp/markets/statistics-equities/) |
-| 米国統計 | [BLS](https://www.bls.gov/)・[BEA](https://www.bea.gov/)・[Census](https://www.census.gov/) |
-| 米国金融政策・統計の集約 | [Federal Reserve](https://www.federalreserve.gov/)・[FRED](https://fred.stlouisfed.org/) |
-| energy | [EIA](https://www.eia.gov/) |
-| 国際比較・公的予測 | [IMF](https://www.imf.org/en/Publications/WEO)・[OECD](https://data.oecd.org/)・[BIS](https://www.bis.org/statistics/) |
-| 欧州・英国の金融政策 | [ECB](https://www.ecb.europa.eu/)・[Bank of England](https://www.bankofengland.co.uk/) |
-| 中国の政府統計 | [国家統計局](https://www.stats.gov.cn/)・[海関総署](http://www.customs.gov.cn/) |
-| 市場の政策金利織り込み | [CME FedWatch](https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html) |
-| 指数公表元 | [CBOE VIX History](https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv)等、当該指数の公表元 |
+| FRED・H.15 | 配信元ごとのrolling範囲・開始日がある。現在のCSV先頭は全歴史の保証ではなく、欠測セルと未使用列を残す |
+| CFTC・ECB | long/shortや通貨の両脚を同じ原本から読む。古いnet/crossだけでは元値を復元できない |
+| e-Stat | 頻度・季調・地域を固定。確報選択と速報を分け、確報欠測を速報へ戻さない。基準年は単位codeだけでは確定しない |
+| BOJ・財務省 | 期間代表日と実公表日を分け、当月訂正・欠測も読む。月初/四半期代表日は実観測時刻ではない |
+| 投資部門別 | 集計期間末とPubDateを区別。公表日cutoff以下の最新版を選び、取得時刻を当時の配信時刻としない |
+| multpl | 日付付き月次表の表示日と推定注記を読む。現在の表で過去の日々のcurrent値は復元できない |
+| PMI | 公式release PDFと月・URLを保持。headlineとflash/composite/sub-indexを混ぜず、L2抽出の失敗で原本受領を取り消さない |
+| options | chain原本を保存し、snapshot/満期選択はL2。SQ直後のIV/skew欠測は構造的に生じ得る。緊急証拠金日は指定された清算値算出時の部だけを読む |
 
-### Tier 2
+松井証券の買建評価損益率は同社内の信用買建の一系列で、全市場・追証人数・二市場信用残を直接観測しない。公表符号と注記を保ち、紹介算式から符号を修正しない。年のない表示日は受領JST日から14日以内の月日・曜日の一意候補による推定で、当時の公表年の証明ではない。再掲で鮮度を進めず、受領vintageを公表時刻と呼ばない。背景情報に限り、既存価格下落と独立した悪材料として加算しない。
 
-[Reuters](https://jp.reuters.com/)、[NHK](https://www3.nhk.or.jp/news/)、[AP News](https://apnews.com/)を事実報道の補助sourceとする。有料媒体（Bloomberg、日経電子版、WSJ等）は現行運用では使わない。
+## EDINET
 
-## Tier 1 の取得失敗時の扱い
-
-取得toolの失敗と、原資料の不在を区別する。既存provider、同じ公表元のAPI・CSV・索引から確認し、失敗した一回のHTTP応答をhost全体の恒久的な状態として文書へ残さない。
-
-| 情報 | 参照できる経路 |
-| --- | --- |
-| 米国金利 | [H.15](https://www.federalreserve.gov/releases/h15/)・[公式データ出力](https://www.federalreserve.gov/datadownload/Build.aspx?rel=H15) |
-| 為替 | [H.10](https://www.federalreserve.gov/releases/h10/)・[ECB reference rates](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip) |
-| 原油 | [EIA Brent](https://www.eia.gov/dnav/pet/hist/RBRTEd.htm)・[EIA WTI](https://www.eia.gov/dnav/pet/hist/RWTCd.htm) |
-| BLS系列 | 公式API `https://api.bls.gov/publicAPI/v2/timeseries/data/<seriesID>` |
-| CPI公表資料 | [統計局の月次公表入口](https://www.stat.go.jp/data/cpi/sokuhou/tsuki/index-z.html) |
-| 機械取得済みの日本株指数・指標 | 対応するproviderと保存系列。記事本文を読んだ証拠にはしない |
-
-これらは探索の入口であり、現在の到達性や取得可能期間の保証ではない。ECBとH.10のように観測時刻・定義が異なるsourceを、同じ系列として無説明に接続しない。
-
-### Web Archive
-
-過去資料のsnapshotはavailability APIで確認する。
-
-```bash
-curl --fail --get 'https://archive.org/wayback/available' \
-  --data-urlencode 'url=<元資料のURL>' \
-  --data-urlencode 'timestamp=<YYYYMMDDhhmmss>'
-```
-
-返却されたsnapshot URLとcapture時刻を使う。`closest`は分析cutoff以前を保証しない。cutoff後のcaptureでも元資料の公表がcutoff以前の場合はあるため、公表日と改定の有無で当時利用可能な内容を判断する。確認できない場合は未確認とし、元URL、公表時点、archive URL、capture時刻を分けて記録する。
-
-## Tier 2 補助ソースの運用と例外
-
-Tier 2に届かない地政学・速報の事実は、CNBC・NPR・CSIS等の事実報道を`[補助外]`と明示して利用できる。これは数値の代替許可ではない。引用の採否は今回の調査で決め、過去レポートの引用差し替えを定例作業にしない。
-
-### 一次統計の数値を二次配信で補う条件
-
-次の全条件を満たす場合だけ、一次未確認であることを明示して二次配信を使う。
-
-1. 元sourceが上記の政府統計である。
-2. 公式取得経路を確認しても、個別releaseの解決等の継続的なsource側の問題で取得できない。tool側の一時障害だけを理由にしない。
-3. 同じ一次統計の同じ期間・定義・数値に一致する報道・配信を複数確認できる。
-
-Market Context Assessmentでは、取得できなかったTier 1 URLを`status: failed`として残し、実際に読んだ二次sourceを別の`input_id`・`status: ok`で登録する。`used_for`と本文に「Tier 2二次配信・Tier 1未確認」を示し、判断の`source_ids`は実際に採用したok inputへ結ぶ。
-
-単一の二次値しかない場合、または数値・期間・定義が一致しない場合は、この例外を適用しない。機械観測storeへAIが二次値を転記することも認めない。個別の取得障害や例外適用は当該調査へ記録し、回数を数えてactive文書へ追記する運用は行わない。
-
-## 保有見直しの価格と欠測
-
-保有提案の機械quoteはmarket storeのJ-Quantsから読む。欠損は未評価とし、公開quoteをledgerへ転記して補完しない。公開quoteをStock Assessmentの補助資料に使う場合は評価日・取得時点・price basisを示し、機械入力とは区別する。欠測の扱いは[保有提案](./investment-proposal.md#holding)を参照する。
-
-## Portfolio outcome benchmark
-
-portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross total returnとする。公式factsheetまたは配当込み期間投資収益率から対象期間・公表時点・gross区分を確認し、1321・1306等のETF価格で代用しない。入力と評価・発行は[Portfolio Ledger](./portfolio-ledger.md#historical-outcome)に従う。
-
-## 取得データの保存方針
-
-取得データはsourceの契約・利用条件の範囲内で、個人利用・非公開運用に用いる。外部公開・第三者再配布は行わない。この文書は利用許諾を拡張しない。
-
-保存場所と正本は[architecture](../architecture.md#store-authority)、L1原本とL2派生datasetの公開・hydrateは[market lake](./market-lake.md)が所有する。正規化済みfactを保持していても、訂正前情報や当時の公開範囲を持たない期間まで完全なPITと扱わない。
-
-保存済みEDINET文書一覧のL2だけをraw receiptから再構築する場合は、`baibai-engine screening rebuild-edinet-lists --start YYYY-MM-DD --end YYYY-MM-DD --sqlite-path PATH`を使う。指定範囲の全暦日にreceiptがあることを書込前に検査し、欠ける日は空応答とみなさず停止する。取得やarchive再処理は行わず、失敗した日を報告する。
-
-JPXの規制情報と決算発表予定は、明示した1件の完了済みsource bundleから`baibai-engine screening rebuild-jpx-snapshot --bundle-id ID --sqlite-path PATH`で再構築する。取得は行わず、不完全なbundleや原本の解析失敗ではL2を更新しない。bundleの完了は宣言した取得対象がすべて届いたことだけを示し、JPX側で同時に公表されたsnapshotである保証ではない。
-
-TSE資本政策も同じcommandで、選択した完了済み`capital_policy` bundleのworkbook全体をL2へ再構築する。旧L2の月は持ち越さず、選択workbookに含まれる月だけを観測として保持する。旧月が消えても、その月に開示がなかったことや全履歴の取得完了は意味しない。bundleの`asof_date`は取得の文脈であり、公表日ではない。
-
-上場廃止も選択した完了済み`delistings` bundleのindexと、そこから列挙されたarchive全ページだけをL2へ反映する。旧L2の行は合流させない。現在のindexから消えたarchiveは今回の観測範囲外であり、過去の上場廃止が取り消された証拠ではない。古いraw bundleは明示して再構築できる。
-
-EDINET archiveの再利用・取得後の保存は、明示したSQLite source storeだけを対象にする。以前の端末に残るローカルZIPは暗黙に取り込まない。
+一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。valuationのtype=5 CSV経路とResearch factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
 
 <a id="edinet-metric-revision"></a>
+### 抽出意味revision
 
-## EDINET metricの抽出意味revision
-
-EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり、source bytes/import pathから導出しない。数値・文書選択・訂正/取下げ・cache完全性・ticker/期間/連結/単位・NULL/0・quality/failure・保存時型変換の意味変更時に更新する。配置・import・transport retryだけでは更新しない。初版は意味同一を確認した旧tokenを継承し、保存済み行・値・日時・旧release/hashを変更しない。[意味変更時の反映](../../batch/OPERATIONS.md#edinet-metrics-revision)はbatch運用が所有する。releaseの`producer_git_commit`は公開処理のcommitであり、各行の元抽出commitとは区別する。
+EDINET_METRIC_REVISIONは数値・文書選択・訂正/取下げ・期間/連結/単位・null/0・quality/failure等の意味変更時に明示更新する。配置・import・transport retryでは更新しない。保存済み値・日時・旧release/hashを付け替えず、反映は[運用](../../batch/OPERATIONS.md#edinet-metrics-revision)へ進む。releaseのproducer commitは各行の元抽出commitとは別である。
 
 <a id="edinet-research-facts"></a>
+### Research facts
 
-## EDINETのResearch補助fact
+セグメントと負債満期は直近年次・訂正とその比較年度から始まる任意datasetで、全提出履歴や全債務のcoverageではない。外部/内部売上、利益のbasis、連結範囲、当期/比較期、instant/durationと事業区分変更を揃える。企業独自conceptを名称の類似だけで標準指標へ割り当てない。
 
-`edinet.segment_facts`と`edinet.debt_schedule`は、L1として保持した有価証券報告書・訂正有価証券報告書のtype=1 XBRL ZIPから抽出する任意のL2 datasetである。Researchの判断やscreening/calibrationの採否条件は変えない。初回収録は既存document inventoryの各issuerの直近年次とその訂正、そこに含まれる比較年度に限定する。その後は収録した書類を保持し、新規年次・訂正を追加する。取得開始前の全提出履歴は保証しない。
+負債はJP GAAP明細表の明示元本。社債括弧内額を年別償還へ重ねず、リース・金利・担保・covenant・IFRS注記・5年超残差を完全に含む表とはしない。「－」・nil・未開示・未対応・未取得は0ではない。抽出okで0行もあり、取得失敗で以前のfactを消さない。
 
-セグメントは標準数値elementだけを対象とし、外部売上と内部売上込みの売上、営業・経常・税引前・純利益・issuer定義利益のbasis、連結・非連結、当期・比較期を分ける。資産はinstant、売上・利益はdurationである。事業、その他、調整、合計を分け、QNameと原典の日本語member labelを残す。企業独自elementは名称の類似で標準指標へ割り当てない。事業区分の変更をまたいだ増減比較は原典を確認する。
+disclosed_onは提出JST日で、比較年度末へ遡及して利用可能にはならない。訂正は別docIDで保持し、同一releaseでも古い年次へfallbackしない。metricsと結ぶ時はtickerだけでなくas-of・原典期間・連結・通貨を揃える。借換え・将来FCF・維持投資はResearchの見積りであり、抽出factへ混ぜない。選択と照会は[固定release操作](../../batch/OPERATIONS.md#edinet-research-query)に従う。
 
-負債はJP GAAPの借入金等明細表・社債明細表の明示された元本だけを対象とする。短期借入金、1年内返済予定長期借入金、長期借入金の年別返済、社債の年別償還を区分し、原典の円・千円・百万円をJPYへ換算する。社債残高表の括弧内額は年別償還表へ加算しない。リース、金利、担保、covenant、5年超の残差推計、IFRSの金融負債注記は対象外であり、全債務の完全な満期表ではない。未知の見出しや結合セルのある表は未対応として扱う。
-
-値の0と欠測を区別する。表の「－」・nilはnullとし、未開示・未対応・未取得を0で補わない。抽出の成否と理由は既存`market.source_coverage`の`source=edinet_research_facts`、`coverage_key=docID`に保存する。`status=ok`の`error`欄は抽出revision・dataset別missing reasonsのJSON、`failed`は取得・抽出失敗理由である。okでも行数0になり得る。書類別の保存はatomicで、取得失敗時は以前のfactを消さない。
-
-`disclosed_on`は提出日時のJST日付であり、比較年度の期末日に遡って利用可能にはならない。source提出日時はtimezone付きで保持し、source locatorはZIP内のfile・QName・context、負債では0始まりのtable/row/cell位置まで指す。訂正書類は別docIDとして保持する。同じ書類の情報修正や公開状態の履歴が確定できない場合は未確認とし、現在取得したbytesを過去時点の完全な再現とは扱わない。
-
-固定releaseからの選択と欠測時の扱いは[Research query](./market-lake.md#edinet-research-query)、初期化・運用は[batch運用](../../batch/OPERATIONS.md#edinet-research-facts)に従う。
-
-<!-- 保存された2026-10-12 studyの原引用先。現行名の主anchorはexternal-assessment。 -->
-<a id="retail-dynamics"></a>
 <a id="external-assessment"></a>
+## 外部参考評価
 
-## 外部参考評価の観測と解釈
+媒体が提示した値、元評価者、尺度・対象期・basisと時点を読む。モデル価格、アナリスト予測/rating、Quants scoreは異なる結果。同じIFIS等の転載を独立票へ数えず、元評価者不明の独立性を推測しない。
 
-External Assessmentは媒体が提示した値・出所・尺度・時点を参照する。掲載先と原評価元を区別し、同じIFIS由来の目標値/ratingを独立した賛成票として数えない。原評価元が不明な系列の独立性は推測しない。外部モデル価格・アナリスト予測/rating・Quants scoreは別の型・結果であり、正規化した多数決点や独自FVへ統合しない。
-
-同じ配信元の受領間を、確認できた同じorigin・単位・株式基準・対象期間または尺度で比較する。欠測の回復・人数変更・同値の再観測は数値改善の主張と区別する。`comparisons[].comparable`はlatest/previousの受領間差分を計算できるかを示し、自分の企業評価との比較可能性や参考価値を判定するfieldではない。初回観測を改善・悪化と読まず、企業評価へ照合する場合は元評価者・対象期・単位・株式basis・前提を別途確認する。既存の企業固有評価は[Stock Assessment](./stock-assessment.md)が所有する。型と比較規則は`external_assessment/models.py`・`analysis.py`、cutoffと選択・保存契約は[market lake](./market-lake.md#external-assessment-query)を参照する。
-
-取得・観測の状態は運用上の利用可能性を示す。[ルールの目的区分](./screening-runtime.md#rule-purpose)にある投資上の資格・判断や、その経済的最適性の根拠にはしない。
+latest/previousの差は同じorigin・単位・対象期・株式basis/尺度が揃う場合だけ計算する。初回、欠測回復、人数変更、同値の再受領は予想改善と別である。受領間のcomparableは自己評価への比較可能性を保証しない。最新の正常nullを古い非nullで埋めず、未取得・正常欠測・metadata未確認・障害を区別する。後日の取得失敗で既存観測を消さず、最新保存値を現在値や最新試行成功と呼ばない。
 
 <a id="external-assessment-incremental-use"></a>
+### 判断への利用
 
-### 追加情報を判断へ使う範囲
+相違が利益・倍率・資本・期間の何を変えるかを先に問い、重要なものだけ原典で比較する。比較不能な外部値を使わずに調査を完成でき、銀行のEBITDA/FCF等を一律の不足要件にしない。ratingで順位加点せず、coverageのある企業だけの新laneを作らない。追加自動化は具体的な判断寄与と手作業の費用から選ぶ。[固定8社の採否](../../reports/studies/2026-10-22-decision-quality-closure/report.md)は全将来効果の否定ではない。
 
-外部評価は、独自仮定と異なる利益・倍率・資本・時間のどれを調べるかという参照に使う。先に「その相違が分かれば何の判断が変わるか」を決め、materialな相違だけ元資料へ戻る。比較可能な同一期の利益予想等を確認できた場合は既存Stock Assessmentのsource・fact・calculationに取り込み、元予想と作者の採用仮定を分ける。理由本文を取得していなければ、目標値やratingから理由を創作しない。
+### 公開HTMLの意味
 
-値の有無、比較basisの確認、予想の増分価値、予想の正しさは別の段階である。正常nullと、値はあるが対象期等が未確認の場合をともに「価値なし」としない。一方、未確認のmetadataを埋めるまで全調査を止めず、その外部値を使わない根拠付き判断も完成できる。銀行のEBITDA・FCFのように評価対象として適さない指標を、一律の欠落要件にしない。
+マネックスはモデル価格と目標consensus、楽天は公開IFIS iframeのrating、株マップはQuants Researchの定量score、みんかぶはアナリスト欄のrating・目標・会社/外部予想を読む。投稿・総合目標・機械診断をアナリスト予想へ混ぜず、rating人数を利益予想の寄与者数へ流用しない。表示更新日・受領JST日・UTC時刻を分ける。過去比較列を過去日に受領した履歴へ変換しない。
 
-日次で取得する外部予想は受領履歴として保持し、外部ratingによる順位加点は行わない。候補外の相違は既存Selectionで必要な範囲を調べ、外部coverageのある企業だけを有利にする新lane・票数scoreを作らない。新項目の自動化は、具体的な判断への寄与と手動確認の費用が示された場合に別途判断する。[固定8社の検証・採否](../../reports/studies/2026-10-22-decision-quality-closure/report.md)は当時の利用可能性と限界を記録したもので、将来の有効性を否定するものではない。
+公開HTML bodyとencodingはL1で、wire bytesや取得全体成功の証明ではない。楽天outer/iframeは同じ試行へ束縛する。共通の「予測情報なし」ページは無効codeにも返り、銘柄同一性未確認を正常nullへ変えない。みんかぶの404だけも未カバーの証明ではなく、同銘柄の明示表示が必要。403・429等を別経路で迂回しない。
+
+みんかぶの対象期と単位は明示表記だけを使い、年だけから期末日、年度表からEPSや更新日を生成しない。表間の対象期衝突は観測全体を不採用として原本を残す。原評価元・株数basis・metric別人数が不明なら未知に保ち、自動deltaや一致票を作らない。
+
+原本handoffは短期bundleであり、lakeへ公開して読戻すまで長期L1ではない。未保存の過去本文は復元できない。liveとreplayのparser選択は共通化しても、取得・receipt順序・失敗の意味は混ぜない。[取得・再開](../../batch/OPERATIONS.md#external-assessment-acquisition)を参照する。
+
+<a id="tradingview"></a>
+### TradingView
+
+L1はMCP SDK CallToolResultの保存可能な表現で、HTTP wire bytesやSDKが捨てたfieldは含まない。受領直後に原本を保存してからL2へ正規化する。snapshot_dateは受領JST日、master_asofは対象集合を選ぶ日で、**どちらもprovider公表日ではない**。fetched_at_utcで確かめられるのは実受領で、最初の公表や初回既知時刻は保証しない。
+
+各行を実受領cutoff以内へ限定し、観測後の次の取引機会より前へ遡及させない。休日の同値を独立sampleにしない。正常rowのnull、明示unresolved、行がない未取得と技術障害を分ける。部分公開は全市場の代表標本ではなく、L1 replayでも元の受領時刻を維持する。
+
+quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。取得・復旧は[TradingView運用](../../batch/OPERATIONS.md#tradingview-expectations)へ進む。
 
 <a id="public-research-reports"></a>
+## 公開企業レポート
 
-### Research時に読む公開企業レポート
+[証券リサーチセンター](https://holistic-r.org/report/)と[フィスコ](https://www.fisco.co.jp/service/report/)は、選択済み企業の予想理由・事業仮説を調べる追加参照先。毎回2社を揃えたり、未カバー企業を除外したりせず、日次crawlerを追加しない。
 
-[証券リサーチセンターのレポート検索](https://holistic-r.org/report/)と[フィスコ企業調査レポート一覧](https://www.fisco.co.jp/service/report/)を、選択済み銘柄の追加調査先として使う。どちらも公開原本をログインなしで読めるが、全銘柄の連続した評価系列ではない。日次batchへ追加せず、企業の予想・事業仮説・リスクを調べるResearch時に必要な原本だけ参照する。2社を毎回そろえること、同じ資料の反復取得、レポートのない銘柄の除外は要求しない。
+SRCの独自予想と会社計画を凡例・対象期から区別する。フィスコの有償企業調査やissuer提供値は独立した賛成票としない。銘柄同一性、発行日、訂正・終了と実読ページを確認し、一覧/snippetだけを本文実読と記録しない。採用したHTTPS原本を既存sourceへ結び、事実・外部予測・作者仮定を分ける。原本に届かなければ一次資料へ戻る。
 
-- **証券リサーチセンター（SRC）**: 自社の業績予想と会社計画を区別したレポートを提供する。原本のCE/E等の凡例と対象期を確認し、予想理由・修正理由・事業KPIを自分の仮定と対照する。上場直後の紹介だけの銘柄やカバー終了もあるため、検索結果があるだけで最新予想を得たとしない。協賛運営とissuer自身の予想を区別し、レポートの主張を独立に確定した事実へ昇格させない。
-- **フィスコ**: 事業、成長要因、収益構造、リスクを調べる参考資料。対象企業から報酬を受けて作成する企業調査レポートは、発行企業から独立した賛成票として数えない。会社計画の転載とフィスコの分析・見通しを分け、重要な実績や事業上の主張は[一次性と独立性](./business-model-research.md#claim-triangulation)に従って検証する。
+## Portfolioの価格とbenchmark
 
-名称変更・持株会社化も含めて銘柄コードと本文の対象企業を照合し、検索一覧から実際のPDFへ進む。発行日、対象決算期、訂正・更新、カバー終了の記載と、実際に読んだページを確認する。過去のレポートは事業の履歴や過去予想の対照には使えるが、現在予想として引き継がない。検索snippetや一覧だけなら本文実読とは記録せず、原本に到達できない場合は未確認として一次資料へ戻る。
-
-採用した原本はStock Assessmentの既存sourceへ直接HTTPS URL、発行主体、発行日と実受領時刻、用途を記し、該当するfindings・case・calculationからsource IDを参照する。外部予想は「その主体が提示した予想」であって実績factではない。独自予想を自己Baseへ採用するなら、その前提と不採用の反証を説明する。原本の全文・表を公開Issueや報告へ転載しない。新しいstore、必須artifact、全市場クローラ、日次ratingや自動加点はこの参照経路に設けない。
-
-<!-- 歴史reportからの引用anchorを保持する。runtimeの旧名aliasではない。 -->
-<a id="external-assessment-acquisition"></a>
-
-## 公開brokerページの観測
-
-`equity_web.source_responses`はマネックス・楽天・株マップ・みんかぶの公開HTML応答を、受領UTC時刻・選択encoding・HTTP clientが渡したbody bytesとともに保持するL1原本である。wire bytesや取得全体の成功証明ではない。楽天はouter pageと同じ試行のiframeを別receiptとして結ぶ。取得jobは同じreceipt identityをprivate raw bundle v2へ渡し、publisherがbundleを検証してmarket SQLiteへ原本ごとに取り込み、固定Lake releaseへ公開する。旧診断用raw bundle v1はこの経路で拒否し、過去分をcanonical L1再構築の保証とは扱わない。
-
-`external_assessment/acquisition`は既存の公開ページ取得adapter名であり、個人投資家の売買動向を表すdomain名ではない。`external_assessment/normalization`が同じparser version・同一性確認・正常null規則で受領HTMLを決定的にL2観測へ変換する。publisherは選択attemptをcanonical原本から再読込・再解析し、stageのtyped観測と一致したものだけをL2へ保存する。配信画面で受信できた値を保存する。マネックスの公開Scouter Lite理論株価表から、目標株価コンセンサスとPER会社予想・PERアナリスト予想・PBRのモデル価格を取得する。目標株価の原データとモデル価格の算出主体は別々に記録する。ロックされたsummaryや割安・割高の目盛りから判断を作らない。
-
-楽天の公開forecastページが指定するIFIS iframeから現在のレーティングを取得する。別の業績予想欄のアナリスト数をレーティング人数へ流用せず、確認できない尺度・方向・人数・公表日時はnullに保つ。画面の過去列は取得以前の受信履歴にはしない。両社が同じIFIS情報を配信しても独立した賛成票とは数えない。
-
-株マップの銘柄診断からQuants Researchの定量scoreを別型で取得する。成長性・割安性・企業規模・テクニカル・財務健全性・市場トレンドは10点満点、総合点と業種平均は100点満点であり、人間のアナリストconsensusや目標株価へ換算しない。明示表示更新日を`score_as_of_date`として保存し、取得UTC時刻・JST受領日と区別する。factor欄のPER等がNAでも表示scoreが有効なら保持する。株マップの銘柄同一性・6軸の構造・尺度・表示更新日を確認できない応答は正常nullへ変えない。公式の[計算score説明](https://jp.kabumap.com/servlets/kabumap/Action?SRC=navigation/util/base&page=3)に従い、割安性はPER/PBR/75日移動平均乖離率等に基づく提示として扱う。英字ticker・銀行を媒体取得の対象から外さない。
-
-公式outerのRICとiframe URLは要求先を確認する。観測の銘柄同一性はiframe応答の比較表または確認済みchart bindingで確かめる。「業績予測情報はありません」だけの共通ページは無効codeにも返るため、`no_estimates_identity_unconfirmed`として未収録に保つ。この理由は当該銘柄の予測・レーティングの不存在を確定したものではなく、正常nullの観測とも区別する。
-
-楽天の保存観測が対象時点までにない場合も、External Assessmentは`distributor=rakuten`・`inputs.latest=null`・比較状態`not_observed` / 理由`no_observation`を返す。これは取得未試行・未確認shell・技術障害等のどれかを推測する結果ではなく、読取storeに観測がないという意味である。正常nullは元受領時刻を持つ観測行と`missing` / `latest_missing`で区別し、画面とResearch入力にも同じ結果を渡す。取得の具体的な失敗理由はprivate cohort stageで確認する。後日の取得失敗は既存観測を消さないため、表示値は受領時刻付きの最新保存観測であり、現在値や最新試行成功を保証しない。
-
-受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#external-assessment-query)、比較の意味は[外部参考評価](#external-assessment)に従う。比較に必要な`share_basis`・評価対象期間・レーティング尺度が未確認の系列では、未確認の項目をnullに保ち、数値deltaは`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
-
-現行の抽出済みtyped観測はDB上のL2履歴として読取に使う。日次の固定pair取得では公開HTTP 200のbody bytesとencodingを文字decodeより前に捕捉し、bounded pairの終了後に標準tar.gzへまとめる。raw bundle v2のupload成功後だけ、選択したattempt IDとbundle keyを持つtyped cohort stageをcommitする。raw append・圧縮・upload失敗時はstageをcommitしない。hard killがcommit前に起きれば未確定GETは繰り返され得るので、各解析命令の前に永続保存されたとは主張しない。private bundleは公開前の短期handoffであり、publisherのL1公開・読戻し成功後に初めて長期原本として使える。HTTP成功の原応答と、銘柄同一性・値が確認できたtyped観測は別であり、parse失敗や未確認の共通ページを正常観測へ変えない。過去に保存しなかった本文は取得当時の原応答として復元できない。日付別保持・候補確認・読戻しは[batch運用](../../batch/OPERATIONS.md#日次取得と固定コホートの再開)に従う。
-
-保持済みL1だけを指定して再解析する場合は、既存のmarket SQLiteで`external-assessment rebuild-raw --db <DB> --attempt-id <UUID>`を使う。`--attempt-id`は複数指定でき、選んだ試行すべてが完全かつ妥当な時だけ、対応する銘柄・受信時刻のL2行を同一transactionで置換する。楽天は同じ試行のouter pageと明示的に結ばれたiframeが必要である。取得失敗や応答のない試行、過去の診断用tarはこの再解析から復元しない。
-
-手動の限定取得・保存済み原応答captureの再投入は[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)、保存と照会は[market lake](./market-lake.md#external-assessment-query)を参照する。
-
-### みんかぶのアナリスト予想
-
-みんかぶの公開 `analyst_consensus` ページから、証券アナリスト欄の評価ラベル・5区分の人数・12か月目標株価、表示されている最新の売上高・純利益・EPS予想と会社予想を保持する。ページ上部の総合目標値、個人投稿、機械診断は取得対象に混ぜない。 取得時は実際のツール名を示す `User-Agent: baibai-loop-public-research/1.0` と `Accept: text/html` を明示する。ブラウザ偽装、認証Cookieの転用、制限応答後のUA変更は行わない。グラフ内部の値ではなく公開表の表示値を読み、丸めを逆算しない。 目標株価は比較表の最新欄を優先し、表がなければ専用の「アナリスト予想」カードを読む。カードと表に1円差がある実例を確認しているため、丸め方を推測して補正しない。比較表がなくても現在の評価・人数を保持し、業績の年次表だけにある明示予想はその表示値を読む。年次表だけからEPSや予想更新日を作らない。空欄・ダッシュは欠測、明示0は0として区別する。予想ページの404だけを正常欠損にはしない。同じ銘柄の公開本体ページが明示する「アナリスト 対象外」をidentity付きで確認できた場合に限り、`availability=not_covered`・予想値と表示基準日なしの観測を保持する。専用のアナリスト欄が一意で表示が「アナリスト対象外」と完全一致し、リンクなしのspan、または同じ銘柄の `/stock/<ticker>/analyst_consensus` への相対自己リンクである場合だけ受理する。別銘柄・外部hostへのリンクや複数欄、周辺文章の対象外表示は根拠にしない。403・429・5xxでは本体ページへ迂回せず、そのHTTP結果を障害として扱う。
-
-`external_assessment.analyst_forecast_observations`は既存market storeのL2履歴であり、`equity_web.source_responses`の同じattemptから再構築できる。読取結果の`minkabu.latest / previous`は実受領cutoff以内の直近2観測。表示の基準日・会社予想の日付・実受領時刻を分ける。画面の「1週間前」「1か月前」は今回取得した比較欄であり、その過去日に受領した履歴へ変換しない。同値の再受領も予想修正とは扱わない。
-
-決算期ラベルは年度表に明示されたものだけを取り込み、対象月のない「2027年」等から期末日を推定しない。売上高・純利益は百万円、EPS・目標株価は円として表の単位を照合する。元アナリストの集計提供元・株数basis・指標ごとの予想人数が確認できないものは未知のまま保持し、rating内訳の人数を利益予想の寄与者数へ流用しない。他媒体から独立した評価とはまだ断定せず、自動的な数値差や一致票へしない。
-
-予想ページの404、銘柄同一性未確認、構造変更、HTTP失敗は正常な「予想なし」と区別する。ページ内の一部の予想欠測は有効なratingを消さない。一方、比較表と年度表の対象期が衝突する場合は`conflicting_forecast_period`として観測全体を不採用にし、原本を保持する。業績欄だけを通常欠測へ落としたりratingだけを公開したりせず、年を推定補正しない。公開ページがある少数例だけで全銘柄のcoverageを保証しない。
-
-## TradingViewの市場期待
-
-`tradingview.source_receipts`は受領したMCP SDK `CallToolResult`の保存可能な表現をL1として保持する。tool名、要求順のsymbols/columns、受領UTC時刻、要求時に確定した`snapshot_date`と`master_asof`を付ける。両日付はprovider公表日ではない。`result_json`はSDKモデルから作り、structured content内の未知キー・null・数値とtext contentを保持する。HTTP wire bytesやSDKが既に破棄した未知のtop-level fieldは含まない。通常collectorはSDK応答の受領直後にL1を独立commitし、保存済み応答を読み戻してから検証・正規化・L2保存を行う。受領前のtransport失敗にはL1応答が存在しない。
-
-`tradingview.forecast_snapshots`はOfficial MCPの`get_symbol_data_batch`から実際に取得した市場期待を、日付・銘柄ごとに保持する任意のL2観測である。対象は既存J-Quants masterの東証普通株で、Screeningの最小株価履歴を要求しない。`get_forecasts`の日本株通貨補正や、ScreenerによるUniverse生成は行わない。
-
-PITが保証するのは`fetched_at_utc`時点の取得値であり、providerの最初の公表時刻ではない。`snapshot_date`は実観測日のJST日付、master基準日は対象Universeを選ぶ日付であり、観測値の時点ではない。collectorは手動・定期ともJPX calendarで判定し、営業日は当日masterで15:30以降、休場日は直近営業日の保存済みmasterで09:00以降に取得する。[明示的な手動観測](../../batch/OPERATIONS.md#保存済みmasterを使う当日の手動観測)はcalendarが要求するmaster基準日との一致を確認し、当日の実受領時刻を保持する。営業日の引け前を許可しない。保存済み原応答からの[再構築](../../batch/OPERATIONS.md#保存と再試行)でも元の実受領時刻を維持する。利用可能になる最速時点は観測後の次の取引機会とし、masterの日付や日付だけで過去の売買時点へ遡及させず、翌日値や無条件のlatest-nonnullによる欠測の埋め直しもしない。休日の同値履歴を独立した情報sampleとして扱わず、各行の`fetched_at_utc`を評価のas-of cutoff以下に限定する。
-
-正常rowのnull、正常応答で明示された`unresolved`、rowがない未取得銘柄を区別する。正常なbatchごとに保存し、同日の後続取得はrowがない銘柄だけを対象にする。各銘柄の最初の正常観測と`fetched_at_utc`は同日中に上書きしない。429や応答不良を未取得銘柄の`unresolved`へ変換せず、部分集合を全市場の代表標本とみなさない。過去のsnapshotが最新releaseに残っていても、今日の取得成功とは扱わない。
-
-保存済みL1の明示的なoffline再構築では、指定receiptの観測日・master基準日・tool・要求列・Universeと受領時刻を照合し、選んだ1日分のL2だけをtransactionで置き換える。正常に解釈できたreceiptが1件もなければ置換せず、同日・同銘柄の重複も選択全体を拒否する。正常receiptの明示的な`missing`は`unresolved`行として再現し、拒否された応答は正常値や`unresolved`として補完しない。
-
-quoteの通貨は同じresponseの`currency`を保持する。estimateの通貨・unit、quote/provider更新時刻、絶対対象期は未確認のためnullとし、JPYや特定の決算期を推測して入れない。`*_estimate_fy`と`*_forecast_next_fy`の対象期が同じとは限らず、`recommendation_total`はEPS・売上・目標株価それぞれの寄与者数ではない。参考closeは市場期待の取得時点を読む補助で、株価の第二正本にはしない。
-
-取得・認証復旧は[batch運用](../../batch/OPERATIONS.md#tradingview-expectations)、固定releaseの照会は[market lake](./market-lake.md#tradingview-query)を参照する。Screeningの順位、FV、Research判断への自動混入は行わない。
-
-
-### 銘柄マスターの原本と普通株判定
-
-J-Quants `eq/master` の取得応答は`jquants.source_pages`にL1原本として保存する。
-そこから採用した`jquants.master_snapshots`はL2で、取得基準日・完全な5文字の銘柄コードとrecord JSONを保持する。
-商品区分、英文名、17/33業種コード、規模区分、貸借区分などを取得時に削らず、
-副銘柄も保持する。L2の読取では末尾0の主銘柄を4文字tickerへ投影し、
-[商品区分](https://jpx-jquants.com/ja/spec/eq-master/product-category) `ProdCat=011`
-と組み合わせて国内普通株を識別する。末尾0だけではETF・REIT等も含むため十分でなく、
-業種名から商品種類を推測しない。対象市場の選択はこの判定とは別に行う。
-旧派生列だけのマスターから原本項目を復元しない。切替時は取得済み原本があれば再利用し、
-原本のない基準日は取得可能な範囲を明示して新規取得し、原本とL2を検証してからcodeとstoreを一組で切り替える。
-
-
+保有quoteはmarket storeのJ-Quantsを使い、欠測を公開quoteの台帳転記で補わない。補助quoteは時点とprice basisを示す。年次・3年・5年Outcomeのprimary benchmarkはJPX TOPIX gross total returnで、同期間・公表時点・gross区分を確認する。ETF価格を代用せず、[Outcome](portfolio-ledger.md#historical-outcome)の税費用basisと区別する。

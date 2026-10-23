@@ -58,7 +58,7 @@ Bが空のため、この対象日ではTriage skipの取りこぼしを測定�
 
 Xの理由別件数は重複を許す。market cap下限未満1,118、listing span下限未満26、JPX flag 31、market範囲外728、sector分類範囲外542。したがって理由の合計をXの母数としない。全Analysis 3,705件とmasterの差729件は全てownerのstructural policy除外。XのうちAnalysisがある21件にcommon fact欠損が併存し、残る729件はAnalysisなしとして別記録した。Xは主標本の母数外であり、Xに研究価値のある企業が無いとは主張しない。
 
-当日master/価格に存在しながらpolicy除外で説明できないAnalysis欠落は0件。これは保存されている当日masterに対する完全性であり、提供元master自体の外側まで市場全体を保証するものではない。historical Candidate Discovery fidelityの過去JPX不足を今回の当日完全性で解消したことにせず、[既存検証記録](../../2026-09-03-nomination-union-triage-validation.md)の制約を維持する。
+当日master/価格に存在しながらpolicy除外で説明できないAnalysis欠落は0件。これは保存されている当日masterに対する完全性であり、提供元master自体の外側まで市場全体を保証するものではない。historical Candidate Discovery fidelityの過去JPX不足を今回の当日完全性で解消したことにせず、[既存検証記録](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/reports/2026-09-03-nomination-union-triage-validation.md)の制約を維持する。
 
 ## W1: 結果から独立した抽出
 

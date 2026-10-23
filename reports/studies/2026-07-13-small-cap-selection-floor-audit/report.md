@@ -115,7 +115,7 @@ all-universe で他条件も通る 60 件を加えても、固定 E[r] では最
 3. [`estimate-calibration`](../../../docs/reference/estimate-calibration.md) が要求する 3y / 5y の
    membership、delisting、corporate-action coverage は現 provider で不足し、production decision
    evidence は blocked である。
-4. 既知の 1 as-of を見た後の閾値変更は、[`改善ループ`](../../../docs/reference/estimate-calibration.md#事前登録と-designconfirm) の
+4. 既知の 1 as-of を見た後の閾値変更は、[`改善ループ`](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/estimate-calibration.md#事前登録と-designconfirm) の
    事前登録・design / confirm 規律を満たさない。
 
 判定は「問題なし」ではなく、**構造的な hard gate は確認したが、production 変更の効果は未立証のため

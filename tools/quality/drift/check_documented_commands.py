@@ -28,12 +28,8 @@ from typing import cast
 from tools.quality.drift.check_cli_help import DELEGATED_GROUPS, build_parser
 
 _SCAN_DIRECTORIES = (".agents/skills",)
-# Active runbooks are checked for simple literal commands; market-lake is inventory-only.
-_SCAN_FILES = (
-    "docs/reference/market-lake.md",
-    "batch/OPERATIONS.md",
-    "docs/reference/analysis-operations.md",
-)
+# Active operations and skills own runnable command examples.
+_SCAN_FILES = ("batch/OPERATIONS.md",)
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")
 _COMMENT = re.compile(r"\s+#\s.*$")
@@ -223,10 +219,6 @@ def check(root: Path) -> list[str]:
     for path in sorted(paths):
         relative = path.relative_to(root)
         for command in _command_lines(path.read_text(encoding="utf-8")):
-            if relative.as_posix() == "docs/reference/market-lake.md" and not command.startswith(
-                "uv run baibai-engine lake inventory"
-            ):
-                continue
             # A parser check is not a shell interpreter. Pipelines, substitutions and
             # redirections need a manual check; never execute a documented command.
             if any(marker in command for marker in ("$(", "`", "|", "&&", ";", " >", " <<")):

@@ -17,7 +17,7 @@ refs [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)。本件�
 - 対象は[既存v26文脈の受入](../2026-10-14-er-context-v26/report.md)と同じ2020-01-31～2021-07-30の19月末。新しい有利な月への差替えや失敗月の除外をしない。3y/5y、`estimator_policy`、追加metric `er_level_calibration`を使う。
 - 保存済み入力だけを使い、providerの再取得・本番storeへの書込・既存判断のrun付替えは行わない。
 - 現行panel/forwardが正規CLIで生成でき、required月・method identity・入力整合を満たす場合だけ、新しい記述分布を採用候補にする。旧artifactの日付・hashだけを変更しない。
-- 結果欠測と入力不完全を区別する。正常なentry/exit・配当観測不能は理由と分母を残し、formal evidenceの不成立を隠さない。未来master・母集団不整合・入力窓不足・未知status・partition不整合をpartialの名で許容しない。詳細は[較正の正本](../../../docs/reference/estimate-calibration.md#er-level-distribution-context)に従う。
+- 結果欠測と入力不完全を区別する。正常なentry/exit・配当観測不能は理由と分母を残し、formal evidenceの不成立を隠さない。未来master・母集団不整合・入力窓不足・未知status・partition不整合をpartialの名で許容しない。詳細は[較正の正本](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/estimate-calibration.md#er-level-distribution-context)に従う。
 - 再生成できない場合は必要な不足と再開条件を記録する。全履歴再取得、互換層、別store設計、閾値変更へ範囲を拡大しない。
 
 ## 再生成が必要な理由

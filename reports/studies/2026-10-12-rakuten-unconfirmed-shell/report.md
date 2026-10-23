@@ -70,7 +70,7 @@ outerの共通ログインnavigationは公開ページにも含まれ、今回�
 
 現行の未収録判定を維持する。新しい値の回復は0件であり、全2,265銘柄に予測やratingが
 存在しないと確定した結果でもない。別応答で銘柄が認識されたことは、同一性を持たない
-rating応答そのものの証明を補わない。観測の扱いは[data sources](../../../docs/reference/data-sources.md#retail-dynamics)に統合した。
+rating応答そのものの証明を補わない。観測の扱いは[data sources](https://github.com/koumatsumoto/baibai-loop/blob/5b57b71a95115c968f985133d8243a64c7f94056/docs/reference/data-sources.md#retail-dynamics)に統合した。
 
 合成fixtureで共通shell・script asset・偶然のticker文字列・付随するrequest URLを検証し、
 正しいofficial request contextでも観測を作らず2HTTPの確定失敗にする回帰を補強する。
