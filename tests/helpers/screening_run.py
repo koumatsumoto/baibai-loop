@@ -8,7 +8,7 @@ builder emits a payload the writer accepts; what a test varies it passes in.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -56,7 +56,7 @@ def stock_analysis(
     if metrics is OMIT:
         payload["metrics"] = {"er_annual": 0.13}
     elif metrics is not None:
-        payload["metrics"] = dict(metrics)
+        payload["metrics"] = dict(cast(Mapping[str, Any], metrics))
     return payload
 
 
