@@ -47,7 +47,7 @@ from baibai_engine.market.margin_reader import (
     read_margin_alerts,
     read_weekly_margin,
 )
-from baibai_engine.storage.observations.convert import code_quality, to_float, to_str_or_none
+from baibai_engine.market.normalization import code_quality, to_float, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     covered_intervals,
     range_covered,

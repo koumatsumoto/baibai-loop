@@ -32,12 +32,12 @@ from baibai_engine.market.jpx_models import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
+from baibai_engine.market.normalization import normalize_ticker_or_none, to_str_or_none
 from baibai_engine.market.valuation_catalysts import (
     TSECapitalPolicyRefreshSummary,
     parse_tse_capital_policy_workbook,
     store_tse_capital_policy_rows,
 )
-from baibai_engine.storage.observations.convert import normalize_ticker_or_none, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,

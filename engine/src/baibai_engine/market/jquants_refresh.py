@@ -15,6 +15,13 @@ from pathlib import Path
 from baibai_engine.collection.jquants.http import JQuantsHTTP, JQuantsSource
 from baibai_engine.collection.jquants.receipts import acquire_request
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.jquants_contract import (
+    ALL_ISSUES_DAILY_MARGIN_SOURCE,
+    SHORT_SALE_REPORT_SOURCE,
+    WEEKLY_MARGIN_SOURCE,
+    all_issues_daily_margin_coverage_key,
+    weekly_margin_coverage_key,
+)
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.market.jquants_reader import (
@@ -40,13 +47,6 @@ from baibai_engine.market.price_reader import (
     latest_stored_daily_bar_date,
 )
 from baibai_engine.storage.observations.coverage import merge_date_ranges, missing_intervals
-from baibai_engine.storage.observations.jquants_contract import (
-    ALL_ISSUES_DAILY_MARGIN_SOURCE,
-    SHORT_SALE_REPORT_SOURCE,
-    WEEKLY_MARGIN_SOURCE,
-    all_issues_daily_margin_coverage_key,
-    weekly_margin_coverage_key,
-)
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 Progress = Callable[[int, int, date, date], None]
