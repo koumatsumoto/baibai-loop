@@ -9,6 +9,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
+from baibai_engine.company_growth.query import company_growth
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
@@ -42,6 +43,8 @@ def collect_research_inputs(
     market_path: Path,
     indicators_path: Path,
     app_path: Path,
+    company_growth_start: date | None = None,
+    company_growth_end: date | None = None,
 ) -> ResearchInputsSnapshot:
     context = latest_assessment(app_path, as_of=research_as_of, known_at=input_known_at)
     return ResearchInputsSnapshot(
@@ -56,6 +59,10 @@ def collect_research_inputs(
         },
         securities_context={
             ticker: {
+                "company_growth": company_growth(
+                    market_path, ticker=ticker, as_of=research_as_of,
+                    start=company_growth_start, end=company_growth_end,
+                ).model_dump(mode="json"),
                 "technical_analysis": technical_analysis(
                     market_path, ticker=ticker, as_of=research_as_of
                 ),

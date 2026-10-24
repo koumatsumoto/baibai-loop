@@ -84,10 +84,17 @@ class ResearchSelectionDraft(_Contract):
     selection_summary: Text
     targets: tuple[SelectedTarget, ...] = ()
     input_gaps: tuple[InputGap, ...] = ()
+    company_growth_start: date | None = None
+    company_growth_end: date | None = None
 
     @model_validator(mode="after")
     def validate_selection(self) -> Self:
         _validate_subjects(self.request, self.targets, self.input_gaps)
+        end = self.company_growth_end or self.research_as_of
+        if end > self.research_as_of or (
+            self.company_growth_start is not None and self.company_growth_start > end
+        ):
+            raise ValueError("company growth requires start <= end <= research_as_of")
         if self.research_as_of > self.input_known_at.astimezone(JST).date():
             raise ValueError("research_as_of is after the input cutoff's JST date")
         return self
@@ -138,12 +145,14 @@ class ResearchInputsSnapshot(_Contract):
             not in (
                 {"market_context", "external_assessment"},
                 {"market_context", "external_assessment", "technical_analysis"},
+                {"market_context", "external_assessment", "company_growth"},
+                {"market_context", "external_assessment", "technical_analysis", "company_growth"},
             )
             for row in self.securities_context.values()
         ):
             raise ValueError(
                 "security context requires market_context/external_assessment and optional "
-                "technical_analysis for retained snapshots"
+                "technical_analysis/company_growth for retained snapshots"
             )
         return self
 

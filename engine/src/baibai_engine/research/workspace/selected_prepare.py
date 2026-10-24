@@ -44,6 +44,19 @@ class SelectedResearchPreparation:
     next_step: str | None
 
 
+def _growth_range_matches(value: object, draft: ResearchSelectionDraft) -> bool:
+    if not isinstance(value, dict):
+        return draft.company_growth_start is None and draft.company_growth_end is None
+    return (
+        value.get("requested_start") == (
+            draft.company_growth_start.isoformat() if draft.company_growth_start else None
+        )
+        and value.get("requested_end") == (
+            draft.company_growth_end or draft.research_as_of
+        ).isoformat()
+    )
+
+
 def _same_draft(selection: ResearchSelection, draft: ResearchSelectionDraft) -> bool:
     return (
         selection.request == draft.request
@@ -53,6 +66,10 @@ def _same_draft(selection: ResearchSelection, draft: ResearchSelectionDraft) -> 
         and selection.targets == draft.targets
         and selection.selection_summary == draft.selection_summary
         and selection.inputs.input_gaps == draft.input_gaps
+        and all(
+            _growth_range_matches(row.get("company_growth"), draft)
+            for row in selection.inputs.securities_context.values()
+        )
     )
 
 
@@ -125,6 +142,8 @@ def prepare_selected_workspace(
         market_path=sqlite_path,
         indicators_path=indicators_path,
         app_path=database_path(db_path),
+        company_growth_start=draft.company_growth_start,
+        company_growth_end=draft.company_growth_end,
     )
     selection = ResearchSelection(
         request=draft.request,
