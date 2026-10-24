@@ -466,3 +466,25 @@ def test_malformed_url_is_a_sanitized_delivery_failure(url):
     transport = FakeTransport()
     assert deliver(url, "hello", transport=transport) == "webhook URL is malformed"
     assert transport.calls == []
+
+
+def test_successful_integration_notice_keeps_deferred_input_and_real_source_day():
+    message = render_message(
+        outcome=discord.OUTCOME_OK,
+        asof="2026-10-24",
+        failed_step="",
+        notice={"screening_status": "skipped_non_business_day"},
+        url=RUN_URL,
+        integration_report={
+            "extractions": {
+                "edinet-metrics": {
+                    "input_asof": "2026-10-23",
+                    "deferred_inputs": ["latest_document_list_delayed"],
+                }
+            }
+        },
+    )
+    assert "[OK]" in message
+    assert "入力延期: edinet-metrics" in message
+    assert "保存一覧日=2026-10-23" in message
+    assert "Screening更新なし（非営業日）" in message

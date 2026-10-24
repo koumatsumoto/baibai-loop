@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from datetime import date, timedelta
@@ -16,7 +17,9 @@ from baibai_engine.market.edinet_metrics.planning import (
     make_metric_extraction_plan,
 )
 from baibai_engine.market.edinet_metrics.revision import (
+    DEFERRED_CSV_REASON,
     EDINET_METRIC_REVISION,
+    PARTIAL_CSV_COVERAGE,
     has_hard_metric_failure,
 )
 from baibai_engine.market.edinet_metrics.store import (
@@ -211,9 +214,12 @@ def extract_edinet_metrics_from_plan(
     reader: EdinetMetricReader,
     sqlite_path: Path,
     stdout: TextIO | None = None,
+    unavailable_doc_ids: frozenset[str] = frozenset(),
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     candidates = plan.selection.candidates
+    if not unavailable_doc_ids <= {item.doc_id for item in plan.archive_candidates}:
+        raise ValueError("deferred CSV IDs must be selected, unreused archive inputs")
     quarantined_events = plan.selection.quarantined_events
     baseline = plan.baseline
     extractor_revision = plan.extractor_revision
@@ -323,6 +329,19 @@ def extract_edinet_metrics_from_plan(
                 quality_issue_count += 1
             records.append(record)
             continue
+        if candidate.doc_id in unavailable_doc_ids:
+            records.append(
+                EdinetMetricRecord(
+                    ticker=candidate.ticker,
+                    source_doc_id=candidate.doc_id,
+                    document_type=candidate.doc_type_code,
+                    source_submit_datetime=candidate.submit_datetime,
+                    source_period_start=candidate.period_start,
+                    source_period_end=candidate.period_end,
+                    failure_reasons=(DEFERRED_CSV_REASON,),
+                )
+            )
+            continue
         parse_failed = False
         parsed_count += 1
         try:
@@ -377,7 +396,7 @@ def extract_edinet_metrics_from_plan(
             f"quarantined_events={len(quarantined_events)} "
             f"quarantined_tickers={len(quarantined_tickers)} "
             f"quarantine_sample={quarantine_summary_sample}; "
-            f"hard_failures={hard_failure_count} "
+            f"hard_failures={hard_failure_count} deferred_archives={len(unavailable_doc_ids)} "
             f"quality_issues={quality_issue_count}; output=not-written",
             file=out,
         )
@@ -398,8 +417,10 @@ def extract_edinet_metrics_from_plan(
         sqlite_path,
         asof_date,
         payload,
-        status="ok",
-        error=None,
+        status="partial" if unavailable_doc_ids else "ok",
+        error=json.dumps({"reason": PARTIAL_CSV_COVERAGE, "doc_ids": sorted(unavailable_doc_ids)})
+        if unavailable_doc_ids
+        else None,
     )
     print(
         "EDINET extraction summary: "
@@ -409,7 +430,7 @@ def extract_edinet_metrics_from_plan(
         f"quarantined_events={len(quarantined_events)} "
         f"quarantined_tickers={len(quarantined_tickers)} "
         f"quarantine_sample={quarantine_summary_sample}; "
-        f"hard_failures={hard_failure_count} "
+        f"hard_failures={hard_failure_count} deferred_archives={len(unavailable_doc_ids)} "
         f"quality_issues={quality_issue_count}; output={sqlite_path}",
         file=out,
     )
