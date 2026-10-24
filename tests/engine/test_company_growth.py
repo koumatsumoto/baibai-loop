@@ -10,6 +10,7 @@ from hashlib import sha256
 
 import pytest
 import yaml
+from tests.helpers.l1_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import draft_for, selection
 from tests.helpers.screening_sqlite import insert_financial_record
@@ -29,11 +30,9 @@ from baibai_engine.research.workspace import (
 )
 from baibai_engine.storage.lake.keys import release_manifest_key
 from baibai_engine.storage.lake.models import (
-    ReleaseDataset,
     ReleaseManifest,
     canonical_lake_model_bytes,
 )
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
@@ -85,59 +84,6 @@ def change(result, end, metric, measurement="reported"):
     )
 
 
-def publish_fixture(path, release):
-    mirror = path.parent / "mirror"
-    dataset_tables = {
-        "jquants.fin_summaries": "jquants_fin_summaries",
-        "jquants.master_snapshots": "jquants_master_snapshots",
-        "jquants.daily_bars": "jquants_daily_bars",
-    }
-    with closing(sqlite3.connect(path)) as connection:
-        present = [
-            name
-            for name, table in dataset_tables.items()
-            if connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        ]
-    with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
-        reports = [
-            export_dataset_snapshot(
-                dataset_name=name,
-                mirror_root=mirror,
-                producer_git_commit="a" * 40,
-                source_snapshot=snapshot,
-                build_id=release + "-" + name.replace(".", "-"),
-                created_at=NOW.astimezone(UTC),
-            )
-            for name in present
-        ]
-    # A pinned fixture release needs no current/production policy substitution.
-    manifest = ReleaseManifest(
-        manifest_version=2,
-        release_id=release,
-        profile="production",
-        created_at=NOW.astimezone(UTC),
-        data_as_of=min(report.manifest.data_as_of for report in reports),
-        datasets={
-            report.manifest.dataset: ReleaseDataset(
-                build_id=report.manifest.build_id,
-                layer=report.manifest.layer,
-                contract_version=report.manifest.contract_version,
-                manifest_sha256=sha256(report.manifest_path.read_bytes()).hexdigest(),
-                data_as_of=report.manifest.data_as_of,
-                coverage_status=report.manifest.coverage_status,
-                totals=report.manifest.totals,
-            )
-            for report in reports
-        },
-    )
-    payload = canonical_lake_model_bytes(manifest)
-    target = mirror / release_manifest_key(release_id=release)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(payload)
-    with closing(sqlite3.connect(path)) as connection, connection:
-        write_lake_store_origin(connection, LakeStoreOrigin(release, sha256(payload).hexdigest()))
-
-
 def market_store(tmp_path, records, *, release="synthetic-release-1", price_day=None):
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as connection, connection:
@@ -149,7 +95,7 @@ def market_store(tmp_path, records, *, release="synthetic-release-1", price_day=
                 ("1234", price_day.isoformat(), 1000),
             )
     if release:
-        publish_fixture(path, release)
+        publish_market_fixture(path, release, created_at=NOW)
     return path
 
 
@@ -371,7 +317,7 @@ def test_missing_store_unfixed_release_and_invalid_period_are_local_states(tmp_p
     )
     with closing(sqlite3.connect(path)) as connection, connection:
         insert_financial_record(connection, document(2024, 2, 230, CurPerEn="2027-03-31"))
-    publish_fixture(path, "fixed")
+    publish_market_fixture(path, "fixed", created_at=NOW)
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     assert len(result.periods) == 1
     assert result.coverage.excluded_document_count == 1
@@ -756,7 +702,7 @@ def test_public_query_uses_the_normalized_security_master_sector_name(tmp_path):
                 ("2026-10-23", "1234", "合成証券", "プライム", "証券･商品先物取引業", "011"),
             ],
         )
-    publish_fixture(path, "sector-release")
+    publish_market_fixture(path, "sector-release", created_at=NOW)
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     margin = amount(result.periods[0], "reported", "operating_margin")
     assert margin.value is None
@@ -782,7 +728,7 @@ def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
     assert after_local_update.input_release == fixed.input_release
     assert after_local_update.periods == fixed.periods
     assert amount(after_local_update.periods[0], "reported", "sales").value == 100
-    publish_fixture(path, "synthetic-release-2")
+    publish_market_fixture(path, "synthetic-release-2", created_at=NOW)
     published = company_growth(path, ticker="1234", as_of=NOW.date())
     assert published.input_release.release_id == "synthetic-release-2"
     assert amount(published.periods[0], "reported", "sales").value == 900
@@ -846,7 +792,7 @@ def test_private_acceptance_uses_only_financial_master_and_never_overwrites_resu
             status="ok",
             error=None,
         )
-    publish_fixture(path, "private-fixture")
+    publish_market_fixture(path, "private-fixture", created_at=NOW)
     origin = read_lake_store_origin(path)
     store = MemoryR2Store()
     for file in (path.parent / "mirror" / "lake").rglob("*"):

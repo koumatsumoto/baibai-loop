@@ -1,4 +1,4 @@
-"""四領域の合成入力から、既存の評価pairと行動理由を保存・再読する。
+"""五領域の合成入力から、既存の評価pairと行動理由を保存・再読する。
 
 文章は手書きの合成goldenであり、独立した人間/AIによる意味のReview成功を表さない。
 取得・L2算術の網羅検証や、価格指標の予測力の検証は既存owner/別受入へ残す。
@@ -16,11 +16,12 @@ import pytest
 import yaml
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.l1_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
 from tests.helpers.proposal import PREPARED, PROPOSAL_ID, PUBLISHED, bind_review
 from tests.helpers.research_selection import draft_for, selection
 from tests.helpers.screening_run import stock_analysis
-from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
 
 from baibai_engine.external_assessment.observations.models import (
     AnalystForecastObservation,
@@ -136,6 +137,28 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [("2026-10-14", 1), ("2026-10-15", 1)],
         )
+    # 同じ四半期の増収と利益率低下を別々に残す。成長スコアや将来予測ではない。
+    if scenario != "gaps":
+        with closing(sqlite3.connect(market)) as connection, connection:
+            for year, sales, operating_profit in ((2025, 100, 20), (2026, 120, 18)):
+                insert_financial_record(
+                    connection,
+                    {
+                        "Code": "12340",
+                        "DiscDate": f"{year}-08-14",
+                        "DiscTime": "15:00:00",
+                        "DiscNo": f"synthetic-growth-{year}-1",
+                        "DocType": "FinancialStatements_Consolidated_JP",
+                        "CurPerType": "1Q",
+                        "CurPerSt": f"{year}-04-01",
+                        "CurPerEn": f"{year}-06-30",
+                        "CurFYEn": f"{year + 1}-03-31",
+                        "Sales": sales,
+                        "OP": operating_profit,
+                        "NP": operating_profit / 2,
+                    },
+                )
+    publish_market_fixture(market, "five-domain-fixed-input", created_at=START)
     save_observations(
         market, _external_observations(START - timedelta(minutes=1), missing=scenario == "gaps")
     )
@@ -174,6 +197,7 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
         sqlite_path=market,
         runs_path=runs,
         indicators_path=tmp_path / "absent-indicators",
+        company_growth_mirror=tmp_path / "mirror",
         now=START,
     )
     operations = OperationService(app)
@@ -206,10 +230,28 @@ def _assessment_payload(case):
     document, review = pair_payload()
     fixed = case.selected.inputs.securities_context["1234"]
     technical = fixed["technical_analysis"]
+    growth = fixed["company_growth"]
     trace = f"{case.prepared.operation_id}; selection_sha256={selection_sha256(case.selected)}"
     sources = document["input_snapshot"]["sources"]
     sources.extend(
         [
+            {
+                "source_id": "growth-fixed",
+                "ticker": "1234",
+                "source_tier": "local_data",
+                "provider": "jquants",
+                "dataset": "fin_summaries",
+                "as_of": START.date().isoformat(),
+                "retrieved_at": START.isoformat(),
+                "used_for": trace
+                + "; inputs.securities_context.1234.company_growth; "
+                + canonical_json(
+                    {
+                        key: growth[key]
+                        for key in ("status", "reason", "input_release", "read_semantics")
+                    }
+                ),
+            },
             {
                 "source_id": "technical-fixed",
                 "ticker": "1234",
@@ -285,6 +327,16 @@ def _assessment_payload(case):
     document["input_snapshot"]["facts"][0]["value"] = case.quote
     hypotheses = [
         {
+            "statement": "過去の増収だけで将来利益成長や割安を保証できるか",
+            "origin": "research",
+            "result": "unresolved" if case.scenario == "gaps" else "refuted",
+            "reason": "企業成長の原本系列が不足し、ゼロ成長や中立と解釈しない。"
+            if case.scenario == "gaps"
+            else "同じ第1四半期の売上100→120に対し営業利益20→18、利益率20%→15%。"
+            "増収と収益性悪化を分け、これだけで将来利益や終価を上積みしない。",
+            "source_ids": ["growth-fixed"],
+        },
+        {
             "statement": "継続収益は価値を支えるか",
             "origin": "research",
             "result": "supported",
@@ -327,13 +379,15 @@ def _assessment_payload(case):
     )
     findings["unresolved_questions"] = ["反転時期は不明。借換条件・収益源が悪化すれば再評価する。"]
     if case.scenario == "gaps":
-        findings["unresolved_questions"].append("SMA200は60barで不足。外部未カバーは非重要な不足。")
+        findings["unresolved_questions"].append(
+            "企業成長の系列・SMA200・外部評価が不足。成長改善を投資理由には採用しない。"
+        )
     if case.scenario == "broken":
         document["investment_case"].update(
             status="broken", status_reason="一次資料で恒常収益源の喪失を確認。"
         )
         document["conclusion"]["stance"] = "unsupported"
-        hypotheses[0].update(result="refuted", reason="合成一次資料で恒常収益源が失われた。")
+        hypotheses[1].update(result="refuted", reason="合成一次資料で恒常収益源が失われた。")
         for risk in document["permanent_loss_risks"]:
             if risk["axis"] == "structural_decline":
                 risk.update(assessment="adverse", summary="合成一次資料で恒常収益源の喪失を確認。")
@@ -350,10 +404,10 @@ def _assessment_payload(case):
         )
         document["investment_case"].update(status="uncertain", status_reason="借換条件の確認待ち。")
         document["conclusion"]["stance"] = "uncertain"
-        hypotheses[1].update(
+        hypotheses[2].update(
             result="unresolved", reason="変動負債の借換条件が不明で金利伝達を確定できない。"
         )
-        hypotheses[0]["reason"] = "継続収益は確認したが、借換条件は未確認。"
+        hypotheses[1]["reason"] = "継続収益は確認したが、借換条件は未確認。"
         for risk in document["permanent_loss_risks"]:
             if risk["axis"] == "debt_repayment":
                 risk.update(
@@ -371,7 +425,8 @@ def _assessment_payload(case):
     review["checked_source_ids"] = findings["source_ids"]
     review["review_scope"] = (
         "合成の独立役payload。原資料、固定Selectionのbasis/時点/窓/seed、"
-        "同原外部評価と価格情報の重複、重要欠測を確認する想定。意味の独立Review成功ではない。"
+        "企業成長の増収と利益率低下、同原外部評価と価格情報の重複、重要欠測を確認する想定。"
+        "意味の独立Review成功ではない。"
     )
     review["strongest_countercase"] = document["conclusion"]["strongest_countercase"]
     # 手書きの独立入力golden。作者のProjectionをコピーして検算とはしない。
@@ -414,8 +469,8 @@ def _promote_and_propose(case):
         now=PREPARED,
     )
     raw.update(
-        headline="合成四領域の比較",
-        comparison="保存評価の四領域・反証を現金維持と比較した。",
+        headline="合成五領域の比較",
+        comparison="保存評価の五領域・反証を現金維持と比較した。",
         forgone="価格指標や同原外部評価の票数では購入しない。",
         published_at=PUBLISHED.isoformat(),
     )
@@ -469,7 +524,7 @@ def _promote_and_propose(case):
 
 
 @pytest.mark.parametrize("scenario", ["wait", "current", "broken", "gaps", "unknown"])
-def test_four_domain_assessment_review_action_and_readback(tmp_path, monkeypatch, scenario):
+def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch, scenario):
     case = _prepare_case(tmp_path, monkeypatch, scenario)
     projection = project_research_inputs(case.selected)
     security = projection["securities"]["1234"]
@@ -477,6 +532,25 @@ def test_four_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     assert (
         projection["market_context"]["saved_market_context_assessment"]["context_id"] == CONTEXT_ID
     )
+    growth = security["company_growth"]
+    assert growth["read_semantics"] == "retained_latest_in_fixed_release_not_point_in_time"
+    if scenario == "gaps":
+        assert growth["status"] == "unavailable"
+        assert growth["reason"]
+        assert growth["reported"]["rows"] == []
+    else:
+        assert growth["status"] == "available"
+        assert growth["input_release"]["release_id"] == "five-domain-fixed-input"
+        assert [row["values"][:2] for row in growth["reported"]["rows"]] == [[100, 20], [120, 18]]
+        columns = growth["reported_yoy"]["columns"]
+        changes = {
+            row["metric"]: row
+            for values in growth["reported_yoy"]["rows"]
+            if (row := dict(zip(columns, values, strict=True)))["to_end"] == "2026-06-30"
+        }
+        assert changes["sales"]["rate"] == pytest.approx(0.2)
+        assert changes["operating_profit"]["rate"] == pytest.approx(-0.1)
+        assert changes["operating_margin"]["margin_points"] == pytest.approx(-5)
     technical = security["technical_analysis"]
     assert technical["rsi_14bar"]["value"] == (100 if scenario == "broken" else 0)
     assert technical["bollinger_20bar"]["position"] == (
@@ -530,6 +604,10 @@ def test_four_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     monkeypatch.setattr(
         "baibai_engine.research.workspace.selected_prepare.collect_research_inputs",
         lambda **_kw: pytest.fail("resume recollected mutable inputs"),
+    )
+    monkeypatch.setattr(
+        "baibai_engine.research.inputs.company_growth",
+        lambda *_a, **_kw: pytest.fail("resume recalculated Company Growth"),
     )
     monkeypatch.setattr(
         "baibai_engine.research.inputs.technical_analysis",
@@ -620,3 +698,4 @@ def test_changed_action_reason_cannot_publish_with_original_content_review(
             "position_decision_reference",
         ):
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+

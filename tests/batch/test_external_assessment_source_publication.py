@@ -18,8 +18,8 @@ from tests.batch.external_assessment_publication_fixtures import publication as 
 from tests.batch.test_external_assessment_raw import Session
 from tests.batch.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_sources import monex_html
-from tests.engine.test_minkabu import no_coverage_html
 from tests.engine.test_minkabu import html as minkabu_html
+from tests.engine.test_minkabu import no_coverage_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs import external_assessment_publication as publisher
