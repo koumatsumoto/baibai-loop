@@ -118,7 +118,7 @@ class IndicatorsProviderParserTests(TestCase):
             },
         )
 
-    def test_parse_nikkei_valuation_leaves_range_policy_to_storage(self) -> None:
+    def test_parse_nikkei_valuation_leaves_range_policy_to_l2(self) -> None:
         series = _source(
             "nikkei_indexes",
             "per",

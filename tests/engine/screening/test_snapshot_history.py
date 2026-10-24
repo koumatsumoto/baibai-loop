@@ -196,5 +196,5 @@ class ScreeningMetricsTests(SnapshotFixtures):
         )
         derived = result.derived["130A"]
         # Without adjustment-aware change calc, this would be (50-100)/100 = -0.5
-        # which would falsely trip the -15% screening threshold.
+        # and would misreport an unchanged price basis as a 50% market decline.
         self.assertEqual(derived.price_change_60d, 0.0)
