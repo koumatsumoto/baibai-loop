@@ -168,7 +168,12 @@ def test_old_available_list_day_cannot_revive_metrics_invalidated_by_newer_known
             submitDateTime="2026-04-27 12:00",
         )
     else:
-        changed.update(withdrawalStatus="1", opeDateTime="2026-04-27 12:00")
+        changed.update(
+            docID="S100WITHDRAW",
+            parentDocID="S100SAVED",
+            withdrawalStatus="1",
+            opeDateTime="2026-04-27 12:00",
+        )
     store_edinet_documents(path, TARGET, [changed])
     with closing(open_connection(path)) as conn, conn:
         conn.execute(
