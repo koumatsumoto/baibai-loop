@@ -37,6 +37,8 @@ PERとpeerはこの版では **未提供**。PERは価格・期末自己株式�
 
 `research prepare --operation-id <ID> --company-growth-periods 24 --force` または `all` で、同じ保存結果から長期表示へ切り替える。`--force` は生成投影だけを置換し、執筆済みdraftを保持する。表示期数はworkspace manifestだけの設定で、保存入力・selection hash・draftのstart/end・同一draft判定を変えない。`full_result_ref` はOperation内のResearchSelectionを起点としたJSON pointerであり、全状態/Changes・BS/CF・比較元/採用文書を完全結果で確認できる。原本の再取得や財務再計算は行わない。
 
+完全結果は既存 `operation --db <APPLICATION_DB> --format json show <ID>` の `payload.artifacts` 内にある `kind=research_selection` を読み、`full_result_ref` を辿る。選択した全会計期の薄い表示だけなら前述の `all` で足りる。
+
 新しい実績指標の選択・算術はcompany_growthへ、新providerのデコード・文書identity・保存読取はmarket/Collectionへ置く。Research/UIへ算式をコピーしない。共通marketの `financial_periods` は両領域で意味が同じ期間比較・実績矛盾処理・金額算術だけを持つ。valuationの最新anchor・fallback・carry・TTMRulesは移さない。import-linterが兄弟領域、純粋計算、Web/Batch入口の境界を検査する。
 
 ## 実データ受入の前提とCI

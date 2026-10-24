@@ -585,21 +585,24 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
     resumed = prepare_selected_workspace(**arguments, company_growth_periods=16, force=True)
     assert resumed.selection_sha256 == digest
     assert displayed()["display_scope"]["period_count"] == 16
-    assert main(
-        [
-            "prepare",
-            "--operation-id",
-            prepared.operation_id,
-            "--db",
-            str(arguments["db_path"]),
-            "--workspace",
-            str(arguments["workspace"]),
-            "--company-growth-periods",
-            "all",
-            "--force",
-        ],
-        now=NOW,
-    ) == 0
+    assert (
+        main(
+            [
+                "prepare",
+                "--operation-id",
+                prepared.operation_id,
+                "--db",
+                str(arguments["db_path"]),
+                "--workspace",
+                str(arguments["workspace"]),
+                "--company-growth-periods",
+                "all",
+                "--force",
+            ],
+            now=NOW,
+        )
+        == 0
+    )
     capsys.readouterr()
     assert displayed()["display_scope"]["period_count"] == len(growth["periods"])
     assert displayed()["display_scope"]["latest_period_limit"] is None

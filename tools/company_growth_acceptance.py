@@ -210,7 +210,7 @@ def execute(
         "private_result_key": key,
         "l3_value_review": "pending",
     }
-    private = {
+    private: dict[str, object] = {
         "summary": public,
         "input_release": adopted.model_dump(mode="json"),
         "sample_report": sample_report,
