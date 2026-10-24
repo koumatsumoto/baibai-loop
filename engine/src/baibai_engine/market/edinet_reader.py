@@ -9,7 +9,8 @@ from typing import Any
 
 from baibai_engine.collection.edinet.archives import read_source_archive
 from baibai_engine.market.edinet_document_events import parse_doc_id
-from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
+from baibai_engine.market.edinet_metrics.eligibility import read_eligible_edinet_metrics
+from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.storage.observations.read import connect_read_only
 
@@ -28,8 +29,7 @@ class EDINETReader:
         return records
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
-        records = read_edinet_metrics(self._sqlite_path, asof_date)
-        return dict(records) if records is not None else {}
+        return read_eligible_edinet_metrics(self._sqlite_path, asof_date)
 
     def read_csv_zip(self, doc_id: str) -> bytes:
         return self._read_archive(doc_id, source_type=5)

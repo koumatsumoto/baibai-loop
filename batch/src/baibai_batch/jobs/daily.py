@@ -642,7 +642,7 @@ def _execute_daily_batch(
         deferred_failures.append(str(exc))
 
     screening_enabled = True
-    if asof is None or gate_explicit_asof or scheduled:
+    if asof is None or gate_explicit_asof or scheduled or not acquire_market:
         try:
             screening_enabled = _require_business_day(root / _MARKET_DB_RELPATH, target)
             if not screening_enabled:
@@ -853,8 +853,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--asof",
         type=str,
         help=(
-            "run for this date (YYYY-MM-DD) and skip the business-day gate "
-            "(manual rerun / past date); default is today in JST, gated by the market calendar"
+            "run for this date (YYYY-MM-DD); saved-input and scheduled runs always apply "
+            "the business-day gate. Legacy acquisition reruns may explicitly bypass it"
         ),
     )
     parser.add_argument(

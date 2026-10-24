@@ -11,6 +11,7 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.collection.edinet.receipts import retain_list_response
+from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
@@ -270,6 +271,23 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
     def test_load_metric_records_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            document = {
+                "seqNumber": 1,
+                "docID": "S100SAVED",
+                "secCode": "13010",
+                "docTypeCode": "120",
+                "csvFlag": "1",
+                "xbrlFlag": "1",
+                "legalStatus": "1",
+                "disclosureStatus": "0",
+                "withdrawalStatus": "0",
+                "docInfoEditStatus": "0",
+                "periodStart": "2025-04-01",
+                "periodEnd": "2026-03-31",
+                "submitDateTime": "2026-04-01 12:00",
+            }
+            store_edinet_documents(sqlite_path, date(2026, 4, 24), [document])
+            candidate = select_document_candidates([document]).candidates["1301"]
             conn = open_connection(sqlite_path)
             conn.execute(
                 "INSERT INTO edinet_metrics("
@@ -295,6 +313,16 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
                 ),
             )
             _add_source_coverage(conn, source="edinet_metrics", date_iso="2026-04-24")
+            conn.execute(
+                "UPDATE edinet_metrics SET source_doc_id = ?, document_type = ?, "
+                "extractor_revision = ?, source_document_revision = ?",
+                (
+                    candidate.doc_id,
+                    candidate.doc_type_code,
+                    EDINET_METRIC_REVISION,
+                    candidate.source_document_revision,
+                ),
+            )
             conn.commit()
             conn.close()
 
@@ -305,6 +333,7 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
             self.assertIn("1301", records)
             self.assertEqual(records["1301"].sales_ttm, 1_000_000.0)
             self.assertEqual(records["1301"].source_submit_datetime, "2026-04-01 12:00")
+            self.assertEqual(records["1301"].snapshot_asof, date(2026, 4, 24))
 
     def test_reader_list_documents_raises_when_sqlite_missing_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

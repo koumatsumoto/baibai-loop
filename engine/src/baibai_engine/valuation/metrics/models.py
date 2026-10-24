@@ -103,6 +103,8 @@ class FinancialSnapshot:
     cash: float | None = None
     ebitda_ttm: float | None = None
     consolidation_basis: str | None = None
+    edinet_snapshot_asof: date | None = None
+    edinet_snapshot_recorded_at_utc: str | None = None
     edinet_source_doc_id: str | None = None
     edinet_document_type: str | None = None
     edinet_source_submit_datetime: str | None = None

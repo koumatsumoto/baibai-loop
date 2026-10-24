@@ -36,7 +36,7 @@ def test_missing_reader_inputs_never_create_a_store_or_connect(tmp_path):
     assert local_zip.read_bytes() == b"local download cache is not a retained archive"
 
 
-def test_reader_preserves_empty_listing_and_cached_metric_rows(tmp_path):
+def test_reader_preserves_empty_listing_but_rejects_unversioned_metric_values(tmp_path):
     path = tmp_path / "market.sqlite"
     day = date(2026, 4, 24)
     store_edinet_documents(path, day, [])
@@ -48,8 +48,8 @@ def test_reader_preserves_empty_listing_and_cached_metric_rows(tmp_path):
     reader = EDINETReader(path)
     with patch("requests.Session", side_effect=AssertionError("reader attempted HTTP")):
         assert reader.list_documents(day) == []
-        assert reader.load_metric_records(day) == read_edinet_metrics(path, day)
-        assert reader.load_metric_records(day)["7203"].cash == 100.0
+        assert read_edinet_metrics(path, day)["7203"].cash == 100.0
+        assert reader.load_metric_records(day) == {}
         assert reader.load_metric_records(date(2026, 4, 23)) == {}
         with pytest.raises(EDINETProviderError, match="document list is unavailable"):
             reader.list_documents(date(2026, 4, 23))

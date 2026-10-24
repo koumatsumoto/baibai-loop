@@ -133,6 +133,8 @@ def build_stock_analysis_metrics(
         "fcf_yield": financial.fcf_yield,
         "capex_ttm": financial.capex_ttm,
         "depreciation_and_amortization_ttm": financial.depreciation_and_amortization_ttm,
+        "edinet_snapshot_asof": _date_iso(financial.edinet_snapshot_asof),
+        "edinet_snapshot_recorded_at_utc": financial.edinet_snapshot_recorded_at_utc,
         "edinet_source_doc_id": financial.edinet_source_doc_id,
         "edinet_document_type": financial.edinet_document_type,
         "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,

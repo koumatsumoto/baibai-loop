@@ -42,6 +42,10 @@ gh run watch <RUN_ID> --exit-status --interval 60
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 ```
 
+保存入力の共通統合は、手動dispatchで解決済みの `asof` を渡しても営業日判定を行う。非営業日は新しいScreeningを作らず、前回runの日付・ID・計算時刻を維持して統合・公開を続ける。過去の営業日を明示した再計算は可能だが、その日のmaster・価格・財務coverage要件を省略しない。
+
+EDINETの取得／抽出失敗は独立した統合結果に残るため、Screening成功だけで全source成功とは判断しない。保存値の採用は[Screeningの入力適格性](../docs/reference/screening-runtime.md#入力不足と品質)に従う。出力の `edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc` と既存の文書ID・提出日時・対象期間で鮮度を確認する。旧行を当日coverageへ複製せず、不足sourceの限定取得後、次の共通統合で新しい適格snapshotへ進む。
+
 ### マクロ原本の独立更新
 
 `cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領を独立させる。取得側は担当groupだけの再生成可能なread-only inputを読み、正本全体をpullしない。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。

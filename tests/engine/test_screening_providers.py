@@ -33,6 +33,7 @@ from baibai_engine.market import edinet_refresh as edinet_refresh_module
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_document_events import parse_doc_id
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
+from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
@@ -1352,6 +1353,23 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_edinet_reader_reads_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "data" / "screening" / "market.sqlite"
+            document = {
+                "seqNumber": 1,
+                "docID": "S100SAVED",
+                "secCode": "72030",
+                "docTypeCode": "120",
+                "csvFlag": "1",
+                "xbrlFlag": "1",
+                "legalStatus": "1",
+                "disclosureStatus": "0",
+                "withdrawalStatus": "0",
+                "docInfoEditStatus": "0",
+                "periodStart": "2025-04-01",
+                "periodEnd": "2026-03-31",
+                "submitDateTime": "2026-05-01 12:00",
+            }
+            store_edinet_documents(sqlite_path, date(2026, 5, 1), [document])
+            candidate = select_document_candidates([document]).candidates["7203"]
             store_edinet_metrics(
                 sqlite_path,
                 date(2026, 5, 1),
@@ -1360,7 +1378,13 @@ class ScreeningProviderTests(unittest.TestCase):
                         "ticker": "7203",
                         "cash": 100.0,
                         "debt": 10.0,
-                        "extractor_revision": "a" * 64,
+                        "source_doc_id": candidate.doc_id,
+                        "document_type": candidate.doc_type_code,
+                        "source_submit_datetime": candidate.submit_datetime,
+                        "source_period_start": candidate.period_start,
+                        "source_period_end": candidate.period_end,
+                        "extractor_revision": EDINET_METRIC_REVISION,
+                        "source_document_revision": candidate.source_document_revision,
                     }
                 ],
             )
