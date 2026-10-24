@@ -102,15 +102,15 @@ def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
     assert binding["calendar_receipt"]["request_id"] == calendar
     assert datetime.fromisoformat(binding["master_receipt"]["received_at"]) == RECEIVED
     assert len(plan.tickers) == 2500
-    price_manifest = (
-        "lake/manifests/datasets/jquants.daily_bars/synthetic-jquants-daily_bars.json"
-    )
+    price_manifest = "lake/manifests/datasets/jquants.daily_bars/synthetic-jquants-daily_bars.json"
     assert price_manifest in store.get_keys
     assert [key for key in store.get_keys if "daily_bars/" in key] == [price_manifest]
-    assert not any(key.endswith(".sqlite") or ("daily_bars/" in key and key.endswith(".parquet")) for key in store.get_keys)
     assert not any(
-        "jquants.master_snapshots/" in key and key.endswith(".parquet")
+        key.endswith(".sqlite") or ("daily_bars/" in key and key.endswith(".parquet"))
         for key in store.get_keys
+    )
+    assert not any(
+        "jquants.master_snapshots/" in key and key.endswith(".parquet") for key in store.get_keys
     )
     assert not list((tmp_path / "new-plan").rglob("*.sqlite"))
     calls = wire_success(monkeypatch, store, plan)

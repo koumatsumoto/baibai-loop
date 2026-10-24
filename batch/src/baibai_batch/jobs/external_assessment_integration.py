@@ -187,7 +187,10 @@ def verify_and_seal(
             for stage, _ in item.stages.values()
             for observation in stage.result.observations
         )
+    readback_datasets = {name for name, _, _ in changed}
     for name, manifest in after.dataset_manifests.items():
+        if name not in readback_datasets:
+            continue
         for part in manifest.partitions:
             if (name, part.values["year"], part.values["month"]) in changed:
                 for obj in part.objects:

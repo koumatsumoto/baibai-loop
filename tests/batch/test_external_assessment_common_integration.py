@@ -195,7 +195,14 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
     if unexpected_forecast:
         external_assessment_save_observations(
             database,
-            [observation.model_copy(update={"fetched_at_utc": RECEIVED.replace(month=8)})],
+            [
+                observation.model_copy(
+                    update={
+                        "fetched_at_utc": RECEIVED.replace(month=8),
+                        "snapshot_date": observation.snapshot_date.replace(month=8),
+                    }
+                )
+            ],
         )
     publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
     fresh = directory / "minkabu-fresh-readback"
