@@ -233,21 +233,30 @@ def test_pmi_rate_limit_stops_new_requests_to_sibling_series(tmp_path, monkeypat
     assert all(isinstance(item, acquisition.SourceRefreshFailure) for item in outcomes)
 
 
-def test_pmi_refusal_stops_this_route_without_changing_other_provider_fallbacks(tmp_path, monkeypatch):
+def test_pmi_refusal_stops_this_route_without_changing_other_provider_fallbacks(
+    tmp_path, monkeypatch
+):
     from baibai_engine.collection.economic.providers import spglobal_pmi as pmi
     from baibai_engine.collection.economic.providers.base import SourceWithheldError
+
     sources = [s for s in load_sources().values() if s.provider == "spglobal_pmi"]
     month = date(2026, 9, 1)
     release = pmi.Release(month, month, "https://example.com/release.pdf")
-    monkeypatch.setattr(pmi, "load_manifest", lambda _: {s.provider_series_id: (release,) for s in sources})
+    monkeypatch.setattr(
+        pmi, "load_manifest", lambda _: {s.provider_series_id: (release,) for s in sources}
+    )
     calls = []
+
     def refused(url, **kwargs):
         calls.append(url)
         raise SourceWithheldError("HTTP 403")
+
     monkeypatch.setattr(pmi, "fetch_pdf_bytes", refused)
     monkeypatch.setattr(acquisition, "fetch_native_records", lambda *a, **k: {})
     selected = [s.source_id for s in sources] + ["mof-jgbcm-all"]
-    outcomes = acquisition.refresh_sources(selected, db_path=tmp_path / "source.sqlite", start=month, end=date(2026, 10, 23))
+    outcomes = acquisition.refresh_sources(
+        selected, db_path=tmp_path / "source.sqlite", start=month, end=date(2026, 10, 23)
+    )
     assert len(calls) == 1
     assert all(isinstance(item, acquisition.SourceRefreshFailure) for item in outcomes[:-1])
     assert isinstance(outcomes[-1], acquisition.SourceRefreshSuccess)

@@ -123,7 +123,9 @@ def _require_target_months(releases: tuple[Release, ...], *, start: date, end: d
             missing.append(first.isoformat())
         first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     if missing:
-        raise IndicatorsProviderError("spglobal_pmi manifest is missing target months: " + ", ".join(missing))
+        raise IndicatorsProviderError(
+            "spglobal_pmi manifest is missing target months: " + ", ".join(missing)
+        )
 
 
 def fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | None) -> bytes:

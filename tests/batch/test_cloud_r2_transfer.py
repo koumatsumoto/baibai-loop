@@ -599,6 +599,7 @@ def test_only_the_application_pull_names_the_application_store() -> None:
 
     assert pulls == {
         "pull-app",
+        "pull-indicators",
         "pull-machine",
         "pull-market",
         "pull-runs",

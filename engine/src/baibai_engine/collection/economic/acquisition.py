@@ -84,7 +84,9 @@ def refresh_sources(
                     raise ValueError(f"unknown economic source: {source_id}")
                 source = catalog[source_id]
                 if source.provider in stopped_providers:
-                    raise ProviderFetchStoppedError("provider acquisition stopped earlier in this run")
+                    raise ProviderFetchStoppedError(
+                        "provider acquisition stopped earlier in this run"
+                    )
                 if (
                     recent
                     and source_policy(source).mode == "current_only"
