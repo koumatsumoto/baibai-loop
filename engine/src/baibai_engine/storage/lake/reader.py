@@ -227,7 +227,11 @@ def _load_release(
 def materialize_release_metadata(cache: LakeObjectCache, release: FixedRelease) -> None:
     """Retain the resolved graph so the same cached release can be read offline."""
     metadata = [
-        (release.manifest_key, release.manifest_sha256, canonical_lake_model_bytes(release.manifest)),
+        (
+            release.manifest_key,
+            release.manifest_sha256,
+            canonical_lake_model_bytes(release.manifest),
+        ),
         *(
             (
                 dataset_manifest_key(dataset=name, build_id=manifest.build_id),
