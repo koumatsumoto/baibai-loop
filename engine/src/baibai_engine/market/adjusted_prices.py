@@ -8,6 +8,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.market import price_models
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.price_basis import asof_basis_closes, asof_basis_prices
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.storage.observations.read import connect_read_only
@@ -29,7 +30,7 @@ def read_price_bars(
         parameters += tuple(tickers)
     rows = read_rows(
         sqlite_path,
-        "SELECT ticker, traded_at, close, adjustment_factor, turnover_value "  # nosec B608
+        "SELECT ticker, traded_at, close, adjustment_factor, turnover_value, ex_right_type "  # nosec B608
         "FROM jquants_daily_bars WHERE traded_at >= ? AND traded_at <= ?"
         + clause
         + " ORDER BY ticker, traded_at",
@@ -39,7 +40,8 @@ def read_price_bars(
     # 取得世代の異なる調整済み価格を混ぜず、価格factorの後方累積で末尾基準へ揃える。
     # factor自体にも配信元の訂正があるため、原本の再取得時には訂正値を保存する。
     raw: dict[str, list[tuple[date, float | None, float | None, float | None]]] = {}
-    for ticker, traded_at, close, adjustment_factor, turnover_value in rows:
+    for ticker, traded_at, close, adjustment_factor, turnover_value, ex_right_type in rows:
+        _require_action_factor(ticker, traded_at, adjustment_factor, ex_right_type)
         if not isinstance(traded_at, str):
             continue
         raw.setdefault(str(ticker), []).append(
@@ -130,7 +132,7 @@ def _read_price_observations(
     rows = read_rows(
         path,
         f"""
-            SELECT ticker, traded_at, close, adjustment_factor
+            SELECT ticker, traded_at, close, adjustment_factor, ex_right_type
             FROM jquants_daily_bars
             WHERE ticker IN ({placeholders})
               AND traded_at >= ?
@@ -141,7 +143,8 @@ def _read_price_observations(
     )
     bars: dict[str, list[JQuantsDailyBar]] = {}
     events: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
-    for ticker, traded_at, close, factor in rows:
+    for ticker, traded_at, close, factor, ex_right_type in rows:
+        _require_action_factor(ticker, traded_at, factor, ex_right_type)
         if close is not None:
             bars.setdefault(str(ticker), []).append(
                 JQuantsDailyBar(
@@ -161,3 +164,11 @@ def _read_price_observations(
                 )
             )
     return bars, events
+
+
+def _require_action_factor(ticker: object, day: object, factor: object, kind: object) -> None:
+    """An observed action with no coefficient is corrupt input, not no adjustment."""
+    if kind is not None and factor is None:
+        raise JQuantsProviderError(
+            f"reported corporate action has no usable adjustment factor for {ticker} on {day}"
+        )
