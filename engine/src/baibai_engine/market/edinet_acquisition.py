@@ -17,7 +17,11 @@ from baibai_engine.market.edinet_refresh import EDINETRefresh
 
 
 def acquire_archives(
-    database: Path, *, group: str, asof: date, api_key: str,
+    database: Path,
+    *,
+    group: str,
+    asof: date,
+    api_key: str,
     retained: set[tuple[str, int]],
 ) -> dict[str, object]:
     """Read saved list/baseline inputs and archive identities, without extracting facts."""
@@ -25,20 +29,29 @@ def acquire_archives(
         raise ValueError("unsupported EDINET archive group")
     if group == "edinet-metrics":
         plan = prepare_edinet_metric_plan(
-            asof_date=asof, lookback_days=540, reader=EDINETReader(database), sqlite_path=database,
+            asof_date=asof,
+            lookback_days=540,
+            reader=EDINETReader(database),
+            sqlite_path=database,
         )
         if plan is None:
             return {"status": "failed", "failed": ["selection"]}
         documents = [(candidate.doc_id, 5) for candidate in plan.archive_candidates]
     else:
         inputs = prepare_edinet_facts(
-            asof=asof, sqlite_path=database, initialize=False, tickers=(), stdout=sys.stdout,
+            asof=asof,
+            sqlite_path=database,
+            initialize=False,
+            tickers=(),
+            stdout=sys.stdout,
         )
         if inputs is None:
             return {"status": "skipped_not_initialized", "downloaded": 0}
         documents = [
-            (item.doc_id, 1) for document in inputs.documents
-            if (item := plan_fact_item(document, statuses=inputs.statuses, asof=asof)).action == "extract"
+            (item.doc_id, 1)
+            for document in inputs.documents
+            if (item := plan_fact_item(document, statuses=inputs.statuses, asof=asof)).action
+            == "extract"
         ]
     downloaded, reused, failed = 0, 0, []
     with closing(EDINETRefresh(api_key, sqlite_path=database)) as acquisition:
@@ -57,5 +70,9 @@ def acquire_archives(
                     break
             else:
                 downloaded += 1
-    return {"status": "failed" if failed else "received", "downloaded": downloaded,
-            "retained_archives_reused": reused, "failed": failed}
+    return {
+        "status": "failed" if failed else "received",
+        "downloaded": downloaded,
+        "retained_archives_reused": reused,
+        "failed": failed,
+    }

@@ -14,6 +14,7 @@ from baibai_batch.storage.external_assessment_staging import put_private, read_p
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 from baibai_engine.batch_api import (
     SOURCE_INPUT_GROUPS,
+    TradingViewFetchError,
     economic_acquisition_groups,
     economic_source_policy,
     load_economic_sources,
@@ -32,32 +33,44 @@ def input_key(group: str) -> str:
 def publish_inputs(
     store: ObjectStore, *, market: Path, economic: Path, identity: str,
     asof: date, generations: dict[str, str],
-) -> None:
-    """Called only by common integration against its fixed canonical generations."""
+) -> dict[str, object]:
+    """Keep failed groups' prior pointers while updating independent healthy inputs."""
     groups = list(SOURCE_INPUT_GROUPS) + ["economic-" + group for group in economic_acquisition_groups()]
+    updated: list[str] = []
+    failed: list[dict[str, str]] = []
     for group in groups:
-        with tempfile.TemporaryDirectory(prefix="baibai-source-input-") as temporary:
-            directory = Path(temporary)
-            path = directory / "receipts.sqlite"
-            if group.startswith("economic-"):
-                export_economic_receipts(
-                    economic, path, source_ids=sorted(source.source_id for source in load_economic_sources().values()
-                        if economic_source_policy(source).acquisition_group == group.removeprefix("economic-")),
-                    since=datetime.min.replace(tzinfo=UTC),
-                )
-                report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
-            else:
-                report = export_market_source_input(market, path, group=group, asof=asof)
-            report["canonical_generations"] = generations
-            report["created_at"] = datetime.now(UTC).isoformat()
-            stage_id = f"{group}-{identity}"
-            write_json_atomic(directory / "result.json", report)
-            save_handoff(store, stage_id, directory, namespace="source-inputs")
-            key = input_key(group)
-            prior = read_private(store, key)
-            pointer = json.dumps({"stage_id": stage_id, "canonical_generations": generations}, sort_keys=True).encode()
-            if prior is None or prior.payload != pointer:
-                put_private(store, key, pointer, previous_etag=prior.etag if prior else None)
+        try:
+            _publish_one(store, market=market, economic=economic, identity=identity, asof=asof, generations=generations, group=group)
+        except (ValueError, TradingViewFetchError) as error:
+            failed.append({"group": group, "reason": type(error).__name__})
+        else:
+            updated.append(group)
+    return {"updated": updated, "failed": failed}
+
+
+def _publish_one(store: ObjectStore, *, market: Path, economic: Path, identity: str, asof: date, generations: dict[str, str], group: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="baibai-source-input-") as temporary:
+        directory = Path(temporary)
+        path = directory / "receipts.sqlite"
+        if group.startswith("economic-"):
+            export_economic_receipts(
+                economic, path, source_ids=sorted(source.source_id for source in load_economic_sources().values()
+                    if economic_source_policy(source).acquisition_group == group.removeprefix("economic-")),
+                since=datetime.min.replace(tzinfo=UTC),
+            )
+            report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
+        else:
+            report = export_market_source_input(market, path, group=group, asof=asof)
+        report["canonical_generations"] = generations
+        report["created_at"] = datetime.now(UTC).isoformat()
+        stage_id = f"{group}-{identity}"
+        write_json_atomic(directory / "result.json", report)
+        save_handoff(store, stage_id, directory, namespace="source-inputs")
+        key = input_key(group)
+        prior = read_private(store, key)
+        pointer = json.dumps({"stage_id": stage_id, "canonical_generations": generations}, sort_keys=True).encode()
+        if prior is None or prior.payload != pointer:
+            put_private(store, key, pointer, previous_etag=prior.etag if prior else None)
 
 
 def load_input(store: ObjectStore, group: str, database: Path, directory: Path) -> dict[str, object]:

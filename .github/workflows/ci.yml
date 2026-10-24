@@ -90,7 +90,7 @@ jobs:
         # `coverage run -m pytest` would only see the controller and report a near-empty run.
         env:
           TMPDIR: /dev/shm
-        run: uv run pytest -n 4 --cov --cov-report=term-missing
+        run: uv run pytest -n 4 --maxfail=0 --cov --cov-report=term-missing
 
       # The scanners share this job to avoid a second billed runner, so they are asked
       # even after an earlier gate has failed. A red test would otherwise hide a CVE

@@ -13,7 +13,9 @@ from baibai_engine.collection.economic.acquisition import (
     refresh_sources as refresh_economic_sources,
 )
 from baibai_engine.collection.economic.handoff import export_receipts as export_economic_receipts
-from baibai_engine.collection.economic.receipt_policy import retain_rechecks as retain_economic_rechecks
+from baibai_engine.collection.economic.receipt_policy import (
+    retain_rechecks as retain_economic_rechecks,
+)
 from baibai_engine.collection.economic.records import (
     decode_records as decode_economic_source_records,
 )
@@ -117,6 +119,7 @@ from baibai_engine.external_assessment.tradingview.diagnostics import (
 from baibai_engine.external_assessment.tradingview.diagnostics import (
     safe_progress as tradingview_safe_progress,
 )
+from baibai_engine.external_assessment.tradingview.observations import FetchError as TradingViewFetchError
 from baibai_engine.external_assessment.tradingview.handoff import TradingViewHandoff
 from baibai_engine.external_assessment.tradingview.handoff import (
     export_handoff as export_tradingview_handoff,
@@ -137,6 +140,7 @@ from baibai_engine.market.edinet_handoff import export_handoff as export_edinet_
 from baibai_engine.market.edinet_handoff import import_handoff as import_edinet_handoff
 from baibai_engine.market.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_engine.market.jpx_handoff import import_handoff as import_jpx_handoff
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_handoff import FINANCIAL_SOURCES as JQUANTS_FINANCIAL_SOURCES
 from baibai_engine.market.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_engine.market.jquants_handoff import export_handoff as export_jquants_handoff
@@ -222,6 +226,7 @@ __all__ = [
     "ExternalAssessmentObservation",
     "ExternalAssessmentQuantsScoreObservation",
     "ExternalAssessmentSource",
+    "JQuantsProviderError",
     "LakeBuildError",
     "LakeBuildReport",
     "LakeDatasetManifest",
@@ -236,6 +241,7 @@ __all__ = [
     "LocalMirrorSource",
     "MarketSchemaError",
     "StoreLayoutError",
+    "TradingViewFetchError",
     "TradingViewHandoff",
     "acquire_edinet_archives",
     "advance_lake_store_origin",

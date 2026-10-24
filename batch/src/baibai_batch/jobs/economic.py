@@ -144,7 +144,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "input":
             from baibai_batch.storage.source_inputs import load_input
             selected_sources(args.group, args.source_id)
-            load_input(Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")), "economic-" + args.group, args.db, args.directory)
+            load_input(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
+                "economic-" + args.group, args.db, args.directory,
+            )
             return 0
         if args.command in {"stage", "download"}:
             if args.stage_id is None:

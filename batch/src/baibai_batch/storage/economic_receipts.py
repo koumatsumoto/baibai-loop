@@ -35,7 +35,9 @@ def accept_rechecks(source: Path, canonical: Path, output: Path) -> dict[str, ob
         current.execute("BEGIN")
         for table, keys in FACT_KEYS.items():
             latest: dict[tuple[str, str], tuple[object, ...] | None] = {}
-            order = "started_at, run_id" if table == "economic_source_runs" else "fetched_at, source_id"
+            order = (
+                "started_at, run_id" if table == "economic_source_runs" else "fetched_at, source_id"
+            )
             names = [item[1] for item in raw.execute(f"PRAGMA table_info({table})")]  # nosec B608
             for row in raw.execute(f"SELECT * FROM {table} ORDER BY {order}"):  # nosec B608
                 where = " AND ".join(f"{key} = ?" for key in keys)
@@ -48,7 +50,8 @@ def accept_rechecks(source: Path, canonical: Path, output: Path) -> dict[str, ob
                     if key not in latest:
                         latest[key] = current.execute(
                             f"SELECT * FROM {table} WHERE {keys[0]} = ? AND {keys[1]} = ? "  # nosec B608
-                            "ORDER BY fetched_at DESC LIMIT 1", key,
+                            "ORDER BY fetched_at DESC LIMIT 1",
+                            key,
                         ).fetchone()
                     previous = latest[key]
                     if previous is not None and str(row[2]) < str(previous[2]):
@@ -61,4 +64,8 @@ def accept_rechecks(source: Path, canonical: Path, output: Path) -> dict[str, ob
                 placeholders = ",".join("?" for _ in row)
                 selected.execute(f"INSERT INTO {table} VALUES ({placeholders})", row)  # nosec B608
                 accepted += 1
-    return {"accepted_receipts": accepted, "unchanged_rechecks": unchanged, "late_recovery_required": late}
+    return {
+        "accepted_receipts": accepted,
+        "unchanged_rechecks": unchanged,
+        "late_recovery_required": late,
+    }

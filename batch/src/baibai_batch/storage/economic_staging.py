@@ -12,9 +12,7 @@ from baibai_batch.storage.external_assessment_staging import put_private, read_p
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 
 
-def stage_prefix(
-    stage_id: str, *, market: bool = False, namespace: str | None = None
-) -> str:
+def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,119}", stage_id) is None:
         raise ValueError("invalid source handoff identity")
     namespace = namespace or ("market-sources" if market else "economic-sources")
@@ -24,7 +22,12 @@ def stage_prefix(
 
 
 def save_handoff(
-    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False, namespace: str | None = None
+    store: ObjectStore,
+    stage_id: str,
+    directory: Path,
+    *,
+    market: bool = False,
+    namespace: str | None = None,
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
@@ -67,7 +70,12 @@ def save_handoff(
 
 
 def load_handoff(
-    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False, namespace: str | None = None
+    store: ObjectStore,
+    stage_id: str,
+    directory: Path,
+    *,
+    market: bool = False,
+    namespace: str | None = None,
 ) -> None:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     saved = read_private(store, prefix + "/handoff.json")

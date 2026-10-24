@@ -125,16 +125,23 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
     from baibai_engine.external_assessment.tradingview.collector import collect
     from baibai_engine.external_assessment.tradingview.handoff import export_handoff, import_handoff
     from baibai_engine.external_assessment.tradingview.observations import FetchError
-    local, canonical = store(tmp_path / "local.sqlite", 51), store(tmp_path / "canonical.sqlite", 51)
+
+    local, canonical = (
+        store(tmp_path / "local.sqlite", 51),
+        store(tmp_path / "canonical.sqlite", 51),
+    )
     calls = 0
+
     async def fetch(symbols, columns):
         nonlocal calls
         calls += 1
         if calls == 2:
             raise FetchError("provider stops after one confirmed chunk")
         return _sdk(payload(symbols))
+
     async def sleep(_seconds):
         pass
+
     report = asyncio.run(collect(local, DAY, fetch, clock=lambda: NOW, sleep=sleep))
     assert report["status"] == "partial"
     packet = tmp_path / "packet"
@@ -145,7 +152,15 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
     save_handoff(remote, "tradingview-partial", packet, market=True)
     # Cooldown persistence may fail after this private receipt is durable. The
     # separately scheduled integration reads this exact receipt without refetch.
-    assert workflow()["jobs"]["snapshot"]["steps"].index(next(step for step in workflow()["jobs"]["snapshot"]["steps"] if step.get("id") == "stage")) < workflow()["jobs"]["snapshot"]["steps"].index(next(step for step in workflow()["jobs"]["snapshot"]["steps"] if step.get("id") == "cooldown-save"))
+    assert workflow()["jobs"]["snapshot"]["steps"].index(
+        next(step for step in workflow()["jobs"]["snapshot"]["steps"] if step.get("id") == "stage")
+    ) < workflow()["jobs"]["snapshot"]["steps"].index(
+        next(
+            step
+            for step in workflow()["jobs"]["snapshot"]["steps"]
+            if step.get("id") == "cooldown-save"
+        )
+    )
     downloaded = tmp_path / "downloaded"
     load_handoff(remote, "tradingview-partial", downloaded, market=True)
     result = import_handoff(downloaded / "receipts.sqlite", canonical, handoff)
@@ -223,12 +238,12 @@ def test_gates_secret_scopes_and_durability():
         if name != "tradingview":
             assert "TRADINGVIEW_OAUTH_STATE" not in str(step)
         if name not in (
-                "pull",
+            "pull",
             "hydrate",
             "cooldown-check",
             "cooldown-save",
-                    "stage",
-            ):
+            "stage",
+        ):
             assert "R2_ACCESS_KEY_ID" not in str(step)
 
 

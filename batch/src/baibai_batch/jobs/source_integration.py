@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
+from contextlib import closing
 import subprocess  # nosec B404
 import sys
 from datetime import date
@@ -13,44 +15,83 @@ from pathlib import Path
 from baibai_batch.jobs.source_handoff import _command, _replay, complete
 from baibai_batch.observability.discord import write_json_atomic
 from baibai_batch.storage.economic_receipts import accept_rechecks
-from baibai_batch.storage.lake_publish import Boto3R2Store
+from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError
+from baibai_batch.storage.store_merge import MergeError
 from baibai_batch.storage.merge_economic_store import merge_stores, verify_stores
 from baibai_batch.storage.publication_lease import _load_handle, verify_held
 from baibai_batch.storage.publish_market_lake import _serving_pointer
 from baibai_batch.storage.source_inputs import publish_inputs
 from baibai_batch.storage.source_receipts import available_handoffs, download_fixed, seal_integrated
-from baibai_engine.batch_api import DEFAULT_ECONOMIC_DB_PATH, MARKET_DB_PATH
+from baibai_engine.batch_api import (
+    DEFAULT_ECONOMIC_DB_PATH, MARKET_DB_PATH, EconomicSchemaError, MarketSchemaError,
+    JQuantsProviderError, TradingViewFetchError, validate_economic_schema, validate_market_schema,
+)
 
 
 def apply(
     store: Boto3R2Store, directory: Path, *, market: Path, economic: Path, asof: date,
 ) -> dict[str, object]:
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+    # Canonical corruption is global and fatal, before any handoff is applied.
+    for database, validate in ((market, validate_market_schema), (economic, validate_economic_schema)):
+        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+            validate(conn)
     outcomes = []
-    # Every ready input was frozen before hydrate. New arrivals wait for the next
-    # scheduled integration; no source job or matrix is a prerequisite.
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
-        download_fixed(store, entry, packet)
-        if entry["market"]:
-            result = _replay(entry["source"], market, packet, extract=False)
-            recovery = not complete(result)
+        result: dict[str, object] = {}
+        applied, failed, recovery = False, False, False
+        if entry.get("invalid") or entry.get("late_before_integrated"):
+            result = {"reason": "invalid_handoff" if entry.get("invalid") else "older_than_integrated_source_watermark"}
+            failed = recovery = True
         else:
-            accepted = packet / "accepted.sqlite"
-            result = accept_rechecks(packet / "receipts.sqlite", economic, accepted)
-            merge_stores(accepted, economic)
-            recovery = bool(result["late_recovery_required"])
-        outcomes.append({"entry": entry, "result": result, "recovery": recovery})
+            try:
+                download_fixed(store, entry, packet)
+                # Invalid source bytes are local failures. SQLite errors from the
+                # canonical writers below remain fatal storage/integrity failures.
+                try:
+                    with closing(sqlite3.connect((packet / "receipts.sqlite").resolve().as_uri() + "?mode=ro", uri=True)) as raw:
+                        (validate_market_schema if entry["market"] else validate_economic_schema)(raw)
+                except sqlite3.DatabaseError as error:
+                    raise ValueError("invalid source SQLite receipt") from error
+                if entry["market"]:
+                    result = _replay(entry["source"], market, packet, extract=False)
+                    failed = not complete(result)
+                else:
+                    accepted = packet / "accepted.sqlite"
+                    result = accept_rechecks(packet / "receipts.sqlite", economic, accepted)
+                    merge_stores(accepted, economic)
+                    failed = recovery = bool(result["late_recovery_required"])
+                applied = True
+            except LakePublishError as error:
+                if str(error).startswith("R2 "):
+                    raise
+                result = {"reason": type(error).__name__}
+                failed = recovery = True
+            except (ValueError, MergeError, MarketSchemaError, EconomicSchemaError, JQuantsProviderError, TradingViewFetchError, sqlite3.IntegrityError) as error:
+                # Each owner keeps failed projections unchanged/atomic. Originals
+                # already retained by an owner remain durable and are published.
+                result = {"reason": type(error).__name__}
+                failed = recovery = True
+        outcomes.append({"entry": entry, "result": result, "applied": applied,
+                         "failed": failed, "recovery": recovery})
     extractions = {}
     for source in ("edinet-metrics", "edinet-facts"):
         result = subprocess.run(  # nosec B603
-            _command(source, asof, offline=True), check=False, text=True, capture_output=True,
+            _command(source, asof, offline=True),
+            check=False,
+            text=True,
+            capture_output=True,
         )
         print(result.stdout, end="")
         print(result.stderr, end="", file=sys.stderr)
         extractions[source] = {
             "exit_code": result.returncode,
-            "status": "skipped_not_initialized" if "skipped=not_initialized" in result.stdout else "completed" if result.returncode == 0 else "failed",
+            "status": "skipped_not_initialized"
+            if "skipped=not_initialized" in result.stdout
+            else "completed"
+            if result.returncode == 0
+            else "failed",
         }
     report = {"asof": asof.isoformat(), "handoffs": outcomes, "extractions": extractions}
     write_json_atomic(directory / "applied.json", report)
@@ -62,9 +103,13 @@ def canonical_generations() -> dict[str, str]:
     pointer = _serving_pointer(stores).pointer
     if pointer is None:
         raise ValueError("common integration requires a published lake release")
-    generation = Path(os.environ.get("R2_GENERATION_DIR") or "stores/.r2-generations") / "indicators.sqlite.etag"
+    generation = (
+        Path(os.environ.get("R2_GENERATION_DIR") or "stores/.r2-generations")
+        / "indicators.sqlite.etag"
+    )
     return {
-        "lake_release_id": pointer.release_id, "lake_manifest_sha256": pointer.manifest_sha256,
+        "lake_release_id": pointer.release_id,
+        "lake_manifest_sha256": pointer.manifest_sha256,
         "economic_etag": generation.read_text(encoding="utf-8").strip(),
     }
 
@@ -94,11 +139,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(report, sort_keys=True))
         elif args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
-            return int(any(item["recovery"] for item in report["handoffs"]) or any(item["exit_code"] for item in report["extractions"].values()))
+            return int(any(item["failed"] for item in report["handoffs"]) or any(item["exit_code"] for item in report["extractions"].values()))
         elif args.command == "verify":
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
             for index, outcome in enumerate(report["handoffs"]):
-                if not outcome["entry"]["market"]:
+                if not outcome["entry"]["market"] and outcome["applied"]:
                     verify_stores(directory / f"receipt-{index:05d}" / "accepted.sqlite", args.economic)
         else:
             if args.lease_handle is None:
@@ -108,11 +153,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
-                publish_inputs(store, market=args.market, economic=args.economic,
+                report = publish_inputs(store, market=args.market, economic=args.economic,
                                identity=args.identity, asof=args.asof, generations=generations)
+                print(json.dumps(report, sort_keys=True))
+                return int(bool(report["failed"]))
             else:
                 report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
                 for outcome in report["handoffs"]:
+                    if outcome["entry"].get("invalid"):
+                        continue
                     seal_integrated(store, outcome["entry"], generations=generations, recovery=outcome["recovery"])
                 report["canonical_generations"] = generations
                 write_json_atomic(directory / "applied.json", report)

@@ -16,8 +16,12 @@ from baibai_engine.external_assessment.tradingview.collector import calendar_con
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 _MARKET = (
-    "jquants_master_snapshots", "jquants_daily_bars", "jquants_market_calendar",
-    "jquants_weekly_margin", "jquants_margin_alerts", "jquants_all_issues_daily_margin",
+    "jquants_master_snapshots",
+    "jquants_daily_bars",
+    "jquants_market_calendar",
+    "jquants_weekly_margin",
+    "jquants_margin_alerts",
+    "jquants_all_issues_daily_margin",
     "jquants_short_sale_reports",
 )
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
@@ -29,7 +33,11 @@ _TABLES = {
     "edinet-facts": _LISTS,
     "jpx-earnings": (),
     "jpx-regulations": (),
-    "tradingview": ("jquants_market_calendar", "jquants_master_snapshots", "tradingview_forecast_snapshots"),
+    "tradingview": (
+        "jquants_market_calendar",
+        "jquants_master_snapshots",
+        "tradingview_forecast_snapshots",
+    ),
 }
 
 
@@ -68,7 +76,11 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             before = target.total_changes
             target.executemany(f"INSERT INTO {table} VALUES ({placeholders})", cursor)  # nosec B608
             rows_by_table[table] = target.total_changes - before
-        coverage = tuple(table for table in tables if table not in {"edinet_list_responses", "tradingview_forecast_snapshots"})
+        coverage = tuple(
+            table
+            for table in tables
+            if table not in {"edinet_list_responses", "tradingview_forecast_snapshots"}
+        )
         if group == "edinet-facts":
             coverage += ("edinet_research_facts",)
         for name in coverage:
@@ -78,8 +90,19 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             )
             target.executemany("INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
         source_type = 5 if group == "edinet-metrics" else 1
-        archives = list(raw.execute(
-            "SELECT doc_id, source_type FROM edinet_source_archives WHERE source_type = ? ORDER BY doc_id",
-            (source_type,),
-        )) if group in {"edinet-metrics", "edinet-facts"} else []
-    return {"group": group, "asof": asof.isoformat(), "rows": rows_by_table, "archive_keys": archives}
+        archives = (
+            list(
+                raw.execute(
+                    "SELECT doc_id, source_type FROM edinet_source_archives WHERE source_type = ? ORDER BY doc_id",
+                    (source_type,),
+                )
+            )
+            if group in {"edinet-metrics", "edinet-facts"}
+            else []
+        )
+    return {
+        "group": group,
+        "asof": asof.isoformat(),
+        "rows": rows_by_table,
+        "archive_keys": archives,
+    }

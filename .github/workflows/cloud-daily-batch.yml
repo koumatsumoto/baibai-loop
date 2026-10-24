@@ -145,8 +145,6 @@ jobs:
           args=(--saved-inputs --asof "${{ steps.source-plan.outputs.asof }}" --output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             args+=(--scheduled)
-          elif [[ -n "$MANUAL_ASOF" ]]; then
-            args+=(--asof "$MANUAL_ASOF")
           fi
           set +e
           uv run baibai-batch daily "${args[@]}"

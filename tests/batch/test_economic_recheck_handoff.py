@@ -18,13 +18,33 @@ STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
 def received(path, value, at, kind):
     with closing(initialize_database(path)) as conn, conn:
         if kind == "record":
-            return store_snapshot(conn, source_id="test", observed_at=DAY, fetched_at=at, records=[{"value": value}])
-        return store_document(conn, SourceDocument("test", "document", "https://example.test/pmi.pdf", "application/pdf", at, value.encode(), {}))
+            return store_snapshot(
+                conn, source_id="test", observed_at=DAY, fetched_at=at, records=[{"value": value}]
+            )
+        return store_document(
+            conn,
+            SourceDocument(
+                "test",
+                "document",
+                "https://example.test/pmi.pdf",
+                "application/pdf",
+                at,
+                value.encode(),
+                {},
+            ),
+        )
 
 
-@pytest.mark.parametrize("kind,table", [("record", "economic_source_records"), ("document", "economic_source_documents")])
-def test_stale_seed_equal_response_keeps_real_receipt_then_restores_canonical_a(tmp_path, kind, table):
-    seed, canonical, raw, accepted = (tmp_path / name for name in ("seed.sqlite", "canonical.sqlite", "raw.sqlite", "accepted.sqlite"))
+@pytest.mark.parametrize(
+    "kind,table", [("record", "economic_source_records"), ("document", "economic_source_documents")]
+)
+def test_stale_seed_equal_response_keeps_real_receipt_then_restores_canonical_a(
+    tmp_path, kind, table
+):
+    seed, canonical, raw, accepted = (
+        tmp_path / name
+        for name in ("seed.sqlite", "canonical.sqlite", "raw.sqlite", "accepted.sqlite")
+    )
     received(seed, "A", STAMP, kind)
     received(canonical, "A", STAMP, kind)
     received(canonical, "B", STAMP + timedelta(hours=1), kind)
@@ -39,8 +59,13 @@ def test_stale_seed_equal_response_keeps_real_receipt_then_restores_canonical_a(
     merge_stores(accepted, canonical)
     verify_stores(accepted, canonical)
     with closing(initialize_database(canonical)) as conn:
-        assert [tuple(row) for row in conn.execute(f"SELECT fetched_at FROM {table} ORDER BY fetched_at")] == [
-            (STAMP.isoformat(timespec="microseconds"),), ((STAMP + timedelta(hours=1)).isoformat(timespec="microseconds"),), (actual.isoformat(timespec="microseconds"),)
+        assert [
+            tuple(row)
+            for row in conn.execute(f"SELECT fetched_at FROM {table} ORDER BY fetched_at")
+        ] == [
+            (STAMP.isoformat(timespec="microseconds"),),
+            ((STAMP + timedelta(hours=1)).isoformat(timespec="microseconds"),),
+            (actual.isoformat(timespec="microseconds"),),
         ]
     # Rechecking the same actual A produces no extra canonical vintage.
     second = tmp_path / "second.sqlite"
@@ -52,7 +77,10 @@ def test_stale_seed_equal_response_keeps_real_receipt_then_restores_canonical_a(
 
 
 def test_equal_current_value_is_not_another_canonical_vintage(tmp_path):
-    seed, canonical, raw, accepted = (tmp_path / name for name in ("seed.sqlite", "canonical.sqlite", "raw.sqlite", "accepted.sqlite"))
+    seed, canonical, raw, accepted = (
+        tmp_path / name
+        for name in ("seed.sqlite", "canonical.sqlite", "raw.sqlite", "accepted.sqlite")
+    )
     received(seed, "A", STAMP, "record")
     received(canonical, "A", STAMP, "record")
     actual = STAMP + timedelta(hours=1)
@@ -69,7 +97,9 @@ def test_equal_current_value_is_not_another_canonical_vintage(tmp_path):
 
 
 def test_unintegrated_old_receipt_requires_explicit_recovery(tmp_path):
-    raw, canonical, accepted = (tmp_path / name for name in ("raw.sqlite", "canonical.sqlite", "accepted.sqlite"))
+    raw, canonical, accepted = (
+        tmp_path / name for name in ("raw.sqlite", "canonical.sqlite", "accepted.sqlite")
+    )
     received(raw, "A", STAMP, "record")
     received(canonical, "B", STAMP + timedelta(hours=1), "record")
     before = canonical.read_bytes()

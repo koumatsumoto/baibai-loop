@@ -135,6 +135,7 @@ def complete(result: dict[str, object]) -> bool:
     return not any(
         result.get(key)
         for key in (
+            "rejected_receipts",
             "incomplete_requests",
             "projection_failures",
             "incomplete_bundles",
@@ -162,7 +163,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "input":
             from baibai_batch.storage.source_inputs import load_input
-            load_input(Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")), args.source, args.database, directory)
+            load_input(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
+                args.source, args.database, directory,
+            )
         elif args.command == "resume":
             from baibai_batch.storage.source_receipts import available_handoffs, download_fixed
             if args.asof is None:
@@ -172,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
             sources = ("edinet-list", args.source) if args.source in {"edinet-metrics", "edinet-facts"} else (args.source,)
             for source in sources:
                 for index, entry in enumerate(available_handoffs(store, source=source, include_integrated=True)):
+                    if entry.get("invalid") or entry.get("late_before_integrated"):
+                        continue
                     integrated = entry.get("integration")
                     if isinstance(integrated, dict) and (integrated["status"] == "needs_explicit_recovery" or integrated["integrated_at"] <= saved_input["created_at"]):
                         continue

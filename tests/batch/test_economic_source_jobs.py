@@ -130,7 +130,14 @@ def test_each_provider_saves_receipts_without_full_db_or_integration_wait():
     assert source["concurrency"]["group"] == "economic-source-${{ inputs.group }}"
     assert "publish" not in source["jobs"]
     text = str(source)
-    for forbidden in ("cloud-publish", "pull-indicators", "hydrate-market", "pull-app", "push-machine", "publication_lease"):
+    for forbidden in (
+        "cloud-publish",
+        "pull-indicators",
+        "hydrate-market",
+        "pull-app",
+        "push-machine",
+        "publication_lease",
+    ):
         assert forbidden not in text
     assert "economic input --group" in text
     assert "--saved-inputs" in str(workflow("cloud-daily-batch.yml"))

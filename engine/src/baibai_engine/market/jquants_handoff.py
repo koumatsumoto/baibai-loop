@@ -13,6 +13,8 @@ from pathlib import Path
 from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsSource
 from baibai_engine.collection.jquants.receipts import import_requests, read_complete_request
 from baibai_engine.market.jquants_projection import project_request
+from baibai_engine.market.margin_publication import LEGACY_WEEKLY_LAST_BALANCE_DATE
+from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 MARKET_SOURCES: tuple[JQuantsSource, ...] = (
@@ -128,6 +130,16 @@ def _related(incoming: Sequence[_Scope], retained: Sequence[_Scope]) -> list[_Sc
     return selected
 
 
+
+def _coverage_source(scope: _Scope) -> str:
+    if scope.source == "margin_interest":
+        return "jquants_weekly_margin" if scope.start <= LEGACY_WEEKLY_LAST_BALANCE_DATE else "jquants_all_issues_daily_margin"
+    return {
+        "master": "jquants_master_snapshots", "daily_bars": "jquants_daily_bars",
+        "market_calendar": "jquants_market_calendar", "financial_summaries": "jquants_fin_summaries",
+        "margin_alerts": "jquants_margin_alerts", "short_sale_reports": "jquants_short_sale_reports",
+    }[scope.source]
+
 def import_handoff(
     source: Path, target: Path, request_ids: Sequence[str], *, sources: Sequence[JQuantsSource]
 ) -> dict[str, object]:
@@ -168,9 +180,17 @@ def import_handoff(
                 continue
             complete.append((request.received_at, scope.request_id))
     replayed = []
-    for _, request_id in sorted(complete):
-        project_request(target, request_id)
-        replayed.append(request_id)
+    # Originals were committed above. Projection and coverage for the entire
+    # affected replay chain now commit together; failure in newer B cannot leave
+    # incoming old A installed. No database copies or unrelated fact merges.
+    scopes = {scope.request_id: scope for scope in selected}
+    with closing(open_connection(target)) as projection, projection:
+        for _, request_id in sorted(complete):
+            project_request(target, request_id, connection=projection)
+            scope = scopes[request_id]
+            if not range_covered(projection, _coverage_source(scope), scope.start, scope.end):
+                raise ValueError("J-Quants projection remains incomplete; retaining canonical facts")
+            replayed.append(request_id)
     return {
         "raw_pages_added": added,
         "replayed_requests": replayed,

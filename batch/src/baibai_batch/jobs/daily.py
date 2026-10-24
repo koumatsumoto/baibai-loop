@@ -642,7 +642,7 @@ def _execute_daily_batch(
         deferred_failures.append(str(exc))
 
     screening_enabled = True
-    if asof is None or gate_explicit_asof:
+    if asof is None or gate_explicit_asof or scheduled:
         try:
             screening_enabled = _require_business_day(root / _MARKET_DB_RELPATH, target)
             if not screening_enabled:
@@ -661,10 +661,14 @@ def _execute_daily_batch(
         # Keep the acquisition groups independent. Their existing writers own
         # validation and chunk transactions; a later failure cannot undo a commit.
         acquisitions = (
-            ("refresh-edinet-documents", "refresh-edinet-documents"),
-            ("bootstrap-cache", "bootstrap-cache"),
-            ("refresh-edinet-metrics", "refresh-edinet-metrics"),
-        ) if acquire_market else ()
+            (
+                ("refresh-edinet-documents", "refresh-edinet-documents"),
+                ("bootstrap-cache", "bootstrap-cache"),
+                ("refresh-edinet-metrics", "refresh-edinet-metrics"),
+            )
+            if acquire_market
+            else ()
+        )
         for name, command in (*acquisitions, ("verify-cache-coverage", "verify-cache-coverage")):
             try:
                 command_result = _run_step(
@@ -844,8 +848,8 @@ def build_parser() -> argparse.ArgumentParser:
             "run independent Screening and indicator machine updates -> read-model export"
         ),
     )
-    target_group = parser.add_mutually_exclusive_group()
-    target_group.add_argument(
+    # A fixed target date and the scheduled eligibility gate are independent.
+    parser.add_argument(
         "--asof",
         type=str,
         help=(
@@ -853,11 +857,11 @@ def build_parser() -> argparse.ArgumentParser:
             "(manual rerun / past date); default is today in JST, gated by the market calendar"
         ),
     )
-    target_group.add_argument(
+    parser.add_argument(
         "--scheduled",
         action="store_true",
         help=(
-            "resolve the target from the 07:43 UTC batch cron and apply the business-day gate; "
+            "resolve an unfixed target from the 13:43 UTC integration cron and apply the business-day gate; "
             "for the scheduled workflow only"
         ),
     )
@@ -889,7 +893,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="suppress step output; use the manifest/log files for detail",
     )
-    parser.add_argument("--saved-inputs", action="store_true", help="use saved source inputs; acquisition is a separate batch")
+    parser.add_argument(
+        "--saved-inputs",
+        action="store_true",
+        help="use saved source inputs; acquisition is a separate batch",
+    )
     parser.add_argument(
         "--saved-economic",
         action="store_true",
