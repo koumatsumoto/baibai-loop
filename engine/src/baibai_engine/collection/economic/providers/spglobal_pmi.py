@@ -13,7 +13,7 @@ from baibai_engine.collection.economic.provider_specs import ProviderSpec
 from baibai_engine.collection.economic.sources import SourceDefinition
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-from .base import FetchContext, HttpSession, IndicatorsProviderError, ProviderRateLimitError, fetch_bytes
+from .base import FetchContext, HttpSession, IndicatorsProviderError, ProviderFetchStoppedError, fetch_bytes
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 RELEASE_URL_RE = re.compile(
@@ -70,7 +70,7 @@ class SpGlobalPmiSource:
                 continue
             try:
                 body = fetch_pdf_bytes(entry.url, session=session, context=context)
-            except ProviderRateLimitError:
+            except ProviderFetchStoppedError:
                 raise
             except IndicatorsProviderError as error:
                 failures.append(str(error))

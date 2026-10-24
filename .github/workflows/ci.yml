@@ -59,15 +59,19 @@ jobs:
         run: uv run ruff format --check --diff .
 
       - name: Ruff lint
+        if: ${{ !cancelled() }}
         run: uv run ruff check .
 
       - name: Type check
+        if: ${{ !cancelled() }}
         run: uv run mypy
 
       - name: Import contracts
+        if: ${{ !cancelled() }}
         run: uv run lint-imports
 
       - name: Drift gates
+        if: ${{ !cancelled() }}
         # Every check under tools/quality/drift/ runs: a gate is wired in by living there, not by
         # being remembered here. They run as modules so a gate can import a sibling —
         # running the file directly puts only its own directory on the import path.
@@ -78,6 +82,7 @@ jobs:
           done
 
       - name: Tests with coverage
+        if: ${{ !cancelled() }}
         # Temporary SQLite stores use tmpfs to avoid disk fsync overhead.
         # Keep four workers for reproducible CI resource use; local runs may use auto.
         #

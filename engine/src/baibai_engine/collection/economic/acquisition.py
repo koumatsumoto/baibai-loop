@@ -109,7 +109,10 @@ def refresh_sources(
                         first = min(first, missing_start)
                 outcomes.append(SourceRefreshSuccess(source_id, first, end, received))
             except Exception as error:
-                if isinstance(error, ProviderRateLimitError):
+                if isinstance(error, ProviderRateLimitError) or (
+                    isinstance(error, ProviderFetchStoppedError)
+                    and catalog[source_id].provider == "spglobal_pmi"
+                ):
                     rate_limited.add(catalog[source_id].provider)
                 outcomes.append(SourceRefreshFailure(source_id, redact_credentials(str(error))))
     return tuple(outcomes)
@@ -144,6 +147,7 @@ def _refresh_source(
     started = datetime.now(UTC)
     received = 0
     try:
+        context.check_deadline()
         if source.provider in DOCUMENT_PROVIDERS:
             existing = {
                 item.request_key: item for item in read_documents(connection, source.source_id)

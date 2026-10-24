@@ -180,3 +180,29 @@ def test_serving_composition_is_once_per_macro_run_and_includes_weekends():
     assert "needs.source.result == 'success'" not in materialize["if"]
     assert "materialize" not in workflow("cloud-economic-source.yml")["jobs"]
     assert parent["on"]["schedule"][0]["cron"].endswith("* * *")
+
+
+def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(tmp_path, monkeypatch):
+    from baibai_engine.collection.economic.providers import base
+    from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded
+    expired = False
+    def check(waiting=0):
+        if expired:
+            raise AcquisitionDeadlineExceeded("acquisition job deadline exhausted")
+    def fetch(source, **kwargs):
+        nonlocal expired
+        expired = True
+        return {DAY: [{"value": "confirmed before cutoff"}]}
+    monkeypatch.setattr(base, "check_acquisition_deadline", check)
+    monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
+    database = tmp_path / "source.sqlite"
+    with closing(initialize_database(database)):
+        pass
+    directory = tmp_path / "stage"
+    assert acquire("boj", "", DAY, directory, database) == 1
+    report = json.loads((directory / "result.json").read_text())
+    assert sum(row["status"] == "ok" for row in report["sources"]) == 1
+    assert any(row["status"] == "failed" for row in report["sources"])
+    store = MemoryR2Store()
+    save_handoff(store, "deadline-boj", directory)
+    assert any(key.endswith("handoff.json") for key in store.put_keys)
