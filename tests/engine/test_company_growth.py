@@ -5,7 +5,7 @@ import socket
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 
 import pytest

@@ -698,4 +698,3 @@ def test_changed_action_reason_cannot_publish_with_original_content_review(
             "position_decision_reference",
         ):
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
-

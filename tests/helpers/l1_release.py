@@ -340,4 +340,3 @@ def publish_market_fixture(path: Path, release: str, *, created_at: datetime) ->
         write_lake_store_origin(
             connection, LakeStoreOrigin(release, hashlib.sha256(payload).hexdigest())
         )
-
