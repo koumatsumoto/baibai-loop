@@ -85,7 +85,9 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             coverage += ("edinet_research_facts",)
         for name in coverage:
             rows = raw.execute(
-                "SELECT * FROM source_coverage WHERE source = ? AND (? != 'tradingview' OR source != 'jquants_master_snapshots' OR coverage_key = ?)",
+                "SELECT * FROM source_coverage WHERE source = ? "
+                "AND (? != 'tradingview' OR source != 'jquants_master_snapshots' "
+                "OR coverage_key = ?)",
                 (name, group, basis),
             )
             target.executemany("INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
@@ -93,7 +95,8 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         archives = (
             list(
                 raw.execute(
-                    "SELECT doc_id, source_type FROM edinet_source_archives WHERE source_type = ? ORDER BY doc_id",
+                    "SELECT doc_id, source_type FROM edinet_source_archives "
+                    "WHERE source_type = ? ORDER BY doc_id",
                     (source_type,),
                 )
             )

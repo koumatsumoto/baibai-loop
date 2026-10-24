@@ -364,6 +364,7 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SOURCE_INPUTS_OUTCOME: ${{ steps.source-inputs.outcome }}
           PYTHONPATH: batch/src
         run: |
           python3 -m baibai_batch.observability.discord \
@@ -380,7 +381,7 @@ jobs:
             --publish-serving-outcome "${{ steps.publish-serving.outcome }}" \
             --source-integration-outcome "${{ steps.source-integration.outcome }}" \
             --source-seal-outcome "${{ steps.source-seal.outcome }}" \
-            --source-inputs-outcome "${{ steps.source-inputs.outcome }}" \
+            --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \
             --source-check-outcome "${{ steps.source-check.outcome }}" \
             --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

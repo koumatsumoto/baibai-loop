@@ -282,7 +282,13 @@ def resolve_run_results(
     return tuple(resolved)
 
 
-def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours: int, target_date: date | None = None) -> Verdict:
+def evaluate(
+    runs: Sequence[WorkflowRun],
+    *,
+    window_end: datetime,
+    window_hours: int,
+    target_date: date | None = None,
+) -> Verdict:
     """Decide whether the window holds a completed, successful run."""
     if window_hours <= 0:
         raise WatchdogInputError("window hours must be positive")
@@ -347,7 +353,9 @@ def render_alert(
     return message
 
 
-def resolve_window_end(check_date: str, *, now: datetime, fire_time: time = SCHEDULED_FIRE_TIME) -> datetime:
+def resolve_window_end(
+    check_date: str, *, now: datetime, fire_time: time = SCHEDULED_FIRE_TIME
+) -> datetime:
     """Return the instant the window closes at.
 
     Without ``--check-date`` the window closes now, so a delayed firing still sees
@@ -391,7 +399,13 @@ def main(
     env = os.environ
     try:
         payload = json.loads(args.runs_json.read_text(encoding="utf-8"))
-        window_end = resolve_window_end(args.check_date, now=datetime.now(UTC), fire_time=ACQUISITION_WATCHDOG_FIRE_TIME if args.economic or args.market else SCHEDULED_FIRE_TIME)
+        window_end = resolve_window_end(
+            args.check_date,
+            now=datetime.now(UTC),
+            fire_time=ACQUISITION_WATCHDOG_FIRE_TIME
+            if args.economic or args.market
+            else SCHEDULED_FIRE_TIME,
+        )
         if args.weekdays_only and window_end.weekday() >= 5:
             print("watchdog: daily market schedule is not due on this weekend")
             return 0
@@ -426,17 +440,43 @@ def main(
                 window_end=window_end,
                 window_hours=args.window_hours,
                 read_jobs=read_jobs,
-                result_prefix="Economic result for " if args.economic else "Market source result for " if args.market else RESULT_STEP_PREFIX,
+                result_prefix="Economic result for "
+                if args.economic
+                else "Market source result for "
+                if args.market
+                else RESULT_STEP_PREFIX,
                 repeated_source_results=args.economic or args.market,
             )
-        verdict = evaluate(runs, window_end=window_end, window_hours=args.window_hours,
-                           target_date=acquisition_target_date(window_end) if args.economic or args.market else None)
+        verdict = evaluate(
+            runs,
+            window_end=window_end,
+            window_hours=args.window_hours,
+            target_date=acquisition_target_date(window_end)
+            if args.economic or args.market
+            else None,
+        )
         if args.market:
-            verdicts = [evaluate(tuple(run for run in runs if scopes.get(run.run_id) in {scope, "all"}),
-                                 window_end=window_end, window_hours=args.window_hours,
-                                 target_date=acquisition_target_date(window_end, fire))
-                        for scope, fire in (("inputs", time(7, 43, tzinfo=UTC)), ("edinet-metrics", time(8, 43, tzinfo=UTC)), ("edinet-facts", time(9, 13, tzinfo=UTC)))]
-            verdict = replace(verdict, state=STATE_MISSING if any(item.alerting for item in verdicts) else STATE_IN_FLIGHT if any(item.state == STATE_IN_FLIGHT for item in verdicts) else STATE_HEALTHY)
+            verdicts = [
+                evaluate(
+                    tuple(run for run in runs if scopes.get(run.run_id) in {scope, "all"}),
+                    window_end=window_end,
+                    window_hours=args.window_hours,
+                    target_date=acquisition_target_date(window_end, fire),
+                )
+                for scope, fire in (
+                    ("inputs", time(7, 43, tzinfo=UTC)),
+                    ("edinet-metrics", time(8, 43, tzinfo=UTC)),
+                    ("edinet-facts", time(9, 13, tzinfo=UTC)),
+                )
+            ]
+            verdict = replace(
+                verdict,
+                state=STATE_MISSING
+                if any(item.alerting for item in verdicts)
+                else STATE_IN_FLIGHT
+                if any(item.state == STATE_IN_FLIGHT for item in verdicts)
+                else STATE_HEALTHY,
+            )
     except (OSError, json.JSONDecodeError, WatchdogInputError) as exc:
         print(f"error: cannot evaluate the batch window: {exc}", file=sys.stderr)
         return 1
@@ -453,7 +493,11 @@ def main(
         verdict,
         repository=env.get("GITHUB_REPOSITORY", "local/local"),
         watchdog_run_url=run_url(env),
-        workflow="cloud-economic-sources" if args.economic else "cloud-market-sources" if args.market else WATCHED_WORKFLOW,
+        workflow="cloud-economic-sources"
+        if args.economic
+        else "cloud-market-sources"
+        if args.market
+        else WATCHED_WORKFLOW,
     )
     failure = deliver(
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport

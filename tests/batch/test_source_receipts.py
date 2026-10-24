@@ -6,7 +6,11 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.storage.economic_staging import save_handoff
 from baibai_batch.storage.lake_publish import LakePublishError
-from baibai_batch.storage.source_receipts import available_handoffs, download_fixed, seal_integrated
+from baibai_batch.storage.source_receipts import (
+    available_handoffs,
+    download_fixed,
+    seal_integrated,
+)
 from baibai_engine.collection.economic.store import initialize_database
 
 
@@ -24,6 +28,7 @@ def stage(
 ):
     directory.mkdir()
     from datetime import date, datetime
+
     from baibai_engine.collection.economic.records import store_snapshot
 
     with closing(initialize_database(directory / "receipts.sqlite")) as conn, conn:
@@ -100,10 +105,11 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
 ):
     import subprocess
     from datetime import UTC, date, datetime
+
     from baibai_batch.jobs.source_integration import apply
     from baibai_batch.storage.economic_receipts import accept_rechecks
     from baibai_batch.storage.merge_economic_store import merge_stores
-    from baibai_engine.collection.economic.records import store_snapshot, read_snapshots
+    from baibai_engine.collection.economic.records import read_snapshots, store_snapshot
     from baibai_engine.storage.observations.schema import open_connection
 
     store = Store()
@@ -139,7 +145,8 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
         value="B",
     )
     fixed = available_handoffs(store)
-    assert len(fixed) == 1 and fixed[0]["late_before_integrated"] is True
+    assert len(fixed) == 1
+    assert fixed[0]["late_before_integrated"] is True
     work = tmp_path / "integration"
     work.mkdir()
     (work / "plan.json").write_text(json.dumps({"handoffs": fixed}))

@@ -8,7 +8,6 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-
 from .receipt_policy import retain_unchanged
 
 

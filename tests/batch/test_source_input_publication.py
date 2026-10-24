@@ -1,9 +1,10 @@
 from contextlib import closing
 
-from tests.engine.test_tradingview_collector import DAY, store as market_store
+from tests.engine.test_tradingview_collector import DAY
+from tests.engine.test_tradingview_collector import store as market_store
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_batch.storage.source_inputs import input_key, publish_inputs, load_input
+from baibai_batch.storage.source_inputs import input_key, load_input, publish_inputs
 from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.storage.observations.schema import open_connection
 

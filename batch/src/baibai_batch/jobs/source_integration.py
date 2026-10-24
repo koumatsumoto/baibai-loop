@@ -6,30 +6,30 @@ import argparse
 import json
 import os
 import sqlite3
-from contextlib import closing
 import subprocess  # nosec B404
 import sys
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
 from baibai_batch.jobs.external_assessment_integration import merge_ready, verify_and_seal
-from baibai_batch.storage.external_assessment_ready import available_ready
 from baibai_batch.jobs.source_handoff import _command, _replay, complete
 from baibai_batch.observability.discord import write_json_atomic
 from baibai_batch.storage.economic_receipts import accept_rechecks
+from baibai_batch.storage.external_assessment_ready import available_ready
 from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError
-from baibai_batch.storage.store_merge import MergeError
 from baibai_batch.storage.merge_economic_store import merge_stores, verify_stores
 from baibai_batch.storage.publication_lease import _load_handle, verify_held
 from baibai_batch.storage.publish_market_lake import _serving_pointer
 from baibai_batch.storage.source_inputs import publish_inputs
 from baibai_batch.storage.source_receipts import available_handoffs, download_fixed, seal_integrated
+from baibai_batch.storage.store_merge import MergeError
 from baibai_engine.batch_api import (
     DEFAULT_ECONOMIC_DB_PATH,
     MARKET_DB_PATH,
     EconomicSchemaError,
-    MarketSchemaError,
     JQuantsProviderError,
+    MarketSchemaError,
     TradingViewFetchError,
     validate_economic_schema,
     validate_market_schema,
@@ -94,14 +94,31 @@ def apply(
                     raise
                 result = {"reason": type(error).__name__}
                 failed = recovery = True
-            except (ValueError, MergeError, MarketSchemaError, EconomicSchemaError, JQuantsProviderError, TradingViewFetchError, sqlite3.IntegrityError) as error:
+            except (
+                ValueError,
+                MergeError,
+                MarketSchemaError,
+                EconomicSchemaError,
+                JQuantsProviderError,
+                TradingViewFetchError,
+                sqlite3.IntegrityError,
+            ) as error:
                 # Each owner keeps failed projections unchanged/atomic. Originals
                 # already retained by an owner remain durable and are published.
                 result = {"reason": type(error).__name__}
                 failed = recovery = True
-        outcomes.append({"entry": entry, "result": result, "applied": applied,
-                         "failed": failed, "recovery": recovery})
-    external = merge_ready(store, plan["external"], database=market) if plan.get("external") else None
+        outcomes.append(
+            {
+                "entry": entry,
+                "result": result,
+                "applied": applied,
+                "failed": failed,
+                "recovery": recovery,
+            }
+        )
+    external = (
+        merge_ready(store, plan["external"], database=market) if plan.get("external") else None
+    )
     extractions = {}
     for source in ("edinet-metrics", "edinet-facts"):
         command_result = subprocess.run(  # nosec B603
@@ -120,8 +137,13 @@ def apply(
             if command_result.returncode == 0
             else "failed",
         }
-    report: dict[str, object] = {"asof": asof.isoformat(), "handoffs": outcomes, "extractions": extractions,
-              "external": external, "external_failed": plan.get("external_failed", [])}
+    report: dict[str, object] = {
+        "asof": asof.isoformat(),
+        "handoffs": outcomes,
+        "extractions": extractions,
+        "external": external,
+        "external_failed": plan.get("external_failed", []),
+    }
     write_json_atomic(directory / "applied.json", report)
     return report
 
@@ -160,20 +182,36 @@ def main(argv: list[str] | None = None) -> int:
             if (directory / "plan.json").exists():
                 raise FileExistsError("integration inputs are already fixed")
             external, failed = available_ready(store)
-            write_json_atomic(directory / "plan.json", {"handoffs": available_handoffs(store), "external": external, "external_failed": failed})
+            write_json_atomic(
+                directory / "plan.json",
+                {
+                    "handoffs": available_handoffs(store),
+                    "external": external,
+                    "external_failed": failed,
+                },
+            )
         elif args.command == "apply":
             if args.asof is None:
                 raise ValueError("--asof is required")
-            report = apply(store, directory, market=args.market, economic=args.economic, asof=args.asof)
+            report = apply(
+                store, directory, market=args.market, economic=args.economic, asof=args.asof
+            )
             print(json.dumps(report, sort_keys=True))
         elif args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
-            return int(any(item["failed"] for item in report["handoffs"]) or any(item["exit_code"] for item in report["extractions"].values()) or bool(report.get("external_failed")) or bool((report.get("external") or {}).get("failed")))
+            return int(
+                any(item["failed"] for item in report["handoffs"])
+                or any(item["exit_code"] for item in report["extractions"].values())
+                or bool(report.get("external_failed"))
+                or bool((report.get("external") or {}).get("failed"))
+            )
         elif args.command == "verify":
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
             for index, outcome in enumerate(report["handoffs"]):
                 if not outcome["entry"]["market"] and outcome["applied"]:
-                    verify_stores(directory / f"receipt-{index:05d}" / "accepted.sqlite", args.economic)
+                    verify_stores(
+                        directory / f"receipt-{index:05d}" / "accepted.sqlite", args.economic
+                    )
         else:
             if args.lease_handle is None:
                 raise ValueError("common integration writes require the publication lease")
@@ -195,7 +233,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
                 if report.get("external"):
-                    report["external_results"] = verify_and_seal(store, report["external"], handle=_load_handle(args.lease_handle), directory=directory / "external-readback")
+                    report["external_results"] = verify_and_seal(
+                        store,
+                        report["external"],
+                        handle=_load_handle(args.lease_handle),
+                        directory=directory / "external-readback",
+                    )
                 for outcome in report["handoffs"]:
                     if outcome["entry"].get("invalid"):
                         continue

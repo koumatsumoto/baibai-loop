@@ -22,13 +22,15 @@ def batch_target_date(instant: datetime) -> date:
     return fired.astimezone(_JST).date()
 
 
-
-def acquisition_target_date(instant: datetime, fire_time: time = ECONOMIC_SCHEDULED_FIRE_TIME) -> date:
+def acquisition_target_date(
+    instant: datetime, fire_time: time = ECONOMIC_SCHEDULED_FIRE_TIME
+) -> date:
     """Acquisition has its own clock, independent of the late common integration."""
     fired = datetime.combine(instant.astimezone(UTC).date(), fire_time)
     if fired > instant:
         fired -= timedelta(days=1)
     return fired.astimezone(_JST).date()
+
 
 def external_assessment_target_date(created_at: datetime, now: datetime) -> tuple[date, bool]:
     """Pin a daily run to its original GitHub creation clock, including reruns."""

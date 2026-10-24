@@ -6,9 +6,18 @@ import hashlib
 import json
 from datetime import UTC, datetime
 
-from baibai_batch.jobs.external_assessment_publication import PreparedPublication, prepare_saved_stages
+from baibai_batch.jobs.external_assessment_publication import (
+    PreparedPublication,
+    prepare_saved_stages,
+)
 from baibai_batch.storage.external_assessment_staging import (
-    load_stage, prefix, put_private, read_plan, read_private, read_terminal, stage_bytes,
+    load_stage,
+    prefix,
+    put_private,
+    read_plan,
+    read_private,
+    read_terminal,
+    stage_bytes,
 )
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 from baibai_batch.storage.source_receipts import ReceiptStore
@@ -27,14 +36,21 @@ def save_ready(store: ObjectStore, item: PreparedPublication) -> dict[str, str]:
         elif saved.payload != payload:
             raise LakePublishError("confirmed external stage identity conflicts")
         stages.append({"index": index, "key": key, "sha256": digest})
-    value = {"run_id": plan.run_id, "source": plan.sources[0], "plan_sha256": plan.plan_sha256,
-             "confirmed_partial": item.confirmed_partial, "stages": stages}
+    value = {
+        "run_id": plan.run_id,
+        "source": plan.sources[0],
+        "plan_sha256": plan.plan_sha256,
+        "confirmed_partial": item.confirmed_partial,
+        "stages": stages,
+    }
     identity = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     key = prefix(plan.run_id) + f"/ready-{identity}.json"
     saved = read_private(store, key)
     if saved is None:
         value["created_at"] = datetime.now(UTC).isoformat()
-        saved = put_private(store, key, json.dumps(value, sort_keys=True).encode(), previous_etag=None)
+        saved = put_private(
+            store, key, json.dumps(value, sort_keys=True).encode(), previous_etag=None
+        )
     else:
         previous = json.loads(saved.payload)
         previous.pop("created_at")
@@ -49,7 +65,11 @@ def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPublica
         raise ValueError("fixed external ready selection changed")
     value = json.loads(saved.payload)
     plan = read_plan(store, value["run_id"])
-    if plan is None or plan.plan_sha256 != value["plan_sha256"] or plan.sources != (value["source"],):
+    if (
+        plan is None
+        or plan.plan_sha256 != value["plan_sha256"]
+        or plan.sources != (value["source"],)
+    ):
         raise ValueError("external ready selection differs from its exact plan")
     stages = {}
     if type(value["confirmed_partial"]) is not bool:
@@ -69,7 +89,7 @@ def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPublica
 
 
 def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    latest = {}
+    latest: dict[str, tuple[datetime, dict[str, str]]] = {}
     failed = []
     for key, _ in store.iter_objects("coordination/external-assessment/"):
         if "/ready-" not in key or not key.endswith(".json"):

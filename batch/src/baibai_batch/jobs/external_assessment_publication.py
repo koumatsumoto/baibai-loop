@@ -110,6 +110,8 @@ def _import_confirmed_originals(
     plan: RunPlan,
     stages: dict[int, tuple[CohortStage, str]],
     sqlite_path: Path,
+    *,
+    retained: tuple[set[tuple[int, int]], dict[str, str]] | None = None,
 ) -> tuple[int, set[tuple[int, int]], dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
     """Import one bounded bundle at a time; defer L2 until every bundle is valid."""
     source_inserted = 0
@@ -142,6 +144,13 @@ def _import_confirmed_originals(
                 selected_digests[response.receipt_id] = equity_web_response_digest(response)
                 source_months.add((response.received_at_utc.year, response.received_at_utc.month))
             source_inserted += equity_web_import_responses(sqlite_path, responses)
+            if retained is not None:
+                retained[0].update(
+                    (item.received_at_utc.year, item.received_at_utc.month) for item in responses
+                )
+                retained[1].update(
+                    (item.receipt_id, equity_web_response_digest(item)) for item in responses
+                )
             # Responses and their decompressed bodies die with this bundle iteration.
             del responses
         for entry in stage.result.entries:

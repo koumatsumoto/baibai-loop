@@ -10,19 +10,27 @@ from tests.batch.test_external_assessment_source_jobs import independent_plans a
 from tests.batch.test_external_assessment_source_publication import _plan, _stage
 
 from baibai_batch.jobs.external_assessment_integration import merge_ready, verify_and_seal
-from baibai_batch.jobs.external_assessment_publication import prepare_publication
+from baibai_batch.jobs.external_assessment_publication import VALUATION_DATASET, prepare_publication
 from baibai_batch.storage import external_assessment_staging as staging
 from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage.external_assessment_ready import load_ready, save_ready
-from baibai_engine.batch_api import external_assessment_decode_attempt
+from baibai_engine.batch_api import (
+    external_assessment_decode_attempt,
+    external_assessment_history_digests,
+)
 
 
 def ready_references(batch):
     store, selected, *_ = batch
-    return [save_ready(store, prepare_publication(store, staging.read_plan(store, entry["run_id"]))) for entry in selected]
+    return [
+        save_ready(store, prepare_publication(store, staging.read_plan(store, entry["run_id"])))
+        for entry in selected
+    ]
 
 
-def test_ready_freezes_exact_stages_without_publishing_or_relying_on_mutable_checkpoints(independent_plans):
+def test_ready_freezes_exact_stages_without_publishing_or_relying_on_mutable_checkpoints(
+    independent_plans,
+):
     store, selected, _, database, _, _ = independent_plans
     pointer = publisher._serving_pointer(store)
     before = database.read_bytes()
@@ -36,7 +44,9 @@ def test_ready_freezes_exact_stages_without_publishing_or_relying_on_mutable_che
     assert database.read_bytes() == before
 
 
-def test_two_ready_sources_use_one_common_publication_and_keep_separate_verified_terminals(independent_plans):
+def test_two_ready_sources_use_one_common_publication_and_keep_separate_verified_terminals(
+    independent_plans,
+):
     store, selected, handle, database, mirror, directory = independent_plans
     references = ready_references(independent_plans)
     before = publisher._serving_pointer(store)
@@ -49,37 +59,59 @@ def test_two_ready_sources_use_one_common_publication_and_keep_separate_verified
     published = publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
     results = verify_and_seal(store, state, handle=handle, directory=directory / "common-readback")
     assert len(results) == 2
-    terminals = [staging.read_terminal(store, staging.read_plan(store, item["run_id"])) for item in selected]
+    terminals = [
+        staging.read_terminal(store, staging.read_plan(store, item["run_id"])) for item in selected
+    ]
     assert {item["release_id"] for item in terminals} == {published.release_id}
     assert len({item["plan_sha256"] for item in terminals}) == 2
     assert all(item["readback"] == "verified" for item in terminals)
 
 
-def test_common_readback_failure_never_repairs_sqlite_or_seals_any_terminal(independent_plans, monkeypatch):
+def test_common_readback_failure_never_repairs_sqlite_or_seals_any_terminal(
+    independent_plans, monkeypatch
+):
     store, selected, handle, database, mirror, directory = independent_plans
     state = merge_ready(store, ready_references(independent_plans), database=database)
     publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
     before = database.read_bytes()
+
     def reject(*args, **kwargs):
         raise ValueError("synthetic independent readback failure")
-    monkeypatch.setattr("baibai_batch.jobs.external_assessment_integration.external_assessment_verify_release_history", reject)
+
+    monkeypatch.setattr(
+        "baibai_batch.jobs.external_assessment_integration.external_assessment_verify_release_history",
+        reject,
+    )
     for _ in range(2):
         with pytest.raises(ValueError, match="independent readback"):
             verify_and_seal(store, state, handle=handle, directory=directory / "failed-readback")
         assert database.read_bytes() == before
-        assert all(staging.read_terminal(store, staging.read_plan(store, item["run_id"])) is None for item in selected)
+        assert all(
+            staging.read_terminal(store, staging.read_plan(store, item["run_id"])) is None
+            for item in selected
+        )
 
 
-def test_explicit_partial_confirmation_keeps_access_halt_and_exact_partial_terminal(independent_plans):
+def test_explicit_partial_confirmation_keeps_access_halt_and_exact_partial_terminal(
+    independent_plans,
+):
     store, selected, handle, database, mirror, directory = independent_plans
     previous = staging.read_plan(store, selected[0]["run_id"])
-    plan = _plan(previous, run_id="monex-common-partial", sources=("monex",), tickers=("7203", "6758"))
+    plan = _plan(
+        previous, run_id="monex-common-partial", sources=("monex",), tickers=("7203", "6758")
+    )
     responses = pair_responses("monex", "7203", received_at_utc=RECEIVED)
     observation = external_assessment_decode_attempt(responses)
-    _stage(store, plan, 0, [
-        ("monex", "7203", "observed", responses[0].attempt_id, observation, 200),
-        ("monex", "6758", "access_denied", str(uuid.uuid4()), None, 403),
-    ], responses)
+    _stage(
+        store,
+        plan,
+        0,
+        [
+            ("monex", "7203", "observed", responses[0].attempt_id, observation, 200),
+            ("monex", "6758", "access_denied", str(uuid.uuid4()), None, 403),
+        ],
+        responses,
+    )
     staging.save_new_plan(store, plan)
     original = store.values[staging.stage_key(plan, 0)].body
     with pytest.raises(ValueError, match="explicit confirmed partial"):
@@ -94,3 +126,36 @@ def test_explicit_partial_confirmation_keeps_access_halt_and_exact_partial_termi
     assert terminal["observations"] == 1
     assert terminal["readback"] == "verified"
     assert store.values[staging.stage_key(plan, 0)].body == original
+
+
+def test_failed_decode_in_another_month_keeps_originals_and_does_not_block_healthy_seal(
+    independent_plans,
+):
+    store, selected, handle, database, mirror, directory = independent_plans
+    previous = staging.read_plan(store, selected[0]["run_id"])
+    failed = _plan(previous, run_id="monex-failed-common", sources=("monex",))
+    responses = pair_responses("monex", "7203", received_at_utc=RECEIVED.replace(month=6))
+    observation = external_assessment_decode_attempt(responses).model_copy(
+        update={"consensus_target": 999999.0}
+    )
+    _stage(
+        store, failed, 0,
+        [("monex", "7203", "observed", responses[0].attempt_id, observation, 200)],
+        responses,
+    )
+    staging.save_new_plan(store, failed)
+    bad_ref = save_ready(store, prepare_publication(store, failed))
+    good = ready_references(independent_plans)[1]
+    june = {(VALUATION_DATASET, 2026, 6)}
+    typed_before = external_assessment_history_digests(database, partitions=june)
+    state = merge_ready(store, [bad_ref, good], database=database)
+    assert len(state["failed"]) == 1
+    assert len(state["plans"]) == 1
+    assert any(month == 6 for _, month, _ in state["source_history"])
+    assert external_assessment_history_digests(database, partitions=june) == typed_before
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    results = verify_and_seal(store, state, handle=handle, directory=directory / "mixed-readback")
+    assert len(results) == 1
+    assert results[0]["readback"] == "verified"
+    assert staging.read_terminal(store, failed) is None
+    assert staging.read_terminal(store, staging.read_plan(store, selected[1]["run_id"])) is not None

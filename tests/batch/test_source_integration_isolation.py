@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from tests.batch.test_source_receipts import Store, stage
 from tests.engine.test_jquants_handoff import calendar
-from tests.engine.test_jquants_projection import FIRST_AT, receive, body
+from tests.engine.test_jquants_projection import FIRST_AT, body, receive
 
 from baibai_batch.jobs.source_integration import apply
 from baibai_batch.storage.economic_staging import save_handoff

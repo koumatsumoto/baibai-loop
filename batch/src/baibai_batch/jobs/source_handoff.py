@@ -5,31 +5,31 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import subprocess  # nosec B404
+import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.read_api import market_calendar_business_day
 from baibai_batch.observability.discord import write_json_atomic
 from baibai_batch.storage.economic_staging import load_handoff, save_handoff
 from baibai_batch.storage.lake_publish import Boto3R2Store
 from baibai_engine.batch_api import (
-    MARKET_DB_PATH,
     JQUANTS_FINANCIAL_SOURCES,
     JQUANTS_MARKET_SOURCES,
-    edinet_archive_keys,
-    acquire_edinet_archives,
-    export_edinet_handoff,
-    import_edinet_handoff,
-    export_jpx_handoff,
-    import_jpx_handoff,
-    export_jquants_handoff,
-    import_jquants_handoff,
+    MARKET_DB_PATH,
     TradingViewHandoff,
+    acquire_edinet_archives,
+    edinet_archive_keys,
+    export_edinet_handoff,
+    export_jpx_handoff,
+    export_jquants_handoff,
     export_tradingview_handoff,
+    import_edinet_handoff,
+    import_jpx_handoff,
+    import_jquants_handoff,
     import_tradingview_handoff,
 )
+from baibai_engine.read_api import market_calendar_business_day
 
 
 SOURCES = (
@@ -235,22 +235,33 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "acquire":
                 if args.source == "tradingview":
                     raise ValueError("TradingView uses the guarded OAuth acquisition route")
-                if args.source.startswith("jquants-") and os.environ.get("GITHUB_EVENT_NAME") == "schedule" and market_calendar_business_day(args.database, args.asof) is False:
+                if (
+                    args.source.startswith("jquants-")
+                    and os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+                    and market_calendar_business_day(args.database, args.asof) is False
+                ):
                     acquisition_report = {"status": "skipped_non_business_day"}
                 elif args.source in {"edinet-metrics", "edinet-facts"}:
                     if args.input_directory is None:
-                        raise ValueError("EDINET archive acquisition requires its scoped input manifest")
+                        raise ValueError(
+                            "EDINET archive acquisition requires its scoped input manifest"
+                        )
                     saved = json.loads((args.input_directory / "result.json").read_text())
                     result = acquire_edinet_archives(
-                        args.database, group=args.source, asof=args.asof,
+                        args.database,
+                        group=args.source,
+                        asof=args.asof,
                         api_key=os.environ.get("EDINET_API_KEY", ""),
-                        retained={(str(key[0]), int(key[1])) for key in saved["archive_keys"]} | before,
+                        retained={(str(key[0]), int(key[1])) for key in saved["archive_keys"]}
+                        | before,
                     )
                     print(json.dumps(result, sort_keys=True))
                     acquisition_report = result
                     status = int(result["status"] == "failed")
                 else:
-                    status = subprocess.run(_command(args.source, args.asof), check=False).returncode  # nosec B603
+                    status = subprocess.run(
+                        _command(args.source, args.asof), check=False
+                    ).returncode  # nosec B603
             archives = (
                 edinet_archive_keys(args.database) - before
                 if args.source.startswith("edinet-")
@@ -258,9 +269,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             _export(args.source, args.asof, since, args.database, directory, archives)
             report = json.loads((directory / "result.json").read_text())
-            report["acquisition"] = acquisition_report or {"status": "failed" if status else "received"}
+            report["acquisition"] = acquisition_report or {
+                "status": "failed" if status else "received"
+            }
             if args.input_directory is not None:
-                report["input_generation"] = json.loads((args.input_directory / "result.json").read_text())["canonical_generations"]
+                report["input_generation"] = json.loads(
+                    (args.input_directory / "result.json").read_text()
+                )["canonical_generations"]
             write_json_atomic(directory / "result.json", report)
             if output := os.environ.get("GITHUB_OUTPUT"):
                 with Path(output).open("a", encoding="utf-8") as stream:

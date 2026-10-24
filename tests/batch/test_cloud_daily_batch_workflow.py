@@ -511,16 +511,34 @@ if __name__ == "__main__":
     unittest.main()
 
 
-@pytest.mark.parametrize("event,scheduled", [("schedule", True), ("workflow_dispatch", False)])
-def test_workflow_constructed_target_and_gate_arguments_are_accepted(tmp_path, steps_by_id, event, scheduled):
+@pytest.mark.parametrize(("event", "scheduled"), [("schedule", True), ("workflow_dispatch", False)])
+def test_workflow_constructed_target_and_gate_arguments_are_accepted(
+    tmp_path, steps_by_id, event, scheduled
+):
     from baibai_batch.jobs.daily import build_parser
+
     prefix = steps_by_id["batch"]["run"].split("set +e", 1)[0]
     prefix = prefix.replace("${{ steps.source-plan.outputs.asof }}", "2026-10-24")
     output = tmp_path / "argv"
-    script = prefix + """
+    script = (
+        prefix
+        + """
 python3 -c 'import json,sys; from pathlib import Path; Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]))' "$ARGS_PATH" "${args[@]}"
 """
-    result = subprocess.run(["bash", "-e", "-c", script], env={**os.environ, "GITHUB_EVENT_NAME": event, "MANUAL_ASOF": "2026-10-24", "INTEGRATION_ASOF": "2026-10-24", "RUNNER_TEMP": str(tmp_path), "ARGS_PATH": str(output)}, capture_output=True, text=True)
+    )
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],
+        env={
+            **os.environ,
+            "GITHUB_EVENT_NAME": event,
+            "MANUAL_ASOF": "2026-10-24",
+            "INTEGRATION_ASOF": "2026-10-24",
+            "RUNNER_TEMP": str(tmp_path),
+            "ARGS_PATH": str(output),
+        },
+        capture_output=True,
+        text=True,
+    )
     assert result.returncode == 0, result.stderr
     argv = json.loads(output.read_text())
     assert argv.count("--asof") == 1

@@ -18,9 +18,9 @@ from baibai_engine.batch_api import (
     TradingViewFetchError,
     economic_acquisition_groups,
     economic_source_policy,
-    load_economic_sources,
     export_economic_receipts,
     export_market_source_input,
+    load_economic_sources,
 )
 
 

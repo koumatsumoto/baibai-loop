@@ -348,10 +348,14 @@ def main(argv: list[str] | None = None) -> int:
                 references = []
                 if args.command == "ready":
                     from baibai_batch.storage.external_assessment_ready import save_ready
+
                     for item in ready:
                         references.append(save_ready(store, item))
                         states[item.plan.sources[0]]["status"] = "ready_for_integration"
-                report = {"sources": [states[entry["source"]] for entry in selected], "ready_handoffs": references}
+                report = {
+                    "sources": [states[entry["source"]] for entry in selected],
+                    "ready_handoffs": references,
+                }
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print(f"ready={str(bool(ready)).lower()}", file=stream)

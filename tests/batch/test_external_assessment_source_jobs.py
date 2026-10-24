@@ -748,5 +748,11 @@ def test_workflow_publishes_each_source_without_waiting_for_its_siblings():
     assert '--selection-json "$SOURCE_RUNS"' in ready["run"]
     assert '--master-asof "$MASTER_ASOF"' in ready["run"]
     assert "--confirmed-partial" in ready["run"]
-    for forbidden in ("cloud-publish", "publication_lease", "pull-market", "hydrate-market", "publish-lake"):
+    for forbidden in (
+        "cloud-publish",
+        "publication_lease",
+        "pull-market",
+        "hydrate-market",
+        "publish-lake",
+    ):
         assert forbidden not in str(child)

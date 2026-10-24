@@ -42,8 +42,20 @@ def test_machine_pull_and_full_hydrate_precede_first_market_reader(
 
 
 def test_source_acquisitions_never_pull_or_hydrate_the_full_machine():
-    for workflow, job in (("cloud-tradingview-snapshot.yml", "snapshot"), ("cloud-market-source.yml", "acquire"), ("cloud-economic-source.yml", "acquire"), ("cloud-external-assessment-source.yml", "acquire")):
+    for workflow, job in (
+        ("cloud-tradingview-snapshot.yml", "snapshot"),
+        ("cloud-market-source.yml", "acquire"),
+        ("cloud-economic-source.yml", "acquire"),
+        ("cloud-external-assessment-source.yml", "acquire"),
+    ):
         document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
         text = str(document["jobs"][job])
-        for command in ("pull-market", "pull-machine", "pull-app", "hydrate-market", "publish-lake", "publication_lease"):
+        for command in (
+            "pull-market",
+            "pull-machine",
+            "pull-app",
+            "hydrate-market",
+            "publish-lake",
+            "publication_lease",
+        ):
             assert command not in text

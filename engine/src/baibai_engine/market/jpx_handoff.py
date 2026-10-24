@@ -37,7 +37,8 @@ def export_handoff(
             row[0]
             for row in raw.execute(
                 "SELECT bundle_id FROM jpx_source_bundles "
-                "WHERE collection_name = ? AND started_at_utc >= ? ORDER BY started_at_utc, bundle_id",
+                "WHERE collection_name = ? AND started_at_utc >= ? "
+                "ORDER BY started_at_utc, bundle_id",
                 (collection, since.astimezone(UTC).isoformat(timespec="microseconds")),
             )
         )

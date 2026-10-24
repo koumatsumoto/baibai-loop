@@ -70,7 +70,8 @@ def import_handoff(source: Path, target: Path) -> dict[str, object]:
                 "SELECT * FROM edinet_source_archives"
             ):
                 prior = conn.execute(
-                    "SELECT zip_content FROM edinet_source_archives WHERE doc_id = ? AND source_type = ?",
+                    "SELECT zip_content FROM edinet_source_archives "
+                    "WHERE doc_id = ? AND source_type = ?",
                     (doc_id, source_type),
                 ).fetchone()
                 if prior is not None:

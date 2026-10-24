@@ -73,7 +73,7 @@ def available_handoffs(
                         "stage_id": stage_id,
                         "manifest_sha256": digest,
                         "source": source_name,
-                        "started_at": report["started_at"],
+                        "started_at": started.astimezone(UTC).isoformat(),
                         "asof": report["asof"],
                         "integration": integrated,
                     }
@@ -116,6 +116,7 @@ def available_handoffs(
             str(entry["stage_id"]),
         ),
     )
+
 
 
 def download_fixed(store: ObjectStore, entry: dict[str, object], directory: Path) -> None:

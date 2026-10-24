@@ -861,7 +861,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--scheduled",
         action="store_true",
         help=(
-            "resolve an unfixed target from the 13:43 UTC integration cron and apply the business-day gate; "
+            "resolve the 13:43 UTC target and apply the business-day gate; "
             "for the scheduled workflow only"
         ),
     )

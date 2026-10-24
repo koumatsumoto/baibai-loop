@@ -550,21 +550,18 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
     assert "include" in acquire_job["strategy"]["matrix"]
     assert int(child["jobs"]["acquire"]["timeout-minutes"]) < 360
-    publisher_job = child["jobs"]["publish"]
-    assert publisher_job["concurrency"]["group"] == "cloud-publish"
-    runs = [step.get("run", "") for step in publisher_job["steps"]]
-    lease = next(i for i, text in enumerate(runs) if "publication_lease acquire" in text)
-    hydrate = next(i for i, text in enumerate(runs) if "hydrate-market" in text)
-    publish = next(
-        i for i, step in enumerate(publisher_job["steps"]) if step.get("id") == "publish"
-    )
-    assert lease < hydrate < publish
-    assert "--lease-handle" in runs[publish]
-    assert "external_assessment_sources publish" in runs[publish]
-    assert "--selection-json" in runs[publish]
-    assert "--confirmed-partial" in runs[publish]
-    assert "needs.acquire.result" not in publisher_job["if"]
-    assert int(publisher_job["timeout-minutes"]) < 120
+    assert "publish" not in child["jobs"]
+    handoff = child["jobs"]["handoff"]
+    assert "always()" in handoff["if"]
+    runs = [step.get("run", "") for step in handoff["steps"]]
+    assert any("external_assessment_sources ready" in text for text in runs)
+    assert any("--confirmed-partial" in text for text in runs)
+    assert not any("hydrate-market" in text or "publication_lease" in text for text in runs)
+    common = yaml.load(WORKFLOW.with_name("cloud-daily-batch.yml").read_text(), Loader=yaml.BaseLoader)
+    daily = common["jobs"]["daily"]
+    assert daily["concurrency"]["group"] == "cloud-publish"
+    assert "needs" not in daily
+    assert int(daily["timeout-minutes"]) < 120
     assert "refs/heads/main" in workflow["jobs"]["plan"]["if"]
     assert not any(
         "upload-artifact" in step.get("uses", "")

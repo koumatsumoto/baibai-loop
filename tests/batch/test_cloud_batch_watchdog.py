@@ -780,7 +780,9 @@ def test_limited_economic_success_cannot_cover_the_all_source_schedule(tmp_path,
 
 
 def test_all_economic_source_results_must_report_one_common_day():
-    runs = parse_runs(_listing(_run(created_at=ACQUISITION_CHECK - timedelta(hours=2), batch_asof=None)))
+    runs = parse_runs(
+        _listing(_run(created_at=ACQUISITION_CHECK - timedelta(hours=2), batch_asof=None))
+    )
 
     def jobs(*args):
         return {
@@ -803,29 +805,68 @@ def test_all_economic_source_results_must_report_one_common_day():
         result_prefix="Economic result for ",
         repeated_source_results=True,
     )
-    assert evaluate(resolved, window_end=ACQUISITION_CHECK, window_hours=20, target_date=date(2026, 8, 3)).state == STATE_HEALTHY
+    assert (
+        evaluate(
+            resolved, window_end=ACQUISITION_CHECK, window_hours=20, target_date=date(2026, 8, 3)
+        ).state
+        == STATE_HEALTHY
+    )
 
 
 def test_economic_acquisition_clock_is_independent_of_the_late_integration(tmp_path, monkeypatch):
     from baibai_batch.jobs.schedule import acquisition_target_date
+
     instant = datetime(2026, 8, 3, 12, tzinfo=UTC)
     assert acquisition_target_date(instant) == date(2026, 8, 3)
     assert batch_target_date(instant) == date(2026, 8, 2)
-    code, transport = _run_main(tmp_path, monkeypatch, _listing(_run(
-        created_at=instant - timedelta(hours=1), display_title="economic all all",
-    )), argv=["--economic", "--check-date", "2026-08-03"])
-    assert code == 0 and transport.calls == []
-    source = yaml.load((ROOT / ".github/workflows/cloud-economic-source.yml").read_text(), Loader=yaml.BaseLoader)
+    code, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        _listing(
+            _run(
+                created_at=instant - timedelta(hours=1),
+                display_title="economic all all",
+            )
+        ),
+        argv=["--economic", "--check-date", "2026-08-03"],
+    )
+    assert code == 0
+    assert transport.calls == []
+    source = yaml.load(
+        (ROOT / ".github/workflows/cloud-economic-source.yml").read_text(), Loader=yaml.BaseLoader
+    )
     assert "publish" not in source["jobs"]
-    assert any(str(step.get("name", "")).startswith("Economic result for ") for step in source["jobs"]["acquire"]["steps"])
+    assert any(
+        str(step.get("name", "")).startswith("Economic result for ")
+        for step in source["jobs"]["acquire"]["steps"]
+    )
 
 
-def test_market_watchdog_does_not_let_later_edinet_slots_mask_a_missing_market_input_run(tmp_path, monkeypatch):
-    rows = [_run(number=index, created_at=ACQUISITION_CHECK - timedelta(hours=1), display_title="market-acquisition " + scope)
-            for index, scope in enumerate(("edinet-metrics", "edinet-facts"), 1)]
-    code, transport = _run_main(tmp_path, monkeypatch, _listing(*rows), argv=["--market", "--check-date", "2026-08-03"])
+def test_market_watchdog_does_not_let_later_edinet_slots_mask_a_missing_market_input_run(
+    tmp_path, monkeypatch
+):
+    rows = [
+        _run(
+            number=index,
+            created_at=ACQUISITION_CHECK - timedelta(hours=1),
+            display_title="market-acquisition " + scope,
+        )
+        for index, scope in enumerate(("edinet-metrics", "edinet-facts"), 1)
+    ]
+    code, transport = _run_main(
+        tmp_path, monkeypatch, _listing(*rows), argv=["--market", "--check-date", "2026-08-03"]
+    )
     assert code == 0
     assert "cloud-market-sources" in _delivered_message(transport)
-    rows.append(_run(number=3, created_at=ACQUISITION_CHECK - timedelta(hours=2), display_title="market-acquisition inputs"))
-    code, transport = _run_main(tmp_path, monkeypatch, _listing(*rows), argv=["--market", "--check-date", "2026-08-03"])
-    assert code == 0 and transport.calls == []
+    rows.append(
+        _run(
+            number=3,
+            created_at=ACQUISITION_CHECK - timedelta(hours=2),
+            display_title="market-acquisition inputs",
+        )
+    )
+    code, transport = _run_main(
+        tmp_path, monkeypatch, _listing(*rows), argv=["--market", "--check-date", "2026-08-03"]
+    )
+    assert code == 0
+    assert transport.calls == []
