@@ -32,10 +32,11 @@ def test_stored_action_without_factor_raises_contextual_source_error(tmp_path, c
             max_date=day.isoformat(),
             record_count=1,
         )
-    with pytest.raises(JQuantsProviderError, match="1234 on 2026-10-23"):
-        if consumer == "market":
+    if consumer == "market":
+        with pytest.raises(JQuantsProviderError, match="1234 on 2026-10-23"):
             read_adjustment_factor_bars(path, day, day)
-        else:
+    else:
+        with pytest.raises(JQuantsProviderError, match="1234 on 2026-10-23"):
             compute_forward_returns(
                 path,
                 asofs=(day,),

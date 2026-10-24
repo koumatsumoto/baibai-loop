@@ -103,7 +103,7 @@ def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, fa
             "SELECT adjustment_factor FROM jquants_daily_bars WHERE traded_at = ?",
             (day.isoformat(),),
         ).fetchone() == (factor,)
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(JQuantsProviderError, match="1301 on 2026-10-14"):
             _load_ticker_adjustment_events(connection, "1301", start=start)
     with pytest.raises(JQuantsProviderError, match="positive"):
         read_adjustment_factor_bars(database, start, day)
