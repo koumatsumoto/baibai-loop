@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -35,6 +36,11 @@ from baibai_batch.storage.external_assessment_staging import (
 )
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_batch.storage.publish_market_lake import _resolve_serving_release, _serving_pointer
+from baibai_batch.storage.source_dependencies import (
+    available_dependencies,
+    latest_dependency,
+    load_dependency,
+)
 from baibai_engine.batch_api import (
     EquityWebSourceResponse,
     ExternalAssessmentCollectionResult,
@@ -45,6 +51,8 @@ from baibai_engine.batch_api import (
     external_assessment_collect_pair,
     external_assessment_collector_binding,
     external_assessment_frozen_lake_universe,
+    external_assessment_received_calendar,
+    external_assessment_received_master_universe,
     lake_session,
 )
 
@@ -108,17 +116,68 @@ def initialize(
     release = _resolve_serving_release(store, mirror, pointer)
     with lake_session() as session:
         cache = LakeObjectCache(root=mirror, source=_MasterSource(store))
-        if observation_date is not None:
-            master_asof = external_assessment_calendar_master_asof(
-                session, release=release, cache=cache, observation_date=observation_date
+        try:
+            if observation_date is not None:
+                master_asof = external_assessment_calendar_master_asof(
+                    session, release=release, cache=cache, observation_date=observation_date
+                )
+            assert master_asof is not None
+            tickers, binding = external_assessment_frozen_lake_universe(
+                session,
+                release=release,
+                cache=cache,
+                master_asof=master_asof,
             )
-        assert master_asof is not None
-        tickers, binding = external_assessment_frozen_lake_universe(
-            session,
-            release=release,
-            cache=cache,
-            master_asof=master_asof,
-        )
+        except ValueError:
+            # A new plan may start before the independently scheduled integration.
+            # Freeze only native master/calendar dependencies, never the market DB.
+            target = observation_date or master_asof
+            assert target is not None
+            days = [target] + ([master_asof] if master_asof is not None else [])
+            references = available_dependencies(store, days=days)
+            calendar = None
+            if observation_date is not None:
+                calendar = latest_dependency(
+                    references, source="market_calendar", day=observation_date
+                )
+                overrides = (
+                    external_assessment_received_calendar(load_dependency(store, calendar))
+                    if calendar
+                    else None
+                )
+                master_asof = external_assessment_calendar_master_asof(
+                    session,
+                    release=release,
+                    cache=cache,
+                    observation_date=observation_date,
+                    overrides=overrides,
+                )
+            assert master_asof is not None
+            if master_asof not in days:
+                references.extend(available_dependencies(store, days=[master_asof]))
+            master = latest_dependency(references, source="master", day=master_asof)
+            if master is None:
+                tickers, binding = external_assessment_frozen_lake_universe(
+                    session,
+                    release=release,
+                    cache=cache,
+                    master_asof=master_asof,
+                )
+                selected = json.loads(binding)
+                selected["calendar_receipt"] = calendar
+            else:
+                tickers = external_assessment_received_master_universe(
+                    load_dependency(store, master), master_asof
+                )
+                selected = {
+                    "master_asof": master_asof.isoformat(),
+                    "base_release_id": release.release_id,
+                    "base_release_manifest_sha256": release.manifest_sha256,
+                    "master_receipt": master,
+                    "calendar_receipt": calendar,
+                    "tickers_sha256": hashlib.sha256("\n".join(tickers).encode()).hexdigest(),
+                }
+            binding = json.dumps(selected, sort_keys=True, separators=(",", ":"))
     plan = make_plan(
         run_id=run_id,
         tickers=tickers,

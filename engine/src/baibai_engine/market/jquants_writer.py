@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, timedelta
 from math import isfinite
@@ -52,6 +53,7 @@ def store_jquants_fin_summaries(
     requested_start: date,
     requested_end: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     if requested_start > requested_end:
         raise ValueError("financial request start must not follow end")
@@ -61,7 +63,7 @@ def store_jquants_fin_summaries(
         not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat() for row in rows
     ):
         raise ValueError("financial payload contains a disclosure date outside the request")
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
         delete_date_range(
             conn,
@@ -91,10 +93,12 @@ def store_jquants_fin_summaries(
             error=normalized.error,
             fetched_at_utc=fetched_at_utc,
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted_count
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def store_jquants_weekly_margin(
@@ -103,6 +107,7 @@ def store_jquants_weekly_margin(
     *,
     week_end: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     """Persist one weekly balance date, including the fact that it was empty.
 
@@ -116,10 +121,11 @@ def store_jquants_weekly_margin(
     require_legacy_weekly_balance_date(week_end)
     normalized = _weekly_margin_rows_with_quality(records, week_end)
     rows = normalized.rows
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
         iso = week_end.isoformat()
-        conn.execute("BEGIN")
+        if not conn.in_transaction:
+            conn.execute("BEGIN")
         conn.execute("DELETE FROM jquants_weekly_margin WHERE week_end = ?", (iso,))
         if rows:
             conn.executemany(
@@ -148,13 +154,16 @@ def store_jquants_weekly_margin(
             error=normalized.error,
             fetched_at_utc=fetched_at_utc,
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted_count
     except Exception:
-        conn.rollback()
+        if connection is None:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def store_jquants_margin_alerts(
@@ -164,12 +173,14 @@ def store_jquants_margin_alerts(
     requested_start: date,
     requested_end: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     """Persist the daily designated-issue dataset by publication date."""
     normalized = _margin_alert_rows_with_quality(records, requested_start, requested_end)
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
-        conn.execute("BEGIN")
+        if not conn.in_transaction:
+            conn.execute("BEGIN")
         delete_date_range(
             conn,
             "jquants_margin_alerts",
@@ -205,13 +216,16 @@ def store_jquants_margin_alerts(
             error=normalized.error,
             fetched_at_utc=fetched_at_utc,
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted
     except Exception:
-        conn.rollback()
+        if connection is None:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def store_jquants_all_issues_daily_margin(
@@ -220,14 +234,16 @@ def store_jquants_all_issues_daily_margin(
     *,
     balance_date: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     """Persist one post-transition all-issues daily balance date."""
     require_all_issues_daily_balance_date(balance_date)
     normalized = _all_issues_daily_margin_rows_with_quality(records, balance_date)
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
         iso = balance_date.isoformat()
-        conn.execute("BEGIN")
+        if not conn.in_transaction:
+            conn.execute("BEGIN")
         conn.execute("DELETE FROM jquants_all_issues_daily_margin WHERE balance_date = ?", (iso,))
         if normalized.rows:
             conn.executemany(
@@ -259,13 +275,16 @@ def store_jquants_all_issues_daily_margin(
             error=normalized.error,
             fetched_at_utc=fetched_at_utc,
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted
     except Exception:
-        conn.rollback()
+        if connection is None:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def store_jquants_short_sale_reports(
@@ -275,6 +294,7 @@ def store_jquants_short_sale_reports(
     requested_start: date,
     requested_end: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     """Persist a complete disclosure-date range without inventing missing reports.
 
@@ -283,7 +303,7 @@ def store_jquants_short_sale_reports(
     """
     normalized = _short_sale_report_rows_with_quality(records)
     rows = normalized.rows
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
         by_date: dict[str, list[tuple[Any, ...]]] = {}
         for row in rows:
@@ -337,13 +357,16 @@ def store_jquants_short_sale_reports(
             ).fetchone()[0]
             or 0
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted_count
     except Exception:
-        conn.rollback()
+        if connection is None:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def _short_sale_report_rows_with_quality(
@@ -596,12 +619,14 @@ def store_jquants_master(
     *,
     requested_asof: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     validated = validate_master_snapshot(list(records), requested_asof)
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
         iso = requested_asof.isoformat()
-        conn.execute("BEGIN")
+        if not conn.in_transaction:
+            conn.execute("BEGIN")
         conn.execute("DELETE FROM jquants_master_snapshots WHERE snapshot_date = ?", (iso,))
         conn.execute(
             "DELETE FROM source_coverage WHERE source = ? "
@@ -625,13 +650,16 @@ def store_jquants_master(
             error=None,
             fetched_at_utc=fetched_at_utc,
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted_count
     except BaseException:
-        conn.rollback()
+        if connection is None:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
@@ -672,11 +700,12 @@ def store_jquants_daily_bars(
     requested_start: date,
     requested_end: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     normalized = _bars_rows_with_quality(records)
     rows = normalized.rows
     _validate_request_dates(rows, date_index=1, start=requested_start, end=requested_end)
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
         delete_date_range(
             conn,
@@ -708,10 +737,12 @@ def store_jquants_daily_bars(
             error=normalized.error,
             fetched_at_utc=fetched_at_utc,
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted_count
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def store_jquants_market_calendar(
@@ -721,11 +752,12 @@ def store_jquants_market_calendar(
     requested_start: date,
     requested_end: date,
     fetched_at_utc: str | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     normalized = _market_calendar_rows_with_quality(records)
     rows = normalized.rows
     _validate_request_dates(rows, date_index=0, start=requested_start, end=requested_end)
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
         delete_date_range(
             conn,
@@ -752,10 +784,12 @@ def store_jquants_market_calendar(
             error=normalized.error,
             fetched_at_utc=fetched_at_utc,
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted_count
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:

@@ -31,7 +31,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
-from baibai_batch.jobs.schedule import batch_target_date
+from baibai_batch.jobs.schedule import acquisition_target_date, batch_target_date
 from baibai_batch.observability.discord import (
     DEFAULT_TIMEOUT_SECONDS,
     WEBHOOK_ENV_VAR,
@@ -48,7 +48,8 @@ RUNS_SHOWN = 5
 
 # The watchdog's own cron, in UTC. `--check-date` evaluates the window a scheduled
 # firing on that date would have used, which is what makes a past day reproducible.
-SCHEDULED_FIRE_TIME = time(12, 0, tzinfo=UTC)
+SCHEDULED_FIRE_TIME = time(16, 0, tzinfo=UTC)
+ACQUISITION_WATCHDOG_FIRE_TIME = time(12, 0, tzinfo=UTC)
 
 # How far back a successful run still counts. Both edges are set by the observed
 # GitHub schedule delay (median about two hours):
@@ -241,6 +242,8 @@ def resolve_run_results(
     window_end: datetime,
     window_hours: int,
     read_jobs: JobsReader,
+    result_prefix: str = RESULT_STEP_PREFIX,
+    repeated_source_results: bool = False,
 ) -> tuple[WorkflowRun, ...]:
     """Use the batch's reported target from recent successful attempt results."""
     resolved: list[WorkflowRun] = []
@@ -262,8 +265,8 @@ def resolve_run_results(
                 if not isinstance(step, Mapping):
                     raise WatchdogInputError("attempt step must be an object")
                 name = str(step.get("name") or "")
-                if name.startswith(RESULT_STEP_PREFIX) and step.get("status") == "completed":
-                    value = name[len(RESULT_STEP_PREFIX) :]
+                if name.startswith(result_prefix) and step.get("status") == "completed":
+                    value = name[len(result_prefix) :]
                     try:
                         target = date.fromisoformat(value)
                         if target.isoformat() != value:
@@ -271,13 +274,21 @@ def resolve_run_results(
                         targets.append(target)
                     except ValueError:
                         pass
+        if repeated_source_results:
+            targets = sorted(set(targets))
         if len(targets) != 1:
             raise WatchdogInputError("successful daily attempt has no unique reported as-of")
         resolved.append(replace(run, target_date=targets[0]))
     return tuple(resolved)
 
 
-def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours: int) -> Verdict:
+def evaluate(
+    runs: Sequence[WorkflowRun],
+    *,
+    window_end: datetime,
+    window_hours: int,
+    target_date: date | None = None,
+) -> Verdict:
     """Decide whether the window holds a completed, successful run."""
     if window_hours <= 0:
         raise WatchdogInputError("window hours must be positive")
@@ -288,7 +299,7 @@ def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours:
             key=lambda run: run.updated_at,
         )
     )
-    check_date = batch_target_date(window_end)
+    check_date = target_date or batch_target_date(window_end)
     # A recovery dispatch for an earlier day says nothing about this one. Reading the
     # window as a set of runs rather than as a set of answered days is what let a
     # past-dated success — the shape that actually occurred on 2026-08-18 — cover a
@@ -315,12 +326,13 @@ def render_alert(
     *,
     repository: str,
     watchdog_run_url: str,
+    workflow: str = WATCHED_WORKFLOW,
 ) -> str:
     """Render the bounded alert message for a window with no successful run."""
     window_hours = int((verdict.window_end - verdict.window_start).total_seconds() // 3600)
     lines = [
         (
-            f"[MISSING] no successful {WATCHED_WORKFLOW} run for "
+            f"[MISSING] no successful {workflow} run for "
             f"{verdict.check_date.isoformat()} in the last {window_hours}h"
         ),
         f"repo: {sanitize_one_line(repository)}",
@@ -341,7 +353,9 @@ def render_alert(
     return message
 
 
-def resolve_window_end(check_date: str, *, now: datetime) -> datetime:
+def resolve_window_end(
+    check_date: str, *, now: datetime, fire_time: time = SCHEDULED_FIRE_TIME
+) -> datetime:
     """Return the instant the window closes at.
 
     Without ``--check-date`` the window closes now, so a delayed firing still sees
@@ -356,7 +370,7 @@ def resolve_window_end(check_date: str, *, now: datetime) -> datetime:
         raise WatchdogInputError("check date must use YYYY-MM-DD") from exc
     if parsed.isoformat() != check_date:
         raise WatchdogInputError("check date must use YYYY-MM-DD")
-    return datetime.combine(parsed, SCHEDULED_FIRE_TIME)
+    return datetime.combine(parsed, fire_time)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -369,6 +383,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--window-hours", type=int, default=DEFAULT_WINDOW_HOURS)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--read-run-results", action="store_true")
+    parser.add_argument("--economic", action="store_true")
+    parser.add_argument("--market", action="store_true")
+    parser.add_argument("--weekdays-only", action="store_true")
     return parser
 
 
@@ -382,8 +399,40 @@ def main(
     env = os.environ
     try:
         payload = json.loads(args.runs_json.read_text(encoding="utf-8"))
+        window_end = resolve_window_end(
+            args.check_date,
+            now=datetime.now(UTC),
+            fire_time=ACQUISITION_WATCHDOG_FIRE_TIME
+            if args.economic or args.market
+            else SCHEDULED_FIRE_TIME,
+        )
+        if args.weekdays_only and window_end.weekday() >= 5:
+            print("watchdog: daily market schedule is not due on this weekend")
+            return 0
+        if args.economic:
+            if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
+                raise WatchdogInputError("run listing must carry a workflow_runs array")
+            # A limited successful rerun cannot stand in for all scheduled providers.
+            payload["workflow_runs"] = [
+                row
+                for row in payload["workflow_runs"]
+                if isinstance(row, dict)
+                and str(row.get("display_title", "")).startswith("economic all all")
+            ]
+        scopes = {}
+        if args.market:
+            if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
+                raise WatchdogInputError("market run listing is missing")
+            retained = []
+            for row in payload["workflow_runs"]:
+                title = str(row.get("display_title", ""))
+                for scope in ("inputs", "edinet-metrics", "edinet-facts", "all"):
+                    if title.startswith("market-acquisition " + scope):
+                        scopes[row["id"]] = scope
+                        retained.append(row)
+                        break
+            payload["workflow_runs"] = retained
         runs = parse_runs(payload)
-        window_end = resolve_window_end(args.check_date, now=datetime.now(UTC))
         if args.read_run_results:
             runs = resolve_run_results(
                 runs,
@@ -391,8 +440,43 @@ def main(
                 window_end=window_end,
                 window_hours=args.window_hours,
                 read_jobs=read_jobs,
+                result_prefix="Economic result for "
+                if args.economic
+                else "Market source result for "
+                if args.market
+                else RESULT_STEP_PREFIX,
+                repeated_source_results=args.economic or args.market,
             )
-        verdict = evaluate(runs, window_end=window_end, window_hours=args.window_hours)
+        verdict = evaluate(
+            runs,
+            window_end=window_end,
+            window_hours=args.window_hours,
+            target_date=acquisition_target_date(window_end)
+            if args.economic or args.market
+            else None,
+        )
+        if args.market:
+            verdicts = [
+                evaluate(
+                    tuple(run for run in runs if scopes.get(run.run_id) in {scope, "all"}),
+                    window_end=window_end,
+                    window_hours=args.window_hours,
+                    target_date=acquisition_target_date(window_end, fire),
+                )
+                for scope, fire in (
+                    ("inputs", time(7, 43, tzinfo=UTC)),
+                    ("edinet-metrics", time(8, 43, tzinfo=UTC)),
+                    ("edinet-facts", time(9, 13, tzinfo=UTC)),
+                )
+            ]
+            verdict = replace(
+                verdict,
+                state=STATE_MISSING
+                if any(item.alerting for item in verdicts)
+                else STATE_IN_FLIGHT
+                if any(item.state == STATE_IN_FLIGHT for item in verdicts)
+                else STATE_HEALTHY,
+            )
     except (OSError, json.JSONDecodeError, WatchdogInputError) as exc:
         print(f"error: cannot evaluate the batch window: {exc}", file=sys.stderr)
         return 1
@@ -409,6 +493,11 @@ def main(
         verdict,
         repository=env.get("GITHUB_REPOSITORY", "local/local"),
         watchdog_run_url=run_url(env),
+        workflow="cloud-economic-sources"
+        if args.economic
+        else "cloud-market-sources"
+        if args.market
+        else WATCHED_WORKFLOW,
     )
     failure = deliver(
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport

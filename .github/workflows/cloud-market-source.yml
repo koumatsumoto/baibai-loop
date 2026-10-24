@@ -1,0 +1,97 @@
+name: cloud-market-source
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        required: true
+        type: string
+      asof:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One source keeps its acquisition and private handoff ordered. A shared provider
+# quota additionally serializes its network jobs, without the publication lock.
+concurrency:
+  group: market-source-${{ inputs.source }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  acquire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: source-acquire-${{ startsWith(inputs.source, 'jquants-') && 'jquants' || startsWith(inputs.source, 'edinet-') && 'edinet' || 'jpx' }}
+      queue: max
+      cancel-in-progress: false
+    outputs:
+      handoff: ${{ steps.stage.outputs.handoff }}
+    steps:
+      - name: Reserve time to save successful partial originals
+        run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 60 * 60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Load only the assigned source input
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SOURCE: ${{ inputs.source }}
+        run: uv run python -m baibai_batch.jobs.source_handoff input --source "$SOURCE" --directory "$RUNNER_TEMP/source-input"
+      - name: Read own confirmed originals and required EDINET list receipts
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SOURCE: ${{ inputs.source }}
+          ASOF: ${{ inputs.asof }}
+        run: uv run python -m baibai_batch.jobs.source_handoff resume --source "$SOURCE" --asof "$ASOF" --directory "$RUNNER_TEMP/source-input"
+      - name: Acquire only this source and export received originals
+        id: acquire
+        env:
+          SOURCE: ${{ inputs.source }}
+          ASOF: ${{ inputs.asof }}
+          JQUANTS_API_KEY: ${{ startsWith(inputs.source, 'jquants-') && secrets.JQUANTS_API_KEY || '' }}
+          EDINET_API_KEY: ${{ startsWith(inputs.source, 'edinet-') && secrets.EDINET_API_KEY || '' }}
+        run: uv run python -m baibai_batch.jobs.source_handoff acquire --source "$SOURCE" --asof "$ASOF" --input-directory "$RUNNER_TEMP/source-input" --directory "$RUNNER_TEMP/source-handoff"
+      - name: Save successful and partial originals in private staging
+        id: stage
+        if: ${{ always() && !cancelled() && steps.acquire.outputs.stage_ready == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SOURCE: ${{ inputs.source }}
+          STAGE_ID: ${{ inputs.source }}-${{ inputs.asof }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: uv run python -m baibai_batch.jobs.source_handoff stage --source "$SOURCE" --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/source-handoff"
+      - name: Market source result for ${{ inputs.asof }}
+        if: ${{ always() && steps.stage.outcome == 'success' }}
+        run: echo 'Market source private receipts saved; common integration is separate'
+
+  notify:
+    needs: acquire
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report the independent acquisition and private receipt outcome
+        continue-on-error: true
+        env:
+          PYTHONPATH: batch/src
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SOURCE_GROUP: ${{ inputs.source }}
+          ASOF: ${{ inputs.asof }}
+          ACQUIRE_RESULT: ${{ needs.acquire.result }}
+          STAGE_RESULT: ${{ needs.acquire.outputs.handoff != '' && 'success' || 'failure' }}
+        run: python3 -m baibai_batch.observability.source_discord

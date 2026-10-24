@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 import requests
 
+from baibai_engine.collection.read_http import (
+    AcquisitionDeadlineExceeded,
+    check_acquisition_deadline,
+)
+
 if TYPE_CHECKING:
     from .browser import BrowserFetcher
     from .read_retry import ReadDeadline
@@ -30,6 +35,10 @@ class ProviderFetchStoppedError(IndicatorsProviderError):
     The service must not restart an exhausted transport, an expired fetch deadline,
     or a permanent response/schema failure reported under this type.
     """
+
+
+class ProviderRateLimitError(ProviderFetchStoppedError):
+    """Stop new requests to this provider after a rate-limit response."""
 
 
 class SourceWithheldError(IndicatorsProviderError):
@@ -94,6 +103,7 @@ class FetchContext:
         self.bytes_cache.clear()
 
     def browser_fetcher(self) -> BrowserFetcher:
+        self.check_deadline()
         # Lazy import breaks the base <-> browser module cycle and keeps
         # Playwright off the import path until a browser-backed series runs.
         if self._browser is None:
@@ -101,6 +111,12 @@ class FetchContext:
 
             self._browser = BrowserFetcher()
         return self._browser
+
+    def check_deadline(self) -> None:
+        try:
+            check_acquisition_deadline()
+        except AcquisitionDeadlineExceeded as error:
+            raise ProviderFetchStoppedError(str(error)) from error
 
     def close(self) -> None:
         # Releasing resources must never mask the pass's own result, so a failure
@@ -196,6 +212,8 @@ def fetch_bytes(
     headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
 ) -> bytes:
+    if context is not None:
+        context.check_deadline()
     key = _bytes_cache_key(url, params)
     if context is not None and key in context.bytes_cache:
         return context.bytes_cache[key]
@@ -218,6 +236,8 @@ def fetch_bytes(
             chunks: list[bytes] = []
             total = 0
             for chunk in response.iter_content(chunk_size=64 * 1024):
+                if context is not None:
+                    context.check_deadline()
                 if not chunk:
                     continue
                 total += len(chunk)
@@ -251,6 +271,8 @@ def _raise_for_response(response: requests.Response, url: str) -> None:
     try:
         response.raise_for_status()
     except requests.RequestException as exc:
+        if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+            raise ProviderRateLimitError(f"source rate-limited {url}") from exc
         if response.status_code == HTTPStatus.FORBIDDEN:
             # An edge bot-mitigation says "not you" this way as readily as it
             # says it with an empty body, so a provider that can try another

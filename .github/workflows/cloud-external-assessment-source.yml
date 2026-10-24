@@ -1,0 +1,109 @@
+name: cloud-external-assessment-source
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+      master_asof:
+        type: string
+        default: ''
+      observation_date:
+        type: string
+        default: ''
+      operation:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Own acquisition and immutable inspected handoff; common integration seals terminals.
+# Sibling sources never wait for this workflow's acquisition to complete.
+concurrency:
+  group: external-assessment-acquire-${{ inputs.source }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  acquire:
+    if: ${{ inputs.operation == 'collect_and_publish' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      SOURCE: ${{ inputs.source }}
+      SOURCE_RUN_ID: ${{ inputs.run_id }}
+      MASTER_ASOF: ${{ inputs.master_asof }}
+      OBSERVATION_DATE: ${{ inputs.observation_date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Provision DuckDB httpfs extension
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Freeze and acquire one source with bounded cohort checkpoints
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          args=(--source "$SOURCE" --run-id "$SOURCE_RUN_ID" --directory "$RUNNER_TEMP/source-plan")
+          if [ -n "$OBSERVATION_DATE" ]; then args+=(--observation-date "$OBSERVATION_DATE");
+          else args+=(--master-asof "$MASTER_ASOF"); fi
+          timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_batch.jobs.external_assessment_sources acquire "${args[@]}"
+
+  handoff:
+    needs: acquire
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Inspect exact source plan and freeze immutable confirmed stages
+        id: ready
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SOURCE_RUNS: ${{ format('[{{"source":"{0}","run_id":"{1}"}}]', inputs.source, inputs.run_id) }}
+          MASTER_ASOF: ${{ inputs.master_asof }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          args=(--selection-json "$SOURCE_RUNS" --report-output "$RUNNER_TEMP/source-ready.json")
+          if [ -n "$MASTER_ASOF" ]; then args+=(--master-asof "$MASTER_ASOF"); fi
+          if [ "$OPERATION" = publish_confirmed_partial ]; then args+=(--confirmed-partial); fi
+          uv run python -m baibai_batch.jobs.external_assessment_sources ready "${args[@]}"
+
+  notify:
+    needs: [acquire, handoff]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report the independent source receipt outcome
+        continue-on-error: true
+        env:
+          PYTHONPATH: batch/src
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SOURCE_GROUP: external-${{ inputs.source }}
+          ASOF: ${{ inputs.observation_date || inputs.master_asof }}
+          ACQUIRE_RESULT: ${{ needs.acquire.result }}
+          STAGE_RESULT: ${{ needs.handoff.result }}
+        run: python3 -m baibai_batch.observability.source_discord

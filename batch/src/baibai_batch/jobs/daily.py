@@ -547,6 +547,8 @@ def run_daily_batch_structured(
     quiet: bool = False,
     step_sink: StepSink | None = None,
     gate_explicit_asof: bool = False,
+    refresh_economic: bool = True,
+    acquire_market: bool = True,
 ) -> DailyBatchResult:
     notice = _Notice()
     steps: list[StepResult] = []
@@ -585,6 +587,8 @@ def run_daily_batch_structured(
                 quiet=quiet,
                 step_sink=record,
                 gate_explicit_asof=gate_explicit_asof,
+                refresh_economic=refresh_economic,
+                acquire_market=acquire_market,
             )
         except (BatchStepError, CalendarCoverageError) as exc:
             notice.failed_stage = exc.stage or "batch"
@@ -620,6 +624,8 @@ def _execute_daily_batch(
     quiet: bool = False,
     step_sink: StepSink | None = None,
     gate_explicit_asof: bool = False,
+    refresh_economic: bool = True,
+    acquire_market: bool = True,
 ) -> DailyBatchResult:
     target = asof or (
         batch_target_date(datetime.now(UTC)) if scheduled else datetime.now(_JST).date()
@@ -636,7 +642,7 @@ def _execute_daily_batch(
         deferred_failures.append(str(exc))
 
     screening_enabled = True
-    if asof is None or gate_explicit_asof:
+    if asof is None or gate_explicit_asof or scheduled:
         try:
             screening_enabled = _require_business_day(root / _MARKET_DB_RELPATH, target)
             if not screening_enabled:
@@ -654,12 +660,16 @@ def _execute_daily_batch(
     if screening_enabled:
         # Keep the acquisition groups independent. Their existing writers own
         # validation and chunk transactions; a later failure cannot undo a commit.
-        for name, command in (
-            ("refresh-edinet-documents", "refresh-edinet-documents"),
-            ("bootstrap-cache", "bootstrap-cache"),
-            ("refresh-edinet-metrics", "refresh-edinet-metrics"),
-            ("verify-cache-coverage", "verify-cache-coverage"),
-        ):
+        acquisitions = (
+            (
+                ("refresh-edinet-documents", "refresh-edinet-documents"),
+                ("bootstrap-cache", "bootstrap-cache"),
+                ("refresh-edinet-metrics", "refresh-edinet-metrics"),
+            )
+            if acquire_market
+            else ()
+        )
+        for name, command in (*acquisitions, ("verify-cache-coverage", "verify-cache-coverage")):
             try:
                 command_result = _run_step(
                     runner,
@@ -682,56 +692,58 @@ def _execute_daily_batch(
                 _record_deferred(exc)
         notice.screening_status = "published" if run_view is not None else "failed"
 
-    try:
-        _run_step(
-            runner,
-            name="edinet-research-facts",
-            argv=(_ENGINE, "screening", "refresh-edinet-facts", "--asof", asof_arg),
-            cwd=root,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-    except BatchStepError as exc:
-        _record_deferred(exc)
-
-    refresh_groups: list[tuple[int, list[str]]] = []
-    try:
-        source_list = _run_step(
-            runner,
-            name="economic-source-list",
-            argv=(_ENGINE, "collection", "economic", "list", "--format", "json"),
-            cwd=root,
-            echo_stdout=False,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-        refresh_groups = _economic_refresh_groups(_parse_economic_sources(source_list.stdout))
-    except BatchStepError as exc:
-        _record_deferred(exc)
-    for window_days, source_ids in refresh_groups:
-        start = target - timedelta(days=window_days)
+    if acquire_market:
         try:
             _run_step(
                 runner,
-                name=f"economic-source-refresh-{window_days}d",
-                argv=(
-                    _ENGINE,
-                    "collection",
-                    "economic",
-                    "refresh",
-                    *source_ids,
-                    "--start",
-                    start.isoformat(),
-                    "--end",
-                    asof_arg,
-                ),
+                name="edinet-research-facts",
+                argv=(_ENGINE, "screening", "refresh-edinet-facts", "--asof", asof_arg),
                 cwd=root,
-                echo_stdout=False,
                 quiet=quiet,
                 step_sink=step_sink,
             )
         except BatchStepError as exc:
             _record_deferred(exc)
+
+    if refresh_economic:
+        refresh_groups: list[tuple[int, list[str]]] = []
+        try:
+            source_list = _run_step(
+                runner,
+                name="economic-source-list",
+                argv=(_ENGINE, "collection", "economic", "list", "--format", "json"),
+                cwd=root,
+                echo_stdout=False,
+                quiet=quiet,
+                step_sink=step_sink,
+            )
+            refresh_groups = _economic_refresh_groups(_parse_economic_sources(source_list.stdout))
+        except BatchStepError as exc:
+            _record_deferred(exc)
+        for window_days, source_ids in refresh_groups:
+            start = target - timedelta(days=window_days)
+            try:
+                _run_step(
+                    runner,
+                    name=f"economic-source-refresh-{window_days}d",
+                    argv=(
+                        _ENGINE,
+                        "collection",
+                        "economic",
+                        "refresh",
+                        *source_ids,
+                        "--start",
+                        start.isoformat(),
+                        "--end",
+                        asof_arg,
+                    ),
+                    cwd=root,
+                    echo_stdout=False,
+                    quiet=quiet,
+                    step_sink=step_sink,
+                )
+            except BatchStepError as exc:
+                _record_deferred(exc)
 
     export_argv = [
         sys.executable,
@@ -836,8 +848,8 @@ def build_parser() -> argparse.ArgumentParser:
             "run independent Screening and indicator machine updates -> read-model export"
         ),
     )
-    target_group = parser.add_mutually_exclusive_group()
-    target_group.add_argument(
+    # A fixed target date and the scheduled eligibility gate are independent.
+    parser.add_argument(
         "--asof",
         type=str,
         help=(
@@ -845,11 +857,11 @@ def build_parser() -> argparse.ArgumentParser:
             "(manual rerun / past date); default is today in JST, gated by the market calendar"
         ),
     )
-    target_group.add_argument(
+    parser.add_argument(
         "--scheduled",
         action="store_true",
         help=(
-            "resolve the target from the 07:43 UTC batch cron and apply the business-day gate; "
+            "resolve the 13:43 UTC target and apply the business-day gate; "
             "for the scheduled workflow only"
         ),
     )
@@ -881,6 +893,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="suppress step output; use the manifest/log files for detail",
     )
+    parser.add_argument(
+        "--saved-inputs",
+        action="store_true",
+        help="use saved source inputs; acquisition is a separate batch",
+    )
+    parser.add_argument(
+        "--saved-economic",
+        action="store_true",
+        help="read economic inputs without external acquisition",
+    )
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     return parser
 
@@ -907,6 +929,9 @@ def main(argv: list[str] | None = None) -> int:
             asof=asof,
             runner=_run_subprocess,
             scheduled=args.scheduled,
+            refresh_economic=not (args.saved_economic or args.saved_inputs),
+            acquire_market=not args.saved_inputs,
+            gate_explicit_asof=args.scheduled,
             notice_output=notice_output,
             quiet=args.quiet or args.format == "json",
         )

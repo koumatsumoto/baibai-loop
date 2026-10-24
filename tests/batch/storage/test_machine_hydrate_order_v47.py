@@ -13,20 +13,8 @@ ROOT = Path(__file__).resolve().parents[3]
 @pytest.mark.parametrize(
     ("workflow", "job", "pull", "first_reader"),
     [
-        ("cloud-daily-batch.yml", "daily", "pull-machine", "baibai-batch daily"),
+        ("cloud-daily-batch.yml", "daily", "pull-machine", "source_integration apply"),
         ("cloud-materialize.yml", "materialize", "pull-machine", "baibai_web.materialize"),
-        (
-            "cloud-external-assessment.yml",
-            "publish",
-            "pull-market",
-            "external_assessment_sources publish",
-        ),
-        (
-            "cloud-tradingview-snapshot.yml",
-            "snapshot",
-            "pull-market",
-            "preflight_snapshot",
-        ),
     ],
 )
 def test_machine_pull_and_full_hydrate_precede_first_market_reader(
@@ -51,3 +39,23 @@ def test_machine_pull_and_full_hydrate_precede_first_market_reader(
         assert commands[pull_index].index(f"r2_transfer.sh {pull}") < commands[pull_index].index(
             "r2_transfer.sh hydrate-market"
         )
+
+
+def test_source_acquisitions_never_pull_or_hydrate_the_full_machine():
+    for workflow, job in (
+        ("cloud-tradingview-snapshot.yml", "snapshot"),
+        ("cloud-market-source.yml", "acquire"),
+        ("cloud-economic-source.yml", "acquire"),
+        ("cloud-external-assessment-source.yml", "acquire"),
+    ):
+        document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+        text = str(document["jobs"][job])
+        for command in (
+            "pull-market",
+            "pull-machine",
+            "pull-app",
+            "hydrate-market",
+            "publish-lake",
+            "publication_lease",
+        ):
+            assert command not in text

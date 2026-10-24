@@ -8,6 +8,8 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from .receipt_policy import retain_unchanged
+
 
 @dataclass(frozen=True, slots=True)
 class SourceDocument:
@@ -43,7 +45,7 @@ def store_document(connection: sqlite3.Connection, document: SourceDocument) -> 
         "WHERE source_id = ? AND request_key = ? ORDER BY fetched_at DESC LIMIT 1",
         (document.source_id, document.request_key),
     ).fetchone()
-    if previous is not None and tuple(previous) == received:
+    if previous is not None and tuple(previous) == received and not retain_unchanged.get():
         return False
     connection.execute(
         "INSERT INTO economic_source_documents "

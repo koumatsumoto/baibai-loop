@@ -49,6 +49,13 @@ class MemoryR2Store:
         self.head_keys: list[str] = []
         self.put_keys: list[str] = []
 
+    def iter_objects(self, prefix: str):
+        yield from (
+            (key, len(value.body))
+            for key, value in sorted(self.values.items())
+            if key.startswith(prefix)
+        )
+
     def head(self, key: str) -> RemoteObject | None:
         self.head_keys.append(key)
         value = self.values.get(key)

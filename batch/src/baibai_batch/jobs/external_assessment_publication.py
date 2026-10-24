@@ -110,6 +110,8 @@ def _import_confirmed_originals(
     plan: RunPlan,
     stages: dict[int, tuple[CohortStage, str]],
     sqlite_path: Path,
+    *,
+    retained: tuple[set[tuple[int, int]], dict[str, str]] | None = None,
 ) -> tuple[int, set[tuple[int, int]], dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
     """Import one bounded bundle at a time; defer L2 until every bundle is valid."""
     source_inserted = 0
@@ -142,6 +144,13 @@ def _import_confirmed_originals(
                 selected_digests[response.receipt_id] = equity_web_response_digest(response)
                 source_months.add((response.received_at_utc.year, response.received_at_utc.month))
             source_inserted += equity_web_import_responses(sqlite_path, responses)
+            if retained is not None:
+                retained[0].update(
+                    (item.received_at_utc.year, item.received_at_utc.month) for item in responses
+                )
+                retained[1].update(
+                    (item.receipt_id, equity_web_response_digest(item)) for item in responses
+                )
             # Responses and their decompressed bodies die with this bundle iteration.
             del responses
         for entry in stage.result.entries:
@@ -179,7 +188,13 @@ def prepare_publication(
     store: ObjectStore, plan: RunPlan, *, confirmed_partial: bool = False
 ) -> PreparedPublication:
     """Validate one exact plan's handoff without importing or publishing anything."""
-    stages = read_stages(store, plan)
+    return prepare_saved_stages(plan, read_stages(store, plan), confirmed_partial=confirmed_partial)
+
+
+def prepare_saved_stages(
+    plan: RunPlan, stages: dict[int, tuple[CohortStage, str]], *, confirmed_partial: bool = False
+) -> PreparedPublication:
+    """Apply the same exact/partial checks to an immutable stage selection."""
     results = [stage.result for stage, _ in stages.values()]
     if not confirmed_partial and any(
         entry.http_status in {403, 429} for result in results for entry in result.entries

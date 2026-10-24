@@ -30,21 +30,67 @@ gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。非営業日はScreeningをskipして旧runの値・ID・実計算時刻を保ち、経済原本と表示を更新する。
+過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。非営業日はScreeningをskipして旧runの値・ID・実計算時刻を保つ。原本の取得は独立scheduleのsource workflowが所有する。
 
-dailyは取得→Screening→独立指標refresh→全views exportを行う。Screening取得/計算失敗でも独立した後段は進める。exit 0はexport完了、exit 1は致命的失敗で公開停止、exit 3はexport完了だが一部工程が失敗した結果。R2公開は後段なので、export_readyやworkflow失敗だけで反映状態を断定しない。
+共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に、開始時点のready受領一覧を固定する。取得matrixや全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuild、EDINETのoffline抽出、保存入力だけのScreening、既存materializeを実行し、一つのfull lake releaseと表示へ反映する。`--saved-inputs`で外部取得を呼ばない。source失敗では前回の適格投影を保ち、正常sourceを進める。Screeningの鮮度・coverage不足は欠測や旧runとして残し、独立した表示生成は進める。exit 0はexport完了、exit 1は致命的失敗で公開停止、exit 3はexport完了だが一部工程が失敗した結果。R2公開は後段なので、export_readyやworkflow失敗だけで反映状態を断定しない。
 
-取得期限はworkflowが生成・公開の余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。日次に移行・全期間backfill・較正再構築を代行させない。
+取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。日次に移行・全期間backfill・較正再構築を代行させない。
 
-通知とrun log、store push、release、views/meta.jsonを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。watchdogのMISSINGは対象日の成功run不足で、過去日確認は次を使う。
+取得／private受領の通知と、共通統合の正本反映／読戻し／表示／lease解放を区別し、run log、store push、release、views/meta.jsonを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。watchdogは取得を12:00 UTC、共通統合を16:00 UTCに別々のschedule/asofで監視する。限定sourceの成功を全体成功へ数えず、経済は取得jobの受領markerを読む。MISSINGは対象日の成功run不足で、過去日確認は次を使う。
 
 ```bash
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 ```
 
+### マクロ原本の独立更新
+
+`cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領を独立させる。取得側は担当groupだけの再生成可能なread-only inputを読み、正本全体をpullしない。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。
+
+| acquisition group / provider | 取得方式と比較範囲 |
+| --- | --- |
+| boj / boj・boj_timeseries | XLSX全体または系列API。月次・四半期370日、日次14日 |
+| estat / estat・estat_dashboard | 指定系列の全体応答をfilter、370日。dashboard速報native行も保存し、L2のfinal_onlyとは分離 |
+| fred_csv | 全体CSVをfilter。日次14日、週次60日、月次・四半期370日 |
+| frb_h15 | 期間指定CSV、14日。このgroupだけ既存browser fallbackを準備。現行Nikkeiは直接HTTP、PMIは直接PDFでbrowserを使わない |
+| cftc | 期間指定JSON、60日。上限到達は完全取得にしない |
+| ecb_fx・mof_jgb | 全体ファイルをfilter、14日 |
+| multpl | 全体のdated表をfilter、14日 |
+| umich_sca | 全体CSVをfilter、370日 |
+| jquants / indices・flows・options | indicesは14日、flowsは公表日基準60日、optionsは日別要求14日。共通credentialと既存2req/sを維持 |
+| nikkei_indexes | 月別ページを取得後filter、14日 |
+| yahoo | 期間指定API、14日 |
+| spglobal_pmi | manifest内の対象PDFを再確認、370日。同URLも比較。新配信元・速報採用は #1477 の未完了範囲 |
+| tsr_bankruptcies | 全体JSON原本を再確認、370日の取得記録 |
+| matsui_margin | 現在ページを一回取得。当日の受領だけを記録し、過去を回復できた扱いにしない |
+
+今回の数値は現行窓を保守的に維持する決定であり、全sourceの最低必要窓を実証したという意味ではない。PAYEMSの公表遅延＋通常2回改訂、GDPの四半期終了後3か月の公表を落とさないため、月次・四半期を一律「当月＋直前2完了月」へ縮めない。optionsの日別要求も14日から増やさない。全体配信では比較範囲を絞っても通信量削減を主張しない。
+
+`--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗は通知の「全履歴の限定回復待ち」に出し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
+
+```bash
+uv run baibai-engine collection economic groups
+gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
+```
+
+限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。経済の取得開始は従来dailyと同じ07:43 UTCで、土日も実行する。45分の取得期限と60分のjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値でReading/Research/表示を更新する。遅着は次回統合へ入り、取得成功ごとのmaterializeは行わない。土日も共通統合する。
+
+### source入力・市場原本の引渡しと初回移行
+
+共通統合だけが`cloud-publish`と共通leaseを持つ。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・TV master補完・経済取得は共有quotaを守る。
+
+市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewは既存slotとexact-date master方針を保ち、自分の受領だけをprivate stageへ渡す。
+
+市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同日最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
+
+移行はコード反映と既存scheduleの置換を同時に扱う。最初に既存正本から共通統合を一回実行し、`coordination/source-inputs/`の担当inputを生成する。input不足を全DB取得や空seedで迂回しない。その後に独立取得の結果、共通統合のrelease/readback、表示時刻、watchdogを順に受け入れる。新bucket／権限は不要。旧daily内の取得とsource別publishを並走させない。localの複合daily入口は旧手動経路として残るため、新scheduleと重ねず、保存入力の生成には`--saved-inputs`を使う。
+
+通常の遅着・未統合受領は次回共通統合、必要なら既存dailyの手動実行で拾う。一つのinput exportが失敗しても前回pointerを保ち、正常groupは更新する。経済の実取得はseedと同値でも一時受領へ残し、統合時にfresh canonicalと比較して変更だけ追記する。同値no-opを統合したstageもsource watermarkを進める。
+
+すでに後続stageを統合した後に古いstageが現れた場合は`needs_explicit_recovery`として保全し、自動で現在値を巻き戻さない。stage ID、理由、対象source/期間、最新integrated markerを確認する。現行値の回復なら当該sourceを新runで再取得し、次回統合する。過去vintageそのものの補完が必要なら通常dailyへ再投入せず、原本を固定した個別回復として主担当が範囲と再投影を確認する。marker削除、受領日時の書換え、古いDBの丸ごとpushで通さない。全履歴rebuildは通常のrecent確認から分ける。
+
 ## クラウド正本をローカルへ取得する
 
-分析用pull前にdailyのqueued/in_progressを確認し、通常は完了後に取得する。ローカルpublisherとも重ねない。TradingViewの完了releaseは現在machine bundleへhydrateでき、materializeはmachine/L1を書かないので待機対象ではない。
+分析用pull前にdailyのqueued/in_progressを確認し、通常は完了後に取得する。ローカルpublisherとも重ねない。TradingViewの未統合stageは共通統合後にreleaseへ入る。materialize単独はmachine/L1を書かない。
 
 ```bash
 batch/scripts/pull.sh
@@ -383,7 +429,7 @@ importは原本を保持して選択attemptを再解析する。parse失敗時�
 
 ### 日次取得と固定コホートの再開
 
-source別planは固定release/calendar/masterとparser/request条件へ束縛する。sourceはmonex/rakuten/kabumap/minkabu、allは4取得元を選ぶ。同sourceのlocalとActions取得を重ねない。scheduleの対象日は元runから固定し、受領日をmaster/cron日へ替えない。
+source別planは固定release/calendar/masterとparser/request条件へ束縛する。19:13 JSTの新規plan作成時に当日exact masterがまだlake未反映なら、J-Quants/TVのready handoffが公開する小さなmaster/calendar依存入力を使う。価格を含むSQLite全体は取得せず、原受領ID・元の受領時刻・dependency/handoff hashとbase releaseをplanへ固定する。過去masterを当日へ読み替えない。継続pagination・不完全master・calendarの欠落は不適格として取得前に失敗し、既存planの再開は最新依存を読み直さない。初回移行ではinput生成後に新しいJ-Quants/TV取得がdependency付きreadyを保存したことを確認してから外部評価を受け入れる。masterが遅延した場合はそのsourceを限定再実行し、共通統合の先行公開で帳尻を合わせない。sourceはmonex/rakuten/kabumap/minkabu、allは4取得元を選ぶ。同sourceのlocalとActions取得を重ねない。scheduleの対象日は元runから固定し、受領日をmaster/cron日へ替えない。
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \
@@ -396,11 +442,11 @@ scheduled再開は既存external-assessment-daily-<source>-YYYY-MM-DDをその�
 
 raw bundleをstageより先にuploadする。未確定GETはhard kill後に繰り返され得る。external-assessment/raw/は3日期限の短期handoffであり、厳密72時間でも長期L1でもない。実lifecycleを確認し、期限切れ原本の復元を保証しない。publisherがmarketへ取り込み固定lakeを読戻して初めて長期L1となる。
 
-取得はlease外、公開はcloud-publishと共通lease内でfresh pull/hydrateして行う。readyなexact source planのraw/typed/historyを照合し、一回の共通releaseへ公開する。history_digestsは保存後baselineで、更新前の全履歴保全まで証明したとは説明しない。原本・stage破損を自動隔離して残りだけ公開せず、source指定で切り分ける。
+取得はlease外でsourceごとにacquire→inspect→immutable readyを完了する。共通統合scheduleはその時点のready exact planだけを固定し、raw/typed/historyを照合して一回の共通releaseへ公開する。mutable checkpointの更新を同じrun途中で読み直さない。history_digestsは保存後baselineで、更新前の全履歴保全まで証明したとは説明しない。原本・stage破損はsource別の失敗として報告し、正常sourceの統合を進める。失敗sourceのterminalは閉じない。
 
 readback後にsource別terminalを保存する。pointer成功後のterminal失敗は未反映と断定せず、既存terminalを読んで再開する。sealed sourceは以前の検証としてno-op、未sealedはfresh hydrateからidempotentに再適用する。未確認件数を0にしない。
 
-403/429・未完了sourceを自動で閉じない。確定分だけで閉じる明示操作はsource単独で行い、取得を再実行しない。
+403/429・未完了sourceを自動で閉じない。確定分だけを明示する操作はsource単独で行い、取得を再実行しない。`publish_confirmed_partial`は確定stageをprivate readyへ固定し、実際の公開とterminalは次回共通統合で行う。
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \
@@ -415,7 +461,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 slotは既存workflowを正本とする。営業日は15:30以降の当日master、休場日は09:00以降の直近営業日の保存済みexact-date masterを使う。calendar/master不足や引け前は取得せず、時間guardをmaster指定で解除しない。targetは実開始時のJST当日、fetched_atは実受領でprovider公表日ではない。
 
-同日最初の正常row・null・unresolvedを保持し、後続は未保存銘柄だけ取得する。全件account済みは全metric利用可能の意味ではない。新rowがあればpartialを公開し、日跨ぎresponseを前日へ保存しない。過去日の穴を現在値で補わない。TVはmarket releaseだけを更新し、remote market.sqlite/machine receipt/servingは更新しない。
+同日最初の正常row・null・unresolvedを保持し、後続は未保存銘柄だけ取得する。全件account済みは全metric利用可能の意味ではない。新rowを含むpartial受領をprivate stageへ保存し、日跨ぎresponseを前日へ保存しない。過去日の穴を現在値で補わない。TV取得jobはreleaseやservingを直接公開せず、共通統合が既存の正常選択を狭めずに反映する。
 
 ### 当日の手動観測
 
@@ -424,7 +470,7 @@ gh workflow run cloud-tradingview-snapshot.yml --ref main \
   -f observation_master_asof=<YYYY-MM-DD> -f interval=15
 ```
 
-同日再開は同じmaster日を指定する。target/master、first/last受領、追加/残件、stop_reason、releaseとlease解放を確認する。失敗runでも原受領だけを公開する経路があるため、L1と正常L2の件数を混同しない。storage/internal障害や強制終了を取得成功としない。
+同日再開は同じmaster日を指定する。target/master、first/last受領、追加/残件、stop_reason、private stageを確認する。共通統合側でrelease/readbackとlease解放を確認する。失敗runでも原受領だけを保存する経路があるため、L1と正常L2の件数を混同しない。storage/internal障害や強制終了を取得成功としない。
 
 ### 初期設定と認証の復旧
 

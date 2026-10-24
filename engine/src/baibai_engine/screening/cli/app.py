@@ -148,6 +148,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="screening target date (YYYY-MM-DD); computes each source window automatically",
     )
 
+    bootstrap_parser.add_argument(
+        "--source-group",
+        default="all",
+        choices=(
+            "all",
+            "jquants-market",
+            "jquants-financial",
+            "edinet-list",
+            "jpx-earnings",
+            "jpx-regulations",
+        ),
+        help="acquire only one independent source group",
+    )
+
     refresh_edinet_parser = subparsers.add_parser(
         "refresh-edinet-documents",
         help="refresh mutable and unresolved EDINET document-list state",
@@ -747,7 +761,11 @@ def main(argv: list[str] | None = None) -> int:
     with ExitStack() as resources:
         jquants_refresh = (
             JQuantsRefresh(sqlite_path, config.jquants_api_key)
-            if args.command in {"bootstrap-cache", "backfill-history", "backfill-master"}
+            if args.command in {"backfill-history", "backfill-master"}
+            or (
+                args.command == "bootstrap-cache"
+                and args.source_group in {"all", "jquants-market", "jquants-financial"}
+            )
             else None
         )
         if jquants_refresh is not None:
@@ -758,6 +776,7 @@ def main(argv: list[str] | None = None) -> int:
                 sqlite_path=sqlite_path,
             )
             if config.edinet_api_key
+            and (args.command != "bootstrap-cache" or args.source_group in {"all", "edinet-list"})
             and args.command
             in {
                 "bootstrap-cache",
@@ -770,7 +789,10 @@ def main(argv: list[str] | None = None) -> int:
         if edinet_refresh is not None:
             resources.callback(edinet_refresh.close)
         jpx_refresh = (
-            JPXRefresh(sqlite_path=sqlite_path) if args.command == "bootstrap-cache" else None
+            JPXRefresh(sqlite_path=sqlite_path)
+            if args.command == "bootstrap-cache"
+            and args.source_group in {"all", "jpx-earnings", "jpx-regulations"}
+            else None
         )
         if jpx_refresh is not None:
             resources.callback(jpx_refresh.close)
@@ -808,6 +830,7 @@ def main(argv: list[str] | None = None) -> int:
                 asof_date=_parse_iso_date(args.asof),
                 providers=providers,
                 sqlite_path=sqlite_path,
+                source_group=args.source_group,
             )
 
         if args.command == "refresh-edinet-documents":

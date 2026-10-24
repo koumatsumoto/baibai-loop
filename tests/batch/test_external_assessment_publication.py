@@ -56,10 +56,11 @@ RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 
 
 def test_acquire_workflow_timeout_can_start_a_harmless_command():
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     commands = [
         shlex.split(line.strip())
-        for step in workflow["jobs"]["acquire"]["steps"]
+        for step in yaml.safe_load(
+            WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text()
+        )["jobs"]["acquire"]["steps"]
         for line in step.get("run", "").splitlines()
         if line.strip().startswith("timeout ")
     ]
@@ -86,6 +87,7 @@ def publication(tmp_path, monkeypatch):
         external_assessment.RATING_DATASET,
         external_assessment.QUANTS_DATASET,
         external_assessment.ANALYST_FORECAST_DATASET,
+        "tradingview.forecast_snapshots",
     )
     narrow_release_policy(monkeypatch, datasets=datasets)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
@@ -538,33 +540,35 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
 def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
-    assert "publish_confirmed_partial" in workflow["concurrency"]["group"]
-    assert "github.run_id" in workflow["concurrency"]["group"]
-    acquire_job = workflow["jobs"]["acquire"]
+    acquire_job = workflow["jobs"]["source"]
     assert acquire_job["strategy"]["max-parallel"] == "4"
     assert acquire_job["strategy"]["fail-fast"] == "false"
-    assert acquire_job["concurrency"]["group"] == "external-assessment-acquire-${{ matrix.source }}"
-    assert "include" in acquire_job["strategy"]["matrix"]
-    assert int(acquire_job["timeout-minutes"]) < 360
-    publisher_job = workflow["jobs"]["publish"]
-    assert publisher_job["concurrency"]["group"] == "cloud-publish"
-    runs = [step.get("run", "") for step in publisher_job["steps"]]
-    lease = next(i for i, text in enumerate(runs) if "publication_lease acquire" in text)
-    hydrate = next(i for i, text in enumerate(runs) if "hydrate-market" in text)
-    publish = next(
-        i for i, step in enumerate(publisher_job["steps"]) if step.get("id") == "publish"
+    assert acquire_job["uses"] == "./.github/workflows/cloud-external-assessment-source.yml"
+    child = yaml.load(
+        WORKFLOW.with_name("cloud-external-assessment-source.yml").read_text(),
+        Loader=yaml.BaseLoader,
     )
-    assert lease < hydrate < publish
-    assert "--lease-handle" in runs[publish]
-    assert "external_assessment_sources publish" in runs[publish]
-    assert "--selection-json" in runs[publish]
-    assert "--confirmed-partial" in runs[publish]
-    assert "needs.acquire.result" not in publisher_job["if"]
-    assert int(publisher_job["timeout-minutes"]) < 120
+    assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
+    assert "include" in acquire_job["strategy"]["matrix"]
+    assert int(child["jobs"]["acquire"]["timeout-minutes"]) < 360
+    assert "publish" not in child["jobs"]
+    handoff = child["jobs"]["handoff"]
+    assert "always()" in handoff["if"]
+    runs = [step.get("run", "") for step in handoff["steps"]]
+    assert any("external_assessment_sources ready" in text for text in runs)
+    assert any("--confirmed-partial" in text for text in runs)
+    assert not any("hydrate-market" in text or "publication_lease" in text for text in runs)
+    common = yaml.load(
+        WORKFLOW.with_name("cloud-daily-batch.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    daily = common["jobs"]["daily"]
+    assert daily["concurrency"]["group"] == "cloud-publish"
+    assert "needs" not in daily
+    assert int(daily["timeout-minutes"]) < 120
     assert "refs/heads/main" in workflow["jobs"]["plan"]["if"]
     assert not any(
         "upload-artifact" in step.get("uses", "")
-        for job in workflow["jobs"].values()
+        for job in child["jobs"].values()
         for step in job["steps"]
     )
     assert check_workflow(WORKFLOW) == []

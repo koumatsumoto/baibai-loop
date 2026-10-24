@@ -17,21 +17,20 @@ from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screeni
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
 
 
-def test_schedule_runs_at_1643_jst_on_weekdays() -> None:
+def test_common_integration_runs_at_2243_jst_including_weekends() -> None:
     workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
-    assert workflow["on"]["schedule"] == [{"cron": "43 7 * * 1-5"}]
+    assert workflow["on"]["schedule"] == [{"cron": "43 13 * * *"}]
 
 
-def test_acquisition_cutoff_is_set_before_work_and_reserves_publication_time() -> None:
-    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+def test_common_integration_has_no_provider_acquisition_credentials_or_cutoff():
+    workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     job = workflow["jobs"]["daily"]
-    assert job["timeout-minutes"] == 90
-    cutoff = job["steps"][0]["run"]
-    assert "BAIBAI_ACQUISITION_DEADLINE" in cutoff
-    assert "date +%s" in cutoff
-    assert "35 * 60" in cutoff
-    assert '"$GITHUB_ENV"' in cutoff
+    assert int(job["timeout-minutes"]) < 120
+    assert "needs" not in job
+    text = str(job)
+    for key in ("JQUANTS_API_KEY", "EDINET_API_KEY", "BAIBAI_ACQUISITION_DEADLINE", "ESTAT_APP_ID"):
+        assert key not in text
 
 
 def _daily_batch_env() -> dict[str, str]:
@@ -82,7 +81,6 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "validate-input",
         "setup",
         "sync",
-        "browser-smoke",
         "pull",
         "batch",
         "upload-stores",
@@ -127,18 +125,13 @@ def test_scheduled_trigger_uses_cron_target_mode(steps_by_id: dict[str, dict]) -
 
     assert 'if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]' in batch_run
     assert "args+=(--scheduled)" in batch_run
-    assert 'elif [[ -n "$MANUAL_ASOF" ]]' in batch_run
+    assert 'args+=(--asof "$MANUAL_ASOF")' not in batch_run
 
 
-def test_isolated_browser_smoke_runs_before_any_credential_bearing_step(
-    steps: list[dict], steps_by_id: dict[str, dict]
-) -> None:
-    ids = [step.get("id") for step in steps]
-    assert ids.index("sync") < ids.index("browser-smoke") < ids.index("pull")
-    smoke = steps_by_id["browser-smoke"]
-    assert "env" not in smoke
-    assert "BrowserFetcher" in smoke["run"]
-    assert "data:text/html" in smoke["run"]
+def test_daily_uses_saved_economic_inputs_and_has_no_browser_setup(steps_by_id):
+    assert "--saved-inputs" in steps_by_id["batch"]["run"]
+    assert "ESTAT_APP_ID" not in steps_by_id["batch"]["env"]
+    assert "browser-smoke" not in steps_by_id
 
 
 def test_batch_step_writes_the_notice_and_finalizes_outputs_before_fatal_exit(
@@ -353,7 +346,10 @@ def test_data_credentials_are_absent_from_job_and_setup_steps(
         "lease-acquire": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "pull": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "hydrate": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
-        "batch": {"JQUANTS_API_KEY", "ESTAT_APP_ID", "EDINET_API_KEY"},
+        "source-plan": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "source-integration": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "source-seal": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "source-inputs": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "publish-lake": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "upload-stores": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "publish-serving": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
@@ -396,7 +392,7 @@ def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
 
 def test_daily_keeps_1643_schedule_without_tradingview_step_or_notice() -> None:
     workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-    assert workflow["on"]["schedule"] == [{"cron": "43 7 * * 1-5"}]
+    assert workflow["on"]["schedule"] == [{"cron": "43 13 * * *"}]
     steps = workflow["jobs"]["daily"]["steps"]
     assert "tradingview" not in {step.get("id") for step in steps}
     notify = next(step for step in steps if step.get("id") == "notify")
@@ -422,12 +418,12 @@ def test_indicator_only_publication_keeps_the_existing_l1_release(
         ("invalid_json", True, True),
         ("invalid_field", True, True),
         ("unknown_change", True, True),
-        ("false", False, False),
+        ("false", True, False),
         ("true", True, False),
-        ("invalid_asof", False, False),
+        ("invalid_asof", True, False),
     ],
 )
-def test_daily_notice_only_explicit_false_skips_actual_lake_command(
+def test_common_replay_forces_lake_publication_even_if_daily_observer_is_unchanged(
     tmp_path: Path,
     steps_by_id: dict[str, dict],
     notice_case: str,
@@ -473,6 +469,7 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
         "GITHUB_OUTPUT": str(github_output),
         "GITHUB_EVENT_NAME": "schedule",
         "MANUAL_ASOF": "",
+        "INTEGRATION_ASOF": "2026-10-14",
         "RECORDED": str(recorded),
     }
     result = subprocess.run(
@@ -512,3 +509,52 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize(("event", "scheduled"), [("schedule", True), ("workflow_dispatch", False)])
+def test_workflow_constructed_target_and_gate_arguments_are_accepted(
+    tmp_path, steps_by_id, event, scheduled
+):
+    from baibai_batch.jobs.daily import build_parser
+
+    prefix = steps_by_id["batch"]["run"].split("set +e", 1)[0]
+    prefix = prefix.replace("${{ steps.source-plan.outputs.asof }}", "2026-10-24")
+    output = tmp_path / "argv"
+    script = (
+        prefix
+        + """
+python3 -c 'import json,sys; from pathlib import Path; Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]))' "$ARGS_PATH" "${args[@]}"
+"""
+    )
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],
+        env={
+            **os.environ,
+            "GITHUB_EVENT_NAME": event,
+            "MANUAL_ASOF": "2026-10-24",
+            "INTEGRATION_ASOF": "2026-10-24",
+            "RUNNER_TEMP": str(tmp_path),
+            "ARGS_PATH": str(output),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    argv = json.loads(output.read_text())
+    assert argv.count("--asof") == 1
+    parsed = build_parser().parse_args(argv)
+    assert parsed.asof == "2026-10-24"
+    assert parsed.scheduled is scheduled
+    assert parsed.saved_inputs is True
+
+
+def test_integration_date_uses_original_run_and_manual_clock():
+    from datetime import UTC, date, datetime
+
+    from baibai_batch.jobs.schedule import integration_target_date
+
+    original = datetime(2026, 10, 23, 13, 43, tzinfo=UTC)
+    assert integration_target_date(original, scheduled=True) == date(2026, 10, 23)
+    morning = datetime(2026, 10, 24, 0, 1, tzinfo=UTC)
+    assert integration_target_date(morning, scheduled=False) == date(2026, 10, 24)
+    assert integration_target_date(morning, scheduled=True) == date(2026, 10, 23)

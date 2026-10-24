@@ -13,7 +13,14 @@ from baibai_engine.collection.economic.provider_specs import ProviderSpec
 from baibai_engine.collection.economic.sources import SourceDefinition
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-from .base import FetchContext, HttpSession, IndicatorsProviderError, fetch_bytes
+from .base import (
+    FetchContext,
+    HttpSession,
+    IndicatorsProviderError,
+    ProviderFetchStoppedError,
+    SourceWithheldError,
+    fetch_bytes,
+)
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 RELEASE_URL_RE = re.compile(
@@ -26,8 +33,7 @@ MANIFEST_GRACE_DAY = 10
 class SpGlobalPmiSource:
     """Acquire original monthly PDFs; interpreting their headline belongs to L2.
 
-    Ordinary refresh reuses a received body at the same manifest URL. A forced
-    all-history acquisition fetches every requested PDF, including corrections
+    Every selected-range refresh rechecks known manifest URLs, including corrections
     published at an unchanged URL. Already received documents survive a later
     download or manifest-coverage failure because the caller stores each yield.
     """
@@ -45,6 +51,7 @@ class SpGlobalPmiSource:
         context: FetchContext | None,
         existing: Mapping[str, SourceDocument],
         force: bool,
+        recheck_existing: bool = True,
     ) -> Iterator[SourceDocument]:
         manifest = load_manifest(MANIFEST_PATH)
         releases = manifest.get(source.provider_series_id)
@@ -52,6 +59,7 @@ class SpGlobalPmiSource:
             raise IndicatorsProviderError(
                 f"spglobal_pmi has no release manifest for {source.provider_series_id!r}"
             )
+        failures: list[str] = []
         for entry in releases:
             if not start <= entry.observed_at <= end:
                 continue
@@ -62,15 +70,25 @@ class SpGlobalPmiSource:
             }
             stored = existing.get(key)
             if (
-                not force
+                not recheck_existing
+                and not force
                 and stored is not None
-                and stored.source_id == source.source_id
                 and stored.source_url == entry.url
-                and stored.content_type == "application/pdf"
                 and stored.metadata == metadata
+                and stored.content_type == "application/pdf"
             ):
                 continue
-            body = fetch_pdf_bytes(entry.url, session=session, context=context)
+            try:
+                body = fetch_pdf_bytes(entry.url, session=session, context=context)
+            except ProviderFetchStoppedError:
+                raise
+            except SourceWithheldError as error:
+                # This PMI route is currently refused with 403. Do not fan the
+                # refusal out across the remaining monthly PDFs in this pass.
+                raise ProviderFetchStoppedError(str(error)) from error
+            except IndicatorsProviderError as error:
+                failures.append(str(error))
+                continue
             yield SourceDocument(
                 source_id=source.source_id,
                 request_key=key,
@@ -81,7 +99,33 @@ class SpGlobalPmiSource:
                 metadata=metadata,
             )
         # Report an unavailable recent range without throwing away known originals.
-        _require_current_manifest(source, releases, end=end)
+        try:
+            _require_current_manifest(source, releases, end=end)
+            _require_target_months(releases, start=start, end=end)
+        except IndicatorsProviderError as error:
+            failures.append(str(error))
+        if failures:
+            raise IndicatorsProviderError(
+                f"spglobal_pmi incomplete: {len(failures)} document/manifest failures; "
+                + "; ".join(failures[:2])
+            )
+
+
+def _require_target_months(releases: tuple[Release, ...], *, start: date, end: date) -> None:
+    first = max(start, SpGlobalPmiSource.spec.all_history_start or start)
+    if first.day != 1:
+        first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    expected = _expected_newest_month(end)
+    available = {release.observed_at for release in releases}
+    missing: list[str] = []
+    while first <= expected:
+        if first not in available:
+            missing.append(first.isoformat())
+        first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    if missing:
+        raise IndicatorsProviderError(
+            "spglobal_pmi manifest is missing target months: " + ", ".join(missing)
+        )
 
 
 def fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | None) -> bytes:

@@ -29,7 +29,8 @@ ROOT = Path(__file__).resolve().parents[2]
 WATCHDOG_WORKFLOW = ROOT / ".github/workflows/cloud-batch-watchdog.yml"
 
 # The instant a scheduled watchdog firing on 2026-08-03 evaluates.
-FIRED_AT = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+FIRED_AT = datetime(2026, 8, 3, 16, 0, tzinfo=UTC)
+ACQUISITION_CHECK = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
 WEBHOOK = "https://discord.com/api/webhooks/111/token-value"
 
 
@@ -480,7 +481,7 @@ def test_the_day_a_run_answers_for_is_anchored_on_the_batch_cron_not_on_midnight
     # 07:00 UTC is before the batch's own 07:43 UTC cron, so the day in question is
     # still the previous one.
     assert batch_target_date(datetime(2026, 8, 3, 7, 0, tzinfo=UTC)) == date(2026, 8, 2)
-    assert batch_target_date(datetime(2026, 8, 3, 7, 43, tzinfo=UTC)) == date(2026, 8, 3)
+    assert batch_target_date(datetime(2026, 8, 3, 13, 43, tzinfo=UTC)) == date(2026, 8, 3)
 
 
 def test_the_observed_cross_midnight_failure_stays_on_its_cron_day() -> None:
@@ -559,7 +560,7 @@ def test_an_empty_check_date_closes_the_window_at_the_current_instant() -> None:
 
 
 def test_a_check_date_closes_the_window_at_the_scheduled_firing() -> None:
-    assert resolve_window_end("2026-08-01", now=FIRED_AT) == datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    assert resolve_window_end("2026-08-01", now=FIRED_AT) == datetime(2026, 8, 1, 16, 0, tzinfo=UTC)
 
 
 @pytest.mark.parametrize("value", ["2026-8-1", "2026/08/01", "01-08-2026", "today", "2026-13-01"])
@@ -740,7 +741,7 @@ def test_the_watchdog_uses_only_checkout_as_an_external_action() -> None:
     ]
 
 
-def test_the_watchdog_fires_on_weekdays_after_the_batch_is_due() -> None:
+def test_the_watchdog_covers_daily_macro_and_weekday_market_schedules() -> None:
     workflow = yaml.load(WATCHDOG_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert isinstance(workflow, dict)
     daily = yaml.load(
@@ -749,10 +750,123 @@ def test_the_watchdog_fires_on_weekdays_after_the_batch_is_due() -> None:
     )
     assert isinstance(daily, dict)
 
-    watchdog_cron = workflow["on"]["schedule"][0]["cron"]
+    watchdog_cron = workflow["on"]["schedule"][1]["cron"]
     batch_cron = daily["on"]["schedule"][0]["cron"]
     watchdog_minute, watchdog_hour, _, _, watchdog_days = watchdog_cron.split()
     batch_minute, batch_hour, _, _, batch_days = batch_cron.split()
 
-    assert watchdog_days == batch_days
+    assert watchdog_days == "*"
+    assert batch_days == "*"
+    assert "--weekdays-only" not in str(workflow["jobs"]["watchdog"])
+    assert "--market" in str(workflow["jobs"]["market"])
+    assert "--economic" in str(workflow["jobs"]["economic"])
     assert (int(watchdog_hour), int(watchdog_minute)) > (int(batch_hour), int(batch_minute))
+
+
+def test_limited_economic_success_cannot_cover_the_all_source_schedule(tmp_path, monkeypatch):
+    code, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        _listing(
+            _run(
+                created_at=ACQUISITION_CHECK - timedelta(hours=2),
+                display_title="economic fred_csv fred-payems",
+            )
+        ),
+        argv=["--economic", "--check-date", "2026-08-03"],
+    )
+    assert code == 0
+    assert "cloud-economic-sources" in _delivered_message(transport)
+
+
+def test_all_economic_source_results_must_report_one_common_day():
+    runs = parse_runs(
+        _listing(_run(created_at=ACQUISITION_CHECK - timedelta(hours=2), batch_asof=None))
+    )
+
+    def jobs(*args):
+        return {
+            "jobs": [
+                {
+                    "steps": [
+                        {"name": "Economic result for 2026-08-03", "status": "completed"},
+                        {"name": "Economic result for 2026-08-03", "status": "completed"},
+                    ]
+                }
+            ]
+        }
+
+    resolved = resolve_run_results(
+        runs,
+        repository="owner/repo",
+        window_end=ACQUISITION_CHECK,
+        window_hours=20,
+        read_jobs=jobs,
+        result_prefix="Economic result for ",
+        repeated_source_results=True,
+    )
+    assert (
+        evaluate(
+            resolved, window_end=ACQUISITION_CHECK, window_hours=20, target_date=date(2026, 8, 3)
+        ).state
+        == STATE_HEALTHY
+    )
+
+
+def test_economic_acquisition_clock_is_independent_of_the_late_integration(tmp_path, monkeypatch):
+    from baibai_batch.jobs.schedule import acquisition_target_date
+
+    instant = datetime(2026, 8, 3, 12, tzinfo=UTC)
+    assert acquisition_target_date(instant) == date(2026, 8, 3)
+    assert batch_target_date(instant) == date(2026, 8, 2)
+    code, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        _listing(
+            _run(
+                created_at=instant - timedelta(hours=1),
+                display_title="economic all all",
+            )
+        ),
+        argv=["--economic", "--check-date", "2026-08-03"],
+    )
+    assert code == 0
+    assert transport.calls == []
+    source = yaml.load(
+        (ROOT / ".github/workflows/cloud-economic-source.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    assert "publish" not in source["jobs"]
+    assert any(
+        str(step.get("name", "")).startswith("Economic result for ")
+        for step in source["jobs"]["acquire"]["steps"]
+    )
+
+
+def test_market_watchdog_does_not_let_later_edinet_slots_mask_a_missing_market_input_run(
+    tmp_path, monkeypatch
+):
+    rows = [
+        _run(
+            number=index,
+            created_at=ACQUISITION_CHECK - timedelta(hours=1),
+            display_title="market-acquisition " + scope,
+        )
+        for index, scope in enumerate(("edinet-metrics", "edinet-facts"), 1)
+    ]
+    code, transport = _run_main(
+        tmp_path, monkeypatch, _listing(*rows), argv=["--market", "--check-date", "2026-08-03"]
+    )
+    assert code == 0
+    assert "cloud-market-sources" in _delivered_message(transport)
+    rows.append(
+        _run(
+            number=3,
+            created_at=ACQUISITION_CHECK - timedelta(hours=2),
+            display_title="market-acquisition inputs",
+        )
+    )
+    code, transport = _run_main(
+        tmp_path, monkeypatch, _listing(*rows), argv=["--market", "--check-date", "2026-08-03"]
+    )
+    assert code == 0
+    assert transport.calls == []

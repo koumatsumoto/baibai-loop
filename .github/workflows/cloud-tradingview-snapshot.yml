@@ -20,16 +20,46 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-publish
+  group: tradingview-snapshot
   queue: max
   cancel-in-progress: false
 
 jobs:
   snapshot:
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
     if: ${{ inputs.observation_master_asof == '' || github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: tradingview-runtime
+    outputs:
+      cancellation-cancelled: ${{ steps.cancellation.outputs.cancelled }}
+      cooldown-check-allowed: ${{ steps.cooldown-check.outputs.allowed }}
+      cooldown-check-outcome: ${{ steps.cooldown-check.outcome }}
+      cooldown-save-outcome: ${{ steps.cooldown-save.outcome }}
+      duckdb-httpfs-outcome: ${{ steps.duckdb-httpfs.outcome }}
+      handoff: ${{ steps.stage.outputs.handoff }}
+      hydrate-outcome: ${{ steps.hydrate.outcome }}
+      master-outcome: ${{ steps.master.outcome }}
+      preflight-outcome: ${{ steps.preflight.outcome }}
+      preflight-status: ${{ steps.preflight.outputs.status }}
+      pull-outcome: ${{ steps.pull.outcome }}
+      setup-outcome: ${{ steps.setup.outcome }}
+      setup-uv-outcome: ${{ steps.setup-uv.outcome }}
+      smoke-outcome: ${{ steps.smoke.outcome }}
+      sync-outcome: ${{ steps.sync.outcome }}
+      target-eligible: ${{ steps.target.outputs.eligible }}
+      target-outcome: ${{ steps.target.outcome }}
+      target-target-date: ${{ steps.target.outputs.target_date }}
+      tradingview-expected-universe: ${{ steps.tradingview.outputs.expected_universe }}
+      tradingview-outcome: ${{ steps.tradingview.outcome }}
+      tradingview-remaining: ${{ steps.tradingview.outputs.remaining }}
+      tradingview-rows: ${{ steps.tradingview.outputs.rows }}
+      tradingview-rows-added: ${{ steps.tradingview.outputs.rows_added }}
+      tradingview-status: ${{ steps.tradingview.outputs.status }}
+      tradingview-stop-reason: ${{ steps.tradingview.outputs.stop_reason }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Smoke-check system Python imports
@@ -93,30 +123,22 @@ jobs:
         id: duckdb-httpfs
         if: steps.target.outputs.eligible == 'true'
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
-      - name: Acquire publication lease
-        id: lease-acquire
-        if: steps.target.outputs.eligible == 'true'
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose tradingview --handle "$RUNNER_TEMP/publication-lease-handle.json"
-      - name: Pull market store
+      - name: Read only TradingView scoped input
         id: pull
         if: steps.target.outputs.eligible == 'true'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh pull-market
-      - name: Hydrate market store
+        run: uv run python -m baibai_batch.jobs.source_handoff input --source tradingview --directory "$RUNNER_TEMP/source-input"
+      - name: Resume own ready receipts without full market hydration
         id: hydrate
         if: steps.target.outputs.eligible == 'true'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh hydrate-market
+        run: uv run python -m baibai_batch.jobs.source_handoff resume --source tradingview --asof "${{ steps.target.outputs.target_date }}" --directory "$RUNNER_TEMP/source-input"
       - name: Check exact-date snapshot
         id: preflight
         if: steps.target.outputs.eligible == 'true'
@@ -160,6 +182,10 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_batch.storage.tradingview_cooldown check --directory "$RUNNER_TEMP"
+      - name: Record original receipt cutoff
+        id: receipt-cutoff
+        if: steps.target.outputs.eligible == 'true'
+        run: echo "since=$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >> "$GITHUB_OUTPUT"
       - name: Fetch exact-date J-Quants master
         id: master
         if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'
@@ -302,40 +328,33 @@ jobs:
             status=$parser_status
           fi
           exit "$status"
-      - name: Publish the L1 release
-        id: publish-lake
+      - name: Export originals to private R2 staging
+        id: stage
         if: >-
-          ${{ always() && !cancelled() && steps.lease-acquire.outputs.acquired == 'true'
-          && steps.pull.outcome == 'success' && steps.hydrate.outcome == 'success'
+          ${{ always() && !cancelled() && steps.pull.outcome == 'success' && steps.hydrate.outcome == 'success'
           && steps.tradingview.outcome != 'skipped'
           && (((steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial')
           && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0)
           || (steps.tradingview.outcome == 'failure'
           && steps.tradingview.outputs.publish_failed_receipts == 'true')) }}
         env:
-          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          RECEIPT_SINCE: ${{ steps.receipt-cutoff.outputs.since }}
+          STAGE_ID: tradingview-${{ steps.target.outputs.target_date }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          set -o pipefail
-          batch/scripts/r2_transfer.sh publish-lake | tee "$RUNNER_TEMP/tradingview-lake-publish.log"
+          uv run python -m baibai_batch.jobs.source_handoff export --source tradingview --asof "$TARGET_DATE" --since "$RECEIPT_SINCE" --directory "$RUNNER_TEMP/source-handoff"
+          uv run python -m baibai_batch.jobs.source_handoff stage --source tradingview --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/source-handoff"
       - name: Persist provider cooldown
         id: cooldown-save
-        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' && steps.tradingview.outcome != 'skipped' }}
+        if: ${{ always() && steps.tradingview.outcome != 'skipped' }}
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_batch.storage.tradingview_cooldown record --directory "$RUNNER_TEMP"
-      - name: Release publication lease
-        id: lease-release
-        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Record cancellation
         id: cancellation
         if: ${{ cancelled() }}
@@ -366,7 +385,8 @@ jobs:
           REMAINING: ${{ steps.tradingview.outputs.remaining }}
           UNRESOLVED: ${{ steps.tradingview.outputs.unresolved }}
           STOP_REASON: ${{ steps.tradingview.outputs.stop_reason }}
-          PUBLISH_LAKE: ${{ steps.publish-lake.outcome }}
+          PUBLISH_LAKE: pending
+          PRIVATE_HANDOFF: ${{ steps.stage.outcome }}
         run: |
           python3 - <<'PYSUMMARY'
           import json
@@ -439,6 +459,7 @@ jobs:
               "provider_elapsed_seconds": progress.get("provider_elapsed_seconds"),
               "max_chunk_elapsed_seconds": progress.get("max_chunk_elapsed_seconds"),
               "oauth_rotations": progress.get("oauth_rotations"),
+              "private_handoff": os.environ.get("PRIVATE_HANDOFF"),
               "publish_lake_outcome": os.environ.get("PUBLISH_LAKE"),
               "release_id": release.get("release_id"),
               "release_manifest_sha256": release.get("release_manifest_sha256"),
@@ -453,38 +474,23 @@ jobs:
                   safe = safe.replace("|", "").replace("\n", " ")
                   print(f"| {key} | {safe} |", file=output)
           PYSUMMARY
-      - name: Notify Discord
+
+  notify:
+    needs: snapshot
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report source receipt state separately from integration
         id: notify
         if: ${{ always() }}
         continue-on-error: true
         env:
           PYTHONPATH: batch/src
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          python3 -m baibai_batch.observability.tradingview_discord \
-            --asof "${{ steps.target.outputs.target_date }}" \
-            --eligible "${{ steps.target.outputs.eligible == 'true' && steps.cooldown-check.outputs.allowed != 'false' }}" \
-            --snapshot-status "${{ steps.tradingview.outputs.status || 'unknown' }}" \
-            --rows-added "${{ steps.tradingview.outputs.rows_added || '0' }}" \
-            --rows "${{ steps.tradingview.outputs.rows || '0' }}" \
-            --expected-universe "${{ steps.tradingview.outputs.expected_universe || '0' }}" \
-            --remaining "${{ steps.tradingview.outputs.remaining || '0' }}" \
-            --stop-reason "${{ steps.tradingview.outputs.stop_reason || '-' }}" \
-            --preflight-status "${{ steps.preflight.outputs.status || 'unknown' }}" \
-            --smoke-outcome "${{ steps.smoke.outcome }}" \
-            --target-outcome "${{ steps.target.outcome }}" \
-            --setup-outcome "${{ steps.setup.outcome }}" \
-            --setup-uv-outcome "${{ steps.setup-uv.outcome }}" \
-            --sync-outcome "${{ steps.sync.outcome }}" \
-            --duckdb-httpfs-outcome "${{ steps.duckdb-httpfs.outcome }}" \
-            --lease-acquire-outcome "${{ steps.lease-acquire.outcome }}" \
-            --pull-outcome "${{ steps.pull.outcome }}" \
-            --hydrate-outcome "${{ steps.hydrate.outcome }}" \
-            --preflight-outcome "${{ steps.preflight.outcome }}" \
-            --cooldown-check-outcome "${{ steps.cooldown-check.outcome }}" \
-            --cooldown-save-outcome "${{ steps.cooldown-save.outcome }}" \
-            --master-outcome "${{ steps.master.outcome }}" \
-            --tradingview-outcome "${{ steps.tradingview.outcome }}" \
-            --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
-            --lease-release-outcome "${{ steps.lease-release.outcome }}" \
-            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
+          SOURCE_GROUP: tradingview
+          ASOF: ${{ needs.snapshot.outputs.target-target-date }}
+          ACQUIRE_RESULT: ${{ needs.snapshot.result }}
+          STAGE_RESULT: ${{ needs.snapshot.outputs.handoff != '' && 'success' || 'skipped' }}
+        run: python3 -m baibai_batch.observability.source_discord

@@ -16,15 +16,23 @@ from baibai_engine.foundation.redaction import redact_credentials
 from . import store
 from .documents import read_documents, store_document
 from .providers import FetchContext, IndicatorsProviderError, provider_spec
-from .providers.base import ProviderFetchStoppedError
+from .providers.base import ProviderFetchStoppedError, ProviderRateLimitError
 from .providers.documents import fetch_source_documents
 from .providers.jquants_options import OptionChainSource
 from .providers.native import fetch_native_records
 from .records import store_snapshot, stored_days
+from .refresh_policy import (
+    DEFAULT_LATEST_LOOKBACK_DAYS as DEFAULT_LATEST_LOOKBACK_DAYS,
+)
+from .refresh_policy import (
+    LATEST_FETCH_LOOKBACK_DAYS as LATEST_FETCH_LOOKBACK_DAYS,
+)
+from .refresh_policy import (
+    recent_start,
+    recovery_ranges,
+    source_policy,
+)
 from .sources import DOCUMENT_PROVIDERS, SourceDefinition, load_sources
-
-DEFAULT_LATEST_LOOKBACK_DAYS = 370
-LATEST_FETCH_LOOKBACK_DAYS = {"daily": 14, "weekly": 60, "monthly": 370}
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,12 +58,16 @@ def refresh_sources(
     db_path: Path = store.DEFAULT_DB_PATH,
     start: date | None,
     end: date,
+    recent: bool = False,
 ) -> tuple[SourceRefreshOutcome, ...]:
     """Refresh each named source once; None start explicitly requests its history."""
+    if recent and start is not None:
+        raise ValueError("recent refresh cannot have an explicit start")
     if start is not None and end < start:
         raise ValueError("end must be on or after start")
     catalog = load_sources()
     outcomes: list[SourceRefreshOutcome] = []
+    stopped_providers: set[str] = set()
     selected = list(dict.fromkeys(source_ids))
     if not any(source_id in catalog for source_id in selected):
         return tuple(
@@ -64,19 +76,51 @@ def refresh_sources(
         )
     with (
         closing(store.open_connection(db_path)) as connection,
-        FetchContext(purpose="rebuild" if start is None else "refresh") as context,
+        FetchContext(purpose="rebuild" if start is None and not recent else "refresh") as context,
     ):
         for source_id in selected:
             try:
                 if source_id not in catalog:
                     raise ValueError(f"unknown economic source: {source_id}")
                 source = catalog[source_id]
-                first = start if start is not None else _history_start(source, end)
+                if source.provider in stopped_providers:
+                    raise ProviderFetchStoppedError(
+                        "provider acquisition stopped earlier in this run"
+                    )
+                if (
+                    recent
+                    and source_policy(source).mode == "current_only"
+                    and end != datetime.now(ZoneInfo("Asia/Tokyo")).date()
+                ):
+                    raise ValueError("current-only source cannot recover a historical date")
+                first = (
+                    recent_start(source, end)
+                    if recent
+                    else start
+                    if start is not None
+                    else _history_start(source, end)
+                )
                 received = _refresh_source(
                     connection, source, start=first, end=end, context=context
                 )
+                if recent:
+                    for missing_start, missing_end in recovery_ranges(connection, source, end):
+                        received += _refresh_source(
+                            connection,
+                            source,
+                            start=missing_start,
+                            end=missing_end,
+                            context=context,
+                            recheck_existing=False,
+                        )
+                        first = min(first, missing_start)
                 outcomes.append(SourceRefreshSuccess(source_id, first, end, received))
             except Exception as error:
+                if isinstance(error, ProviderRateLimitError) or (
+                    isinstance(error, ProviderFetchStoppedError)
+                    and catalog[source_id].provider == "spglobal_pmi"
+                ):
+                    stopped_providers.add(catalog[source_id].provider)
                 outcomes.append(SourceRefreshFailure(source_id, redact_credentials(str(error))))
     return tuple(outcomes)
 
@@ -105,10 +149,12 @@ def _refresh_source(
     start: date,
     end: date,
     context: FetchContext,
+    recheck_existing: bool = True,
 ) -> int:
     started = datetime.now(UTC)
     received = 0
     try:
+        context.check_deadline()
         if source.provider in DOCUMENT_PROVIDERS:
             existing = {
                 item.request_key: item for item in read_documents(connection, source.source_id)
@@ -120,6 +166,7 @@ def _refresh_source(
                 context=context,
                 existing=existing,
                 force=context.purpose == "rebuild",
+                recheck_existing=recheck_existing,
             ):
                 if document.source_id != source.source_id:
                     raise ValueError(f"provider returned a document for {document.source_id}")

@@ -581,11 +581,12 @@ def test_scheduled_batch_uses_cron_target_and_keeps_business_day_gate(
     assert runner.calls[0][3:] == ["--asof", "2026-08-27"]
 
 
-def test_scheduled_and_explicit_asof_are_mutually_exclusive() -> None:
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(
-            ["--scheduled", "--asof", "2026-08-27", "--output-dir", "/tmp/serving"]
-        )
+def test_scheduled_gate_accepts_a_fixed_integration_target() -> None:
+    args = build_parser().parse_args(
+        ["--scheduled", "--asof", "2026-08-27", "--output-dir", "/tmp/serving"]
+    )
+    assert args.scheduled is True
+    assert args.asof == "2026-08-27"
 
 
 def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path, capsys) -> None:
@@ -1265,3 +1266,16 @@ def test_unidentified_delta_row_is_not_reported_as_no_change_or_a_complete_list(
     assert not notice.delta_measured
     assert notice.delta_unmeasured_reason == "view_unreadable"
     assert notice.entered == notice.exited == []
+
+
+def test_saved_economic_mode_does_not_reacquire_any_economic_source(tmp_path):
+    runner = _runner()
+    result = run_daily_batch_structured(
+        root=tmp_path,
+        output_dir=tmp_path / "out",
+        asof=ASOF,
+        runner=runner,
+        refresh_economic=False,
+    )
+    assert result.exit_code == 0
+    assert not any("collection economic" in key for key in runner.call_keys())

@@ -5,15 +5,9 @@ run-name: "daily ${{ inputs.asof || '' }}"
 
 on:
   schedule:
-    # 16:43 JST. The target day's J-Quants daily-price update is published around
-    # 16:30 JST, leaving 13 minutes of margin. JPX regulation pages are event-driven
-    # status pages whose coverage is accepted for 7 business days. Margin balances
-    # use the daily all-issues series from the 2026-09-25 balance; its publication
-    # dates and coverage are checked separately from the target day's price update.
-    #
-    # The odd minute is deliberate: GitHub concentrates scheduled work on :00 / :15 /
-    # :30 / :45, and a schedule pinned there waits behind that queue.
-    - cron: "43 7 * * 1-5"
+    # 22:43 JST, independently of every acquisition workflow. Late receipts wait
+    # for the next integration; weekends still compose macro/Reading/Research.
+    - cron: "43 13 * * *"
   workflow_dispatch:
     inputs:
       asof:
@@ -25,23 +19,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-publish
+  group: common-source-integration
   queue: max
   cancel-in-progress: false
 
 jobs:
   daily:
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
     runs-on: ubuntu-latest
-    # batch の最悪 ~32 分（EDINET 全再取得）+ 全導出 publish + upload。超過は cancelled として Discord に出る
-    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    # Offline integration, materialization and publication fit within the 120-minute lease.
+    timeout-minutes: 110
 
     steps:
-      # The 2026-10-20 run needed ~48 minutes after acquisition for export/publish.
-      # Reserve 55 of the 90 minutes; this is headroom, not a completion guarantee.
-      # Setup/hydration time counts toward the acquisition cutoff too.
-      - name: Set acquisition cutoff for this job
-        run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 35 * 60 ))" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The notification script must import on the runner's system python3
@@ -78,38 +73,6 @@ jobs:
         id: sync
         run: uv sync --locked
 
-      # The spglobal_pmi / nikkei providers fall back to a headless Chromium for
-      # WAF-gated fetches. Cache the browser keyed on the pinned Playwright
-      # version so the ~114MB binary is downloaded only when that version
-      # changes, not on every run.
-      - name: Resolve Playwright version
-        id: playwright-version
-        run: |
-          version=$(uv run python -c \
-            "import importlib.metadata as m; print(m.version('playwright'))")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright Chromium
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: uv run playwright install --with-deps chromium
-
-      # This runs before credential-bearing steps. It proves the allowlisted browser
-      # environment still starts in both the restored-cache and fresh-install paths.
-      - name: Smoke-check isolated Chromium environment
-        id: browser-smoke
-        run: >-
-          uv run python -c "from baibai_engine.collection.economic.providers.browser import
-          BrowserFetcher; fetcher=BrowserFetcher();
-          content=fetcher.fetch_html('data:text/html,<p>baibai-browser-smoke</p>');
-          fetcher.close(); assert 'baibai-browser-smoke' in content"
-
       # The lake reads Parquet over R2 through DuckDB's httpfs extension, and runtime
       # sessions disable extension downloads outright — a read path that could fetch
       # executable code on demand is not one that fails closed. The install happens here,
@@ -119,6 +82,28 @@ jobs:
       - name: Provision DuckDB httpfs extension
         id: duckdb-httpfs
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+
+      - name: Pin the original integration run clock
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+
+      - name: Freeze currently ready source handoffs
+        id: source-plan
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+        run: |
+          asof="$MANUAL_ASOF"
+          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_batch.jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
+          echo "asof=$asof" >> "$GITHUB_OUTPUT"
+          uv run python -m baibai_batch.jobs.source_integration plan --directory "$RUNNER_TEMP/integration"
 
       - name: Acquire publication lease
         id: lease-acquire
@@ -153,21 +138,25 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
 
+      - name: Apply fixed original receipts and common offline extraction
+        id: source-integration
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+        run: uv run python -m baibai_batch.jobs.source_integration apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+
       # failure policy: 1 — an unsafe store or failed full export cannot be published.
       - name: Run daily batch
         id: batch
         shell: bash
         env:
-          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
-          ESTAT_APP_ID: ${{ secrets.ESTAT_APP_ID }}
-          EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
-          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
         run: |
-          args=(--output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
+          args=(--saved-inputs --asof "$INTEGRATION_ASOF" --output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             args+=(--scheduled)
-          elif [[ -n "$MANUAL_ASOF" ]]; then
-            args+=(--asof "$MANUAL_ASOF")
           fi
           set +e
           uv run baibai-batch daily "${args[@]}"
@@ -181,7 +170,7 @@ jobs:
           else
             echo "export_ready=false" >> "$GITHUB_OUTPUT"
           fi
-          # Skip L1 publication only for an explicit, readable boolean false.
+          # Common integration can change facts before the daily observer runs.
           python3 - <<'PYNOTICE' >> "$GITHUB_OUTPUT"
           import json
           import os
@@ -203,7 +192,7 @@ jobs:
               value = notice.get("market_updated") if isinstance(notice, dict) else None
               if not isinstance(value, bool):
                   raise ValueError
-              market_updated = value
+              market_updated = True  # Common replay/extraction preceded the daily observer.
           except (OSError, ValueError):
               print("::warning::Daily notice unavailable or invalid; continuing L1 publication.", file=sys.stderr)
           print("market_updated=" + str(market_updated).lower())
@@ -328,6 +317,32 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
 
+      - name: Verify economic accepted receipts and seal canonical handoffs
+        id: source-seal
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.publish-lake.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          batch/scripts/r2_transfer.sh pull-indicators
+          uv run python -m baibai_batch.jobs.source_integration verify --directory "$RUNNER_TEMP/integration"
+          uv run python -m baibai_batch.jobs.source_integration seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Refresh source-scoped inputs from this canonical generation
+        id: source-inputs
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: uv run python -m baibai_batch.jobs.source_integration inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Report incomplete sources after retaining safe canonical results
+        id: source-check
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        run: uv run python -m baibai_batch.jobs.source_integration check --directory "$RUNNER_TEMP/integration"
+
       - name: Release publication lease
         id: lease-release
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
@@ -361,6 +376,7 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SOURCE_INPUTS_OUTCOME: ${{ steps.source-inputs.outcome }}
           PYTHONPATH: batch/src
         run: |
           python3 -m baibai_batch.observability.discord \
@@ -375,5 +391,9 @@ jobs:
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
             --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
             --publish-serving-outcome "${{ steps.publish-serving.outcome }}" \
+            --source-integration-outcome "${{ steps.source-integration.outcome }}" \
+            --source-seal-outcome "${{ steps.source-seal.outcome }}" \
+            --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \
+            --source-check-outcome "${{ steps.source-check.outcome }}" \
             --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

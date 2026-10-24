@@ -20,6 +20,7 @@ def fetch_source_documents(
     context: FetchContext,
     existing: Mapping[str, SourceDocument],
     force: bool,
+    recheck_existing: bool = True,
 ) -> Iterator[SourceDocument]:
     if source.provider == "spglobal_pmi":
         yield from SpGlobalPmiSource().fetch_documents(
@@ -30,6 +31,7 @@ def fetch_source_documents(
             context=context,
             existing=existing,
             force=force,
+            recheck_existing=recheck_existing,
         )
     elif source.provider == "tsr_bankruptcies":
         yield TsrBankruptciesSource().fetch_document(

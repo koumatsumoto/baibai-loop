@@ -1,0 +1,102 @@
+name: cloud-market-sources
+run-name: "market-acquisition ${{ github.event.schedule == '43 7 * * *' && 'inputs' || github.event.schedule == '43 8 * * *' && 'edinet-metrics' || github.event.schedule == '13 9 * * *' && 'edinet-facts' || inputs.source || 'all' }} ${{ inputs.asof || '' }}"
+
+on:
+  schedule:
+    - cron: "43 7 * * *"
+    - cron: "43 8 * * *"
+    - cron: "13 9 * * *"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "One source group, or all"
+        type: string
+        default: all
+      asof:
+        description: "Optional YYYY-MM-DD"
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sources: ${{ steps.plan.outputs.sources }}
+      asof: ${{ steps.plan.outputs.asof }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pin the original acquisition run clock
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+      - name: Select independent source groups for this acquisition slot
+        id: plan
+        env:
+          SOURCE: ${{ inputs.source || 'all' }}
+          ASOF: ${{ inputs.asof }}
+          SCHEDULE: ${{ github.event.schedule }}
+          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, date
+          from zoneinfo import ZoneInfo
+          all_sources = ['jquants-market', 'jquants-financial', 'jpx-earnings', 'jpx-regulations', 'edinet-list', 'edinet-metrics', 'edinet-facts']
+          day = date.fromisoformat(os.environ['ASOF']) if os.environ['ASOF'] else datetime.fromisoformat(os.environ['RUN_CREATED_AT']).astimezone(ZoneInfo('Asia/Tokyo')).date()
+          source = os.environ['SOURCE']
+          if source != 'all' and source not in all_sources:
+              raise ValueError('unknown source acquisition group')
+          slot = os.environ['SCHEDULE']
+          if slot == '43 8 * * *':
+              selected = ['edinet-metrics']
+          elif slot == '13 9 * * *':
+              selected = ['edinet-facts']
+          elif slot:
+              selected = all_sources[:5] if day.weekday() < 5 else ['edinet-list']
+          else:
+              selected = all_sources if source == 'all' else [source]
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
+              print('sources=' + json.dumps([{'source': item} for item in selected]), file=stream)
+              print('asof=' + day.isoformat(), file=stream)
+          PY
+
+  source:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.sources) }}
+    uses: ./.github/workflows/cloud-market-source.yml
+    with:
+      source: ${{ matrix.source }}
+      asof: ${{ needs.plan.outputs.asof }}
+    secrets: inherit
+
+  notify-plan-failure:
+    needs: plan
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report a failed market source selection
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PYTHONPATH: batch/src
+          SOURCE_GROUP: market-plan
+          ACQUIRE_RESULT: ${{ needs.plan.result }}
+          STAGE_RESULT: skipped
+        run: python3 -m baibai_batch.observability.source_discord

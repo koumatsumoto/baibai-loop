@@ -14,6 +14,10 @@ import yaml
 PATH = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-tradingview-snapshot.yml"
 
 
+def all_steps(data):
+    return [step for job in data["jobs"].values() for step in job["steps"]]
+
+
 def workflow():
     return yaml.load(PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
@@ -28,10 +32,10 @@ def test_metadata_order_and_exclusive_writer():
         "interval",
         "observation_master_asof",
     }
-    assert set(data["jobs"]) == {"snapshot"}
+    assert set(data["jobs"]) == {"snapshot", "notify"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
-        "group": "cloud-publish",
+        "group": "tradingview-snapshot",
         "queue": "max",
         "cancel-in-progress": "false",
     }
@@ -51,19 +55,17 @@ def test_metadata_order_and_exclusive_writer():
         "setup-uv",
         "sync",
         "duckdb-httpfs",
-        "lease-acquire",
         "pull",
         "hydrate",
         "preflight",
         "cooldown-check",
+        "receipt-cutoff",
         "master",
         "tradingview",
-        "publish-lake",
+        "stage",
         "cooldown-save",
-        "lease-release",
         "cancellation",
         "summary",
-        "notify",
     ]
     assert "PYTHONPATH" in steps[1]["env"]
     assert "python3" in steps[1]["run"]
@@ -94,7 +96,7 @@ def test_metadata_order_and_exclusive_writer():
 )
 def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref, runs):
     data = workflow()
-    assert set(data["jobs"]) == {"snapshot"}
+    assert set(data["jobs"]) == {"snapshot", "notify"}
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "interval",
         "observation_master_asof",
@@ -117,87 +119,65 @@ def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref,
         assert obsolete not in source
 
 
-def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pull(tmp_path):
+def test_private_partial_receipts_survive_failed_cooldown_until_common_integration(tmp_path):
     from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
+    from tests.helpers.r2_store import MemoryR2Store
 
+    from baibai_batch.storage.economic_staging import load_handoff, save_handoff
     from baibai_engine.external_assessment.tradingview.collector import collect
-    from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
+    from baibai_engine.external_assessment.tradingview.handoff import export_handoff, import_handoff
+    from baibai_engine.external_assessment.tradingview.observations import FetchError
 
-    local = store(tmp_path / "local.sqlite", 51)
-    published = tmp_path / "published.sqlite"
-    requests = []
+    local, canonical = (
+        store(tmp_path / "local.sqlite", 51),
+        store(tmp_path / "canonical.sqlite", 51),
+    )
+    calls = 0
 
     async def fetch(symbols, columns):
-        assert columns == COLUMNS
-        requests.append(symbols)
-        if len(requests) == 2:
-            raise FetchError("fixture provider failure after one valid chunk")
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise FetchError("provider stops after one confirmed chunk")
         return _sdk(payload(symbols))
 
-    async def sleep(_interval):
+    async def sleep(_seconds):
         pass
 
     report = asyncio.run(collect(local, DAY, fetch, clock=lambda: NOW, sleep=sleep))
     assert report["status"] == "partial"
-    assert report["rows_added"] == 50
-    expected = stored(local)
-    transfer = tmp_path / "batch/scripts/r2_transfer.sh"
-    transfer.parent.mkdir(parents=True)
-    transfer.write_text(
-        '#!/usr/bin/env bash\nprintf "publish-lake\\n" >> "$CALLS"\ncp "$LOCAL" "$PUBLISHED"\nprintf "{}\\n"\n'
-    )
-    transfer.chmod(0o755)
-    uv = tmp_path / "uv"
-    uv.write_text(
-        '#!/usr/bin/env bash\nif [[ "$*" == *tradingview_cooldown* ]]; then\n  printf "cooldown-save\\n" >> "$CALLS"\n  echo "TradingView cooldown failed; type=CooldownError" >&2\n  exit 1\nfi\nprintf "lease-release\\n" >> "$CALLS"\n'
-    )
-    uv.chmod(0o755)
-    calls = tmp_path / "calls"
-    env = {
-        **os.environ,
-        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
-        "RUNNER_TEMP": str(tmp_path),
-        "LOCAL": str(local),
-        "PUBLISHED": str(published),
-        "CALLS": str(calls),
-    }
-    outcomes = {}
-    failed = False
-    # Execute the workflow scripts and order; publication, cooldown and lease are stubbed.
-    # A condition without a status function has GitHub's implicit success() gate.
-    for step in workflow()["jobs"]["snapshot"]["steps"]:
-        if step.get("id") not in {"publish-lake", "cooldown-save", "lease-release"}:
-            continue
-        if failed and "always()" not in step["if"]:
-            outcomes[step["id"]] = "skipped"
-            continue
-        result = subprocess.run(
-            ["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    handoff = export_handoff(local, packet / "receipts.sqlite", day=DAY, since=NOW)
+    (packet / "result.json").write_text(json.dumps(handoff.to_json()))
+    remote = MemoryR2Store()
+    save_handoff(remote, "tradingview-partial", packet, market=True)
+    # Cooldown persistence may fail after this private receipt is durable. The
+    # separately scheduled integration reads this exact receipt without refetch.
+    assert workflow()["jobs"]["snapshot"]["steps"].index(
+        next(step for step in workflow()["jobs"]["snapshot"]["steps"] if step.get("id") == "stage")
+    ) < workflow()["jobs"]["snapshot"]["steps"].index(
+        next(
+            step
+            for step in workflow()["jobs"]["snapshot"]["steps"]
+            if step.get("id") == "cooldown-save"
         )
-        outcomes[step["id"]] = "failure" if result.returncode else "success"
-        failed = failed or result.returncode != 0
-        if step["id"] == "cooldown-save":
-            assert "CooldownError" in result.stderr
-    assert outcomes == {
-        "publish-lake": "success",
-        "cooldown-save": "failure",
-        "lease-release": "success",
-    }
-    assert calls.read_text().splitlines() == ["publish-lake", "cooldown-save", "lease-release"]
-    # A simulated next pull retains every originally committed column/time.
-    shutil.copyfile(published, local)
-    assert stored(local) == expected
+    )
+    downloaded = tmp_path / "downloaded"
+    load_handoff(remote, "tradingview-partial", downloaded, market=True)
+    result = import_handoff(downloaded / "receipts.sqlite", canonical, handoff)
+    assert result["rows_added"] == 50
+    assert stored(canonical) == stored(local)
 
 
 def test_gates_secret_scopes_and_durability():
     data = workflow()
-    steps = {step["id"]: step for step in data["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(data) if "id" in step}
     for name in (
         "setup",
         "setup-uv",
         "sync",
         "duckdb-httpfs",
-        "lease-acquire",
         "pull",
         "hydrate",
         "preflight",
@@ -210,13 +190,12 @@ def test_gates_secret_scopes_and_durability():
         steps["tradingview"]["if"]
         == "steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')"
     )
-    assert "steps.tradingview.outputs.status == 'partial'" in steps["publish-lake"]["if"]
-    assert "rows_added" in steps["publish-lake"]["if"]
+    assert "steps.tradingview.outputs.status == 'partial'" in steps["stage"]["if"]
+    assert "rows_added" in steps["stage"]["if"]
     assert steps["cooldown-check"]["if"] == "steps.preflight.outputs.status == 'needs_fetch'"
     assert "always()" in steps["cooldown-save"]["if"]
-    assert "steps.lease-acquire.outputs.acquired == 'true'" in steps["cooldown-save"]["if"]
+    assert "lease-acquire" not in steps["cooldown-save"]["if"]
     assert "steps.tradingview.outcome != 'skipped'" in steps["cooldown-save"]["if"]
-    assert "always()" in steps["lease-release"]["if"]
     for name in ("summary", "notify"):
         assert steps[name]["if"] == "${{ always() }}"
         assert steps[name]["continue-on-error"] == "true"
@@ -239,16 +218,18 @@ def test_gates_secret_scopes_and_durability():
     assert '--asof "$TARGET_DATE"' in steps["tradingview"]["run"]
     assert '--asof "$TARGET_DATE"' in steps["master"]["run"]
     assert "DISCORD_WEBHOOK_URL" in str(steps["notify"].get("env"))
+    assert "pull-market" not in source
+    assert "hydrate-market" not in source
+    assert "cloud-publish" not in source
+    assert "publication_lease" not in source
     assert "JQUANTS_API_KEY" in str(steps["master"].get("env"))
     assert "TRADINGVIEW_OAUTH_STATE" in str(steps["tradingview"].get("env"))
     for name in (
-        "lease-acquire",
         "pull",
         "hydrate",
         "cooldown-check",
         "cooldown-save",
-        "publish-lake",
-        "lease-release",
+        "stage",
     ):
         assert "R2_ACCESS_KEY_ID" in str(steps[name].get("env"))
     for name, step in steps.items():
@@ -259,13 +240,11 @@ def test_gates_secret_scopes_and_durability():
         if name != "tradingview":
             assert "TRADINGVIEW_OAUTH_STATE" not in str(step)
         if name not in (
-            "lease-acquire",
             "pull",
             "hydrate",
             "cooldown-check",
             "cooldown-save",
-            "publish-lake",
-            "lease-release",
+            "stage",
         ):
             assert "R2_ACCESS_KEY_ID" not in str(step)
 
@@ -351,7 +330,7 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
 
 @pytest.mark.parametrize("status", ["saved", "partial", "already_saved", "skipped_historical_asof"])
 def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
@@ -399,7 +378,7 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
     ],
 )
 def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
@@ -428,7 +407,7 @@ def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):
     ("exit_code", "category"), [(1, "provider_rate_limit"), (124, "timeout"), (137, "timeout")]
 )
 def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_code, category):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         f'#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\n'
@@ -456,7 +435,7 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
 
 
 def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_path):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then '
@@ -481,14 +460,14 @@ def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_p
     assert result.returncode == 1
     assert "failure_category=provider_response" in output.read_text()
     assert "publish_failed_receipts=true" in output.read_text()
-    gate = steps["publish-lake"]["if"]
+    gate = steps["stage"]["if"]
     assert "always()" in gate
     assert "!cancelled()" in gate
-    for guard in ("lease-acquire", "pull.outcome", "hydrate.outcome", "tradingview.outcome"):
+    assert "lease-acquire" not in gate
+    for guard in ("pull.outcome", "hydrate.outcome", "tradingview.outcome"):
         assert guard in gate
     assert "publish_failed_receipts == 'true'" in gate
     assert "always()" in steps["cooldown-save"]["if"]
-    assert "always()" in steps["lease-release"]["if"]
 
 
 def test_delayed_stderr_consumer_does_not_hide_raw_only_provider_failure(tmp_path):
@@ -643,7 +622,7 @@ def test_failed_initial_count_does_not_start_acquisition(tmp_path):
 
 
 def test_summary_preserves_partial_failure_and_null_counts(tmp_path):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     (tmp_path / "tradingview-progress.json").write_text(
         json.dumps({"requests_attempted": 2, "symbols_requested": 100, "chunks_completed": 1})
     )

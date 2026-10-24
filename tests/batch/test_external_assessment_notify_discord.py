@@ -262,41 +262,36 @@ def test_notification_imports_with_system_python_without_site_packages():
     assert result.returncode == 0, result.stderr
 
 
-def test_source_notice_is_rendered_after_release_and_only_final_job_has_webhook():
+def test_source_notice_reports_acquisition_and_handoff_without_claiming_publication():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
-        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        (repository / ".github/workflows/cloud-external-assessment-source.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    steps = workflow["jobs"]["publish"]["steps"]
-    release = next(i for i, step in enumerate(steps) if step.get("id") == "lease-release")
-    notice = next(i for i, step in enumerate(steps) if "--sources-report" in step.get("run", ""))
-    assert release < notice
-    assert steps[notice]["if"] == "${{ always() }}"
-    assert "--render-only" in steps[notice]["run"]
-    assert all("DISCORD_WEBHOOK_URL" not in step.get("env", {}) for step in steps)
-    final = next(
+    assert "publish" not in workflow["jobs"]
+    assert workflow["jobs"]["notify"]["needs"] == ["acquire", "handoff"]
+    senders = [
         step
-        for step in workflow["jobs"]["notify"]["steps"]
-        if "--message-json" in step.get("run", "")
-    )
-    assert final["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if "DISCORD_WEBHOOK_URL" in step.get("env", {})
+    ]
+    assert len(senders) == 1
+    sender = senders[0]
+    assert sender["run"] == "python3 -m baibai_batch.observability.source_discord"
+    assert sender["env"]["ACQUIRE_RESULT"] == "${{ needs.acquire.result }}"
+    assert sender["env"]["STAGE_RESULT"] == "${{ needs.handoff.result }}"
 
 
-def test_status_function_is_only_evaluated_in_step_condition_for_source_notice():
+def test_status_functions_remain_in_conditions_for_source_notice():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
-        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        (repository / ".github/workflows/cloud-external-assessment-source.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    for job in ("publish", "notify"):
-        steps = workflow["jobs"][job]["steps"]
-        cancellation = next(step for step in steps if step.get("id") == "cancellation")
-        assert cancellation["if"] == "${{ cancelled() }}"
-        assert "cancelled=true" in cancellation["run"]
-        notice = next(step for step in steps if "--cancelled" in step.get("run", ""))
-        assert "steps.cancellation.outputs.cancelled || 'false'" in notice["run"]
-        assert all("cancelled()" not in step.get("run", "") for step in steps)
+    assert "always()" in workflow["jobs"]["notify"]["if"]
+    for job in workflow["jobs"].values():
+        assert all("cancelled()" not in step.get("run", "") for step in job["steps"])
 
 
 def test_render_only_passes_safe_message_and_never_posts(tmp_path, monkeypatch):
@@ -398,24 +393,18 @@ def test_source_render_keeps_private_payload_and_invalid_counts_out_of_notice(tm
     assert "追加row=不明" in text
 
 
-def test_single_final_sender_runs_even_when_publish_never_started_or_output_is_missing():
+def test_single_final_sender_runs_when_acquisition_or_handoff_failed():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
-        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
+        (repository / ".github/workflows/cloud-external-assessment-source.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    publisher = workflow["jobs"]["publish"]
-    assert publisher["outputs"] == {"message_json": "${{ steps.notice.outputs.message_json }}"}
-    prepare = next(step for step in publisher["steps"] if step.get("id") == "notice")
-    assert "--render-only" in prepare["run"]
     final = workflow["jobs"]["notify"]
     assert "always()" in final["if"]
-    assert "needs.publish.result" not in final["if"]
-    assert "notification_attempted" not in final["if"]
-    sender = next(step for step in final["steps"] if "--message-json" in step.get("run", ""))
-    assert sender["env"]["SOURCE_NOTICE_JSON"] == "${{ needs.publish.outputs.message_json }}"
-    assert '--message-json "$SOURCE_NOTICE_JSON"' in sender["run"]
-    assert "--render-only" not in sender["run"]
+    assert "needs.handoff.result" not in final["if"]
+    sender = next(step for step in final["steps"] if "source_discord" in step.get("run", ""))
+    assert sender["continue-on-error"] == "true"
+    assert sender["env"]["DISCORD_WEBHOOK_URL"] == "${{ secrets.DISCORD_WEBHOOK_URL }}"
 
 
 @pytest.mark.parametrize("prepared", ["", "null", "[]", "{}", '"invalid message"'])

@@ -13,6 +13,8 @@ from baibai_batch.storage.store_merge import (
     MergeReport,
     merge_fact_tables,
     require_identical_columns,
+    require_matching_payloads,
+    source_only_rows,
 )
 from baibai_engine.batch_api import EconomicSchemaError
 from baibai_engine.batch_api import validate_economic_schema as validate_current_schema
@@ -22,6 +24,23 @@ FACT_KEYS = {
     "economic_source_documents": ("source_id", "request_key", "fetched_at"),
     "economic_source_runs": ("run_id",),
 }
+
+
+def verify_stores(source: Path, target: Path) -> None:
+    """Require every original receipt in readback without changing either file."""
+    with closing(sqlite3.connect(target.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        validate_current_schema(conn)
+        conn.execute("ATTACH DATABASE ? AS source", (source.resolve().as_uri() + "?mode=ro",))
+        try:
+            validate_current_schema(conn, schema="source")
+            require_identical_columns(conn, tuple(FACT_KEYS))
+            for table, keys in FACT_KEYS.items():
+                require_matching_payloads(conn, table, keys=keys)
+                if source_only_rows(conn, table, keys=keys):
+                    raise MergeError("economic publication readback is missing received rows")
+        finally:
+            conn.execute("DETACH DATABASE source")
 
 
 def merge_stores(source: Path, target: Path) -> MergeReport:

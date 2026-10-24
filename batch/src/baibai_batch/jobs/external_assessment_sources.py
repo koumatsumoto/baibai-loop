@@ -285,7 +285,7 @@ def publish_ready(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare", "acquire", "inspect", "publish"))
+    parser.add_argument("command", choices=("prepare", "acquire", "inspect", "ready", "publish"))
     parser.add_argument("--source", choices=(*SOURCES, "all"), default="all")
     parser.add_argument("--batch-id")
     parser.add_argument("--run-created-at", type=datetime.fromisoformat)
@@ -325,10 +325,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             selected = (
                 read_selection(args.selection_json)
-                if args.command in {"inspect", "publish"}
+                if args.command in {"inspect", "ready", "publish"}
                 else read_selection(json.dumps([{"source": args.source, "run_id": args.run_id}]))
             )
-            if args.command != "inspect" and args.directory is None:
+            if args.command not in {"inspect", "ready"} and args.directory is None:
                 raise ValueError("private work directory required")
             if args.command == "publish" and (
                 args.lease_handle is None or (args.confirmed_partial and len(selected) != 1)
@@ -338,14 +338,24 @@ def main(argv: list[str] | None = None) -> int:
                 bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
                 verify_put_with_head=args.command != "acquire",
             )
-            if args.command == "inspect":
+            if args.command in {"inspect", "ready"}:
                 ready, states = inspect_ready(
                     store,
                     selected,
                     confirmed_partial=args.confirmed_partial,
                     master_asof=args.master_asof,
                 )
-                report = {"sources": [states[entry["source"]] for entry in selected]}
+                references = []
+                if args.command == "ready":
+                    from baibai_batch.storage.external_assessment_ready import save_ready
+
+                    for item in ready:
+                        references.append(save_ready(store, item))
+                        states[item.plan.sources[0]]["status"] = "ready_for_integration"
+                report = {
+                    "sources": [states[entry["source"]] for entry in selected],
+                    "ready_handoffs": references,
+                }
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print(f"ready={str(bool(ready)).lower()}", file=stream)

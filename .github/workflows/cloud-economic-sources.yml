@@ -1,0 +1,92 @@
+name: cloud-economic-sources
+run-name: "economic ${{ inputs.group || 'all' }} ${{ inputs.source_id || 'all' }} ${{ inputs.asof || '' }}"
+
+on:
+  schedule:
+    - cron: "43 7 * * *" # Preserve the former daily start; include holidays/weekends.
+  workflow_dispatch:
+    inputs:
+      group:
+        description: "Shared acquisition group, or all (collection economic groups lists them)"
+        type: string
+        default: all
+      source_id:
+        description: "Optional one source ID within the selected group"
+        type: string
+        default: ''
+      asof:
+        description: "Optional YYYY-MM-DD; current-only pages cannot recover historical dates"
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      groups: ${{ steps.plan.outputs.groups }}
+      asof: ${{ steps.plan.outputs.asof }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Pin the original run clock for scheduled retries
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+      - name: Validate the source selection before data credentials
+        id: plan
+        env:
+          GROUP: ${{ inputs.group || 'all' }}
+          SOURCE_ID: ${{ inputs.source_id }}
+          ASOF: ${{ inputs.asof }}
+          CREATED_AT: ${{ steps.clock.outputs.created_at }}
+        run: |
+          args=(--group "$GROUP" --source-id "$SOURCE_ID" --run-created-at "$CREATED_AT")
+          if [ -n "$ASOF" ]; then args+=(--asof "$ASOF"); fi
+          uv run python -m baibai_batch.jobs.economic plan "${args[@]}"
+
+  source:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.groups) }}
+    uses: ./.github/workflows/cloud-economic-source.yml
+    with:
+      group: ${{ matrix.group }}
+      source_id: ${{ inputs.source_id || '' }}
+      asof: ${{ needs.plan.outputs.asof }}
+    secrets: inherit
+
+  notify-plan-failure:
+    needs: plan
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report the failed economic selection
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PYTHONPATH: batch/src
+          SOURCE_GROUP: economic-plan
+          ACQUIRE_RESULT: ${{ needs.plan.result }}
+          STAGE_RESULT: skipped
+        run: python3 -m baibai_batch.observability.source_discord

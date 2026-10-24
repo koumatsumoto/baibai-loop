@@ -12,7 +12,7 @@ import gzip
 import json
 import sqlite3
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
@@ -38,6 +38,36 @@ class JQuantsRequest:
 
     def records(self) -> list[dict[str, Any]]:
         return [record for page in self.pages for record in page_records(page)]
+
+
+def import_requests(
+    source: sqlite3.Connection, target: sqlite3.Connection, request_ids: Sequence[str]
+) -> int:
+    """Copy only original pages; incomplete requests remain explicitly incomplete.
+
+    The caller owns the transaction and the market schema. Shared receipt IDs
+    must carry identical bytes and metadata; this never imports projected facts.
+    """
+    added = 0
+    for request_id in request_ids:
+        rows = source.execute(
+            "SELECT * FROM jquants_source_pages WHERE request_id = ? ORDER BY page_index",
+            (request_id,),
+        ).fetchall()
+        if not rows:
+            raise ValueError("J-Quants handoff request is not retained")
+        for row in rows:
+            existing = target.execute(
+                "SELECT * FROM jquants_source_pages WHERE request_id = ? AND page_index = ?",
+                (row[0], row[1]),
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing) != tuple(row):
+                    raise ValueError("J-Quants handoff receipt identity conflicts")
+                continue
+            target.execute("INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)", row)
+            added += 1
+    return added
 
 
 def acquire_request(
@@ -102,7 +132,13 @@ def read_request_pages(conn: sqlite3.Connection, request_id: str) -> tuple[JQuan
 
 def read_complete_request(conn: sqlite3.Connection, request_id: str) -> JQuantsRequest:
     """Require a closed, ordered source pagination chain before L2 uses its rows."""
-    pages = read_request_pages(conn, request_id)
+    return complete_request(read_request_pages(conn, request_id))
+
+
+def complete_request(pages: Sequence[JQuantsPage]) -> JQuantsRequest:
+    """Validate the same native pagination chain in a bounded dependency handoff."""
+    if not pages:
+        raise JQuantsAcquisitionError("J-Quants request has no pages")
     source = pages[0].source
     base = dict(pages[0].query)
     if "pagination_key" in base:
@@ -118,7 +154,7 @@ def read_complete_request(conn: sqlite3.Connection, request_id: str) -> JQuantsR
         if cursor is None or cursor == "":
             if index != len(pages) - 1:
                 raise JQuantsAcquisitionError("J-Quants request continues after its final page")
-            return JQuantsRequest(source, pages[0].query, pages)
+            return JQuantsRequest(source, pages[0].query, tuple(pages))
         if not isinstance(cursor, str) or cursor in seen:
             raise JQuantsAcquisitionError("invalid or repeated J-Quants pagination key")
         seen.add(cursor)

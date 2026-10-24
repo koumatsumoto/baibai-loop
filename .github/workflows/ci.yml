@@ -59,15 +59,19 @@ jobs:
         run: uv run ruff format --check --diff .
 
       - name: Ruff lint
+        if: ${{ !cancelled() }}
         run: uv run ruff check .
 
       - name: Type check
+        if: ${{ !cancelled() }}
         run: uv run mypy
 
       - name: Import contracts
+        if: ${{ !cancelled() }}
         run: uv run lint-imports
 
       - name: Drift gates
+        if: ${{ !cancelled() }}
         # Every check under tools/quality/drift/ runs: a gate is wired in by living there, not by
         # being remembered here. They run as modules so a gate can import a sibling —
         # running the file directly puts only its own directory on the import path.
@@ -78,6 +82,7 @@ jobs:
           done
 
       - name: Tests with coverage
+        if: ${{ !cancelled() }}
         # Temporary SQLite stores use tmpfs to avoid disk fsync overhead.
         # Keep four workers for reproducible CI resource use; local runs may use auto.
         #
@@ -85,7 +90,7 @@ jobs:
         # `coverage run -m pytest` would only see the controller and report a near-empty run.
         env:
           TMPDIR: /dev/shm
-        run: uv run pytest -n 4 --cov --cov-report=term-missing
+        run: uv run pytest -n 4 --maxfail=0 --cov --cov-report=term-missing
 
       # The scanners share this job to avoid a second billed runner, so they are asked
       # even after an earlier gate has failed. A red test would otherwise hide a CVE
