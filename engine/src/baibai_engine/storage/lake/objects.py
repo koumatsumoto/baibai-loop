@@ -228,6 +228,15 @@ class LakeObjectCache:
     transfers: TransferAccounting = field(default_factory=TransferAccounting)
     evict_large_after_read: bool = False
 
+    def retain_metadata(self, key: str, payload: bytes, *, sha256: str) -> Path:
+        """Keep already-resolved immutable metadata beside its verified Parquet objects."""
+        if sha256_bytes(payload) != sha256:
+            raise LakeObjectError("resolved lake metadata digest differs")
+        path = mirror_path(self.root, key)
+        if not path.is_file() or sha256_file(path) != sha256:
+            _install(path, payload)
+        return path
+
     def materialize(self, lake_object: LakeObject) -> Path:
         path = mirror_path(self.root, lake_object.key)
         if path.is_file() and self._cached_identity_holds(path, lake_object):

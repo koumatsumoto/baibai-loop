@@ -64,7 +64,7 @@ def company_growth(
     # The SQLite marker chooses a release; it does not certify this working store's rows.
     try:
         fixed = read_fixed_financial_documents(mirror, origin=origin, ticker=ticker, as_of=as_of)
-    except (LakeReadError, LakeObjectError, JQuantsProviderError):
+    except (LakeReadError, LakeObjectError, JQuantsProviderError, OSError):
         return result.model_copy(update={"reason": "fixed_release_inputs_unavailable"})
     documents = fixed.documents
     states = build_period_states(documents, sector=fixed.sector)

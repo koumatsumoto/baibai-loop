@@ -40,6 +40,7 @@ from baibai_engine.storage.lake.models import (
     LakeReleaseSourceRef,
     PartitionManifest,
     ReleaseManifest,
+    canonical_lake_model_bytes,
     load_lake_model_json,
     validate_release_policy,
 )
@@ -221,6 +222,26 @@ def _load_release(
         dataset_manifests=manifests,
         dataset_manifest_sha256=digests,
     )
+
+
+def materialize_release_metadata(cache: LakeObjectCache, release: FixedRelease) -> None:
+    """Retain the resolved graph so the same cached release can be read offline."""
+    metadata = [
+        (release.manifest_key, release.manifest_sha256, canonical_lake_model_bytes(release.manifest)),
+        *(
+            (
+                dataset_manifest_key(dataset=name, build_id=manifest.build_id),
+                release.dataset_manifest_sha256[name],
+                canonical_lake_model_bytes(manifest),
+            )
+            for name, manifest in release.dataset_manifests.items()
+        ),
+    ]
+    for key, digest, payload in metadata:
+        # Readers accept valid noncanonical JSON too; preserve its actual pinned bytes.
+        if sha256_bytes(payload) != digest:
+            payload = cache.source.read_bytes(key)
+        cache.retain_metadata(key, payload, sha256=digest)
 
 
 def accepted_dataset(release: FixedRelease, dataset_name: str) -> LakeDataset:

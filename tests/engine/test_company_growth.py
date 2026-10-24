@@ -698,3 +698,80 @@ def test_missing_fixed_release_objects_are_local_unavailability(tmp_path):
     assert result.reason == "fixed_release_inputs_unavailable"
     assert result.input_release is None
     assert not (tmp_path / "absent-mirror").exists()
+
+
+def test_fixed_reader_os_failure_is_local_to_growth(tmp_path, monkeypatch):
+    path = market_store(tmp_path, [document(2024, 1, 100)])
+
+    def unreadable(*_args, **_kwargs):
+        raise PermissionError("injected existing object failure")
+
+    monkeypatch.setattr(
+        "baibai_engine.company_growth.query.read_fixed_financial_documents", unreadable
+    )
+    result = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert result.reason == "fixed_release_inputs_unavailable"
+    assert result.input_release is None
+
+
+def test_private_acceptance_uses_only_financial_master_and_never_overwrites_results(
+    tmp_path, monkeypatch
+):
+    from tests.helpers.lake_policy import narrow_release_policy
+    from tests.helpers.r2_store import MemoryR2Store
+    from tools.company_growth_acceptance import execute
+
+    from baibai_batch.storage.lake_publish import LakeCASConflict
+    from baibai_engine.storage.lake.keys import current_release_pointer_key
+    from baibai_engine.storage.lake.release import LakeReleasePointer
+    from baibai_engine.storage.observations.coverage import record_range_source_coverage
+
+    records = [document(y, q, q * 42424242, q * 11, q * 7) for y in (2022, 2023, 2024) for q in range(1, 5)]
+    path = market_store(tmp_path / "source", records, release=None)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        insert_master_rows(connection, [
+            ("2026-10-23", "1234", "合成会社", "プライム", "情報・通信業", "011"),
+        ])
+        record_range_source_coverage(
+            connection, source="jquants_fin_summaries", operation="fixture",
+            table="jquants_fin_summaries", date_column="disclosed_at",
+            requested_start=date(2022, 8, 14), requested_end=date(2025, 5, 15),
+            status="ok", error=None,
+        )
+    publish_fixture(path, "private-fixture")
+    origin = read_lake_store_origin(path)
+    store = MemoryR2Store()
+    for file in (path.parent / "mirror" / "lake").rglob("*"):
+        if file.is_file():
+            store.store_object(file.relative_to(path.parent / "mirror").as_posix(), file.read_bytes())
+    pointer = LakeReleasePointer(
+        release_id=origin.release_id,
+        manifest_key=release_manifest_key(release_id=origin.release_id),
+        manifest_sha256=origin.release_manifest_sha256,
+    )
+    store.store_object(current_release_pointer_key(), canonical_lake_model_bytes(pointer))
+    narrow_release_policy(monkeypatch, datasets=("jquants.fin_summaries", "jquants.master_snapshots"))
+    before = {key: item.body for key, item in store.values.items()}
+    summary = execute(
+        store, tmp_path / "private-runner", run_id="100", attempt="1", head_sha="a" * 40,
+        tickers=("1234",),
+    )
+    assert summary["status"] == "measured"
+    assert summary["samples"][0]["sample_period_count"] == 12
+    assert summary["samples"][0]["window_invariance"] is True
+    assert "retained_histories" not in summary
+    assert "company_growth" not in summary["samples"][0]
+    assert "sales" not in summary["samples"][0]
+    key = summary["private_result_key"]
+    assert store.put_keys == [key]
+    assert key.startswith("validation/company-growth/pr-1592/100-1/")
+    private = store.values[key].body
+    assert b"42424242" in private
+    assert all(store.values[name].body == body for name, body in before.items())
+    assert all(name.startswith("lake/") or name == key for name in store.get_keys)
+    with pytest.raises(LakeCASConflict):
+        execute(
+            store, tmp_path / "second-runner", run_id="100", attempt="1", head_sha="a" * 40,
+            tickers=("1234",),
+        )
+    assert store.values[key].body == private

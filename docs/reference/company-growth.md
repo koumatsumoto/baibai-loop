@@ -37,7 +37,7 @@ PERとpeerはこの版では **未提供**。PERは価格・期末自己株式�
 
 ## 実データ受入の前提とCI
 
-本番取得・本番storeの読取/実測は未実施。主担当へ渡す最小試験入力は、固定releaseのID/digestと収録manifest、該当releaseの財務・masterと必要な前期間/訂正を含むParquet objectを配置したローカルmirror、origin参照の読取専用marketコピー、財務原文書と元単位・開示日/時刻・期間・連結基準、取得coverageがreleaseに対応する根拠（なければ未確認）、採用対象一覧である。追加課金や認証変更は不要な既存経路だけを使う。
+本番storeの読取/実測は、以下の承認済みCI受入と合成CIを区別して記録する。主担当へ渡す最小試験入力は、固定releaseのID/digestと収録manifest、該当releaseの財務・masterと必要な前期間/訂正を含むParquet objectを配置したローカルmirror、origin参照の読取専用marketコピー、財務原文書と元単位・開示日/時刻・期間・連結基準、取得coverageがreleaseに対応する根拠（なければ未確認）、採用対象一覧である。追加課金や認証変更は不要な既存経路だけを使う。
 
 初期サンプルは公開情報の4〜6社・各8〜12四半期程度とTTM/前年比の必要前期間。保存/参照上限ではない。M&A/訂正、営業利益と親会社損益の乖離、分割、金融業、決算月差を含める。候補は武田・日産・ソニーと金融業・決算月差の各1社。履歴がなければ同じ失敗条件を覆う公開情報の別企業へ置き換える。補助PERには同releaseの原価格日/終値と株式単位/自己株式、peerには明示的な基準日・根拠・固定群・両期財務が追加で必要。
 
@@ -70,4 +70,28 @@ uv run python -m tools.company_growth_sample \
   --out /tmp/company-growth-sample-result.json
 ```
 
-release不一致では中断する。記録は企業別query時間、選択した成長入力のUTF-8 JSON bytes、同じ実績選択から作る薄いFY/累計表のbytesと原数値。bytesをモデルのtoken数や課金額とは呼ばず、L3比較には既存入力・一次資料調査と実際のprompt使用量を別に添える。合成入力によるこの入口の動作は通常CIで検証する。実データコピーをCIへ渡す既存のread-only経路は主担当の確認待ちで、この変更だけでは本番取得・本番読取・実測を実行しない。実データ出力は一時artifactで扱い、公開repoへcommitしない。
+release不一致では中断する。記録は企業別query時間、選択した成長入力のUTF-8 JSON bytes、同じ実績選択から作る薄いFY/累計表のbytesと原数値。bytesをモデルのtoken数や課金額とは呼ばず、L3比較には既存入力・一次資料調査と実際のprompt使用量を別に添える。合成入力によるこの入口の動作は通常CIで検証する。実データ移送は下記の承認済み手動CIでだけ実行する。通常PRのqualityは合成入力のみを使う。実データ出力は一時artifactで扱い、公開repoへcommitしない。
+
+### 承認済みCI実データ受入
+
+本人の承認範囲は、本番R2の企業財務・masterと必要manifestを同repo Actionsへ一時コピーし、検証結果を同じ非公開R2の新規キーへ保存すること。保有・口座・application DBは取得しない。外部providerを再取得せず、本番の既存object・current pointer・原本を変更/削除しない。
+
+PR #1592 のbranchまたはmainで、既存 `ci.yml` の手動入力 `company_growth_acceptance=true` を指定する。quality成功後だけ標準runnerで実行する。R2 credentialは既存の3設定を対象stepだけへ渡し、追加の権限・認証・課金設定を作らない。
+
+```bash
+gh workflow run ci.yml --ref feat/1588-company-growth -f company_growth_acceptance=true
+```
+
+`tools.company_growth_acceptance` がproduction currentを一度固定し、財務/masterのParquetと必要manifestだけを既存lake cacheへ配置する。4502・7201・6758・8306・9983の5社について保持全期間と直近最大12会計期を読み、既存 `tools.company_growth_sample` で原数値と薄い表を作る。12期は試験窓であって保存/公開queryの上限ではない。8期に満たない対象は不足として返す。表示窓不変性、企業別query時間、12期/全期間/薄い表のJSON bytesを記録し、L3効果の判定は主担当の原本・対照比較に残す。
+
+公開logは件数・時間・bytes・成否と検証result keyだけ。原本・原数値をActions artifactやGitへ出さない。詳細結果は `baibai-stores/validation/company-growth/pr-1592/<run>-<attempt>/<head>/report.json` に `If-None-Match` で新規保存し、receiptと読戻しdigestを照合する。既存キーには書けない。runnerの一時コピーは終了時に削除する。
+
+主担当は公開要約の `private_result_key` を使い、既存の認可されたR2読取環境で結果を一時ファイルへ取得する。秘密・endpointをログへ表示せず、結果ファイルを公開repoへcommitしない。
+
+```bash
+aws s3api get-object --bucket baibai-stores --key '<PRIVATE_RESULT_KEY>' \
+  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+  /tmp/company-growth-private-result.json
+```
+
+通常Researchの準備は既存 `hydrate-market` を使う。hydrateは採用した固定releaseのmanifest一式も既存mirrorへ検証付きで保持するため、同じmirrorで後続queryをローカル解決できる。query自体はネットワーク取得を行わない。別配置ならprepareへ `--company-growth-mirror` を渡す。manifest/objectの欠落や読取OSエラーは成長内の `fixed_release_inputs_unavailable` へ局所化する。
