@@ -28,6 +28,7 @@ from baibai_engine.external_assessment.observations.models import (
     Observation,
     QuantsScoreObservation,
 )
+from baibai_engine.external_assessment.observations.rows import observation_row
 from baibai_engine.storage.lake.datasets import (
     EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS,
@@ -53,15 +54,8 @@ def verify_observations(database: Path, observations: Sequence[Observation]) -> 
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
         for item in observations:
-            if isinstance(item, ModelValuationObservation):
-                table, columns = MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS
-            elif isinstance(item, AnalystForecastObservation):
-                table, columns = ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS
-            elif isinstance(item, QuantsScoreObservation):
-                table, columns = QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS
-            else:
-                table, columns = ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS
-            names = ",".join(column[0] for column in columns)
+            table, columns, _ = observation_row(item)
+            names = ",".join(columns)
             row = connection.execute(
                 f"SELECT {names} FROM {table} WHERE ticker=? AND fetched_at_utc=?",  # nosec B608
                 (item.ticker, item.fetched_at_utc.isoformat(timespec="microseconds")),

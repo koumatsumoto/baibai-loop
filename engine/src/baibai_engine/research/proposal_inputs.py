@@ -16,7 +16,6 @@ from baibai_engine.market.jquants_reader import read_master_snapshot
 from baibai_engine.position.ledger import (
     ExecutionEvent,
     MarketPrice,
-    PortfolioLedgerDocument,
     replay_events_through,
     summarize_portfolio,
 )

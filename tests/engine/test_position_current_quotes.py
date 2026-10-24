@@ -306,9 +306,7 @@ def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
     ("offset", "first_index", "last_index"),
     [(0, None, None), (1, 0, 0), (2, 0, 1), (3, None, 2), (4, 3, 3)],
 )
-def test_holding_episode_tracks_partial_sale_full_exit_and_reentry(
-    offset, first_index, last_index
-):
+def test_holding_episode_tracks_partial_sale_full_exit_and_reentry(offset, first_index, last_index):
     from baibai_engine.position.ledger import (
         ExecutionEvent,
         OpeningBalanceEvent,
