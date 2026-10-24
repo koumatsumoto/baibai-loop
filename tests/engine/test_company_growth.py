@@ -1,13 +1,16 @@
-"""r4の有限反例と、公開読取からResearchの固定保存・再開まで。実providerを使わない。"""
+"""r5の有限反例と、公開読取からResearchの固定保存・再開まで。実providerを使わない。"""
 
-from contextlib import closing
-from copy import deepcopy
-from datetime import date, datetime, timedelta
 import socket
 import sqlite3
+from contextlib import closing
+from copy import deepcopy
+from datetime import UTC, date, datetime, timedelta
+from hashlib import sha256
 
 import pytest
 import yaml
+from tests.helpers.research_selection import draft_for, selection
+from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.company_growth.calculations import build_changes, build_period_states
 from baibai_engine.market.financial_documents import normalize_financial_summary
@@ -22,16 +25,22 @@ from baibai_engine.research.workspace import (
     prepare_selected_workspace,
     resume_selected_workspace,
 )
+from baibai_engine.storage.lake.models import (
+    ManifestTotals,
+    ReleaseDataset,
+    ReleaseManifest,
+    canonical_lake_model_bytes,
+)
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
-from tests.helpers.research_selection import draft_for, selection
-from tests.helpers.screening_sqlite import insert_financial_record
 
 NOW = datetime.fromisoformat("2026-10-24T18:00:00+09:00")
 
 
 def document(year, quarter, sales, op=None, profit=None, **updates):
-    end = (date(year, 6, 30), date(year, 9, 30), date(year, 12, 31), date(year + 1, 3, 31))[quarter - 1]
+    end = (date(year, 6, 30), date(year, 9, 30), date(year, 12, 31), date(year + 1, 3, 31))[
+        quarter - 1
+    ]
     record = {
         "Code": "12340",
         "DiscDate": (end + timedelta(days=45)).isoformat(),
@@ -64,7 +73,9 @@ def amount(state, measurement, metric):
 
 
 def change(result, end, metric, measurement="reported"):
-    return next(c for c in result if c.to_end == end and c.metric == metric and c.measurement == measurement)
+    return next(
+        c for c in result if c.to_end == end and c.metric == metric and c.measurement == measurement
+    )
 
 
 def market_store(tmp_path, records, *, release="synthetic-release-1"):
@@ -94,10 +105,12 @@ def test_seasonality_and_one_time_gain_remain_one_quarter_observation():
 
 
 def test_cumulative_difference_and_reported_eps_never_share_arithmetic():
-    result = states([
-        document(2024, 1, 100, 10, 100, EPS=1, AvgSh=100),
-        document(2024, 2, 230, 25, 200, EPS=200 / 150, AvgSh=150),
-    ])
+    result = states(
+        [
+            document(2024, 1, 100, 10, 100, EPS=1, AvgSh=100),
+            document(2024, 2, 230, 25, 200, EPS=200 / 150, AvgSh=150),
+        ]
+    )
     assert amount(result[1], "quarter", "sales").value == 130
     assert amount(result[1], "quarter", "parent_profit").value == 100
     assert amount(result[1], "reported", "reported_basic_eps").value == pytest.approx(200 / 150)
@@ -123,7 +136,14 @@ def test_later_q1_correction_only_blocks_a_known_changed_cumulative_pair(correct
 
 def test_partial_correction_and_same_revision_conflict_are_metric_local():
     base = document(2024, 1, 100, 10, 8)
-    correction = {**base, "Sales": None, "OP": 15, "NP": None, "DiscDate": "2024-08-20", "DiscNo": "op-fix"}
+    correction = {
+        **base,
+        "Sales": None,
+        "OP": 15,
+        "NP": None,
+        "DiscDate": "2024-08-20",
+        "DiscNo": "op-fix",
+    }
     result = states([base, correction])
     assert amount(result[0], "reported", "sales").value == 100
     assert amount(result[0], "reported", "operating_profit").value == 15
@@ -136,7 +156,13 @@ def test_partial_correction_and_same_revision_conflict_are_metric_local():
 
 @pytest.mark.parametrize(
     ("before", "after", "rate", "difference"),
-    [(10, -10, -2, -20), (-100, -50, None, 50), (0, 10, None, 10), (1, 2, 1, 1), (100, 200, 1, 100)],
+    [
+        (10, -10, -2, -20),
+        (-100, -50, None, 50),
+        (0, 10, None, 10),
+        (1, 2, 1, 1),
+        (100, 200, 1, 100),
+    ],
 )
 def test_growth_rates_keep_amounts_sign_and_nonpositive_base(before, after, rate, difference):
     result = build_changes(states([document(2023, 1, before), document(2024, 1, after)]))
@@ -158,10 +184,12 @@ def test_margin_points_do_not_become_a_growth_score():
 
 
 def test_eps_split_comparison_is_unverified_but_reported_values_survive():
-    result = states([
-        document(2023, 4, 100, 20, 10, EPS=788.29, ShOutFY=100, TrShFY=20),
-        document(2024, 4, 120, 25, 12, EPS=188.71, ShOutFY=500, TrShFY=100),
-    ])
+    result = states(
+        [
+            document(2023, 4, 100, 20, 10, EPS=788.29, ShOutFY=100, TrShFY=20),
+            document(2024, 4, 120, 25, 12, EPS=188.71, ShOutFY=500, TrShFY=100),
+        ]
+    )
     value = change(build_changes(result), date(2025, 3, 31), "reported_basic_eps")
     assert (value.from_value, value.to_value) == (788.29, 188.71)
     assert value.difference is None
@@ -171,10 +199,12 @@ def test_eps_split_comparison_is_unverified_but_reported_values_survive():
 
 
 def test_cf_bs_and_ordinary_profit_are_not_filled_or_relabelled():
-    result = states([
-        document(2024, 1, 100, None, -30, OdP=20, CFO=50, TA=1000, Eq=400),
-        document(2024, 2, 230, 25, -60),
-    ])
+    result = states(
+        [
+            document(2024, 1, 100, None, -30, OdP=20, CFO=50, TA=1000, Eq=400),
+            document(2024, 2, 230, 25, -60),
+        ]
+    )
     assert amount(result[0], "reported", "operating_profit").value is None
     assert amount(result[0], "reported", "parent_profit").value == -30
     assert amount(result[1], "reported", "operating_cash_flow").value is None
@@ -194,11 +224,13 @@ def test_financial_or_unknown_sector_does_not_get_nonfinancial_margin(sector):
 
 
 def test_basis_and_irregular_year_do_not_gain_convenient_ttm():
-    result = states([
-        document(2023, 1, 100),
-        document(2023, 4, 400),
-        document(2024, 1, 120, DocType="FinancialStatements_NonConsolidated_JP"),
-    ])
+    result = states(
+        [
+            document(2023, 1, 100),
+            document(2023, 4, 400),
+            document(2024, 1, 120, DocType="FinancialStatements_NonConsolidated_JP"),
+        ]
+    )
     assert amount(result[2], "annual_ttm", "sales").value is None
     assert amount(result[2], "annual_ttm", "sales").reason == "statement_basis_incomparable"
     assert change(build_changes(result), date(2024, 6, 30), "sales").difference is None
@@ -206,9 +238,15 @@ def test_basis_and_irregular_year_do_not_gain_convenient_ttm():
     assert amount(states([short])[0], "annual_ttm", "sales").value is None
     first = normalize_financial_summary(document(2023, 1, 100))
     second = normalize_financial_summary(document(2024, 1, 120, CurPerEn="2024-07-05"))
-    assert prior_year_period_matches(first, second, length_tolerance_ratio=0.1, end_tolerance_days=45)
-    shifted = normalize_financial_summary(document(2024, 1, 120, CurPerSt="2024-07-01", CurPerEn="2024-09-30"))
-    assert not prior_year_period_matches(first, shifted, length_tolerance_ratio=0.1, end_tolerance_days=45)
+    assert prior_year_period_matches(
+        first, second, length_tolerance_ratio=0.1, end_tolerance_days=45
+    )
+    shifted = normalize_financial_summary(
+        document(2024, 1, 120, CurPerSt="2024-07-01", CurPerEn="2024-09-30")
+    )
+    assert not prior_year_period_matches(
+        first, shifted, length_tolerance_ratio=0.1, end_tolerance_days=45
+    )
 
 
 def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges(tmp_path):
@@ -317,3 +355,91 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
             draft=draft.model_copy(update={"company_growth_start": date(2023, 4, 1)}),
             sqlite_path=path, runs_path=tmp_path / "runs", indicators_path=tmp_path / "absent-indicators", **arguments,
         )
+
+
+def test_same_current_state_keeps_distinct_paths_for_l3():
+    improving = states([
+        document(2022, 4, 1000, 50, 50),
+        document(2023, 4, 1000, 75, 75),
+        document(2024, 4, 1000, 100, 100),
+    ])
+    declining = states([
+        document(2022, 4, 1000, 200, 200),
+        document(2023, 4, 1000, 150, 150),
+        document(2024, 4, 1000, 100, 100),
+    ])
+    assert amount(improving[-1], "reported", "parent_profit").value == 100
+    assert amount(declining[-1], "reported", "parent_profit").value == 100
+    up = change(build_changes(improving), date(2025, 3, 31), "parent_profit")
+    down = change(build_changes(declining), date(2025, 3, 31), "parent_profit")
+    assert (up.from_value, up.to_value, up.difference) == (75, 100, 25)
+    assert (down.from_value, down.to_value, down.difference) == (150, 100, -50)
+    assert up.margin_points is None
+    assert "forecast" not in up.model_dump()
+
+
+def test_legacy_selection_hash_keeps_its_original_serialized_inputs():
+    from baibai_engine.foundation.json import canonical_json
+
+    old = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
+    expected = sha256(canonical_json(old).encode()).hexdigest()
+    restored = parse_selection(old)
+    assert restored.model_dump(mode="json") == old
+    assert selection_sha256(restored) == expected
+    assert "company_growth" not in restored.inputs.securities_context["1234"]
+
+
+def test_old_other_dataset_watermark_cannot_hide_a_retained_financial_correction(tmp_path):
+    old_price_day = date(2024, 6, 1)
+    financial_day = date(2026, 10, 23)
+    totals = ManifestTotals(objects=0, bytes=0, rows=0)
+    manifest = ReleaseManifest(
+        manifest_version=2,
+        release_id="synthetic-mixed-watermarks",
+        profile="production",
+        created_at=NOW.astimezone(UTC),
+        data_as_of=old_price_day,
+        datasets={
+            "jquants.daily_bars": ReleaseDataset(
+                build_id="old-price", layer="l1", contract_version=1,
+                manifest_sha256="d" * 64, data_as_of=old_price_day,
+                coverage_status="partial", totals=totals,
+            ),
+            "jquants.fin_summaries": ReleaseDataset(
+                build_id="new-financial", layer="l1", contract_version=1,
+                manifest_sha256="e" * 64, data_as_of=financial_day,
+                coverage_status="partial", totals=totals,
+            ),
+        },
+    )
+    assert manifest.data_as_of < financial_day
+    digest = sha256(canonical_lake_model_bytes(manifest)).hexdigest()
+    path = market_store(tmp_path, [
+        document(2024, 1, 100),
+        document(2024, 1, 150, DiscDate=financial_day.isoformat(), DiscNo="late-correction"),
+    ])
+    with closing(sqlite3.connect(path)) as connection, connection:
+        write_lake_store_origin(connection, LakeStoreOrigin(manifest.release_id, digest))
+    result = company_growth(path, ticker="1234", as_of=date(2024, 6, 30))
+    value = amount(result.periods[0], "reported", "sales")
+    assert value.value == 150
+    assert value.documents[0].disclosed_at == financial_day
+    assert result.input_release.manifest_sha256 == digest
+    assert result.input_release.receipt_cutoff is None
+    assert result.read_semantics == "retained_latest_in_fixed_release_not_point_in_time"
+
+
+def test_optional_source_rows_leave_core_states_documents_and_changes_unchanged(tmp_path):
+    path = market_store(tmp_path, [document(2023, 1, 100), document(2024, 1, 200)])
+    before = company_growth(path, ticker="1234", as_of=NOW.date())
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+            ("1234", "2024-06-28", 1000),
+        )
+        insert_financial_record(connection, document(2024, 1, 999, Code="56780"))
+    after = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert after.periods == before.periods
+    assert after.changes == before.changes
+    assert after.per.status == "not_provided"
+    assert after.peer.status == "not_provided"

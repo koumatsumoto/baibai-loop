@@ -86,9 +86,7 @@ def company_growth(
                 observed_end=observed[-1] if observed else None,
                 observed_period_ends=observed,
                 gaps_between_observations=tuple(
-                    (a, b)
-                    for a, b in pairwise(observed)
-                    if (b - a).days > 110
+                    (a, b) for a, b in pairwise(observed) if (b - a).days > 110
                 ),
                 excluded_document_count=sum(period_days(row) is None for row in documents),
             ),

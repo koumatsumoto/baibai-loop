@@ -107,6 +107,19 @@ class CompanyGrowth(Contract):
     read_semantics: Literal["retained_latest_in_fixed_release_not_point_in_time"] = (
         "retained_latest_in_fixed_release_not_point_in_time"
     )
+    metric_units: dict[Metric, str] = {
+        "sales": "JPY",
+        "operating_profit": "JPY",
+        "parent_profit": "JPY",
+        "operating_margin": "ratio",
+        "reported_basic_eps": "JPY_per_source_reported_share",
+        "average_shares": "shares",
+        "issued_shares": "shares",
+        "treasury_shares": "shares",
+        "operating_cash_flow": "JPY",
+        "net_assets": "JPY",
+        "total_assets": "JPY",
+    }
     requested_start: date | None
     requested_end: date
     input_release: InputRelease | None = None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import date
 from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
@@ -89,13 +90,38 @@ def prior_year_period_matches(
     assert prior.period_end is not None
     assert current.period_start is not None
     assert current.period_end is not None
-    return (
-        abs(prior_days - current_days) <= max(1, round(current_days * length_tolerance_ratio))
-        and abs((prior.period_start - add_months_clamped(current.period_start, -12)).days)
-        <= end_tolerance_days
-        and abs((prior.period_end - add_months_clamped(current.period_end, -12)).days)
-        <= end_tolerance_days
+    return prior_year_dates_match(
+        prior.period_start,
+        prior.period_end,
+        current.period_start,
+        current.period_end,
+        length_tolerance_ratio=length_tolerance_ratio,
+        end_tolerance_days=end_tolerance_days,
     )
+
+
+def prior_year_dates_match(
+    prior_start: date,
+    prior_end: date,
+    current_start: date,
+    current_end: date,
+    *,
+    length_tolerance_ratio: float,
+    end_tolerance_days: int,
+) -> bool:
+    """Shared date arithmetic for reported and derived measurement intervals."""
+    prior_days = (prior_end - prior_start).days + 1
+    current_days = (current_end - current_start).days + 1
+    return (
+        prior_days > 0
+        and current_days > 0
+        and abs(prior_days - current_days)
+        <= max(1, round(current_days * length_tolerance_ratio))
+        and abs((prior_start - add_months_clamped(current_start, -12)).days)
+        <= end_tolerance_days
+        and abs((prior_end - add_months_clamped(current_end, -12)).days) <= end_tolerance_days
+    )
+
 
 
 def compose_ttm_amount(current: float, prior_year: float, prior_same: float) -> float:

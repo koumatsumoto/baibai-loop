@@ -16,6 +16,7 @@ from baibai_engine.market.financial_periods import (
     ACTUAL_FIELDS,
     compose_ttm_amount,
     period_days,
+    prior_year_dates_match,
     prior_year_period_matches,
     resolve_actual_conflicts,
 )
@@ -83,6 +84,8 @@ def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) 
         reason = (
             "conflicting_revisions"
             if any(field in r.unresolved_actual_fields for r in rows)
+            else "statement_basis_incomparable"
+            if any(getattr(r, field) is not None for r in rows)
             else "not_observed"
         )
         return Value(reason=reason)
@@ -160,7 +163,7 @@ def _derived(
     for metric, field in _AMOUNT_FIELDS:
         row = _select(current, field)
         if row is None:
-            metrics[metric] = Value(reason="operand_unavailable")
+            metrics[metric] = _value(current, metric, field)
             continue
         days = period_days(row)
         if days is not None and (330 <= days <= 370 if ttm else 70 <= days <= 110):
@@ -298,15 +301,18 @@ def build_period_states(
 
 
 def _observation_matches(prior: Observation, current: Observation) -> bool:
-    prior_days = (prior.period_end - prior.period_start).days + 1
-    current_days = (current.period_end - current.period_start).days + 1
     return (
         prior.measurement == current.measurement
         and prior.statement_basis == current.statement_basis
         and current.statement_basis in {"consolidated", "nonconsolidated"}
-        and abs(prior_days - current_days) <= max(1, round(current_days * 0.1))
-        and abs((prior.period_end - add_months_clamped(current.period_end, -12)).days) <= 45
-        and abs((prior.period_start - add_months_clamped(current.period_start, -12)).days) <= 45
+        and prior_year_dates_match(
+            prior.period_start,
+            prior.period_end,
+            current.period_start,
+            current.period_end,
+            length_tolerance_ratio=0.1,
+            end_tolerance_days=45,
+        )
     )
 
 

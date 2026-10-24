@@ -523,6 +523,7 @@ source_modules = [
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.models",
 ]
 forbidden_modules = [
+  "baibai_engine.company_growth",
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
   "baibai_engine.storage.application.write", "baibai_engine.market_context.reading.cli",
@@ -534,6 +535,7 @@ name = "economic observations do not depend on reading computation"
 type = "forbidden"
 source_modules = ["baibai_engine.market_context.indicators"]
 forbidden_modules = [
+  "baibai_engine.company_growth",
   "baibai_engine.market_context.indicator_service",
   "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",

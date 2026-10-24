@@ -1,10 +1,10 @@
 # 企業成長
 
-`company_growth/` は企業価値と兄弟のL2で、過去の実績状態と変化をResearchへ渡す。将来予測・成長認定・総合点・Screeningの足切りは行わない。採用仕様は [Issue #1588 r4](https://github.com/koumatsumoto/baibai-loop/issues/1588)。
+`company_growth/` は企業価値と兄弟のL2で、過去の実績状態と変化をResearchへ渡す。将来予測・成長認定・総合点・Screeningの足切りは行わない。採用仕様は [Issue #1588 r5](https://github.com/koumatsumoto/baibai-loop/issues/1588)。
 
 ## 入力と時間
 
-公開入口は `read_api.company_growth.company_growth(path, ticker=..., as_of=..., start=..., end=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
+公開入口は `read_api.company_growth.company_growth(path, ticker=..., as_of=..., start=..., end=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。release全体の `data_as_of` は他datasetを含む最古watermarkなので、財務開示日終端へ流用しない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
 
 読取は既存の `read_financial_documents(..., ticker=...)` を使い、全保持文書から状態・比較を計算して出力だけを切る。窓より前のTTM/前年比入力と、窓より後に開示された過年度訂正を残す。同一release・方法・比較ペアで共通する期の結果は窓の両端に依存しない。読取時に外部取得は起動しない。
 
@@ -25,7 +25,7 @@ store-localのsource coverageはreleaseへ固定されていないため、現�
 
 `not_observed`（元値なし）、`*_incomparable` / `inconsistent_cumulative_revision`（合成/比較不能）、補助機能の `not_provided`、coverageの `unverified` を区別する。価格・一部科目の不足で実績全体を消さない。
 
-PERとpeerはこの版では **未提供**。PERは価格・期末自己株式控除後株数・正の年間/TTM親会社利益との単位対応を未検証。報告EPS型や別倍率へ切り替えない。peerは基準日・根拠・銘柄集合を固定した比較群が未選定で、比較ペアごとの両期母数と率母数を検証していない。現在の相対評価や市場全体を代用品にしない。実データ受入で入力を確認してから、この中核に追加する。
+PERとpeerはこの版では **未提供**。PERは価格・期末自己株式控除後株数・正の年間/TTM親会社利益との単位対応を未検証。報告EPS型や別倍率へ切り替えない。peerは基準日・根拠・銘柄集合を固定した比較群が未選定で、比較ペアごとの両期母数と率母数を検証していない。現在の相対評価や市場全体を代用品にしない。今後のPER/peer追加でも実績状態・採用原本・Changesを変えない。実データ受入で入力を確認してから、この中核に追加する。
 
 ## Researchと拡張
 
@@ -41,4 +41,4 @@ Selection draftの任意 `company_growth_start` / `company_growth_end` で問い
 
 CIは統合draft PRのbranchへpushして既存 `.github/workflows/ci.yml` を起動する。qualityの有限合成回帰 `tests/engine/test_company_growth.py` と既存valuation/Research回帰、format/lint/type/import/drift/securityを対象HEADで確認する。ローカルpytest/lint/typecheck/build/benchmarkを実行しない。実データ受入を実施する際も、承認されたread-only入力を既存CIに渡す手段を主担当が確定してから行い、production取得を合成fixture成功で代行しない。公開repoへ保有・口座・非公開情報や秘密は置かない。
 
-実測では原本値/単位/期間の一致、表示窓不変性、履歴coverageの確認可能範囲、対象企業の再計算時間、L3入力サイズを記録する。L3は「旧入力では曖昧な問い」「成長で区別できた経路と実数」「原典へ戻る未解決点」の3点を比較する。継続成長・有機成長・当時倍率・業界全体の改善・独立証拠数を創作しない。この受入と推奨参照範囲/入力量の確定は未完了である。
+実測では原本値/単位/期間の一致、表示窓不変性、履歴coverageの確認可能範囲、対象企業の再計算時間、L3入力サイズを記録する。対照には既存YoY・株数変化・3FY平均と通常の一次資料調査を残す。代表1〜2例は薄いFY/報告累計表とも比較し、同じ便益なら小さな実装を採用する。便益は仮定/反証の具体化、または同品質での転記・照合負担の低減で測る。L3は「旧入力では曖昧な問い」「成長で区別できた経路と実数」「原典へ戻る未解決点」の3点を比較する。継続成長・有機成長・当時倍率・業界全体の改善・独立証拠数を創作しない。この受入と推奨参照範囲/入力量の確定は未完了である。
