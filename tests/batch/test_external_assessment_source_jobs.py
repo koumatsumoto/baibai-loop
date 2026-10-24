@@ -738,28 +738,15 @@ def test_workflow_publishes_each_source_without_waiting_for_its_siblings():
     acquire = child["jobs"]["acquire"]
     assert "inputs.operation == 'collect_and_publish'" in acquire["if"]
     assert "cloud-publish" not in str(acquire)
-    publisher = child["jobs"]["publish"]
-    assert publisher["needs"] == "acquire"
-    assert publisher["concurrency"]["group"] == "cloud-publish"
-    assert "always()" in publisher["if"]
-    assert "needs.acquire.result" not in publisher["if"]
-    assert "inputs.run_id" in publisher["env"]["SOURCE_RUNS"]
-    assert publisher["env"]["MASTER_ASOF"] == "${{ inputs.master_asof }}"
-    steps = publisher["steps"]
-    ready = next(step for step in steps if step.get("id") == "ready")
-    assert "external_assessment_sources inspect" in ready["run"]
-    publish = next(step for step in steps if step.get("id") == "publish")
-    for step in (ready, publish):
-        assert '--selection-json "$SOURCE_RUNS"' in step["run"]
-        assert '--master-asof "$MASTER_ASOF"' in step["run"]
-        assert "--confirmed-partial" in step["run"]
-    for step in steps:
-        if any(
-            token in step.get("run", "")
-            for token in (
-                "publication_lease acquire",
-                "r2_transfer.sh pull-market",
-                "external_assessment_sources publish",
-            )
-        ):
-            assert step["if"] == "${{ steps.ready.outputs.ready == 'true' }}"
+    assert "publish" not in child["jobs"]
+    handoff = child["jobs"]["handoff"]
+    assert handoff["needs"] == "acquire"
+    assert "always()" in handoff["if"]
+    assert "needs.acquire.result" not in handoff["if"]
+    ready = next(step for step in handoff["steps"] if step.get("id") == "ready")
+    assert "external_assessment_sources ready" in ready["run"]
+    assert '--selection-json "$SOURCE_RUNS"' in ready["run"]
+    assert '--master-asof "$MASTER_ASOF"' in ready["run"]
+    assert "--confirmed-partial" in ready["run"]
+    for forbidden in ("cloud-publish", "publication_lease", "pull-market", "hydrate-market", "publish-lake"):
+        assert forbidden not in str(child)

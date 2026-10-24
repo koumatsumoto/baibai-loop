@@ -1,5 +1,5 @@
 name: cloud-market-sources
-run-name: "market sources ${{ inputs.source || 'scheduled' }} ${{ inputs.asof || '' }}"
+run-name: "market-acquisition ${{ github.event.schedule == '43 7 * * *' && 'inputs' || github.event.schedule == '43 8 * * *' && 'edinet-metrics' || github.event.schedule == '13 9 * * *' && 'edinet-facts' || inputs.source || 'all' }} ${{ inputs.asof || '' }}"
 
 on:
   schedule:

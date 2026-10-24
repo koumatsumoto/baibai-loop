@@ -12,7 +12,7 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.external_assessment.tradingview.collector import calendar_context
+from baibai_engine.market.calendar_context import observation_calendar_context as calendar_context
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 _MARKET = (
@@ -27,7 +27,7 @@ _MARKET = (
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
     "jquants-market": _MARKET,
-    "jquants-financial": ("jquants_fin_summaries",),
+    "jquants-financial": ("jquants_fin_summaries", "jquants_market_calendar"),
     "edinet-list": _LISTS,
     "edinet-metrics": (*_LISTS, "edinet_metrics"),
     "edinet-facts": _LISTS,

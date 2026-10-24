@@ -88,7 +88,7 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
         concurrency = workflow["concurrency"]
     else:
         group = (
-            "source-acquire-jquants"
+            "common-source-integration"
             if workflow_name == "cloud-daily-batch.yml"
             else "tradingview-snapshot"
         )
@@ -113,13 +113,6 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
             "Pull stores",
             "Upload serving objects",
             "materialize",
-        ),
-        (
-            "cloud-tradingview-snapshot.yml",
-            "publish",
-            "fresh-canonical",
-            "publish-lake",
-            "tradingview",
         ),
     ],
 )

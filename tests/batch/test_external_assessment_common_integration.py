@@ -1,0 +1,96 @@
+import sqlite3
+import uuid
+from contextlib import closing
+
+import pytest
+from tests.batch.external_assessment_publication_fixtures import pair_responses
+from tests.batch.test_external_assessment_publication import RECEIVED
+from tests.batch.test_external_assessment_publication import publication as publication
+from tests.batch.test_external_assessment_source_jobs import independent_plans as independent_plans
+from tests.batch.test_external_assessment_source_publication import _plan, _stage
+
+from baibai_batch.jobs.external_assessment_integration import merge_ready, verify_and_seal
+from baibai_batch.jobs.external_assessment_publication import prepare_publication
+from baibai_batch.storage import external_assessment_staging as staging
+from baibai_batch.storage import publish_market_lake as publisher
+from baibai_batch.storage.external_assessment_ready import load_ready, save_ready
+from baibai_engine.batch_api import external_assessment_decode_attempt
+
+
+def ready_references(batch):
+    store, selected, *_ = batch
+    return [save_ready(store, prepare_publication(store, staging.read_plan(store, entry["run_id"]))) for entry in selected]
+
+
+def test_ready_freezes_exact_stages_without_publishing_or_relying_on_mutable_checkpoints(independent_plans):
+    store, selected, _, database, _, _ = independent_plans
+    pointer = publisher._serving_pointer(store)
+    before = database.read_bytes()
+    references = ready_references(independent_plans)
+    plan = staging.read_plan(store, selected[0]["run_id"])
+    store.store_object(staging.stage_key(plan, 0), b"mutable checkpoint replaced by a retry")
+    fixed = load_ready(store, references[0])
+    assert fixed.plan.plan_sha256 == plan.plan_sha256
+    assert fixed.accounting["attempted_completeness"] is True
+    assert publisher._serving_pointer(store) == pointer
+    assert database.read_bytes() == before
+
+
+def test_two_ready_sources_use_one_common_publication_and_keep_separate_verified_terminals(independent_plans):
+    store, selected, handle, database, mirror, directory = independent_plans
+    references = ready_references(independent_plans)
+    before = publisher._serving_pointer(store)
+    state = merge_ready(store, references, database=database)
+    assert publisher._serving_pointer(store) == before
+    assert state["failed"] == []
+    # A separate source legitimately updates its facts in this same integration.
+    with closing(sqlite3.connect(database)) as conn, conn:
+        conn.execute("UPDATE jquants_daily_bars SET close = close + 1")
+    published = publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    results = verify_and_seal(store, state, handle=handle, directory=directory / "common-readback")
+    assert len(results) == 2
+    terminals = [staging.read_terminal(store, staging.read_plan(store, item["run_id"])) for item in selected]
+    assert {item["release_id"] for item in terminals} == {published.release_id}
+    assert len({item["plan_sha256"] for item in terminals}) == 2
+    assert all(item["readback"] == "verified" for item in terminals)
+
+
+def test_common_readback_failure_never_repairs_sqlite_or_seals_any_terminal(independent_plans, monkeypatch):
+    store, selected, handle, database, mirror, directory = independent_plans
+    state = merge_ready(store, ready_references(independent_plans), database=database)
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    before = database.read_bytes()
+    def reject(*args, **kwargs):
+        raise ValueError("synthetic independent readback failure")
+    monkeypatch.setattr("baibai_batch.jobs.external_assessment_integration.external_assessment_verify_release_history", reject)
+    for _ in range(2):
+        with pytest.raises(ValueError, match="independent readback"):
+            verify_and_seal(store, state, handle=handle, directory=directory / "failed-readback")
+        assert database.read_bytes() == before
+        assert all(staging.read_terminal(store, staging.read_plan(store, item["run_id"])) is None for item in selected)
+
+
+def test_explicit_partial_confirmation_keeps_access_halt_and_exact_partial_terminal(independent_plans):
+    store, selected, handle, database, mirror, directory = independent_plans
+    previous = staging.read_plan(store, selected[0]["run_id"])
+    plan = _plan(previous, run_id="monex-common-partial", sources=("monex",), tickers=("7203", "6758"))
+    responses = pair_responses("monex", "7203", received_at_utc=RECEIVED)
+    observation = external_assessment_decode_attempt(responses)
+    _stage(store, plan, 0, [
+        ("monex", "7203", "observed", responses[0].attempt_id, observation, 200),
+        ("monex", "6758", "access_denied", str(uuid.uuid4()), None, 403),
+    ], responses)
+    staging.save_new_plan(store, plan)
+    original = store.values[staging.stage_key(plan, 0)].body
+    with pytest.raises(ValueError, match="explicit confirmed partial"):
+        prepare_publication(store, plan)
+    reference = save_ready(store, prepare_publication(store, plan, confirmed_partial=True))
+    state = merge_ready(store, [reference], database=database)
+    assert state["failed"] == []
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    verify_and_seal(store, state, handle=handle, directory=directory / "partial-common-readback")
+    terminal = staging.read_terminal(store, plan)
+    assert terminal["state_counts"]["failure"] == 1
+    assert terminal["observations"] == 1
+    assert terminal["readback"] == "verified"
+    assert store.values[staging.stage_key(plan, 0)].body == original

@@ -346,7 +346,10 @@ def test_data_credentials_are_absent_from_job_and_setup_steps(
         "lease-acquire": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "pull": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "hydrate": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
-        "batch": {"JQUANTS_API_KEY", "EDINET_API_KEY"},
+        "source-plan": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "source-integration": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "source-seal": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "source-inputs": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "publish-lake": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "upload-stores": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "publish-serving": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
@@ -415,12 +418,12 @@ def test_indicator_only_publication_keeps_the_existing_l1_release(
         ("invalid_json", True, True),
         ("invalid_field", True, True),
         ("unknown_change", True, True),
-        ("false", False, False),
+        ("false", True, False),
         ("true", True, False),
-        ("invalid_asof", False, False),
+        ("invalid_asof", True, False),
     ],
 )
-def test_daily_notice_only_explicit_false_skips_actual_lake_command(
+def test_common_replay_forces_lake_publication_even_if_daily_observer_is_unchanged(
     tmp_path: Path,
     steps_by_id: dict[str, dict],
     notice_case: str,
@@ -466,6 +469,7 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
         "GITHUB_OUTPUT": str(github_output),
         "GITHUB_EVENT_NAME": "schedule",
         "MANUAL_ASOF": "",
+        "INTEGRATION_ASOF": "2026-10-14",
         "RECORDED": str(recorded),
     }
     result = subprocess.run(
@@ -516,7 +520,7 @@ def test_workflow_constructed_target_and_gate_arguments_are_accepted(tmp_path, s
     script = prefix + """
 python3 -c 'import json,sys; from pathlib import Path; Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]))' "$ARGS_PATH" "${args[@]}"
 """
-    result = subprocess.run(["bash", "-e", "-c", script], env={**os.environ, "GITHUB_EVENT_NAME": event, "MANUAL_ASOF": "2026-10-24", "RUNNER_TEMP": str(tmp_path), "ARGS_PATH": str(output)}, capture_output=True, text=True)
+    result = subprocess.run(["bash", "-e", "-c", script], env={**os.environ, "GITHUB_EVENT_NAME": event, "MANUAL_ASOF": "2026-10-24", "INTEGRATION_ASOF": "2026-10-24", "RUNNER_TEMP": str(tmp_path), "ARGS_PATH": str(output)}, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     argv = json.loads(output.read_text())
     assert argv.count("--asof") == 1

@@ -44,13 +44,17 @@ def available_handoffs(
                 manifest = json.loads(saved.payload)
                 report = manifest["result"]
                 source_name = report["source"] if market else "economic-" + report["group"]
-                if not isinstance(source_name, str) or (source is not None and source_name != source):
+                if not isinstance(source_name, str) or (
+                    source is not None and source_name != source
+                ):
                     raise ValueError("handoff source differs from its scope")
                 started = datetime.fromisoformat(report["started_at"])
                 if started.tzinfo is None:
                     raise ValueError("handoff clock has no timezone")
                 date.fromisoformat(report["asof"])
-                terminal = read_private(store, stage_prefix(stage_id, market=market) + "/integrated.json")
+                terminal = read_private(
+                    store, stage_prefix(stage_id, market=market) + "/integrated.json"
+                )
                 integrated = None
                 if terminal:
                     try:
@@ -63,19 +67,39 @@ def available_handoffs(
                         watermarks[source_name] = max(watermarks.get(source_name, started), started)
                     if not include_integrated:
                         continue
-                ready.append({
-                    "market": market, "stage_id": stage_id, "manifest_sha256": digest,
-                    "source": source_name, "started_at": report["started_at"],
-                    "asof": report["asof"], "integration": integrated,
-                })
+                ready.append(
+                    {
+                        "market": market,
+                        "stage_id": stage_id,
+                        "manifest_sha256": digest,
+                        "source": source_name,
+                        "started_at": report["started_at"],
+                        "asof": report["asof"],
+                        "integration": integrated,
+                    }
+                )
             except LakePublishError as error:
                 if str(error).startswith("R2 "):
                     raise
-                ready.append({"market": market, "stage_id": stage_id, "source": source_name,
-                              "manifest_sha256": digest, "invalid": type(error).__name__})
+                ready.append(
+                    {
+                        "market": market,
+                        "stage_id": stage_id,
+                        "source": source_name,
+                        "manifest_sha256": digest,
+                        "invalid": type(error).__name__,
+                    }
+                )
             except (ValueError, KeyError, TypeError) as error:
-                ready.append({"market": market, "stage_id": stage_id, "source": source_name,
-                              "manifest_sha256": digest, "invalid": type(error).__name__})
+                ready.append(
+                    {
+                        "market": market,
+                        "stage_id": stage_id,
+                        "source": source_name,
+                        "manifest_sha256": digest,
+                        "invalid": type(error).__name__,
+                    }
+                )
     for entry in ready:
         if entry.get("invalid"):
             continue
@@ -84,7 +108,14 @@ def available_handoffs(
             str(entry["source"]) in blocked_sources
             or (watermark and datetime.fromisoformat(str(entry["started_at"])) < watermark)
         )
-    return sorted(ready, key=lambda entry: (str(entry["source"]), str(entry.get("started_at", "")), str(entry["stage_id"])))
+    return sorted(
+        ready,
+        key=lambda entry: (
+            str(entry["source"]),
+            str(entry.get("started_at", "")),
+            str(entry["stage_id"]),
+        ),
+    )
 
 
 def download_fixed(store: ObjectStore, entry: dict[str, object], directory: Path) -> None:
@@ -96,15 +127,24 @@ def download_fixed(store: ObjectStore, entry: dict[str, object], directory: Path
 
 
 def seal_integrated(
-    store: ObjectStore, entry: dict[str, object], *, generations: dict[str, str], recovery: bool,
+    store: ObjectStore,
+    entry: dict[str, object],
+    *,
+    generations: dict[str, str],
+    recovery: bool,
 ) -> None:
     key = stage_prefix(str(entry["stage_id"]), market=bool(entry["market"])) + "/integrated.json"
-    value = json.dumps({
-        "manifest_sha256": entry["manifest_sha256"], "canonical_generations": generations,
-        "source": entry["source"], "started_at": entry["started_at"],
-        "status": "needs_explicit_recovery" if recovery else "integrated",
-        "integrated_at": datetime.now(UTC).isoformat(),
-    }, sort_keys=True).encode()
+    value = json.dumps(
+        {
+            "manifest_sha256": entry["manifest_sha256"],
+            "canonical_generations": generations,
+            "source": entry["source"],
+            "started_at": entry["started_at"],
+            "status": "needs_explicit_recovery" if recovery else "integrated",
+            "integrated_at": datetime.now(UTC).isoformat(),
+        },
+        sort_keys=True,
+    ).encode()
     prior = read_private(store, key)
     if prior is None:
         put_private(store, key, value, previous_etag=None)

@@ -119,7 +119,9 @@ from baibai_engine.external_assessment.tradingview.diagnostics import (
 from baibai_engine.external_assessment.tradingview.diagnostics import (
     safe_progress as tradingview_safe_progress,
 )
-from baibai_engine.external_assessment.tradingview.observations import FetchError as TradingViewFetchError
+from baibai_engine.external_assessment.tradingview.observations import (
+    FetchError as TradingViewFetchError,
+)
 from baibai_engine.external_assessment.tradingview.handoff import TradingViewHandoff
 from baibai_engine.external_assessment.tradingview.handoff import (
     export_handoff as export_tradingview_handoff,

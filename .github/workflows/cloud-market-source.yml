@@ -74,6 +74,9 @@ jobs:
           SOURCE: ${{ inputs.source }}
           STAGE_ID: ${{ inputs.source }}-${{ inputs.asof }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: uv run python -m baibai_batch.jobs.source_handoff stage --source "$SOURCE" --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/source-handoff"
+      - name: Market source result for ${{ inputs.asof }}
+        if: ${{ always() && steps.stage.outcome == 'success' }}
+        run: echo 'Market source private receipts saved; common integration is separate'
 
   notify:
     needs: acquire

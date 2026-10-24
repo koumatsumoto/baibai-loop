@@ -179,7 +179,13 @@ def prepare_publication(
     store: ObjectStore, plan: RunPlan, *, confirmed_partial: bool = False
 ) -> PreparedPublication:
     """Validate one exact plan's handoff without importing or publishing anything."""
-    stages = read_stages(store, plan)
+    return prepare_saved_stages(plan, read_stages(store, plan), confirmed_partial=confirmed_partial)
+
+
+def prepare_saved_stages(
+    plan: RunPlan, stages: dict[int, tuple[CohortStage, str]], *, confirmed_partial: bool = False
+) -> PreparedPublication:
+    """Apply the same exact/partial checks to an immutable stage selection."""
     results = [stage.result for stage, _ in stages.values()]
     if not confirmed_partial and any(
         entry.http_status in {403, 429} for result in results for entry in result.entries

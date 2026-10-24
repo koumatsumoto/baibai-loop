@@ -140,9 +140,9 @@ jobs:
         id: batch
         shell: bash
         env:
-          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
         run: |
-          args=(--saved-inputs --asof "${{ steps.source-plan.outputs.asof }}" --output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
+          args=(--saved-inputs --asof "$INTEGRATION_ASOF" --output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             args+=(--scheduled)
           fi
@@ -177,10 +177,10 @@ jobs:
                           asof = candidate
                   except ValueError:
                       pass
-              value = True  # Common receipt replay/extraction happened before the daily observer.
+              value = notice.get("market_updated") if isinstance(notice, dict) else None
               if not isinstance(value, bool):
                   raise ValueError
-              market_updated = value
+              market_updated = True  # Common replay/extraction preceded the daily observer.
           except (OSError, ValueError):
               print("::warning::Daily notice unavailable or invalid; continuing L1 publication.", file=sys.stderr)
           print("market_updated=" + str(market_updated).lower())

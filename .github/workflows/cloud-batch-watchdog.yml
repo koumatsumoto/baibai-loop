@@ -2,17 +2,8 @@ name: cloud-batch-watchdog
 
 on:
   schedule:
-    # 12:00 UTC (21:00 JST) on weekdays. `cloud-daily-batch` is scheduled at
-    # 07:43 UTC and GitHub's schedule queue adds about two hours at the median, so
-    # a healthy run has finished well before this. The watchdog only reads the run
-    # history, so a late firing of its own costs nothing: the evaluated window is
-    # anchored to when it runs, not to when it was due.
-    #
-    # No separate business-day calendar is needed here. The daily workflow skips
-    # Screening on non-business days while indicators and export continue; their
-    # independent failures can still produce a degraded or failed result. The
-    # watchdog reads the workflow outcome and actual target date from its notice.
-    - cron: "0 12 * * *"
+    - cron: "0 12 * * *" # Acquisition (07:43/08:43/09:13 UTC), including weekends.
+    - cron: "0 16 * * *" # Common integration (13:43 UTC); queued/running is not missing.
   workflow_dispatch:
     inputs:
       check_date:
@@ -32,6 +23,7 @@ concurrency:
 
 jobs:
   watchdog:
+    if: ${{ github.event_name != 'schedule' || github.event.schedule == '0 16 * * *' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -81,12 +73,12 @@ jobs:
           # $WATCHDOG_CHECK_DATE carries the dispatch input safely as a variable;
           # never interpolate inputs.* into this run block (script injection).
           python3 -m baibai_batch.jobs.watchdog \
-            --weekdays-only \
             --read-run-results \
             --runs-json "$RUNNER_TEMP/daily-batch-runs.json" \
             --check-date "$WATCHDOG_CHECK_DATE"
 
   economic:
+    if: ${{ github.event_name != 'schedule' || github.event.schedule == '0 12 * * *' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -108,3 +100,24 @@ jobs:
           python3 -m baibai_batch.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
           python3 -m baibai_batch.jobs.watchdog --economic --read-run-results \
             --runs-json "$RUNNER_TEMP/economic-runs.json" --check-date "$WATCHDOG_CHECK_DATE"
+
+  market:
+    if: ${{ github.event_name != 'schedule' || github.event.schedule == '0 12 * * *' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read market acquisition slot history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-market-sources.yml/runs" -f per_page=100 -f branch=main > "$RUNNER_TEMP/market-runs.json"
+      - name: Report missing market acquisition slots together
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
+          PYTHONPATH: batch/src
+        run: |
+          python3 -m baibai_batch.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+          python3 -m baibai_batch.jobs.watchdog --market --read-run-results --runs-json "$RUNNER_TEMP/market-runs.json" --check-date "$WATCHDOG_CHECK_DATE"

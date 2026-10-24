@@ -163,26 +163,45 @@ def test_latest_rolling_calendar_does_not_reproject_older_history(tmp_path, monk
         ).fetchall() == [(f"2026-10-{i:02d}", "0" if i < 4 else "1") for i in range(1, 16)]
 
 
-def test_failed_newer_replay_rolls_back_the_whole_projection_but_keeps_originals(tmp_path, monkeypatch):
-    source, target, stage = (tmp_path / name for name in ("source.sqlite", "target.sqlite", "stage.sqlite"))
+def test_failed_newer_replay_rolls_back_the_whole_projection_but_keeps_originals(
+    tmp_path, monkeypatch
+):
+    source, target, stage = (
+        tmp_path / name for name in ("source.sqlite", "target.sqlite", "stage.sqlite")
+    )
     old = calendar(source, "2026-10-01", "2026-10-10", 0, FIRST_AT)
     newer = calendar(target, "2026-10-05", "2026-10-15", 1, FIRST_AT + timedelta(hours=1))
     project_request(target, newer)
     with closing(open_connection(target)) as conn:
         before_rows = conn.execute("SELECT * FROM jquants_market_calendar ORDER BY day").fetchall()
-        before_coverage = conn.execute("SELECT * FROM source_coverage ORDER BY source, coverage_key").fetchall()
+        before_coverage = conn.execute(
+            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+        ).fetchall()
     selected = export_handoff(source, stage, since=FIRST_AT, sources=MARKET_SOURCES)
     calls = []
+
     def project(path, request_id, **kwargs):
         calls.append(request_id)
         if request_id == newer:
             raise ValueError("later canonical receipt fails current parser")
         return project_request(path, request_id, **kwargs)
+
     monkeypatch.setattr("baibai_engine.market.jquants_handoff.project_request", project)
     with pytest.raises(ValueError, match="later canonical"):
         import_handoff(stage, target, selected, sources=MARKET_SOURCES)
     assert calls == [old, newer]
     with closing(open_connection(target)) as conn:
-        assert conn.execute("SELECT * FROM jquants_market_calendar ORDER BY day").fetchall() == before_rows
-        assert conn.execute("SELECT * FROM source_coverage ORDER BY source, coverage_key").fetchall() == before_coverage
-        assert conn.execute("SELECT COUNT(DISTINCT request_id) FROM jquants_source_pages").fetchone()[0] == 2
+        assert (
+            conn.execute("SELECT * FROM jquants_market_calendar ORDER BY day").fetchall()
+            == before_rows
+        )
+        assert (
+            conn.execute("SELECT * FROM source_coverage ORDER BY source, coverage_key").fetchall()
+            == before_coverage
+        )
+        assert (
+            conn.execute("SELECT COUNT(DISTINCT request_id) FROM jquants_source_pages").fetchone()[
+                0
+            ]
+            == 2
+        )

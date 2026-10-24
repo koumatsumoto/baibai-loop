@@ -41,6 +41,7 @@ from baibai_engine.external_assessment.tradingview.observations import (
     ProviderPayloadError,
     normalize_batch,
 )
+from baibai_engine.market.calendar_context import observation_calendar_context
 from baibai_engine.market.master_snapshot import masters_from_payloads
 from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.observations.schema import (
@@ -107,32 +108,11 @@ def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
 
 
 def calendar_context(conn: sqlite3.Connection, day: date) -> tuple[date, bool]:
-    """Resolve the required master date without consulting TradingView L2 rows."""
-    calendar = conn.execute(
-        "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day=?",
-        (day.isoformat(),),
-    ).fetchone()
-    if calendar is None:
-        raise SourceDataError("Exact-date trading calendar is unavailable")
-    business = bool(calendar[0])
-    if business:
-        basis = day
-    else:
-        previous = conn.execute(
-            "SELECT MAX(day) FROM jquants_market_calendar "
-            "WHERE day<? AND holiday_division IN ('1', '2')",
-            (day.isoformat(),),
-        ).fetchone()[0]
-        if previous is None:
-            raise SourceDataError("Previous business day is unavailable in trading calendar")
-        basis = date.fromisoformat(previous)
-        calendar_days = conn.execute(
-            "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?",
-            (basis.isoformat(), day.isoformat()),
-        ).fetchone()[0]
-        if calendar_days != (day - basis).days + 1:
-            raise SourceDataError("Continuous trading calendar coverage is unavailable")
-    return basis, business
+    """Keep the collector's source error contract around the shared saved-calendar rule."""
+    try:
+        return observation_calendar_context(conn, day)
+    except ValueError as error:
+        raise SourceDataError(str(error)) from error
 
 
 def _snapshot_state(

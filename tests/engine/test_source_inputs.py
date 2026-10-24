@@ -28,12 +28,12 @@ def test_financial_input_keeps_normal_empty_coverage_and_excludes_other_sources(
     report = export_source_input(
         canonical, scoped, group="jquants-financial", asof=date(2026, 10, 15)
     )
-    assert report["rows"] == {"jquants_fin_summaries": 0}
+    assert report["rows"] == {"jquants_fin_summaries": 0, "jquants_market_calendar": 1}
     with closing(open_connection(scoped)) as conn:
         assert conn.execute(
             "SELECT source, record_count, status FROM source_coverage"
         ).fetchall() == [("jquants_fin_summaries", 0, "ok")]
-        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM jpx_regulation_sources").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0
 
