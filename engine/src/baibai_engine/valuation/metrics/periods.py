@@ -49,9 +49,7 @@ def _latest_consistent_actual(
     # not establish a publication order, and never fills a capital pair across rows.
     return max(
         latest,
-        key=lambda row: sum(
-            getattr(row, field) is not None for field in (fields or ACTUAL_FIELDS)
-        ),
+        key=lambda row: sum(getattr(row, field) is not None for field in (fields or ACTUAL_FIELDS)),
     )
 
 

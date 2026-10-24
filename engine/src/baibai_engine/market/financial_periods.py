@@ -115,13 +115,10 @@ def prior_year_dates_match(
     return (
         prior_days > 0
         and current_days > 0
-        and abs(prior_days - current_days)
-        <= max(1, round(current_days * length_tolerance_ratio))
-        and abs((prior_start - add_months_clamped(current_start, -12)).days)
-        <= end_tolerance_days
+        and abs(prior_days - current_days) <= max(1, round(current_days * length_tolerance_ratio))
+        and abs((prior_start - add_months_clamped(current_start, -12)).days) <= end_tolerance_days
         and abs((prior_end - add_months_clamped(current_end, -12)).days) <= end_tolerance_days
     )
-
 
 
 def compose_ttm_amount(current: float, prior_year: float, prior_same: float) -> float:

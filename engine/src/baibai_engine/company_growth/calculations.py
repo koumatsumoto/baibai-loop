@@ -9,6 +9,7 @@ from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
+    certainly_disclosed_by,
     latest_disclosure_candidates,
     statement_basis,
 )
@@ -44,13 +45,9 @@ _BALANCE_FIELDS: tuple[tuple[Metric, str], ...] = (
 )
 _FINANCIAL_SECTORS = {
     "銀行業",
-    "証券、商品先物取引業",
+    "証券・商品先物取引業",
     "保険業",
     "その他金融業",
-    "7050",
-    "7100",
-    "7150",
-    "7200",
 }
 
 
@@ -101,25 +98,37 @@ def _compatible(rows: Sequence[JQuantsFinancialSummary]) -> bool:
     }
 
 
-def _later_changed(
+def _cumulative_revision_gap(
     operand: JQuantsFinancialSummary,
     other: JQuantsFinancialSummary,
     all_rows: Sequence[JQuantsFinancialSummary],
     field: str,
-) -> bool:
-    """A known changed correction cannot be subtracted from an uncorrected later cumulative."""
-    if operand.disclosed_at <= other.disclosed_at:
-        return False
+) -> str | None:
+    """Identify changed overlapping cumulatives without inventing unknown same-day order."""
+    if certainly_disclosed_by(operand, other):
+        return None
     old = _select(
         [
             r
             for r in all_rows
             if accounting_period_identity(r) == accounting_period_identity(operand)
-            and r.disclosed_at <= other.disclosed_at
+            and certainly_disclosed_by(r, other)
         ],
         field,
     )
-    return old is None or getattr(old, field) != getattr(operand, field)
+    same_day_unknown = operand.disclosed_at == other.disclosed_at and (
+        not operand.disclosed_time or not other.disclosed_time
+    )
+    if old is None:
+        # No changed revision was observed; the unknown time alone is not a conflict.
+        return None if same_day_unknown else "inconsistent_cumulative_revision"
+    if getattr(old, field) == getattr(operand, field):
+        return None
+    return (
+        "cumulative_revision_order_unresolved"
+        if same_day_unknown
+        else "inconsistent_cumulative_revision"
+    )
 
 
 def _margin(metrics: dict[Metric, Value], sector: str | None) -> None:
@@ -180,7 +189,8 @@ def _derived(
     if ttm:
         prior_same = _closest_group(
             [
-                g for g in groups
+                g
+                for g in groups
                 if prior_year_period_matches(
                     g[0], anchor, length_tolerance_ratio=0.1, end_tolerance_days=45
                 )
@@ -189,7 +199,8 @@ def _derived(
         )
         prior_fy = _closest_group(
             [
-                g for g in groups
+                g
+                for g in groups
                 if anchor.fiscal_year_end is not None
                 and g[0].fiscal_year_end == add_months_clamped(anchor.fiscal_year_end, -12)
                 and (n := period_days(g[0])) is not None
@@ -202,7 +213,8 @@ def _derived(
     else:
         previous = _closest_group(
             [
-                g for g in groups
+                g
+                for g in groups
                 if g[0].period_end is not None
                 and g[0].period_start == anchor.period_start
                 and g[0].fiscal_year_end == anchor.fiscal_year_end
@@ -246,14 +258,19 @@ def _derived(
         sources = [row, *operands]
         if not _compatible(sources):
             metrics[metric] = Value(reason="statement_basis_incomparable")
-        elif (not ttm and _later_changed(operands[0], row, all_rows, field)) or (
-            ttm and _later_changed(operands[-1], operands[0], all_rows, field)
-        ):
-            metrics[metric] = Value(reason="inconsistent_cumulative_revision")
-        else:
-            values = [float(getattr(r, field)) for r in sources]
-            value = compose_ttm_amount(*values) if ttm else values[0] - values[1]
-            metrics[metric] = Value(value=value, documents=tuple(_document(r) for r in sources))
+            continue
+        revision_gap = (
+            _cumulative_revision_gap(operands[-1], operands[0], all_rows, field)
+            if ttm
+            else _cumulative_revision_gap(operands[0], row, all_rows, field)
+        )
+        if revision_gap is not None:
+            metrics[metric] = Value(reason=revision_gap)
+            continue
+        values = [float(getattr(r, field)) for r in sources]
+        value = compose_ttm_amount(*values) if ttm else values[0] - values[1]
+        metrics[metric] = Value(value=value, documents=tuple(_document(r) for r in sources))
+
     return start, metrics
 
 

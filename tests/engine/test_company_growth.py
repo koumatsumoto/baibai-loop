@@ -9,6 +9,7 @@ from hashlib import sha256
 
 import pytest
 import yaml
+from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import draft_for, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
@@ -214,7 +215,7 @@ def test_cf_bs_and_ordinary_profit_are_not_filled_or_relabelled():
     assert "common_equity" not in observation(result[0], "balance").metrics
 
 
-@pytest.mark.parametrize("sector", ["銀行業", "保険業", "7100", None])
+@pytest.mark.parametrize("sector", ["銀行業", "保険業", "証券・商品先物取引業", "その他金融業", None])
 def test_financial_or_unknown_sector_does_not_get_nonfinancial_margin(sector):
     result = states([document(2024, 1, 100, 20)], sector=sector)
     value = amount(result[0], "reported", "operating_margin")
@@ -254,10 +255,18 @@ def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges(t
     records.append(document(2022, 4, 450, DiscDate="2026-10-01", DiscNo="late-old-fy"))
     path = market_store(tmp_path, records)
     before = path.read_bytes()
-    narrow = company_growth(path, ticker="1234", as_of=NOW.date(), start=date(2023, 4, 1), end=date(2023, 12, 31))
-    broad = company_growth(path, ticker="1234", as_of=NOW.date(), start=date(2022, 4, 1), end=date(2025, 3, 31))
-    assert narrow.periods == tuple(s for s in broad.periods if date(2023, 4, 1) <= s.period_end <= date(2023, 12, 31))
-    assert narrow.changes == tuple(c for c in broad.changes if date(2023, 4, 1) <= c.to_end <= date(2023, 12, 31))
+    narrow = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=date(2023, 4, 1), end=date(2023, 12, 31)
+    )
+    broad = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=date(2022, 4, 1), end=date(2025, 3, 31)
+    )
+    assert narrow.periods == tuple(
+        s for s in broad.periods if date(2023, 4, 1) <= s.period_end <= date(2023, 12, 31)
+    )
+    assert narrow.changes == tuple(
+        c for c in broad.changes if date(2023, 4, 1) <= c.to_end <= date(2023, 12, 31)
+    )
     ttm = amount(narrow.periods[0], "annual_ttm", "sales")
     assert ttm.value == 450
     assert any(d.disclosure_number == "late-old-fy" for d in ttm.documents)
@@ -282,10 +291,14 @@ def test_observations_do_not_prove_continuous_acquisition_coverage(tmp_path):
 
 def test_missing_store_unfixed_release_and_invalid_period_are_local_states(tmp_path):
     path = tmp_path / "absent.sqlite"
-    assert company_growth(path, ticker="1234", as_of=NOW.date()).reason == "market_store_unavailable"
+    assert (
+        company_growth(path, ticker="1234", as_of=NOW.date()).reason == "market_store_unavailable"
+    )
     assert not path.exists()
     path = market_store(tmp_path, [document(2024, 1, 100)], release=None)
-    assert company_growth(path, ticker="1234", as_of=NOW.date()).reason == "fixed_release_unavailable"
+    assert (
+        company_growth(path, ticker="1234", as_of=NOW.date()).reason == "fixed_release_unavailable"
+    )
     with closing(sqlite3.connect(path)) as connection, connection:
         write_lake_store_origin(connection, LakeStoreOrigin("fixed", "b" * 64))
         insert_financial_record(connection, document(2024, 2, 230, CurPerEn="2027-03-31"))
@@ -302,12 +315,20 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
     selected = selection(now=NOW, tickers=("1234",))
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("network used"))
     inputs = collect_research_inputs(
-        snapshot=selected.inputs.analysis, input_gaps=selected.inputs.input_gaps,
-        tickers=("1234",), research_as_of=NOW.date(), input_known_at=NOW,
-        market_path=path, indicators_path=tmp_path / "absent-indicators", app_path=tmp_path / "absent-app",
-        company_growth_start=date(2024, 4, 1), company_growth_end=date(2024, 6, 30),
+        snapshot=selected.inputs.analysis,
+        input_gaps=selected.inputs.input_gaps,
+        tickers=("1234",),
+        research_as_of=NOW.date(),
+        input_known_at=NOW,
+        market_path=path,
+        indicators_path=tmp_path / "absent-indicators",
+        app_path=tmp_path / "absent-app",
+        company_growth_start=date(2024, 4, 1),
+        company_growth_end=date(2024, 6, 30),
     )
-    saved = ResearchSelection.model_validate_json(selected.model_copy(update={"inputs": inputs}).model_dump_json())
+    saved = ResearchSelection.model_validate_json(
+        selected.model_copy(update={"inputs": inputs}).model_dump_json()
+    )
     expected = deepcopy(inputs.securities_context["1234"]["company_growth"])
     assert inputs.analysis == selected.inputs.analysis
     assert inputs.input_gaps == selected.inputs.input_gaps
@@ -317,57 +338,90 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
     # Release, method and newly published numbers cannot replace the saved output.
     with closing(sqlite3.connect(path)) as connection, connection:
         write_lake_store_origin(connection, LakeStoreOrigin("synthetic-release-2", "c" * 64))
-        insert_financial_record(connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed"))
-    monkeypatch.setattr("baibai_engine.research.inputs.company_growth", lambda *_a, **_kw: pytest.fail("growth recomputed"))
+        insert_financial_record(
+            connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed")
+        )
+    monkeypatch.setattr(
+        "baibai_engine.research.inputs.company_growth",
+        lambda *_a, **_kw: pytest.fail("growth recomputed"),
+    )
     assert project_research_inputs(saved)["securities"]["1234"]["company_growth"] == expected
     assert selection_sha256(saved) != selection_sha256(selected)
     legacy = saved.model_dump(mode="json")
     del legacy["inputs"]["securities_context"]["1234"]["company_growth"]
-    assert "company_growth" not in project_research_inputs(parse_selection(legacy))["securities"]["1234"]
+    assert (
+        "company_growth"
+        not in project_research_inputs(parse_selection(legacy))["securities"]["1234"]
+    )
     legacy["inputs"]["securities_context"]["1234"]["growth_score"] = 100
     with pytest.raises(ValueError, match="security context"):
         parse_selection(legacy)
 
 
-def test_workspace_resume_restores_saved_growth_without_store_or_current_method(tmp_path, monkeypatch):
+def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
+    tmp_path, monkeypatch
+):
     path = market_store(tmp_path, [document(2023, 1, 100), document(2024, 1, 200)])
     selected = selection(now=NOW, tickers=("1234",))
-    draft = draft_for(selected).model_copy(update={
-        "company_growth_start": date(2024, 4, 1), "company_growth_end": date(2024, 6, 30),
-    })
+    draft = draft_for(selected).model_copy(
+        update={
+            "company_growth_start": date(2024, 4, 1),
+            "company_growth_end": date(2024, 6, 30),
+        }
+    )
     db, workspace = tmp_path / "application.sqlite", tmp_path / "workspace"
     arguments = dict(db_path=db, workspace=workspace, now=NOW)
     prepared = prepare_selected_workspace(
-        draft=draft, sqlite_path=path, runs_path=tmp_path / "runs", indicators_path=tmp_path / "absent-indicators", **arguments,
+        draft=draft,
+        sqlite_path=path,
+        runs_path=tmp_path / "runs",
+        indicators_path=tmp_path / "absent-indicators",
+        **arguments,
     )
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
     expected = project_research_inputs(saved)
     output = workspace / "domain-inputs.yaml"
     output.write_text("damaged projection", encoding="utf-8")
-    monkeypatch.setattr("baibai_engine.research.workspace.selected_prepare.collect_research_inputs", lambda **_kw: pytest.fail("inputs recollected"))
-    monkeypatch.setattr("baibai_engine.research.inputs.company_growth", lambda *_a, **_kw: pytest.fail("current method used"))
+    monkeypatch.setattr(
+        "baibai_engine.research.workspace.selected_prepare.collect_research_inputs",
+        lambda **_kw: pytest.fail("inputs recollected"),
+    )
+    monkeypatch.setattr(
+        "baibai_engine.research.inputs.company_growth",
+        lambda *_a, **_kw: pytest.fail("current method used"),
+    )
     resumed = resume_selected_workspace(operation_id=prepared.operation_id, force=True, **arguments)
     assert resumed.status == "resumed"
     assert yaml.safe_load(output.read_text(encoding="utf-8")) == expected
-    assert expected["securities"]["1234"]["company_growth"]["input_release"]["release_id"] == "synthetic-release-1"
+    assert (
+        expected["securities"]["1234"]["company_growth"]["input_release"]["release_id"]
+        == "synthetic-release-1"
+    )
     with pytest.raises(ResearchWorkspaceConflictError, match="different fixed selection"):
         prepare_selected_workspace(
             draft=draft.model_copy(update={"company_growth_start": date(2023, 4, 1)}),
-            sqlite_path=path, runs_path=tmp_path / "runs", indicators_path=tmp_path / "absent-indicators", **arguments,
+            sqlite_path=path,
+            runs_path=tmp_path / "runs",
+            indicators_path=tmp_path / "absent-indicators",
+            **arguments,
         )
 
 
 def test_same_current_state_keeps_distinct_paths_for_l3():
-    improving = states([
-        document(2022, 4, 1000, 50, 50),
-        document(2023, 4, 1000, 75, 75),
-        document(2024, 4, 1000, 100, 100),
-    ])
-    declining = states([
-        document(2022, 4, 1000, 200, 200),
-        document(2023, 4, 1000, 150, 150),
-        document(2024, 4, 1000, 100, 100),
-    ])
+    improving = states(
+        [
+            document(2022, 4, 1000, 50, 50),
+            document(2023, 4, 1000, 75, 75),
+            document(2024, 4, 1000, 100, 100),
+        ]
+    )
+    declining = states(
+        [
+            document(2022, 4, 1000, 200, 200),
+            document(2023, 4, 1000, 150, 150),
+            document(2024, 4, 1000, 100, 100),
+        ]
+    )
     assert amount(improving[-1], "reported", "parent_profit").value == 100
     assert amount(declining[-1], "reported", "parent_profit").value == 100
     up = change(build_changes(improving), date(2025, 3, 31), "parent_profit")
@@ -401,23 +455,34 @@ def test_old_other_dataset_watermark_cannot_hide_a_retained_financial_correction
         data_as_of=old_price_day,
         datasets={
             "jquants.daily_bars": ReleaseDataset(
-                build_id="old-price", layer="l1", contract_version=1,
-                manifest_sha256="d" * 64, data_as_of=old_price_day,
-                coverage_status="partial", totals=totals,
+                build_id="old-price",
+                layer="l1_source",
+                contract_version=1,
+                manifest_sha256="d" * 64,
+                data_as_of=old_price_day,
+                coverage_status="partial",
+                totals=totals,
             ),
             "jquants.fin_summaries": ReleaseDataset(
-                build_id="new-financial", layer="l1", contract_version=1,
-                manifest_sha256="e" * 64, data_as_of=financial_day,
-                coverage_status="partial", totals=totals,
+                build_id="new-financial",
+                layer="l1_source",
+                contract_version=1,
+                manifest_sha256="e" * 64,
+                data_as_of=financial_day,
+                coverage_status="partial",
+                totals=totals,
             ),
         },
     )
     assert manifest.data_as_of < financial_day
     digest = sha256(canonical_lake_model_bytes(manifest)).hexdigest()
-    path = market_store(tmp_path, [
-        document(2024, 1, 100),
-        document(2024, 1, 150, DiscDate=financial_day.isoformat(), DiscNo="late-correction"),
-    ])
+    path = market_store(
+        tmp_path,
+        [
+            document(2024, 1, 100),
+            document(2024, 1, 150, DiscDate=financial_day.isoformat(), DiscNo="late-correction"),
+        ],
+    )
     with closing(sqlite3.connect(path)) as connection, connection:
         write_lake_store_origin(connection, LakeStoreOrigin(manifest.release_id, digest))
     result = company_growth(path, ticker="1234", as_of=date(2024, 6, 30))
@@ -482,6 +547,58 @@ def test_finite_ci_sample_reports_inputs_cost_and_thin_table_without_claiming_l3
     assert sample["company_growth_json_bytes"] > sample["thin_reported_table_json_bytes"]
     assert report["acceptance"] == "requires_original_value_and_l3_comparison_review"
     with pytest.raises(ValueError, match="requested fixed release"):
-        measure_samples(path, spec.model_copy(update={
-            "input_release": InputRelease(release_id="different", manifest_sha256="b" * 64),
-        }))
+        measure_samples(
+            path,
+            spec.model_copy(
+                update={
+                    "input_release": InputRelease(release_id="different", manifest_sha256="b" * 64),
+                }
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("correction_time", "h1_time", "expected", "reason"),
+    [
+        ("16:00:00", "15:00:00", None, "inconsistent_cumulative_revision"),
+        ("14:00:00", "15:00:00", 140, None),
+        (None, "15:00:00", None, "cumulative_revision_order_unresolved"),
+        ("16:00:00", None, None, "cumulative_revision_order_unresolved"),
+        (None, None, None, "cumulative_revision_order_unresolved"),
+    ],
+)
+def test_same_day_cumulative_correction_respects_known_and_unknown_times(
+    correction_time, h1_time, expected, reason
+):
+    result = states([
+        document(2024, 1, 100),
+        document(2024, 2, 230, DiscDate="2024-11-14", DiscTime=h1_time),
+        document(
+            2024, 1, 90, DiscDate="2024-11-14", DiscTime=correction_time,
+            DiscNo="same-day-q1-correction",
+        ),
+    ])
+    value = amount(result[-1], "quarter", "sales")
+    assert value.value == expected
+    assert value.reason == reason
+
+
+def test_unknown_times_without_an_observed_change_do_not_invent_a_revision_conflict():
+    result = states([
+        document(2024, 1, 100, DiscDate="2024-11-14", DiscTime=None),
+        document(2024, 2, 230, DiscDate="2024-11-14", DiscTime=None),
+    ])
+    assert amount(result[-1], "quarter", "sales").value == 130
+
+
+def test_public_query_uses_the_normalized_security_master_sector_name(tmp_path):
+    path = market_store(tmp_path, [document(2024, 1, 100, 20)])
+    with closing(sqlite3.connect(path)) as connection, connection:
+        insert_master_rows(connection, [
+            ("2026-10-23", "1234", "合成証券", "プライム", "証券･商品先物取引業", "011"),
+        ])
+    result = company_growth(path, ticker="1234", as_of=NOW.date())
+    margin = amount(result.periods[0], "reported", "operating_margin")
+    assert margin.value is None
+    assert margin.reason == "not_applicable_to_financial_sector"
+    assert amount(result.periods[0], "reported", "sales").value == 100
