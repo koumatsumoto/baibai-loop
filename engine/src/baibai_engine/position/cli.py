@@ -49,7 +49,6 @@ from baibai_engine.position.ledger import (
     IncomeEvent,
     PortfolioLedgerDocument,
     PortfolioLedgerError,
-    ReservationEvent,
     WithdrawalEvent,
     replay_events_through,
     require_resolved_expiries,
@@ -444,14 +443,9 @@ def _run_outcome(
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    # Unfilled reservations move cash between available and reserved, not into stock.
     tickers = tuple(
-        sorted(
-            {
-                event.ticker
-                for event in ledger.events
-                if isinstance(event, (ExecutionEvent, ReservationEvent))
-            }
-        )
+        sorted({event.ticker for event in ledger.events if isinstance(event, ExecutionEvent)})
     )
     connection = connect_read_only(sqlite_path) if sqlite_path.exists() else None
     try:
