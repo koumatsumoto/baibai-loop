@@ -15,6 +15,7 @@ from baibai_engine.market.edinet_facts.store import record_initialized
 from baibai_engine.market.edinet_integration import extract_saved_edinet
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError, read_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -150,3 +151,38 @@ def test_unexpected_extractor_error_is_not_classified_as_deferred_input(tmp_path
     )
     with pytest.raises(RuntimeError, match="unexpected extractor error"):
         extract_saved_edinet(path, asof=TARGET, lookback_days=3)
+
+
+@pytest.mark.parametrize("event", ["correction", "withdrawal"])
+def test_old_available_list_day_cannot_revive_metrics_invalidated_by_newer_known_event(
+    tmp_path, event
+):
+    path = tmp_path / "market.sqlite"
+    documents = _seed(path)
+    changed = dict(documents[0])
+    if event == "correction":
+        changed.update(
+            docID="S100CORRECT",
+            docTypeCode="130",
+            parentDocID="S100SAVED",
+            submitDateTime="2026-04-27 12:00",
+        )
+    else:
+        changed.update(withdrawalStatus="1", opeDateTime="2026-04-27 12:00")
+    store_edinet_documents(path, TARGET, [changed])
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute(
+            "UPDATE source_coverage SET status = 'failed', error = 'latest acquisition incomplete' "
+            "WHERE source = 'edinet_documents' AND coverage_key = ?",
+            (TARGET.isoformat(),),
+        )
+    before = path.read_bytes()
+    report = extract_saved_edinet(path, asof=TARGET, lookback_days=0)
+    assert report["edinet-metrics"]["input_asof"] == BASE.isoformat()
+    assert report["edinet-metrics"]["snapshot_asof"] == BASE.isoformat()
+    assert "latest_document_list_delayed" in report["edinet-metrics"]["deferred_inputs"]
+    # Extraction's historical target cannot become the consumer's document cutoff.
+    selected = EDINETReader(path).load_metric_records(TARGET)
+    assert set(selected) == {"8306"}
+    assert selected["8306"].snapshot_asof == BASE
+    assert path.read_bytes() == before
