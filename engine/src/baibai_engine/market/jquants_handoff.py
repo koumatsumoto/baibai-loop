@@ -1,0 +1,146 @@
+"""Import J-Quants originals and replay affected saved scopes in receipt order."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from collections.abc import Mapping, Sequence
+from contextlib import closing
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsSource
+from baibai_engine.collection.jquants.receipts import import_requests, read_complete_request
+from baibai_engine.market.jquants_projection import project_request
+from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
+
+MARKET_SOURCES: tuple[JQuantsSource, ...] = (
+    "master", "daily_bars", "market_calendar", "margin_interest", "margin_alerts", "short_sale_reports",
+)
+FINANCIAL_SOURCES: tuple[JQuantsSource, ...] = ("financial_summaries",)
+
+
+@dataclass(frozen=True, slots=True)
+class _Scope:
+    request_id: str
+    source: str
+    start: date
+    end: date
+
+
+def _scope(request_id: str, source: str, params: Mapping[str, str]) -> _Scope:
+    if source == "market_calendar" and set(params) == {"from", "to"}:
+        first, last = date.fromisoformat(params["from"]), date.fromisoformat(params["to"])
+    else:
+        key = "disc_date" if source == "short_sale_reports" else "date"
+        if set(params) != {key}:
+            raise ValueError("J-Quants handoff requires a full-cross-section explicit scope")
+        first = last = date.fromisoformat(params[key])
+    if last < first:
+        raise ValueError("J-Quants handoff range is reversed")
+    return _Scope(request_id, source, first, last)
+
+
+def export_handoff(
+    source: Path, output: Path, *, since: datetime, sources: Sequence[JQuantsSource]
+) -> tuple[str, ...]:
+    if output.exists():
+        raise FileExistsError(output)
+    if since.tzinfo is None:
+        raise ValueError("J-Quants handoff cutoff requires a timezone")
+    allowed = set(MARKET_SOURCES + FINANCIAL_SOURCES)
+    if not sources or not set(sources) <= allowed:
+        raise ValueError("unsupported J-Quants handoff sources")
+    with (
+        closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as original,
+        closing(open_connection(output)) as target,
+        target,
+    ):
+        validate_current_schema(original)
+        original.execute("BEGIN")
+        selected = tuple(sorted({
+            row[0]
+            for name in sources
+            for row in original.execute(
+                "SELECT DISTINCT request_id FROM jquants_source_pages "
+                "WHERE source = ? AND received_at_utc >= ?",
+                (name, since.astimezone(UTC).isoformat(timespec="microseconds")),
+            )
+        }))
+        import_requests(original, target, selected)
+    return selected
+
+
+def _headers(conn: sqlite3.Connection, sources: set[str]) -> list[_Scope]:
+    result = []
+    for request_id, source, query in conn.execute(
+        "SELECT request_id, source, query_json FROM jquants_source_pages WHERE page_index = 0"
+    ):
+        if source not in sources:
+            continue
+        try:
+            result.append(_scope(request_id, source, json.loads(query)))
+        except (KeyError, ValueError):
+            # Retained filtered/manual queries are originals, not replaceable full scopes.
+            continue
+    return result
+
+
+def _related(incoming: Sequence[_Scope], retained: Sequence[_Scope]) -> list[_Scope]:
+    dates = {(scope.source, scope.start) for scope in incoming if scope.source != "market_calendar"}
+    selected = [scope for scope in retained if (scope.source, scope.start) in dates]
+    ranges = [(scope.start, scope.end) for scope in incoming if scope.source == "market_calendar"]
+    calendars = [scope for scope in retained if scope.source == "market_calendar"]
+    # A newer overlapping range can extend past the incoming range. Include its
+    # own overlaps too, so replaying B never rolls back a still newer C on B's tail.
+    chosen: set[str] = set()
+    while True:
+        related = [scope for scope in calendars if scope.request_id not in chosen and any(
+            scope.start <= last and scope.end >= first for first, last in ranges
+        )]
+        if not related:
+            break
+        for scope in related:
+            chosen.add(scope.request_id)
+            ranges.append((scope.start, scope.end))
+            selected.append(scope)
+    return selected
+
+
+def import_handoff(
+    source: Path, target: Path, request_ids: Sequence[str], *, sources: Sequence[JQuantsSource]
+) -> dict[str, object]:
+    """Union original pages, then use the existing source projections for L2.
+
+    Calendar ranges are replaced by project_request. Replaying the connected
+    overlapping ranges oldest-first retains an incoming old range's non-overlap
+    and the newer canonical ranges' overlap. Other sources retain their explicit
+    daily full-cross-section replacement contract. No other facts are merged.
+    """
+    with (
+        closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as original,
+        closing(open_connection(target)) as conn,
+    ):
+        validate_current_schema(original)
+        incoming = [scope for scope in _headers(original, set(sources)) if scope.request_id in request_ids]
+        if {scope.request_id for scope in incoming} != set(request_ids):
+            raise ValueError("J-Quants handoff contains an unexpected or filtered request")
+        with conn:
+            added = import_requests(original, conn, request_ids)
+        selected = _related(incoming, _headers(conn, {scope.source for scope in incoming}))
+        complete = []
+        incomplete = []
+        for scope in selected:
+            try:
+                request = read_complete_request(conn, scope.request_id)
+            except (JQuantsAcquisitionError, ValueError):
+                if scope.request_id in request_ids:
+                    incomplete.append(scope.request_id)
+                continue
+            complete.append((request.received_at, scope.request_id))
+    replayed = []
+    for _, request_id in sorted(complete):
+        project_request(target, request_id)
+        replayed.append(request_id)
+    return {"raw_pages_added": added, "replayed_requests": replayed, "incomplete_requests": incomplete}
