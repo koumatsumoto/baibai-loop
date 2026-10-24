@@ -57,6 +57,7 @@ from .materialization import (
 )
 from .operations import list_operation_sessions
 from .position import (
+    current_portfolio,
     list_portfolio_outcome_payloads,
     portfolio_ledger_document,
     price_comparison_basis_is_confirmed,
@@ -69,6 +70,7 @@ from .proposals import (
 from .research import (
     list_assessment_review_publications,
     list_stock_assessment_publications,
+    reviewed_assessment_projection,
     stock_assessment_publication,
 )
 from .screening import (
@@ -81,6 +83,12 @@ from .screening import (
     screening_run_payload,
 )
 from .tasks import list_task_payloads, task_store_exists
+from .valuation import (
+    StoredMachineValuation,
+    anchor_gap_pct,
+    machine_valuation_from_analysis,
+    stored_machine_valuation,
+)
 
 __all__ = [
     "APPLICATION_DB_PATH",
@@ -148,13 +156,3 @@ __all__ = [
     "validate_market_store_schema",
     "validate_reading_rules",
 ]
-
-from baibai_engine.read_api.position import current_portfolio
-
-from .research import reviewed_assessment_projection
-from .valuation import (
-    StoredMachineValuation,
-    anchor_gap_pct,
-    machine_valuation_from_analysis,
-    stored_machine_valuation,
-)

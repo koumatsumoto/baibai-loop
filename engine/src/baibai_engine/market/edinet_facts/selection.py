@@ -145,4 +145,3 @@ def latest_annual_filing(documents: list[dict[str, Any]], ticker: str) -> dict[s
         key=lambda doc: (str(doc.get("submitDateTime") or ""), str(doc["docID"])),
         default=None,
     )
-

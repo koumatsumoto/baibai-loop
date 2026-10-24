@@ -345,11 +345,6 @@ def calibration_evaluate_command(
                 print(f"no panels found under {calibration_dir}", file=sys.stderr)
                 return 1
             meta_by_asof = {asof: read_panel_meta(snapshot, asof) for asof in all_asofs}
-            snapshot_rules_hashes = {meta.get("rules_hash") for meta in meta_by_asof.values()}
-            if len(snapshot_rules_hashes) != 1:
-                raise CalibrationCacheError(
-                    "panel store mixes rules provenance; run calibration-build --force"
-                )
             panel_variants = {meta.get("panel_variant") for meta in meta_by_asof.values()}
             if len(panel_variants) != 1:
                 raise CalibrationCacheError(
@@ -362,7 +357,9 @@ def calibration_evaluate_command(
                     "run calibration-build --force"
                 )
             expected_rules_hash = rules_content_hash(rules, PANEL_BUILD_POLICIES[panel_variant])
-            snapshot_rules_hash = next(iter(snapshot_rules_hashes))
+            # Snapshot coherence belongs to fixed_current_snapshot; this checks
+            # its single method against the operator's requested rules.
+            snapshot_rules_hash = next(iter(meta_by_asof.values())).get("rules_hash")
             if snapshot_rules_hash != expected_rules_hash:
                 raise CalibrationCacheError(
                     "panel rules_hash does not match --rules-path for "

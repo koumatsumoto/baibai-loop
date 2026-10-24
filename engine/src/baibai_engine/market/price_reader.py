@@ -106,6 +106,13 @@ def read_adjustment_factor_bars(
         ).fetchall()
     finally:
         conn.close()
+    return _adjustment_events_from_rows(rows)
+
+
+def _adjustment_events_from_rows(
+    rows: Iterable[tuple[Any, ...]],
+) -> list[JQuantsAdjustmentFactorEvent]:
+    """Decode the same action rows for full-range and single-ticker readers."""
     events: list[JQuantsAdjustmentFactorEvent] = []
     for ticker, traded_at, adjustment_factor, ex_right_type in rows:
         if traded_at is None:

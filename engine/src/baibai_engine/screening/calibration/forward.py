@@ -15,6 +15,7 @@ from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents
 from baibai_engine.market.price_basis import asof_basis_closes, asof_basis_prices
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.price_reader import _adjustment_events_from_rows
 from baibai_engine.valuation.metrics.dividends import _dividend_basis_requires_resolution
 from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
 
@@ -641,20 +642,12 @@ def _load_ticker_adjustment_events(
     conn: sqlite3.Connection, ticker: str, *, start: date
 ) -> list[JQuantsAdjustmentFactorEvent]:
     rows = conn.execute(
-        "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
+        "SELECT ticker, traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
         "WHERE ticker = ? AND traded_at >= ? "
         "AND (adjustment_factor != 1.0 OR ex_right_type IS NOT NULL) ORDER BY traded_at",
         (ticker, start.isoformat()),
     ).fetchall()
-    return [
-        JQuantsAdjustmentFactorEvent(
-            ticker=ticker,
-            traded_at=date.fromisoformat(str(day)),
-            adjustment_factor=float(factor),
-            ex_right_type=ex_right_type,
-        )
-        for day, factor, ex_right_type in rows
-    ]
+    return _adjustment_events_from_rows(rows)
 
 
 def _load_fy_dividends(

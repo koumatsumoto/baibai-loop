@@ -957,9 +957,7 @@ def test_quarantined_latest_family_cannot_make_previous_annual_current(tmp_path,
     new = document("S100NEW1", "2027-06-24 10:00")
     new["periodEnd"] = period_end
     event = document("S100EVNT", "2027-07-01 10:00")
-    event.update(
-        docTypeCode="350", docInfoEditStatus="1", parentDocID="S100NEW1", periodEnd=None
-    )
+    event.update(docTypeCode="350", docInfoEditStatus="1", parentDocID="S100NEW1", periodEnd=None)
     insert_documents(path, [old, new])
     assert selected_filing(path, "2027-06-30")[0] == "S100NEW1"
     insert_documents(path, [event])
@@ -967,6 +965,6 @@ def test_quarantined_latest_family_cannot_make_previous_annual_current(tmp_path,
     assert latest_annual_filing([old, new, event], "1873") is None
     assert selected_filing(path, "2027-07-02") is None
     # Explicit retained history can still be maintained; it is not selected as current.
-    assert [row["docID"] for row in annual_documents([old, new, event], retained={old["docID"]})] == [
-        old["docID"]
-    ]
+    assert [
+        row["docID"] for row in annual_documents([old, new, event], retained={old["docID"]})
+    ] == [old["docID"]]

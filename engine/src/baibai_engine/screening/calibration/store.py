@@ -168,11 +168,12 @@ def _validate_snapshot_policies(connection: sqlite3.Connection) -> None:
     rows = connection.execute("SELECT diagnostics, forward_policy FROM cohort").fetchall()
     if not rows:
         raise CalibrationCacheError("calibration snapshot has no cohorts")
-    policies = {
-        (json.loads(row[0]).get("rules_hash"), canonical_json(json.loads(row[1]))) for row in rows
-    }
-    if len(policies) != 1 or any(rules is None for rules, _ in policies):
-        raise CalibrationCacheError("calibration snapshot mixes measurement methods or policies")
+    rules = {json.loads(row[0]).get("rules_hash") for row in rows}
+    if len(rules) != 1 or None in rules:
+        raise CalibrationCacheError("calibration snapshot mixes rules provenance")
+    policies = {canonical_json(json.loads(row[1])) for row in rows}
+    if len(policies) != 1:
+        raise CalibrationCacheError("calibration snapshot mixes measurement policies")
 
 
 def publish_current_snapshot(root: Path, built_root: Path) -> None:

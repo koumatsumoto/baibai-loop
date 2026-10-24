@@ -119,7 +119,9 @@ def test_mixed_forward_policies_cannot_publish_or_enter_evaluation(tmp_path, fla
         )
     with pytest.raises(store.CalibrationCacheError, match="mixes measurement"):
         store.publish_current_snapshot(root, built)
-    with pytest.raises(store.CalibrationCacheError, match="mixes measurement"):
-        with store.fixed_current_snapshot(built):
-            pytest.fail("mixed measurements reached evaluation")
+    with (
+        pytest.raises(store.CalibrationCacheError, match="mixes measurement"),
+        store.fixed_current_snapshot(built),
+    ):
+        pytest.fail("mixed measurements reached evaluation")
     assert current.read_bytes() == before
