@@ -1,0 +1,74 @@
+name: cloud-market-sources
+run-name: "market sources ${{ inputs.source || 'scheduled' }} ${{ inputs.asof || '' }}"
+
+on:
+  schedule:
+    - cron: "43 7 * * *"
+    - cron: "43 8 * * *"
+    - cron: "13 9 * * *"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "One source group, or all"
+        type: string
+        default: all
+      asof:
+        description: "Optional YYYY-MM-DD"
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sources: ${{ steps.plan.outputs.sources }}
+      asof: ${{ steps.plan.outputs.asof }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select independent source groups for this acquisition slot
+        id: plan
+        env:
+          SOURCE: ${{ inputs.source || 'all' }}
+          ASOF: ${{ inputs.asof }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, date
+          from zoneinfo import ZoneInfo
+          all_sources = ['jquants-market', 'jquants-financial', 'jpx-earnings', 'jpx-regulations', 'edinet-list', 'edinet-metrics', 'edinet-facts']
+          day = date.fromisoformat(os.environ['ASOF']) if os.environ['ASOF'] else datetime.now(ZoneInfo('Asia/Tokyo')).date()
+          source = os.environ['SOURCE']
+          if source != 'all' and source not in all_sources:
+              raise ValueError('unknown source acquisition group')
+          slot = os.environ['SCHEDULE']
+          if slot == '43 8 * * *':
+              selected = ['edinet-metrics']
+          elif slot == '13 9 * * *':
+              selected = ['edinet-facts']
+          elif slot:
+              selected = all_sources[:5] if day.weekday() < 5 else ['edinet-list']
+          else:
+              selected = all_sources if source == 'all' else [source]
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
+              print('sources=' + json.dumps([{'source': item} for item in selected]), file=stream)
+              print('asof=' + day.isoformat(), file=stream)
+          PY
+
+  source:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.sources) }}
+    uses: ./.github/workflows/cloud-market-source.yml
+    with:
+      source: ${{ matrix.source }}
+      asof: ${{ needs.plan.outputs.asof }}
+    secrets: inherit

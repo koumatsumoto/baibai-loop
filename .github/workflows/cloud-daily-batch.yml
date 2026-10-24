@@ -5,15 +5,9 @@ run-name: "daily ${{ inputs.asof || '' }}"
 
 on:
   schedule:
-    # 16:43 JST. The target day's J-Quants daily-price update is published around
-    # 16:30 JST, leaving 13 minutes of margin. JPX regulation pages are event-driven
-    # status pages whose coverage is accepted for 7 business days. Margin balances
-    # use the daily all-issues series from the 2026-09-25 balance; its publication
-    # dates and coverage are checked separately from the target day's price update.
-    #
-    # The odd minute is deliberate: GitHub concentrates scheduled work on :00 / :15 /
-    # :30 / :45, and a schedule pinned there waits behind that queue.
-    - cron: "43 7 * * 1-5"
+    # 22:43 JST, independently of every acquisition workflow. Late receipts wait
+    # for the next integration; weekends still compose macro/Reading/Research.
+    - cron: "43 13 * * *"
   workflow_dispatch:
     inputs:
       asof:
@@ -25,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: source-acquire-jquants
+  group: common-source-integration
   queue: max
   cancel-in-progress: false
 
@@ -37,15 +31,9 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     # batch の最悪 ~32 分（EDINET 全再取得）+ 全導出 publish + upload。超過は cancelled として Discord に出る
-    timeout-minutes: 90
+    timeout-minutes: 110
 
     steps:
-      # The 2026-10-20 run needed ~48 minutes after acquisition for export/publish.
-      # Reserve 55 of the 90 minutes; this is headroom, not a completion guarantee.
-      # Setup/hydration time counts toward the acquisition cutoff too.
-      - name: Set acquisition cutoff for this job
-        run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 35 * 60 ))" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The notification script must import on the runner's system python3
@@ -92,6 +80,19 @@ jobs:
         id: duckdb-httpfs
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
+      - name: Freeze currently ready source handoffs
+        id: source-plan
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+        run: |
+          asof="$MANUAL_ASOF"
+          if [ -z "$asof" ]; then asof=$(uv run python -c 'from datetime import UTC, datetime; from baibai_batch.jobs.schedule import batch_target_date; print(batch_target_date(datetime.now(UTC)))'); fi
+          echo "asof=$asof" >> "$GITHUB_OUTPUT"
+          uv run python -m baibai_batch.jobs.source_integration plan --directory "$RUNNER_TEMP/integration"
+
       - name: Acquire publication lease
         id: lease-acquire
         env:
@@ -125,16 +126,23 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
 
+      - name: Apply fixed original receipts and common offline extraction
+        id: source-integration
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+        run: uv run python -m baibai_batch.jobs.source_integration apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+
       # failure policy: 1 — an unsafe store or failed full export cannot be published.
       - name: Run daily batch
         id: batch
         shell: bash
         env:
-          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
-          EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
           MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
         run: |
-          args=(--saved-economic --output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
+          args=(--saved-inputs --asof "${{ steps.source-plan.outputs.asof }}" --output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             args+=(--scheduled)
           elif [[ -n "$MANUAL_ASOF" ]]; then
@@ -171,7 +179,7 @@ jobs:
                           asof = candidate
                   except ValueError:
                       pass
-              value = notice.get("market_updated") if isinstance(notice, dict) else None
+              value = True  # Common receipt replay/extraction happened before the daily observer.
               if not isinstance(value, bool):
                   raise ValueError
               market_updated = value
@@ -299,6 +307,32 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
 
+      - name: Verify economic accepted receipts and seal canonical handoffs
+        id: source-seal
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.publish-lake.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          batch/scripts/r2_transfer.sh pull-indicators
+          uv run python -m baibai_batch.jobs.source_integration verify --directory "$RUNNER_TEMP/integration"
+          uv run python -m baibai_batch.jobs.source_integration seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Refresh source-scoped inputs from this canonical generation
+        id: source-inputs
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: uv run python -m baibai_batch.jobs.source_integration inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Report incomplete sources after retaining safe canonical results
+        id: source-check
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        run: uv run python -m baibai_batch.jobs.source_integration check --directory "$RUNNER_TEMP/integration"
+
       - name: Release publication lease
         id: lease-release
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
@@ -346,5 +380,9 @@ jobs:
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
             --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
             --publish-serving-outcome "${{ steps.publish-serving.outcome }}" \
+            --source-integration-outcome "${{ steps.source-integration.outcome }}" \
+            --source-seal-outcome "${{ steps.source-seal.outcome }}" \
+            --source-inputs-outcome "${{ steps.source-inputs.outcome }}" \
+            --source-check-outcome "${{ steps.source-check.outcome }}" \
             --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

@@ -90,11 +90,3 @@ jobs:
           ACQUIRE_RESULT: ${{ needs.plan.result }}
           PUBLISH_RESULT: skipped
         run: python3 -m baibai_batch.observability.economic_discord
-
-  materialize:
-    needs: [plan, source]
-    if: ${{ always() && !cancelled() && needs.plan.result == 'success' }}
-    # Only the day's serving composition waits for terminal source results.
-    # Each provider has already published independently, including partial success.
-    uses: ./.github/workflows/cloud-materialize.yml
-    secrets: inherit

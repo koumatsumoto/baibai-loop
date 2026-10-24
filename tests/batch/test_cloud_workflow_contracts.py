@@ -80,7 +80,7 @@ def _web_history_repo(tmp_path: Path) -> tuple[Path, str]:
 
 @pytest.mark.parametrize(
     "workflow_name",
-    ["cloud-daily-batch.yml", "cloud-materialize.yml", "cloud-tradingview-snapshot.yml"],
+    ["cloud-daily-batch.yml", "cloud-materialize.yml"],
 )
 def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -> None:
     workflow = _workflow(workflow_name)

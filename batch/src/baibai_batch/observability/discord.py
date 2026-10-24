@@ -68,10 +68,14 @@ STEP_ORDER = (
     "lease-acquire",
     "pull",
     "hydrate",
+    "source-integration",
     "publish-lake",
     "upload-stores",
     "publish-serving",
     "lease-release",
+    "source-seal",
+    "source-inputs",
+    "source-check",
 )
 
 _ENTERED_PREFIX = "🆕 新規 候補入り: "

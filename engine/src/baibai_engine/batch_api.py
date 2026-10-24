@@ -141,6 +141,7 @@ from baibai_engine.market.jquants_handoff import FINANCIAL_SOURCES as JQUANTS_FI
 from baibai_engine.market.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_engine.market.jquants_handoff import export_handoff as export_jquants_handoff
 from baibai_engine.market.jquants_handoff import import_handoff as import_jquants_handoff
+from baibai_engine.market.source_inputs import SOURCE_INPUT_GROUPS
 from baibai_engine.market.source_inputs import export_source_input as export_market_source_input
 from baibai_engine.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
@@ -208,6 +209,7 @@ __all__ = [
     "MARKET_DB_PATH",
     "MARKET_SCHEMA_VERSION",
     "RUNS_DB_PATH",
+    "SOURCE_INPUT_GROUPS",
     "EconomicSchemaError",
     "EconomicSourceRefreshFailure",
     "EquityWebSourceResponse",

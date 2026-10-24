@@ -548,6 +548,7 @@ def run_daily_batch_structured(
     step_sink: StepSink | None = None,
     gate_explicit_asof: bool = False,
     refresh_economic: bool = True,
+    acquire_market: bool = True,
 ) -> DailyBatchResult:
     notice = _Notice()
     steps: list[StepResult] = []
@@ -587,6 +588,7 @@ def run_daily_batch_structured(
                 step_sink=record,
                 gate_explicit_asof=gate_explicit_asof,
                 refresh_economic=refresh_economic,
+                acquire_market=acquire_market,
             )
         except (BatchStepError, CalendarCoverageError) as exc:
             notice.failed_stage = exc.stage or "batch"
@@ -623,6 +625,7 @@ def _execute_daily_batch(
     step_sink: StepSink | None = None,
     gate_explicit_asof: bool = False,
     refresh_economic: bool = True,
+    acquire_market: bool = True,
 ) -> DailyBatchResult:
     target = asof or (
         batch_target_date(datetime.now(UTC)) if scheduled else datetime.now(_JST).date()
@@ -657,12 +660,12 @@ def _execute_daily_batch(
     if screening_enabled:
         # Keep the acquisition groups independent. Their existing writers own
         # validation and chunk transactions; a later failure cannot undo a commit.
-        for name, command in (
+        acquisitions = (
             ("refresh-edinet-documents", "refresh-edinet-documents"),
             ("bootstrap-cache", "bootstrap-cache"),
             ("refresh-edinet-metrics", "refresh-edinet-metrics"),
-            ("verify-cache-coverage", "verify-cache-coverage"),
-        ):
+        ) if acquire_market else ()
+        for name, command in (*acquisitions, ("verify-cache-coverage", "verify-cache-coverage")):
             try:
                 command_result = _run_step(
                     runner,
@@ -685,17 +688,18 @@ def _execute_daily_batch(
                 _record_deferred(exc)
         notice.screening_status = "published" if run_view is not None else "failed"
 
-    try:
-        _run_step(
-            runner,
-            name="edinet-research-facts",
-            argv=(_ENGINE, "screening", "refresh-edinet-facts", "--asof", asof_arg),
-            cwd=root,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-    except BatchStepError as exc:
-        _record_deferred(exc)
+    if acquire_market:
+        try:
+            _run_step(
+                runner,
+                name="edinet-research-facts",
+                argv=(_ENGINE, "screening", "refresh-edinet-facts", "--asof", asof_arg),
+                cwd=root,
+                quiet=quiet,
+                step_sink=step_sink,
+            )
+        except BatchStepError as exc:
+            _record_deferred(exc)
 
     if refresh_economic:
         refresh_groups: list[tuple[int, list[str]]] = []
@@ -885,6 +889,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="suppress step output; use the manifest/log files for detail",
     )
+    parser.add_argument("--saved-inputs", action="store_true", help="use saved source inputs; acquisition is a separate batch")
     parser.add_argument(
         "--saved-economic",
         action="store_true",
@@ -916,7 +921,9 @@ def main(argv: list[str] | None = None) -> int:
             asof=asof,
             runner=_run_subprocess,
             scheduled=args.scheduled,
-            refresh_economic=not args.saved_economic,
+            refresh_economic=not (args.saved_economic or args.saved_inputs),
+            acquire_market=not args.saved_inputs,
+            gate_explicit_asof=args.scheduled,
             notice_output=notice_output,
             quiet=args.quiet or args.format == "json",
         )

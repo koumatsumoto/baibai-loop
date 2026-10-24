@@ -3,7 +3,6 @@ import datetime as datetime_module
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +31,7 @@ def test_metadata_order_and_exclusive_writer():
         "interval",
         "observation_master_asof",
     }
-    assert set(data["jobs"]) == {"snapshot", "publish", "notify"}
+    assert set(data["jobs"]) == {"snapshot", "notify"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
         "group": "tradingview-snapshot",
@@ -96,7 +95,7 @@ def test_metadata_order_and_exclusive_writer():
 )
 def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref, runs):
     data = workflow()
-    assert set(data["jobs"]) == {"snapshot", "publish", "notify"}
+    assert set(data["jobs"]) == {"snapshot", "notify"}
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "interval",
         "observation_master_asof",
@@ -119,78 +118,39 @@ def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref,
         assert obsolete not in source
 
 
-def test_failed_cooldown_does_not_prevent_independent_publication_and_release(tmp_path):
+def test_private_partial_receipts_survive_failed_cooldown_until_common_integration(tmp_path):
     from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
-
+    from tests.helpers.r2_store import MemoryR2Store
+    from baibai_batch.storage.economic_staging import save_handoff, load_handoff
     from baibai_engine.external_assessment.tradingview.collector import collect
-    from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
-
-    local = store(tmp_path / "local.sqlite", 51)
-    published = tmp_path / "published.sqlite"
-    requests = []
-
+    from baibai_engine.external_assessment.tradingview.handoff import export_handoff, import_handoff
+    from baibai_engine.external_assessment.tradingview.observations import FetchError
+    local, canonical = store(tmp_path / "local.sqlite", 51), store(tmp_path / "canonical.sqlite", 51)
+    calls = 0
     async def fetch(symbols, columns):
-        assert columns == COLUMNS
-        requests.append(symbols)
-        if len(requests) == 2:
-            raise FetchError("fixture provider failure after one valid chunk")
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise FetchError("provider stops after one confirmed chunk")
         return _sdk(payload(symbols))
-
-    async def sleep(_interval):
+    async def sleep(_seconds):
         pass
-
     report = asyncio.run(collect(local, DAY, fetch, clock=lambda: NOW, sleep=sleep))
     assert report["status"] == "partial"
-    assert report["rows_added"] == 50
-    expected = stored(local)
-    transfer = tmp_path / "batch/scripts/r2_transfer.sh"
-    transfer.parent.mkdir(parents=True)
-    transfer.write_text(
-        '#!/usr/bin/env bash\nprintf "publish-lake\\n" >> "$CALLS"\ncp "$LOCAL" "$PUBLISHED"\nprintf "{}\\n"\n'
-    )
-    transfer.chmod(0o755)
-    uv = tmp_path / "uv"
-    uv.write_text(
-        '#!/usr/bin/env bash\nif [[ "$*" == *tradingview_cooldown* ]]; then\n  printf "cooldown-save\\n" >> "$CALLS"\n  echo "TradingView cooldown failed; type=CooldownError" >&2\n  exit 1\nfi\nprintf "lease-release\\n" >> "$CALLS"\n'
-    )
-    uv.chmod(0o755)
-    calls = tmp_path / "calls"
-    env = {
-        **os.environ,
-        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
-        "RUNNER_TEMP": str(tmp_path),
-        "LOCAL": str(local),
-        "PUBLISHED": str(published),
-        "CALLS": str(calls),
-    }
-    outcomes = {}
-    failed = False
-    # Execute the workflow scripts and order; publication, cooldown and lease are stubbed.
-    # A condition without a status function has GitHub's implicit success() gate.
-    for step in all_steps(workflow()):
-        if step.get("id") == "publish-lake":
-            failed = False  # Independent publisher is selected by the private handoff.
-        if step.get("id") not in {"publish-lake", "cooldown-save", "lease-release"}:
-            continue
-        if failed and "always()" not in step.get("if", ""):
-            outcomes[step["id"]] = "skipped"
-            continue
-        result = subprocess.run(
-            ["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
-        )
-        outcomes[step["id"]] = "failure" if result.returncode else "success"
-        failed = failed or result.returncode != 0
-        if step["id"] == "cooldown-save":
-            assert "CooldownError" in result.stderr
-    assert outcomes == {
-        "publish-lake": "success",
-        "cooldown-save": "failure",
-        "lease-release": "success",
-    }
-    assert calls.read_text().splitlines() == ["cooldown-save", "publish-lake", "lease-release"]
-    # A simulated next pull retains every originally committed column/time.
-    shutil.copyfile(published, local)
-    assert stored(local) == expected
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    handoff = export_handoff(local, packet / "receipts.sqlite", day=DAY, since=NOW)
+    (packet / "result.json").write_text(json.dumps(handoff.to_json()))
+    remote = MemoryR2Store()
+    save_handoff(remote, "tradingview-partial", packet, market=True)
+    # Cooldown persistence may fail after this private receipt is durable. The
+    # separately scheduled integration reads this exact receipt without refetch.
+    assert workflow()["jobs"]["snapshot"]["steps"].index(next(step for step in workflow()["jobs"]["snapshot"]["steps"] if step.get("id") == "stage")) < workflow()["jobs"]["snapshot"]["steps"].index(next(step for step in workflow()["jobs"]["snapshot"]["steps"] if step.get("id") == "cooldown-save"))
+    downloaded = tmp_path / "downloaded"
+    load_handoff(remote, "tradingview-partial", downloaded, market=True)
+    result = import_handoff(downloaded / "receipts.sqlite", canonical, handoff)
+    assert result["rows_added"] == 50
+    assert stored(canonical) == stored(local)
 
 
 def test_gates_secret_scopes_and_durability():
@@ -219,7 +179,6 @@ def test_gates_secret_scopes_and_durability():
     assert "always()" in steps["cooldown-save"]["if"]
     assert "lease-acquire" not in steps["cooldown-save"]["if"]
     assert "steps.tradingview.outcome != 'skipped'" in steps["cooldown-save"]["if"]
-    assert "always()" in steps["lease-release"]["if"]
     for name in ("summary", "notify"):
         assert steps[name]["if"] == "${{ always() }}"
         assert steps[name]["continue-on-error"] == "true"
@@ -242,18 +201,18 @@ def test_gates_secret_scopes_and_durability():
     assert '--asof "$TARGET_DATE"' in steps["tradingview"]["run"]
     assert '--asof "$TARGET_DATE"' in steps["master"]["run"]
     assert "DISCORD_WEBHOOK_URL" in str(steps["notify"].get("env"))
+    assert "pull-market" not in source
+    assert "hydrate-market" not in source
+    assert "cloud-publish" not in source
+    assert "publication_lease" not in source
     assert "JQUANTS_API_KEY" in str(steps["master"].get("env"))
     assert "TRADINGVIEW_OAUTH_STATE" in str(steps["tradingview"].get("env"))
     for name in (
-        "lease-acquire",
         "pull",
         "hydrate",
         "cooldown-check",
         "cooldown-save",
-        "publish-lake",
-        "lease-release",
         "stage",
-        "fresh-canonical",
     ):
         assert "R2_ACCESS_KEY_ID" in str(steps[name].get("env"))
     for name, step in steps.items():
@@ -264,16 +223,12 @@ def test_gates_secret_scopes_and_durability():
         if name != "tradingview":
             assert "TRADINGVIEW_OAUTH_STATE" not in str(step)
         if name not in (
-            "lease-acquire",
-            "pull",
+                "pull",
             "hydrate",
             "cooldown-check",
             "cooldown-save",
-            "publish-lake",
-            "lease-release",
-            "stage",
-            "fresh-canonical",
-        ):
+                    "stage",
+            ):
             assert "R2_ACCESS_KEY_ID" not in str(step)
 
 
@@ -496,7 +451,6 @@ def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_p
         assert guard in gate
     assert "publish_failed_receipts == 'true'" in gate
     assert "always()" in steps["cooldown-save"]["if"]
-    assert "always()" in steps["lease-release"]["if"]
 
 
 def test_delayed_stderr_consumer_does_not_hide_raw_only_provider_failure(tmp_path):

@@ -68,12 +68,12 @@ jobs:
           BrowserFetcher; fetcher=BrowserFetcher();
           content=fetcher.fetch_html('data:text/html,<p>baibai-browser-smoke</p>');
           fetcher.close(); assert 'baibai-browser-smoke' in content"
-      - name: Pull only the economic source store
+      - name: Load only this provider group scoped input
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh pull-indicators
+        run: uv run python -m baibai_batch.jobs.economic input --group "${{ inputs.group }}" --directory "$RUNNER_TEMP/source-input"
       - name: Acquire and export new receipts for this provider
         id: acquire
         env:
@@ -90,73 +90,11 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          STAGE_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.group }}
+          STAGE_ID: ${{ inputs.group }}-${{ inputs.asof }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: uv run python -m baibai_batch.jobs.economic stage --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/economic-handoff"
 
-  publish:
-    needs: acquire
-    outputs:
-      publication: ${{ steps.publish.outcome }}
-      lease_release: ${{ steps.lease-release.outcome }}
-    if: ${{ always() && !cancelled() && needs.acquire.outputs.handoff != '' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    concurrency:
-      group: cloud-publish
-      queue: max
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - run: uv sync --locked
-      - name: Read the exact private economic handoff
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          STAGE_ID: ${{ needs.acquire.outputs.handoff }}
-        run: uv run python -m baibai_batch.jobs.economic download --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/economic-handoff"
-      - name: Acquire publication lease
-        id: lease-acquire
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$RUNNER_TEMP/economic-lease.json"
-      - name: Merge onto fresh canonical receipts, conditionally push, and read back
-        id: publish
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          GROUP: ${{ inputs.group }}
-          SOURCE_ID: ${{ inputs.source_id }}
-        run: |
-          batch/scripts/r2_transfer.sh pull-indicators
-          uv run python -m baibai_batch.jobs.economic merge --group "$GROUP" --source-id "$SOURCE_ID" --directory "$RUNNER_TEMP/economic-handoff"
-          batch/scripts/r2_transfer.sh push-indicators
-          batch/scripts/r2_transfer.sh pull-indicators
-          uv run python -m baibai_batch.jobs.economic verify --group "$GROUP" --source-id "$SOURCE_ID" --directory "$RUNNER_TEMP/economic-handoff"
-          printf 'economic canonical generation: '
-          cat "${R2_GENERATION_DIR:-stores/.r2-generations}/indicators.sqlite.etag"
-      - name: Release publication lease
-        id: lease-release
-        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/economic-lease.json"
-      - name: Economic result for ${{ inputs.asof }}
-        run: echo 'Economic source publication and readback completed'
-
   notify:
-    needs: [acquire, publish]
+    needs: acquire
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -167,10 +105,9 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-          GROUP: ${{ inputs.group }}
+          SOURCE_GROUP: economic-${{ inputs.group }}
           ASOF: ${{ inputs.asof }}
           ACQUIRE_RESULT: ${{ needs.acquire.result }}
-          PUBLISH_RESULT: ${{ needs.publish.outputs.publication }}
-          LEASE_RELEASE_RESULT: ${{ needs.publish.outputs.lease_release }}
+          STAGE_RESULT: ${{ needs.acquire.outputs.handoff != '' && 'success' || 'failure' }}
           ECONOMIC_REPORT_JSON: ${{ needs.acquire.outputs.report }}
-        run: python3 -m baibai_batch.observability.economic_discord
+        run: python3 -m baibai_batch.observability.source_discord

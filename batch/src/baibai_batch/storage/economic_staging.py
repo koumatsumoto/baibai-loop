@@ -12,17 +12,21 @@ from baibai_batch.storage.external_assessment_staging import put_private, read_p
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 
 
-def stage_prefix(stage_id: str, *, market: bool = False) -> str:
+def stage_prefix(
+    stage_id: str, *, market: bool = False, namespace: str | None = None
+) -> str:
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,119}", stage_id) is None:
         raise ValueError("invalid source handoff identity")
-    namespace = "market-sources" if market else "economic-sources"
+    namespace = namespace or ("market-sources" if market else "economic-sources")
+    if namespace not in {"market-sources", "economic-sources", "source-inputs"}:
+        raise ValueError("invalid source handoff namespace")
     return f"coordination/{namespace}/{stage_id}"
 
 
 def save_handoff(
-    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False
+    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False, namespace: str | None = None
 ) -> str:
-    prefix = stage_prefix(stage_id, market=market)
+    prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
     with path.open("rb") as stream:
@@ -63,9 +67,9 @@ def save_handoff(
 
 
 def load_handoff(
-    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False
+    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False, namespace: str | None = None
 ) -> None:
-    prefix = stage_prefix(stage_id, market=market)
+    prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     saved = read_private(store, prefix + "/handoff.json")
     if saved is None:
         raise LakePublishError("source private handoff is not complete")

@@ -18,6 +18,7 @@ from baibai_engine.batch_api import (
     JQUANTS_FINANCIAL_SOURCES,
     JQUANTS_MARKET_SOURCES,
     edinet_archive_keys,
+    acquire_edinet_archives,
     export_edinet_handoff,
     import_edinet_handoff,
     export_jpx_handoff,
@@ -70,7 +71,7 @@ def _export(
 ) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
-    report: dict[str, object] = {"source": source, "asof": asof.isoformat()}
+    report: dict[str, object] = {"source": source, "asof": asof.isoformat(), "started_at": since.isoformat()}
     if source == "tradingview":
         report.update(export_tradingview_handoff(database, path, day=asof, since=since).to_json())
     elif source.startswith("jquants-"):
@@ -91,7 +92,7 @@ def _export(
     write_json_atomic(directory / "result.json", report)
 
 
-def _replay(source: str, database: Path, directory: Path) -> dict[str, object]:
+def _replay(source: str, database: Path, directory: Path, *, extract: bool = True) -> dict[str, object]:
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     if report["source"] != source:
         raise ValueError("handoff source differs from the publication plan")
@@ -108,7 +109,7 @@ def _replay(source: str, database: Path, directory: Path) -> dict[str, object]:
             path, database, tuple(report["bundle_ids"]), collection=_JPX_COLLECTION[source]
         )
     result = import_edinet_handoff(path, database)
-    if source in {"edinet-metrics", "edinet-facts"}:
+    if extract and source in {"edinet-metrics", "edinet-facts"}:
         # Re-plan from the latest canonical lists/archives, never copy derived facts
         # computed against the acquisition's older database. These CLIs are offline.
         completed = subprocess.run(  # nosec B603
@@ -147,7 +148,7 @@ def complete(result: dict[str, object]) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("acquire", "export", "stage", "download", "replay", "check")
+        "command", choices=("input", "resume", "acquire", "export", "stage", "download", "replay", "check")
     )
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--directory", type=Path, required=True)
@@ -155,10 +156,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--since", type=datetime.fromisoformat)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--stage-id")
+    parser.add_argument("--input-directory", type=Path)
     args = parser.parse_args(argv)
     directory = args.directory
     try:
-        if args.command in {"stage", "download"}:
+        if args.command == "input":
+            from baibai_batch.storage.source_inputs import load_input
+            load_input(Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")), args.source, args.database, directory)
+        elif args.command == "resume":
+            from baibai_batch.storage.source_receipts import available_handoffs, download_fixed
+            if args.asof is None:
+                raise ValueError("--asof is required")
+            store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            saved_input = json.loads((directory / "result.json").read_text())
+            sources = ("edinet-list", args.source) if args.source in {"edinet-metrics", "edinet-facts"} else (args.source,)
+            for source in sources:
+                for index, entry in enumerate(available_handoffs(store, source=source, include_integrated=True)):
+                    integrated = entry.get("integration")
+                    if isinstance(integrated, dict) and (integrated["status"] == "needs_explicit_recovery" or integrated["integrated_at"] <= saved_input["created_at"]):
+                        continue
+                    if args.source == "tradingview" and entry["asof"] != args.asof.isoformat():
+                        continue
+                    if args.source.startswith("edinet-") and str(entry["asof"]) > args.asof.isoformat():
+                        continue
+                    packet = directory / f"resume-{source}-{index}"
+                    download_fixed(store, entry, packet)
+                    _replay(source, args.database, packet, extract=False)
+        elif args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
             store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
@@ -180,7 +204,19 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "acquire":
                 if args.source == "tradingview":
                     raise ValueError("TradingView uses the guarded OAuth acquisition route")
-                status = subprocess.run(_command(args.source, args.asof), check=False).returncode  # nosec B603
+                if args.source in {"edinet-metrics", "edinet-facts"}:
+                    if args.input_directory is None:
+                        raise ValueError("EDINET archive acquisition requires its scoped input manifest")
+                    saved = json.loads((args.input_directory / "result.json").read_text())
+                    result = acquire_edinet_archives(
+                        args.database, group=args.source, asof=args.asof,
+                        api_key=os.environ.get("EDINET_API_KEY", ""),
+                        retained={(str(key[0]), int(key[1])) for key in saved["archive_keys"]} | before,
+                    )
+                    print(json.dumps(result, sort_keys=True))
+                    status = int(result["status"] == "failed")
+                else:
+                    status = subprocess.run(_command(args.source, args.asof), check=False).returncode  # nosec B603
             archives = (
                 edinet_archive_keys(args.database) - before
                 if args.source.startswith("edinet-")

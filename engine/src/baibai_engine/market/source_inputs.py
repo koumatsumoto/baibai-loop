@@ -12,6 +12,7 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.external_assessment.tradingview.collector import calendar_context
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 _MARKET = (
@@ -30,6 +31,9 @@ _TABLES = {
     "jpx-regulations": (),
     "tradingview": ("jquants_market_calendar", "jquants_master_snapshots", "tradingview_forecast_snapshots"),
 }
+
+
+SOURCE_INPUT_GROUPS = tuple(_TABLES)
 
 
 def export_source_input(source: Path, output: Path, *, group: str, asof: date) -> dict[str, object]:
@@ -51,12 +55,10 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         validate_current_schema(raw)
         raw.execute("BEGIN")
         rows_by_table = {}
-        basis = raw.execute(
-            "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date <= ?",
-            (asof.isoformat(),),
-        ).fetchone()[0] if group == "tradingview" else None
+        basis = calendar_context(raw, asof)[0].isoformat() if group == "tradingview" else None
         for table in tables:
-            condition, values = "1=1", ()
+            condition = "1=1"
+            values: tuple[object, ...] = ()
             if group == "tradingview" and table == "jquants_master_snapshots":
                 condition, values = "snapshot_date = ?", (basis,)
             elif group == "tradingview" and table == "tradingview_forecast_snapshots":
@@ -70,7 +72,10 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         if group == "edinet-facts":
             coverage += ("edinet_research_facts",)
         for name in coverage:
-            rows = raw.execute("SELECT * FROM source_coverage WHERE source = ?", (name,))
+            rows = raw.execute(
+                "SELECT * FROM source_coverage WHERE source = ? AND (? != 'tradingview' OR source != 'jquants_master_snapshots' OR coverage_key = ?)",
+                (name, group, basis),
+            )
             target.executemany("INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
         source_type = 5 if group == "edinet-metrics" else 1
         archives = list(raw.execute(

@@ -123,24 +123,17 @@ def workflow(name):
     return yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
 
 
-def test_each_provider_can_publish_without_waiting_for_the_acquisition_matrix():
+def test_each_provider_saves_receipts_without_full_db_or_integration_wait():
     parent = workflow("cloud-economic-sources.yml")
-    assert parent["on"]["schedule"] == [{"cron": "43 7 * * *"}]
-    assert parent["jobs"]["source"]["uses"].endswith("/cloud-economic-source.yml")
     assert parent["jobs"]["source"]["strategy"]["fail-fast"] == "false"
     source = workflow("cloud-economic-source.yml")
     assert source["concurrency"]["group"] == "economic-source-${{ inputs.group }}"
-    assert "cloud-publish" not in str(source["jobs"]["acquire"])
-    publisher = source["jobs"]["publish"]
-    assert publisher["needs"] == "acquire"
-    assert publisher["concurrency"]["group"] == "cloud-publish"
-    run = next(s["run"] for s in publisher["steps"] if s.get("id") == "publish")
-    assert run.index("pull-indicators") < run.index("economic merge") < run.index("push-indicators")
-    assert run.rindex("pull-indicators") < run.index("economic verify")
-    assert "hydrate-market" not in str(source)
-    assert "pull-app" not in str(source)
-    assert "push-machine" not in str(source)
-    assert "--saved-economic" in str(workflow("cloud-daily-batch.yml"))
+    assert "publish" not in source["jobs"]
+    text = str(source)
+    for forbidden in ("cloud-publish", "pull-indicators", "hydrate-market", "pull-app", "push-machine", "publication_lease"):
+        assert forbidden not in text
+    assert "economic input --group" in text
+    assert "--saved-inputs" in str(workflow("cloud-daily-batch.yml"))
 
 
 def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
@@ -178,14 +171,16 @@ def test_lease_release_failure_does_not_misreport_completed_publication(monkeypa
     assert text.startswith("[FAILED]")
 
 
-def test_serving_composition_is_once_per_macro_run_and_includes_weekends():
+def test_common_integration_is_independently_scheduled_and_includes_weekends():
     parent = workflow("cloud-economic-sources.yml")
-    materialize = parent["jobs"]["materialize"]
-    assert materialize["uses"] == "./.github/workflows/cloud-materialize.yml"
-    assert "always()" in materialize["if"]
-    assert "needs.source.result == 'success'" not in materialize["if"]
-    assert "materialize" not in workflow("cloud-economic-source.yml")["jobs"]
-    assert parent["on"]["schedule"][0]["cron"].endswith("* * *")
+    assert "materialize" not in parent["jobs"]
+    common = workflow("cloud-daily-batch.yml")
+    assert common["on"]["schedule"] == [{"cron": "43 13 * * *"}]
+    assert "needs" not in common["jobs"]["daily"]
+    runs = [str(step.get("run", "")) for step in common["jobs"]["daily"]["steps"]]
+    assert sum("r2_transfer.sh hydrate-market" in run for run in runs) == 1
+    assert sum("r2_transfer.sh publish-lake" in run for run in runs) == 1
+    assert any("source_integration plan" in run for run in runs)
 
 
 def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(

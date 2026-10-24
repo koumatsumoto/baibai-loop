@@ -78,6 +78,7 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
             )
     report = {
         "group": group,
+        "started_at": since.isoformat(),
         "asof": asof.isoformat(),
         "sources": rows,
     }
@@ -113,7 +114,7 @@ def receive(directory: Path, database: Path, group: str, source_id: str, *, veri
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("plan", "acquire", "stage", "download", "merge", "verify")
+        "command", choices=("plan", "input", "acquire", "stage", "download", "merge", "verify")
     )
     parser.add_argument("--group", default="all")
     parser.add_argument("--source-id", default="")
@@ -140,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.directory is None:
             raise ValueError("--directory is required")
+        if args.command == "input":
+            from baibai_batch.storage.source_inputs import load_input
+            selected_sources(args.group, args.source_id)
+            load_input(Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")), "economic-" + args.group, args.db, args.directory)
+            return 0
         if args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
