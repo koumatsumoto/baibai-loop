@@ -144,6 +144,20 @@ def _margin(metrics: dict[Metric, Value], sector: str | None) -> None:
     )
 
 
+def _closest_group(
+    groups: Sequence[Sequence[JQuantsFinancialSummary]], *, expected_end: date
+) -> Sequence[JQuantsFinancialSummary] | None:
+    # Choose the measurement interval before inspecting any metric's availability.
+    return min(
+        groups,
+        key=lambda group: (
+            abs(((group[0].period_end or date.min) - expected_end).days),
+            accounting_period_identity(group[0]),
+        ),
+        default=None,
+    )
+
+
 def _derived(
     current: Sequence[JQuantsFinancialSummary],
     groups: Sequence[Sequence[JQuantsFinancialSummary]],
@@ -154,77 +168,84 @@ def _derived(
     anchor = current[0]
     assert anchor.period_start is not None
     assert anchor.period_end is not None
+    days = period_days(anchor)
+    if days is not None and (330 <= days <= 370 if ttm else 70 <= days <= 110):
+        return anchor.period_start, {m: _value(current, m, f) for m, f in _AMOUNT_FIELDS}
     start = (
         add_months_clamped(anchor.period_end, -12) + timedelta(days=1)
         if ttm
-        else anchor.period_start
+        else max(anchor.period_start, add_months_clamped(anchor.period_end, -3) + timedelta(days=1))
     )
-    metrics: dict[Metric, Value] = {}
-    for metric, field in _AMOUNT_FIELDS:
-        row = _select(current, field)
-        if row is None:
-            metrics[metric] = _value(current, metric, field)
-            continue
-        days = period_days(row)
-        if days is not None and (330 <= days <= 370 if ttm else 70 <= days <= 110):
-            metrics[metric] = _value(current, metric, field)
-            if ttm:
-                start = anchor.period_start
-            continue
-        operands: list[JQuantsFinancialSummary] = []
+    selected_groups: list[Sequence[JQuantsFinancialSummary]] = []
+    if ttm:
+        prior_same = _closest_group(
+            [
+                g for g in groups
+                if prior_year_period_matches(
+                    g[0], anchor, length_tolerance_ratio=0.1, end_tolerance_days=45
+                )
+            ],
+            expected_end=add_months_clamped(anchor.period_end, -12),
+        )
+        prior_fy = _closest_group(
+            [
+                g for g in groups
+                if anchor.fiscal_year_end is not None
+                and g[0].fiscal_year_end == add_months_clamped(anchor.fiscal_year_end, -12)
+                and (n := period_days(g[0])) is not None
+                and 330 <= n <= 370
+            ],
+            expected_end=anchor.period_start - timedelta(days=1),
+        )
+        if prior_same is not None and prior_fy is not None:
+            selected_groups = [prior_fy, prior_same]
+    else:
+        previous = _closest_group(
+            [
+                g for g in groups
+                if g[0].period_end is not None
+                and g[0].period_start == anchor.period_start
+                and g[0].fiscal_year_end == anchor.fiscal_year_end
+                and 70 <= (anchor.period_end - g[0].period_end).days <= 110
+            ],
+            expected_end=add_months_clamped(anchor.period_end, -3),
+        )
+        if previous is not None:
+            selected_groups = [previous]
+    period_reason = None
+    if not selected_groups:
+        period_reason = "matching_period_not_observed"
+    else:
+        previous_end = selected_groups[-1][0].period_end
+        assert previous_end is not None
+        start = previous_end + timedelta(days=1)
         if ttm:
-            for candidates in groups:
-                candidate = _select(candidates, field)
-                if candidate is not None and prior_year_period_matches(
-                    candidate, row, length_tolerance_ratio=0.1, end_tolerance_days=45
-                ):
-                    operands.append(candidate)
-            prior_same = max(operands, key=accounting_period_identity, default=None)
-            prior_fy = None
-            if anchor.fiscal_year_end is not None:
-                prior_fy_end = add_months_clamped(anchor.fiscal_year_end, -12)
-                fy_rows = [
-                    r
-                    for group in groups
-                    for r in group
-                    if r.fiscal_year_end == prior_fy_end
-                    and (n := period_days(r)) is not None
-                    and 330 <= n <= 370
-                ]
-                prior_fy = _select(fy_rows, field)
-            operands = [] if prior_same is None or prior_fy is None else [prior_fy, prior_same]
-        else:
-            for candidates in groups:
-                candidate = _select(candidates, field)
-                if (
-                    candidate is not None
-                    and candidate.period_end is not None
-                    and candidate.period_start == anchor.period_start
-                    and candidate.fiscal_year_end == anchor.fiscal_year_end
-                    and 70 <= (anchor.period_end - candidate.period_end).days <= 110
-                ):
-                    operands.append(candidate)
-            operands = [max(operands, key=accounting_period_identity)] if operands else []
-        if not operands:
-            metrics[metric] = Value(reason="matching_period_not_observed")
-            continue
-        previous = operands[-1]
-        assert previous.period_end is not None
-        start = previous.period_end + timedelta(days=1)
-        if ttm:
-            annual = operands[0]
+            annual, previous = selected_groups[0][0], selected_groups[-1][0]
             assert annual.period_end is not None
             if (
                 annual.period_start != previous.period_start
                 or abs((anchor.period_start - annual.period_end).days - 1) > 45
             ):
-                metrics[metric] = Value(reason="accounting_periods_incomparable")
-                continue
+                period_reason = "accounting_periods_incomparable"
+    metrics: dict[Metric, Value] = {}
+    for metric, field in _AMOUNT_FIELDS:
+        current_value = _value(current, metric, field)
+        if current_value.value is None:
+            metrics[metric] = current_value
+            continue
+        if period_reason is not None:
+            metrics[metric] = Value(reason=period_reason)
+            continue
+        row = _select(current, field)
+        assert row is not None
+        candidates = [_select(group, field) for group in selected_groups]
+        if any(candidate is None for candidate in candidates):
+            metrics[metric] = Value(reason="operand_unavailable")
+            continue
+        operands = [candidate for candidate in candidates if candidate is not None]
         sources = [row, *operands]
         if not _compatible(sources):
             metrics[metric] = Value(reason="statement_basis_incomparable")
-        elif metric == "parent_profit" and statement_basis(row) != "consolidated":
-            metrics[metric] = Value(reason="parent_attribution_unverified")
         elif (not ttm and _later_changed(operands[0], row, all_rows, field)) or (
             ttm and _later_changed(operands[-1], operands[0], all_rows, field)
         ):

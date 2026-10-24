@@ -443,3 +443,21 @@ def test_optional_source_rows_leave_core_states_documents_and_changes_unchanged(
     assert after.changes == before.changes
     assert after.per.status == "not_provided"
     assert after.peer.status == "not_provided"
+
+
+def test_metric_availability_cannot_change_the_shared_ttm_measurement_interval():
+    records = [
+        document(2023, 1, 100),
+        document(2023, 1, None, 10, CurPerEn="2023-07-05", DiscNo="different-interval"),
+        document(2023, 4, 400, 50),
+        document(2024, 1, 200, 25),
+    ]
+    current = states(records)[-1]
+    ttm = observation(current, "annual_ttm")
+    assert ttm.period_start == date(2023, 7, 1)
+    assert ttm.period_end == date(2024, 6, 30)
+    assert ttm.metrics["sales"].value == 500
+    assert ttm.metrics["operating_profit"].value is None
+    assert ttm.metrics["operating_profit"].reason == "operand_unavailable"
+    # The differently measured original OP remains observed, without relabelling it.
+    assert amount(states(records)[1], "reported", "operating_profit").value == 10
