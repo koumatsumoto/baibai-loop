@@ -116,6 +116,11 @@ from baibai_engine.external_assessment.tradingview.diagnostics import (
 from baibai_engine.external_assessment.tradingview.diagnostics import (
     safe_progress as tradingview_safe_progress,
 )
+from baibai_engine.external_assessment.tradingview.handoff import (
+    TradingViewHandoff,
+    export_handoff as export_tradingview_handoff,
+    import_handoff as import_tradingview_handoff,
+)
 from baibai_engine.foundation.repository_layout import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
@@ -213,6 +218,7 @@ __all__ = [
     "LocalMirrorSource",
     "MarketSchemaError",
     "StoreLayoutError",
+    "TradingViewHandoff",
     "advance_lake_store_origin",
     "canonical_lake_model_bytes",
     "create_lake_release",
@@ -229,6 +235,7 @@ __all__ = [
     "equity_web_verify_release_history",
     "export_economic_receipts",
     "export_market_store",
+    "export_tradingview_handoff",
     "external_assessment_acquisition_main",
     "external_assessment_calendar_master_asof",
     "external_assessment_collect_pair",
@@ -239,6 +246,7 @@ __all__ = [
     "external_assessment_parse_failure_reasons",
     "external_assessment_save_observations",
     "external_assessment_verify_release_history",
+    "import_tradingview_handoff",
     "lake_current_release_pointer_key",
     "lake_dataset_manifest_key",
     "lake_mirror_path",
