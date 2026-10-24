@@ -34,7 +34,7 @@ _DIVIDEND_FORECAST_SPIKE_MULTIPLE = 2.0
 
 @dataclass(frozen=True, slots=True)
 class ShareholderReturnChangeSignals:
-    """Point-in-time facts used only by the calibration panel."""
+    """Disclosure-date-filtered facts used only by the calibration panel."""
 
     dps_streak_up: bool | None
     dps_yoy_latest: float | None

@@ -23,6 +23,7 @@ from baibai_engine.position.ledger import (
 from baibai_engine.position.ledger_read import load_ledger_in_transaction
 from baibai_engine.position.market_source import market_basis_is_confirmed, read_unadjusted_close
 from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.position.valuation import holding_episode
 from baibai_engine.research.assessment import AssessmentRef
 from baibai_engine.research.assessment_store import (
     ReviewedAssessment,
@@ -53,31 +54,6 @@ DEFAULT_BUDGET_MAX_YEN = 300_000
 def proposal_input_policy_id() -> str:
     """現在使ったthreshold全体の世代を、入力事実の一部として固定する。"""
     return "portfolio-policy-" + sha256(canonical_json(PORTFOLIO_POLICY).encode()).hexdigest()
-
-
-def _holding_episode(
-    ledger: PortfolioLedgerDocument, ticker: str, now: datetime
-) -> tuple[ExecutionEvent | None, datetime | None]:
-    balance = 0
-    first_buy: ExecutionEvent | None = None
-    last_trade: datetime | None = None
-    for event in ledger.events:
-        if (
-            not isinstance(event, ExecutionEvent)
-            or event.ticker != ticker
-            or event.occurred_at > now
-        ):
-            continue
-        last_trade = event.occurred_at
-        if event.side == "buy":
-            if balance == 0:
-                first_buy = event
-            balance += event.quantity
-        else:
-            balance -= event.quantity
-            if balance == 0:
-                first_buy = None
-    return first_buy, last_trade
 
 
 def _original_assessment(
@@ -176,7 +152,7 @@ def collect_proposal_inputs(
         )
         quotes.append(quote)
         if ticker in held_tickers:
-            first_buy, last_trade = _holding_episode(ledger, ticker, now)
+            first_buy, last_trade = holding_episode(ledger, ticker, now)
             confirmed = (
                 first_buy is not None
                 and last_trade is not None
@@ -206,7 +182,7 @@ def collect_proposal_inputs(
     portfolio = summarize_portfolio(ledger, state, prices)
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:
-        bought, _ = _holding_episode(ledger, holding.ticker, now)
+        bought, _ = holding_episode(ledger, holding.ticker, now)
         original_ref, unavailable = _original_assessment(
             connection, ticker=holding.ticker, bought=bought
         )

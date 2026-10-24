@@ -36,7 +36,7 @@ class NormalizedProfitSignals:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProfitabilityLevelSignals:
-    """PIT profitability levels used only by calibration panels."""
+    """Disclosure-date-filtered profitability levels used only by calibration panels."""
 
     operating_profit_to_assets: float | None
     operating_margin: float | None

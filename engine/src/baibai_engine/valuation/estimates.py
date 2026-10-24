@@ -25,7 +25,6 @@ EXPECTED_RETURN_UNIT = "annual_ratio"
 # anchor に使う倍率軸。資産 (pbr) と収益 (per_forward → per_trailing fallback) の
 # 2 系統を blend する。ただし両軸とも自己レンジ側で binding した銘柄では 2 つの upside が
 # 同じ値になり (自己レンジは価格の履歴なので軸に依存しない)、平均はノイズを薄めない。
-# as-of 2026-03-31 の実測では、E[r] を持つ 3,773 銘柄のうち 1,434 (38.0%) がこの形。
 _EARNINGS_METRICS = ("per_forward", "per_trailing")
 
 
