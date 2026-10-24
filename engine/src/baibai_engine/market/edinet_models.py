@@ -53,6 +53,8 @@ class EdinetMetricRecord:
     total_assets: float | None = None
     ttm_quality_fcf: TTMQuality | None = None
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
+    snapshot_asof: date | None = None
+    snapshot_recorded_at_utc: str | None = None
     source_doc_id: str | None = None
     document_type: str | None = None
     source_submit_datetime: str | None = None

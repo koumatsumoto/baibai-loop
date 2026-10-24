@@ -175,7 +175,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     _add_source_coverage(
         conn,
         source="edinet_metrics",
-        coverage_key=f"edinet_metrics:{asof.isoformat()}",
+        coverage_key=asof.isoformat(),
         record_count=1,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -1559,12 +1559,12 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             self.assertTrue(
                 any(
-                    issue.source == "edinet_metrics" and "coverage query failed" in issue.reason
+                    issue.source == "edinet_metrics" and "eligibility query failed" in issue.reason
                     for issue in issues
                 )
             )
 
-    def test_required_edinet_failed_status_reports_diagnostic_error(self) -> None:
+    def test_failed_edinet_extraction_does_not_block_optional_inputs(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
@@ -1589,13 +1589,14 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
-            self.assertTrue(
-                any(
-                    issue.source == "edinet_metrics"
-                    and "1 EDINET CSV hard failures" in issue.reason
-                    for issue in issues
-                )
-            )
+            self.assertFalse(any(issue.source == "edinet_metrics" for issue in issues))
+            with closing(sqlite3.connect(sqlite_path)) as conn:
+                status, error = conn.execute(
+                    "SELECT status, error FROM source_coverage "
+                    "WHERE source = 'edinet_metrics' AND coverage_key = ?",
+                    (asof.isoformat(),),
+                ).fetchone()
+            self.assertEqual((status, error), ("failed", "1 EDINET CSV hard failures"))
 
 
 if __name__ == "__main__":  # pragma: no cover

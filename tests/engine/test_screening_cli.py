@@ -289,6 +289,8 @@ class FakeEDINETReader:
                 ttm_quality_ev_ebitda=TTMQuality.EXACT,
                 ttm_quality_p_s=TTMQuality.APPROXIMATED,
                 ttm_quality_pcfr=TTMQuality.UNAVAILABLE,
+                snapshot_asof=date(2026, 4, 23),
+                snapshot_recorded_at_utc="2026-04-23T10:00:00+00:00",
                 source_doc_id="S100TEST",
                 source_submit_datetime="2025-10-15 12:00",
             )
@@ -485,6 +487,11 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 self.assertEqual(payload["run_id"], "screening-20260424")
                 self.assertEqual(payload["filters"]["scope"], "all-common-stocks")
+                metrics = payload["stock_analyses"][0]["metrics"]
+                self.assertEqual(metrics["edinet_snapshot_asof"], "2026-04-23")
+                self.assertEqual(
+                    metrics["edinet_snapshot_recorded_at_utc"], "2026-04-23T10:00:00+00:00"
+                )
                 self.assertEqual(len(payload["stock_analyses"]), 1)
                 self.assertEqual(payload["stock_analyses"][0]["ticker"], "130A")
                 self.assertAlmostEqual(
@@ -599,7 +606,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_fails_when_required_edinet_provider_is_absent(self) -> None:
+    def test_run_command_keeps_unrelated_fields_when_optional_edinet_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -619,9 +626,18 @@ class ScreeningCliTests(unittest.TestCase):
                         providers,
                         now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
                     )
-                self.assertEqual(exit_code, 1)
-                self.assertIn("EDINET preprocessed metrics provider is required", stderr.getvalue())
-                self.assertFalse(build_output_path(date(2026, 4, 24)).exists())
+                self.assertIn(exit_code, (0, 2))
+                payload = safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                self.assertIn(
+                    "EDINET preprocessed metrics: unavailable (optional fields remain missing)",
+                    payload["provider_status_lines"],
+                )
+                self.assertNotIn("edinet-preprocessed-metrics", payload["data_sources"])
+                self.assertTrue(payload["stock_analyses"])
+                self.assertTrue(any(stock["per_forward"] is not None
+                                    for stock in payload["stock_analyses"]))
+                self.assertTrue(all(stock["metrics"]["edinet_source_doc_id"] is None
+                                    for stock in payload["stock_analyses"]))
             finally:
                 os.chdir(cwd)
 

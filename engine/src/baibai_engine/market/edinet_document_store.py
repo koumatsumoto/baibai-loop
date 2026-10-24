@@ -52,15 +52,21 @@ def read_stored_documents(
         if failed is not None:
             failed_date = max(str(failed[0]), start_iso) if start_iso else str(failed[0])
             raise EDINETProviderError(f"EDINET document coverage failed: {failed_date}")
-        return _read_stored_documents(connection, through=through, start=start)
+        return read_observed_documents(connection, through=through, start=start)
     finally:
         if owns_transaction:
             connection.rollback()
 
 
-def _read_stored_documents(
-    connection: sqlite3.Connection, *, through: date, start: date | None
+def read_observed_documents(
+    connection: sqlite3.Connection, *, through: date, start: date | None = None
 ) -> list[dict[str, Any]]:
+    """Read retained evidence, without claiming completeness of acquisition days.
+
+    Input eligibility uses known corrections/withdrawals even when a later list
+    fetch failed. Native/projection inconsistencies still raise; callers own the
+    read transaction. Extraction requiring complete lists uses read_stored_documents.
+    """
     start_iso = start.isoformat() if start else None
     cursor = connection.execute(
         "SELECT d.doc_date, d.sequence_number AS seqNumber, d.doc_id AS docID, "

@@ -545,6 +545,52 @@ def test_analysis_structured_path_gates_an_explicit_non_business_day(tmp_path: P
     assert "collection economic refresh" in runner.call_keys()
 
 
+@pytest.mark.parametrize("scheduled", [False, True])
+def test_saved_input_integration_gates_workflow_resolved_weekend(
+    tmp_path: Path, scheduled: bool
+) -> None:
+    target = date(2026, 10, 24)
+    _seed_calendar(tmp_path, {target: "0"})
+    runner = _runner()
+    args = build_parser().parse_args(
+        ["--saved-inputs", "--asof", target.isoformat()]
+        + (["--scheduled"] if scheduled else [])
+    )
+    result = run_daily_batch_structured(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=date.fromisoformat(args.asof),
+        scheduled=args.scheduled,
+        acquire_market=not args.saved_inputs,
+        refresh_economic=not args.saved_inputs,
+        runner=runner,
+    )
+    assert result.exit_code == 0
+    assert result.screening_status == "skipped_non_business_day"
+    assert "screening run" not in runner.call_keys()
+    assert "screening verify-cache-coverage" not in runner.call_keys()
+    assert "export" in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
+    assert "2026-10-23" not in _call(runner, "export")
+
+
+def test_saved_input_historical_business_day_still_runs_screening(tmp_path: Path) -> None:
+    _seed_calendar(tmp_path, {ASOF: "1"})
+    runner = _runner()
+    result = run_daily_batch_structured(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        acquire_market=False,
+        refresh_economic=False,
+        runner=runner,
+    )
+    assert result.screening_status == "published"
+    assert "screening verify-cache-coverage" in runner.call_keys()
+    assert "screening run" in runner.call_keys()
+    assert _call(runner, "screening run")[3:5] == ["--asof", ASOF.isoformat()]
+
+
 def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
     today = datetime.now(JST).date()
     _seed_calendar(tmp_path, {today: "1"})

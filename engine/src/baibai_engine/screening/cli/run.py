@@ -11,6 +11,7 @@ from typing import TextIO
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.jpx_models import (
     JPXProviderError,
@@ -190,27 +191,19 @@ def run_command(
         adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
     edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
-    if providers.edinet is None:
-        print("EDINET preprocessed metrics provider is required for screening run", file=sys.stderr)
-        return 1
     try:
-        print("screening run edinet metrics: load start", file=out, flush=True)
-        edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
+        if providers.edinet is not None:
+            print("screening run edinet metrics: load start", file=out, flush=True)
+            edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
         print(
-            f"screening run edinet metrics: {len(edinet_by_ticker)} ticker(s)",
+            f"screening run edinet metrics: {len(edinet_by_ticker)} eligible ticker(s)",
             file=out,
             flush=True,
         )
-    except (EDINETProviderError, OSError, ValueError) as exc:
-        # cache 破損 / JSON 不正 / IO 失敗は EDINET 必須条件を満たせないため、
-        # preflight 後の race や run_command 直呼びでも YAML 生成へ進めない。
+    except (EDINETMetricBaselineError, EDINETProviderError, OSError, ValueError) as exc:
+        # Missing optional inputs are empty; corrupt retained inputs must remain fatal.
         edinet_load_error = f"{type(exc).__name__}: {exc}"
         print(f"EDINET load_metric_records failed: {edinet_load_error}", file=sys.stderr)
-        return 1
-    if not edinet_by_ticker:
-        print(
-            "EDINET preprocessed metrics are required but empty for screening run", file=sys.stderr
-        )
         return 1
 
     universe_result = build_universe(
@@ -337,11 +330,25 @@ def run_command(
         "jpx-public-earnings-calendar",
         "jpx-public-regulation",
     ]
-    data_sources.append("edinet-preprocessed-metrics")
+    if edinet_by_ticker:
+        data_sources.append("edinet-preprocessed-metrics")
     provider_status_lines = [
         "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX（決算発表予定・規制）"
     ]
-    provider_status_lines.append("EDINET preprocessed metrics: loaded")
+    provider_status_lines.append(
+        "EDINET preprocessed metrics: loaded"
+        if edinet_by_ticker
+        else "EDINET preprocessed metrics: unavailable (optional fields remain missing)"
+    )
+    snapshot_dates = sorted(
+        {
+            record.snapshot_asof.isoformat()
+            for record in edinet_by_ticker.values()
+            if record.snapshot_asof is not None
+        }
+    )
+    if snapshot_dates:
+        provider_status_lines.append("EDINET eligible snapshot dates: " + ", ".join(snapshot_dates))
     cap_null_count = sum(
         1 for snapshot in universe_result.snapshots.values() if snapshot.market_cap_oku is None
     )

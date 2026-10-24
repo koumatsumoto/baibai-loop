@@ -33,6 +33,7 @@ class EDINETMetricBaselineRow:
 class EDINETMetricBaseline:
     asof_date: date
     rows: Mapping[str, EDINETMetricBaselineRow]
+    recorded_at_utc: str | None = None
 
 
 _METRIC_SELECT = (
@@ -52,9 +53,10 @@ _METRIC_SELECT = (
 def _normalize_edinet_metric_sql_row(row: sqlite3.Row) -> EdinetMetricRecord:
     """Decode named SQL columns without a parallel positional field mapping."""
     payload = dict(row)
-    payload["failure_reasons"] = (
-        json.loads(row["failure_reasons"]) if row["failure_reasons"] else []
-    )
+    reasons = json.loads(row["failure_reasons"]) if row["failure_reasons"] else []
+    if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+        raise ValueError("EDINET metric failure_reasons must be a JSON string list")
+    payload["failure_reasons"] = reasons
     return normalize_metric_record(payload)
 
 
@@ -71,7 +73,8 @@ def read_edinet_metric_baseline(
     conn.row_factory = sqlite3.Row
     try:
         coverage_rows = conn.execute(
-            "SELECT coverage_key, coverage_start, coverage_end, record_count, status, error "
+            "SELECT coverage_key, coverage_start, coverage_end, record_count, status, error, "
+            "fetched_at_utc "
             "FROM source_coverage WHERE source = 'edinet_metrics' AND coverage_key <= ? "
             "ORDER BY coverage_key DESC",
             (target_asof.isoformat(),),
@@ -83,6 +86,7 @@ def read_edinet_metric_baseline(
             record_count,
             status,
             error,
+            fetched_at_utc,
         ) in coverage_rows:
             key = str(coverage_key)
             if status == "failed":
@@ -148,7 +152,9 @@ def read_edinet_metric_baseline(
                 raise EDINETMetricBaselineError(
                     f"EDINET metric baseline ticker identity mismatch for {key}"
                 )
-            return EDINETMetricBaseline(asof_date=baseline_asof, rows=baseline_rows)
+            return EDINETMetricBaseline(
+                asof_date=baseline_asof, rows=baseline_rows, recorded_at_utc=fetched_at_utc
+            )
     except sqlite3.OperationalError as exc:
         raise EDINETMetricBaselineError(f"EDINET metric baseline read failed: {exc}") from exc
     finally:

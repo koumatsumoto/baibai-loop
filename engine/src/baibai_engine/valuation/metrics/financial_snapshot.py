@@ -313,6 +313,8 @@ def build_financial_snapshot(
         cash=cash,
         ebitda_ttm=ebitda_ttm,
         consolidation_basis=edinet.consolidation_basis if edinet else None,
+        edinet_snapshot_asof=edinet.snapshot_asof if edinet else None,
+        edinet_snapshot_recorded_at_utc=edinet.snapshot_recorded_at_utc if edinet else None,
         edinet_source_doc_id=edinet.source_doc_id if edinet else None,
         edinet_document_type=edinet.document_type if edinet else None,
         edinet_source_submit_datetime=edinet.source_submit_datetime if edinet else None,
