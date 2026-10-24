@@ -164,7 +164,7 @@ def test_invalid_structural_contract_is_rejected(mutate: Any) -> None:
         ErCalibrationContextArtifact.model_validate(payload)
 
 
-def test_reader_preserves_future_and_expired_point_in_time_reasons(tmp_path: Path) -> None:
+def test_reader_preserves_future_and_expired_artifact_availability_reasons(tmp_path: Path) -> None:
     future = deepcopy(_artifact())
     future["generated_at"] = "2026-09-04T00:00:00+09:00"
     future["valid_through"] = "2026-10-19"

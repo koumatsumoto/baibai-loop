@@ -51,7 +51,7 @@ def test_fixed_method_context_reports_observed_bands_without_mutating_selection(
 
 def test_missing_or_inapplicable_context_is_reasoned_and_nonblocking(tmp_path):
     selected = _selection(tmp_path)
-    source = selected.inputs.analysis
+    original = selection_sha256(selected)
     missing = research_calibration_context(
         selected, context_path=tmp_path / "missing.yaml", as_of=NOW.date()
     )
@@ -65,11 +65,7 @@ def test_missing_or_inapplicable_context_is_reasoned_and_nonblocking(tmp_path):
     mismatch = research_calibration_context(selected, context_path=path, as_of=NOW.date())
     assert mismatch["unavailable_reason"] == "rules_identity_mismatch"
 
-    path.write_text(
-        yaml.safe_dump(context_artifact(rules_hash=source.screening_rules_hash)),
-        encoding="utf-8",
-    )
-    assert selected.inputs.analysis.analyses["1234"]["candidate"] is not None
+    assert selection_sha256(selected) == original
 
 
 @pytest.mark.parametrize("value", [True, None, "not-a-ratio"])
