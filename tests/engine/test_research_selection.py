@@ -120,16 +120,23 @@ def test_snapshot_requires_exact_coverage_and_no_duplicate_analysis(modify):
         parse_selection(raw)
 
 
-def test_technical_context_allows_old_snapshot_but_rejects_unknown_domain_keys():
-    old = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
-    assert "technical_analysis" not in parse_selection(old).inputs.securities_context["1234"]
-    old["inputs"]["securities_context"]["1234"]["technical_analysis"] = {"bar_count": 0}
-    assert parse_selection(old).inputs.securities_context["1234"]["technical_analysis"] == {
-        "bar_count": 0
-    }
-    old["inputs"]["securities_context"]["1234"]["technical_score"] = 1
+@pytest.mark.parametrize(
+    "optional_domains",
+    [(), ("technical_analysis",), ("company_growth",), ("technical_analysis", "company_growth")],
+)
+def test_optional_domain_contexts_preserve_retained_snapshot_shape(optional_domains):
+    raw = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
+    context = raw["inputs"]["securities_context"]["1234"]
+    for domain in optional_domains:
+        context[domain] = {"status": "unavailable"}
+    assert parse_selection(raw).model_dump(mode="json") == raw
+    context["technical_score"] = 1
     with pytest.raises(ValueError, match="security context"):
-        parse_selection(old)
+        parse_selection(raw)
+    del context["technical_score"]
+    del context["market_context"]
+    with pytest.raises(ValueError, match="security context"):
+        parse_selection(raw)
 
 
 def test_normalization_todo_text_and_legacy_rejection():

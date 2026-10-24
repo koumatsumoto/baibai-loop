@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
+from baibai_engine.position.ledger import replay_events_through
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.operation.progress import selection_binding
 from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.selection import (
@@ -15,7 +17,6 @@ from baibai_engine.research.selection import (
 )
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
-    _load_mapping,
     _nonempty_string,
 )
 
@@ -65,21 +66,26 @@ def workspace_selection(
     return selection
 
 
-def _require_primary_research_ticker(
-    workspace: Path, ticker: str, *, action: str, gate: ResearchSelection, db_path: Path | None
-) -> None:
-    manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
+def require_authoring_selection(
+    manifest: Mapping[str, object], *, ticker: str, action: str, db_path: Path | None
+) -> ResearchSelection:
+    """Resolve authoring admission once; read-only status uses workspace_selection instead."""
     selection = workspace_selection(manifest, db_path=db_path, active=True)
     purpose = "holding" if manifest.get("purpose") == "holding" else "new"
-    if purpose == "holding" and manifest.get("holding_ticker") is None:
+    holding = manifest.get("holding_ticker")
+    if purpose == "holding" and holding is None:
         raise ResearchWorkspaceConflictError(
             "author holding research in its holdings/<ticker> child workspace"
         )
-    if (
-        selection != gate
-        or ResearchTarget(ticker=ticker, purpose=purpose) not in selection_targets(selection)
-        or (manifest.get("holding_ticker") is not None and manifest["holding_ticker"] != ticker)
+    if ResearchTarget(ticker=ticker, purpose=purpose) not in selection_targets(selection) or (
+        holding is not None and holding != ticker
     ):
         raise ResearchWorkspaceConflictError(
             f"cannot {action}: ticker/purpose is outside the fixed selection"
         )
+    if holding is not None:
+        ledger = LedgerStoreService(db_path).load()
+        state = replay_events_through(ledger.events, ledger.as_of)
+        if sum(lot.quantity for lot in state.lots.get(ticker, [])) <= 0:
+            raise ResearchWorkspaceConflictError("holding workspace requires a current holding")
+    return selection

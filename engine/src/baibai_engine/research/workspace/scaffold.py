@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import date, datetime, time
-from math import isfinite
 from pathlib import Path
 from typing import get_args
 from uuid import uuid4
@@ -24,7 +23,7 @@ from baibai_engine.research.assessment_store import (
     latest_assessment_id,
     load_reviewed_assessment,
 )
-from baibai_engine.research.workspace.admission import _require_primary_research_ticker
+from baibai_engine.research.workspace.admission import require_authoring_selection
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -35,7 +34,6 @@ from baibai_engine.research.workspace.validation import (
     _research_ticker_dir,
     _review_draft_path,
     _validate_editable_drafts,
-    _verify_external_inputs,
 )
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
@@ -74,11 +72,10 @@ def scaffold_assessment(
     out: Path | None = None,
 ) -> dict[str, object]:
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    gate = _verify_external_inputs(manifest, db_path=db_path)
-    _validate_editable_drafts(workspace, manifest, gate=gate)
-    _require_primary_research_ticker(
-        workspace, ticker, action="scaffold research", gate=gate, db_path=db_path
+    gate = require_authoring_selection(
+        manifest, ticker=ticker, action="scaffold research", db_path=db_path
     )
+    _validate_editable_drafts(workspace, manifest, gate=gate)
     directory = _research_ticker_dir(workspace, ticker)
     path = directory / "assessment-draft.yaml"
     identity_path = directory / "assessment-publication.yaml"
@@ -129,7 +126,7 @@ def scaffold_assessment(
                 {
                     "fact_id": "market_price_close",
                     "fact_kind": "market_price",
-                    "value": _finite_number(quote.close_yen, label="cached close"),
+                    "value": quote.close_yen,
                     "unit": "JPY_per_share",
                     "as_of": quote.price_as_of.isoformat(),
                     "source_ids": ["market_close"],
@@ -226,18 +223,6 @@ def scaffold_assessment(
     }
 
 
-def _finite_number(value: object, *, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ResearchWorkspaceDataError(f"{label} must be a number")
-    try:
-        number = float(value)
-    except (OverflowError, ValueError) as error:
-        raise ResearchWorkspaceDataError(f"{label} must be finite") from error
-    if not isfinite(number):
-        raise ResearchWorkspaceDataError(f"{label} must be finite")
-    return number
-
-
 def scaffold_review(
     *, workspace: Path, ticker: str, db_path: Path | None = None, force: bool = False
 ) -> dict[str, object]:
@@ -249,11 +234,10 @@ def scaffold_review(
     The file uses the stable assessment-review.yaml name that promote reads.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    gate = _verify_external_inputs(manifest, db_path=db_path)
-    _validate_editable_drafts(workspace, manifest, gate=gate)
-    _require_primary_research_ticker(
-        workspace, ticker, action="scaffold review", gate=gate, db_path=db_path
+    gate = require_authoring_selection(
+        manifest, ticker=ticker, action="scaffold review", db_path=db_path
     )
+    _validate_editable_drafts(workspace, manifest, gate=gate)
     ticker_dir = _research_ticker_dir(workspace, ticker)
     assessment_path = ticker_dir / "assessment-draft.yaml"
     if not assessment_path.exists():
