@@ -89,6 +89,13 @@ def annual_documents(
         ticker = parse_sec_code(root["secCode"])
         root_submitted = str(root.get("submitDateTime") or "")[:10]
         _, end = document_period(root)
+        root_id = str(root["docID"])
+        rank = (end or date.min, str(root.get("submitDateTime") or ""), root_id)
+        if ticker not in latest or rank > latest[ticker]:
+            latest[ticker] = rank
+        if end is None:
+            stamp = str(root.get("submitDateTime") or "")
+            unknown[ticker] = max(unknown.get(ticker, ("", "")), (stamp, root_id))
         if str(root["docID"]) in unresolved_roots or any(
             (orphan_end is None or end is None or orphan_end >= end)
             and (not day or not root_submitted or day >= root_submitted)
@@ -96,24 +103,17 @@ def annual_documents(
         ):
             continue
         doc = {**doc, "secCode": root["secCode"]}
-        root_id = str(root["docID"])
         doc["_research_period_known"] = end is not None
         doc["_research_annual_period_end"] = end.isoformat() if end is not None else None
-        if end is None:
-            stamp = str(root.get("submitDateTime") or "")
-            unknown[ticker] = max(unknown.get(ticker, ("", "")), (stamp, root_id))
         families.setdefault(root_id, []).append(doc)
         if str(doc["docID"]) in (retained or set()) or (
             since is not None and str(doc.get("submitDateTime") or "")[:10] > since
         ):
             included.add(root_id)
-        rank = (end or date.min, str(root.get("submitDateTime") or ""), root_id)
-        if ticker not in latest or rank > latest[ticker]:
-            latest[ticker] = rank
     for ticker, (submitted, root_id) in unknown.items():
         if submitted >= latest[ticker][1]:
             latest[ticker] = (date.min, submitted, root_id)
-    included.update(root_id for _, _, root_id in latest.values())
+    included.update(root_id for _, _, root_id in latest.values() if root_id in families)
     return sorted(
         [doc for root_id in included for doc in families[root_id]],
         key=lambda doc: (str(doc.get("submitDateTime") or ""), str(doc["docID"])),
@@ -145,3 +145,4 @@ def latest_annual_filing(documents: list[dict[str, Any]], ticker: str) -> dict[s
         key=lambda doc: (str(doc.get("submitDateTime") or ""), str(doc["docID"])),
         default=None,
     )
+

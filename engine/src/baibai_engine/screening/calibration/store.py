@@ -160,7 +160,19 @@ def fixed_current_snapshot(root: Path) -> Iterator[Path]:
         with closing(_connect(fixed)) as connection:
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise CalibrationCacheError("calibration snapshot integrity_check failed")
+            _validate_snapshot_policies(connection)
         yield fixed
+
+
+def _validate_snapshot_policies(connection: sqlite3.Connection) -> None:
+    rows = connection.execute("SELECT diagnostics, forward_policy FROM cohort").fetchall()
+    if not rows:
+        raise CalibrationCacheError("calibration snapshot has no cohorts")
+    policies = {
+        (json.loads(row[0]).get("rules_hash"), canonical_json(json.loads(row[1]))) for row in rows
+    }
+    if len(policies) != 1 or any(rules is None for rules, _ in policies):
+        raise CalibrationCacheError("calibration snapshot mixes measurement methods or policies")
 
 
 def publish_current_snapshot(root: Path, built_root: Path) -> None:
@@ -169,12 +181,7 @@ def publish_current_snapshot(root: Path, built_root: Path) -> None:
     with closing(_connect(built_root)) as connection:
         if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise CalibrationCacheError("calibration snapshot integrity_check failed")
-        rows = connection.execute("SELECT diagnostics FROM cohort ORDER BY asof").fetchall()
-        if not rows:
-            raise CalibrationCacheError("calibration snapshot has no cohorts")
-        rules = {json.loads(row[0]).get("rules_hash") for row in rows}
-        if len(rules) != 1 or None in rules:
-            raise CalibrationCacheError("calibration snapshot mixes measurement methods")
+        _validate_snapshot_policies(connection)
     root.mkdir(parents=True, exist_ok=True)
     temporary = root / f".{CURRENT_SNAPSHOT_NAME}.{uuid.uuid4().hex}.tmp"
     try:
@@ -197,13 +204,15 @@ def write_panel(
     for row in rows:
         panel_row_from_mapping(asdict(row))
     with closing(_connect(root, mode="rwc")) as connection:
-        existing_rules = {
-            json.loads(item[0]).get("rules_hash")
+        existing_policies = {
+            (json.loads(item[0]).get("rules_hash"), canonical_json(json.loads(item[1])))
             for item in connection.execute(
-                "SELECT diagnostics FROM cohort WHERE asof <> ?", (asof.isoformat(),)
+                "SELECT diagnostics, forward_policy FROM cohort WHERE asof <> ?",
+                (asof.isoformat(),),
             )
         }
-        if existing_rules and existing_rules != {diagnostics.rules_hash}:
+        policy = (diagnostics.rules_hash, canonical_json(asdict(forward_policy)))
+        if existing_policies and existing_policies != {policy}:
             raise CalibrationCacheError("calibration snapshot cannot mix measurement policies")
         connection.execute("BEGIN IMMEDIATE")
         try:
