@@ -5,16 +5,15 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
-from tests.batch.test_external_assessment_publication import RECEIVED
-from tests.batch.test_external_assessment_publication import publication as publication
+from tests.batch.external_assessment_publication_fixtures import (
+    RECEIVED,
+    pair_responses,
+    upload_bundle,
+)
+from tests.batch.external_assessment_publication_fixtures import publication as publication
 
 from baibai_batch.jobs import external_assessment_publication as external_assessment
-from baibai_batch.jobs.external_assessment_cohorts import (
-    make_plan,
-    new_result,
-    record_outcome,
-)
+from baibai_batch.jobs.external_assessment_cohorts import make_plan, new_result, record_outcome
 from baibai_batch.storage.external_assessment_staging import (
     CohortStage,
     prefix,

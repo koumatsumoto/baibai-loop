@@ -5,15 +5,16 @@ import sqlite3
 import uuid
 from contextlib import closing
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import yaml
-from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
+from tests.batch.external_assessment_publication_fixtures import (
+    independent_plans as independent_plans,
+)
+from tests.batch.external_assessment_publication_fixtures import publication as publication
 from tests.batch.test_external_assessment_daily import FakeObjectStore, completed_pair, plan
-from tests.batch.test_external_assessment_publication import RECEIVED
-from tests.batch.test_external_assessment_publication import publication as publication
 from tests.engine.test_external_assessment_host_rate import Clock, Session
 from tests.engine.test_external_assessment_sources import official_html, rakuten_html
 
@@ -39,7 +40,6 @@ from baibai_engine.batch_api import (
     create_market_snapshot,
     equity_web_history_digests,
     external_assessment_collector_binding,
-    external_assessment_decode_attempt,
     external_assessment_history_digests,
     lake_session,
     read_lake_store_origin,
@@ -177,44 +177,6 @@ def test_one_source_403_stops_its_unattempted_pairs_while_other_source_acquires(
     assert successful["state_counts"]["success"] == 1
     assert len(available.calls) == 2
     assert available.calls[1][0] - available.calls[0][0] >= 0.5
-
-
-@pytest.fixture
-def independent_plans(publication):
-    store, _original, handle, database, mirror, directory = publication
-    selected = []
-    for source in ("monex", "rakuten"):
-        p = make_plan(
-            run_id=f"{source}-independent",
-            sources=(source,),
-            tickers=("6758", "7203"),
-            universe_binding=json.dumps({"master_asof": "2026-10-09"}),
-            collector_binding=external_assessment_collector_binding(source=source),
-        )
-        journal = new_result(p, 0)
-        originals = []
-        for _, ticker in p.cohorts[0].pairs:
-            responses = pair_responses(
-                source, ticker, received_at_utc=RECEIVED + timedelta(seconds=1)
-            )
-            originals.extend(responses)
-            observation = external_assessment_decode_attempt(responses)
-            journal = record_outcome(
-                p,
-                journal,
-                ExternalAssessmentCollectionOutcome(
-                    source, ticker, "observed", None, 200, responses[0].attempt_id
-                ),
-                observation,
-            )
-        key = upload_bundle(store, p, 0, tuple(originals))
-        staging.save_new_plan(store, p)
-        store.store_object(
-            staging.stage_key(p, 0),
-            staging.stage_bytes(p, staging.CohortStage(journal, raw_bundle_keys=(key,))),
-        )
-        selected.append({"source": source, "run_id": p.run_id})
-    return store, selected, handle, database, mirror, directory
 
 
 def publish(batch, **kwargs):

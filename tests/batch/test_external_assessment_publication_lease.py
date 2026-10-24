@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.batch.test_external_assessment_publication import publication as publication
+from tests.batch.external_assessment_publication_fixtures import publication as publication
 
 from baibai_batch.jobs import external_assessment_publication as external_assessment
 from baibai_batch.storage import lake_publish, publication_lease

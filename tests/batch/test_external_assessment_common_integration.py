@@ -3,11 +3,16 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import pair_responses
-from tests.batch.test_external_assessment_publication import RECEIVED
-from tests.batch.test_external_assessment_publication import publication as publication
-from tests.batch.test_external_assessment_source_jobs import independent_plans as independent_plans
-from tests.batch.test_external_assessment_source_publication import _plan, _stage
+from tests.batch.external_assessment_publication_fixtures import (
+    RECEIVED,
+    _plan,
+    _stage,
+    pair_responses,
+)
+from tests.batch.external_assessment_publication_fixtures import (
+    independent_plans as independent_plans,
+)
+from tests.batch.external_assessment_publication_fixtures import publication as publication
 
 from baibai_batch.jobs.external_assessment_integration import merge_ready, verify_and_seal
 from baibai_batch.jobs.external_assessment_publication import VALUATION_DATASET, prepare_publication

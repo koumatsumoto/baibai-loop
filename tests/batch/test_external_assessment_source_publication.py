@@ -7,24 +7,28 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import pair_responses, upload_bundle
-from tests.batch.test_external_assessment_publication import RECEIVED
-from tests.batch.test_external_assessment_publication import publication as publication
+from tests.batch.external_assessment_publication_fixtures import (
+    RECEIVED,
+    pair_responses,
+    upload_bundle,
+)
+from tests.batch.external_assessment_publication_fixtures import _plan as _plan
+from tests.batch.external_assessment_publication_fixtures import _stage as _stage
+from tests.batch.external_assessment_publication_fixtures import publication as publication
 from tests.batch.test_external_assessment_raw import Session
 from tests.batch.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_sources import monex_html
-from tests.engine.test_minkabu import html as minkabu_html
 from tests.engine.test_minkabu import no_coverage_html
+from tests.engine.test_minkabu import html as minkabu_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs import external_assessment_publication as publisher
-from baibai_batch.jobs.external_assessment_cohorts import make_plan, new_result, record_outcome
+from baibai_batch.jobs.external_assessment_cohorts import new_result, record_outcome
 from baibai_batch.storage.external_assessment_staging import CohortStage, stage_bytes, stage_key
 from baibai_engine.batch_api import (
     ExternalAssessmentCollectionOutcome,
     equity_web_history_digests,
     equity_web_import_responses,
-    external_assessment_collector_binding,
     external_assessment_decode_attempt,
     external_assessment_history_digests,
 )
@@ -41,41 +45,6 @@ from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
-
-
-def _plan(previous, *, run_id, tickers=("7203",), sources=("monex",), cohort_size=50):
-    return make_plan(
-        run_id=run_id,
-        tickers=tickers,
-        sources=sources,
-        cohort_size=cohort_size,
-        universe_binding=previous.universe_binding,
-        collector_binding=external_assessment_collector_binding(
-            source=sources[0] if len(sources) == 1 else None
-        ),
-    )
-
-
-def _stage(store, plan, index, entries, responses=()):
-    journal = new_result(plan, index)
-    for source, ticker, status, attempt_id, observation, http_status in entries:
-        journal = record_outcome(
-            plan,
-            journal,
-            ExternalAssessmentCollectionOutcome(
-                source,
-                ticker,
-                status,
-                None if status == "observed" else "missing_theory_table",
-                http_status,
-                attempt_id,
-            ),
-            observation,
-        )
-    keys = (upload_bundle(store, plan, index, tuple(responses)),) if responses else ()
-    store.store_object(
-        stage_key(plan, index), stage_bytes(plan, CohortStage(journal, raw_bundle_keys=keys))
-    )
 
 
 def _publish(publication, plan, suffix):
