@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { LoadingPage } from '../src/components/LoadingIndicator'
 import { ApiError, fetchJson } from '../src/api/client'
 import { InvestmentProposalPage } from '../src/pages/InvestmentProposalPage'
 import { StockAssessmentPage } from '../src/pages/StockAssessmentPage'
@@ -10,6 +11,7 @@ const hooks = vi.hoisted(() => ({
   effects: [] as { setup: () => () => void; dependencies: unknown[] }[],
   setters: [] as ReturnType<typeof vi.fn>[],
   params: {} as Record<string, string>,
+  stateValues: [] as unknown[],
 }))
 
 // Run the real page effects with controlled requests, without adding a DOM renderer.
@@ -21,7 +23,7 @@ vi.mock('react', async (importOriginal) => ({
   useState: (initial: unknown) => {
     const setter = vi.fn()
     hooks.setters.push(setter)
-    return [initial, setter]
+    return [hooks.stateValues.length > 0 ? hooks.stateValues.shift() : initial, setter]
   },
 }))
 vi.mock('react-router', async (importOriginal) => ({
@@ -51,6 +53,7 @@ afterEach(() => {
   vi.resetAllMocks()
   hooks.effects = []
   hooks.setters = []
+  hooks.stateValues = []
 })
 
 const pages = [
@@ -127,3 +130,15 @@ for (const page of pages) {
     })
   })
 }
+
+
+it.each([
+  { render: AssessmentPage, param: 'contextId', data: { context_id: 'old' }, rest: [null] },
+  { render: SecurityDetailPage, param: 'ticker', data: { ticker: 'old' }, rest: [false, null] },
+])('never renders a previous identity before the new route effect runs: $param', ({ render, param, data, rest }) => {
+  hooks.params = { [param]: 'new' }
+  hooks.stateValues = [data, ...rest]
+  const view = render()
+  expect(view.type).toBe(LoadingPage)
+  expect(fetchJson).not.toHaveBeenCalled()
+})
