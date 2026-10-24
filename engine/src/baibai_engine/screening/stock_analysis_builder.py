@@ -171,6 +171,7 @@ def build_stock_analysis_metrics(
         "sales_yoy": financial.sales_yoy,
         "cfo_yoy": financial.cfo_yoy,
         "operating_profit": financial.operating_profit,
+        "operating_profit_source": financial.operating_profit_source.value,
         "operating_profit_ttm": financial.operating_profit_ttm,
         "operating_profit_yoy": financial.operating_profit_yoy,
         "operating_profit_loss_narrowing": financial.operating_profit_loss_narrowing,
