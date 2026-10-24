@@ -5,21 +5,25 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from baibai_engine.market.edinet_decode import normalize_metric_record
 from baibai_engine.market.edinet_document_store import read_stored_documents
-from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
+from baibai_engine.market.edinet_metrics.revision import (
+    DEFERRED_CSV_REASON,
+    PARTIAL_CSV_COVERAGE,
+    has_hard_metric_failure,
+)
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.storage.observations.coverage import date_covered
 from baibai_engine.storage.observations.schema import connect_current
 
 
 class EDINETMetricBaselineError(RuntimeError):
-    """Raised when the newest successful baseline claims an inconsistent snapshot."""
+    """Raised when the newest eligible baseline claims an inconsistent snapshot."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +95,7 @@ def read_edinet_metric_baseline(
             key = str(coverage_key)
             if status == "failed":
                 continue
-            if status != "ok":
+            if status not in {"ok", "partial"}:
                 raise EDINETMetricBaselineError(
                     f"EDINET metric baseline {key} has unsupported status {status!r}"
                 )
@@ -105,7 +109,7 @@ def read_edinet_metric_baseline(
                 baseline_asof > target_asof
                 or coverage_start != key
                 or coverage_end != key
-                or error is not None
+                or (status == "ok" and error is not None)
                 or not isinstance(record_count, int)
                 or record_count <= 0
             ):
@@ -152,6 +156,7 @@ def read_edinet_metric_baseline(
                 raise EDINETMetricBaselineError(
                     f"EDINET metric baseline ticker identity mismatch for {key}"
                 )
+            _validate_deferred_coverage(baseline_rows, status=status, error=error, key=key)
             return EDINETMetricBaseline(
                 asof_date=baseline_asof, rows=baseline_rows, recorded_at_utc=fetched_at_utc
             )
@@ -160,6 +165,42 @@ def read_edinet_metric_baseline(
     finally:
         conn.close()
     return None
+
+
+def _validate_deferred_coverage(
+    rows: Mapping[str, EDINETMetricBaselineRow], *, status: str, error: str | None, key: str
+) -> None:
+    """Accept only explicit missing-archive partials, never arbitrary failed writes."""
+    missing: set[str] = set()
+    for row in rows.values():
+        record = row.record
+        if DEFERRED_CSV_REASON not in record.failure_reasons:
+            continue
+        if (
+            record.failure_reasons != (DEFERRED_CSV_REASON,)
+            or record.source_doc_id is None
+            or any(isinstance(value, int | float) for value in asdict(record).values())
+        ):
+            raise EDINETMetricBaselineError(f"invalid deferred EDINET metric row for {key}")
+        missing.add(record.source_doc_id)
+    if status == "ok":
+        if missing:
+            raise EDINETMetricBaselineError(f"EDINET missing archives claimed complete for {key}")
+        return
+    try:
+        details = json.loads(error or "null")
+        ids = details.get("doc_ids") if isinstance(details, dict) else None
+        valid = (
+            isinstance(details, dict)
+            and details.get("reason") == PARTIAL_CSV_COVERAGE
+            and isinstance(ids, list) and bool(ids)
+            and all(isinstance(item, str) for item in ids)
+            and len(set(ids)) == len(ids) and set(ids) == missing
+        )
+    except (TypeError, ValueError) as exc:
+        raise EDINETMetricBaselineError(f"EDINET partial coverage is invalid for {key}") from exc
+    if not valid:
+        raise EDINETMetricBaselineError(f"EDINET partial coverage is inconsistent for {key}")
 
 
 def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:

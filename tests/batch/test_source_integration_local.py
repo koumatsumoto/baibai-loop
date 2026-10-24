@@ -101,3 +101,16 @@ def test_deferred_input_is_reported_without_failing_successful_integration(tmp_p
     assert summary["integration_status"] == "completed_with_deferred_inputs"
     assert summary["deferred_inputs"]["edinet-metrics"]["input_asof"] == "2026-10-23"
     assert path.read_bytes() == before
+
+
+def test_invalid_retained_list_failure_is_not_hidden_by_another_input_delay(tmp_path, capsys):
+    report = {
+        "handoffs": [], "external_failed": [], "external": None,
+        "extractions": {
+            "edinet-metrics": {"exit_code": 0, "deferred_inputs": ["document_list_unavailable"]},
+            "edinet-list": {"exit_code": 1, "status": "failed"},
+        },
+    }
+    (tmp_path / "applied.json").write_text(json.dumps(report))
+    assert source_integration.main(["check", "--directory", str(tmp_path)]) == 1
+    assert json.loads(capsys.readouterr().out)["integration_status"] == "failed"

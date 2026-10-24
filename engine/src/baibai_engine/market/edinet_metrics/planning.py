@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from baibai_engine.market.edinet_document_events import QuarantinedDocumentEvent
+from baibai_engine.market.edinet_metrics.revision import DEFERRED_CSV_REASON
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaseline, EDINETMetricBaselineRow
 from baibai_engine.market.edinet_selection import (
     TARGET_DOC_TYPE_CODES,
@@ -72,7 +73,8 @@ def can_reuse_edinet_metric(
 ) -> bool:
     record = baseline_row.record
     return (
-        not any(
+        DEFERRED_CSV_REASON not in record.failure_reasons
+        and not any(
             reason.startswith("document_event_quarantined:") for reason in record.failure_reasons
         )
         and baseline_row.extractor_revision == extractor_revision

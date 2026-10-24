@@ -10,12 +10,14 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.collection.edinet.receipts import read_list_responses
 from baibai_engine.market.edinet_document_store import read_observed_documents
 from baibai_engine.market.edinet_facts.planning import plan_fact_item
 from baibai_engine.market.edinet_facts.selection import annual_documents
 from baibai_engine.market.edinet_facts.service import finish_edinet_facts, process_edinet_fact_item
 from baibai_engine.market.edinet_facts.store import extraction_status
 from baibai_engine.market.edinet_handoff import archive_keys
+from baibai_engine.market.edinet_list_projection import project_document_list
 from baibai_engine.market.edinet_metrics.planning import make_metric_extraction_plan
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_from_plan
@@ -39,6 +41,19 @@ def extract_saved_edinet(
     with closing(connect_read_only(database)) as conn:
         conn.execute("BEGIN")
         documents = read_observed_documents(conn, through=asof)
+        failed_list_days: list[str] = []
+        for (day,) in conn.execute(
+            "SELECT DISTINCT r.doc_date FROM edinet_list_responses r WHERE r.doc_date <= ? "
+            "AND EXISTS (SELECT 1 FROM source_coverage c WHERE c.source = 'edinet_documents' "
+            "AND c.status = 'failed' AND c.coverage_start <= r.doc_date "
+            "AND c.coverage_end >= r.doc_date) ORDER BY r.doc_date",
+            (asof.isoformat(),),
+        ):
+            projection = project_document_list(
+                read_list_responses(conn, doc_date=date.fromisoformat(day))
+            )
+            if projection.error is not None:
+                failed_list_days.append(day)
         row = conn.execute(
             "SELECT MAX(coverage_end) FROM source_coverage "
             "WHERE source = 'edinet_documents' AND status = 'ok' AND coverage_end <= ?",
@@ -65,9 +80,13 @@ def extract_saved_edinet(
         metrics["deferred_inputs"].append("document_list_behind_saved_snapshot")
     else:
         assert available is not None
+        window_start = available - timedelta(days=lookback_days)
         selection = select_document_candidates(
-            [doc for doc in documents if str(doc["doc_date"]) <= available.isoformat()],
-            origin_start=available - timedelta(days=lookback_days),
+            [
+                doc for doc in documents
+                if window_start.isoformat() <= str(doc["doc_date"]) <= available.isoformat()
+            ],
+            origin_start=window_start,
         )
         plan = make_metric_extraction_plan(
             selection=selection, baseline=baseline, extractor_revision=EDINET_METRIC_REVISION
@@ -77,7 +96,7 @@ def extract_saved_edinet(
         ]
         if not selection.candidates:
             metrics["deferred_inputs"].append("no_selected_filings")
-        elif missing:
+        elif missing and len(missing) == len(plan.archive_candidates):
             metrics["deferred_inputs"].append("csv_archives_unavailable")
             metrics["missing_archive_count"] = len(missing)
         elif (
@@ -88,20 +107,35 @@ def extract_saved_edinet(
         ):
             metrics["status"] = "unchanged"
         else:
+            if missing:
+                metrics["deferred_inputs"].append("csv_archives_unavailable")
+                metrics["missing_archive_count"] = len(missing)
             code = extract_edinet_metrics_from_plan(
-                asof_date=available, plan=plan, reader=reader, sqlite_path=database
+                asof_date=available, plan=plan, reader=reader, sqlite_path=database,
+                unavailable_doc_ids=frozenset(missing),
             )
-            metrics.update(exit_code=code, status="failed" if code else "completed")
+            metrics.update(
+                exit_code=code,
+                status="failed" if code else "partial" if missing else "completed",
+            )
             if not code:
                 metrics["snapshot_asof"] = available.isoformat()
     if available is not None and available < asof:
         metrics["deferred_inputs"].append("latest_document_list_delayed")
-    return {
+    results = {
         "edinet-metrics": metrics,
         "edinet-facts": _extract_saved_facts(
             database, asof, available, documents, retained, reader
         ),
     }
+    if failed_list_days:
+        results["edinet-list"] = {
+            "exit_code": 1,
+            "status": "failed",
+            "reason": "retained_document_list_validation_failed",
+            "failed_days": failed_list_days,
+        }
+    return results
 
 
 def _extract_saved_facts(
