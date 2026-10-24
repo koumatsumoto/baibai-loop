@@ -15,7 +15,7 @@ from baibai_batch.storage.publication_lease import LeaseError
 def test_lease_lost_during_remote_closure_stops_before_pointer_switch(
     publication, monkeypatch, failure
 ):
-    store, plan, handle, database, mirror, tmp_path = publication
+    store, plan, handle, *_ = publication
     previous = publisher._serving_pointer(store).pointer
     previous_pointer_puts = [key for key in store.put_keys if "/pointers/" in key]
     ensure = lake_publish._ensure_immutable
@@ -58,7 +58,7 @@ def test_lease_lost_during_remote_closure_stops_before_pointer_switch(
 
 
 def test_pointer_generation_conflict_remains_enforced_with_a_valid_lease(publication):
-    store, plan, handle, database, mirror, tmp_path = publication
+    store, plan, *_ = publication
     previous = publisher._serving_pointer(store).pointer
     store.conflict_pointer = True
     with pytest.raises(lake_publish.LakeCASConflict):

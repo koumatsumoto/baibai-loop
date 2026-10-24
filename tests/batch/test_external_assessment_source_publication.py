@@ -25,9 +25,9 @@ from tests.engine.test_minkabu import no_coverage_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs import external_assessment_integration as integration
+from baibai_batch.jobs.external_assessment_cohorts import new_result, record_outcome
 from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage.external_assessment_ready import available_ready
-from baibai_batch.jobs.external_assessment_cohorts import new_result, record_outcome
 from baibai_batch.storage.external_assessment_staging import CohortStage, stage_bytes, stage_key
 from baibai_engine.batch_api import (
     ExternalAssessmentCollectionOutcome,
@@ -260,7 +260,7 @@ def test_nonresponse_failure_has_no_original_or_typed_row(publication):
 
 
 def test_later_missing_bundle_keeps_earlier_l1_but_no_l2_or_pointer(publication):
-    store, previous, handle, database, mirror, directory = publication
+    store, previous, _, database, _, _ = publication
     plan = _plan(previous, run_id="source-later-missing", tickers=("6758", "7203"), cohort_size=1)
     first = pair_responses("monex", "6758", received_at_utc=RECEIVED)
     _stage(
@@ -315,7 +315,7 @@ def test_later_missing_bundle_keeps_earlier_l1_but_no_l2_or_pointer(publication)
     "fault", ["wrong_run", "wrong_cohort", "wrong_pair", "wrong_attempt", "staged_mismatch"]
 )
 def test_mismatched_original_or_stage_blocks_l2_and_pointer(publication, fault):
-    store, previous, handle, database, mirror, directory = publication
+    store, previous, _, database, _, _ = publication
     plan = _plan(previous, run_id=f"source-{fault}")
     selected = pair_responses("monex", "7203", received_at_utc=RECEIVED)
     original = selected
