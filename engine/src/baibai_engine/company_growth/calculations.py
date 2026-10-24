@@ -220,10 +220,10 @@ def _derived(
         assert previous_end is not None
         start = previous_end + timedelta(days=1)
         if ttm:
-            annual, previous = selected_groups[0][0], selected_groups[-1][0]
+            annual, prior_cumulative = selected_groups[0][0], selected_groups[-1][0]
             assert annual.period_end is not None
             if (
-                annual.period_start != previous.period_start
+                annual.period_start != prior_cumulative.period_start
                 or abs((anchor.period_start - annual.period_end).days - 1) > 45
             ):
                 period_reason = "accounting_periods_incomparable"

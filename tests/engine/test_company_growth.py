@@ -461,3 +461,27 @@ def test_metric_availability_cannot_change_the_shared_ttm_measurement_interval()
     assert ttm.metrics["operating_profit"].reason == "operand_unavailable"
     # The differently measured original OP remains observed, without relabelling it.
     assert amount(states(records)[1], "reported", "operating_profit").value == 10
+
+
+def test_finite_ci_sample_reports_inputs_cost_and_thin_table_without_claiming_l3_success(tmp_path):
+    from tools.company_growth_sample import Sample, SampleInput, measure_samples
+
+    from baibai_engine.company_growth.models import InputRelease
+
+    path = market_store(tmp_path, [document(2024, 1, 100, 10, 5)])
+    spec = SampleInput(
+        input_release=InputRelease(release_id="synthetic-release-1", manifest_sha256="a" * 64),
+        as_of=NOW.date(),
+        samples=(Sample(ticker="1234", start=date(2024, 4, 1), end=date(2024, 6, 30)),),
+    )
+    report = measure_samples(path, spec)
+    sample = report["samples"][0]
+    assert sample["company_growth"]["periods"][0]["period_end"] == "2024-06-30"
+    assert sample["thin_reported_table"][0]["reported"]["sales"] == 100
+    assert sample["query_seconds"] >= 0
+    assert sample["company_growth_json_bytes"] > sample["thin_reported_table_json_bytes"]
+    assert report["acceptance"] == "requires_original_value_and_l3_comparison_review"
+    with pytest.raises(ValueError, match="requested fixed release"):
+        measure_samples(path, spec.model_copy(update={
+            "input_release": InputRelease(release_id="different", manifest_sha256="b" * 64),
+        }))
