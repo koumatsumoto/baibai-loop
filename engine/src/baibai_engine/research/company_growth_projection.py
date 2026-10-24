@@ -87,6 +87,7 @@ def project_company_growth(
                     "reason",
                     "calculation_method",
                     "read_semantics",
+                    "comparison_basis",
                     "input_release",
                     "per",
                     "peer",

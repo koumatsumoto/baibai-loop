@@ -107,6 +107,9 @@ class CompanyGrowth(Contract):
     read_semantics: Literal["retained_latest_in_fixed_release_not_point_in_time"] = (
         "retained_latest_in_fixed_release_not_point_in_time"
     )
+    comparison_basis: Literal["source_reported_economic_scope_unverified"] = (
+        "source_reported_economic_scope_unverified"
+    )
     metric_units: dict[Metric, str] = {
         "sales": "JPY",
         "operating_profit": "JPY",

@@ -364,6 +364,11 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
     )
     projected = project_research_inputs(saved)["securities"]["1234"]["company_growth"]
     assert projected["input_release"] == expected["input_release"]
+    assert (
+        projected["comparison_basis"]
+        == expected["comparison_basis"]
+        == "source_reported_economic_scope_unverified"
+    )
     assert projected["reported"]["rows"][0]["values"][:3] == [200, 30, 25]
     assert projected["reported_yoy"]["rows"][0][5:8] == [100, 100, 1]
     assert saved.inputs.securities_context["1234"]["company_growth"] == expected
