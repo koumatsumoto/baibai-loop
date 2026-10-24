@@ -60,8 +60,11 @@ def collect_research_inputs(
         securities_context={
             ticker: {
                 "company_growth": company_growth(
-                    market_path, ticker=ticker, as_of=research_as_of,
-                    start=company_growth_start, end=company_growth_end,
+                    market_path,
+                    ticker=ticker,
+                    as_of=research_as_of,
+                    start=company_growth_start,
+                    end=company_growth_end,
                 ).model_dump(mode="json"),
                 "technical_analysis": technical_analysis(
                     market_path, ticker=ticker, as_of=research_as_of

@@ -5,12 +5,13 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from datetime import date
+from itertools import pairwise
 from pathlib import Path
 
 from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_reader import read_financial_documents, read_master_snapshot
-from baibai_engine.market.financial_periods import period_days
 from baibai_engine.storage.observations.lake_origin import (
     read_lake_store_origin_from_connection,
 )
@@ -50,10 +51,14 @@ def company_growth(
             origin = read_lake_store_origin_from_connection(connection)
             if origin is None:
                 return result.model_copy(update={"reason": "fixed_release_unavailable"})
-            documents = read_financial_documents(connection, start=date.min, end=date.max, ticker=ticker)
+            documents = read_financial_documents(
+                connection, start=date.min, end=date.max, ticker=ticker
+            )
     except (sqlite3.Error, JQuantsProviderError, SQLiteSchemaError) as exc:
-        reason = "financial_documents_unreadable" if isinstance(exc, JQuantsProviderError) else (
-            "market_store_unreadable"
+        reason = (
+            "financial_documents_unreadable"
+            if isinstance(exc, JQuantsProviderError)
+            else "market_store_unreadable"
         )
         return result.model_copy(update={"reason": reason})
     # Sector controls applicability only; this is a retained classification, not a past universe.
@@ -62,18 +67,30 @@ def company_growth(
     states = build_period_states(documents, sector=sector if isinstance(sector, str) else None)
     changes = build_changes(states)
     observed = tuple(sorted({state.period_end for state in states}))
-    displayed = tuple(s for s in states if (start is None or start <= s.period_end) and s.period_end <= end)
-    return result.model_copy(update={
-        "status": "available" if displayed else "unavailable",
-        "reason": None if displayed else "accounting_period_not_observed",
-        "input_release": InputRelease(release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256),
-        "periods": displayed,
-        "changes": tuple(c for c in changes if (start is None or start <= c.to_end) and c.to_end <= end),
-        "coverage": Coverage(
-            observed_start=observed[0] if observed else None,
-            observed_end=observed[-1] if observed else None,
-            observed_period_ends=observed,
-            gaps_between_observations=tuple((a, b) for a, b in zip(observed, observed[1:], strict=False) if (b - a).days > 110),
-            excluded_document_count=sum(period_days(row) is None for row in documents),
-        ),
-    })
+    displayed = tuple(
+        s for s in states if (start is None or start <= s.period_end) and s.period_end <= end
+    )
+    return result.model_copy(
+        update={
+            "status": "available" if displayed else "unavailable",
+            "reason": None if displayed else "accounting_period_not_observed",
+            "input_release": InputRelease(
+                release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
+            ),
+            "periods": displayed,
+            "changes": tuple(
+                c for c in changes if (start is None or start <= c.to_end) and c.to_end <= end
+            ),
+            "coverage": Coverage(
+                observed_start=observed[0] if observed else None,
+                observed_end=observed[-1] if observed else None,
+                observed_period_ends=observed,
+                gaps_between_observations=tuple(
+                    (a, b)
+                    for a, b in pairwise(observed)
+                    if (b - a).days > 110
+                ),
+                excluded_document_count=sum(period_days(row) is None for row in documents),
+            ),
+        }
+    )

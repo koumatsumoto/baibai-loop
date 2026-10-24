@@ -15,6 +15,7 @@ from baibai_engine.market.financial_documents import (
     project_financial_documents,
     statement_basis,
 )
+from baibai_engine.market.financial_periods import period_days, resolve_actual_conflicts
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_basis import cumulative_share_unit_factor_after, share_unit_factor
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
@@ -25,8 +26,6 @@ from baibai_engine.valuation.metrics.models import (
 )
 from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
-    _period_days,
-    resolve_actual_conflicts,
 )
 
 # 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
@@ -125,7 +124,7 @@ def _resolve_dividend_carry(
         actual_rows
         and (
             "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
-            or (actual_rows[0].dps_actual_annual != 0 and _period_days(actual_rows[0]) is None)
+            or (actual_rows[0].dps_actual_annual != 0 and period_days(actual_rows[0]) is None)
         )
     )
     if actual_rows and not actual_unresolved:
@@ -373,7 +372,7 @@ def _asof_basis_fy_dps(
         if value == 0:
             values[fiscal_year_end] = value
             continue
-        if _period_days(row) is None:
+        if period_days(row) is None:
             continue
         assert row.period_start is not None
         if not _dividend_basis_requires_resolution(

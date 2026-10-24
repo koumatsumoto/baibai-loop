@@ -42,8 +42,14 @@ _BALANCE_FIELDS: tuple[tuple[Metric, str], ...] = (
     ("total_assets", "total_assets"),
 )
 _FINANCIAL_SECTORS = {
-    "銀行業", "証券、商品先物取引業", "保険業", "その他金融業",
-    "7050", "7100", "7150", "7200",
+    "銀行業",
+    "証券、商品先物取引業",
+    "保険業",
+    "その他金融業",
+    "7050",
+    "7100",
+    "7150",
+    "7200",
 }
 
 
@@ -56,9 +62,7 @@ def _document(row: JQuantsFinancialSummary) -> SourceDocument:
     )
 
 
-def _select(
-    rows: Sequence[JQuantsFinancialSummary], field: str
-) -> JQuantsFinancialSummary | None:
+def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinancialSummary | None:
     candidates = latest_disclosure_candidates(
         [r for r in rows if getattr(r, field) is not None or field in r.unresolved_actual_fields]
     )
@@ -76,9 +80,11 @@ def _select(
 def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) -> Value:
     row = _select(rows, field)
     if row is None:
-        reason = "conflicting_revisions" if any(
-            field in r.unresolved_actual_fields for r in rows
-        ) else "not_observed"
+        reason = (
+            "conflicting_revisions"
+            if any(field in r.unresolved_actual_fields for r in rows)
+            else "not_observed"
+        )
         return Value(reason=reason)
     if metric == "parent_profit" and statement_basis(row) != "consolidated":
         return Value(reason="parent_attribution_unverified", documents=(_document(row),))
@@ -87,7 +93,8 @@ def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) 
 
 def _compatible(rows: Sequence[JQuantsFinancialSummary]) -> bool:
     return len({statement_basis(r) for r in rows}) == 1 and statement_basis(rows[0]) in {
-        "consolidated", "nonconsolidated",
+        "consolidated",
+        "nonconsolidated",
     }
 
 
@@ -101,8 +108,12 @@ def _later_changed(
     if operand.disclosed_at <= other.disclosed_at:
         return False
     old = _select(
-        [r for r in all_rows if accounting_period_identity(r) == accounting_period_identity(operand)
-         and r.disclosed_at <= other.disclosed_at],
+        [
+            r
+            for r in all_rows
+            if accounting_period_identity(r) == accounting_period_identity(operand)
+            and r.disclosed_at <= other.disclosed_at
+        ],
         field,
     )
     return old is None or getattr(old, field) != getattr(operand, field)
@@ -122,7 +133,8 @@ def _margin(metrics: dict[Metric, Value], sector: str | None) -> None:
     if reason is not None:
         metrics["operating_margin"] = Value(reason=reason)
         return
-    assert sales.value is not None and profit.value is not None
+    assert sales.value is not None
+    assert profit.value is not None
     metrics["operating_margin"] = Value(
         value=profit.value / sales.value,
         documents=tuple(dict.fromkeys((*sales.documents, *profit.documents))),
@@ -137,9 +149,12 @@ def _derived(
     ttm: bool,
 ) -> tuple[date, dict[Metric, Value]]:
     anchor = current[0]
-    assert anchor.period_start is not None and anchor.period_end is not None
-    start = add_months_clamped(anchor.period_end, -12) + timedelta(days=1) if ttm else (
-        anchor.period_start
+    assert anchor.period_start is not None
+        assert anchor.period_end is not None
+    start = (
+        add_months_clamped(anchor.period_end, -12) + timedelta(days=1)
+        if ttm
+        else anchor.period_start
     )
     metrics: dict[Metric, Value] = {}
     for metric, field in _AMOUNT_FIELDS:
@@ -166,9 +181,12 @@ def _derived(
             if anchor.fiscal_year_end is not None:
                 prior_fy_end = add_months_clamped(anchor.fiscal_year_end, -12)
                 fy_rows = [
-                    r for group in groups for r in group
+                    r
+                    for group in groups
+                    for r in group
                     if r.fiscal_year_end == prior_fy_end
-                    and (n := period_days(r)) is not None and 330 <= n <= 370
+                    and (n := period_days(r)) is not None
+                    and 330 <= n <= 370
                 ]
                 prior_fy = _select(fy_rows, field)
             operands = [] if prior_same is None or prior_fy is None else [prior_fy, prior_same]
@@ -176,7 +194,8 @@ def _derived(
             for candidates in groups:
                 candidate = _select(candidates, field)
                 if (
-                    candidate is not None and candidate.period_end is not None
+                    candidate is not None
+                    and candidate.period_end is not None
                     and candidate.period_start == anchor.period_start
                     and candidate.fiscal_year_end == anchor.fiscal_year_end
                     and 70 <= (anchor.period_end - candidate.period_end).days <= 110
@@ -218,7 +237,8 @@ def build_period_states(
     documents: Sequence[JQuantsFinancialSummary], *, sector: str | None
 ) -> tuple[PeriodState, ...]:
     valid = [
-        r for r in documents
+        r
+        for r in documents
         if period_days(r) is not None
         and (r.unresolved_actual_fields or any(getattr(r, f) is not None for f in ACTUAL_FIELDS))
     ]
@@ -230,31 +250,50 @@ def build_period_states(
     states: list[PeriodState] = []
     for _, group in sorted(grouped.items()):
         anchor = latest_disclosure_candidates(group)[0]
-        assert anchor.period_start is not None and anchor.period_end is not None
+        assert anchor.period_start is not None
+        assert anchor.period_end is not None
         bases = {statement_basis(r) for r in latest_disclosure_candidates(group)}
         basis = next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
         reported = {m: _value(group, m, f) for m, f in _REPORTED_FIELDS}
         _margin(reported, sector)
         balances = {m: _value(group, m, f) for m, f in _BALANCE_FIELDS}
         observations = [
-            Observation(period_start=anchor.period_start, period_end=anchor.period_end,
-                        measurement="reported", statement_basis=basis, metrics=reported),
-            Observation(period_start=anchor.period_end, period_end=anchor.period_end,
-                        measurement="balance", statement_basis=basis, metrics=balances),
+            Observation(
+                period_start=anchor.period_start,
+                period_end=anchor.period_end,
+                measurement="reported",
+                statement_basis=basis,
+                metrics=reported,
+            ),
+            Observation(
+                period_start=anchor.period_end,
+                period_end=anchor.period_end,
+                measurement="balance",
+                statement_basis=basis,
+                metrics=balances,
+            ),
         ]
         for ttm in (False, True):
             start, metrics = _derived(group, groups, rows, ttm=ttm)
             _margin(metrics, sector)
-            observations.append(Observation(
-                period_start=start, period_end=anchor.period_end,
-                measurement="annual_ttm" if ttm else "quarter",
-                statement_basis=basis, metrics=metrics,
-            ))
-        states.append(PeriodState(
-            fiscal_period=anchor.fiscal_period, fiscal_year_end=anchor.fiscal_year_end,
-            period_start=anchor.period_start, period_end=anchor.period_end,
-            observations=tuple(observations),
-        ))
+            observations.append(
+                Observation(
+                    period_start=start,
+                    period_end=anchor.period_end,
+                    measurement="annual_ttm" if ttm else "quarter",
+                    statement_basis=basis,
+                    metrics=metrics,
+                )
+            )
+        states.append(
+            PeriodState(
+                fiscal_period=anchor.fiscal_period,
+                fiscal_year_end=anchor.fiscal_year_end,
+                period_start=anchor.period_start,
+                period_end=anchor.period_end,
+                observations=tuple(observations),
+            )
+        )
     return tuple(states)
 
 
@@ -282,25 +321,52 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
             before = previous.value if previous is not None else None
             after = value.value
             reason = None
-            if metric in {"reported_basic_eps", "average_shares", "issued_shares", "treasury_shares"}:
+            if metric in {
+                "reported_basic_eps",
+                "average_shares",
+                "issued_shares",
+                "treasury_shares",
+            }:
                 reason = "share_basis_unverified"
             elif prior is None:
                 reason = "comparable_prior_period_not_observed"
             elif before is None or after is None:
                 reason = "operand_unavailable"
-            difference = after - before if reason is None and before is not None and after is not None else None
-            changes.append(Change(
-                metric=metric, measurement=current.measurement,
-                from_start=prior.period_start if prior else None,
-                from_end=prior.period_end if prior else None,
-                to_start=current.period_start, to_end=current.period_end,
-                from_value=before, to_value=after, difference=difference,
-                rate=(difference / before if difference is not None and before is not None
-                      and before > 0 and metric != "operating_margin" else None),
-                margin_points=difference * 100 if metric == "operating_margin" and difference is not None else None,
-                sign_change=(f"{'positive' if before > 0 else 'negative' if before < 0 else 'zero'}"
-                             f"_to_{'positive' if after > 0 else 'negative' if after < 0 else 'zero'}"
-                             if difference is not None and before is not None and after is not None else None),
-                reason=reason or ("nonpositive_base" if before is not None and before <= 0 else None),
-            ))
+            difference = (
+                after - before
+                if reason is None and before is not None and after is not None
+                else None
+            )
+            changes.append(
+                Change(
+                    metric=metric,
+                    measurement=current.measurement,
+                    from_start=prior.period_start if prior else None,
+                    from_end=prior.period_end if prior else None,
+                    to_start=current.period_start,
+                    to_end=current.period_end,
+                    from_value=before,
+                    to_value=after,
+                    difference=difference,
+                    rate=(
+                        difference / before
+                        if difference is not None
+                        and before is not None
+                        and before > 0
+                        and metric != "operating_margin"
+                        else None
+                    ),
+                    margin_points=difference * 100
+                    if metric == "operating_margin" and difference is not None
+                    else None,
+                    sign_change=(
+                        f"{'positive' if before > 0 else 'negative' if before < 0 else 'zero'}"
+                        f"_to_{'positive' if after > 0 else 'negative' if after < 0 else 'zero'}"
+                        if difference is not None and before is not None and after is not None
+                        else None
+                    ),
+                    reason=reason
+                    or ("nonpositive_base" if before is not None and before <= 0 else None),
+                )
+            )
     return tuple(changes)

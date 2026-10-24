@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import date
 from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
@@ -14,7 +13,6 @@ from baibai_engine.market.financial_documents import (
     latest_disclosure_candidates,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-
 
 ACTUAL_FIELDS = (
     "sales",
@@ -65,7 +63,6 @@ def resolve_actual_conflicts(
     return [changes.get(id(row), row) for row in summaries]
 
 
-
 def period_days(summary: JQuantsFinancialSummary) -> int | None:
     if (
         summary.period_start is None
@@ -88,8 +85,10 @@ def prior_year_period_matches(
     prior_days, current_days = period_days(prior), period_days(current)
     if prior_days is None or current_days is None:
         return False
-    assert prior.period_start is not None and prior.period_end is not None
-    assert current.period_start is not None and current.period_end is not None
+    assert prior.period_start is not None
+    assert prior.period_end is not None
+    assert current.period_start is not None
+    assert current.period_end is not None
     return (
         abs(prior_days - current_days) <= max(1, round(current_days * length_tolerance_ratio))
         and abs((prior.period_start - add_months_clamped(current.period_start, -12)).days)

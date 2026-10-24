@@ -719,7 +719,9 @@ forbidden_modules = [
   "baibai_engine.valuation", "baibai_engine.screening", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
   "baibai_engine.market_context", "baibai_engine.technical_analysis",
-  "baibai_engine.external_assessment", "baibai_engine.storage.application.write",
+  "baibai_engine.external_assessment.analysis", "baibai_engine.external_assessment.reader",
+  "baibai_engine.external_assessment.query", "baibai_engine.external_assessment.acquisition",
+  "baibai_engine.external_assessment.store", "baibai_engine.storage.application.write",
   "baibai_engine.market.jquants_writer", "baibai_engine.market.jquants_refresh",
   "baibai_engine.collection.jquants.http", "baibai_engine.batch_api",
 ]

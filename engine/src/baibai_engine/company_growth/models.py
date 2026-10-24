@@ -7,11 +7,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, FiniteFloat
 
-
 type Metric = Literal[
-    "sales", "operating_profit", "parent_profit", "operating_margin",
-    "reported_basic_eps", "average_shares", "issued_shares", "treasury_shares",
-    "operating_cash_flow", "net_assets", "total_assets",
+    "sales",
+    "operating_profit",
+    "parent_profit",
+    "operating_margin",
+    "reported_basic_eps",
+    "average_shares",
+    "issued_shares",
+    "treasury_shares",
+    "operating_cash_flow",
+    "net_assets",
+    "total_assets",
 ]
 type Measurement = Literal["reported", "quarter", "annual_ttm", "balance"]
 

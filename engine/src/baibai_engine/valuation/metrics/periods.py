@@ -14,11 +14,10 @@ from baibai_engine.market.financial_documents import (
     statement_basis,
 )
 from baibai_engine.market.financial_periods import (
-    ACTUAL_FIELDS as _ACTUAL_ANCHOR_FIELDS,
+    ACTUAL_FIELDS,
     compose_ttm_amount,
-    period_days as _period_days,
+    period_days,
     prior_year_period_matches,
-    resolve_actual_conflicts as resolve_actual_conflicts,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
@@ -51,10 +50,9 @@ def _latest_consistent_actual(
     return max(
         latest,
         key=lambda row: sum(
-            getattr(row, field) is not None for field in (fields or _ACTUAL_ANCHOR_FIELDS)
+            getattr(row, field) is not None for field in (fields or ACTUAL_FIELDS)
         ),
     )
-
 
 
 def _actual_rows(
@@ -64,7 +62,7 @@ def _actual_rows(
         summary
         for summary in summaries
         if summary.unresolved_actual_fields
-        or any(getattr(summary, field_name) is not None for field_name in _ACTUAL_ANCHOR_FIELDS)
+        or any(getattr(summary, field_name) is not None for field_name in ACTUAL_FIELDS)
     ]
 
 
@@ -73,7 +71,7 @@ def _latest_actual_row(
     *,
     field_names: Sequence[str] = (),
 ) -> JQuantsFinancialSummary | None:
-    required = tuple(field_names) or _ACTUAL_ANCHOR_FIELDS
+    required = tuple(field_names) or ACTUAL_FIELDS
     candidates = [
         summary
         for summary in summaries
@@ -265,7 +263,7 @@ def _ttm_value(
     latest_value = getattr(latest, field)
     if latest_value is None:
         return None, TTMQuality.UNAVAILABLE
-    latest_days = _period_days(latest)
+    latest_days = period_days(latest)
     if latest_days is None:
         return None, TTMQuality.UNAVAILABLE
     if ttm_rules.full_year_min_days <= latest_days <= ttm_rules.full_year_max_days:
@@ -305,7 +303,7 @@ def _latest_full_year_summary(
         summary
         for summary in summaries
         if summary.fiscal_year_end == fiscal_year_end
-        and (days := _period_days(summary)) is not None
+        and (days := period_days(summary)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
     ]
     return _latest_consistent_actual(candidates, (field_name,) if field_name else ())
@@ -321,7 +319,7 @@ def _matched_prior_period_summary(
 ) -> JQuantsFinancialSummary | None:
     if latest.period_start is None or latest.period_end is None:
         return None
-    latest_days = _period_days(latest)
+    latest_days = period_days(latest)
     if latest_days is None:
         return None
     candidates: list[JQuantsFinancialSummary] = []
@@ -346,5 +344,3 @@ def _matched_prior_period_summary(
     return _latest_consistent_actual(
         candidates, (comparison_field,) if comparison_field is not None else ()
     )
-
-

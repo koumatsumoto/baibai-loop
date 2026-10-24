@@ -10,6 +10,7 @@ from math import exp, log
 
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.financial_documents import accounting_period_identity
+from baibai_engine.market.financial_periods import resolve_actual_conflicts
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_basis import cumulative_share_unit_factor_after, share_unit_factor
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
@@ -18,7 +19,6 @@ from baibai_engine.valuation.metrics.periods import (
     _AccountingObservationKey,
     _actual_rows,
     _latest_non_null_row,
-    resolve_actual_conflicts,
 )
 
 

@@ -48,12 +48,10 @@ def _growth_range_matches(value: object, draft: ResearchSelectionDraft) -> bool:
     if not isinstance(value, dict):
         return draft.company_growth_start is None and draft.company_growth_end is None
     return (
-        value.get("requested_start") == (
-            draft.company_growth_start.isoformat() if draft.company_growth_start else None
-        )
-        and value.get("requested_end") == (
-            draft.company_growth_end or draft.research_as_of
-        ).isoformat()
+        value.get("requested_start")
+        == (draft.company_growth_start.isoformat() if draft.company_growth_start else None)
+        and value.get("requested_end")
+        == (draft.company_growth_end or draft.research_as_of).isoformat()
     )
 
 
