@@ -1,4 +1,4 @@
-"""Immutable economic receipt handoff in the existing private stores bucket."""
+"""Immutable source receipt handoff in the existing private stores bucket."""
 
 from __future__ import annotations
 
@@ -12,14 +12,17 @@ from baibai_batch.storage.external_assessment_staging import put_private, read_p
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 
 
-def stage_prefix(stage_id: str) -> str:
+def stage_prefix(stage_id: str, *, market: bool = False) -> str:
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,119}", stage_id) is None:
-        raise ValueError("invalid economic handoff identity")
-    return f"coordination/economic-sources/{stage_id}"
+        raise ValueError("invalid source handoff identity")
+    namespace = "market-sources" if market else "economic-sources"
+    return f"coordination/{namespace}/{stage_id}"
 
 
-def save_handoff(store: ObjectStore, stage_id: str, directory: Path) -> str:
-    prefix = stage_prefix(stage_id)
+def save_handoff(
+    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False
+) -> str:
+    prefix = stage_prefix(stage_id, market=market)
     path = directory / "receipts.sqlite"
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
     with path.open("rb") as stream:
@@ -40,7 +43,7 @@ def save_handoff(store: ObjectStore, stage_id: str, directory: Path) -> str:
             if_none_match=True,
         )
     if remote.size != size or remote.metadata.get("sha256") != digest:
-        raise LakePublishError("economic private receipt write mismatch")
+        raise LakePublishError("source private receipt write mismatch")
     manifest = json.dumps(
         {
             "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
@@ -55,29 +58,31 @@ def save_handoff(store: ObjectStore, stage_id: str, directory: Path) -> str:
     if prior is None:
         put_private(store, manifest_key, manifest, previous_etag=None)
     elif prior.payload != manifest:
-        raise LakePublishError("economic handoff identity already has different receipts")
+        raise LakePublishError("source handoff identity already has different receipts")
     return stage_id
 
 
-def load_handoff(store: ObjectStore, stage_id: str, directory: Path) -> None:
-    prefix = stage_prefix(stage_id)
+def load_handoff(
+    store: ObjectStore, stage_id: str, directory: Path, *, market: bool = False
+) -> None:
+    prefix = stage_prefix(stage_id, market=market)
     saved = read_private(store, prefix + "/handoff.json")
     if saved is None:
-        raise LakePublishError("economic private handoff is not complete")
+        raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
     digest, size = manifest["receipt_sha256"], manifest["receipt_bytes"]
     key = f"{prefix}/receipts-{digest}.sqlite"
     if manifest["receipt_key"] != key or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-        raise LakePublishError("economic handoff receipt identity differs")
+        raise LakePublishError("source handoff receipt identity differs")
     remote = store.head(key)
     if remote is None or remote.size != size or remote.metadata.get("sha256") != digest:
-        raise LakePublishError("economic handoff receipt metadata differs")
+        raise LakePublishError("source handoff receipt metadata differs")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
     store.download_file(key, path, expect_bytes=size)
     with path.open("rb") as stream:
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != digest:
-        raise LakePublishError("economic handoff receipt content differs")
+        raise LakePublishError("source handoff receipt content differs")
     path.chmod(0o600)
     (directory / "result.json").write_text(json.dumps(manifest["result"]), encoding="utf-8")

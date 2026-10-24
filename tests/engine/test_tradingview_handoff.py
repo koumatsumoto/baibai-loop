@@ -18,13 +18,19 @@ from baibai_engine.storage.observations.schema import open_connection
 
 
 def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selection(tmp_path):
-    source, canonical = store(tmp_path / "source.sqlite", 3), store(tmp_path / "canonical.sqlite", 3)
+    source, canonical = (
+        store(tmp_path / "source.sqlite", 3),
+        store(tmp_path / "canonical.sqlite", 3),
+    )
     first = _retain(canonical, _sdk(payload(["TSE:1000"])))
     rebuild_from_receipts(canonical, DAY, [first])
     before = stored(canonical)[0]
     _retain(source, _sdk(payload(["TSE:1002"])), symbols=("TSE:1002",))
     with closing(open_connection(canonical)) as conn, conn:
-        conn.execute("INSERT INTO jpx_regulation_sources VALUES (?, ?, ?)", (DAY.isoformat(), "fresh-jpx", NOW.isoformat()))
+        conn.execute(
+            "INSERT INTO jpx_regulation_sources VALUES (?, ?, ?)",
+            (DAY.isoformat(), "fresh-jpx", NOW.isoformat()),
+        )
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW - timedelta(seconds=1))
     result = import_handoff(stage, canonical, selected)
@@ -35,16 +41,24 @@ def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selectio
     assert [row[1] for row in stored(canonical)] == ["1000", "1002"]
     assert import_handoff(stage, canonical, selected)["rows_added"] == 0
     with closing(open_connection(canonical)) as conn:
-        assert conn.execute("SELECT source_name FROM jpx_regulation_sources").fetchone()[0] == "fresh-jpx"
+        assert (
+            conn.execute("SELECT source_name FROM jpx_regulation_sources").fetchone()[0]
+            == "fresh-jpx"
+        )
     with closing(open_connection(stage)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0
+        )
         assert conn.execute("SELECT COUNT(*) FROM jpx_regulation_sources").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
     assert TradingViewHandoff.from_json(selected.to_json()) == selected
 
 
 def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticker(tmp_path):
-    source, canonical = store(tmp_path / "source.sqlite", 1), store(tmp_path / "canonical.sqlite", 1)
+    source, canonical = (
+        store(tmp_path / "source.sqlite", 1),
+        store(tmp_path / "canonical.sqlite", 1),
+    )
     first = _retain(canonical, _sdk(payload(["TSE:1000"])))
     rebuild_from_receipts(canonical, DAY, [first])
     before = stored(canonical)
@@ -60,7 +74,10 @@ def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticke
 
 
 def test_new_canonical_universe_refuses_the_old_handoff_before_receiving_rows(tmp_path):
-    source, canonical = store(tmp_path / "source.sqlite", 1), store(tmp_path / "canonical.sqlite", 2)
+    source, canonical = (
+        store(tmp_path / "source.sqlite", 1),
+        store(tmp_path / "canonical.sqlite", 2),
+    )
     _retain(source, _sdk(payload(["TSE:1000"])))
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW)
@@ -71,22 +88,36 @@ def test_new_canonical_universe_refuses_the_old_handoff_before_receiving_rows(tm
 
 
 def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_path):
-    source, canonical = store(tmp_path / "source.sqlite", 1), store(tmp_path / "canonical.sqlite", 1)
-    _retain(source, CallToolResult(isError=True, content=[TextContent(type="text", text="HTTP 429")]))
+    source, canonical = (
+        store(tmp_path / "source.sqlite", 1),
+        store(tmp_path / "canonical.sqlite", 1),
+    )
+    _retain(
+        source, CallToolResult(isError=True, content=[TextContent(type="text", text="HTTP 429")])
+    )
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW)
     result = import_handoff(stage, canonical, selected)
     assert result["raw_receipts_added"] == 1
     assert result["rows_added"] == 0
-    assert result["rejected_receipts"] == [{"receipt_id": selected.receipt_ids[0], "reason": "provider_rate_limit"}]
+    assert result["rejected_receipts"] == [
+        {"receipt_id": selected.receipt_ids[0], "reason": "provider_rate_limit"}
+    ]
     assert stored(canonical) == []
 
 
 def test_new_exact_date_master_is_replayed_from_its_original_pages(tmp_path):
     import json
-    source, canonical = store(tmp_path / "source.sqlite", 2500), store(tmp_path / "canonical.sqlite", 1)
+
+    source, canonical = (
+        store(tmp_path / "source.sqlite", 2500),
+        store(tmp_path / "canonical.sqlite", 1),
+    )
     with closing(open_connection(source)) as conn:
-        records = [json.loads(row[0]) for row in conn.execute("SELECT record_json FROM jquants_master_snapshots")]
+        records = [
+            json.loads(row[0])
+            for row in conn.execute("SELECT record_json FROM jquants_master_snapshots")
+        ]
     receive(source, "master", {"date": DAY.isoformat()}, body(records), NOW - timedelta(seconds=1))
     with closing(open_connection(canonical)) as conn, conn:
         conn.execute("DELETE FROM jquants_master_snapshots")

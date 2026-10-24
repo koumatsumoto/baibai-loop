@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 import requests
-from tests.engine.test_jquants_projection import DAY, FIRST_AT, Session, body, receive, source_record
+from tests.engine.test_jquants_projection import DAY, FIRST_AT, Session, body, receive
 
 from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
 from baibai_engine.collection.jquants.receipts import acquire_request
@@ -45,8 +45,7 @@ def test_late_old_calendar_keeps_its_nonoverlap_and_the_newer_overlap(tmp_path):
 
 def test_an_old_complete_daily_cross_section_cannot_replace_newer_canonical_rows(tmp_path):
     source, target, stage = tmp_path / "source.sqlite", tmp_path / "target.sqlite", tmp_path / "stage.sqlite"
-    old = source_record("daily_bars", DAY)
-    old["C"] = 100
+    old = {"Code": "13010", "Date": DAY, "O": 100, "H": 100, "L": 100, "C": 100, "Vo": 1000, "AdjFactor": 1}
     current = {**old, "C": 200}
     receive(source, "daily_bars", {"date": DAY}, body([old]), FIRST_AT)
     newer = receive(target, "daily_bars", {"date": DAY}, body([current]), FIRST_AT + timedelta(hours=1))
@@ -61,16 +60,16 @@ def test_an_old_complete_daily_cross_section_cannot_replace_newer_canonical_rows
 
 def test_incomplete_request_is_received_without_replacing_a_saved_cross_section(tmp_path):
     source, target, stage = tmp_path / "source.sqlite", tmp_path / "target.sqlite", tmp_path / "stage.sqlite"
-    current = receive(target, "daily_bars", {"date": DAY}, body([source_record("daily_bars", DAY)]), FIRST_AT)
+    record = {"Code": "13010", "Date": DAY, "O": 100, "H": 100, "L": 100, "C": 100, "Vo": 1000, "AdjFactor": 1}
+    current = receive(target, "daily_bars", {"date": DAY}, body([record]), FIRST_AT)
     project_request(target, current)
     # A pagination chain that has not reached its final page is still an original.
     client = JQuantsHTTP(
         "synthetic", session=Session(body([], cursor="next"), requests.Timeout()),
         clock=lambda: FIRST_AT + timedelta(hours=1),
     )
-    with closing(open_connection(source)) as conn:
-        with pytest.raises(JQuantsAcquisitionError):
-            acquire_request(conn, client, "daily_bars", {"date": DAY})
+    with closing(open_connection(source)) as conn, pytest.raises(JQuantsAcquisitionError):
+        acquire_request(conn, client, "daily_bars", {"date": DAY})
     selected = export_handoff(source, stage, since=FIRST_AT, sources=MARKET_SOURCES)
     with closing(open_connection(target)) as conn:
         before = conn.execute("SELECT * FROM jquants_daily_bars").fetchall()
@@ -78,3 +77,27 @@ def test_incomplete_request_is_received_without_replacing_a_saved_cross_section(
     assert result["incomplete_requests"] == list(selected)
     with closing(open_connection(target)) as conn:
         assert conn.execute("SELECT * FROM jquants_daily_bars").fetchall() == before
+
+
+def test_latest_rolling_calendar_does_not_reproject_older_history(tmp_path, monkeypatch):
+    source, target, stage = tmp_path / "source.sqlite", tmp_path / "target.sqlite", tmp_path / "stage.sqlite"
+    for offset in range(3):
+        receipt = calendar(
+            target, f"2026-10-{1+offset:02d}", f"2026-10-{10+offset:02d}", 0,
+            FIRST_AT + timedelta(hours=offset),
+        )
+        project_request(target, receipt)
+    latest = calendar(source, "2026-10-04", "2026-10-15", 1, FIRST_AT + timedelta(hours=4))
+    selected = export_handoff(source, stage, since=FIRST_AT, sources=MARKET_SOURCES)
+    calls = []
+    def project(path, request_id):
+        calls.append(request_id)
+        return project_request(path, request_id)
+    monkeypatch.setattr("baibai_engine.market.jquants_handoff.project_request", project)
+    result = import_handoff(stage, target, selected, sources=MARKET_SOURCES)
+    assert result["replayed_requests"] == calls == [latest]
+    with closing(open_connection(target)) as conn:
+        assert conn.execute("SELECT COUNT(DISTINCT request_id) FROM jquants_source_pages").fetchone()[0] == 4
+        assert conn.execute("SELECT day, holiday_division FROM jquants_market_calendar ORDER BY day").fetchall() == [
+            (f"2026-10-{i:02d}", "0" if i < 4 else "1") for i in range(1, 16)
+        ]

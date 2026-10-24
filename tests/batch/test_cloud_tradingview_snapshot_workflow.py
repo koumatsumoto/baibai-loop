@@ -14,6 +14,10 @@ import yaml
 PATH = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-tradingview-snapshot.yml"
 
 
+def all_steps(data):
+    return [step for job in data["jobs"].values() for step in job["steps"]]
+
+
 def workflow():
     return yaml.load(PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
@@ -28,10 +32,10 @@ def test_metadata_order_and_exclusive_writer():
         "interval",
         "observation_master_asof",
     }
-    assert set(data["jobs"]) == {"snapshot"}
+    assert set(data["jobs"]) == {"snapshot", "publish", "notify"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
-        "group": "source-acquire-jquants",
+        "group": "tradingview-snapshot",
         "queue": "max",
         "cancel-in-progress": "false",
     }
@@ -51,19 +55,17 @@ def test_metadata_order_and_exclusive_writer():
         "setup-uv",
         "sync",
         "duckdb-httpfs",
-        "lease-acquire",
         "pull",
         "hydrate",
         "preflight",
         "cooldown-check",
+        "receipt-cutoff",
         "master",
         "tradingview",
-        "publish-lake",
+        "stage",
         "cooldown-save",
-        "lease-release",
         "cancellation",
         "summary",
-        "notify",
     ]
     assert "PYTHONPATH" in steps[1]["env"]
     assert "python3" in steps[1]["run"]
@@ -94,7 +96,7 @@ def test_metadata_order_and_exclusive_writer():
 )
 def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref, runs):
     data = workflow()
-    assert set(data["jobs"]) == {"snapshot"}
+    assert set(data["jobs"]) == {"snapshot", "publish", "notify"}
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "interval",
         "observation_master_asof",
@@ -117,7 +119,7 @@ def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref,
         assert obsolete not in source
 
 
-def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pull(tmp_path):
+def test_failed_cooldown_does_not_prevent_independent_publication_and_release(tmp_path):
     from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
     from baibai_engine.external_assessment.tradingview.collector import collect
@@ -165,10 +167,12 @@ def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pu
     failed = False
     # Execute the workflow scripts and order; publication, cooldown and lease are stubbed.
     # A condition without a status function has GitHub's implicit success() gate.
-    for step in workflow()["jobs"]["snapshot"]["steps"]:
+    for step in all_steps(workflow()):
+        if step.get("id") == "publish-lake":
+            failed = False  # Independent publisher is selected by the private handoff.
         if step.get("id") not in {"publish-lake", "cooldown-save", "lease-release"}:
             continue
-        if failed and "always()" not in step["if"]:
+        if failed and "always()" not in step.get("if", ""):
             outcomes[step["id"]] = "skipped"
             continue
         result = subprocess.run(
@@ -183,7 +187,7 @@ def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pu
         "cooldown-save": "failure",
         "lease-release": "success",
     }
-    assert calls.read_text().splitlines() == ["publish-lake", "cooldown-save", "lease-release"]
+    assert calls.read_text().splitlines() == ["cooldown-save", "publish-lake", "lease-release"]
     # A simulated next pull retains every originally committed column/time.
     shutil.copyfile(published, local)
     assert stored(local) == expected
@@ -191,13 +195,12 @@ def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pu
 
 def test_gates_secret_scopes_and_durability():
     data = workflow()
-    steps = {step["id"]: step for step in data["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(data) if "id" in step}
     for name in (
         "setup",
         "setup-uv",
         "sync",
         "duckdb-httpfs",
-        "lease-acquire",
         "pull",
         "hydrate",
         "preflight",
@@ -210,11 +213,11 @@ def test_gates_secret_scopes_and_durability():
         steps["tradingview"]["if"]
         == "steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')"
     )
-    assert "steps.tradingview.outputs.status == 'partial'" in steps["publish-lake"]["if"]
-    assert "rows_added" in steps["publish-lake"]["if"]
+    assert "steps.tradingview.outputs.status == 'partial'" in steps["stage"]["if"]
+    assert "rows_added" in steps["stage"]["if"]
     assert steps["cooldown-check"]["if"] == "steps.preflight.outputs.status == 'needs_fetch'"
     assert "always()" in steps["cooldown-save"]["if"]
-    assert "steps.lease-acquire.outputs.acquired == 'true'" in steps["cooldown-save"]["if"]
+    assert "lease-acquire" not in steps["cooldown-save"]["if"]
     assert "steps.tradingview.outcome != 'skipped'" in steps["cooldown-save"]["if"]
     assert "always()" in steps["lease-release"]["if"]
     for name in ("summary", "notify"):
@@ -249,6 +252,8 @@ def test_gates_secret_scopes_and_durability():
         "cooldown-save",
         "publish-lake",
         "lease-release",
+        "stage",
+        "fresh-canonical",
     ):
         assert "R2_ACCESS_KEY_ID" in str(steps[name].get("env"))
     for name, step in steps.items():
@@ -266,6 +271,8 @@ def test_gates_secret_scopes_and_durability():
             "cooldown-save",
             "publish-lake",
             "lease-release",
+            "stage",
+            "fresh-canonical",
         ):
             assert "R2_ACCESS_KEY_ID" not in str(step)
 
@@ -481,10 +488,11 @@ def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_p
     assert result.returncode == 1
     assert "failure_category=provider_response" in output.read_text()
     assert "publish_failed_receipts=true" in output.read_text()
-    gate = steps["publish-lake"]["if"]
+    gate = steps["stage"]["if"]
     assert "always()" in gate
     assert "!cancelled()" in gate
-    for guard in ("lease-acquire", "pull.outcome", "hydrate.outcome", "tradingview.outcome"):
+    assert "lease-acquire" not in gate
+    for guard in ("pull.outcome", "hydrate.outcome", "tradingview.outcome"):
         assert guard in gate
     assert "publish_failed_receipts == 'true'" in gate
     assert "always()" in steps["cooldown-save"]["if"]

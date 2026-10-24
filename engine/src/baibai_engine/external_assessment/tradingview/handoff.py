@@ -21,7 +21,10 @@ from baibai_engine.external_assessment.tradingview.collector import (
 )
 from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.external_assessment.tradingview.decode import decode_tool_result
-from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError, failure_category
+from baibai_engine.external_assessment.tradingview.diagnostics import (
+    SourceDataError,
+    failure_category,
+)
 from baibai_engine.external_assessment.tradingview.observations import (
     COLUMNS as REQUEST_COLUMNS,
 )
@@ -63,9 +66,7 @@ class TradingViewHandoff:
         )
 
 
-def export_handoff(
-    source: Path, output: Path, *, day: date, since: datetime
-) -> TradingViewHandoff:
+def export_handoff(source: Path, output: Path, *, day: date, since: datetime) -> TradingViewHandoff:
     """Retain new MCP receipts and any exact-date master received in this acquisition.
 
     The output has no L2 facts, source coverage, or origin from the working copy.
@@ -81,15 +82,22 @@ def export_handoff(
         conn.execute("BEGIN")
         basis, _ = calendar_context(conn, day)
         symbols = tuple(universe(conn, basis))
-        receipts = tuple(row[0] for row in conn.execute(
-            "SELECT receipt_id FROM tradingview_source_receipts "
-            "WHERE snapshot_date = ? AND received_at_utc >= ? ORDER BY received_at_utc, receipt_id",
-            (day.isoformat(), cutoff),
-        ))
-        masters = tuple(row[0] for row in conn.execute(
-            "SELECT DISTINCT request_id FROM jquants_source_pages "
-            "WHERE source = 'master' AND received_at_utc >= ? ORDER BY request_id", (cutoff,),
-        ))
+        receipts = tuple(
+            row[0]
+            for row in conn.execute(
+                "SELECT receipt_id FROM tradingview_source_receipts "
+                "WHERE snapshot_date = ? AND received_at_utc >= ? ORDER BY received_at_utc, receipt_id",
+                (day.isoformat(), cutoff),
+            )
+        )
+        masters = tuple(
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT request_id FROM jquants_source_pages "
+                "WHERE source = 'master' AND received_at_utc >= ? ORDER BY request_id",
+                (cutoff,),
+            )
+        )
         with closing(open_connection(output)) as target, target:
             for table, column, identities in (
                 ("tradingview_source_receipts", "receipt_id", receipts),
@@ -103,7 +111,9 @@ def export_handoff(
     return TradingViewHandoff(day, basis, symbols, receipts, masters)
 
 
-def _copy_raw(conn: sqlite3.Connection, source: sqlite3.Connection, table: str, identities: Sequence[str]) -> int:
+def _copy_raw(
+    conn: sqlite3.Connection, source: sqlite3.Connection, table: str, identities: Sequence[str]
+) -> int:
     keys = _RAW_KEYS[table]
     inserted = 0
     for identity in identities:
@@ -112,7 +122,9 @@ def _copy_raw(conn: sqlite3.Connection, source: sqlite3.Connection, table: str, 
         positions = tuple(names.index(key) for key in keys)
         where = " AND ".join(f"{key} = ?" for key in keys)
         for row in rows:
-            existing = conn.execute(f"SELECT * FROM {table} WHERE {where}", tuple(row[index] for index in positions)).fetchone()  # nosec B608
+            existing = conn.execute(
+                f"SELECT * FROM {table} WHERE {where}", tuple(row[index] for index in positions)
+            ).fetchone()  # nosec B608
             if existing is not None:
                 if tuple(existing) != tuple(row):
                     raise SourceDataError("TradingView handoff receipt identity conflicts")
@@ -138,10 +150,13 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
         basis, _ = calendar_context(conn, handoff.snapshot_date)
         if basis != handoff.master_asof:
             raise SourceDataError("TradingView handoff differs from canonical calendar")
-        has_master = conn.execute(
-            "SELECT 1 FROM jquants_master_snapshots WHERE snapshot_date = ? LIMIT 1",
-            (basis.isoformat(),),
-        ).fetchone() is not None
+        has_master = (
+            conn.execute(
+                "SELECT 1 FROM jquants_master_snapshots WHERE snapshot_date = ? LIMIT 1",
+                (basis.isoformat(),),
+            ).fetchone()
+            is not None
+        )
         if has_master and tuple(universe(conn, basis)) != handoff.symbols:
             raise SourceDataError("TradingView handoff universe differs from canonical master")
         if not has_master and len(handoff.master_request_ids) != 1:
@@ -166,16 +181,26 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
         rejected = []
         for receipt in read_tool_results(conn, handoff.receipt_ids):
             if (
-                receipt.snapshot_date != handoff.snapshot_date or receipt.master_asof != basis
-                or receipt.tool_name != BATCH_TOOL or receipt.requested_columns != tuple(REQUEST_COLUMNS)
+                receipt.snapshot_date != handoff.snapshot_date
+                or receipt.master_asof != basis
+                or receipt.tool_name != BATCH_TOOL
+                or receipt.requested_columns != tuple(REQUEST_COLUMNS)
                 or not 1 <= len(receipt.requested_symbols) <= 50
                 or len(set(receipt.requested_symbols)) != len(receipt.requested_symbols)
                 or not set(receipt.requested_symbols) <= set(handoff.symbols)
             ):
-                raise SourceDataError("TradingView handoff receipt has a different observation context")
+                raise SourceDataError(
+                    "TradingView handoff receipt has a different observation context"
+                )
             try:
-                validate_time(handoff.snapshot_date, receipt.received_at_utc, is_business_day=business)
-                rows = normalize_batch(decode_tool_result(receipt.result_json), list(receipt.requested_symbols), receipt.received_at_utc)
+                validate_time(
+                    handoff.snapshot_date, receipt.received_at_utc, is_business_day=business
+                )
+                rows = normalize_batch(
+                    decode_tool_result(receipt.result_json),
+                    list(receipt.requested_symbols),
+                    receipt.received_at_utc,
+                )
             except FetchError as error:
                 category = failure_category(error)
                 if category in {"storage", "internal"}:
@@ -183,10 +208,24 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
                 rejected.append({"receipt_id": receipt.receipt_id, "reason": category})
                 continue
             changes = conn.total_changes
-            conn.executemany(sql, [tuple(handoff.snapshot_date.isoformat() if name == "snapshot_date" else row.get(name) for name in names) for row in rows])
+            conn.executemany(
+                sql,
+                [
+                    tuple(
+                        handoff.snapshot_date.isoformat()
+                        if name == "snapshot_date"
+                        else row.get(name)
+                        for name in names
+                    )
+                    for row in rows
+                ],
+            )
             added += conn.total_changes - changes
     after = preflight_snapshot(target, handoff.snapshot_date)
     return {
-        **after, "rows_added": added, "raw_receipts_added": raw_added,
-        "rows_before": before.get("rows", 0), "rejected_receipts": rejected,
+        **after,
+        "rows_added": added,
+        "raw_receipts_added": raw_added,
+        "rows_before": before.get("rows", 0),
+        "rejected_receipts": rejected,
     }
