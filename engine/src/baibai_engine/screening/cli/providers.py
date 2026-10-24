@@ -96,7 +96,9 @@ class JPXRead(Protocol):
 
 
 class JPXMaintenance(Protocol):
-    def refresh_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot: ...
+    def refresh_earnings_calendar_snapshot(
+        self, asof_date: date
+    ) -> JPXEarningsCalendarSnapshot: ...
 
     def refresh_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
 

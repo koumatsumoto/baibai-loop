@@ -27,6 +27,7 @@ from baibai_engine.batch_api import (
     export_economic_receipts,
     load_economic_sources,
     refresh_economic_sources,
+    retain_economic_rechecks,
     validate_economic_schema,
 )
 
@@ -48,9 +49,10 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_economic_schema(conn)
     since = datetime.now(UTC)
-    outcomes = refresh_economic_sources(
-        sources, db_path=database, start=None, end=asof, recent=True
-    )
+    with retain_economic_rechecks():
+        outcomes = refresh_economic_sources(
+            sources, db_path=database, start=None, end=asof, recent=True
+        )
     directory.mkdir(parents=True, exist_ok=True)
     export_economic_receipts(
         database, directory / "receipts.sqlite", source_ids=sources, since=since

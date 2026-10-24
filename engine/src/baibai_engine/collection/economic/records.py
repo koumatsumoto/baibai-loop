@@ -9,6 +9,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
+from .receipt_policy import retain_unchanged
+
 # A complete source response grouped by its native observation dates.
 type NativeRecords = Mapping[date, Sequence[Mapping[str, object]]]
 
@@ -66,7 +68,7 @@ def store_snapshot(
         "ORDER BY fetched_at DESC LIMIT 1",
         (source_id, observed_day),
     ).fetchone()
-    if latest is not None and latest[0] == payload:
+    if latest is not None and latest[0] == payload and not retain_unchanged.get():
         return False
     connection.execute(
         "INSERT INTO economic_source_records"

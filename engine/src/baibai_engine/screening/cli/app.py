@@ -149,8 +149,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     bootstrap_parser.add_argument(
-        "--source-group", default="all",
-        choices=("all", "jquants-market", "jquants-financial", "edinet-list", "jpx-earnings", "jpx-regulations"),
+        "--source-group",
+        default="all",
+        choices=(
+            "all",
+            "jquants-market",
+            "jquants-financial",
+            "edinet-list",
+            "jpx-earnings",
+            "jpx-regulations",
+        ),
         help="acquire only one independent source group",
     )
 
@@ -754,7 +762,10 @@ def main(argv: list[str] | None = None) -> int:
         jquants_refresh = (
             JQuantsRefresh(sqlite_path, config.jquants_api_key)
             if args.command in {"backfill-history", "backfill-master"}
-            or (args.command == "bootstrap-cache" and args.source_group in {"all", "jquants-market", "jquants-financial"})
+            or (
+                args.command == "bootstrap-cache"
+                and args.source_group in {"all", "jquants-market", "jquants-financial"}
+            )
             else None
         )
         if jquants_refresh is not None:
@@ -779,7 +790,8 @@ def main(argv: list[str] | None = None) -> int:
             resources.callback(edinet_refresh.close)
         jpx_refresh = (
             JPXRefresh(sqlite_path=sqlite_path)
-            if args.command == "bootstrap-cache" and args.source_group in {"all", "jpx-earnings", "jpx-regulations"}
+            if args.command == "bootstrap-cache"
+            and args.source_group in {"all", "jpx-earnings", "jpx-regulations"}
             else None
         )
         if jpx_refresh is not None:

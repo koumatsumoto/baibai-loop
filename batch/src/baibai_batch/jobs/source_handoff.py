@@ -30,8 +30,16 @@ from baibai_engine.batch_api import (
 )
 
 
-
-SOURCES = ("tradingview", "jquants-market", "jquants-financial", "jpx-earnings", "jpx-regulations", "edinet-list", "edinet-metrics", "edinet-facts")
+SOURCES = (
+    "tradingview",
+    "jquants-market",
+    "jquants-financial",
+    "jpx-earnings",
+    "jpx-regulations",
+    "edinet-list",
+    "edinet-metrics",
+    "edinet-facts",
+)
 _JPX_COLLECTION = {"jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations"}
 
 
@@ -41,23 +49,45 @@ def _command(source: str, asof: date, *, offline: bool = False) -> list[str]:
         return ["baibai-engine", "screening", verb, "--asof", asof.isoformat()]
     if offline:
         raise ValueError("this source has no extraction command")
-    return ["baibai-engine", "screening", "bootstrap-cache", "--source-group", source, "--asof", asof.isoformat()]
+    return [
+        "baibai-engine",
+        "screening",
+        "bootstrap-cache",
+        "--source-group",
+        source,
+        "--asof",
+        asof.isoformat(),
+    ]
 
 
-def _export(source: str, asof: date, since: datetime, database: Path, directory: Path,
-            archives: set[tuple[str, int]] | None = None) -> None:
+def _export(
+    source: str,
+    asof: date,
+    since: datetime,
+    database: Path,
+    directory: Path,
+    archives: set[tuple[str, int]] | None = None,
+) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
     report: dict[str, object] = {"source": source, "asof": asof.isoformat()}
     if source == "tradingview":
         report.update(export_tradingview_handoff(database, path, day=asof, since=since).to_json())
     elif source.startswith("jquants-"):
-        selected = JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
-        report["request_ids"] = export_jquants_handoff(database, path, since=since, sources=selected)
+        selected = (
+            JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
+        )
+        report["request_ids"] = export_jquants_handoff(
+            database, path, since=since, sources=selected
+        )
     elif source in _JPX_COLLECTION:
-        report["bundle_ids"] = export_jpx_handoff(database, path, since=since, collection=_JPX_COLLECTION[source])
+        report["bundle_ids"] = export_jpx_handoff(
+            database, path, since=since, collection=_JPX_COLLECTION[source]
+        )
     else:
-        report.update(export_edinet_handoff(database, path, since=since, archives=archives or set()))
+        report.update(
+            export_edinet_handoff(database, path, since=since, archives=archives or set())
+        )
     write_json_atomic(directory / "result.json", report)
 
 
@@ -69,33 +99,56 @@ def _replay(source: str, database: Path, directory: Path) -> dict[str, object]:
     if source == "tradingview":
         return import_tradingview_handoff(path, database, TradingViewHandoff.from_json(report))
     if source.startswith("jquants-"):
-        selected = JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
+        selected = (
+            JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
+        )
         return import_jquants_handoff(path, database, report["request_ids"], sources=selected)
     if source in _JPX_COLLECTION:
-        return import_jpx_handoff(path, database, tuple(report["bundle_ids"]), collection=_JPX_COLLECTION[source])
+        return import_jpx_handoff(
+            path, database, tuple(report["bundle_ids"]), collection=_JPX_COLLECTION[source]
+        )
     result = import_edinet_handoff(path, database)
     if source in {"edinet-metrics", "edinet-facts"}:
         # Re-plan from the latest canonical lists/archives, never copy derived facts
         # computed against the acquisition's older database. These CLIs are offline.
         completed = subprocess.run(  # nosec B603
             _command(source, date.fromisoformat(report["asof"]), offline=True),
-            check=False, text=True, capture_output=True,
+            check=False,
+            text=True,
+            capture_output=True,
         )
         print(completed.stdout, end="")
         print(completed.stderr, end="", file=sys.stderr)
         result["extraction_exit_code"] = completed.returncode
-        result["extraction_status"] = "skipped_not_initialized" if "skipped=not_initialized" in completed.stdout else "completed" if completed.returncode == 0 else "failed"
+        result["extraction_status"] = (
+            "skipped_not_initialized"
+            if "skipped=not_initialized" in completed.stdout
+            else "completed"
+            if completed.returncode == 0
+            else "failed"
+        )
     return result
 
 
 def complete(result: dict[str, object]) -> bool:
-    return not any(result.get(key) for key in (
-        "incomplete_requests", "projection_failures", "incomplete_bundles", "failed_days", "archive_conflicts", "extraction_exit_code",
-    ))
+    return not any(
+        result.get(key)
+        for key in (
+            "incomplete_requests",
+            "projection_failures",
+            "incomplete_bundles",
+            "failed_days",
+            "archive_conflicts",
+            "extraction_exit_code",
+        )
+    )
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("acquire", "export", "stage", "download", "replay", "check"))
+    parser.add_argument(
+        "command", choices=("acquire", "export", "stage", "download", "replay", "check")
+    )
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--database", type=Path, default=MARKET_DB_PATH)
@@ -120,13 +173,19 @@ def main(argv: list[str] | None = None) -> int:
             if args.asof is None or (args.command == "export" and args.since is None):
                 raise ValueError("--asof and export --since are required")
             since = args.since or datetime.now(UTC)
-            before = edinet_archive_keys(args.database) if args.source.startswith("edinet-") else set()
+            before = (
+                edinet_archive_keys(args.database) if args.source.startswith("edinet-") else set()
+            )
             status = 0
             if args.command == "acquire":
                 if args.source == "tradingview":
                     raise ValueError("TradingView uses the guarded OAuth acquisition route")
                 status = subprocess.run(_command(args.source, args.asof), check=False).returncode  # nosec B603
-            archives = edinet_archive_keys(args.database) - before if args.source.startswith("edinet-") else set()
+            archives = (
+                edinet_archive_keys(args.database) - before
+                if args.source.startswith("edinet-")
+                else set()
+            )
             _export(args.source, args.asof, since, args.database, directory, archives)
             if output := os.environ.get("GITHUB_OUTPUT"):
                 with Path(output).open("a", encoding="utf-8") as stream:

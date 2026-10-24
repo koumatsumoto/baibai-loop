@@ -19,7 +19,9 @@ from baibai_engine.storage.observations.schema import open_connection, validate_
 _GLOBAL_COLLECTIONS = {"earnings_calendar", "capital_policy", "delistings"}
 
 
-def export_handoff(source: Path, output: Path, *, since: datetime, collection: str) -> tuple[str, ...]:
+def export_handoff(
+    source: Path, output: Path, *, since: datetime, collection: str
+) -> tuple[str, ...]:
     if output.exists():
         raise FileExistsError(output)
     if collection not in _GLOBAL_COLLECTIONS | {"regulations"} or since.tzinfo is None:
@@ -31,11 +33,14 @@ def export_handoff(source: Path, output: Path, *, since: datetime, collection: s
     ):
         validate_current_schema(raw)
         raw.execute("BEGIN")
-        bundles = tuple(row[0] for row in raw.execute(
-            "SELECT bundle_id FROM jpx_source_bundles "
-            "WHERE collection_name = ? AND started_at_utc >= ? ORDER BY started_at_utc, bundle_id",
-            (collection, since.astimezone(UTC).isoformat(timespec="microseconds")),
-        ))
+        bundles = tuple(
+            row[0]
+            for row in raw.execute(
+                "SELECT bundle_id FROM jpx_source_bundles "
+                "WHERE collection_name = ? AND started_at_utc >= ? ORDER BY started_at_utc, bundle_id",
+                (collection, since.astimezone(UTC).isoformat(timespec="microseconds")),
+            )
+        )
         for table in ("jpx_source_bundles", "jpx_source_responses"):
             copy_originals(raw, target, table, [(key,) for key in bundles], selection="bundle_id")
     return bundles
@@ -61,9 +66,12 @@ def import_handoff(
                 raise ValueError("JPX handoff differs from the selected collection")
             scopes.add(row[1] if collection == "regulations" else "current")
         with conn:
-            added = sum(copy_originals(
-                raw, conn, table, [(key,) for key in bundle_ids], selection="bundle_id"
-            ) for table in ("jpx_source_bundles", "jpx_source_responses"))
+            added = sum(
+                copy_originals(
+                    raw, conn, table, [(key,) for key in bundle_ids], selection="bundle_id"
+                )
+                for table in ("jpx_source_bundles", "jpx_source_responses")
+            )
         selected = []
         incomplete = []
         for scope in scopes:
@@ -88,5 +96,9 @@ def import_handoff(
             failed.append(bundle_id)
         else:
             replayed.append(bundle_id)
-    return {"raw_rows_added": added, "replayed_bundles": replayed,
-            "incomplete_bundles": incomplete, "projection_failures": failed}
+    return {
+        "raw_rows_added": added,
+        "replayed_bundles": replayed,
+        "incomplete_bundles": incomplete,
+        "projection_failures": failed,
+    }
