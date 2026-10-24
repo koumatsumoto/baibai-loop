@@ -148,6 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="screening target date (YYYY-MM-DD); computes each source window automatically",
     )
 
+    bootstrap_parser.add_argument("--sqlite-path", help="scoped acquisition store path")
     bootstrap_parser.add_argument(
         "--source-group",
         default="all",
@@ -230,6 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="acquire EDINET document lists and needed CSV archives, then extract metrics",
     )
     for metrics_parser in (extract_parser, refresh_metrics_parser):
+        metrics_parser.add_argument("--sqlite-path", help="scoped extraction store path")
         metrics_parser.add_argument(
             "--asof",
             required=True,
@@ -685,6 +687,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
+    if args.command in {"bootstrap-cache", "extract-edinet-metrics", "refresh-edinet-metrics"}:
+        if args.sqlite_path:
+            sqlite_path = Path(args.sqlite_path)
     if args.command == "build-tender-offer-exits":
         exits_path = Path(args.sqlite_path)
         return build_tender_offer_exits_command(

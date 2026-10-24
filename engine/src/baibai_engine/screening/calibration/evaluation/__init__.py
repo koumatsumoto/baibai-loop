@@ -6,7 +6,8 @@
 - 超過リターンの一次基準はcommon eligible母集団の中央値。構成差や交絡を
   除去した選定効果の因果推定ではない。
   benchmark ETF は市況文脈の参考値。
-- 累積リターン・年率・シャープ等の track record 系は出力しない。"""
+- 個別銘柄の年率換算は E[r] との較正比較に使う。売買・資金配分を再現した
+  ポートフォリオの累積収益・年率収益・Sharpe 等の運用実績は主張しない。"""
 
 from .axes import MIN_HALF_SPLIT_SAMPLE as MIN_HALF_SPLIT_SAMPLE
 from .cohorts import evaluate_cohorts as evaluate_cohorts

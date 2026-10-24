@@ -1,4 +1,7 @@
-"""Point-in-time panel for Stock Analysis and candidate replay.
+"""Historical as-of panel for Stock Analysis and candidate replay.
+
+保存済み資料を基準日で絞る回顧的な再計算。取得時点の全 vintage を復元した
+厳密な point-in-time データセットではない。
 
 本番 run と同じ部品 (`build_metrics` / `stock_analysis_payload` /
 `build_candidate_contexts`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
