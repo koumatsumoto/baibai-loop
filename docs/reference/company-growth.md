@@ -43,7 +43,7 @@ PERとpeerはこの版では **未提供**。PERは価格・期末自己株式�
 
 CIは統合draft PRのbranchへpushして既存 `.github/workflows/ci.yml` を起動する。qualityの有限合成回帰 `tests/engine/test_company_growth.py` と既存valuation/Research回帰、format/lint/type/import/drift/securityを対象HEADで確認する。ローカルpytest/lint/typecheck/build/benchmarkを実行しない。実データ受入を実施する際も、承認されたread-only入力を既存CIに渡す手段を主担当が確定してから行い、production取得を合成fixture成功で代行しない。公開repoへ保有・口座・非公開情報や秘密は置かない。
 
-実測では原本値/単位/期間の一致、表示窓不変性、履歴coverageの確認可能範囲、対象企業の再計算時間、L3入力サイズを記録する。対照には既存YoY・株数変化・3FY平均と通常の一次資料調査を残す。代表1〜2例は薄いFY/報告累計表とも比較し、同じ便益なら小さな実装を採用する。便益は仮定/反証の具体化、または同品質での転記・照合負担の低減で測る。L3は「旧入力では曖昧な問い」「成長で区別できた経路と実数」「原典へ戻る未解決点」の3点を比較する。継続成長・有機成長・当時倍率・業界全体の改善・独立証拠数を創作しない。この受入と推奨参照範囲/入力量の確定は未完了である。
+実測では原本値/単位/期間の一致、表示窓不変性、履歴coverageの確認可能範囲、対象企業の再計算時間、L3入力サイズを記録する。対照には既存YoY・株数変化・3FY平均と通常の一次資料調査を残す。代表1〜2例は薄いFY/報告累計表とも比較し、同じ便益なら小さな実装を採用する。便益は仮定/反証の具体化、または同品質での転記・照合負担の低減で測る。L3は「旧入力では曖昧な問い」「成長で区別できた経路と実数」「原典へ戻る未解決点」の3点を比較する。継続成長・有機成長・当時倍率・業界全体の改善・独立証拠数を創作しない。実測済みの範囲は末尾に記録し、原本との独立照合・L3対照比較・推奨参照範囲/入力量の確定は残受入として区別する。
 
 有限サンプルの実行入口は `tools/company_growth_sample.py`。CI上で次のJSONを一時ファイルへ置き、許可された固定releaseの読取専用コピーを渡す。ticker/dateは試験対象であり保存設定ではない。実試験では前述の4〜6社へ展開する。
 
@@ -89,9 +89,31 @@ gh workflow run ci.yml --ref feat/1588-company-growth -f company_growth_acceptan
 主担当は公開要約の `private_result_key` を使い、既存の認可されたR2読取環境で結果を一時ファイルへ取得する。秘密・endpointをログへ表示せず、結果ファイルを公開repoへcommitしない。
 
 ```bash
+AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" \
+AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" \
+AWS_DEFAULT_REGION=auto \
 aws s3api get-object --bucket baibai-stores --key '<PRIVATE_RESULT_KEY>' \
   --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
   /tmp/company-growth-private-result.json
 ```
 
 通常Researchの準備は既存 `hydrate-market` を使う。hydrateは採用した固定releaseのmanifest一式も既存mirrorへ検証付きで保持するため、同じmirrorで後続queryをローカル解決できる。query自体はネットワーク取得を行わない。別配置ならprepareへ `--company-growth-mirror` を渡す。manifest/objectの欠落や読取OSエラーは成長内の `fixed_release_inputs_unavailable` へ局所化する。
+
+### 2026-10-24 の実データ測定
+
+固定code `bc625286631e1e7072d9538f8440d873f763ebee` の [手動CI 40082788945](https://github.com/koumatsumoto/baibai-loop/actions/runs/40082788945) で実施し、qualityと受入jobが成功した。5社とも保持された40会計期を読め、直近12期と全期間の共通状態・採用原本・Changesが一致した。これは確認できた保持範囲であり、保存上限・全訂正の完全性・当時再現を主張しない。
+
+| 銘柄 | 保持期数 / 試験期数 | 全期間query秒 | 12期query秒 | 全期間JSON bytes | 12期JSON bytes | 薄い表bytes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4502 | 40 / 12 | 1.578 | 0.210 | 516302 | 159710 | 3746 |
+| 7201 | 40 / 12 | 0.233 | 0.235 | 516898 | 159252 | 3754 |
+| 6758 | 40 / 12 | 0.271 | 0.223 | 514725 | 159896 | 3766 |
+| 8306 | 40 / 12 | 0.227 | 0.225 | 441900 | 135408 | 3390 |
+| 9983 | 40 / 12 | 0.230 | 0.228 | 516862 | 159416 | 3746 |
+
+Parquetの一時コピーは22 objects / 39137424 bytes、準備は13.715秒だった。この試験ではquery時間は追加のpartition限定・session再利用を要求する大きさではないため、性能向けの追加機構は見送った。
+
+12期でも約135〜160KB/社で、薄い表は約3.4〜3.8KBだった。bytesの差だけで成長L2の便益を認定せず、通常Selectionでは問いに合う期間を明示する。既存YoY等を残した対照・薄い表とのL3比較、原本値/期間/単位の独立照合、推奨の既定入力量の確定は主担当の残受入とする。
+
+非公開結果は `baibai-stores/validation/company-growth/pr-1592/40082788945-1/bc625286631e1e7072d9538f8440d873f763ebee/report.json`。3302196 bytes、SHA-256 `2dc4fd1c3ae929a2ad76af55e38d7a8a14603dff7849a95c48502c675927f5f3`。条件付き新規保存と読戻しdigest一致を確認し、runnerの一時コピーを削除した。公開log・artifact・Gitへ原本/原数値は出していない。
+
