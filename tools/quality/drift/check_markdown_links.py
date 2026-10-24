@@ -6,10 +6,9 @@ import re
 import sys
 from pathlib import Path
 
-# A link body is `](target#anchor)` where either part may be absent: `](#anchor)`
-# is a same-file anchor and `](target)` is a plain file link. External `http(s)`
-# links start with neither `./`, `../`, `/docs/`, nor `#`, so they never match.
-_LINK = re.compile(r"\]\((?P<target>\.{0,2}/[^)#\s]+|/docs/[^)#\s]+)?(?P<anchor>#[^)\s]+)?\)")
+# Include bare relative paths, not only ./ and ../ links.
+_LINK = re.compile(r"\]\((?P<target>[^)#\s]+)?(?P<anchor>#[^)\s]+)?\)")
+_EXTERNAL = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)")
 _HEADING = re.compile(r"^#{1,6}\s+(?P<text>.+?)\s*$", re.MULTILINE)
 _HEADING_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _EXPLICIT_ANCHOR = re.compile(r'<a\s+id="(?P<id>[^"]+)"')
@@ -26,6 +25,7 @@ _SCAN_DIRECTORIES = (
     "method",
     "stores",
     "reports",
+    "studies",
     ".agents/skills",
 )
 _IGNORED_DIRECTORY_NAMES = frozenset({"node_modules", "dist", ".venv", "__pycache__"})
@@ -85,6 +85,8 @@ def check(root: Path) -> list[str]:
             if target is None and anchor is None:
                 continue
             if target is not None:
+                if _EXTERNAL.match(target):
+                    continue
                 resolved = (
                     root / target.removeprefix("/")
                     if target.startswith("/")

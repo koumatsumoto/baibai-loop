@@ -1,1 +1,1 @@
-"""Read-only diagnostics for repository-owned runtime artifacts."""
+"""Runtime diagnostics and explicit development-environment provisioning tools."""

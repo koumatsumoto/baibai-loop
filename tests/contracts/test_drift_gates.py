@@ -362,3 +362,32 @@ def test_repository_path_gate_tracks_published_context_in_domain_package(tmp_pat
     errors = check_repository_paths.check(tmp_path)
     assert len(errors) == 1
     assert repr(ER_LEVEL_CALIBRATION_CONTEXT_PATH.as_posix()) in errors[0]
+
+
+@pytest.mark.parametrize("target", ["missing.md", "docs/missing.md", "/docs/missing.md"])
+def test_markdown_link_gate_checks_bare_and_root_relative_paths(tmp_path, target):
+    (tmp_path / "README.md").write_text(f"[broken]({target})\n")
+    assert check_markdown_links.check(tmp_path) == [
+        f"README.md: missing Markdown link target {target}"
+    ]
+
+
+def test_markdown_link_gate_keeps_external_links_out_of_filesystem_checks(tmp_path):
+    (tmp_path / "README.md").write_text(
+        "[web](https://example.invalid/a#heading) "
+        "[mail](mailto:example@example.invalid) [web](//example.invalid/a)\n"
+    )
+    assert check_markdown_links.check(tmp_path) == []
+
+
+def test_markdown_link_gate_checks_study_links_and_bare_path_anchors(tmp_path):
+    study = tmp_path / "studies" / "example"
+    study.mkdir(parents=True)
+    (study / "plan.md").write_text("# Plan\n\n## Scope\n")
+    report = study / "report.md"
+    report.write_text("[plan](plan.md#scope)\n")
+    assert check_markdown_links.check(tmp_path) == []
+    report.write_text("[plan](plan.md#gone)\n")
+    assert check_markdown_links.check(tmp_path) == [
+        "studies/example/report.md: missing Markdown anchor plan.md#gone"
+    ]
