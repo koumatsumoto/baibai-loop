@@ -161,22 +161,31 @@ def main(argv: list[str] | None = None) -> int:
         directory = args.directory
         if args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
-            failed = (
+            integration_failed = (
                 any(item["failed"] for item in report["handoffs"])
                 or any(item["exit_code"] for item in report["extractions"].values())
                 or bool(report.get("external_failed"))
                 or bool((report.get("external") or {}).get("failed"))
             )
             deferred = {
-                source: item for source, item in report["extractions"].items()
+                source: item
+                for source, item in report["extractions"].items()
                 if item.get("deferred_inputs")
             }
-            print(json.dumps({
-                "integration_status": "failed" if failed else
-                "completed_with_deferred_inputs" if deferred else "completed",
-                "deferred_inputs": deferred,
-            }, sort_keys=True))
-            return int(failed)
+            print(
+                json.dumps(
+                    {
+                        "integration_status": "failed"
+                        if integration_failed
+                        else "completed_with_deferred_inputs"
+                        if deferred
+                        else "completed",
+                        "deferred_inputs": deferred,
+                    },
+                    sort_keys=True,
+                )
+            )
+            return int(integration_failed)
         if args.command == "verify":
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
             for index, outcome in enumerate(report["handoffs"]):

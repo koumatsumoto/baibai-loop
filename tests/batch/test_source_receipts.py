@@ -103,8 +103,7 @@ def test_malformed_handoff_does_not_block_other_ready_source(tmp_path):
 def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     tmp_path, monkeypatch
 ):
-    import subprocess
-    from datetime import UTC, date, datetime
+        from datetime import UTC, date, datetime
 
     from baibai_batch.jobs.source_integration import apply
     from baibai_batch.storage.economic_receipts import accept_rechecks
@@ -154,8 +153,8 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     with closing(open_connection(market)):
         pass
     monkeypatch.setattr(
-        "baibai_batch.jobs.source_integration.subprocess.run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""),
+        "baibai_batch.jobs.source_integration.extract_saved_edinet",
+        lambda *args, **kwargs: {},
     )
     result = apply(store, work, market=market, economic=canonical, asof=date(2026, 10, 24))
     assert result["handoffs"][0]["recovery"] is True

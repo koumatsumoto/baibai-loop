@@ -81,11 +81,17 @@ def test_verify_without_r2_reads_local_accepted_receipts_without_changing_them(t
 
 def test_deferred_input_is_reported_without_failing_successful_integration(tmp_path, capsys):
     report = {
-        "handoffs": [], "external_failed": [], "external": None,
-        "extractions": {"edinet-metrics": {
-            "exit_code": 0, "status": "deferred_input", "input_asof": "2026-10-23",
-            "deferred_inputs": ["latest_document_list_delayed"],
-        }},
+        "handoffs": [],
+        "external_failed": [],
+        "external": None,
+        "extractions": {
+            "edinet-metrics": {
+                "exit_code": 0,
+                "status": "deferred_input",
+                "input_asof": "2026-10-23",
+                "deferred_inputs": ["latest_document_list_delayed"],
+            }
+        },
     }
     path = tmp_path / "applied.json"
     path.write_text(json.dumps(report))
@@ -95,14 +101,3 @@ def test_deferred_input_is_reported_without_failing_successful_integration(tmp_p
     assert summary["integration_status"] == "completed_with_deferred_inputs"
     assert summary["deferred_inputs"]["edinet-metrics"]["input_asof"] == "2026-10-23"
     assert path.read_bytes() == before
-
-
-def test_unknown_extraction_exception_remains_fatal(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(source_integration, "Boto3R2Store", lambda **kwargs: object())
-    def broken(*args, **kwargs):
-        raise RuntimeError("unexpected extractor bug")
-    monkeypatch.setattr(source_integration, "apply", broken)
-    assert source_integration.main([
-        "apply", "--directory", str(tmp_path), "--asof", "2026-10-24"
-    ]) == 1
-    assert "RuntimeError" in capsys.readouterr().err

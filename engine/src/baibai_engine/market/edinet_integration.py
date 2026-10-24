@@ -72,15 +72,19 @@ def extract_saved_edinet(
         plan = make_metric_extraction_plan(
             selection=selection, baseline=baseline, extractor_revision=EDINET_METRIC_REVISION
         )
-        missing = [item.doc_id for item in plan.archive_candidates if (item.doc_id, 5) not in retained]
+        missing = [
+            item.doc_id for item in plan.archive_candidates if (item.doc_id, 5) not in retained
+        ]
         if not selection.candidates:
             metrics["deferred_inputs"].append("no_selected_filings")
         elif missing:
             metrics["deferred_inputs"].append("csv_archives_unavailable")
             metrics["missing_archive_count"] = len(missing)
         elif (
-            baseline is not None and baseline.asof_date == available
-            and not plan.archive_candidates and not plan.events_by_ticker
+            baseline is not None
+            and baseline.asof_date == available
+            and not plan.archive_candidates
+            and not plan.events_by_ticker
         ):
             metrics["status"] = "unchanged"
         else:
@@ -94,7 +98,9 @@ def extract_saved_edinet(
         metrics["deferred_inputs"].append("latest_document_list_delayed")
     return {
         "edinet-metrics": metrics,
-        "edinet-facts": _extract_saved_facts(database, asof, available, documents, retained, reader),
+        "edinet-facts": _extract_saved_facts(
+            database, asof, available, documents, retained, reader
+        ),
     }
 
 
@@ -126,15 +132,24 @@ def _extract_saved_facts(
             missing += 1
             continue
         process_edinet_fact_item(
-            item=item, reader=reader, sqlite_path=database,
-            counts=counts, reasons=reasons, stdout=sys.stdout,
+            item=item,
+            reader=reader,
+            sqlite_path=database,
+            counts=counts,
+            reasons=reasons,
+            stdout=sys.stdout,
         )
     if not selected:
         result.update(status="deferred_input", deferred_inputs=["no_selected_filings"])
     else:
         code = finish_edinet_facts(
-            asof=asof, sqlite_path=database, initialize=False, tickers=(),
-            counts=counts, reasons=reasons, stdout=sys.stdout,
+            asof=asof,
+            sqlite_path=database,
+            initialize=False,
+            tickers=(),
+            counts=counts,
+            reasons=reasons,
+            stdout=sys.stdout,
         )
         result.update(exit_code=code, status="failed" if code else "completed", counts=dict(counts))
     if missing:

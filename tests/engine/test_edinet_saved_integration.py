@@ -1,7 +1,7 @@
 """Available saved EDINET inputs never pretend acquisition completed today."""
 
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
@@ -119,8 +119,34 @@ def test_facts_extract_known_ready_document_despite_failed_later_list(tmp_path):
     assert facts["missing_archive_count"] == 1
     assert "xbrl_archives_unavailable" in facts["deferred_inputs"]
     with closing(open_connection(path)) as conn:
-        assert conn.execute("SELECT status FROM source_coverage WHERE source = 'edinet_documents' "
-                            "AND coverage_key = ?", (TARGET.isoformat(),)).fetchone()[0] == "failed"
-        assert conn.execute("SELECT coverage_start FROM source_coverage "
-                            "WHERE source = 'edinet_research_facts' AND coverage_key = 'S100SAVED'"
-                            ).fetchone()[0] == BASE.isoformat()
+        assert (
+            conn.execute(
+                "SELECT status FROM source_coverage WHERE source = 'edinet_documents' "
+                "AND coverage_key = ?",
+                (TARGET.isoformat(),),
+            ).fetchone()[0]
+            == "failed"
+        )
+        assert (
+            conn.execute(
+                "SELECT coverage_start FROM source_coverage "
+                "WHERE source = 'edinet_research_facts' AND coverage_key = 'S100SAVED'"
+            ).fetchone()[0]
+            == BASE.isoformat()
+        )
+
+
+def test_unexpected_extractor_error_is_not_classified_as_deferred_input(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    _next_listing(path)
+    with closing(open_connection(path)) as conn:
+        retain_source_archive(conn, "S100NEXT", 5, _edinet_csv_zip(), stored_on=TARGET)
+
+    def broken(**kwargs):
+        raise RuntimeError("unexpected extractor error")
+
+    monkeypatch.setattr(
+        "baibai_engine.market.edinet_integration.extract_edinet_metrics_from_plan", broken
+    )
+    with pytest.raises(RuntimeError, match="unexpected extractor error"):
+        extract_saved_edinet(path, asof=TARGET, lookback_days=3)
