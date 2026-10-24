@@ -114,6 +114,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     derived=result.derived["130A"],
                 )
                 self.assertIs(financial.operating_profit_source, source)
+                self.assertEqual(payload["operating_profit_source"], source.value)
                 self.assertEqual(
                     financial.operating_profit,
                     next(value for value in current_values if value is not None),
