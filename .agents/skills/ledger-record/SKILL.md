@@ -28,7 +28,7 @@ uv run baibai-engine position broker-fact-draft --db stores/application/baibai.s
 
 提案なしの実買付は`--decision-reference`の代わりに`--direct-fact`を使う。初回に返されたmanual-fact参照を後続・再試行で保持し、同じ報告へ新しい参照を発行しない。直接取引のために評価や提案を作らない。
 
-約定は日付・銘柄・数量・単価を基本とし、対応する保存注文があれば同じreservationと参照へ束縛する。注文未登録なら時刻・期限や架空の注文を作らない。broker execution IDが報告されたら保持し、同日別約定を区別できない場合だけ確認する。部分約定・取消・失効は同じ注文identityを使う。正確な時刻が報告された場合は`--occurred-at`を使える。
+約定の日付・銘柄・数量・単価と報告されたbroker execution IDを使い、保存注文があれば同じreservationと参照へ束縛する。[事実と再送](../../../docs/reference/portfolio-ledger.md#事実と再送)に従い、同日別約定を区別できない場合だけ確認する。正確な報告時刻は`--occurred-at`へ渡せる。
 
 ```bash
 uv run baibai-engine position sell-execution-draft --db stores/application/baibai.sqlite \
@@ -36,7 +36,7 @@ uv run baibai-engine position sell-execution-draft --db stores/application/baiba
   --occurred-on <YYYY-MM-DD> --execution-id <BROKER_EXECUTION_ID> --out <DRAFT>
 ```
 
-費用0円と明示された場合は0のcost eventを残す。未報告はゼロにしない。業種等の既知入力を既存sourceから確認し、注文事実を現在のquoteで上書きしない。
+[cash・費用の意味](../../../docs/reference/portfolio-ledger.md#human-result-semantics)に従い、業種等の既知入力は既存sourceから確認する。
 
 ## 確認と反映
 
@@ -44,4 +44,4 @@ payloadとcash・予約・holdingの差分を人間に確認し、`position appl
 
 本番への反映は[application反映](../../../batch/OPERATIONS.md#application-db-を反映する)へ進む。作業コピーへの適用とクラウド正本の更新を区別する。
 
-Portfolio Outcomeは専用commandで評価・発行する。[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)に従い、同期間のbenchmarkと税・費用basisを確認する。未評価の原因を台帳事実の削除で解消しない。
+Outcomeが依頼された場合は[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)の専用commandと比較basisに従う。

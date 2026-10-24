@@ -44,6 +44,11 @@ percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latest
 
 Readingの規則はmethod/macro/readingのdated revisionと出力のrules_revisionで識別する。保存判断が引用したpath・数値・意味を名前整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
 
+<a id="option-iv"></a>
+### オプションIVの読み方
+
+iv30・skewは30日を挟む適格な限月を要し、skewの期間補間は逆平方根の満期軸を使う規約である。SQ直後や急変時の欠測を平穏とせず、termの負値だけをパニック、skewの縮小だけを警戒後退としない。put/callのIV差は両限月で確認するが、差だけでsourceの誤りを確定しない。[当時の標本と診断](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-07-31-option-iv-quantiles/report.md)は売買閾値や将来収益の検証ではない。
+
 ### 再計算とPITの限界
 
 read_semanticsがrecomputed_from_current_storeなら現在storeの後日取得・改定情報から再計算している。Researchのknown_atはReadingへ一律適用されず、ProviderSpecが公表vintage能力を持つと宣言したsourceだけを対象日でclampする。bulk履歴の受領時刻で一律clampすると、当時既知だった履歴まで消してしまう。
@@ -54,6 +59,8 @@ as-ofの固定やJST日末cutoffは**intraday PITの保証ではない**。公�
 ## 市場環境判断
 
 ResearchのMarket Context Assessmentは、固定入力と基準時点、重要な水準・変化の根拠、反証/不確実性、調査・業種・riskへの含意を扱う。章数・確率格子・scenario件数を必須にせず、変化が小さいことや不足も表現する。単なる株価トレンドへ縮めず、個社への伝達と支払価格の比較につなぐ。
+
+共通条件を個社の耐性・仮定と価格比較へ接続する。独自の総合risk点、指数連動の要求率、自動配分・一律業種除外/売却は、実時間の増分価値と費用・誤除外を確認できず採用していない。[当時の方式比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-20-macro-risk-strategy/report.md)は、集約指数一般の無効や今日の市場状態を認定したものではない。
 
 as_ofは判断対象日、known_atは入力確定時刻。対象日以下でcutoffまでに発行された判断を実時刻で選ぶ。週末発行の前営業日評価も扱い、対象日末を一律のcutoffにしない。available_atを記す場合も元提供者の公表時刻を捏造しない。新判断を開始入力に使うなら実発行後のSelectionで固定する。
 

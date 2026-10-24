@@ -41,39 +41,19 @@ from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 
 _ASSESSMENT_DRAFT_HEADER = (
-    "# 企業評価 draft。価値を生む仮説、重要な観測の個社への伝達、"
-    "Base/Downside・時間・反証を既存欄へつなぐ。\n"
-    "# 五領域の問いを区別する。Valuationは価値・仮定・期間、Company Growthは過去実績・"
-    "採算の経路、Market Contextは事業・資金・"
-    "要求収益・流動性への伝達、External Assessmentは外部予測との相違、"
-    "Technical Analysisは価格位置・勢い・変動幅を扱う。\n"
-    "# 企業成長は保存された累計・単独四半期・年間/TTMと採用文書を読む。"
-    "事後の実績を当時判断・将来予測・有機成長認定へ転用せず、同じ利益を多重票にしない。\n"
-    "# 成長L2はJQ財務サマリー。EBITDAの構成・減価償却等の詳細はEDINET原典へ戻り、"
-    "期間・科目・連結基準を照合する。旧保存入力に成長を追補しない。\n"
-    "# 重要なtechnical所見と相反はfindings.hypotheses/value_gap_explanation/"
-    "unresolved_questions、investment_case、conclusion.strongest_countercaseの関係する欄へ。"
-    "数値添付だけで済ませず、全指標コメントは求めない。\n"
-    "# technicalの価格basis・観測日・履歴開始・bar数・seedを確認する。"
-    "欠測で他領域を一律停止せず、旧snapshotへ後付け再計算しない。\n"
-    "# 主要モデルと期間は価値獲得経路から選ぶ。12か月・EPS×PERを既定にせず、"
-    "更新/再投資・資本の帰属・分配後残余をcalculationへ接続する。\n"
-    "# 要求率は案件ごとに現金との比較・下振れ・期間・不確実性を踏まえ、"
-    "理由をcalculationへ記す。価格に合わせて率を下げない。\n"
-    "# 外部値の対象期・株式basis・元前提が不明なら推定しない。"
-    "比較不能な参考値だけで企業評価を一律保留にしない。\n"
-    "# 追加の企業レポートはResearch skillの公開レポート参照手順を使う。"
-    "SRCの独自予想・会社計画・フィスコの有償企業調査を区別する。\n"
-    "# 重要な根拠不足はcase・risk・stanceに残し、"
-    "企業価値を評価できない場合にvaluationを理由付き unresolved とする。\n"
+    "# 企業評価 draft。重要な支持・相反・不足をfindings、investment_case、"
+    "conclusion.strongest_countercaseへつなぐ。\n"
+    "# 五領域の問い・basis・欠測: docs/reference/stock-assessment.md#analysis-domain-integration\n"
+    "# model・期間・要求率・Base/Downside: "
+    "docs/reference/stock-assessment.md#scenario-arithmetic\n"
+    "# 原典の期間・単位を確認し、旧保存入力へ追補しない。\n"
+    "# 追加の公開企業レポート: docs/reference/data-sources.md#public-research-reports\n"
 )
 
 _REVIEW_DRAFT_HEADER = (
-    "# 独立検算の値を入力する。作者の値をコピーしない。"
-    "重要な個社伝達と外部相違の反証も原典から確認する。\n"
-    "# technicalの時点・価格basis・期間の整合、価格局面を企業価値とする誤読、"
-    "MA・BB・RSI・騰落率による同じ価格情報の多重票を確認する。"
-    "重要な相反と利用限界はreview_scope/strongest_countercaseへ残す。\n"
+    "# 独立検算の値を入力する。作者の値をコピーしない。\n"
+    "# 原典・仮定・反証と利用限界: "
+    "docs/reference/stock-assessment.md#independent-second-pass\n"
 )
 
 # --------------------------------------------------------------------------- #

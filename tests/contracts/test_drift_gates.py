@@ -11,6 +11,8 @@ from tools.quality.drift import (
     check_repository_paths,
 )
 
+from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -351,3 +353,12 @@ def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path,
     assert len(errors) == 1
     assert repr(method_path) in errors[0]
     assert "belongs in engine/src/baibai_engine/foundation/repository_layout.py" in errors[0]
+
+
+def test_repository_path_gate_tracks_published_context_in_domain_package(tmp_path):
+    path = tmp_path / "web/backend/src/baibai_web/source.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"CONTEXT = {ER_LEVEL_CALIBRATION_CONTEXT_PATH.as_posix()!r}\n")
+    errors = check_repository_paths.check(tmp_path)
+    assert len(errors) == 1
+    assert repr(ER_LEVEL_CALIBRATION_CONTEXT_PATH.as_posix()) in errors[0]

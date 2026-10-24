@@ -259,6 +259,11 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 途中停止では残存pathと失敗commandを確認し、blockを無条件反復しない。
 
 
+<a id="research-input-preparation"></a>
+## Research入力の準備
+
+新規・再開の入口は[Research skill](../.agents/skills/research/SKILL.md)。企業成長は固定releaseの財務・masterとmanifestを配置したローカルmirrorを読む。通常は既存`hydrate-market`を使い、別配置なら`research prepare --company-growth-mirror <LOCAL_MIRROR>`を指定する。query自体はネットワーク取得をせず、mirror不足を更新中のSQLite行で代替しない。[固定release](#fixed-release-read)の手順で準備し、取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
+
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
 
@@ -581,7 +586,26 @@ uv run baibai-engine screening calibration-build --start <YYYY-MM-DD> --end <YYY
 uv run baibai-engine screening calibration-evaluate --out /tmp/calibration-evaluation.yaml
 ```
 
-判断面の文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価にcontext-outを加える。[較正の意味](../docs/reference/estimate-calibration.md)に従い、記述context成功をformal evidence成立としない。
+判断面の文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
+
+```bash
+uv run baibai-engine screening calibration-evaluate \
+  --run-purpose empirical_change_evidence --decision-subject estimator_policy \
+  --required-asof <YYYY-MM-DD> --required-metric er_level_calibration \
+  --out /tmp/calibration-evaluation.yaml \
+  --context-out engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml
+```
+
+required-asofは事前に選んだ全対象月分を繰り返す。配布前にoperative runのrules/model identity・期限・不足を照合し、Gitでreviewする。[較正の意味](../docs/reference/estimate-calibration.md)に従い、記述context成功をformal evidence成立としない。古いcontextの日付・hashだけを編集しない。
+
+pre-2019の短窓診断が必要な時は通常snapshotと別directoryを使う。productionの750-sessionと異なり、formal evidenceへ使わない。
+
+```bash
+uv run baibai-engine screening calibration-build \
+  --start 2018-03-01 --end 2019-10-31 \
+  --calibration-dir stores/screening/calibration/variants/pre2019 \
+  --panel-variant pre2019_self_range_375 --force
+```
 
 PMIは公表翌週、TSE資本政策とJPX廃止は翌月15日以降に既存refresh/buildを行い、必要なlake/store公開へ進む。全履歴監査を定例に増やさない。注文結果の計測が依頼された場合は既存measure_limit_outcomesの対象と限界を確認し、価格差を逸失利益や指値規律の因果効果にしない。
 

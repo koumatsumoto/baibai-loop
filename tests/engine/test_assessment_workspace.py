@@ -87,7 +87,11 @@ def author(case, *, ticker="1234", workspace=None):
 
 def test_initial_scaffold_has_new_contract_and_stable_writer_identity(case):
     first = scaffold(case)
-    raw = yaml.safe_load(Path(first["assessment_draft"]).read_text())
+    text = Path(first["assessment_draft"]).read_text()
+    raw = yaml.safe_load(text)
+    assert "docs/reference/data-sources.md#public-research-reports" in text
+    reference = Path(__file__).resolve().parents[2] / "docs/reference/data-sources.md"
+    assert '<a id="public-research-reports"></a>' in reference.read_text()
     assert raw["kind"] == "stock_assessment"
     assert raw["schema_version"] == 1
     assert raw["findings"]["business_understanding"] is None

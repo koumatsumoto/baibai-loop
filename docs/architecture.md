@@ -19,17 +19,17 @@ L1は原本またはsource契約で明示したprovider-native表現と受領事
 
 ## 責務と配置
 
-engineのdomainは`engine/src/baibai_engine/`に置く。意味を持つ処理はそのdomainへ、業務を知らない技術は`storage`・`foundation`へ置く。
+engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に置く。意味を持つ処理はそのdomainへ、業務を知らない技術は`storage`・`foundation`へ置く。
 
 | 配置 | 所有する責務 |
 | --- | --- |
 | `collection/` | sourceとの通信、原本・native record・受領の契約 |
 | `market/` | 保存された銘柄・財務・価格・公表日の共通読取と正規化、source固有の取得計画と取得・投影・保存の合成 |
-| `company_growth/` | 固定releaseの過去実績状態・変化、会計四半期を整理軸とする振り返り |
-| `valuation/` | 財務指標と機械ER/FV、較正文脈、条件付きscenarioの算術 |
-| `market_context/` | 経済Reading、市場・業種・個別の相対状態 |
-| `external_assessment/` | 外部提示値の抽出、出所・対象期・比較条件と欠測の整理 |
-| `technical_analysis/` | 保存価格による位置・勢い・変動幅の分析 |
+| [`company_growth/`](../engine/src/baibai_engine/company_growth/) | [過去実績状態・変化](reference/company-growth.md)、会計四半期を整理軸とする振り返り |
+| [`valuation/`](../engine/src/baibai_engine/valuation/) | [財務指標と機械ER/FV](reference/valuation-metrics.md)、[較正文脈](reference/estimate-calibration.md)、条件付きscenarioの算術 |
+| [`market_context/`](../engine/src/baibai_engine/market_context/) | [経済Reading、市場・業種・個別の相対状態](reference/market-context.md) |
+| [`external_assessment/`](../engine/src/baibai_engine/external_assessment/) | [外部提示値の出所・対象期・比較条件と欠測](reference/data-sources.md#external-assessment) |
+| [`technical_analysis/`](../engine/src/baibai_engine/technical_analysis/) | [保存価格の位置・勢い・変動幅](reference/technical-analysis.md) |
 | `screening/` | Valuation・Market Contextから候補を組立、価値仮説別の探索と候補文脈、歴史較正 |
 | `research/` | 明示開始した有限調査、Stock Assessmentと独立Review、市場判断、Investment Proposal |
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
@@ -41,13 +41,22 @@ engineのdomainは`engine/src/baibai_engine/`に置く。意味を持つ処理�
 
 `web/`はbackend・frontend・edgeによる読取表示、`batch/`は定期処理と公開の合成、`tools/`は開発・保守用の入口である。Webは`read_api`、Batchは`batch_api`・`read_api`を通し、domainの算術・保存条件を複製しない。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
 
-企業成長の期間・欠測・固定入力と実データ受入は[企業成長](reference/company-growth.md)が所有する。
+意味・採否は本書・doctrine・各reference、開始・操作・完了/再開はskills・OPERATIONSが所有する。生成scaffoldは編集欄と短い注意・参照先を持ち、一回限りの計画・実験はIssueと固定commitへ残す。
 
 ## 判断と進行
 
 ResearchのSelectionは対象・問い・入力を開始時に固定する。Stock Assessmentは企業の事業理解・価値・反証、Reviewはその内容の独立検証、Investment Proposalは価格・cash・保有へ適用した行動と条件である。Operation完了、提案公開、人間の採用、注文、約定を別の状態として扱う。
 
 期間・観測日・公表日・受領cutoffを区別する。固定snapshotは再開時の入力を保つが、全入力のintraday point-in-time再現を保証しない。[入力の意味](reference/data-sources.md)と[判断の意味](reference/stock-assessment.md)が個別の制約を所有する。
+
+| 作業の入口 | 操作先 |
+| --- | --- |
+| 新しい有限Research | [Researchの開始](../.agents/skills/research/SKILL.md#開始と固定対象) |
+| 共通市場判断だけを作る | [Market Context Assessment](../.agents/skills/market-context-assessment/SKILL.md) |
+| 人間が確認した取引事実を記す | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
+| 既存Operationを続ける | [保存入力からの再開](../.agents/skills/research/SKILL.md#完了と再開) |
+
+3skillsは作業の開始条件で分けており、五分析領域と一対一にはしない。
 
 <a id="store-authority"></a>
 ## 保存責務
@@ -67,6 +76,6 @@ source取得は担当範囲の再生成可能なread-only inputと原受領hando
 
 クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/foundation/repository_layout.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
 
-Gitの`method/`は採用済みのdated規則、`web/config/`は表示設定、`reports/`は必要な測定記録とconsumerが読むartifactを置く。再取得可能であることは改訂前の情報を復元できることを意味せず、一律の永久保存や監査用の第二基盤は作らない。
+Gitの[method](../method/README.md)は既定2件と歴史16件のdated規則を保持し、選択先はloaderが所有する。較正の配布artifactは[`valuation/calibration/published/`](../engine/src/baibai_engine/valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)、表示設定は`web/config/`に置く。[reports](../reports/README.md)には運用責務の確認・移管が残る記録だけを保持し、完了した実験の詳細は固定commitへ委ねる。再取得可能であることは改訂前の情報を復元できることを意味せず、汎用DB・registryや保存判断の第二正本は作らない。
 
 運用上の取得・発行・復旧は[OPERATIONS](../batch/OPERATIONS.md)、設計判断は[doctrine](doctrine.md)、開発環境は[development](development.md)に従う。

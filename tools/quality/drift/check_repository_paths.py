@@ -22,7 +22,7 @@ _OWNERS = {
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
     "web/config/market-context-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
-    "reports/published/er-level-calibration-latest.yaml": Path(
+    "engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
 }

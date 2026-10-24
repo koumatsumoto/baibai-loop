@@ -1,21 +1,94 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pytest
 import yaml
 from tests.helpers.er_calibration_context import context_artifact
+from tests.helpers.research_selection import selection
+from tests.helpers.screening_run import stock_analysis
 
+from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.read_api import screening_calibration_method_identity
+from baibai_engine.research.calibration_context import research_calibration_context
+from baibai_engine.research.selection import selection_sha256
+from baibai_engine.research.workspace_cli import build_parser
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 
 _ROOT = Path(__file__).resolve().parents[2]
-_PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
-_RETAINED = _ROOT / "reports/studies/2026-10-14-er-context-v26/retained-schema2-context.yaml"
+_PUBLISHED = _ROOT / ER_LEVEL_CALIBRATION_CONTEXT_PATH
+_RETAINED = _ROOT / "tests/fixtures/valuation/calibration/retained-schema2-context.yaml"
+
+
+@pytest.mark.parametrize(
+    ("condition", "reason"),
+    [
+        ("matching", None),
+        ("future", "invalid_artifact"),
+        ("expired", "expired"),
+        ("rules", "rules_identity_mismatch"),
+        ("model", "er_model_identity_mismatch"),
+    ],
+)
+def test_published_default_preserves_web_and_research_diagnostics(
+    tmp_path, monkeypatch, condition, reason
+):
+    monkeypatch.chdir(_ROOT)
+    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    generated = datetime.fromisoformat(raw["generated_at"])
+    as_of = generated.date()
+    if condition == "future":
+        as_of -= timedelta(days=1)
+    elif condition == "expired":
+        as_of = date.fromisoformat(raw["valid_through"]) + timedelta(days=1)
+    identity = (
+        "different" if condition == "rules" else raw["screening_rules_hash"],
+        "different" if condition == "model" else raw["er_model_version"],
+    )
+    selected = selection(
+        now=generated,
+        tickers=("1234",),
+        runs=tmp_path / "runs",
+        rows=[stock_analysis("1234", name="合成会社", metrics={"er_annual": 0.09})],
+    )
+    source = selected.inputs.analysis.model_copy(
+        update={"screening_rules_hash": identity[0], "er_model_version": identity[1]}
+    )
+    selected = selected.model_copy(
+        update={"inputs": selected.inputs.model_copy(update={"analysis": source})}
+    )
+    before = selection_sha256(selected), _PUBLISHED.read_bytes()
+    copy = tmp_path / "context.yaml"
+    copy.write_bytes(before[1])
+    default = build_parser().parse_args(["calibration-context", "--operation-id", "saved"])
+    assert default.context_path == ER_LEVEL_CALIBRATION_CONTEXT_PATH
+
+    web = load_er_level_calibration_context(
+        _ROOT / default.context_path, expected_method_identity=identity, today=as_of
+    )
+    assert web == load_er_level_calibration_context(
+        copy, expected_method_identity=identity, today=as_of
+    )
+    research = research_calibration_context(
+        selected, context_path=default.context_path, as_of=as_of
+    )
+    assert research == research_calibration_context(selected, context_path=copy, as_of=as_of)
+    if reason is None:
+        assert web is not None
+        assert research["context"]["evidence_complete"] is raw["evidence_complete"]
+        assert list(research["context"]["evidence_blocking_reasons"]) == raw[
+            "evidence_blocking_reasons"
+        ]
+        assert research["targets"][0]["horizons"]
+    else:
+        assert web is None
+        assert research["unavailable_reason"] == reason
+    assert (selection_sha256(selected), _PUBLISHED.read_bytes()) == before
 
 
 def test_retained_schema_2_is_withheld_even_for_matching_historical_identity() -> None:

@@ -16,12 +16,12 @@ from baibai_engine.research.assessment import (
 from baibai_engine.research.entry_policy import evaluate_buy_terms
 from baibai_engine.research.proposal import QuoteInput
 
-STUDY = Path(__file__).resolve().parents[2] / "reports/studies/2026-10-20-l3-strategy-reassessment"
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/research/strategy-shadow"
 
 
 @pytest.mark.parametrize("ticker", ["4783", "4559"])
 def test_public_shadow_retains_unreviewed_status_and_economic_blockers(ticker):
-    payload = json.loads((STUDY / f"shadow-{ticker}.json").read_text())
+    payload = json.loads((FIXTURES / f"shadow-{ticker}.json").read_text())
     document = StockAssessmentDocument.model_validate(payload["document"])
     original_hash = assessment_core_hash(document)
     assert payload["review"] is None

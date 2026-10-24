@@ -10,13 +10,14 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.er_calibration_context import context_artifact
 
+from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
 from baibai_engine.valuation.calibration.query import load_er_calibration_context
 
 _ROOT = Path(__file__).resolve().parents[2]
-_PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
-_RETAINED = _ROOT / "reports/studies/2026-10-14-er-context-v26/retained-schema2-context.yaml"
+_PUBLISHED = _ROOT / ER_LEVEL_CALIBRATION_CONTEXT_PATH
+_RETAINED = _ROOT / "tests/fixtures/valuation/calibration/retained-schema2-context.yaml"
 
 
 def _artifact() -> dict[str, Any]:

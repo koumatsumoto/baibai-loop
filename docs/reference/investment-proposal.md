@@ -10,7 +10,7 @@ buyは現在closeを上限とする指値または低い指値待ち、holdは�
 
 価値獲得経路、Base/Downside、反証、実現時間を現金維持や他の完成案と比べる。同じBase年率でも倍率上昇と利益回復への依存を分け、Pmax内だけで採用しない。企業本文を再掲せずexact評価へ辿る理由にする。重要なtechnical所見は行動理由と見直し条件へつなぎ、価格局面だけでPmaxやsell条件を変えない。
 
-ProposalはReviewed Assessment全文を参照する。未評価のSelection L2 blockを直接足す設計は採らず、重要な支持・相反・不足を評価と独立Reviewへ通す。[採用理由と有限検証](../../reports/studies/2026-10-22-l3-four-domain-integration/report.md)を参照する。
+ProposalはReviewed Assessment全文を参照する。未評価のSelection L2 blockを直接足すとReviewを経ない判断根拠が入り得るため、重要な支持・相反・不足を評価と独立Reviewへ通す。[当時の四領域結合検証](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-l3-four-domain-integration/report.md)は有限な接続確認であり、全判断や将来収益の実証ではない。
 
 ## 条件付き購入
 
