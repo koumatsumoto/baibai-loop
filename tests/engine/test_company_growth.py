@@ -915,3 +915,47 @@ def test_private_acceptance_uses_only_financial_master_and_never_overwrites_resu
     result = json.loads(store.values[new_key].body)
     assert result["l3_projections"]["1234"]["display_scope"]["period_count"] == 12
     assert result["saved_result_key"] == key
+
+
+def test_acceptance_cli_keeps_private_result_keys_and_digest_out_of_public_logs(
+    tmp_path, monkeypatch, capsys
+):
+    from tools import company_growth_acceptance as acceptance
+
+    private_key = "private-result-object"
+    private_digest = "private-result-digest"
+    source_key = "private-input-object"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "company-growth-acceptance",
+            "--directory",
+            str(tmp_path),
+            "--run-id",
+            "100",
+            "--attempt",
+            "1",
+            "--head-sha",
+            "a" * 40,
+        ],
+    )
+    monkeypatch.setattr(acceptance, "Boto3R2Store", lambda **_: object())
+    monkeypatch.setattr(
+        acceptance,
+        "execute",
+        lambda *_a, **_kw: {
+            "status": "measured",
+            "sample_count": 5,
+            "private_result_bytes": 73660,
+            "private_result_key": private_key,
+            "private_result_sha256": private_digest,
+            "saved_result_key": source_key,
+        },
+    )
+    assert acceptance.main() == 0
+    logged = capsys.readouterr().out
+    assert all(value not in logged for value in (private_key, private_digest, source_key))
+    public = json.loads(logged)
+    assert public["status"] == "measured"
+    assert public["sample_count"] == 5
+    assert public["private_result_bytes"] == 73660

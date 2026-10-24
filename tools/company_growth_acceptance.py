@@ -251,22 +251,32 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--attempt", required=True)
     parser.add_argument("--head-sha", required=True)
-    parser.add_argument("--saved-result-key", default="")
+    parser.add_argument("--saved-result-run", default="")
     args = parser.parse_args()
     try:
+        saved_key = None
+        if args.saved_result_run:
+            identity, source_sha = args.saved_result_run.split("/", 1)
+            source_run, source_attempt = identity.split("-", 1)
+            saved_key = result_key(source_run, source_attempt, source_sha)
         summary = execute(
             Boto3R2Store(bucket="baibai-stores"),
             args.directory,
             run_id=args.run_id,
             attempt=args.attempt,
             head_sha=args.head_sha,
-            saved_result_key=args.saved_result_key or None,
+            saved_result_key=saved_key,
         )
     except Exception as error:
         # Public Actions logs must not receive native records, numeric facts or endpoints.
         print(json.dumps({"status": "failed", "error_type": type(error).__name__}))
         return 1
-    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+    public = {
+        name: value
+        for name, value in summary.items()
+        if name not in {"private_result_key", "private_result_sha256", "saved_result_key"}
+    }
+    print(json.dumps(public, ensure_ascii=False, sort_keys=True))
     return 0 if summary["status"] == "measured" else 3
 
 

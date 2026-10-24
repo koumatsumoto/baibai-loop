@@ -88,13 +88,13 @@ PR #1592 のbranchまたはmainで、既存 `ci.yml` の手動入力 `company_gr
 gh workflow run ci.yml --ref feat/1588-company-growth -f company_growth_acceptance=true
 ```
 
-既存の非公開受入結果だけからL3投影のbytes/時間を測る場合は、同じ手動入力に `-f company_growth_saved_result_key='<PRIVATE_RESULT_KEY>'` を加える。財務/masterの再読取や再計算をせず、その結果内の固定履歴を投影し、別runの新規検証keyへ保存する。
+既存の非公開受入結果だけからL3投影のbytes/時間を測る場合は、同じ手動入力に `-f company_growth_saved_run='<RUN>-<ATTEMPT>/<HEAD>'` を加える。公開済みのActions実行identityから内部で検証keyを解決し、個別keyをworkflow入力/envへ渡さない。財務/masterの再読取や再計算をせず、その結果内の固定履歴を投影し、別runの新規検証keyへ保存する。
 
 `tools.company_growth_acceptance` がproduction currentを一度固定し、財務/masterのParquetと必要manifestだけを既存lake cacheへ配置する。4502・7201・6758・8306・9983の5社について保持全期間と直近最大12会計期を読み、既存 `tools.company_growth_sample` で原数値と薄い表を作る。12期は試験窓であって保存/公開queryの上限ではない。8期に満たない対象は不足として返す。表示窓不変性、企業別query時間、12期/全期間/薄い表のJSON bytesを記録し、L3効果の判定は主担当の原本・対照比較に残す。
 
-公開logは件数・時間・bytes・成否と検証result keyだけ。原本・原数値をActions artifactやGitへ出さない。詳細結果は `baibai-stores/validation/company-growth/pr-1592/<run>-<attempt>/<head>/report.json` に `If-None-Match` で新規保存し、receiptと読戻しdigestを照合する。既存キーには書けない。runnerの一時コピーは終了時に削除する。
+公開logは件数・時間・bytes・成否だけ。原本・原数値と個別の非公開保存キー/digestをActions log・artifact・Gitへ出さない。詳細結果は同じ非公開R2の検証用新規keyへ `If-None-Match` で保存し、receiptと読戻しdigestを照合する。既存キーには書けない。runnerの一時コピーは終了時に削除する。
 
-主担当は公開要約の `private_result_key` を使い、既存の認可されたR2読取環境で結果を一時ファイルへ取得する。秘密・endpointをログへ表示せず、結果ファイルを公開repoへcommitしない。
+主担当は非公開タスク会話で返した検証keyを使い、既存の認可されたR2読取環境で結果を一時ファイルへ取得する。keyはCI run/attempt/headに対応する。秘密・endpointをログへ表示せず、結果ファイルを公開repoへcommitしない。
 
 ```bash
 AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" \
@@ -123,5 +123,5 @@ Parquetの一時コピーは22 objects / 39137424 bytes、準備は13.715秒だ�
 
 完全結果は12期でも約135〜160KB/社で、薄い表は約3.4〜3.8KBだった。この結果から通常L3表示を直近12期の薄い投影へ絞る。完全保存と要求範囲は維持し、bytesの差だけで成長L2の便益を認定しない。既存YoY等を残した対照・薄い表とのL3比較、原本値/期間/単位の独立照合、実際のprompt使用量は主担当の残受入とする。
 
-非公開結果は `baibai-stores/validation/company-growth/pr-1592/40082788945-1/bc625286631e1e7072d9538f8440d873f763ebee/report.json`。3302196 bytes、SHA-256 `2dc4fd1c3ae929a2ad76af55e38d7a8a14603dff7849a95c48502c675927f5f3`。条件付き新規保存と読戻しdigest一致を確認し、runnerの一時コピーを削除した。公開log・artifact・Gitへ原本/原数値は出していない。
+非公開結果は3302196 bytes。条件付き新規保存と読戻しdigest一致を確認し、runnerの一時コピーを削除した。個別の保存key/digestは非公開タスク会話で主担当へ渡す。原本/原数値を公開log・artifact・Gitへ出していない。
 
