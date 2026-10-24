@@ -30,14 +30,14 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 
 ## 退出価値の測定規約
 
-成立した現金TOBの1株価格は、廃止後の市場終値がない窓の退出代理値に使う。成立と価格は観測事実でも、廃止日にその値で退出した扱いは測定規約。実約定・受領日・非応募者の最終対価の証明ではない。JPXの買収/併合等の理由は資料確認の入口で、現金対価の証明にしない。対象・訂正・取下げ・親案件・成立・株式basisを確定できなければ未解決に残す。[導入比較](../../reports/studies/2026-08-11-capital-control-exit-values/report.md)を参照する。
+成立した現金TOBの1株価格は、廃止後の市場終値がない窓の退出代理値に使う。成立と価格は観測事実でも、廃止日にその値で退出した扱いは測定規約。実約定・受領日・非応募者の最終対価の証明ではない。JPXの買収/併合等の理由は資料確認の入口で、現金対価の証明にしない。対象・訂正・取下げ・親案件・成立・株式basisを確定できなければ未解決に残す。[導入比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-11-capital-control-exit-values/report.md)を参照する。
 
 破綻型理由の退出は最終市場終値で測る。理由だけで倒産・無価値と認定せず、最終回収価値や実売却代金と呼ばない。買収と分類できないもの、廃止後の取引や複数退出で曖昧な窓は未解決に残す。長期停止による価格と回収の乖離は理由だけでは確定できない。
 
 <a id="er-level-distribution-context"></a>
 ## 判断へ渡す歴史分布
 
-最新文脈はreports/published/er-level-calibration-latest.yaml。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
+配布文脈はValuation近接の[published YAML](../../engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
 
 結果が観測できた集合から予測帯を作らず、宣言した有限ER全対象から固定境界を求め、同じ境界で両horizon・basisと現在候補を分類する。未評価を0損益へ入れず、観測なしの分布はnull。ticker-asof等重みとcohort等重み、宣言/観測月数、各母数を区別する。固定8.5%帯は比較座標で、[L3の要求率](../doctrine.md#required-return-policy)に連動させない。
 
@@ -45,7 +45,9 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 
 必要時だけresearch calibration-contextで固定Operationを指定する。古いrunへ現行artifactを付け替えず、不足・formal completenessと利用不能理由を合わせて読む。YAMLを手編集して生成日・hashだけ更新しない。
 
-現行methodの再生成は[10月21日](../../reports/studies/2026-10-21-current-calibration-context/report.md)、同じcacheの対象metric別再評価と外部情報の用途採否は[10月22日](../../reports/studies/2026-10-22-decision-quality-closure/report.md)にある。過去artifactのbytesと当時の方法を現行値へ付け替えない。
+固定v43標本には粗い順位の研究材料があるが、未解決対価・配当basis・過去入力/PITと実行可能価格の制約が残り、期待リターンの数値較正や買い閾値には採用しない。少数の公式原本を回復できても全面backfillの便益は未確認で、目的と必要入力を限定する。手計算感度でformal gateを上書きしない。[v43の採否](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-23-v43-evidence-decision/report.md)と[回復pilot](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-23-historical-recovery-pilot/report.md)に詳細を残す。
+
+[再生成](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-21-current-calibration-context/report.md)と[対象metric別の再評価](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は当時の入力・方法の記録である。過去artifactのbytesと当時の方法を現行値へ付け替えない。
 
 ## methodと再構築
 
@@ -59,12 +61,7 @@ calibrationは再生成可能なローカルsnapshot。generation graph・remote
 
 pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用variant。別calibration directoryを必須とし、variantと窓をidentityへ含める。productionの750-sessionと違うためformal empirical evidenceへ使えない。実効観測本数も確認し、短い履歴をfull-windowとしない。この診断契約は維持する。
 
-```bash
-uv run baibai-engine screening calibration-build \
-  --start 2018-03-01 --end 2019-10-31 \
-  --calibration-dir stores/screening/calibration/variants/pre2019 \
-  --panel-variant pre2019_self_range_375 --force
-```
+操作例は[較正の運用](../../batch/OPERATIONS.md#定期maintenance)に置く。
 
 ## 方法を変える判断
 

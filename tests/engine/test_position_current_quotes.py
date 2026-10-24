@@ -300,3 +300,49 @@ def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
     assert (
         active_human_overrides(saved.overrides, as_of=saved.as_of)[("ticker", "2331")] == override
     )
+
+
+@pytest.mark.parametrize(
+    ("offset", "first_index", "last_index"),
+    [(0, None, None), (1, 0, 0), (2, 0, 1), (3, None, 2), (4, 3, 3)],
+)
+def test_holding_episode_tracks_partial_sale_full_exit_and_reentry(offset, first_index, last_index):
+    from baibai_engine.position.ledger import (
+        ExecutionEvent,
+        OpeningBalanceEvent,
+        PortfolioLedgerDocument,
+    )
+    from baibai_engine.position.valuation import holding_episode
+
+    trades = tuple(
+        ExecutionEvent(
+            type="execution",
+            event_id=f"trade-{index}",
+            execution_id=f"fill-{index}",
+            occurred_at=NOW + timedelta(days=index + 1),
+            ticker="2331",
+            side=side,
+            quantity=quantity,
+            price_yen=Decimal(1000),
+            sector="test",
+        )
+        for index, (side, quantity) in enumerate(
+            [("buy", 200), ("sell", 100), ("sell", 100), ("buy", 100)]
+        )
+    )
+    ledger = PortfolioLedgerDocument(
+        schema_version=3,
+        portfolio_scope="repository_only",
+        as_of=NOW + timedelta(days=4),
+        events=(
+            OpeningBalanceEvent(
+                type="opening_balance", event_id="cash", occurred_at=NOW, amount_yen=1000000
+            ),
+            *trades,
+        ),
+    )
+    assert holding_episode(ledger, "2331", NOW + timedelta(days=offset)) == (
+        None if first_index is None else trades[first_index],
+        None if last_index is None else trades[last_index].occurred_at,
+    )
+    assert holding_episode(ledger, "9999", ledger.as_of) == (None, None)

@@ -95,7 +95,7 @@ export function SecurityDetailPage() {
 
   if (notFound) return <PageState back message="この銘柄の記録はありません" mono title={`404 / ${ticker}`} />
   if (error) return <PageState message={error} mono title={ticker} />
-  if (!data) return <LoadingPage label={`${ticker} の銘柄情報を読み込んでいます`} />
+  if (!data || data.ticker !== ticker) return <LoadingPage label={`${ticker} の銘柄情報を読み込んでいます`} />
 
   const assessment = data.latest_assessment
   const averageCostYen = data.holding && data.holding.quantity !== 0
@@ -138,7 +138,7 @@ export function SecurityDetailPage() {
               <dl className="grid gap-4 sm:grid-cols-3">
                 <Field label="企業評価"><span>{STANCE_LABELS[assessment.revision.stance] ?? assessment.revision.stance}</span></Field>
                 <Field label="評価状態"><span>{assessment.revision.status}</span></Field>
-                <Field label="Pmax（原評価・丸め前）"><YenAmount value={assessment.revision.pmax_original_yen} /></Field>
+                <Field label="Pmax（原評価）"><YenAmount value={assessment.revision.pmax_original_yen} /></Field>
               </dl>
               <p className="text-sm text-muted-foreground">supported は評価の根拠が確認された結論です。購入提案・採否・実約定は別に確認します。</p>
               <ReviewedAssessmentContent document={assessment.document} projection={assessment.projection} review={assessment.review} />

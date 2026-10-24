@@ -7,7 +7,9 @@ MARKET_DB_PATH = Path("stores/market/market.sqlite")
 RUNS_DB_PATH = Path("stores/screening/runs.sqlite")
 INDICATORS_DB_PATH = Path("stores/market_context/indicators.sqlite")
 CALIBRATION_DIR = Path("stores/screening/calibration")
-ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path("reports/published/er-level-calibration-latest.yaml")
+ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path(
+    "engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
+)
 SCREENING_RULES_PATH = Path("method/screening/rules/2026-10-16T133000+0900.yaml")
 READING_RULES_PATH = Path("method/macro/reading/2026-08-01T100000+0900.yaml")
 

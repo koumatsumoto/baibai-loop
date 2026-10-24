@@ -80,6 +80,7 @@ packages = [
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
+"engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml" = "baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
 "engine/src/baibai_engine/collection/economic/sources.yaml" = "baibai_engine/collection/economic/sources.yaml"
 "engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
 "engine/src/baibai_engine/collection/economic/store.sql" = "baibai_engine/collection/economic/store.sql"
@@ -213,7 +214,7 @@ exclude_dirs = ["/tests/", "/.venv/"]
 skips = ["B101"]
 
 # Import-direction contracts encode the subsystem dependency DAG
-# (Valuation / Market Context / External Assessment / Screening / Position / Research / shared) so a structural edit that
+# (five analysis domains / Screening / Position / Research / shared) so a structural edit that
 # reintroduces a cross-subsystem edge fails CI rather than passing every other gate.
 [tool.importlinter]
 root_packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]
@@ -325,7 +326,7 @@ forbidden_modules = ["baibai_engine.research"]
 [[tool.importlinter.contracts]]
 name = "research composes explicit domain reads and portfolio judgments"
 type = "forbidden"
-# Three-domain composition uses saved query boundaries; direct acquisition is forbidden.
+# Research composes the five analysis domains through saved query boundaries; no acquisition.
 source_modules = ["baibai_engine.research"]
 forbidden_modules = [
 

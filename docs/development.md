@@ -40,6 +40,6 @@ domainの契約はownerのtest、CLI・Batch・Webは入出力と接続を検証
 
 必要な実store・provider確認は合成fixtureと分ける。指標・取得・Reading methodを変えた場合の観測store確認は[運用](../batch/OPERATIONS.md#指標観測とregistryの修正)へ進む。L2入力確認にL3全履歴の先行検査は要求しない。文書だけの変更でlive取得や本番再発行をしない。
 
-R2 acceptanceは外部への書込・削除を伴う。明示依頼された専用の空bucketとcredentialがある場合だけ、既存integration testの設定に従う。通常CIのskipを本番受入成功と扱わない。
+R2ストレージのintegration testは外部への書込・削除を伴うため、明示依頼された専用の空bucketとcredentialがある場合だけ実行する。既存本番データを読む有限の受入とは別で、そちらも対象・保存先・書込範囲を明示して実施する。通常CIのskipを本番受入成功と扱わない。
 
 検証・提出では実行済み、失敗、未実行と残る限界を示す。通常変更に別の承認手順・検査台帳・全domain再検証を追加しない。

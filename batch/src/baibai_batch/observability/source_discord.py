@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from .discord import DEFAULT_TIMEOUT_SECONDS, deliver, executor_label, run_url, sanitize_one_line
 
@@ -18,8 +19,12 @@ def main() -> int:
         f"\nexecutor: {executor_label(os.environ)}\nrun: {run_url(os.environ)}"
     )
     print(message, flush=True)
-    if acquired in {"failure", "cancelled"} or staged == "failure":
-        deliver(os.environ.get("DISCORD_WEBHOOK_URL", ""), message, timeout=DEFAULT_TIMEOUT_SECONDS)
+    if acquired in {"failure", "cancelled"} or staged in {"failure", "cancelled"}:
+        failure = deliver(
+            os.environ.get("DISCORD_WEBHOOK_URL", ""), message, timeout=DEFAULT_TIMEOUT_SECONDS
+        )
+        if failure is not None:
+            print(f"source notification failed: {failure}", file=sys.stderr)
     return 0
 
 

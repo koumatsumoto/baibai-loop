@@ -7,11 +7,16 @@
 
 機械E[r]は倍率収束とcarryによるsecondary prior。四Approachの候補membership・順位、AI調査の優先度、企業固有の価値を所有しない。年率ratio、成分、入力basis、anchor・係数・clipの前提と一緒に読む。機械の5年priorは企業評価の期間を固定しない。
 
-carryの配当・グロス株数変化が欠測なら計算上の寄与は0になるが、無配・株数不変を観測した意味ではない。元のnullable入力と欠測仮定を示す。株数減少は消却・発行等を含む過去の変化で、自己株取得の実行cash・未消化枠・将来還元ではない。
+carryの配当・グロス株数変化が欠測なら計算上の寄与は0になるが、無配・株数不変を観測した意味ではない。元のnullable入力と欠測仮定を示す。予想DPS spike guardは一回性の分配を反復carryへ入れる影響を限定するため採用したが、当時の長期比較は盲検の閾値検証ではなく、5y top5 trap悪化の受容を含む。[採用時の制約](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-30-dividend-carry-spike-guard/report.md)は将来成績の保証ではない。株数減少は消却・発行等を含む過去の変化で、自己株取得の実行cash・未消化枠・将来還元ではない。
 
 業種中央値anchorと自己レンジanchorは機械比較値で、企業の期間内分配・将来終価・現在価値とは別である。Stock Assessmentへ重複転記せず、保存run・時点とともに引用する。保存fieldの不在、明示null、0を混ぜず、旧snapshotへ後付けして再発行しない。
 
 保存済み照会は選択runの値を読む。論理as-of cutoffで選ぶrunは後日生成した過去replayもあり、当時既知の保証ではない。対象runなし・run内tickerなし・計算不能を区別し、古い値や候補一覧で埋めない。企業の条件付き算術は[Stock Assessment](stock-assessment.md#scenario-arithmetic)、歴史分布は[較正](estimate-calibration.md)。
+
+<a id="carry-policy"></a>
+### 機械priorの採否
+
+carryはグロス株数変化を維持する。自己株控除後の変化は別のfactとして残すが、当時の比較はrank ICが劣り、分位差も時間分割で反転し、置換を支持しなかった。較正の実現率引上げとupside/buyback cap拡張も両horizonの改善を確認できず採らない。これは将来の有効性を否定する判定ではない。詳細は固定した[株数比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-17-tradable-share-change/report.md)、[実現率](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-01-er-level-calibration/report.md)、[cap比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-10-er-distribution-context-v2/report.md)に残す。
 
 ## 会社予想と実績期間
 
@@ -25,7 +30,7 @@ carryの配当・グロス株数変化が欠測なら計算上の寄与は0に�
 
 合成は円総額で行い、1株換算は最後に一度だけ行う。各期EPSは異なる平均株数で割られており、EPSの和差では株式数が変わった企業を誤る。FinancialSnapshotのEPSは時価総額と同じ自己株控除後分母で組み直した値で、会社開示の期中平均株数EPSとは別である。
 
-3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。Normalized Earningsの探索に使うが機械ER/FV anchorへ投入しない。必要年度の不正・欠測を古い年度で埋めない。
+3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。Normalized Earningsの探索に使うが機械ER/FV anchorへ投入しない。後者は長期比較で増分効果を支持せず、[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。必要年度の不正・欠測を古い年度で埋めない。
 
 YoYは同じ会計期間・利益field・連結区分を比較し、直前開示とのQoQを読み替えない。比較不能のnullは改善なしではない。負の前年利益の比率符号だけで改善を読まず、赤字縮小を別に扱う。表示用の選択利益に経常/純利益fallbackがあっても、ReinvestmentのTTM営業利益を代替しない。後者のcapital-return proxyは厳密な税引後ROICではない。
 
@@ -68,6 +73,8 @@ basis未解決と無配・未観測を分け、独立して使える予想まで
 業種中央値はCandidate Discoveryの共通資格母集団で作る。母数下限は少数の中央値へ依存しすぎないための慣例で、経済的最適値ではない。軸ごとの欠測が異なるので業種/市場fallbackも軸ごとに異なる。market fallbackのgapを「同業より割安」と読まず、構成の違いとbasisを併記する。
 
 自己レンジは**現在fundamentalsを固定し、過去価格だけを動かした倍率比較**。各日の当時利益・資本から再現した倍率履歴ではない。min/max内の位置は観測順位のpercentileではなく、短い履歴の位置0も長期割安の証拠ではない。bar本数、履歴期間proxy、scope内の相対密度を合わせて読む。密度は取引calendarの完全性を証明しない。
+
+真の倍率履歴anchorへの置換は、必要な5y確認窓が成立せず[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-17-self-range-vs-multiple-history/report.md)とした。
 
 価格調整はraw closeとfactorからas-of basisを作り、取得世代の異なるprovider調整済み価格を接続しない。価格日より後のfactorを使い、権利落ち日当日に二重適用しない。factor0をイベントなしとせず、正の有限係数を要求する。
 

@@ -7,7 +7,7 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_engine.market.adjusted_prices import close_change_since
+from baibai_engine.market.adjusted_prices import close_change_since, read_price_bars
 from baibai_engine.market.jquants_decode import (
     JQuantsProviderError,
     normalize_adjustment_factor_event,
@@ -103,9 +103,47 @@ def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, fa
             "SELECT adjustment_factor FROM jquants_daily_bars WHERE traded_at = ?",
             (day.isoformat(),),
         ).fetchone() == (factor,)
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(JQuantsProviderError, match="1301 on 2026-10-14"):
             _load_ticker_adjustment_events(connection, "1301", start=start)
     with pytest.raises(JQuantsProviderError, match="positive"):
         read_adjustment_factor_bars(database, start, day)
     with pytest.raises(ValueError, match="positive"):
         close_change_since(database, ["1301"], since=start)
+
+
+@pytest.mark.parametrize("kind", ["1", "2", "3", "unknown"])
+@pytest.mark.parametrize("close", [None, 100.0])
+def test_adjusted_readers_reject_reported_action_without_factor(tmp_path, kind, close):
+    start, action, end = date(2026, 10, 13), date(2026, 10, 14), date(2026, 10, 15)
+    database = tmp_path / "market.sqlite"
+    rows = [
+        {"Code": "13010", "Date": start.isoformat(), "C": 200.0, "AdjFactor": 1.0},
+        {"Code": "13010", "Date": action.isoformat(), "C": close, "AdjFactor": None, "ExRT": kind},
+        {"Code": "13010", "Date": end.isoformat(), "C": 100.0, "AdjFactor": 1.0},
+    ]
+    store_jquants_daily_bars(database, rows, requested_start=start, requested_end=end)
+    before = database.read_bytes()
+    with pytest.raises(JQuantsProviderError, match="no usable adjustment factor"):
+        read_price_bars(database, tickers=("1301",), start=start, end=end)
+    with pytest.raises(JQuantsProviderError, match="no usable adjustment factor"):
+        close_change_since(database, ["1301"], since=start)
+    assert database.read_bytes() == before
+
+
+def test_adjusted_readers_keep_ordinary_null_factor_and_zero_change(tmp_path):
+    start, end = date(2026, 10, 13), date(2026, 10, 14)
+    database = tmp_path / "market.sqlite"
+    store_jquants_daily_bars(
+        database,
+        [
+            {"Code": "13010", "Date": day.isoformat(), "C": 100.0, "AdjFactor": None}
+            for day in (start, end)
+        ],
+        requested_start=start,
+        requested_end=end,
+    )
+    assert [bar.price for bar in read_price_bars(database, start=start, end=end)["1301"]] == [
+        100.0,
+        100.0,
+    ]
+    assert close_change_since(database, ["1301"], since=start) == {"1301": 0.0}

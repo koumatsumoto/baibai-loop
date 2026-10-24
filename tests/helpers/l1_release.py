@@ -8,7 +8,9 @@ actual Parquet from a small SQLite store for row-level reader tests.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from collections.abc import Sequence
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -36,6 +38,7 @@ from baibai_engine.storage.lake.models import (
 from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.coverage import record_range_source_coverage
+from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from tests.helpers.lake_policy import narrow_release_policy
 
@@ -281,3 +284,59 @@ def lake(tmp_path, monkeypatch):
     current.parent.mkdir(parents=True)
     current.write_bytes(canonical_lake_model_bytes(pointer))
     return mirror, pointer
+
+
+def publish_market_fixture(path: Path, release: str, *, created_at: datetime) -> None:
+    """Pin real financial/master/price Parquet for synthetic read and integration cases."""
+    mirror = path.parent / "mirror"
+    dataset_tables = {
+        "jquants.fin_summaries": "jquants_fin_summaries",
+        "jquants.master_snapshots": "jquants_master_snapshots",
+        "jquants.daily_bars": "jquants_daily_bars",
+    }
+    with closing(sqlite3.connect(path)) as connection:
+        present = [
+            name
+            for name, table in dataset_tables.items()
+            if connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        ]
+    with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
+        reports = [
+            export_dataset_snapshot(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit="a" * 40,
+                source_snapshot=snapshot,
+                build_id=release + "-" + name.replace(".", "-"),
+                created_at=created_at.astimezone(UTC),
+            )
+            for name in present
+        ]
+    # A pinned fixture release needs no current/production policy substitution.
+    manifest = ReleaseManifest(
+        manifest_version=2,
+        release_id=release,
+        profile="production",
+        created_at=created_at.astimezone(UTC),
+        data_as_of=min(report.manifest.data_as_of for report in reports),
+        datasets={
+            report.manifest.dataset: ReleaseDataset(
+                build_id=report.manifest.build_id,
+                layer=report.manifest.layer,
+                contract_version=report.manifest.contract_version,
+                manifest_sha256=hashlib.sha256(report.manifest_path.read_bytes()).hexdigest(),
+                data_as_of=report.manifest.data_as_of,
+                coverage_status=report.manifest.coverage_status,
+                totals=report.manifest.totals,
+            )
+            for report in reports
+        },
+    )
+    payload = canonical_lake_model_bytes(manifest)
+    target = mirror / release_manifest_key(release_id=release)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        write_lake_store_origin(
+            connection, LakeStoreOrigin(release, hashlib.sha256(payload).hexdigest())
+        )

@@ -15,6 +15,7 @@ from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents
 from baibai_engine.market.price_basis import asof_basis_closes, asof_basis_prices
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.price_reader import _adjustment_events_from_rows
 from baibai_engine.valuation.metrics.dividends import _dividend_basis_requires_resolution
 from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
 
@@ -87,8 +88,8 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
 # A delisted window may use the verified cash offer price as an analytical exit proxy.
 # Keep a distinct status: this is neither a target-date market close nor proof of an
-# individual shareholder's cash receipt. Historical rules and measurements are in
-# reports/studies/2026-08-11-capital-control-exit-values/.
+# individual shareholder's cash receipt. Measurement meaning and limits are in
+# docs/reference/estimate-calibration.md.
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
 
 # A qualifying failure delisting uses the last traded close as its exit observation.
@@ -641,20 +642,12 @@ def _load_ticker_adjustment_events(
     conn: sqlite3.Connection, ticker: str, *, start: date
 ) -> list[JQuantsAdjustmentFactorEvent]:
     rows = conn.execute(
-        "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
+        "SELECT ticker, traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
         "WHERE ticker = ? AND traded_at >= ? "
         "AND (adjustment_factor != 1.0 OR ex_right_type IS NOT NULL) ORDER BY traded_at",
         (ticker, start.isoformat()),
     ).fetchall()
-    return [
-        JQuantsAdjustmentFactorEvent(
-            ticker=ticker,
-            traded_at=date.fromisoformat(str(day)),
-            adjustment_factor=float(factor),
-            ex_right_type=ex_right_type,
-        )
-        for day, factor, ex_right_type in rows
-    ]
+    return _adjustment_events_from_rows(rows)
 
 
 def _load_fy_dividends(

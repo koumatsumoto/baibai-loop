@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from baibai_batch.jobs.external_assessment_publication import (
-    PreparedPublication,
-    prepare_saved_stages,
-)
+from baibai_batch.jobs.external_assessment_cohorts import RunPlan, summarize
 from baibai_batch.storage.external_assessment_staging import (
+    CohortStage,
     load_stage,
     prefix,
     put_private,
     read_plan,
     read_private,
+    read_stages,
     read_terminal,
     stage_bytes,
 )
@@ -23,7 +23,44 @@ from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 from baibai_batch.storage.source_receipts import ReceiptStore
 
 
-def save_ready(store: ObjectStore, item: PreparedPublication) -> dict[str, str]:
+@dataclass(frozen=True)
+class PreparedPlan:
+    plan: RunPlan
+    stages: dict[int, tuple[CohortStage, str]]
+    accounting: dict[str, object]
+    confirmed_partial: bool
+
+
+def prepare_plan(
+    store: ObjectStore, plan: RunPlan, *, confirmed_partial: bool = False
+) -> PreparedPlan:
+    """Validate one exact plan's handoff without importing or publishing anything."""
+    return prepare_saved_stages(plan, read_stages(store, plan), confirmed_partial=confirmed_partial)
+
+
+def prepare_saved_stages(
+    plan: RunPlan, stages: dict[int, tuple[CohortStage, str]], *, confirmed_partial: bool = False
+) -> PreparedPlan:
+    """Apply the same exact/partial checks to an immutable stage selection."""
+    results = [stage.result for stage, _ in stages.values()]
+    if not confirmed_partial and any(
+        entry.http_status in {403, 429} for result in results for entry in result.entries
+    ):
+        raise ValueError(
+            "blocked provider response requires explicit confirmed partial publication"
+        )
+    accounting = summarize(plan, results, require_all=not confirmed_partial)
+    if not confirmed_partial and not accounting["attempted_completeness"]:
+        raise ValueError("external assessment publication requires all fixed pairs attempted")
+    staged_observations = tuple(item for result in results for item in result.observations)
+    if confirmed_partial and not staged_observations:
+        raise ValueError(
+            "external assessment partial publication requires confirmed typed observations"
+        )
+    return PreparedPlan(plan, stages, accounting, confirmed_partial)
+
+
+def save_ready(store: ObjectStore, item: PreparedPlan) -> dict[str, str]:
     plan = item.plan
     stages = []
     for index, (stage, _) in sorted(item.stages.items()):
@@ -59,7 +96,7 @@ def save_ready(store: ObjectStore, item: PreparedPublication) -> dict[str, str]:
     return {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}
 
 
-def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPublication:
+def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPlan:
     saved = read_private(store, reference["key"])
     if saved is None or hashlib.sha256(saved.payload).hexdigest() != reference["sha256"]:
         raise ValueError("fixed external ready selection changed")

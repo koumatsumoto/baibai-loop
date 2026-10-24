@@ -7,6 +7,8 @@ description: 人間の明示開始から有限対象を選び、企業評価・�
 
 ## 開始と固定対象
 
+既存Operationの続きは[完了と再開](#完了と再開)へ進み、新しいSelectionを作らない。
+
 通常の「投資提案して」は`discover_new`、候補外も含む銘柄指定は`specified_stocks`、保有見直しは`review_positions`。同じ依頼で選定から具体提案まで進め、全候補Triageや人間による事前銘柄選択は要求しない。newとholdingを混ぜず、追加買付依頼は[現行方針](../../../docs/doctrine.md#investment-strategy)と照合する。
 
 ```bash
@@ -17,7 +19,7 @@ uv run baibai-engine research selection-context \
 
 指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、五領域・保有・既存調査を比較する。必要な候補外の対照も同じ固定runから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。
 
-企業成長L2の原系列はJ-Quants財務サマリーを使う。L3でEBITDAの構成・減価償却等を詳しく調べる場合はEDINET原典へ戻り、期間・科目・連結基準を照合する。EDINET詳細抽出を成長L2の実行条件にはしない。企業成長は配置済みの固定release mirrorを読む。別配置ならprepareの `--company-growth-mirror` で指定し、mirror不足を作業SQLiteの更新行で代替しない。企業成長の会計期末範囲は、問いに応じてdraftの `company_growth_start` / `company_growth_end` へ指定できる。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)を確認し、PER/peerの未提供やcoverage未確認を企業価値のInputGapへ加えない。
+企業成長の会計期末範囲は問いに応じてdraftの `company_growth_start` / `company_growth_end` へ指定する。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)を読み、mirrorは[入力準備](../../../batch/OPERATIONS.md#research-input-preparation)に従う。
 
 contextのrun・Research日・cutoff・requestをdraftへ引き継ぎ、対象と問い、選定理由、比較した代替と未確認の範囲を記す。runを別途読む時はcontextとrevision・analysis日が一致し、run_atがcutoff以前であることを確認する。全runをLLMへ一括投入しない。
 
@@ -29,18 +31,18 @@ uv run baibai-engine research prepare \
   --workspace .cache/research/<ASOF> --sqlite-path stores/market/market.sqlite
 ```
 
-Operationが対象・問い・唯一の入力snapshotを保持し、`domain-inputs.yaml`はその読取投影となる。新しい資料は評価のsourcesへ加え、開始入力へ挿入しない。固定は全入力のintraday PIT再現を保証しない。観測日、公表/受領cutoff、Readingのread_semantics、正式評価日を区別する。
+Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料は評価のsourcesへ加え、開始入力へ挿入しない。時点の制約は[入力の意味](../../../docs/reference/data-sources.md)と[Reading](../../../docs/reference/market-context.md#reading)に従う。
 
-企業成長の通常投影は保存済み結果の直近12会計期をFY/累計の薄い表と既存YoYで示す。保存結果とdraftの要求範囲は削らない。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げる。既存workspaceの切替は `--force` を付け、`full_result_ref` の完全結果は同じOperationの保存Selectionから読む。四半期単独・TTM・BS/CFは完全結果に残り、FY/累計を単独四半期と読まない。
+企業成長の通常表示と完全結果の関係は[Research投影](../../../docs/reference/company-growth.md#researchと拡張)に従う。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げ、`operation --db <APPLICATION_DB> --format json show <ID>` の `payload.artifacts` 内の `kind=research_selection` を読み、`full_result_ref` から完全結果を辿る。既存workspaceの切替は[再開手順](#完了と再開)の `--force` を使う。
 
 ## 評価と独立Review
 
 1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。
-2. 事業・資本・分配・期間からmodelと要求率を選び、Base/Downsideと最強反証を組み立てる。数値計算には`research calculate <INPUTS>`を使える。PDFの抽出が空・崩れた場合は原ページへ戻り、記載なしやゼロとしない。
+2. [条件付き価値](../../../docs/reference/stock-assessment.md#scenario-arithmetic)を組み立て、数値計算には`research calculate <INPUTS>`を使える。PDFの抽出が空・崩れた場合は原ページへ戻り、記載なしやゼロとしない。
 3. `research assessment-evaluate <DRAFT>`で確認する。`research assessment-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`からReviewを準備し、作者と別の作業者が原典・仮定・算術・反証を検討する。作者の入力や出力のコピーを独立検算としない。
 4. `research assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`research assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。
 
-別日に当日算術を使う場合は`assessment-scaffold --from-assessment-id <ID>`で差分draftを作る。根拠の元日付を保ち、残る期間・今後分配・株式単位と今回の理由を確認して新しいReviewを取る。旧horizonの自動延長や受取済み分配の持越しはしない。
+別日の当日算術は`assessment-scaffold --from-assessment-id <ID>`から[差分refresh](../../../docs/reference/stock-assessment.md#assessment-refresh)を作り、新しいReviewを取る。
 
 ## 全対象の提案
 
@@ -56,14 +58,14 @@ uv run baibai-engine research proposal-scaffold \
   --operation-id <OPERATION_ID> --proposal-id investment-proposal-<UUID> --out <DRAFT>
 ```
 
-[Investment Proposal](../../../docs/reference/investment-proposal.md)に従い全固定対象を被覆する。完成した比較によるno_actionと、調査・条件不足のdeferを分ける。実quoteと試算limit、保存条件と現在previewを区別する。0対象では空Proposalを作らず、選定理由を保って終了する。
+[Investment Proposal](../../../docs/reference/investment-proposal.md)に従い全固定対象を被覆する。0対象では空Proposalを作らず、選定理由を保って終了する。
 
 ```bash
 uv run baibai-engine research proposal-check <DRAFT> --db stores/application/baibai.sqlite
 uv run baibai-engine research proposal-publish <REVIEWED_DRAFT> --db stores/application/baibai.sqlite
 ```
 
-checkのvalidとreview_bindingを別に読み、作者と別の作業者が正規modelのdraft_sha256へ内容Reviewを束縛する。staleやfile hashで代用しない。入力事実が変わればsnapshotとReviewを取り直す。公開後の`proposal-preview --proposal-id <ID>`は現在再試算で、保存提案・取引事実を更新しない。
+checkのvalidとreview_bindingを別に読み、作者と別の作業者が正規modelのdraft_sha256へ内容Reviewを束縛する。[Review・保存・preview](../../../docs/reference/investment-proposal.md#publication-review)に従い、入力事実が変わればsnapshotとReviewを取り直す。
 
 ## 完了と再開
 

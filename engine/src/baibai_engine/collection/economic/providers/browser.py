@@ -71,19 +71,10 @@ def _browser_environment(
 
 
 class BrowserFetcher:
-    """Lazily-launched headless Chromium for WAF-gated fetches.
+    """Shared browser for public downloads and rendered HTML.
 
-    Each caller needs a different result: the PMI provider downloads a release
-    PDF (:meth:`fetch_pdf`), the FRB H.15 provider downloads a CSV
-    (:meth:`fetch_download`), and the manifest append reads the press-release
-    index (:meth:`fetch_html`). All fall back here after the plain client is
-    answered with a challenge page or an empty body.
-
-    The browser starts on first use and is reused for every fetch in the run, so
-    a batch that refreshes several browser-backed series pays one launch. All
-    Playwright errors surface as :class:`IndicatorsProviderError` so the CLI and
-    daily batch never leak a raw traceback and treat a browser failure like any
-    other provider failure (retryable / deferred).
+    Callers choose whether browser transport is permitted and validate content.
+    The PMI receiver uses direct HTTP, not this browser.
     """
 
     def __init__(self) -> None:

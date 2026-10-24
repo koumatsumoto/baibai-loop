@@ -11,8 +11,6 @@ from typing import cast
 import yaml
 
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.position.ledger import replay_events_through
-from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.assessment import (
     AssessmentReview,
     StockAssessmentDocument,
@@ -22,34 +20,11 @@ from baibai_engine.research.assessment import (
 )
 from baibai_engine.research.inputs import project_research_inputs
 from baibai_engine.research.selection import ResearchSelection
-from baibai_engine.research.workspace.admission import workspace_selection
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
     _load_mapping,
-    _string_or_none,
 )
-
-
-def _verify_external_inputs(
-    manifest: Mapping[str, object], *, db_path: Path | None = None
-) -> ResearchSelection:
-    selection = workspace_selection(manifest, db_path=db_path)
-    if manifest.get("holding_ticker") is not None:
-        _require_holding_subject(manifest, db_path=db_path)
-    return selection
-
-
-def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
-    """Confirm that the editable workspace still names an actual holding."""
-
-    ticker = _string_or_none(manifest.get("holding_ticker"))
-    if ticker is None:
-        raise ResearchWorkspaceDataError("holding manifest is missing holding_ticker")
-    ledger, _ = LedgerStoreService(db_path).load_with_head()
-    state = replay_events_through(ledger.events, ledger.as_of)
-    if sum(lot.quantity for lot in state.lots.get(ticker, [])) <= 0:
-        raise ResearchWorkspaceConflictError("holding workspace requires a current holding")
 
 
 def _validate_editable_drafts(

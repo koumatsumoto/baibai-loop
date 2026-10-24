@@ -247,7 +247,7 @@ def build_financial_snapshot(
     # 同じ前年行を、自己株式を除いた株数で測り直したもの。日本の自社株買いは取得した株式を
     # 自己株式へ入れるだけで発行済株式総数を減らさないので、上の量が動くのは主に消却年で
     # あって取得年ではない。当時の比較は既存 carry を維持する結論だった
-    # (reports/studies/2026-08-17-tradable-share-change/)。ここでは両方の fact を出し、
+    # (docs/reference/valuation-metrics.md#carry-policy)。ここでは両方の fact を出し、
     # carry の計算は変えない。
     tradable_share_change_yoy = _yoy_ratio(
         shares_ex_treasury,

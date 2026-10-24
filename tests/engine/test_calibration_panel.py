@@ -169,12 +169,10 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(coverage["policy_exclusion_reason_counts"]["market_out_of_scope"], 1)
 
     def test_the_panel_counts_how_many_names_carry_an_edinet_axis(self) -> None:
-        """A cohort with no EDINET source replays a screen production does not run.
+        """Report how much of the population has usable EDINET-derived coordinates.
 
-        `read_edinet_metrics` returns an empty mapping when the store has no rows for the
-        as-of, and the axes it feeds simply come out null. A cohort at zero therefore
-        measures a different input surface from production, which remains invisible
-        unless the diagnostic count is reported.
+        Missing optional EDINET inputs do not invalidate the population. The count
+        exposes the available evidence without claiming parity with another run.
         """
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -200,7 +198,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 with_edinet.diagnostics.population_size,
             )
 
-    def test_profitability_levels_use_pit_ttm_without_profit_fallback(self) -> None:
+    def test_profitability_levels_respect_disclosure_cutoff_without_profit_fallback(self) -> None:
         summaries = (
             JQuantsFinancialSummary(
                 ticker="9001",
@@ -443,7 +441,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 "incomplete",
             )
 
-    def test_build_panel_replays_valuation_approaches_point_in_time(self) -> None:
+    def test_build_panel_replays_valuation_approaches_from_retained_asof_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)

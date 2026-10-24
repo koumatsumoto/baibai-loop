@@ -5,17 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-import baibai_engine.market_context.indicators.pmi_manifest as tool
-from baibai_engine.collection.economic.providers.base import (
-    FetchContext,
-    IndicatorsProviderError,
-)
-from baibai_engine.collection.economic.providers.spglobal_pmi import (
-    MANIFEST_PATH,
-    load_manifest,
-)
-from baibai_engine.market_context.indicators.pmi_manifest import (
+import tools.pmi_manifest as tool
+from tools.pmi_manifest import (
     STREAM_TITLES,
     IndexEntry,
     ReleaseCandidate,
@@ -26,6 +17,15 @@ from baibai_engine.market_context.indicators.pmi_manifest import (
     parse_release_index,
     resolve_stream,
     verified_value,
+)
+
+from baibai_engine.collection.economic.providers.base import (
+    FetchContext,
+    IndicatorsProviderError,
+)
+from baibai_engine.collection.economic.providers.spglobal_pmi import (
+    MANIFEST_PATH,
+    load_manifest,
 )
 
 _JP_MFG_URL = (
@@ -309,11 +309,7 @@ def test_resolve_stream_reports_a_stream_the_index_stopped_listing(tmp_path: Pat
 
 
 def test_resolve_stream_refuses_to_append_across_a_missing_month(tmp_path: Path) -> None:
-    """The provider's currency guard only looks at the newest manifest month.
-
-    An entry written past a hole satisfies that guard forever, so the skipped months
-    would stop being reported. Refusing keeps the failure visible.
-    """
+    """A current release cannot supply originals for skipped historical months."""
 
     manifest = _manifest_file(tmp_path, _MANIFEST.replace("2026-05-01", "2026-03-01"))
 

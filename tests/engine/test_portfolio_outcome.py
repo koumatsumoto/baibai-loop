@@ -605,3 +605,60 @@ def test_full_sale_does_not_hide_a_corporate_action_on_its_execution_day() -> No
     )
     assert result.status == "unresolved"
     assert result.reason == "corporate_action_unresolved"
+
+
+def test_outcome_cli_publishes_cash_only_after_unfilled_order_without_price_coverage(
+    tmp_path, monkeypatch, capsys
+):
+    import yaml
+    from tests.helpers.screening_sqlite import add_source_coverage
+
+    from baibai_engine.position.store import LedgerStoreService
+
+    # Exercise the CLI's ticker selection, actual calendar reader, calculation and
+    # publication. The confirmed ledger contains a reservation but no acquisition.
+    ledger = _lapsed_reservation_ledger()
+    monkeypatch.setattr(LedgerStoreService, "load", lambda self: ledger)
+    benchmark = _benchmark()
+    observation = tmp_path / "benchmark.yaml"
+    observation.write_text(yaml.safe_dump(benchmark.model_dump(mode="json")), encoding="utf-8")
+    market = tmp_path / "market.sqlite"
+    start, end = benchmark.period_start_date, benchmark.period_end_date
+    days = [date.fromordinal(day) for day in range(start.toordinal(), end.toordinal() + 1)]
+    with closing(open_connection(market)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="fixture-calendar",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(days),
+        )
+    application = tmp_path / "application.sqlite"
+
+    assert (
+        main(
+            [
+                "outcome",
+                "--db",
+                str(application),
+                "--sqlite",
+                str(market),
+                "--benchmark-observation",
+                str(observation),
+            ]
+        )
+        == 0
+    )
+
+    emitted = yaml.safe_load(capsys.readouterr().out)
+    assert emitted["status"] == "resolved"
+    assert emitted["portfolio_twr_pct"] == 0.0
+    saved = list_portfolio_outcome_payloads(application)
+    assert len(saved) == 1
+    assert saved[0]["portfolio_twr_pct"] == 0.0
+    assert saved[0]["ending_holdings_market_value_yen"] == 0

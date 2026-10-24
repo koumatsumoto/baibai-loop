@@ -267,22 +267,26 @@ def test_measurement_reads_the_atomic_current_snapshot(
     """One measurement cannot mix a replacement into its fixed current snapshot."""
 
     directory = calibration_root(tmp_path)
-    for index in range(24):
-        ticker = f"{1000 + index}"
-        publish_panel(directory, "2024-01-31", [liquid_panel_row(ticker, "2024-01-31")])
-        publish_forward(
-            directory,
-            "2024-01-31",
-            [
-                {
-                    "asof": "2024-01-31",
-                    "ticker": ticker,
-                    "horizon": "1y",
-                    "price_return": "0.10",
-                    "status": "resolved",
-                }
-            ],
-        )
+    tickers = [str(1000 + index) for index in range(24)]
+    publish_panel(
+        directory,
+        "2024-01-31",
+        [liquid_panel_row(ticker, "2024-01-31") for ticker in tickers],
+    )
+    publish_forward(
+        directory,
+        "2024-01-31",
+        [
+            {
+                "asof": "2024-01-31",
+                "ticker": ticker,
+                "horizon": "1y",
+                "price_return": "0.10",
+                "status": "resolved",
+            }
+            for ticker in tickers
+        ],
+    )
 
     real = measure_signal_cohorts.require_single_rules_hash
 
@@ -310,6 +314,9 @@ def test_measurement_reads_the_atomic_current_snapshot(
 
     assert payload["panel_asof_start"] == "2024-01-31"
     assert payload["panel_asof_end"] == "2024-01-31"
+    assert payload["panel_rows"] == 24
+    assert _population_group(payload)["resolved_rows"] == 24
+    assert _population_group(payload)["median_annualized_pct"] == pytest.approx(10.0)
     assert payload["calibration_snapshot"] == "current"
 
 

@@ -14,9 +14,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers.master import insert_master_rows
-
-ROOT = Path(__file__).resolve().parents[2]
-
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_engine.foundation.time import JST
@@ -31,9 +28,7 @@ from baibai_engine.storage.observations.schema import open_connection
 
 
 def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
-    """Write the minimum SQLite rows the screening run needs to produce a
-    valid YAML for `asof` without hitting any external provider.
-    """
+    """Seed retained inputs for an offline Screening run publication."""
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(open_connection(sqlite_path)) as conn, conn:
         ticker = "130A"
@@ -107,9 +102,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             "VALUES (?, ?, ?, ?)",
             bars_rows,
         )
-        # Mark the API request bracket the screening run will use; the
-        # The market coverage check tolerates a
-        # single import that contains the full window.
+        # A single retained import covers the full requested analysis window.
         add_source_coverage(
             conn,
             source="jquants_daily_bars",
@@ -169,8 +162,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             max_date=asof.isoformat(),
         )
 
-        # Earnings calendar — at least one normalized row is required; an empty
-        # covered payload is treated as incomplete so read-through can repair it.
+        # Supply a retained earnings announcement; Screening does not fetch missing data.
         earnings_date = asof + timedelta(days=7)
         conn.execute(
             "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",

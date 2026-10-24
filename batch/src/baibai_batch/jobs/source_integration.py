@@ -82,7 +82,7 @@ def apply(
                     raise ValueError("invalid source SQLite receipt") from error
                 if entry["market"]:
                     result = _replay(entry["source"], market, packet, extract=False)
-                    failed = not complete(result)
+                    failed = recovery = not complete(result)
                 else:
                     accepted = packet / "accepted.sqlite"
                     result = accept_rechecks(packet / "receipts.sqlite", economic, accepted)

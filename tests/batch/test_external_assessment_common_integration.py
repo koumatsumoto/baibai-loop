@@ -3,17 +3,25 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import pair_responses
-from tests.batch.test_external_assessment_publication import RECEIVED
-from tests.batch.test_external_assessment_publication import publication as publication
-from tests.batch.test_external_assessment_source_jobs import independent_plans as independent_plans
-from tests.batch.test_external_assessment_source_publication import _plan, _stage
+from tests.batch.external_assessment_publication_fixtures import (
+    RECEIVED,
+    _plan,
+    _stage,
+    pair_responses,
+)
+from tests.batch.external_assessment_publication_fixtures import (
+    independent_plans as independent_plans,
+)
+from tests.batch.external_assessment_publication_fixtures import publication as publication
 
-from baibai_batch.jobs.external_assessment_integration import merge_ready, verify_and_seal
-from baibai_batch.jobs.external_assessment_publication import VALUATION_DATASET, prepare_publication
+from baibai_batch.jobs.external_assessment_integration import (
+    VALUATION_DATASET,
+    merge_ready,
+    verify_and_seal,
+)
 from baibai_batch.storage import external_assessment_staging as staging
 from baibai_batch.storage import publish_market_lake as publisher
-from baibai_batch.storage.external_assessment_ready import load_ready, save_ready
+from baibai_batch.storage.external_assessment_ready import load_ready, prepare_plan, save_ready
 from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_engine.batch_api import (
     external_assessment_decode_attempt,
@@ -25,7 +33,7 @@ from baibai_engine.batch_api import (
 def ready_references(batch):
     store, selected, *_ = batch
     return [
-        save_ready(store, prepare_publication(store, staging.read_plan(store, entry["run_id"])))
+        save_ready(store, prepare_plan(store, staging.read_plan(store, entry["run_id"])))
         for entry in selected
     ]
 
@@ -117,8 +125,8 @@ def test_explicit_partial_confirmation_keeps_access_halt_and_exact_partial_termi
     staging.save_new_plan(store, plan)
     original = store.values[staging.stage_key(plan, 0)].body
     with pytest.raises(ValueError, match="explicit confirmed partial"):
-        prepare_publication(store, plan)
-    reference = save_ready(store, prepare_publication(store, plan, confirmed_partial=True))
+        prepare_plan(store, plan)
+    reference = save_ready(store, prepare_plan(store, plan, confirmed_partial=True))
     state = merge_ready(store, [reference], database=database)
     assert state["failed"] == []
     publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
@@ -148,7 +156,7 @@ def test_failed_decode_in_another_month_keeps_originals_and_does_not_block_healt
         responses,
     )
     staging.save_new_plan(store, failed)
-    bad_ref = save_ready(store, prepare_publication(store, failed))
+    bad_ref = save_ready(store, prepare_plan(store, failed))
     good = ready_references(independent_plans)[1]
     june = {(VALUATION_DATASET, 2026, 6)}
     typed_before = external_assessment_history_digests(database, partitions=june)
@@ -183,7 +191,7 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
         responses,
     )
     staging.save_new_plan(store, plan)
-    reference = save_ready(store, prepare_publication(store, plan))
+    reference = save_ready(store, prepare_plan(store, plan))
     state = merge_ready(store, [reference], database=database)
     assert state["failed"] == []
     with closing(sqlite3.connect(database)) as conn, conn:
@@ -216,3 +224,110 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
     assert results[0]["readback"] == "verified"
     assert staging.read_terminal(store, plan)["observations"] == 1
     assert any("analyst_forecast_observations" in str(path) for path in fresh.rglob("*.parquet"))
+
+
+def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
+    independent_plans, monkeypatch
+):
+    from baibai_batch.jobs import external_assessment_integration as integration
+    from baibai_batch.storage.external_assessment_ready import available_ready
+    from baibai_engine.batch_api import (
+        LakeObjectCache,
+        LocalMirrorSource,
+        create_market_snapshot,
+        equity_web_history_digests,
+        lake_session,
+    )
+    from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
+
+    store, selected, handle, database, mirror, directory = independent_plans
+    before = publisher._serving_pointer(store).pointer
+    metadata = directory / "retained-metadata.sqlite"
+    create_market_snapshot(database, metadata)
+    base = publisher._resolve_serving_release(store, mirror, before)
+    dehydrate_market_store(metadata, release=base)
+    references = ready_references(independent_plans)
+    state = merge_ready(store, references, database=database)
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    put = integration.put_private
+    failed_key = staging.prefix(selected[1]["run_id"]) + "/published.json"
+
+    def fail_second(store, key, *args, **kwargs):
+        if key == failed_key:
+            raise LakePublishError("synthetic terminal response unavailable")
+        return put(store, key, *args, **kwargs)
+
+    monkeypatch.setattr(integration, "put_private", fail_second)
+    with pytest.raises(LakePublishError, match="terminal response"):
+        verify_and_seal(store, state, handle=handle, directory=directory / "first-readback")
+    first_key = staging.prefix(selected[0]["run_id"]) + "/published.json"
+    first_terminal = store.values[first_key].body
+    assert failed_key not in store.values
+    history = external_assessment_history_digests(database)
+    originals = equity_web_history_digests(database, months={(2026, 9)})
+
+    # A replacement runner starts from retained metadata, not this attempt's mutable DB.
+    fresh = directory / "fresh.sqlite"
+    fresh.write_bytes(metadata.read_bytes())
+    fresh_mirror = directory / "fresh-mirror"
+    current = publisher._serving_pointer(store).pointer
+    fixed = publisher._resolve_serving_release(store, fresh_mirror, current)
+    for manifest in fixed.dataset_manifests.values():
+        for partition in manifest.partitions:
+            for obj in partition.objects:
+                publisher._fetch(store, fresh_mirror, obj.key, expected_sha256=obj.sha256)
+    with lake_session() as session:
+        hydrate_market_store(
+            session,
+            release=fixed,
+            cache=LakeObjectCache(root=fresh_mirror, source=LocalMirrorSource(fresh_mirror)),
+            store=fresh,
+            dataset_names=fixed.dataset_names(),
+        )
+    assert external_assessment_history_digests(fresh) == history
+    assert equity_web_history_digests(fresh, months={(2026, 9)}) == originals
+    pending, failed = available_ready(store)
+    assert failed == []
+    assert pending == references[1:]
+    resumed = merge_ready(store, pending, database=fresh)
+    assert resumed["failed"] == []
+    assert resumed["plans"][0]["rows_added"] == 0
+    assert resumed["plans"][0]["source_responses_added"] == 0
+    publisher.publish_market_lake(sqlite_path=fresh, mirror_root=fresh_mirror, store=store)
+    monkeypatch.setattr(integration, "put_private", put)
+    result = verify_and_seal(
+        store, resumed, handle=handle, directory=directory / "resumed-readback"
+    )
+    assert len(result) == 1
+    assert result[0]["source"] == "rakuten"
+    assert result[0]["readback"] == "verified"
+    assert store.values[first_key].body == first_terminal
+    assert external_assessment_history_digests(fresh) == history
+    assert equity_web_history_digests(fresh, months={(2026, 9)}) == originals
+    assert available_ready(store) == ([], [])
+
+
+def test_terminal_acknowledgement_loss_does_not_reopen_a_verified_source(
+    independent_plans, monkeypatch
+):
+    from baibai_batch.jobs import external_assessment_integration as integration
+    from baibai_batch.storage.external_assessment_ready import available_ready
+
+    store, selected, handle, database, mirror, directory = independent_plans
+    reference = ready_references(independent_plans)[0]
+    state = merge_ready(store, [reference], database=database)
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    put = integration.put_private
+
+    def saved_then_lost(*args, **kwargs):
+        put(*args, **kwargs)
+        raise LakePublishError("synthetic acknowledgement lost")
+
+    monkeypatch.setattr(integration, "put_private", saved_then_lost)
+    with pytest.raises(LakePublishError, match="acknowledgement lost"):
+        verify_and_seal(store, state, handle=handle, directory=directory / "lost-ack")
+    plan = staging.read_plan(store, selected[0]["run_id"])
+    assert staging.read_terminal(store, plan)["readback"] == "verified"
+    pending, failed = available_ready(store)
+    assert failed == []
+    assert reference not in pending

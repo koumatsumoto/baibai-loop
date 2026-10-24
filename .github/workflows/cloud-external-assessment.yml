@@ -20,10 +20,10 @@ on:
         required: true
         type: string
       operation:
-        description: "Collect ready sources, or explicitly close one stopped source with confirmed observations"
+        description: "Collect a source, or stage its confirmed partial observations for separate integration"
         type: choice
-        default: collect_and_publish
-        options: [collect_and_publish, publish_confirmed_partial]
+        default: collect
+        options: [collect, stage_confirmed_partial]
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
       eligible: ${{ steps.plan.outputs.eligible }}
       observation_date: ${{ steps.plan.outputs.observation_date }}
       master_asof: ${{ steps.plan.outputs.master_asof }}
-      operation: ${{ inputs.operation || 'collect_and_publish' }}
+      operation: ${{ inputs.operation || 'collect' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -66,7 +66,7 @@ jobs:
           BATCH_ID: ${{ inputs.batch_id }}
           MASTER_ASOF: ${{ inputs.master_asof }}
           RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
-          OPERATION: ${{ inputs.operation || 'collect_and_publish' }}
+          OPERATION: ${{ inputs.operation || 'collect' }}
         run: |
           args=(--source "$SOURCE")
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
@@ -74,7 +74,7 @@ jobs:
           else
             args+=(--batch-id "$BATCH_ID" --master-asof "$MASTER_ASOF")
           fi
-          if [ "$OPERATION" = publish_confirmed_partial ]; then args+=(--confirmed-partial); fi
+          if [ "$OPERATION" = stage_confirmed_partial ]; then args+=(--confirmed-partial); fi
           uv run python -m baibai_batch.jobs.external_assessment_sources prepare "${args[@]}"
 
   source:
@@ -106,4 +106,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-        run: python3 -m baibai_batch.observability.external_assessment_discord --plan-result failure
+          SOURCE_GROUP: external-assessment-plan
+          ACQUIRE_RESULT: failure
+          STAGE_RESULT: skipped
+        run: python3 -m baibai_batch.observability.source_discord

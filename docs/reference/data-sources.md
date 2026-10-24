@@ -18,7 +18,7 @@ J-Quantsはnative HTTP pageをL1として保存する。masterや財務summary�
 
 masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
 
-財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。予想と実績の選択は[Valuation](valuation-metrics.md)が所有する。
+財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通marketが原本文書を読み、[Valuation](valuation-metrics.md)が現在評価の予想・実績を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
 
 JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
 
@@ -79,7 +79,7 @@ latest/previousの差は同じorigin・単位・対象期・株式basis/尺度�
 <a id="external-assessment-incremental-use"></a>
 ### 判断への利用
 
-相違が利益・倍率・資本・期間の何を変えるかを先に問い、重要なものだけ原典で比較する。比較不能な外部値を使わずに調査を完成でき、銀行のEBITDA/FCF等を一律の不足要件にしない。ratingで順位加点せず、coverageのある企業だけの新laneを作らない。追加自動化は具体的な判断寄与と手作業の費用から選ぶ。[固定8社の採否](../../reports/studies/2026-10-22-decision-quality-closure/report.md)は全将来効果の否定ではない。
+相違が利益・倍率・資本・期間の何を変えるかを先に問い、重要なものだけ原典で比較する。比較不能な外部値を使わずに調査を完成でき、銀行のEBITDA/FCF等を一律の不足要件にしない。ratingで順位加点せず、coverageのある企業だけの新laneを作らない。固定8社の比較では同basisの専門予想の増分価値と維持費を確認できず、原典の参照用途を採った。追加自動化は具体的な判断寄与と手作業の費用から選ぶ。[当時の採否](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は全将来効果の否定ではない。
 
 ### 公開HTMLの意味
 

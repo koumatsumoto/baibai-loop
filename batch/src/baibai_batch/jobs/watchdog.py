@@ -51,15 +51,8 @@ RUNS_SHOWN = 5
 SCHEDULED_FIRE_TIME = time(16, 0, tzinfo=UTC)
 ACQUISITION_WATCHDOG_FIRE_TIME = time(12, 0, tzinfo=UTC)
 
-# How far back a successful run still counts. Both edges are set by the observed
-# GitHub schedule delay (median about two hours):
-#   - Long enough that the day's own batch (cron 07:43 UTC) stays inside even if the
-#     watchdog itself fires hours late — a 20h window holds it until 03:43 UTC the
-#     next day.
-#   - Short enough that the *previous* day's batch falls outside, so yesterday's
-#     success cannot mask today's gap. At the scheduled 12:00 UTC firing the window
-#     opens at 16:00 UTC the day before, which yesterday's 07:43 UTC run clears by
-#     more than eight hours of delay.
+# Bound the run-history window; a matching reported target date, not recency
+# alone, decides whether a successful run answers the scheduled day.
 DEFAULT_WINDOW_HOURS = 20
 
 # Only explicit recovery inputs can identify the intended day before completion.

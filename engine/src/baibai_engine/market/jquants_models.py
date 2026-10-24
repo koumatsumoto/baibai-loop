@@ -108,7 +108,7 @@ class JQuantsFinancialSummary:
     このEPS自体を足し引きしてTTM合成しない。
     `shares_outstanding`は自己株式を含む発行済株式総数である。
     計算基準はdocs/reference/valuation-metrics.mdの
-    「Trailing PER の算出」「資本の分母」に従う。
+    「会社予想と実績期間」「資本と株式単位」に従う。
     """
 
     ticker: str

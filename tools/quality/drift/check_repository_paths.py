@@ -7,6 +7,9 @@ import sys
 from pathlib import Path
 
 _RUNTIME_ROOTS = ("engine/src", "web/backend/src", "batch/src")
+_CONTEXT_PATH = (
+    "engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
+)
 _OWNERS = {
     "stores/application/baibai.sqlite": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
@@ -22,9 +25,7 @@ _OWNERS = {
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
     "web/config/market-context-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
-    "reports/published/er-level-calibration-latest.yaml": Path(
-        "engine/src/baibai_engine/foundation/repository_layout.py"
-    ),
+    _CONTEXT_PATH: Path("engine/src/baibai_engine/foundation/repository_layout.py"),
 }
 
 _METHOD_DIRECTORIES = ("method/screening/rules/", "method/macro/reading/")

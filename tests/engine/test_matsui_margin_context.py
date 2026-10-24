@@ -233,7 +233,10 @@ def test_latest_per_request_then_per_observation_and_weekend_freshness(tmp_path,
     assert row["read_semantics"]["point_in_time_guaranteed"] is False
     chart = indicator_series(path, series_id=SERIES_ID)
     assert chart["points"][0]["quality_flags"] == ["year_inferred"]
-    assert chart["points"][0]["notes"] == row["notes"]
+    assert row["notes"] == [
+        f"Series definition: {series.notes}",
+        *chart["points"][0]["notes"],
+    ]
     assert chart["points"][0]["vintage_at"] == row["vintage_at"]
     projected = ReadingSeriesView.model_validate(row).model_dump(mode="json")
     assert projected["notes"] == row["notes"]

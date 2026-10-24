@@ -15,6 +15,7 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
 
 from baibai_engine.collection.economic.providers import (
     parse_estat_json,
+    provider_spec,
     registered_specs,
 )
 from baibai_engine.collection.economic.providers.estat_dashboard import (
@@ -435,3 +436,10 @@ def test_registry_rejects_old_l2_provider_series_id(tmp_path):
     )
     with pytest.raises(ValueError, match="reading_key, not provider_series_id"):
         load_definitions(path)
+
+
+def test_acquisition_catalog_resolves_each_declared_provider():
+    specs = registered_specs()
+    assert len({spec.name for spec in specs}) == len(specs)
+    for spec in specs:
+        assert provider_spec(spec.name) == spec

@@ -263,7 +263,7 @@ def test_workflow_pins_original_clock_and_passes_inputs_through_env(tmp_path, ev
         "BATCH_ID": "manual-fixed",
         "MASTER_ASOF": "2026-10-09",
         "RUN_CREATED_AT": CREATED.isoformat(),
-        "OPERATION": "collect_and_publish",
+        "OPERATION": "collect",
     }
     subprocess.run(["bash", "-euo", "pipefail", "-c", steps["plan"]["run"]], env=env, check=True)
     args = arguments.read_text().splitlines()

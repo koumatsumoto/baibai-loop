@@ -45,10 +45,18 @@ SOURCES = (
 _JPX_COLLECTION = {"jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations"}
 
 
-def _command(source: str, asof: date, *, offline: bool = False) -> list[str]:
+def _command(source: str, asof: date, *, database: Path, offline: bool = False) -> list[str]:
     if source in {"edinet-metrics", "edinet-facts"}:
         verb = ("extract-" if offline else "refresh-") + source
-        return ["baibai-engine", "screening", verb, "--asof", asof.isoformat()]
+        return [
+            "baibai-engine",
+            "screening",
+            verb,
+            "--asof",
+            asof.isoformat(),
+            "--sqlite-path",
+            str(database),
+        ]
     if offline:
         raise ValueError("this source has no extraction command")
     return [
@@ -59,6 +67,8 @@ def _command(source: str, asof: date, *, offline: bool = False) -> list[str]:
         source,
         "--asof",
         asof.isoformat(),
+        "--sqlite-path",
+        str(database),
     ]
 
 
@@ -126,7 +136,7 @@ def _replay(
         # Re-plan from the latest canonical lists/archives, never copy derived facts
         # computed against the acquisition's older database. These CLIs are offline.
         completed = subprocess.run(  # nosec B603
-            _command(source, date.fromisoformat(report["asof"]), offline=True),
+            _command(source, date.fromisoformat(report["asof"]), database=database, offline=True),
             check=False,
             text=True,
             capture_output=True,
@@ -266,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
                     status = int(result["status"] == "failed")
                 else:
                     status = subprocess.run(
-                        _command(args.source, args.asof), check=False
+                        _command(args.source, args.asof, database=args.database), check=False
                     ).returncode  # nosec B603
             archives = (
                 edinet_archive_keys(args.database) - before

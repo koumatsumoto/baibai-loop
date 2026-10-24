@@ -164,20 +164,6 @@ def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
         load_handoff(store, stage, tmp_path / "corrupt")
 
 
-def test_lease_release_failure_does_not_misreport_completed_publication(monkeypatch, capsys):
-    from baibai_batch.observability import economic_discord
-
-    monkeypatch.setenv("ACQUIRE_RESULT", "success")
-    monkeypatch.setenv("PUBLISH_RESULT", "success")
-    monkeypatch.setenv("LEASE_RELEASE_RESULT", "failure")
-    monkeypatch.setattr(economic_discord, "deliver", lambda *a, **k: None)
-    assert economic_discord.main() == 0
-    text = capsys.readouterr().out
-    assert "正本反映・読戻し=success" in text
-    assert "lease解放=failure" in text
-    assert text.startswith("[FAILED]")
-
-
 def test_common_integration_is_independently_scheduled_and_includes_weekends():
     parent = workflow("cloud-economic-sources.yml")
     assert "materialize" not in parent["jobs"]

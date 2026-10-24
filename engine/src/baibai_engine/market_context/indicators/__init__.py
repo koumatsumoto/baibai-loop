@@ -1,3 +1,1 @@
-"""Local economic indicators retrieval and SQLite cache."""
-
-from __future__ import annotations
+"""L2 economic series definitions and transient observation contracts."""

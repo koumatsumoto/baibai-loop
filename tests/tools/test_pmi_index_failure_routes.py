@@ -7,7 +7,7 @@ from baibai_engine.collection.economic.providers.base import (
     IndicatorsProviderError,
     SourceWithheldError,
 )
-from baibai_engine.market_context.indicators import pmi_manifest
+from tools import pmi_manifest
 
 
 @pytest.mark.parametrize(

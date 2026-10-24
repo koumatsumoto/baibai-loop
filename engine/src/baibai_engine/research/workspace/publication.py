@@ -17,7 +17,7 @@ from baibai_engine.research.assessment_store import (
     ResearchValidationError,
 )
 from baibai_engine.research.operation.service import OperationService
-from baibai_engine.research.workspace.admission import _require_primary_research_ticker
+from baibai_engine.research.workspace.admission import require_authoring_selection
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -29,7 +29,6 @@ from baibai_engine.research.workspace.validation import (
     _read_case,
     _research_ticker_dir,
     _validate_editable_drafts,
-    _verify_external_inputs,
 )
 
 # --------------------------------------------------------------------------- #
@@ -60,14 +59,11 @@ def promote(
     path confinement. Reusing an immutable ID with different content is rejected.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    gate = _verify_external_inputs(manifest, db_path=db_path)
+    gate = require_authoring_selection(manifest, ticker=ticker, action="promote", db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     # Every researched ticker earns a canonical assessment, not only the one being bought.
     # A cycle that buys nothing still produced the judgment that says why, and the
     # Investment Proposal binds each case to a stored immutable assessment.
-    _require_primary_research_ticker(
-        workspace, ticker, action="promote", gate=gate, db_path=db_path
-    )
 
     manifest_asof = _parse_date(str(manifest.get("research_as_of")), label="manifest as_of")
     case = _read_case(workspace, ticker, manifest_asof)

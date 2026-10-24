@@ -63,6 +63,26 @@ jobs:
       - name: Sync
         run: uv sync --locked --all-groups
 
+      - name: Check packaged calibration context
+        run: |
+          uv build --out-dir "$RUNNER_TEMP/baibai-dist"
+          uv run python - <<'PY'
+          import os
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          source = Path("engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml")
+          packaged = "baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
+          dist = Path(os.environ["RUNNER_TEMP"]) / "baibai-dist"
+          with zipfile.ZipFile(next(dist.glob("*.whl"))) as wheel:
+              assert wheel.read(packaged) == source.read_bytes()
+          with tarfile.open(next(dist.glob("*.tar.gz"))) as sdist:
+              member = next(item for item in sdist.getmembers() if item.name.endswith("/" + source.as_posix()))
+              with sdist.extractfile(member) as artifact:
+                  assert artifact.read() == source.read_bytes()
+          PY
+
       - name: Ruff format
         run: uv run ruff format --check --diff .
 

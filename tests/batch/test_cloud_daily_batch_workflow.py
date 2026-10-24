@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import unittest
 from pathlib import Path
 
 import pytest
@@ -39,16 +38,14 @@ def _daily_batch_env() -> dict[str, str]:
     return {str(name): str(value) for name, value in batch["env"].items()}
 
 
-class CloudDailyBatchWorkflowTests(unittest.TestCase):
-    def test_fixed_jpx_sources_cover_daily_batch_rules_without_step_env(self) -> None:
-        env = _daily_batch_env()
-        rules = load_screening_rules(ROOT / DEFAULT_RULES_PATH)
+def test_fixed_jpx_sources_cover_daily_batch_rules_without_step_env() -> None:
+    env = _daily_batch_env()
+    rules = load_screening_rules(ROOT / DEFAULT_RULES_PATH)
 
-        required_sources = set(rules.universe.required_jpx_flags)
-        self.assertTrue(required_sources)
-        missing = required_sources - set(JPX_REGULATION_URLS)
-        self.assertEqual(missing, set())
-        self.assertFalse(any(name.startswith("JPX_") for name in env))
+    required_sources = set(rules.universe.required_jpx_flags)
+    assert required_sources
+    assert required_sources <= set(JPX_REGULATION_URLS)
+    assert not any(name.startswith("JPX_") for name in env)
 
 
 # --- notification wiring contract -----------------------------------------
@@ -390,7 +387,7 @@ def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
     assert "${{ inputs." not in notify_run
 
 
-def test_daily_keeps_1643_schedule_without_tradingview_step_or_notice() -> None:
+def test_common_integration_has_no_tradingview_acquisition_step_or_notice() -> None:
     workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert workflow["on"]["schedule"] == [{"cron": "43 13 * * *"}]
     steps = workflow["jobs"]["daily"]["steps"]
@@ -505,10 +502,6 @@ def test_common_replay_forces_lake_publication_even_if_daily_observer_is_unchang
     assert recorded.exists() is expected_publish
     if expected_publish:
         assert recorded.read_text().splitlines() == ["publish-lake"]
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 @pytest.mark.parametrize(("event", "scheduled"), [("schedule", True), ("workflow_dispatch", False)])

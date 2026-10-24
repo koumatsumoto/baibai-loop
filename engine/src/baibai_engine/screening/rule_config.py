@@ -49,7 +49,7 @@ class CommonEligibilityRules(BaseModel):
 
     min_market_cap_oku: float = Field(default=0, ge=0)
     # IPOの価格履歴は必要財務履歴ではない。期間をcontextへ残す (#1481)。
-    # docs/reference/screening-runtime.md#history-context
+    # docs/reference/screening-runtime.md#保存と読取
     min_price_history_span_days: int = Field(default=0, ge=0)
     exclude_jpx_flagged: bool = True
 
@@ -68,7 +68,7 @@ class CommonEligibilityRules(BaseModel):
         Candidate Discovery uses this mode so the eligible population matches the
         calibration population; diagnostics separately count missing facts.
         欠測を確認済みの無規制・正の尺度へ読み替えない:
-        docs/reference/screening-runtime.md#history-context
+        docs/reference/screening-runtime.md#保存と読取
         """
         facts = (market_cap_oku, price_history_span_days, jpx_flags)
         if require_facts and any(value is None for value in facts):

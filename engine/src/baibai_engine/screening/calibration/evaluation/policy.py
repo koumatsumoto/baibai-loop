@@ -22,7 +22,7 @@ DECILES = 10
 COMPARISON_TOP_NS: tuple[int, ...] = (5, 10, 20)
 
 # 業績悪化の条件付き spread 用に事前固定した診断帯。productionの除外gateではない。
-# docs/reference/estimate-calibration.md#diagnostic-thresholds (#1481)
+# docs/reference/estimate-calibration.md (#1481)
 DETERIORATION_THRESHOLD = -0.3
 
 MIN_QUALITY_CONTROL_GROUP = 5
@@ -108,7 +108,7 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="srp_p_s", direction=-1),
     AxisSpec(name="net_share_change_yoy", direction=-1),
     # 同じ株数変化を自己株控除後で測った軸。方向は旧軸と同じ「縮むほど良い」を先に宣言する。
-    # 当時の比較結果は reports/studies/2026-08-17-tradable-share-change/ に残す。
+    # 当時の比較結果は docs/reference/valuation-metrics.md#carry-policy に残す。
     AxisSpec(name="tradable_share_change_yoy", direction=-1),
     AxisSpec(name="accruals_to_assets", direction=-1),
     AxisSpec(name="dps_yoy_latest", direction=1),

@@ -133,7 +133,7 @@ def _constant_maturity_skew(
     both expiries must bracket the target.
     The convex weights keep the result between the two available skew readings.
     Historical rationale and sample diagnostics are in
-    reports/studies/2026-07-31-option-iv-quantiles/report.md.
+    docs/reference/market-context.md#option-iv.
     """
     if near_days == TARGET_DAYS:
         return near_skew

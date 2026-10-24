@@ -35,7 +35,7 @@ export function AssessmentPage() {
   }, [contextId])
 
   if (error) return <PageState message={error} title="市場環境判断・保存履歴" />
-  if (!data) return <LoadingPage label="レポートを読み込んでいます" />
+  if (!data || data.context_id !== contextId) return <LoadingPage label="レポートを読み込んでいます" />
 
   return (
     <PageShell

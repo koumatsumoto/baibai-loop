@@ -422,15 +422,7 @@ async def collect(
             "remaining": remaining,
             "stop_reason": stop_reason,
             "unresolved": int(totals[1] or 0),
-            "normal_nulls": {
-                # Table and column names come only from the fixed schema contract.
-                name: conn.execute(
-                    f"SELECT COUNT(*) FROM {TABLE} WHERE snapshot_date=? AND fetch_status='ok' "  # nosec B608
-                    f"AND {name} IS NULL",
-                    (day.isoformat(),),
-                ).fetchone()[0]
-                for name in FIELDS
-            },
+            "normal_nulls": _stored_quality(conn, day)["normal_nulls"],
         }
     except Exception as exc:
         if current is None:

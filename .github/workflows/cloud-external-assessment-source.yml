@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   acquire:
-    if: ${{ inputs.operation == 'collect_and_publish' }}
+    if: ${{ inputs.operation == 'collect' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
@@ -87,7 +87,7 @@ jobs:
         run: |
           args=(--selection-json "$SOURCE_RUNS" --report-output "$RUNNER_TEMP/source-ready.json")
           if [ -n "$MASTER_ASOF" ]; then args+=(--master-asof "$MASTER_ASOF"); fi
-          if [ "$OPERATION" = publish_confirmed_partial ]; then args+=(--confirmed-partial); fi
+          if [ "$OPERATION" = stage_confirmed_partial ]; then args+=(--confirmed-partial); fi
           uv run python -m baibai_batch.jobs.external_assessment_sources ready "${args[@]}"
 
   notify:

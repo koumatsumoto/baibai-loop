@@ -23,6 +23,32 @@ from baibai_engine.position.market_source import (
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 
 
+def holding_episode(
+    ledger: PortfolioLedgerDocument, ticker: str, now: datetime
+) -> tuple[ExecutionEvent | None, datetime | None]:
+    """Return the first buy of the open holding episode and its latest trade."""
+    balance = 0
+    first_buy: ExecutionEvent | None = None
+    last_trade: datetime | None = None
+    for event in ledger.events:
+        if (
+            not isinstance(event, ExecutionEvent)
+            or event.ticker != ticker
+            or event.occurred_at > now
+        ):
+            continue
+        last_trade = event.occurred_at
+        if event.side == "buy":
+            if balance == 0:
+                first_buy = event
+            balance += event.quantity
+        else:
+            balance -= event.quantity
+            if balance == 0:
+                first_buy = None
+    return first_buy, last_trade
+
+
 def holding_quote(
     ledger: PortfolioLedgerDocument,
     *,
@@ -32,31 +58,17 @@ def holding_quote(
 ) -> tuple[UnadjustedCloseObservation | None, bool]:
     """Check the current holding episode's quantity units without requiring old closes."""
     quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=now)
-    balance = 0
-    acquired_on = now.astimezone(JST).date()
-    quantity_as_of = acquired_on
-    for event in ledger.events:
-        if (
-            isinstance(event, ExecutionEvent)
-            and event.ticker == ticker
-            and event.occurred_at <= now
-        ):
-            quantity_as_of = event.occurred_at.astimezone(JST).date()
-            if event.side == "buy":
-                if balance == 0:
-                    acquired_on = event.occurred_at.astimezone(JST).date()
-                balance += event.quantity
-            else:
-                balance -= event.quantity
+    first_buy, last_trade = holding_episode(ledger, ticker, now)
     confirmed = (
-        balance > 0
+        first_buy is not None
+        and last_trade is not None
         and quote is not None
         and market_basis_is_confirmed(
             basis="shares",
             sqlite_path=sqlite_path,
             ticker=ticker,
-            from_date=min(acquired_on, quote.price_as_of),
-            through_date=max(quantity_as_of, quote.price_as_of),
+            from_date=min(first_buy.occurred_at.astimezone(JST).date(), quote.price_as_of),
+            through_date=max(last_trade.astimezone(JST).date(), quote.price_as_of),
         )
     )
     return quote, confirmed

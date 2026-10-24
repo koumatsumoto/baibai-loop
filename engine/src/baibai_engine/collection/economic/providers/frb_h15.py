@@ -23,12 +23,8 @@ from .base import (
 # Single H.15 package that carries every Treasury constant-maturity series; one
 # download via FetchContext.bytes_cache serves all frb_h15 series in a run.
 _H15_PACKAGE_SERIES = FRB_H15_PACKAGE_SERIES
-# federalreserve.gov's edge bot-mitigation withholds the CSV from datacenter IPs
-# (a hosted batch run) whose requests do not look like a real browser navigation,
-# answering with an HTML block page, an empty body, or a 403 challenge. Sending
-# the companion Accept / Accept-Language headers a real Chrome sends alongside its
-# User-Agent reduces the block rate; a blocked fetch falls back to a real browser,
-# which the edge cannot tell from a human visitor.
+# The public CSV may return an empty body or HTML rather than data. Headers and
+# a browser response are transport alternatives, not evidence of access policy.
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -78,19 +74,10 @@ def _fetch_h15_csv(
     session: HttpSession,
     context: FetchContext | None,
 ) -> str:
-    """The H.15 package CSV, from the plain client or a real browser.
+    """Try the configured public transport routes and validate the CSV header.
 
-    The plain client serves the common case. The edge withholds the CSV in three
-    shapes — an empty body, a 403, or a 2xx carrying a block page — and the last
-    is indistinguishable from data by status alone, so it is recognised by the
-    CSV header being absent. All three re-fetch through a browser navigation,
-    which the edge cannot tell from a human visitor. Nothing else falls back: a
-    size cap, a 404, a 5xx or a network fault means the source is not withholding
-    anything, and re-fetching the same resource a slower way would answer a
-    question nobody asked.
-
-    Without a context there is no browser to fall back to, so the plain response
-    is returned and fails in the parser with the snippet naming what arrived.
+    Only an empty/403 response or missing CSV header selects the browser route.
+    Other transport failures propagate; neither route guarantees source access.
     """
 
     plain_failure: str | None = None
