@@ -14,7 +14,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers.master import insert_master_rows
-
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_engine.foundation.time import JST
