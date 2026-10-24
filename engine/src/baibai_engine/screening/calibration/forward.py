@@ -87,8 +87,8 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
 # A delisted window may use the verified cash offer price as an analytical exit proxy.
 # Keep a distinct status: this is neither a target-date market close nor proof of an
-# individual shareholder's cash receipt. Historical rules and measurements are in
-# reports/studies/2026-08-11-capital-control-exit-values/.
+# individual shareholder's cash receipt. Measurement meaning and limits are in
+# docs/reference/estimate-calibration.md.
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
 
 # A qualifying failure delisting uses the last traded close as its exit observation.

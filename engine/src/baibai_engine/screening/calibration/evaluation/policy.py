@@ -22,7 +22,7 @@ DECILES = 10
 COMPARISON_TOP_NS: tuple[int, ...] = (5, 10, 20)
 
 # 業績悪化の条件付き spread 用に事前固定した診断帯。productionの除外gateではない。
-# docs/reference/estimate-calibration.md#diagnostic-thresholds (#1481)
+# docs/reference/estimate-calibration.md (#1481)
 DETERIORATION_THRESHOLD = -0.3
 
 MIN_QUALITY_CONTROL_GROUP = 5

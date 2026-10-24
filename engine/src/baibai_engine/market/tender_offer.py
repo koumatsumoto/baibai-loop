@@ -8,7 +8,7 @@ not as a broker execution or a confirmed shareholder cash receipt.
 Registration statements, corrections, withdrawal status and result statements must
 agree before the proxy is used. Unresolved cases remain subject to the calibration
 sensitivity cases; those cases do not bound every possible recovery value.
-Historical measurement rules are in reports/studies/2026-08-11-capital-control-exit-values/.
+Measurement meaning and limits are in docs/reference/estimate-calibration.md.
 """
 
 from __future__ import annotations
