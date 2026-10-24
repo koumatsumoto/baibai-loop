@@ -271,7 +271,9 @@ def test_source_notice_reports_acquisition_and_handoff_without_claiming_publicat
     assert "publish" not in workflow["jobs"]
     assert workflow["jobs"]["notify"]["needs"] == ["acquire", "handoff"]
     senders = [
-        step for job in workflow["jobs"].values() for step in job["steps"]
+        step
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
         if "DISCORD_WEBHOOK_URL" in step.get("env", {})
     ]
     assert len(senders) == 1

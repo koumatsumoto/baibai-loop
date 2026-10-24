@@ -546,3 +546,15 @@ python3 -c 'import json,sys; from pathlib import Path; Path(sys.argv[1]).write_t
     assert parsed.asof == "2026-10-24"
     assert parsed.scheduled is scheduled
     assert parsed.saved_inputs is True
+
+
+def test_integration_date_uses_original_run_and_manual_clock():
+    from datetime import UTC, date, datetime
+
+    from baibai_batch.jobs.schedule import integration_target_date
+
+    original = datetime(2026, 10, 23, 13, 43, tzinfo=UTC)
+    assert integration_target_date(original, scheduled=True) == date(2026, 10, 23)
+    morning = datetime(2026, 10, 24, 0, 1, tzinfo=UTC)
+    assert integration_target_date(morning, scheduled=False) == date(2026, 10, 24)
+    assert integration_target_date(morning, scheduled=True) == date(2026, 10, 23)

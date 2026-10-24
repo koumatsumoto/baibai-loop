@@ -86,7 +86,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-          GROUP: plan
+          SOURCE_GROUP: economic-plan
           ACQUIRE_RESULT: ${{ needs.plan.result }}
-          PUBLISH_RESULT: skipped
-        run: python3 -m baibai_batch.observability.economic_discord
+          STAGE_RESULT: skipped
+        run: python3 -m baibai_batch.observability.source_discord

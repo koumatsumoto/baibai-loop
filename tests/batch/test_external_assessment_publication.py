@@ -557,7 +557,9 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     assert any("external_assessment_sources ready" in text for text in runs)
     assert any("--confirmed-partial" in text for text in runs)
     assert not any("hydrate-market" in text or "publication_lease" in text for text in runs)
-    common = yaml.load(WORKFLOW.with_name("cloud-daily-batch.yml").read_text(), Loader=yaml.BaseLoader)
+    common = yaml.load(
+        WORKFLOW.with_name("cloud-daily-batch.yml").read_text(), Loader=yaml.BaseLoader
+    )
     daily = common["jobs"]["daily"]
     assert daily["concurrency"]["group"] == "cloud-publish"
     assert "needs" not in daily

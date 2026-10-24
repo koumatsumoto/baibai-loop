@@ -25,17 +25,28 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       sources: ${{ steps.plan.outputs.sources }}
       asof: ${{ steps.plan.outputs.asof }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pin the original acquisition run clock
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
       - name: Select independent source groups for this acquisition slot
         id: plan
         env:
           SOURCE: ${{ inputs.source || 'all' }}
           ASOF: ${{ inputs.asof }}
           SCHEDULE: ${{ github.event.schedule }}
+          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
         run: |
           python3 - <<'PY'
           import json
@@ -43,7 +54,7 @@ jobs:
           from datetime import datetime, date
           from zoneinfo import ZoneInfo
           all_sources = ['jquants-market', 'jquants-financial', 'jpx-earnings', 'jpx-regulations', 'edinet-list', 'edinet-metrics', 'edinet-facts']
-          day = date.fromisoformat(os.environ['ASOF']) if os.environ['ASOF'] else datetime.now(ZoneInfo('Asia/Tokyo')).date()
+          day = date.fromisoformat(os.environ['ASOF']) if os.environ['ASOF'] else datetime.fromisoformat(os.environ['RUN_CREATED_AT']).astimezone(ZoneInfo('Asia/Tokyo')).date()
           source = os.environ['SOURCE']
           if source != 'all' and source not in all_sources:
               raise ValueError('unknown source acquisition group')
@@ -72,3 +83,20 @@ jobs:
       source: ${{ matrix.source }}
       asof: ${{ needs.plan.outputs.asof }}
     secrets: inherit
+
+  notify-plan-failure:
+    needs: plan
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report a failed market source selection
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PYTHONPATH: batch/src
+          SOURCE_GROUP: market-plan
+          ACQUIRE_RESULT: ${{ needs.plan.result }}
+          STAGE_RESULT: skipped
+        run: python3 -m baibai_batch.observability.source_discord

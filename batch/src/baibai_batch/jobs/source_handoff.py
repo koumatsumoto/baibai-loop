@@ -31,7 +31,6 @@ from baibai_engine.batch_api import (
 )
 from baibai_engine.read_api import market_calendar_business_day
 
-
 SOURCES = (
     "tradingview",
     "jquants-market",

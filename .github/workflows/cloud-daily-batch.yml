@@ -30,7 +30,10 @@ jobs:
       queue: max
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    # batch の最悪 ~32 分（EDINET 全再取得）+ 全導出 publish + upload。超過は cancelled として Discord に出る
+    permissions:
+      contents: read
+      actions: read
+    # Offline integration, materialization and publication fit within the 120-minute lease.
     timeout-minutes: 110
 
     steps:
@@ -80,6 +83,14 @@ jobs:
         id: duckdb-httpfs
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
+      - name: Pin the original integration run clock
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+
       - name: Freeze currently ready source handoffs
         id: source-plan
         env:
@@ -87,9 +98,10 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
         run: |
           asof="$MANUAL_ASOF"
-          if [ -z "$asof" ]; then asof=$(uv run python -c 'from datetime import UTC, datetime; from baibai_batch.jobs.schedule import batch_target_date; print(batch_target_date(datetime.now(UTC)))'); fi
+          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_batch.jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
           echo "asof=$asof" >> "$GITHUB_OUTPUT"
           uv run python -m baibai_batch.jobs.source_integration plan --directory "$RUNNER_TEMP/integration"
 
@@ -158,7 +170,7 @@ jobs:
           else
             echo "export_ready=false" >> "$GITHUB_OUTPUT"
           fi
-          # Skip L1 publication only for an explicit, readable boolean false.
+          # Common integration can change facts before the daily observer runs.
           python3 - <<'PYNOTICE' >> "$GITHUB_OUTPUT"
           import json
           import os

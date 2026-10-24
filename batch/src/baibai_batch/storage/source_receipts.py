@@ -118,7 +118,6 @@ def available_handoffs(
     )
 
 
-
 def download_fixed(store: ObjectStore, entry: dict[str, object], directory: Path) -> None:
     stage_id, market = str(entry["stage_id"]), bool(entry["market"])
     saved = read_private(store, stage_prefix(stage_id, market=market) + "/handoff.json")

@@ -230,26 +230,25 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(json.dumps(report, sort_keys=True))
                 return int(bool(report["failed"]))
-            else:
-                report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
-                if report.get("external"):
-                    report["external_results"] = verify_and_seal(
-                        store,
-                        report["external"],
-                        handle=_load_handle(args.lease_handle),
-                        directory=directory / "external-readback",
-                    )
-                for outcome in report["handoffs"]:
-                    if outcome["entry"].get("invalid"):
-                        continue
-                    seal_integrated(
-                        store,
-                        outcome["entry"],
-                        generations=generations,
-                        recovery=outcome["recovery"],
-                    )
-                report["canonical_generations"] = generations
-                write_json_atomic(directory / "applied.json", report)
+            report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
+            if report.get("external"):
+                report["external_results"] = verify_and_seal(
+                    store,
+                    report["external"],
+                    handle=_load_handle(args.lease_handle),
+                    directory=directory / "external-readback",
+                )
+            for outcome in report["handoffs"]:
+                if outcome["entry"].get("invalid"):
+                    continue
+                seal_integrated(
+                    store,
+                    outcome["entry"],
+                    generations=generations,
+                    recovery=outcome["recovery"],
+                )
+            report["canonical_generations"] = generations
+            write_json_atomic(directory / "applied.json", report)
     except Exception as error:
         print(f"common source integration failed: {type(error).__name__}", file=sys.stderr)
         return 1

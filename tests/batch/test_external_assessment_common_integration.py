@@ -139,7 +139,9 @@ def test_failed_decode_in_another_month_keeps_originals_and_does_not_block_healt
         update={"consensus_target": 999999.0}
     )
     _stage(
-        store, failed, 0,
+        store,
+        failed,
+        0,
         [("monex", "7203", "observed", responses[0].attempt_id, observation, 200)],
         responses,
     )

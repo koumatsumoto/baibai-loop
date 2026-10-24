@@ -22,6 +22,13 @@ def batch_target_date(instant: datetime) -> date:
     return fired.astimezone(_JST).date()
 
 
+def integration_target_date(created_at: datetime, *, scheduled: bool) -> date:
+    """Pin integration to the original run, including queued starts and reruns."""
+    if created_at.tzinfo is None or created_at.utcoffset() is None:
+        raise ValueError("timezone-aware integration run clock required")
+    return batch_target_date(created_at) if scheduled else created_at.astimezone(_JST).date()
+
+
 def acquisition_target_date(
     instant: datetime, fire_time: time = ECONOMIC_SCHEDULED_FIRE_TIME
 ) -> date:

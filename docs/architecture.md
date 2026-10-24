@@ -60,6 +60,8 @@ ResearchのSelectionは対象・問い・入力を開始時に固定する。Sto
 | screening runs / calibration | 再生成可能な探索結果と較正snapshot |
 | serving JSON | 表示用の派生物。保存判断・台帳の第二正本にしない |
 
+source取得は担当範囲の再生成可能なread-only inputと原受領handoffだけを扱う。共通統合は開始時に存在するimmutable受領を固定し、取得全体の完了を待たず、最新正本へ各domainのprojection/rebuildを適用して一回のfull lake公開・L2・表示を行う。source-local SQLiteは全体releaseへboundな実行コピーではなく、full originを持たせない。経済の一時受領は実取得の同値も保持し、正本への変更時追記・同値no-opは最新正本との比較で決める。
+
 クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/foundation/repository_layout.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
 
 Gitの`method/`は採用済みのdated規則、`web/config/`は表示設定、`reports/`は必要な測定記録とconsumerが読むartifactを置く。再取得可能であることは改訂前の情報を復元できることを意味せず、一律の永久保存や監査用の第二基盤は作らない。

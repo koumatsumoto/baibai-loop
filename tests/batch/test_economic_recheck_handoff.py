@@ -36,7 +36,8 @@ def received(path, value, at, kind):
 
 
 @pytest.mark.parametrize(
-    ("kind", "table"), [("record", "economic_source_records"), ("document", "economic_source_documents")]
+    ("kind", "table"),
+    [("record", "economic_source_records"), ("document", "economic_source_documents")],
 )
 def test_stale_seed_equal_response_keeps_real_receipt_then_restores_canonical_a(
     tmp_path, kind, table
