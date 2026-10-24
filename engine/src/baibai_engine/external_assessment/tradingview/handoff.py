@@ -86,7 +86,8 @@ def export_handoff(source: Path, output: Path, *, day: date, since: datetime) ->
             row[0]
             for row in conn.execute(
                 "SELECT receipt_id FROM tradingview_source_receipts "
-                "WHERE snapshot_date = ? AND received_at_utc >= ? ORDER BY received_at_utc, receipt_id",
+                "WHERE snapshot_date = ? AND received_at_utc >= ? "
+                "ORDER BY received_at_utc, receipt_id",
                 (day.isoformat(), cutoff),
             )
         )
@@ -123,8 +124,9 @@ def _copy_raw(
         where = " AND ".join(f"{key} = ?" for key in keys)
         for row in rows:
             existing = conn.execute(
-                f"SELECT * FROM {table} WHERE {where}", tuple(row[index] for index in positions)
-            ).fetchone()  # nosec B608
+                f"SELECT * FROM {table} WHERE {where}",  # nosec B608
+                tuple(row[index] for index in positions),
+            ).fetchone()
             if existing is not None:
                 if tuple(existing) != tuple(row):
                     raise SourceDataError("TradingView handoff receipt identity conflicts")
@@ -176,7 +178,10 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
             raise SourceDataError("TradingView handoff universe differs from replayed master")
         basis, business = calendar_context(conn, handoff.snapshot_date)
         names = tuple(name for name, _, _, _ in COLUMNS)
-        sql = f"INSERT OR IGNORE INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
+        sql = (
+            f"INSERT OR IGNORE INTO {TABLE} ({','.join(names)}) "  # nosec B608
+            f"VALUES ({','.join('?' for _ in names)})"
+        )
         added = 0
         rejected = []
         for receipt in read_tool_results(conn, handoff.receipt_ids):

@@ -358,7 +358,7 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
 
 @pytest.mark.parametrize("status", ["saved", "partial", "already_saved", "skipped_historical_asof"])
 def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
@@ -406,7 +406,7 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
     ],
 )
 def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\nprintf \'%s\\n\' \''
@@ -435,7 +435,7 @@ def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):
     ("exit_code", "category"), [(1, "provider_rate_limit"), (124, "timeout"), (137, "timeout")]
 )
 def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_code, category):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         f'#!/bin/sh\nif [ "$3" = "-m" ]; then echo "0 0"; exit 0; fi\n'
@@ -463,7 +463,7 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
 
 
 def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_path):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then '
@@ -651,7 +651,7 @@ def test_failed_initial_count_does_not_start_acquisition(tmp_path):
 
 
 def test_summary_preserves_partial_failure_and_null_counts(tmp_path):
-    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     (tmp_path / "tradingview-progress.json").write_text(
         json.dumps({"requests_attempted": 2, "symbols_requested": 100, "chunks_completed": 1})
     )

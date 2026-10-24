@@ -87,7 +87,11 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
     if workflow_name == "cloud-materialize.yml":
         concurrency = workflow["concurrency"]
     else:
-        group = "source-acquire-jquants" if workflow_name == "cloud-daily-batch.yml" else "tradingview-snapshot"
+        group = (
+            "source-acquire-jquants"
+            if workflow_name == "cloud-daily-batch.yml"
+            else "tradingview-snapshot"
+        )
         assert workflow["concurrency"]["group"] == group
         job = "daily" if workflow_name == "cloud-daily-batch.yml" else "publish"
         concurrency = workflow["jobs"][job]["concurrency"]
@@ -110,7 +114,13 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
             "Upload serving objects",
             "materialize",
         ),
-        ("cloud-tradingview-snapshot.yml", "publish", "fresh-canonical", "publish-lake", "tradingview"),
+        (
+            "cloud-tradingview-snapshot.yml",
+            "publish",
+            "fresh-canonical",
+            "publish-lake",
+            "tradingview",
+        ),
     ],
 )
 def test_publication_lease_surrounds_every_cloud_writer(

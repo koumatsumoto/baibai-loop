@@ -418,18 +418,29 @@ def bootstrap_cache_command(
     providers: ProviderBundle,
     sqlite_path: Path,
     stdout: TextIO | None = None,
+    source_group: str = "all",
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
     failed = False
     # Fixed acquisition groups share the existing providers/cache. Each writer
     # owns its validated chunk commits; no restoration or second copy is made.
-    for acquire in (
-        _bootstrap_market_cache,
-        _bootstrap_financial_cache,
-        _bootstrap_edinet_cache,
-        _bootstrap_jpx_cache,
-    ):
+    groups = {
+        "jquants-market": _bootstrap_market_cache,
+        "jquants-financial": _bootstrap_financial_cache,
+        "edinet-list": _bootstrap_edinet_cache,
+        "jpx": _bootstrap_jpx_cache,
+        "jpx-earnings": _bootstrap_jpx_earnings,
+        "jpx-regulations": _bootstrap_jpx_regulations,
+    }
+    if source_group != "all" and source_group not in groups:
+        raise ValueError("unsupported acquisition source group")
+    if source_group == "edinet-list" and providers.edinet_refresh is None:
+        print("EDINET acquisition is not configured", file=sys.stderr)
+        return 1
+    selected = ("jquants-market", "jquants-financial", "edinet-list", "jpx") if source_group == "all" else (source_group,)
+    for group in selected:
+        acquire = groups[group]
         try:
             acquire(asof_date, providers, sqlite_path, out)
         except (
@@ -676,6 +687,20 @@ def _bootstrap_jpx_cache(
         flush=True,
     )
 
+
+
+def _bootstrap_jpx_earnings(asof_date: date, providers: ProviderBundle, _path: Path, out: TextIO) -> None:
+    if providers.jpx_refresh is None:
+        raise JPXProviderError("JPX maintenance provider is not configured")
+    result = providers.jpx_refresh.refresh_earnings_calendar_snapshot(asof_date)
+    print(f"JPX earnings_calendar: {result.valid_record_count} row(s)", file=out, flush=True)
+
+
+def _bootstrap_jpx_regulations(asof_date: date, providers: ProviderBundle, _path: Path, out: TextIO) -> None:
+    if providers.jpx_refresh is None:
+        raise JPXProviderError("JPX maintenance provider is not configured")
+    result = providers.jpx_refresh.refresh_regulation_snapshot(asof_date)
+    print(f"JPX regulations: {len(result.flags_by_ticker)} ticker(s)", file=out, flush=True)
 
 def refresh_edinet_documents_command(
     *,

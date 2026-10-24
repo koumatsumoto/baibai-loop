@@ -99,7 +99,9 @@ def _headers(conn: sqlite3.Connection, sources: set[str]) -> list[_Scope]:
         if source not in sources:
             continue
         try:
-            result.append(_scope(request_id, source, json.loads(query), datetime.fromisoformat(received_at)))
+            result.append(
+                _scope(request_id, source, json.loads(query), datetime.fromisoformat(received_at))
+            )
         except (KeyError, ValueError):
             # Retained filtered/manual queries are originals, not replaceable full scopes.
             continue
