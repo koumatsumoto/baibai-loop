@@ -43,6 +43,7 @@ def collect_research_inputs(
     market_path: Path,
     indicators_path: Path,
     app_path: Path,
+    company_growth_mirror: Path = Path("stores"),
     company_growth_start: date | None = None,
     company_growth_end: date | None = None,
 ) -> ResearchInputsSnapshot:
@@ -65,6 +66,7 @@ def collect_research_inputs(
                     as_of=research_as_of,
                     start=company_growth_start,
                     end=company_growth_end,
+                    mirror=company_growth_mirror,
                 ).model_dump(mode="json"),
                 "technical_analysis": technical_analysis(
                     market_path, ticker=ticker, as_of=research_as_of

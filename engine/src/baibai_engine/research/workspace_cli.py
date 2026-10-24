@@ -87,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     prepare_parser.add_argument("--indicators-path", type=Path, default=INDICATORS_DB_PATH)
+    prepare_parser.add_argument("--company-growth-mirror", type=Path, default=Path("stores"))
     prepare_parser.add_argument(
         "--force", action="store_true", help="repair generated projections; retain authored drafts"
     )
@@ -233,6 +234,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         sqlite_path=args.sqlite_path,
                         runs_path=args.runs_path,
                         indicators_path=args.indicators_path,
+                        company_growth_mirror=args.company_growth_mirror,
                         now=resolved_now,
                         force=args.force,
                     )

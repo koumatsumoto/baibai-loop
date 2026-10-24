@@ -11,7 +11,9 @@ from pathlib import Path
 from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import read_financial_documents, read_master_snapshot
+from baibai_engine.market.fixed_financial_reader import read_fixed_financial_documents
+from baibai_engine.storage.lake.objects import LakeObjectError
+from baibai_engine.storage.lake.reader import LakeReadError
 from baibai_engine.storage.observations.lake_origin import (
     read_lake_store_origin_from_connection,
 )
@@ -29,6 +31,7 @@ def company_growth(
     as_of: date,
     start: date | None = None,
     end: date | None = None,
+    mirror: Path = Path("stores"),
 ) -> CompanyGrowth:
     """Bounds select accounting period ends; all retained disclosure dates remain inputs.
 
@@ -51,9 +54,6 @@ def company_growth(
             origin = read_lake_store_origin_from_connection(connection)
             if origin is None:
                 return result.model_copy(update={"reason": "fixed_release_unavailable"})
-            documents = read_financial_documents(
-                connection, start=date.min, end=date.max, ticker=ticker
-            )
     except (sqlite3.Error, JQuantsProviderError, SQLiteSchemaError) as exc:
         reason = (
             "financial_documents_unreadable"
@@ -61,10 +61,13 @@ def company_growth(
             else "market_store_unreadable"
         )
         return result.model_copy(update={"reason": reason})
-    # Sector controls applicability only; this is a retained classification, not a past universe.
-    master = read_master_snapshot(path, as_of=as_of)
-    sector = master.securities.get(ticker, {}).get("sector_33") if master is not None else None
-    states = build_period_states(documents, sector=sector if isinstance(sector, str) else None)
+    # The SQLite marker chooses a release; it does not certify this working store's rows.
+    try:
+        fixed = read_fixed_financial_documents(mirror, origin=origin, ticker=ticker, as_of=as_of)
+    except (LakeReadError, LakeObjectError, JQuantsProviderError):
+        return result.model_copy(update={"reason": "fixed_release_inputs_unavailable"})
+    documents = fixed.documents
+    states = build_period_states(documents, sector=fixed.sector)
     changes = build_changes(states)
     observed = tuple(sorted({state.period_end for state in states}))
     displayed = tuple(

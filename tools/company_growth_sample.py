@@ -31,12 +31,13 @@ class SampleInput(BaseModel):
     samples: tuple[Sample, ...] = Field(min_length=1)
 
 
-def measure_samples(path: Path, spec: SampleInput) -> dict[str, object]:
+def measure_samples(path: Path, spec: SampleInput, *, mirror: Path = Path("stores")) -> dict[str, object]:
     reports: list[dict[str, object]] = []
     for sample in spec.samples:
         started = perf_counter()
         result = company_growth(
-            path, ticker=sample.ticker, as_of=spec.as_of, start=sample.start, end=sample.end
+            path, ticker=sample.ticker, as_of=spec.as_of, start=sample.start, end=sample.end,
+            mirror=mirror,
         )
         elapsed = perf_counter() - started
         if result.input_release != spec.input_release:
@@ -79,11 +80,12 @@ def _report(result: CompanyGrowth, elapsed: float) -> dict[str, object]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sqlite", type=Path, required=True)
+    parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--sample-input", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     spec = SampleInput.model_validate_json(args.sample_input.read_text(encoding="utf-8"))
-    report = measure_samples(args.sqlite, spec)
+    report = measure_samples(args.sqlite, spec, mirror=args.mirror)
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

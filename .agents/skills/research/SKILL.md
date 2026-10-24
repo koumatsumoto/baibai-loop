@@ -17,7 +17,7 @@ uv run baibai-engine research selection-context \
 
 指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、五領域・保有・既存調査を比較する。必要な候補外の対照も同じ固定runから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。
 
-企業成長の会計期末範囲は、問いに応じてdraftの `company_growth_start` / `company_growth_end` へ指定できる。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)を確認し、PER/peerの未提供やcoverage未確認を企業価値のInputGapへ加えない。
+企業成長は配置済みの固定release mirrorを読む。別配置ならprepareの `--company-growth-mirror` で指定し、mirror不足を作業SQLiteの更新行で代替しない。企業成長の会計期末範囲は、問いに応じてdraftの `company_growth_start` / `company_growth_end` へ指定できる。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)を確認し、PER/peerの未提供やcoverage未確認を企業価値のInputGapへ加えない。
 
 contextのrun・Research日・cutoff・requestをdraftへ引き継ぎ、対象と問い、選定理由、比較した代替と未確認の範囲を記す。runを別途読む時はcontextとrevision・analysis日が一致し、run_atがcutoff以前であることを確認する。全runをLLMへ一括投入しない。
 

@@ -16,7 +16,7 @@ from tests.helpers.screening_sqlite import insert_financial_record
 from baibai_engine.company_growth.calculations import build_changes, build_period_states
 from baibai_engine.market.financial_documents import normalize_financial_summary
 from baibai_engine.market.financial_periods import prior_year_period_matches
-from baibai_engine.read_api.company_growth import company_growth
+from baibai_engine.read_api.company_growth import company_growth as public_company_growth
 from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
 from baibai_engine.research.operation.progress import selection_binding
 from baibai_engine.research.operation.service import OperationService
@@ -27,12 +27,17 @@ from baibai_engine.research.workspace import (
     resume_selected_workspace,
 )
 from baibai_engine.storage.lake.models import (
-    ManifestTotals,
     ReleaseDataset,
     ReleaseManifest,
     canonical_lake_model_bytes,
 )
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.lake.keys import release_manifest_key
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.lake_origin import (
+    LakeStoreOrigin,
+    read_lake_store_origin,
+    write_lake_store_origin,
+)
 from baibai_engine.storage.observations.schema import open_connection
 
 NOW = datetime.fromisoformat("2026-10-24T18:00:00+09:00")
@@ -79,14 +84,70 @@ def change(result, end, metric, measurement="reported"):
     )
 
 
-def market_store(tmp_path, records, *, release="synthetic-release-1"):
+def publish_fixture(path, release):
+    mirror = path.parent / "mirror"
+    dataset_tables = {
+        "jquants.fin_summaries": "jquants_fin_summaries",
+        "jquants.master_snapshots": "jquants_master_snapshots",
+        "jquants.daily_bars": "jquants_daily_bars",
+    }
+    with closing(sqlite3.connect(path)) as connection:
+        present = [
+            name for name, table in dataset_tables.items()
+            if connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        ]
+    with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
+        reports = [
+            export_dataset_snapshot(
+                dataset_name=name, mirror_root=mirror, producer_git_commit="a" * 40,
+                source_snapshot=snapshot, build_id=release + "-" + name.replace(".", "-"),
+                created_at=NOW.astimezone(UTC),
+            )
+            for name in present
+        ]
+    # A pinned fixture release needs no current/production policy substitution.
+    manifest = ReleaseManifest(
+        manifest_version=2, release_id=release, profile="production",
+        created_at=NOW.astimezone(UTC),
+        data_as_of=min(report.manifest.data_as_of for report in reports),
+        datasets={
+            report.manifest.dataset: ReleaseDataset(**{
+                "build_id": report.manifest.build_id,
+                "layer": report.manifest.layer,
+                "contract_version": report.manifest.contract_version,
+                "manifest_sha256": sha256(report.manifest_path.read_bytes()).hexdigest(),
+                "data_as_of": report.manifest.data_as_of,
+                "coverage_status": report.manifest.coverage_status,
+                "totals": report.manifest.totals,
+            })
+            for report in reports
+        },
+    )
+    payload = canonical_lake_model_bytes(manifest)
+    target = mirror / release_manifest_key(release_id=release)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        write_lake_store_origin(connection, LakeStoreOrigin(release, sha256(payload).hexdigest()))
+
+
+def market_store(tmp_path, records, *, release="synthetic-release-1", price_day=None):
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as connection, connection:
         for record in records:
             insert_financial_record(connection, record)
-        if release:
-            write_lake_store_origin(connection, LakeStoreOrigin(release, "a" * 64))
+        if price_day:
+            connection.execute(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+                ("1234", price_day.isoformat(), 1000),
+            )
+    if release:
+        publish_fixture(path, release)
     return path
+
+
+def company_growth(path, **kwargs):
+    return public_company_growth(path, mirror=path.parent / "mirror", **kwargs)
 
 
 def test_seasonality_and_one_time_gain_remain_one_quarter_observation():
@@ -215,7 +276,9 @@ def test_cf_bs_and_ordinary_profit_are_not_filled_or_relabelled():
     assert "common_equity" not in observation(result[0], "balance").metrics
 
 
-@pytest.mark.parametrize("sector", ["銀行業", "保険業", "証券・商品先物取引業", "その他金融業", None])
+@pytest.mark.parametrize(
+    "sector", ["銀行業", "保険業", "証券・商品先物取引業", "その他金融業", None]
+)
 def test_financial_or_unknown_sector_does_not_get_nonfinancial_margin(sector):
     result = states([document(2024, 1, 100, 20)], sector=sector)
     value = amount(result[0], "reported", "operating_margin")
@@ -300,8 +363,8 @@ def test_missing_store_unfixed_release_and_invalid_period_are_local_states(tmp_p
         company_growth(path, ticker="1234", as_of=NOW.date()).reason == "fixed_release_unavailable"
     )
     with closing(sqlite3.connect(path)) as connection, connection:
-        write_lake_store_origin(connection, LakeStoreOrigin("fixed", "b" * 64))
         insert_financial_record(connection, document(2024, 2, 230, CurPerEn="2027-03-31"))
+    publish_fixture(path, "fixed")
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     assert len(result.periods) == 1
     assert result.coverage.excluded_document_count == 1
@@ -322,6 +385,7 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
         input_known_at=NOW,
         market_path=path,
         indicators_path=tmp_path / "absent-indicators",
+        company_growth_mirror=tmp_path / "mirror",
         app_path=tmp_path / "absent-app",
         company_growth_start=date(2024, 4, 1),
         company_growth_end=date(2024, 6, 30),
@@ -376,6 +440,7 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
         sqlite_path=path,
         runs_path=tmp_path / "runs",
         indicators_path=tmp_path / "absent-indicators",
+        company_growth_mirror=tmp_path / "mirror",
         **arguments,
     )
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
@@ -403,6 +468,7 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
             sqlite_path=path,
             runs_path=tmp_path / "runs",
             indicators_path=tmp_path / "absent-indicators",
+        company_growth_mirror=tmp_path / "mirror",
             **arguments,
         )
 
@@ -446,50 +512,20 @@ def test_legacy_selection_hash_keeps_its_original_serialized_inputs():
 def test_old_other_dataset_watermark_cannot_hide_a_retained_financial_correction(tmp_path):
     old_price_day = date(2024, 6, 1)
     financial_day = date(2026, 10, 23)
-    totals = ManifestTotals(objects=0, bytes=0, rows=0)
-    manifest = ReleaseManifest(
-        manifest_version=2,
-        release_id="synthetic-mixed-watermarks",
-        profile="production",
-        created_at=NOW.astimezone(UTC),
-        data_as_of=old_price_day,
-        datasets={
-            "jquants.daily_bars": ReleaseDataset(
-                build_id="old-price",
-                layer="l1_source",
-                contract_version=1,
-                manifest_sha256="d" * 64,
-                data_as_of=old_price_day,
-                coverage_status="partial",
-                totals=totals,
-            ),
-            "jquants.fin_summaries": ReleaseDataset(
-                build_id="new-financial",
-                layer="l1_source",
-                contract_version=1,
-                manifest_sha256="e" * 64,
-                data_as_of=financial_day,
-                coverage_status="partial",
-                totals=totals,
-            ),
-        },
-    )
-    assert manifest.data_as_of < financial_day
-    digest = sha256(canonical_lake_model_bytes(manifest)).hexdigest()
-    path = market_store(
-        tmp_path,
-        [
-            document(2024, 1, 100),
-            document(2024, 1, 150, DiscDate=financial_day.isoformat(), DiscNo="late-correction"),
-        ],
-    )
-    with closing(sqlite3.connect(path)) as connection, connection:
-        write_lake_store_origin(connection, LakeStoreOrigin(manifest.release_id, digest))
+    path = market_store(tmp_path, [
+        document(2024, 1, 100),
+        document(2024, 1, 150, DiscDate=financial_day.isoformat(), DiscNo="late-correction"),
+    ], price_day=old_price_day)
+    origin = read_lake_store_origin(path)
+    manifest = ReleaseManifest.model_validate_json((
+        path.parent / "mirror" / release_manifest_key(release_id=origin.release_id)
+    ).read_bytes())
+    assert manifest.data_as_of == old_price_day
     result = company_growth(path, ticker="1234", as_of=date(2024, 6, 30))
     value = amount(result.periods[0], "reported", "sales")
     assert value.value == 150
     assert value.documents[0].disclosed_at == financial_day
-    assert result.input_release.manifest_sha256 == digest
+    assert result.input_release.manifest_sha256 == origin.release_manifest_sha256
     assert result.input_release.receipt_cutoff is None
     assert result.read_semantics == "retained_latest_in_fixed_release_not_point_in_time"
 
@@ -535,11 +571,14 @@ def test_finite_ci_sample_reports_inputs_cost_and_thin_table_without_claiming_l3
 
     path = market_store(tmp_path, [document(2024, 1, 100, 10, 5)])
     spec = SampleInput(
-        input_release=InputRelease(release_id="synthetic-release-1", manifest_sha256="a" * 64),
+        input_release=InputRelease(
+            release_id="synthetic-release-1",
+            manifest_sha256=read_lake_store_origin(path).release_manifest_sha256,
+        ),
         as_of=NOW.date(),
         samples=(Sample(ticker="1234", start=date(2024, 4, 1), end=date(2024, 6, 30)),),
     )
-    report = measure_samples(path, spec)
+    report = measure_samples(path, spec, mirror=path.parent / "mirror")
     sample = report["samples"][0]
     assert sample["company_growth"]["periods"][0]["period_end"] == "2024-06-30"
     assert sample["thin_reported_table"][0]["reported"]["sales"] == 100
@@ -554,6 +593,7 @@ def test_finite_ci_sample_reports_inputs_cost_and_thin_table_without_claiming_l3
                     "input_release": InputRelease(release_id="different", manifest_sha256="b" * 64),
                 }
             ),
+            mirror=path.parent / "mirror",
         )
 
 
@@ -597,8 +637,36 @@ def test_public_query_uses_the_normalized_security_master_sector_name(tmp_path):
         insert_master_rows(connection, [
             ("2026-10-23", "1234", "合成証券", "プライム", "証券･商品先物取引業", "011"),
         ])
+    publish_fixture(path, "sector-release")
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     margin = amount(result.periods[0], "reported", "operating_margin")
     assert margin.value is None
     assert margin.reason == "not_applicable_to_financial_sector"
     assert amount(result.periods[0], "reported", "sales").value == 100
+
+
+def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
+    path = market_store(tmp_path, [document(2024, 1, 100)])
+    fixed = company_growth(path, ticker="1234", as_of=NOW.date())
+    with closing(sqlite3.connect(path)) as connection, connection:
+        insert_financial_record(connection, document(
+            2024, 1, 900, DiscDate="2026-10-23", DiscNo="not-yet-published",
+        ))
+    after_local_update = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert after_local_update.input_release == fixed.input_release
+    assert after_local_update.periods == fixed.periods
+    assert amount(after_local_update.periods[0], "reported", "sales").value == 100
+    publish_fixture(path, "synthetic-release-2")
+    published = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert published.input_release.release_id == "synthetic-release-2"
+    assert amount(published.periods[0], "reported", "sales").value == 900
+
+
+def test_missing_fixed_release_objects_are_local_unavailability(tmp_path):
+    path = market_store(tmp_path, [document(2024, 1, 100)])
+    result = public_company_growth(
+        path, ticker="1234", as_of=NOW.date(), mirror=tmp_path / "absent-mirror"
+    )
+    assert result.reason == "fixed_release_inputs_unavailable"
+    assert result.input_release is None
+    assert not (tmp_path / "absent-mirror").exists()

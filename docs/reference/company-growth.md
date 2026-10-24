@@ -4,11 +4,11 @@
 
 ## 入力と時間
 
-公開入口は `read_api.company_growth.company_growth(path, ticker=..., as_of=..., start=..., end=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。release全体の `data_as_of` は他datasetを含む最古watermarkなので、財務開示日終端へ流用しない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
+公開入口は `read_api.company_growth.company_growth(path, ticker=..., as_of=..., start=..., end=..., mirror=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。release全体の `data_as_of` は他datasetを含む最古watermarkなので、財務開示日終端へ流用しない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
 
 読取は既存の `read_financial_documents(..., ticker=...)` を使い、全保持文書から状態・比較を計算して出力だけを切る。窓より前のTTM/前年比入力と、窓より後に開示された過年度訂正を残す。同一release・方法・比較ペアで共通する期の結果は窓の両端に依存しない。読取時に外部取得は起動しない。
 
-実行用market SQLiteの `lake_store_origin` にあるrelease IDとmanifest digestが入力集合を固定する。`collection_boundary=fixed_release_membership` は当該manifestへの収録境界を指す。ローカルの取得時刻cutoffを証明しないため `receipt_cutoff` は未提供。Researchの `input_known_at` は選択時の別の時刻で、開示日やreleaseの収録境界へ読み替えない。過去のas_ofを指定しても、当時の受領状態は復元しない。固定releaseがなければ成長を未取得とし、現在評価は妨げない。
+実行用market SQLiteの `lake_store_origin` は更新基底のrelease ID/digestを選ぶ参照で、作業行がそのreleaseに一致する証拠にはならない。読取はローカルlake mirror（既定 `stores`）で既存release readerがmanifest・dataset・Parquetのdigest/schemaを照合した不変objectだけを使う。財務・masterの作業SQLite行を使わず、同releaseの財務ParquetをDuckDBのメモリ内viewから既存 `read_financial_documents` へ渡す。新しいDBは作らない。更新済みSQLiteが旧originを保持していても、新しい未公開行を旧releaseの事実として返さない。mirror未配置・digest不一致等では成長だけを利用不可とし、外部へ自動接続しない。`collection_boundary=fixed_release_membership` は当該manifestへの収録境界を指す。ローカルの取得時刻cutoffを証明しないため `receipt_cutoff` は未提供。Researchの `input_known_at` は選択時の別の時刻で、開示日やreleaseの収録境界へ読み替えない。過去のas_ofを指定しても、当時の受領状態は復元しない。固定releaseがなければ成長を未取得とし、現在評価は妨げない。
 
 store-localのsource coverageはreleaseへ固定されていないため、現段階では取得coverageを常に `unverified` とする。観測された最古/最新会計期・観測期末一覧・観測間の穴は別に返し、文書の存在から連続取得済みとは推定しない。厳格な既存readerのcoverage条件は変更しない。
 
@@ -19,7 +19,7 @@ store-localのsource coverageはreleaseへ固定されていないため、現�
 - `annual_ttm` は実日数で年間と認められる公表値、または成立する金額の「当期累計＋前期通期－前年同期間」。算術の成立は経済的比較可能性の完全な保証ではない。
 - `balance` は観測期末の総資産・純資産・発行済株数・自己株式数。古いBSをコピーせず、純資産を普通株主資本と呼ばない。
 
-指標ごとに採用文書を保持する。部分訂正は該当科目だけへ適用し、同順位の矛盾は該当科目だけを欠測にする。算術の比較元会計期間は科目の値を見る前に選び、科目欠測で別の許容期間へ切り替えない。これにより一つのObservationの開始日を別科目のoperandで上書きしない。比較元累計だけが後日変更され、比較先累計との既知の不整合があるときは無条件に差し引かない。連結/単体や変則決算の不成立も局所化する。営業利益を経常利益で代替しない。NPの親会社帰属は連結基準を確認できる場合だけ提供する。金融業・業種未確認では非金融の営業利益率を提供しない。
+指標ごとに採用文書を保持する。部分訂正は該当科目だけへ適用し、同順位の矛盾は該当科目だけを欠測にする。算術の比較元会計期間は科目の値を見る前に選び、科目欠測で別の許容期間へ切り替えない。これにより一つのObservationの開始日を別科目のoperandで上書きしない。比較元累計だけが後日変更され、比較先累計との既知の不整合があるときは無条件に差し引かない。同日の既知時刻による前後は保持し、時刻不明で変更後の対応が確定できない場合は `cumulative_revision_order_unresolved` とする。時刻が不明なだけで変更のない累計を矛盾とはしない。連結/単体や変則決算の不成立も局所化する。営業利益を経常利益で代替しない。NPの親会社帰属は連結基準を確認できる場合だけ提供する。金融業・業種未確認では非金融の営業利益率を提供しない。
 
 変化は両期の実数・差・通常率（比較元が正の場合）・符号変化、利益率のポイント差。正→負を率から落とさず、負/ゼロの比較元は通常率を主表示しない。EPS・株数の原値は残すが、原本間の分割基準が未確認なので、その差/率は提供しない。表示窓の末尾で暗黙の株式換算基準を決めない。
 
@@ -29,13 +29,13 @@ PERとpeerはこの版では **未提供**。PERは価格・期末自己株式�
 
 ## Researchと拡張
 
-Selection draftの任意 `company_growth_start` / `company_growth_end` で問いに合う会計期末範囲を選ぶ。省略時は保持済み全範囲を選ぶが、これは測定済みの推奨入力サイズではない。範囲外も含む観測可能範囲を結果内で区別する。固定入力の `securities_context[ticker].company_growth` に計算済み状態・変化・release・方法・要求範囲・不足を保存する。再開ではこの結果を投影し、最新原本・新しい計算法へ付け替えない。旧Selectionは保存された入力のまま成長なしで再開できる。InputGapは引き続き `analysis.unavailable` と厳密に一致し、成長欠測は加えない。
+`research prepare --company-growth-mirror <LOCAL_MIRROR>` で配置済みmirrorを指定できる。Selection draftの任意 `company_growth_start` / `company_growth_end` で問いに合う会計期末範囲を選ぶ。省略時は保持済み全範囲を選ぶが、これは測定済みの推奨入力サイズではない。範囲外も含む観測可能範囲を結果内で区別する。固定入力の `securities_context[ticker].company_growth` に計算済み状態・変化・release・方法・要求範囲・不足を保存する。再開ではこの結果を投影し、最新原本・新しい計算法へ付け替えない。旧Selectionは保存された入力のまま成長なしで再開できる。InputGapは引き続き `analysis.unavailable` と厳密に一致し、成長欠測は加えない。
 
 新しい実績指標の選択・算術はcompany_growthへ、新providerのデコード・文書identity・保存読取はmarket/Collectionへ置く。Research/UIへ算式をコピーしない。共通marketの `financial_periods` は両領域で意味が同じ期間比較・実績矛盾処理・金額算術だけを持つ。valuationの最新anchor・fallback・carry・TTMRulesは移さない。import-linterが兄弟領域、純粋計算、Web/Batch入口の境界を検査する。
 
 ## 実データ受入の前提とCI
 
-本番取得・本番storeの読取/実測は未実施。主担当へ渡す最小試験入力は、固定releaseのID/digestと収録manifest、対応する読取専用market実行コピー、財務原文書と元単位・開示日/時刻・期間・連結基準、取得coverageがreleaseに対応する根拠（なければ未確認）、採用対象一覧である。追加課金や認証変更は不要な既存経路だけを使う。
+本番取得・本番storeの読取/実測は未実施。主担当へ渡す最小試験入力は、固定releaseのID/digestと収録manifest、該当releaseの財務・masterと必要な前期間/訂正を含むParquet objectを配置したローカルmirror、origin参照の読取専用marketコピー、財務原文書と元単位・開示日/時刻・期間・連結基準、取得coverageがreleaseに対応する根拠（なければ未確認）、採用対象一覧である。追加課金や認証変更は不要な既存経路だけを使う。
 
 初期サンプルは公開情報の4〜6社・各8〜12四半期程度とTTM/前年比の必要前期間。保存/参照上限ではない。M&A/訂正、営業利益と親会社損益の乖離、分割、金融業、決算月差を含める。候補は武田・日産・ソニーと金融業・決算月差の各1社。履歴がなければ同じ失敗条件を覆う公開情報の別企業へ置き換える。補助PERには同releaseの原価格日/終値と株式単位/自己株式、peerには明示的な基準日・根拠・固定群・両期財務が追加で必要。
 
@@ -63,6 +63,7 @@ CIは統合draft PRのbranchへpushして既存 `.github/workflows/ci.yml` を�
 ```bash
 uv run python -m tools.company_growth_sample \
   --sqlite /tmp/market-read-only.sqlite \
+  --mirror /tmp/market-mirror \
   --sample-input /tmp/company-growth-sample.json \
   --out /tmp/company-growth-sample-result.json
 ```

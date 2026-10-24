@@ -81,6 +81,7 @@ def prepare_selected_workspace(
     indicators_path: Path,
     now: datetime,
     force: bool = False,
+    company_growth_mirror: Path = Path("stores"),
 ) -> SelectedResearchPreparation:
     if now.utcoffset() is None or draft.input_known_at > now:
         raise ResearchWorkspaceConflictError("input_known_at is after prepare time")
@@ -140,6 +141,7 @@ def prepare_selected_workspace(
         market_path=sqlite_path,
         indicators_path=indicators_path,
         app_path=database_path(db_path),
+        company_growth_mirror=company_growth_mirror,
         company_growth_start=draft.company_growth_start,
         company_growth_end=draft.company_growth_end,
     )
