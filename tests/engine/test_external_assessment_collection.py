@@ -146,7 +146,8 @@ def test_invalid_bytes_and_unknown_charset_are_fixed_failures_not_null(content_t
     assert "private-secret" not in json.dumps(result.summary())
 
 
-def test_live_collector_separates_acquisition_and_receipt_time():
+def test_live_collector_separates_acquisition_and_receipt_time(monkeypatch):
+    fake_clock(monkeypatch)
     client = Session([(200, monex_html()), (200, official_html()), (200, rakuten_html())])
     before = datetime.now(UTC)
     result = collection.collect(["7203"], session=client)
@@ -160,7 +161,8 @@ def test_live_collector_separates_acquisition_and_receipt_time():
 
 
 @pytest.mark.parametrize(("status", "category"), [(403, "access_denied"), (429, "rate_limited")])
-def test_limit_response_stops_only_that_source(status, category):
+def test_limit_response_stops_only_that_source(status, category, monkeypatch):
+    fake_clock(monkeypatch)
     client = Session(
         [
             (status, "secret"),
@@ -186,7 +188,8 @@ def test_limit_response_stops_only_that_source(status, category):
     assert "secret" not in json.dumps(result.summary())
 
 
-def test_iframe_403_stops_remaining_rakuten_tickers():
+def test_iframe_403_stops_remaining_rakuten_tickers(monkeypatch):
+    fake_clock(monkeypatch)
     client = Session([(200, official_html()), (403, "secret")])
     result = collection.collect(["7203", "9432"], sources=("rakuten",), session=client)
     assert result.requests == 2
@@ -194,7 +197,8 @@ def test_iframe_403_stops_remaining_rakuten_tickers():
     assert result.outcomes[0].status == "access_denied"
 
 
-def test_budget_counts_official_and_iframe_separately():
+def test_budget_counts_official_and_iframe_separately(monkeypatch):
+    fake_clock(monkeypatch)
     client = Session([(200, monex_html()), (200, official_html())])
     result = collection.collect(["7203"], session=client, request_budget=2)
     assert result.requests == 2
@@ -234,7 +238,8 @@ def test_timeout_and_shell_are_failures_not_nullable_observations(monkeypatch):
     assert "secret" not in json.dumps(result.summary())
 
 
-def test_no_forecast_shell_has_safe_identity_failure_and_no_observation():
+def test_no_forecast_shell_has_safe_identity_failure_and_no_observation(monkeypatch):
+    fake_clock(monkeypatch)
     client = Session(
         [
             (200, official_html("130A")),
