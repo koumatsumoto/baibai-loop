@@ -27,44 +27,9 @@ from .yahoo import YahooChartSource
 
 
 def provider_spec(name: str) -> ProviderSpec:
-    if name == "nikkei_indexes":
-        return NikkeiIndexesSource.spec
-    if name == "yahoo":
-        return YahooChartSource.spec
-    if name == "boj":
-        return BojSource.spec
-    if name == "mof_jgb":
-        return MofJgbSource.spec
-    if name == "boj_timeseries":
-        return BojTimeSeriesSource.spec
-    if name == "umich_sca":
-        return UmichScaSource.spec
-    if name == "fred_csv":
-        return FredSource.spec
-    if name == "frb_h15":
-        return FrbH15Source.spec
-    if name == "estat":
-        return EStatSource.spec
-    if name == "estat_dashboard":
-        return EStatDashboardSource.spec
-    if name == "multpl":
-        return MULTPL_SPEC
-    if name == "jquants_options":
-        return JQUANTS_OPTIONS_SPEC
-    if name == "jquants_flows":
-        return JQUANTS_FLOWS_SPEC
-    if name == "jquants_indices":
-        return JQUANTS_INDICES_SPEC
-    if name == "cftc":
-        return CFTC_SPEC
-    if name == "ecb_fx":
-        return ECB_FX_SPEC
-    if name == "spglobal_pmi":
-        return SpGlobalPmiSource.spec
-    if name == "tsr_bankruptcies":
-        return TsrBankruptciesSource.spec
-    if name == "matsui_margin":
-        return MatsuiMarginSource.spec
+    for spec in registered_specs():
+        if spec.name == name:
+            return spec
     raise IndicatorsProviderError(f"unsupported indicator provider: {name}")
 
 
