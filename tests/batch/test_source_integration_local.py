@@ -6,7 +6,6 @@ import pytest
 from baibai_batch.jobs import source_integration
 from baibai_engine.collection.economic.store import initialize_database
 
-
 pytestmark = pytest.mark.usefixtures("_no_r2")
 
 
@@ -30,9 +29,7 @@ def _no_r2(monkeypatch):
     ("failed_part", "expected"),
     [(None, 0), ("handoff", 1), ("edinet", 1), ("external_ready", 1), ("external", 1)],
 )
-def test_check_without_r2_reports_real_local_completeness(
-    tmp_path, capsys, failed_part, expected
-):
+def test_check_without_r2_reports_real_local_completeness(tmp_path, capsys, failed_part, expected):
     report = {
         "handoffs": [],
         "extractions": {"edinet-metrics": {"exit_code": 0}, "edinet-facts": {"exit_code": 0}},
@@ -51,10 +48,11 @@ def test_check_without_r2_reports_real_local_completeness(
     path = tmp_path / "applied.json"
     path.write_text(json.dumps(report))
     before = path.read_bytes()
+    entries_before = set(tmp_path.iterdir())
     assert source_integration.main(["check", "--directory", str(tmp_path)]) == expected
     assert capsys.readouterr().err == ""
     assert path.read_bytes() == before
-    assert set(tmp_path.iterdir()) == {path}
+    assert set(tmp_path.iterdir()) == entries_before
 
 
 def test_check_missing_report_does_not_create_a_directory(tmp_path, capsys):
