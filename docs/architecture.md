@@ -76,6 +76,6 @@ source取得は担当範囲の再生成可能なread-only inputと原受領hando
 
 クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/foundation/repository_layout.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
 
-Gitの[method](../method/README.md)は既定2件と歴史16件のdated規則を保持し、選択先はloaderが所有する。較正の配布artifactは[`valuation/calibration/published/`](../engine/src/baibai_engine/valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)、表示設定は`web/config/`に置く。[reports](../reports/README.md)には運用責務の確認・移管が残る記録だけを保持し、完了した実験の詳細は固定commitへ委ねる。再取得可能であることは改訂前の情報を復元できることを意味せず、汎用DB・registryや保存判断の第二正本は作らない。
+Gitの[method](../method/README.md)は既定の規則と歴史revisionのdated規則を保持し、選択先はloaderが所有する。較正の配布artifactは[`valuation/calibration/published/`](../engine/src/baibai_engine/valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)、表示設定は`web/config/`に置く。[reports](../reports/README.md)には運用責務の確認・移管が残る記録だけを保持し、完了した実験の詳細は固定commitへ委ねる。再取得可能であることは改訂前の情報を復元できることを意味せず、汎用DB・registryや保存判断の第二正本は作らない。
 
 運用上の取得・発行・復旧は[OPERATIONS](../batch/OPERATIONS.md)、設計判断は[doctrine](doctrine.md)、開発環境は[development](development.md)に従う。

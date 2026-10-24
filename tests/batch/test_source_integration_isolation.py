@@ -2,13 +2,14 @@ import json
 from contextlib import closing
 from datetime import date, timedelta
 
+import pytest
 from tests.batch.test_source_receipts import Store, stage
 from tests.engine.test_jquants_handoff import calendar
 from tests.engine.test_jquants_projection import FIRST_AT, body, receive
 
 from baibai_batch.jobs.source_integration import apply
 from baibai_batch.storage.economic_staging import save_handoff
-from baibai_batch.storage.source_receipts import available_handoffs
+from baibai_batch.storage.source_receipts import available_handoffs, seal_integrated
 from baibai_engine.collection.economic.records import read_snapshots
 from baibai_engine.collection.economic.store import initialize_database
 from baibai_engine.market.jquants_handoff import MARKET_SOURCES, export_handoff
@@ -87,3 +88,51 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
         assert next(
             read_snapshots(conn, date(2026, 10, 24), date(2026, 10, 24), source_id="fred-payems")
         ).records == ({"value": "independent receipt"},)
+
+
+@pytest.mark.parametrize("projection_failed", [False, True])
+def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
+    tmp_path, monkeypatch, projection_failed
+):
+    store = Store()
+    market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
+    for path, initialize in ((market, open_connection), (economic, initialize_database)):
+        with closing(initialize(path)):
+            pass
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    with closing(open_connection(packet / "receipts.sqlite")):
+        pass
+    report = {
+        "source": "jpx-regulations",
+        "asof": "2026-10-24",
+        "started_at": FIRST_AT.isoformat(),
+    }
+    (packet / "result.json").write_text(json.dumps(report))
+    save_handoff(store, "jpx-partial", packet, market=True)
+    work = tmp_path / "integration"
+    work.mkdir()
+    (work / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
+    monkeypatch.setattr(
+        "baibai_batch.jobs.source_integration._replay",
+        lambda *args, **kwargs: {"projection_failures": ["bundle"] if projection_failed else []},
+    )
+    monkeypatch.setattr(
+        "baibai_batch.jobs.source_integration.extract_saved_edinet", lambda *args, **kwargs: {}
+    )
+    outcome = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))[
+        "handoffs"
+    ][0]
+    assert outcome["applied"] is True
+    assert outcome["failed"] is projection_failed
+    assert outcome["recovery"] is projection_failed
+    seal_integrated(store, outcome["entry"], generations={}, recovery=outcome["recovery"])
+    assert available_handoffs(store) == []
+    explicit = available_handoffs(store, include_integrated=True)
+    assert explicit[0]["integration"]["status"] == (
+        "needs_explicit_recovery" if projection_failed else "integrated"
+    )
+    report["started_at"] = (FIRST_AT - timedelta(hours=1)).isoformat()
+    (packet / "result.json").write_text(json.dumps(report))
+    save_handoff(store, "jpx-earlier", packet, market=True)
+    assert available_handoffs(store)[0]["late_before_integrated"] is (not projection_failed)

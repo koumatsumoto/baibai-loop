@@ -71,11 +71,17 @@ def compute_reading(
     rules_revision: str,
     asof: date,
 ) -> ReadingSnapshot:
-    readings = tuple(
-        _read_series(definition, reader=reader, rules=rules, asof=asof)
-        for definition in sorted(series, key=lambda item: item.series_id)
-    )
-    return ReadingSnapshot(asof=asof, rules_revision=rules_revision, series=readings)
+    readings = []
+    for definition in sorted(series, key=lambda item: item.series_id):
+        reading = _read_series(definition, reader=reader, rules=rules, asof=asof)
+        if definition.notes:
+            # The series meaning belongs with its value, including empty/error readings.
+            # Keep the prefix distinct from source-observation notes without a new schema.
+            reading = replace(
+                reading, notes=(f"Series definition: {definition.notes}", *reading.notes)
+            )
+        readings.append(reading)
+    return ReadingSnapshot(asof=asof, rules_revision=rules_revision, series=tuple(readings))
 
 
 def _read_series(
