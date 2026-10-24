@@ -81,9 +81,10 @@ def test_published_default_preserves_web_and_research_diagnostics(
     if reason is None:
         assert web is not None
         assert research["context"]["evidence_complete"] is raw["evidence_complete"]
-        assert list(research["context"]["evidence_blocking_reasons"]) == raw[
-            "evidence_blocking_reasons"
-        ]
+        assert (
+            list(research["context"]["evidence_blocking_reasons"])
+            == raw["evidence_blocking_reasons"]
+        )
         assert research["targets"][0]["horizons"]
     else:
         assert web is None
