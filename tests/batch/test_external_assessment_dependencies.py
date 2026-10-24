@@ -26,23 +26,44 @@ def stage_dependencies(store, root, *, source="jquants-market", fault=None, rest
     query_day = PREVIOUS if fault == "old" else DAY
     record_day = PREVIOUS if fault == "wrong_date" else query_day
     records = [
-        {"Code": f"{ticker}0", "Date": record_day.isoformat(), "CoName": "合成会社",
-         "MktNm": "PRIME", "S33Nm": "電気機器", "ProdCat": "011"}
+        {
+            "Code": f"{ticker}0",
+            "Date": record_day.isoformat(),
+            "CoName": "合成会社",
+            "MktNm": "PRIME",
+            "S33Nm": "電気機器",
+            "ProdCat": "011",
+        }
         for ticker in range(1000, 3500)
     ]
     master = receive(database, "master", {"date": query_day.isoformat()}, body(records), RECEIVED)
     if fault == "partial":
         with closing(open_connection(database)) as conn, conn:
-            conn.execute("UPDATE jquants_source_pages SET body_gzip=? WHERE request_id=?",
-                         (gzip.compress(body(records, cursor="unfinished"), mtime=0), master))
-    rows = [{"Date": f"2026-10-{day}", "HolDiv": "1" if day == 16 or (day == 19 and not rest_day) else "0"}
-            for day in range(16, 20)]
-    calendar = receive(database, "market_calendar", {"from": "2026-10-16", "to": "2026-10-19"}, body(rows), RECEIVED)
+            conn.execute(
+                "UPDATE jquants_source_pages SET body_gzip=? WHERE request_id=?",
+                (gzip.compress(body(records, cursor="unfinished"), mtime=0), master),
+            )
+    rows = [
+        {
+            "Date": f"2026-10-{day}",
+            "HolDiv": "1" if day == 16 or (day == 19 and not rest_day) else "0",
+        }
+        for day in range(16, 20)
+    ]
+    calendar = receive(
+        database,
+        "market_calendar",
+        {"from": "2026-10-16", "to": "2026-10-19"},
+        body(rows),
+        RECEIVED,
+    )
     if fault is None:
         project_request(database, master)
     project_request(database, calendar)
     # A market handoff also contains prices: consumers must never download it.
-    receive(database, "daily_bars", {"date": DAY.isoformat()}, body([{"private_price": 999}]), RECEIVED)
+    receive(
+        database, "daily_bars", {"date": DAY.isoformat()}, body([{"private_price": 999}]), RECEIVED
+    )
     directory = root / "stage"
     _export(source, DAY, RECEIVED - timedelta(seconds=1), database, directory)
     save_handoff(store, f"{source}-{DAY.isoformat()}-new", directory, market=True)
@@ -81,6 +102,11 @@ def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
     assert binding["calendar_receipt"]["request_id"] == calendar
     assert datetime.fromisoformat(binding["master_receipt"]["received_at"]) == RECEIVED
     assert len(plan.tickers) == 2500
+    price_manifest = (
+        "lake/manifests/datasets/jquants.daily_bars/synthetic-jquants-daily_bars.json"
+    )
+    assert price_manifest in store.get_keys
+    assert [key for key in store.get_keys if "daily_bars/" in key] == [price_manifest]
     assert not any(key.endswith(".sqlite") or ("daily_bars/" in key and key.endswith(".parquet")) for key in store.get_keys)
     assert not any(
         "jquants.master_snapshots/" in key and key.endswith(".parquet")

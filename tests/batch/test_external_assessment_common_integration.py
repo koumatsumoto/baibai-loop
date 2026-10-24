@@ -14,9 +14,11 @@ from baibai_batch.jobs.external_assessment_publication import VALUATION_DATASET,
 from baibai_batch.storage import external_assessment_staging as staging
 from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage.external_assessment_ready import load_ready, save_ready
+from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_engine.batch_api import (
     external_assessment_decode_attempt,
     external_assessment_history_digests,
+    external_assessment_save_observations,
 )
 
 
@@ -163,7 +165,10 @@ def test_failed_decode_in_another_month_keeps_originals_and_does_not_block_healt
     assert staging.read_terminal(store, staging.read_plan(store, selected[1]["run_id"])) is not None
 
 
-def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(publication):
+@pytest.mark.parametrize("unexpected_forecast", [False, True])
+def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
+    publication, unexpected_forecast
+):
     store, previous, handle, database, mirror, directory = publication
     plan = _plan(previous, run_id="minkabu-common-forecast", sources=("minkabu",))
     responses = pair_responses("minkabu", "7203", received_at_utc=RECEIVED)
@@ -187,9 +192,19 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(publ
             "(snapshot_date,ticker,provider_symbol,fetched_at_utc,fetch_status) VALUES (?,?,?,?,?)",
             ("2026-09-30", "7203", "TSE:7203", RECEIVED.isoformat(), "ok"),
         )
+    if unexpected_forecast:
+        external_assessment_save_observations(
+            database,
+            [observation.model_copy(update={"fetched_at_utc": RECEIVED.replace(month=8)})],
+        )
     publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
     fresh = directory / "minkabu-fresh-readback"
     assert not fresh.exists()
+    if unexpected_forecast:
+        with pytest.raises(LakePublishError, match="unrelated external"):
+            verify_and_seal(store, state, handle=handle, directory=fresh)
+        assert staging.read_terminal(store, plan) is None
+        return
     results = verify_and_seal(store, state, handle=handle, directory=fresh)
     assert results[0]["readback"] == "verified"
     assert staging.read_terminal(store, plan)["observations"] == 1

@@ -54,8 +54,8 @@ _EXCLUSIVE_DATASETS = {
     VALUATION_DATASET,
     RATING_DATASET,
     QUANTS_DATASET,
+    ANALYST_FORECAST_DATASET,
 }
-_READBACK_DATASETS = _EXCLUSIVE_DATASETS | {ANALYST_FORECAST_DATASET}
 
 
 def merge_ready(
@@ -188,8 +188,6 @@ def verify_and_seal(
             for observation in stage.result.observations
         )
     for name, manifest in after.dataset_manifests.items():
-        if name not in _READBACK_DATASETS:
-            continue
         for part in manifest.partitions:
             if (name, part.values["year"], part.values["month"]) in changed:
                 for obj in part.objects:

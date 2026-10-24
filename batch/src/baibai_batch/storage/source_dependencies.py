@@ -39,9 +39,7 @@ def available_dependencies(store: ObjectStore, *, days: Sequence[date]) -> list[
         return []
     result = []
     scopes = [
-        (source, day)
-        for source in ("jquants-market", "tradingview")
-        for day in sorted(set(days))
+        (source, day) for source in ("jquants-market", "tradingview") for day in sorted(set(days))
     ]
     for source, day in scopes:
         for key, _ in iterator(f"coordination/market-sources/{source}-{day.isoformat()}-"):
@@ -58,7 +56,9 @@ def available_dependencies(store: ObjectStore, *, days: Sequence[date]) -> list[
                 ):
                     raise ValueError("dependency source differs from ready handoff")
                 for item in manifest.get("dependencies", []):
-                    expected = key.removesuffix("handoff.json") + f"dependency-{item['sha256']}.json"
+                    expected = (
+                        key.removesuffix("handoff.json") + f"dependency-{item['sha256']}.json"
+                    )
                     if item["key"] != expected:
                         raise ValueError("dependency object differs from ready scope")
                     if datetime.fromisoformat(item["received_at"]).utcoffset() is None:

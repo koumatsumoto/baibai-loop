@@ -96,7 +96,9 @@ def _export(
         )
     if source in {"jquants-market", "tradingview"}:
         basis = date.fromisoformat(str(report["master_asof"])) if source == "tradingview" else asof
-        for dependency in export_master_calendar_dependencies(database, day=asof, master_asof=basis):
+        for dependency in export_master_calendar_dependencies(
+            database, day=asof, master_asof=basis
+        ):
             write_json_atomic(directory / f"dependency-{dependency['request_id']}.json", dependency)
     write_json_atomic(directory / "result.json", report)
 
