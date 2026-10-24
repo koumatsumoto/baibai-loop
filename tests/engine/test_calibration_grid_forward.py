@@ -1022,11 +1022,7 @@ class FailureExitTest(unittest.TestCase):
 
 
 class FailureReasonClassificationTest(unittest.TestCase):
-    """JPX writes the reason as free prose, so both sides of the split are pinned.
-
-    Reading an acquisition as a failure would book a takeover premium as a wipeout, which
-    is worse than the omission being replaced. The rule is fail-closed accordingly.
-    """
+    """Keep acquisition exits separate from the failure-delisting last-close convention."""
 
     def test_insolvency_and_listing_failures_are_failures(self) -> None:
         for reason in (
@@ -1061,7 +1057,7 @@ class FailureReasonClassificationTest(unittest.TestCase):
             with self.subTest(reason=reason):
                 self.assertFalse(is_failure_delisting(reason))
 
-    def test_a_reverse_split_that_wiped_the_equity_out_is_a_failure(self) -> None:
+    def test_reverse_split_with_insolvency_selects_the_failure_exit_convention(self) -> None:
         """The insolvency phrase selects the failure-exit convention, not a recovery value."""
 
         self.assertTrue(
@@ -1071,7 +1067,7 @@ class FailureReasonClassificationTest(unittest.TestCase):
         )
 
     def test_an_insolvency_phrase_inside_an_acquisition_does_not_realize_it(self) -> None:
-        """The fail-closed direction: an acquisition wins, and the row stays unresolved."""
+        """An acquisition phrase excludes the failure-exit convention."""
 
         self.assertFalse(is_failure_delisting("民事再生手続き中の会社の完全子会社化"))
 
