@@ -33,6 +33,7 @@ from baibai_engine.market import edinet_refresh as edinet_refresh_module
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_document_events import parse_doc_id
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
+from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
@@ -1349,9 +1350,23 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.EXACT)
         self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
-    def test_edinet_reader_does_not_adopt_incompatible_cached_metrics_without_api_key(self) -> None:
+    def test_edinet_reader_reads_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "data" / "screening" / "market.sqlite"
+            document = {
+                "seqNumber": 1,
+                "docID": "S100SAVED",
+                "secCode": "72030",
+                "docTypeCode": "120",
+                "csvFlag": "1",
+                "xbrlFlag": "1",
+                "legalStatus": "1",
+                "periodStart": "2025-04-01",
+                "periodEnd": "2026-03-31",
+                "submitDateTime": "2026-05-01 12:00",
+            }
+            store_edinet_documents(sqlite_path, date(2026, 5, 1), [document])
+            candidate = select_document_candidates([document]).candidates["7203"]
             store_edinet_metrics(
                 sqlite_path,
                 date(2026, 5, 1),
@@ -1360,7 +1375,13 @@ class ScreeningProviderTests(unittest.TestCase):
                         "ticker": "7203",
                         "cash": 100.0,
                         "debt": 10.0,
-                        "extractor_revision": "a" * 64,
+                        "source_doc_id": candidate.doc_id,
+                        "document_type": candidate.doc_type_code,
+                        "source_submit_datetime": candidate.submit_datetime,
+                        "source_period_start": candidate.period_start,
+                        "source_period_end": candidate.period_end,
+                        "extractor_revision": EDINET_METRIC_REVISION,
+                        "source_document_revision": candidate.source_document_revision,
                     }
                 ],
             )
@@ -1368,7 +1389,8 @@ class ScreeningProviderTests(unittest.TestCase):
             reader = EDINETReader(sqlite_path)
             records = reader.load_metric_records(date(2026, 5, 1))
 
-        self.assertEqual(records, {})
+        self.assertEqual(records["7203"].cash, 100.0)
+        self.assertEqual(records["7203"].debt, 10.0)
 
     def test_edinet_refresh_requires_api_key_for_unretained_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -105,7 +105,9 @@ def cash_flow_from_analysis(analysis: Mapping[str, object]) -> dict[str, object]
         "edinet": {
             # Saved-input provenance, not the facts' measurement period/date.
             "edinet_snapshot_asof": _text(metrics.get("edinet_snapshot_asof")),
-            "edinet_snapshot_recorded_at_utc": _text(metrics.get("edinet_snapshot_recorded_at_utc")),
+            "edinet_snapshot_recorded_at_utc": _text(
+                metrics.get("edinet_snapshot_recorded_at_utc")
+            ),
             "edinet_ocf_ttm": _number(metrics.get("edinet_ocf_ttm")),
             "capex_ttm": _number(metrics.get("capex_ttm")),
             "fcf_ttm": _number(metrics.get("fcf_ttm")),
@@ -149,7 +151,9 @@ def balance_sheet_from_analysis(analysis: Mapping[str, object]) -> dict[str, obj
         "edinet": {
             # Saved-input provenance, not the facts' measurement period/date.
             "edinet_snapshot_asof": _text(metrics.get("edinet_snapshot_asof")),
-            "edinet_snapshot_recorded_at_utc": _text(metrics.get("edinet_snapshot_recorded_at_utc")),
+            "edinet_snapshot_recorded_at_utc": _text(
+                metrics.get("edinet_snapshot_recorded_at_utc")
+            ),
             "cash": _number(metrics.get("cash")),
             "debt": _number(metrics.get("debt")),
             "net_cash": _number(metrics.get("net_cash")),

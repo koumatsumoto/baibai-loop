@@ -158,11 +158,25 @@ def test_known_changes_invalidate_only_affected_saved_values(tmp_path, change):
     assert _issues(path) == []
 
 
+def test_unversioned_saved_row_is_not_adopted(tmp_path):
+    path = tmp_path / "market.sqlite"
+    _seed(path)
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute(
+            "UPDATE edinet_metrics SET extractor_revision = NULL, source_document_revision = NULL "
+            "WHERE ticker = '7203'"
+        )
+    assert set(EDINETReader(path).load_metric_records(TARGET)) == {"8306"}
+    assert _issues(path) == []
+
+
 def test_inconsistent_newest_success_never_falls_back_to_older_baseline(tmp_path):
     path = tmp_path / "market.sqlite"
     _seed(path)
     store_edinet_metrics(
-        path, TARGET, [{"ticker": "7203", "cash": 999.0, "extractor_revision": EDINET_METRIC_REVISION}]
+        path,
+        TARGET,
+        [{"ticker": "7203", "cash": 999.0, "extractor_revision": EDINET_METRIC_REVISION}],
     )
     with closing(open_connection(path)) as conn, conn:
         conn.execute(

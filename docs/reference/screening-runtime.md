@@ -29,6 +29,10 @@ L2の財務・倍率・機械見積りとMarket Contextを全対象のStock Anal
 
 取得coverageは成功した要求範囲で、全銘柄の入力充足ではない。密度の分母から価格・財務欠測の普通株を消さず、計算不能を原本未取得とみなして再取得しない。nullと既知0、raw field欠落を保持する。TTM非exact・YoY欠測のpartial warningはrunの品質で、会社を一律除外するgateではない。
 
+EDINETの取得・抽出失敗は、その実行結果として報告する。Screeningは最新の検証済み成功baselineから現行extractor・文書revisionと訂正／取下げ状態が適合する保存値だけを採用し、coverage検査も同じ選択を使う。当日抽出の成功は必須にしない。任意のEDINET値が未取得・不適格なら欠測として他項目を進めるが、破損した成功baseline／保存原本を古い成功で回避しない。元snapshot日・記録時刻はStock AnalysisとResearchのCF／BS入力へ保持し、提出日・対象期間やfactの測定日へ読み替えない。
+
+保存入力の共通統合は、明示したasofも営業日判定し、非営業日は新しいScreeningを作らず既存runの日付・ID・計算時刻を保って統合・公開を進める。営業日のexact master・価格／財務coverageは引き続き必要。
+
 ## 保存と読取
 
 一回のrunがheader・全Stock Analysis・候補文脈を同じtransactionで確定する。独立した候補table・ID・後付け発行を持たない。保存revisionはその値・methodのまま読み、現在rulesで再計算しない。過去rulesを指定した新計算も、過去算式・当時値の再現とは限らない。
@@ -42,9 +46,5 @@ Researchの分析用選択はResearch日以下のanalysisとknown_at以下のrun
 [公式index](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html)の日次資料と月別資料は対象が異なる。日次資料は予定なしでリンクがない場合もある。未定は不正値ではなく、同順位の矛盾をURL順で決めず、上位資料の未解決を下位の古い値で埋めない。優先順位はproviderの解決方針で公式規則とは称さない。
 
 予定日到達は発表確認ではなく、個別Researchは会社IRを確認する。snapshot取得失敗は現行run全体を保存前に止めるが、個別tickerの予定なしとは別。この停止は入力・成果物の完全性の境界で、企業の除外理由や機会損失の実測ではない。
-
-EDINETの取得・抽出失敗は、その実行結果として報告する。Screeningは最新の検証済み成功baselineから現行extractor・文書revisionと訂正／取下げ状態が適合する保存値だけを採用し、coverage検査も同じ選択を使う。当日抽出の成功は必須にしない。任意のEDINET値が未取得・不適格なら欠測として他項目を進めるが、破損した成功baseline／保存原本を古い成功で回避しない。元snapshot日・記録時刻はStock AnalysisとResearchのCF／BS入力へ保持し、提出日・対象期間やfactの測定日へ読み替えない。
-
-保存入力の共通統合は、明示したasofも営業日判定し、非営業日は新しいScreeningを作らず既存runの日付・ID・計算時刻を保って統合・公開を進める。営業日のexact master・価格／財務coverageは引き続き必要。
 
 通常runは保存済み入力だけを読む。取得・retry/deadline・成功chunkからの再開・発行順は[OPERATIONS](../../batch/OPERATIONS.md)に従う。意味を変えない配置変更でrules/model/calculation revisionを更新しない。
