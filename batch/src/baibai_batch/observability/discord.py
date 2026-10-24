@@ -296,6 +296,20 @@ def render_delta(notice: Mapping[str, object]) -> list[str]:
     ]
 
 
+def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
+    extractions = report.get("extractions")
+    if not isinstance(extractions, Mapping):
+        return []
+    lines = []
+    for source, result in extractions.items():
+        if not isinstance(result, Mapping) or not result.get("deferred_inputs"):
+            continue
+        reasons = sanitize_one_line(result["deferred_inputs"], 180)
+        input_date = sanitize_one_line(result.get("input_asof") or "未取得")
+        lines.append(f"入力延期: {sanitize_one_line(source)} / {reasons} / 保存一覧日={input_date}")
+    return lines[:4]
+
+
 def render_message(
     *,
     outcome: str,
@@ -303,6 +317,7 @@ def render_message(
     failed_step: str,
     notice: Mapping[str, object],
     url: str,
+    integration_report: Mapping[str, object] | None = None,
 ) -> str:
     """Render the bounded (<= 2000 chars) message: one headline, the delta, the run."""
 
@@ -313,6 +328,7 @@ def render_message(
         headline,
         f"executor: {executor_label(os.environ)}",
         *render_delta(notice),
+        *render_deferred_inputs(integration_report or {}),
         f"run: {url}",
     ]
     message = "\n".join(lines)
@@ -361,6 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="notify Discord #batch-runs once about the terminal state of a run",
     )
     parser.add_argument("--notice-path", type=Path, default=None)
+    parser.add_argument("--integration-report-path", type=Path, default=None)
     parser.add_argument("--batch-exit-code", type=str, default="")
     for step in STEP_ORDER:
         parser.add_argument(f"--{step}-outcome", type=str, default="skipped")
@@ -397,6 +414,7 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         failed_step=failed_step,
         notice=notice,
         url=run_url(env),
+        integration_report=load_notice(args.integration_report_path),
     )
     print(message, flush=True)
     failure = deliver(

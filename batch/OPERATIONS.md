@@ -44,6 +44,8 @@ gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 
 保存入力の共通統合は、手動dispatchで解決済みの `asof` を渡しても営業日判定を行う。非営業日は新しいScreeningを作らず、前回runの日付・ID・計算時刻を維持して統合・公開を続ける。過去の営業日を明示した再計算は可能だが、その日のmaster・価格・財務coverage要件を省略しない。
 
+共通統合のEDINET抽出は統合日を当日原本の取得完了とみなさない。metricsは最新の保存済み一覧日と既存540日窓を使い、一覧窓・必要CSV不足は延期して適格な保存snapshotを保持する。factsは既知文書の既存doc単位planから保存XBRLを処理し、不足原本は延期する。取得jobと取得coverageの失敗は変更せず、旧snapshot日・開示日を当日へ書き換えない。`applied.json` の `deferred_inputs` と通知の「入力延期」で未到達を確認する。`source-check` は入力延期だけなら統合成功とし、不正受領・解析失敗・破損・公開／readback失敗のエラーは維持する。原本到着後の次回統合が通常の回復入口で、全体checkの無効化や取得の重複起動で対応しない。
+
 EDINETの取得／抽出失敗は独立した統合結果に残るため、Screening成功だけで全source成功とは判断しない。保存値の採用は[Screeningの入力適格性](../docs/reference/screening-runtime.md#入力不足と品質)に従う。出力の `edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc` と既存の文書ID・提出日時・対象期間で鮮度を確認する。旧行を当日coverageへ複製せず、不足sourceの限定取得後、次の共通統合で新しい適格snapshotへ進む。
 
 ### マクロ原本の独立更新

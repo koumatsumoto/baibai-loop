@@ -1,5 +1,4 @@
 import json
-import subprocess
 from contextlib import closing
 from datetime import date, timedelta
 
@@ -63,8 +62,8 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
             "SELECT * FROM source_coverage ORDER BY source, coverage_key"
         ).fetchall()
     monkeypatch.setattr(
-        "baibai_batch.jobs.source_integration.subprocess.run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""),
+        "baibai_batch.jobs.source_integration.extract_saved_edinet",
+        lambda *args, **kwargs: {},
     )
     report = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))
     assert report["handoffs"][0]["failed"] is True

@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       asof:
-        description: "Optional YYYY-MM-DD; skips the business-day gate for a manual rerun"
+        description: "Optional YYYY-MM-DD; Screening still applies the business-day gate"
         required: false
         type: string
 
@@ -338,7 +338,7 @@ jobs:
           ASOF: ${{ steps.source-plan.outputs.asof }}
           IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
         run: uv run python -m baibai_batch.jobs.source_integration inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
-      - name: Report incomplete sources after retaining safe canonical results
+      - name: Report integration failures and deferred source inputs
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
         run: uv run python -m baibai_batch.jobs.source_integration check --directory "$RUNNER_TEMP/integration"
@@ -381,6 +381,7 @@ jobs:
         run: |
           python3 -m baibai_batch.observability.discord \
             --notice-path "$RUNNER_TEMP/batch-notice.json" \
+            --integration-report-path "$RUNNER_TEMP/integration/applied.json" \
             --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
             --smoke-outcome "${{ steps.smoke.outcome }}" \
             --setup-outcome "${{ steps.setup.outcome }}" \

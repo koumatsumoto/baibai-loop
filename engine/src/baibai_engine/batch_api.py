@@ -149,6 +149,7 @@ from baibai_engine.market.edinet_acquisition import acquire_archives as acquire_
 from baibai_engine.market.edinet_handoff import archive_keys as edinet_archive_keys
 from baibai_engine.market.edinet_handoff import export_handoff as export_edinet_handoff
 from baibai_engine.market.edinet_handoff import import_handoff as import_edinet_handoff
+from baibai_engine.market.edinet_integration import extract_saved_edinet
 from baibai_engine.market.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_engine.market.jpx_handoff import import_handoff as import_jpx_handoff
 from baibai_engine.market.jquants_decode import JQuantsProviderError
@@ -278,6 +279,7 @@ __all__ = [
     "export_market_store",
     "export_master_calendar_dependencies",
     "export_tradingview_handoff",
+    "extract_saved_edinet",
     "external_assessment_acquisition_main",
     "external_assessment_calendar_master_asof",
     "external_assessment_collect_pair",

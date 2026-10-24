@@ -6,14 +6,13 @@ import argparse
 import json
 import os
 import sqlite3
-import subprocess  # nosec B404
 import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
 
 from baibai_batch.jobs.external_assessment_integration import merge_ready, verify_and_seal
-from baibai_batch.jobs.source_handoff import _command, _replay, complete
+from baibai_batch.jobs.source_handoff import _replay, complete
 from baibai_batch.observability.discord import write_json_atomic
 from baibai_batch.storage.economic_receipts import accept_rechecks
 from baibai_batch.storage.external_assessment_ready import available_ready
@@ -31,6 +30,7 @@ from baibai_engine.batch_api import (
     JQuantsProviderError,
     MarketSchemaError,
     TradingViewFetchError,
+    extract_saved_edinet,
     validate_economic_schema,
     validate_market_schema,
 )
@@ -119,24 +119,7 @@ def apply(
     external = (
         merge_ready(store, plan["external"], database=market) if plan.get("external") else None
     )
-    extractions = {}
-    for source in ("edinet-metrics", "edinet-facts"):
-        command_result = subprocess.run(  # nosec B603
-            _command(source, asof, offline=True),
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        print(command_result.stdout, end="")
-        print(command_result.stderr, end="", file=sys.stderr)
-        extractions[source] = {
-            "exit_code": command_result.returncode,
-            "status": "skipped_not_initialized"
-            if "skipped=not_initialized" in command_result.stdout
-            else "completed"
-            if command_result.returncode == 0
-            else "failed",
-        }
+    extractions = extract_saved_edinet(market, asof=asof)
     report: dict[str, object] = {
         "asof": asof.isoformat(),
         "handoffs": outcomes,
@@ -178,12 +161,22 @@ def main(argv: list[str] | None = None) -> int:
         directory = args.directory
         if args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
-            return int(
+            failed = (
                 any(item["failed"] for item in report["handoffs"])
                 or any(item["exit_code"] for item in report["extractions"].values())
                 or bool(report.get("external_failed"))
                 or bool((report.get("external") or {}).get("failed"))
             )
+            deferred = {
+                source: item for source, item in report["extractions"].items()
+                if item.get("deferred_inputs")
+            }
+            print(json.dumps({
+                "integration_status": "failed" if failed else
+                "completed_with_deferred_inputs" if deferred else "completed",
+                "deferred_inputs": deferred,
+            }, sort_keys=True))
+            return int(failed)
         if args.command == "verify":
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
             for index, outcome in enumerate(report["handoffs"]):
