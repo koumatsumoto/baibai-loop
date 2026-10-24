@@ -1,4 +1,4 @@
-"""Source-isolated acquisition and one publication of an exact ready-plan set."""
+"""Source-isolated acquisition and immutable handoff to common integration."""
 
 from __future__ import annotations
 
@@ -15,16 +15,9 @@ import requests
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs.external_assessment_cohorts import RunPlan, summarize
-from baibai_batch.jobs.external_assessment_publication import (
-    PreparedPublication,
-    prepare_publication,
-    publish_plans_and_verify,
-)
 from baibai_batch.jobs.schedule import external_assessment_target_date
-from baibai_batch.storage.external_assessment_identity import (
-    PARTIAL_TERMINAL_FORMAT,
-    SCHEDULED_BATCH_PREFIX,
-)
+from baibai_batch.storage.external_assessment_identity import SCHEDULED_BATCH_PREFIX
+from baibai_batch.storage.external_assessment_ready import PreparedPlan, prepare_plan
 from baibai_batch.storage.external_assessment_staging import (
     prefix,
     read_plan,
@@ -33,9 +26,7 @@ from baibai_batch.storage.external_assessment_staging import (
     terminal_result,
 )
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
-from baibai_batch.storage.publication_lease import PublicationLeaseHandle, _load_handle
 from baibai_engine.batch_api import (
-    MARKET_DB_PATH,
     ExternalAssessmentHostRateLimiter,
     ExternalAssessmentSource,
 )
@@ -170,11 +161,11 @@ def inspect_ready(
     *,
     confirmed_partial: bool = False,
     master_asof: date | None = None,
-) -> tuple[list[PreparedPublication], dict[str, dict[str, object]]]:
+) -> tuple[list[PreparedPlan], dict[str, dict[str, object]]]:
     """Read only exact handoffs; all-sealed resume needs no lease or hydrate."""
     if confirmed_partial and len(selected) != 1:
         raise ValueError("explicit partial publication requires one exact source plan")
-    prepared: list[PreparedPublication] = []
+    prepared: list[PreparedPlan] = []
     reports: dict[str, dict[str, object]] = {}
     for entry in selected:
         source, run_id = entry["source"], entry["run_id"]
@@ -207,85 +198,15 @@ def inspect_ready(
                 "status": "blocked" if blocked else "incomplete",
             }
             continue
-        # The immutable confirmed entries are revalidated by the existing publisher.
-        prepared.append(prepare_publication(store, plan, confirmed_partial=confirmed_partial))
+        # Validate the exact stages before freezing a handoff; do not integrate here.
+        prepared.append(prepare_plan(store, plan, confirmed_partial=confirmed_partial))
         reports[source] = {**accounting, "source": source, "status": "publication_unconfirmed"}
     return prepared, reports
 
 
-def publish_ready(
-    store: ObjectStore,
-    selected: list[dict[str, str]],
-    *,
-    handle: PublicationLeaseHandle,
-    sqlite_path: Path,
-    mirror: Path,
-    directory: Path,
-    confirmed_partial: bool = False,
-    master_asof: date | None = None,
-) -> tuple[dict[str, object], bool]:
-    prepared, reports = inspect_ready(
-        store, selected, confirmed_partial=confirmed_partial, master_asof=master_asof
-    )
-    common: dict[str, object] = {
-        "uploaded_bytes": 0,
-        "uploaded_objects": 0,
-        "publication_transfers": None,
-    }
-    success = True
-    if prepared:
-        try:
-            common = publish_plans_and_verify(
-                store,
-                prepared,
-                handle=handle,
-                sqlite_path=sqlite_path,
-                mirror=mirror,
-                directory=directory,
-            )
-            for result in cast("list[dict[str, object]]", common.pop("plans")):
-                reports[cast("str", result["source"])] = result
-        except Exception as error:
-            print(f"Source publication failed; type={type(error).__name__}", file=sys.stderr)
-            # Publication may already have advanced; only individual saved terminals
-            # prove completed readback. Never roll back or label every source unsent.
-            success = False
-            common = {
-                "uploaded_bytes": None,
-                "uploaded_objects": None,
-                "publication_transfers": None,
-            }
-            for item in prepared:
-                source = item.plan.sources[0]
-                try:
-                    terminal = read_terminal(store, item.plan)
-                except Exception:
-                    terminal = None
-                reports[source] = (
-                    {
-                        **item.accounting,
-                        **terminal,
-                        "source": source,
-                        "status": "partially_published"
-                        if terminal["format"] == PARTIAL_TERMINAL_FORMAT
-                        else "published",
-                        "rows_added": None,
-                        "source_responses_added": None,
-                    }
-                    if terminal is not None
-                    else {**item.accounting, "source": source, "status": "publication_unconfirmed"}
-                )
-    elif any(
-        item["status"] not in {"already_published", "already_partially_published"}
-        for item in reports.values()
-    ):
-        success = False
-    return {"sources": [reports[entry["source"]] for entry in selected], **common}, success
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare", "acquire", "inspect", "ready", "publish"))
+    parser.add_argument("command", choices=("prepare", "acquire", "inspect", "ready"))
     parser.add_argument("--source", choices=(*SOURCES, "all"), default="all")
     parser.add_argument("--batch-id")
     parser.add_argument("--run-created-at", type=datetime.fromisoformat)
@@ -294,8 +215,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--master-asof", type=date.fromisoformat)
     parser.add_argument("--observation-date", type=date.fromisoformat)
     parser.add_argument("--directory", type=Path)
-    parser.add_argument("--db", type=Path, default=MARKET_DB_PATH)
-    parser.add_argument("--lease-handle", type=Path)
     parser.add_argument("--confirmed-partial", action="store_true")
     parser.add_argument("--report-output", type=Path)
     args = parser.parse_args(argv)
@@ -325,15 +244,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             selected = (
                 read_selection(args.selection_json)
-                if args.command in {"inspect", "ready", "publish"}
+                if args.command in {"inspect", "ready"}
                 else read_selection(json.dumps([{"source": args.source, "run_id": args.run_id}]))
             )
             if args.command not in {"inspect", "ready"} and args.directory is None:
                 raise ValueError("private work directory required")
-            if args.command == "publish" and (
-                args.lease_handle is None or (args.confirmed_partial and len(selected) != 1)
-            ):
-                raise ValueError("publication requires a lease and explicit partial scope")
             store = Boto3R2Store(
                 bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
                 verify_put_with_head=args.command != "acquire",
@@ -363,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
                     row["status"] in {"already_published", "already_partially_published"}
                     for row in states.values()
                 )
-            elif args.command == "acquire":
+            else:
                 source = cast("ExternalAssessmentSource", args.source)
                 plan = daily.initialize(
                     store,
@@ -383,17 +298,6 @@ def main(argv: list[str] | None = None) -> int:
                     "already_published",
                     "already_partially_published",
                 }
-            else:
-                report, success = publish_ready(
-                    store,
-                    selected,
-                    handle=_load_handle(cast("Path", args.lease_handle)),
-                    sqlite_path=args.db,
-                    mirror=args.db.parents[1],
-                    directory=args.directory,
-                    confirmed_partial=args.confirmed_partial,
-                    master_asof=args.master_asof,
-                )
         if args.report_output is not None:
             from baibai_batch.observability.discord import write_json_atomic
 

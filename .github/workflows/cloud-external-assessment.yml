@@ -106,4 +106,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-        run: python3 -m baibai_batch.observability.external_assessment_discord --plan-result failure
+          SOURCE_GROUP: external-assessment-plan
+          ACQUIRE_RESULT: failure
+          STAGE_RESULT: skipped
+        run: python3 -m baibai_batch.observability.source_discord

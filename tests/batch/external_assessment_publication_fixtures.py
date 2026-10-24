@@ -17,7 +17,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master import insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_batch.jobs import external_assessment_publication as external_assessment
+from baibai_batch.jobs import external_assessment_integration as external_assessment
 from baibai_batch.jobs.external_assessment_cohorts import (
     RunPlan,
     make_plan,
@@ -34,7 +34,8 @@ from baibai_batch.storage.external_assessment_staging import (
     stage_key,
 )
 from baibai_batch.storage.lake_publish import ObjectStore
-from baibai_batch.storage.publication_lease import acquire
+from baibai_batch.storage.external_assessment_ready import prepare_plan, save_ready
+from baibai_batch.storage.publication_lease import acquire, verify_held
 from baibai_engine.batch_api import (
     ExternalAssessmentAnalystRatingObservation,
     ExternalAssessmentCollectionOutcome,
@@ -200,8 +201,8 @@ def publication(tmp_path, monkeypatch):
     )
     handle, _ = acquire(store, "operator")
     plan = make_plan(
-        sources=("monex", "rakuten"),
-        run_id="synthetic-daily",
+        sources=("monex",),
+        run_id="monex-synthetic-daily",
         tickers=("7203", "6758"),
         universe_binding="synthetic-fixed-master",
         collector_binding=external_assessment_collector_binding(),
@@ -313,4 +314,31 @@ def _stage(store, plan, index, entries, responses=()):
     keys = (upload_bundle(store, plan, index, tuple(responses)),) if responses else ()
     store.store_object(
         stage_key(plan, index), stage_bytes(plan, CohortStage(journal, raw_bundle_keys=keys))
+    )
+
+
+def ready_reference(store, plan, *, confirmed_partial=False):
+    """Freeze the same exact source plan that the acquisition workflow hands off."""
+    if staging.read_plan(store, plan.run_id) is None:
+        staging.save_new_plan(store, plan)
+    return save_ready(store, prepare_plan(store, plan, confirmed_partial=confirmed_partial))
+
+
+def integrate_ready_plans(batch, plans, suffix, *, confirmed_partial=False):
+    """Exercise merge, the shared publisher and readback without a source-only publisher."""
+    store, _, handle, database, mirror, directory = batch
+    references = [
+        ready_reference(store, plan, confirmed_partial=confirmed_partial) for plan in plans
+    ]
+    state = external_assessment.merge_ready(store, references, database=database)
+    assert state["failed"] == []
+    verify_held(store, handle)
+    publisher.publish_market_lake(
+        sqlite_path=database,
+        mirror_root=mirror,
+        store=store,
+        before_pointer_switch=lambda: verify_held(store, handle),
+    )
+    return external_assessment.verify_and_seal(
+        store, state, handle=handle, directory=directory / suffix
     )

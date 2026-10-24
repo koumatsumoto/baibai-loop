@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from collections.abc import Sequence
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from baibai_batch.jobs.external_assessment_publication import (
-    QUANTS_DATASET,
-    RATING_DATASET,
-    SOURCE_RESPONSES_DATASET,
-    VALUATION_DATASET,
-    _import_confirmed_originals,
-    receipt_date_coverage,
-    unchanged_objects,
-)
+from baibai_batch.jobs.external_assessment_cohorts import RunPlan
 from baibai_batch.storage.external_assessment_identity import (
     PARTIAL_TERMINAL_FORMAT,
     PUBLISHED_FORMAT,
 )
+from baibai_batch.storage.external_assessment_raw import read_raw_bundle
 from baibai_batch.storage.external_assessment_ready import load_ready
-from baibai_batch.storage.external_assessment_staging import prefix, put_private, read_terminal
+from baibai_batch.storage.external_assessment_staging import (
+    CohortStage,
+    prefix,
+    put_private,
+    read_terminal,
+)
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 from baibai_batch.storage.publication_lease import PublicationLeaseHandle, verify_held
 from baibai_batch.storage.publish_market_lake import (
@@ -32,15 +33,29 @@ from baibai_engine.batch_api import (
     EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET as ANALYST_FORECAST_DATASET,
 )
 from baibai_engine.batch_api import (
+    EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET as RATING_DATASET,
+)
+from baibai_engine.batch_api import (
+    EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET as VALUATION_DATASET,
+)
+from baibai_engine.batch_api import (
+    EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET as QUANTS_DATASET,
+)
+from baibai_engine.batch_api import (
     ExternalAssessmentAnalystForecastObservation,
     ExternalAssessmentModelValuationObservation,
     ExternalAssessmentObservation,
     ExternalAssessmentQuantsScoreObservation,
+    LakeFixedRelease,
     LakeObjectCache,
     LakeReleasePointer,
     LocalMirrorSource,
     equity_web_history_digests,
+    equity_web_import_responses,
+    equity_web_read_responses,
+    equity_web_response_digest,
     equity_web_verify_release_history,
+    external_assessment_decode_attempt,
     external_assessment_history_digests,
     external_assessment_save_observations,
     external_assessment_verify_release_history,
@@ -49,6 +64,8 @@ from baibai_engine.batch_api import (
     read_lake_store_origin,
 )
 
+SOURCE_RESPONSES_DATASET = "equity_web.source_responses"
+
 _EXCLUSIVE_DATASETS = {
     SOURCE_RESPONSES_DATASET,
     VALUATION_DATASET,
@@ -56,6 +73,110 @@ _EXCLUSIVE_DATASETS = {
     QUANTS_DATASET,
     ANALYST_FORECAST_DATASET,
 }
+
+
+def receipt_date_coverage(
+    plan: RunPlan, observations: Sequence[ExternalAssessmentObservation]
+) -> dict[str, dict[str, int]]:
+    coverage: dict[str, dict[str, int]] = {}
+    for observation in observations:
+        sources = coverage.setdefault(
+            observation.snapshot_date.isoformat(), dict.fromkeys(plan.sources, 0)
+        )
+        sources[observation.distributor] += 1
+    return dict(sorted(coverage.items()))
+
+
+def unchanged_objects(
+    release: LakeFixedRelease, changed: set[tuple[str, int, int]]
+) -> dict[str, object]:
+    changed_datasets = {name for name, _, _ in changed}
+    return {
+        name: [
+            obj.model_dump()
+            for part in manifest.partitions
+            if name not in changed_datasets
+            or (name, part.values["year"], part.values["month"]) not in changed
+            for obj in part.objects
+        ]
+        for name, manifest in release.dataset_manifests.items()
+        if name not in changed_datasets
+        or any(
+            (name, part.values["year"], part.values["month"]) not in changed
+            for part in manifest.partitions
+        )
+    }
+
+
+def _import_confirmed_originals(
+    store: ObjectStore,
+    plan: RunPlan,
+    stages: dict[int, tuple[CohortStage, str]],
+    sqlite_path: Path,
+    *,
+    retained: tuple[set[tuple[int, int]], dict[str, str]] | None = None,
+) -> tuple[int, set[tuple[int, int]], dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
+    """Import one bounded bundle at a time; defer L2 until every bundle is valid."""
+    source_inserted = 0
+    source_months: set[tuple[int, int]] = set()
+    selected_digests: dict[str, str] = {}
+    typed: list[ExternalAssessmentObservation] = []
+    attempts: dict[str, tuple[str, str, list[str]]] = {}
+    for index, (stage, _) in sorted(stages.items()):
+        pairs = set(plan.cohorts[index].pairs)
+        for key in stage.raw_bundle_keys:
+            manifest, responses = read_raw_bundle(store, key)
+            if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
+                raise ValueError("external assessment raw bundle stage binding mismatch")
+            for response in responses:
+                if (response.source, response.requested_ticker) not in pairs or (
+                    response.receipt_id in selected_digests
+                ):
+                    raise ValueError("external assessment raw receipt does not belong to cohort")
+                previous = attempts.get(response.attempt_id)
+                if previous is None:
+                    attempts[response.attempt_id] = (
+                        response.source,
+                        response.requested_ticker,
+                        [response.receipt_id],
+                    )
+                elif previous[:2] != (response.source, response.requested_ticker):
+                    raise ValueError("external assessment raw attempt identity mismatch")
+                else:
+                    previous[2].append(response.receipt_id)
+                selected_digests[response.receipt_id] = equity_web_response_digest(response)
+                source_months.add((response.received_at_utc.year, response.received_at_utc.month))
+            source_inserted += equity_web_import_responses(sqlite_path, responses)
+            if retained is not None:
+                retained[0].update(
+                    (item.received_at_utc.year, item.received_at_utc.month) for item in responses
+                )
+                retained[1].update(
+                    (item.receipt_id, equity_web_response_digest(item)) for item in responses
+                )
+            # Responses and their decompressed bodies die with this bundle iteration.
+            del responses
+        for entry in stage.result.entries:
+            attempt_info = attempts.get(entry.attempt_id) if entry.attempt_id else None
+            if entry.state in {"success", "normal_null"}:
+                if attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker):
+                    raise ValueError(
+                        "selected external assessment attempt has no matching original"
+                    )
+                uri = sqlite_path.resolve().as_uri() + "?mode=ro"
+                with closing(sqlite3.connect(uri, uri=True)) as conn:
+                    attempt = equity_web_read_responses(conn, attempt_info[2])
+                parsed = external_assessment_decode_attempt(attempt)
+                if parsed != entry.observation:
+                    raise ValueError("external assessment staged observation differs from original")
+                typed.append(parsed)
+            elif (
+                entry.state == "failure"
+                and entry.http_status == 200
+                and (attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker))
+            ):
+                raise ValueError("failed HTTP 200 attempt has no retained original")
+    return source_inserted, source_months, selected_digests, tuple(typed)
 
 
 def merge_ready(

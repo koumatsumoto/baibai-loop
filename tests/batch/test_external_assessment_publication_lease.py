@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from tests.batch.external_assessment_publication_fixtures import integrate_ready_plans
 from tests.batch.external_assessment_publication_fixtures import publication as publication
 
-from baibai_batch.jobs import external_assessment_publication as external_assessment
 from baibai_batch.storage import lake_publish, publication_lease
 from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage.publication_lease import LeaseError
@@ -50,14 +50,7 @@ def test_lease_lost_during_remote_closure_stops_before_pointer_switch(
 
     monkeypatch.setattr(lake_publish, "_ensure_immutable", lose_lease)
     with pytest.raises(LeaseError):
-        external_assessment.publish_and_verify(
-            store,
-            plan,
-            handle=handle,
-            sqlite_path=database,
-            mirror=mirror,
-            directory=tmp_path / "rejected-mid-publication",
-        )
+        integrate_ready_plans(publication, [plan], "rejected-mid-publication")
     assert injected
     assert publisher._serving_pointer(store).pointer == previous
     assert [key for key in store.put_keys if "/pointers/" in key] == previous_pointer_puts
@@ -69,13 +62,6 @@ def test_pointer_generation_conflict_remains_enforced_with_a_valid_lease(publica
     previous = publisher._serving_pointer(store).pointer
     store.conflict_pointer = True
     with pytest.raises(lake_publish.LakeCASConflict):
-        external_assessment.publish_and_verify(
-            store,
-            plan,
-            handle=handle,
-            sqlite_path=database,
-            mirror=mirror,
-            directory=tmp_path / "generation-conflict",
-        )
+        integrate_ready_plans(publication, [plan], "generation-conflict")
     assert publisher._serving_pointer(store).pointer == previous
     assert not any(key.endswith("/published.json") for key in store.values)

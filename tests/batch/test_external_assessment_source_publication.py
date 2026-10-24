@@ -9,7 +9,9 @@ from contextlib import closing
 import pytest
 from tests.batch.external_assessment_publication_fixtures import (
     RECEIVED,
+    integrate_ready_plans,
     pair_responses,
+    ready_reference,
     upload_bundle,
 )
 from tests.batch.external_assessment_publication_fixtures import _plan as _plan
@@ -22,7 +24,9 @@ from tests.engine.test_minkabu import html as minkabu_html
 from tests.engine.test_minkabu import no_coverage_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
-from baibai_batch.jobs import external_assessment_publication as publisher
+from baibai_batch.jobs import external_assessment_integration as integration
+from baibai_batch.storage import publish_market_lake as publisher
+from baibai_batch.storage.external_assessment_ready import available_ready
 from baibai_batch.jobs.external_assessment_cohorts import new_result, record_outcome
 from baibai_batch.storage.external_assessment_staging import CohortStage, stage_bytes, stage_key
 from baibai_engine.batch_api import (
@@ -48,15 +52,7 @@ from baibai_engine.storage.observations.schema import open_connection
 
 
 def _publish(publication, plan, suffix):
-    store, _, handle, database, mirror, directory = publication
-    return publisher.publish_and_verify(
-        store,
-        plan,
-        handle=handle,
-        sqlite_path=database,
-        mirror=mirror,
-        directory=directory / suffix,
-    )
+    return integrate_ready_plans(publication, [plan], suffix)[0]
 
 
 def _source_count(database):
@@ -64,9 +60,8 @@ def _source_count(database):
         return conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone()[0]
 
 
-def test_three_sources_normal_null_and_rakuten_retry_rebuild_from_l1_only(publication):
+def test_three_independent_sources_and_rakuten_retry_rebuild_from_l1_only(publication):
     store, previous, _, database, _, directory = publication
-    plan = _plan(previous, run_id="source-three-media", sources=("monex", "rakuten", "kabumap"))
     monex = pair_responses("monex", "7203", received_at_utc=RECEIVED, value="--")
     retry = pair_responses("rakuten", "7203", received_at_utc=RECEIVED, malformed=True)[:1]
     rakuten = pair_responses("rakuten", "7203", received_at_utc=RECEIVED, value="3.25")
@@ -82,19 +77,25 @@ def test_three_sources_normal_null_and_rakuten_retry_rebuild_from_l1_only(public
         )
         for source, responses in (("monex", monex), ("rakuten", rakuten), ("kabumap", kabumap))
     ]
-    _stage(store, plan, 0, entries, (*monex, *retry, *rakuten, *kabumap))
-    report = _publish(publication, plan, "three-media")
-    assert report["readback"] == "verified"
-    assert report["rows_added"] == 3
-    assert report["source_responses_added"] == 5
-    assert report["state_counts"]["normal_null"] == 1
+    plans = []
+    for entry, originals in zip(entries, (monex, (*retry, *rakuten), kabumap), strict=True):
+        source = entry[0]
+        plan = _plan(previous, run_id=f"{source}-three-media", sources=(source,))
+        _stage(store, plan, 0, [entry], originals)
+        plans.append(plan)
+    results = integrate_ready_plans(publication, plans, "three-media")
+    assert len(results) == 3
+    assert all(result["readback"] == "verified" for result in results)
+    assert sum(result["rows_added"] for result in results) == 3
+    assert sum(result["source_responses_added"] for result in results) == 5
+    assert external_assessment_decode_attempt(monex).consensus_target is None
     assert _source_count(database) == 5
     assert len(equity_web_history_digests(database, months={(2026, 9)})) == 1
 
     pointer = publisher._serving_pointer(store).pointer
     source_mirror = directory / "source-only-mirror"
     release = publisher._resolve_serving_release(store, source_mirror, pointer)
-    for partition in release.dataset_manifests[publisher.SOURCE_RESPONSES_DATASET].partitions:
+    for partition in release.dataset_manifests[integration.SOURCE_RESPONSES_DATASET].partitions:
         for obj in partition.objects:
             publisher._fetch(store, source_mirror, obj.key, expected_sha256=obj.sha256)
     clean = directory / "source-only.sqlite"
@@ -110,7 +111,7 @@ def test_three_sources_normal_null_and_rakuten_retry_rebuild_from_l1_only(public
             release=release,
             cache=LakeObjectCache(root=source_mirror, source=LocalMirrorSource(source_mirror)),
             store=clean,
-            dataset_names=(publisher.SOURCE_RESPONSES_DATASET,),
+            dataset_names=(integration.SOURCE_RESPONSES_DATASET,),
         )
     tables = (MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE)
     with closing(sqlite3.connect(clean)) as conn:
@@ -167,8 +168,8 @@ def test_old_original_history_and_existing_derived_rows_roundtrip_in_clean_hydra
     assert equity_web_import_responses(database, older) == 1
     report = _publish(publication, plan, "clean-replay")
     assert report["readback"] == "verified"
-    assert report["source_responses_added"] == 6
-    assert _source_count(database) == 7
+    assert report["source_responses_added"] == 2
+    assert _source_count(database) == 3
     pointer = publisher._serving_pointer(store).pointer
     mirror = directory / "clean-replay-mirror"
     release = publisher._resolve_serving_release(store, mirror, pointer)
@@ -226,14 +227,14 @@ def test_raw_only_retry_publishes_previously_imported_original(publication, monk
     )
     pointer = publisher._serving_pointer(store)
     typed_before = external_assessment_history_digests(database)
-    original_digests = publisher.equity_web_history_digests
+    original_digests = integration.equity_web_history_digests
 
     def fail_after_local_import(*args, **kwargs):
         original_digests(*args, **kwargs)
         raise RuntimeError("synthetic validation interruption")
 
     with monkeypatch.context() as patch:
-        patch.setattr(publisher, "equity_web_history_digests", fail_after_local_import)
+        patch.setattr(integration, "equity_web_history_digests", fail_after_local_import)
         with pytest.raises(RuntimeError, match="synthetic validation interruption"):
             _publish(publication, plan, "raw-only-interrupted")
     assert _source_count(database) == 1
@@ -243,13 +244,9 @@ def test_raw_only_retry_publishes_previously_imported_original(publication, monk
     report = _publish(publication, plan, "raw-only-resumed")
     assert report["readback"] == "verified"
     assert report["source_responses_added"] == report["rows_added"] == 0
-    assert report["state_counts"]["failure"] == 1
-    assert report["reason_counts"]["missing_theory_table"] == 1
     assert publisher._serving_pointer(store) != pointer
-    puts = len(store.put_keys)
-    repeat = _publish(publication, plan, "raw-only-terminal-replay")
-    assert repeat["status"] == "already_published"
-    assert len(store.put_keys) == puts
+    references, failed = available_ready(store)
+    assert references == failed == []
 
 
 def test_nonresponse_failure_has_no_original_or_typed_row(publication):
@@ -299,15 +296,10 @@ def test_later_missing_bundle_keeps_earlier_l1_but_no_l2_or_pointer(publication)
     )
     pointer = publisher._serving_pointer(store)
     typed_before = external_assessment_history_digests(database)
-    with pytest.raises(KeyError):
-        publisher.publish_and_verify(
-            store,
-            plan,
-            handle=handle,
-            sqlite_path=database,
-            mirror=mirror,
-            directory=directory / "missing",
-        )
+    reference = ready_reference(store, plan)
+    state = integration.merge_ready(store, [reference], database=database)
+    assert len(state["failed"]) == 1
+    assert state["plans"] == []
     assert _source_count(database) == 1
     assert external_assessment_history_digests(database) == typed_before
     assert publisher._serving_pointer(store) == pointer
@@ -354,14 +346,9 @@ def test_mismatched_original_or_stage_blocks_l2_and_pointer(publication, fault):
     )
     pointer = publisher._serving_pointer(store)
     typed_before = external_assessment_history_digests(database)
-    with pytest.raises((KeyError, ValueError)):
-        publisher.publish_and_verify(
-            store,
-            plan,
-            handle=handle,
-            sqlite_path=database,
-            mirror=mirror,
-            directory=directory / fault,
-        )
+    reference = ready_reference(store, plan)
+    state = integration.merge_ready(store, [reference], database=database)
+    assert len(state["failed"]) == 1
+    assert state["plans"] == []
     assert external_assessment_history_digests(database) == typed_before
     assert publisher._serving_pointer(store) == pointer
