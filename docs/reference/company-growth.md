@@ -37,8 +37,6 @@ mirrorの準備・指定は[Research入力の準備](../../batch/OPERATIONS.md#r
 
 表示の切替は[Research skill](../../.agents/skills/research/SKILL.md#完了と再開)に従い、同じ保存結果から投影する。表示期数はworkspace manifestだけの設定で、保存入力・selection hash・draftのstart/end・同一draft判定を変えない。`full_result_ref` はOperation内のResearchSelectionを起点としたJSON pointerであり、全状態/Changes・BS/CF・比較元/採用文書を完全結果で確認できる。原本の再取得や財務再計算は行わない。
 
-完全結果は既存 `operation --db <APPLICATION_DB> --format json show <ID>` の `payload.artifacts` 内にある `kind=research_selection` を読み、`full_result_ref` を辿る。選択した全会計期の薄い表示だけなら前述の `all` で足りる。
-
 新しい実績指標の選択・算術はcompany_growthへ、新providerのデコード・文書identity・保存読取はmarket/Collectionへ置く。Research/UIへ算式をコピーしない。共通marketの `financial_periods` は両領域で意味が同じ期間比較・実績矛盾処理・金額算術だけを持つ。valuationの最新anchor・fallback・carry・TTMRulesは移さない。import-linterが兄弟領域、純粋計算、Web/Batch入口の境界を検査する。
 
 一回限りの実データ受入は[Issue #1588](https://github.com/koumatsumoto/baibai-loop/issues/1588) / [draft PR #1592](https://github.com/koumatsumoto/baibai-loop/pull/1592)の未完了作業である。原本値・期間・単位の独立照合、既存入力と薄い表を残すL3対照比較、実際のprompt使用量の確認を残す。測定済みの有限範囲と手順は[固定時点の受入記録](https://github.com/koumatsumoto/baibai-loop/blob/4680cc0c3d33212e9e2779d0eaa38e8babdb8f7c/docs/reference/company-growth.md#実データ受入の前提とci)から辿り、合成CI成功を実データ受入の完了へ読み替えない。

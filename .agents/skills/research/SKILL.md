@@ -33,7 +33,7 @@ uv run baibai-engine research prepare \
 
 Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料は評価のsourcesへ加え、開始入力へ挿入しない。時点の制約は[入力の意味](../../../docs/reference/data-sources.md)と[Reading](../../../docs/reference/market-context.md#reading)に従う。
 
-企業成長の通常表示と完全結果の関係は[Research投影](../../../docs/reference/company-growth.md#researchと拡張)に従う。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げ、`full_result_ref` から同じOperationの完全結果を読む。既存workspaceの切替は[再開手順](#完了と再開)の `--force` を使う。
+企業成長の通常表示と完全結果の関係は[Research投影](../../../docs/reference/company-growth.md#researchと拡張)に従う。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げ、`operation --db <APPLICATION_DB> --format json show <ID>` の `payload.artifacts` 内の `kind=research_selection` を読み、`full_result_ref` から完全結果を辿る。既存workspaceの切替は[再開手順](#完了と再開)の `--force` を使う。
 
 ## 評価と独立Review
 
