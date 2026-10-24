@@ -24,6 +24,7 @@ from baibai_engine.storage.lake.reader import (
     materialize_partitions,
     materialize_release_metadata,
     resolve_current_release,
+    selected_partitions,
 )
 from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
@@ -59,13 +60,12 @@ def result_key(run_id: str, attempt: str, head_sha: str) -> str:
 
 def _core_matches(history: CompanyGrowth, window: CompanyGrowth) -> bool:
     start, end = window.requested_start, window.requested_end
-    return (
-        window.periods == tuple(
-            p for p in history.periods if (start is None or start <= p.period_end) and p.period_end <= end
-        )
-        and window.changes == tuple(
-            c for c in history.changes if (start is None or start <= c.to_end) and c.to_end <= end
-        )
+    return window.periods == tuple(
+        p
+        for p in history.periods
+        if (start is None or start <= p.period_end) and p.period_end <= end
+    ) and window.changes == tuple(
+        c for c in history.changes if (start is None or start <= c.to_end) and c.to_end <= end
     )
 
 
@@ -89,7 +89,8 @@ def execute(
     materialize_release_metadata(cache, release)
     for name in (JQUANTS_FIN_SUMMARIES.name, JQUANTS_MASTER_SNAPSHOTS.name):
         materialize_partitions(
-            cache, dataset=accepted_dataset(release, name),
+            cache,
+            dataset=accepted_dataset(release, name),
             partitions=selected_partitions(release, name),
         )
     preparation_seconds = perf_counter() - started
@@ -110,13 +111,18 @@ def execute(
         histories[ticker] = history
         periods = history.periods[-12:]
         if periods:
-            samples.append(Sample(ticker=ticker, start=periods[0].period_end, end=periods[-1].period_end))
+            samples.append(
+                Sample(ticker=ticker, start=periods[0].period_end, end=periods[-1].period_end)
+            )
     adopted = InputRelease(release_id=release.release_id, manifest_sha256=release.manifest_sha256)
     sample_report = (
         measure_samples(
-            database, SampleInput(input_release=adopted, as_of=as_of, samples=tuple(samples)),
+            database,
+            SampleInput(input_release=adopted, as_of=as_of, samples=tuple(samples)),
             mirror=mirror,
-        ) if samples else {"samples": [], "acceptance": "no_observed_accounting_periods"}
+        )
+        if samples
+        else {"samples": [], "acceptance": "no_observed_accounting_periods"}
     )
     measured = cast("list[dict[str, object]]", sample_report["samples"])
     windows = {
@@ -128,19 +134,21 @@ def execute(
         window = windows.get(ticker)
         count = len(window.periods) if window is not None else 0
         item = next((row for row in measured if row["ticker"] == ticker), {})
-        summary_rows.append({
-            "ticker": ticker,
-            "status": history.status,
-            "retained_period_count": len(history.periods),
-            "sample_period_count": count,
-            "history_query_seconds": history_times[ticker],
-            "sample_query_seconds": item.get("query_seconds"),
-            "history_json_bytes": len(canonical_json(history.model_dump(mode="json")).encode()),
-            "sample_json_bytes": item.get("company_growth_json_bytes"),
-            "thin_table_json_bytes": item.get("thin_reported_table_json_bytes"),
-            "window_invariance": window is not None and _core_matches(history, window),
-            "minimum_eight_periods": count >= 8,
-        })
+        summary_rows.append(
+            {
+                "ticker": ticker,
+                "status": history.status,
+                "retained_period_count": len(history.periods),
+                "sample_period_count": count,
+                "history_query_seconds": history_times[ticker],
+                "sample_query_seconds": item.get("query_seconds"),
+                "history_json_bytes": len(canonical_json(history.model_dump(mode="json")).encode()),
+                "sample_json_bytes": item.get("company_growth_json_bytes"),
+                "thin_table_json_bytes": item.get("thin_reported_table_json_bytes"),
+                "window_invariance": window is not None and _core_matches(history, window),
+                "minimum_eight_periods": count >= 8,
+            }
+        )
     passed = all(row["window_invariance"] and row["minimum_eight_periods"] for row in summary_rows)
     public = {
         "status": "measured" if passed else "measured_with_input_gaps",
@@ -165,9 +173,12 @@ def execute(
     report.chmod(0o600)
     digest = hashlib.sha256(payload).hexdigest()
     saved = store.put_file(
-        key, report, sha256=digest,
+        key,
+        report,
+        sha256=digest,
         content_md5=base64.b64encode(hashlib.md5(payload, usedforsecurity=False).digest()).decode(),
-        content_type="application/json", if_none_match=True,
+        content_type="application/json",
+        if_none_match=True,
     )
     if saved.size != len(payload) or saved.metadata.get("sha256") != digest:
         raise LakePublishError("acceptance result write receipt mismatch")
@@ -187,15 +198,18 @@ def main() -> int:
     args = parser.parse_args()
     try:
         summary = execute(
-            Boto3R2Store(bucket="baibai-stores"), args.directory,
-            run_id=args.run_id, attempt=args.attempt, head_sha=args.head_sha,
+            Boto3R2Store(bucket="baibai-stores"),
+            args.directory,
+            run_id=args.run_id,
+            attempt=args.attempt,
+            head_sha=args.head_sha,
         )
     except Exception as error:
         # Public Actions logs must not receive native records, numeric facts or endpoints.
         print(json.dumps({"status": "failed", "error_type": type(error).__name__}))
         return 1
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    return 0
+    return 0 if summary["status"] == "measured" else 3
 
 
 if __name__ == "__main__":

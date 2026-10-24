@@ -2315,7 +2315,8 @@ def test_hydration_retains_fixed_metadata_for_offline_research(session, lake, tm
     release = resolve_current_release(LocalMirrorSource(lake.mirror))
     cache_root = tmp_path / "fresh-runner-cache"
     hydrate_market_store(
-        session, release=release,
+        session,
+        release=release,
         cache=LakeObjectCache(root=cache_root, source=LocalMirrorSource(lake.mirror)),
         store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
         dataset_names=release.dataset_names(),

@@ -726,34 +726,52 @@ def test_private_acceptance_uses_only_financial_master_and_never_overwrites_resu
     from baibai_engine.storage.lake.release import LakeReleasePointer
     from baibai_engine.storage.observations.coverage import record_range_source_coverage
 
-    records = [document(y, q, q * 42424242, q * 11, q * 7) for y in (2022, 2023, 2024) for q in range(1, 5)]
+    records = [
+        document(y, q, q * 42424242, q * 11, q * 7) for y in (2022, 2023, 2024) for q in range(1, 5)
+    ]
     path = market_store(tmp_path / "source", records, release=None)
     with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(connection, [
-            ("2026-10-23", "1234", "合成会社", "プライム", "情報・通信業", "011"),
-        ])
+        insert_master_rows(
+            connection,
+            [
+                ("2026-10-23", "1234", "合成会社", "プライム", "情報・通信業", "011"),
+            ],
+        )
         record_range_source_coverage(
-            connection, source="jquants_fin_summaries", operation="fixture",
-            table="jquants_fin_summaries", date_column="disclosed_at",
-            requested_start=date(2022, 8, 14), requested_end=date(2025, 5, 15),
-            status="ok", error=None,
+            connection,
+            source="jquants_fin_summaries",
+            operation="fixture",
+            table="jquants_fin_summaries",
+            date_column="disclosed_at",
+            requested_start=date(2022, 8, 14),
+            requested_end=date(2025, 5, 15),
+            status="ok",
+            error=None,
         )
     publish_fixture(path, "private-fixture")
     origin = read_lake_store_origin(path)
     store = MemoryR2Store()
     for file in (path.parent / "mirror" / "lake").rglob("*"):
         if file.is_file():
-            store.store_object(file.relative_to(path.parent / "mirror").as_posix(), file.read_bytes())
+            store.store_object(
+                file.relative_to(path.parent / "mirror").as_posix(), file.read_bytes()
+            )
     pointer = LakeReleasePointer(
         release_id=origin.release_id,
         manifest_key=release_manifest_key(release_id=origin.release_id),
         manifest_sha256=origin.release_manifest_sha256,
     )
     store.store_object(current_release_pointer_key(), canonical_lake_model_bytes(pointer))
-    narrow_release_policy(monkeypatch, datasets=("jquants.fin_summaries", "jquants.master_snapshots"))
+    narrow_release_policy(
+        monkeypatch, datasets=("jquants.fin_summaries", "jquants.master_snapshots")
+    )
     before = {key: item.body for key, item in store.values.items()}
     summary = execute(
-        store, tmp_path / "private-runner", run_id="100", attempt="1", head_sha="a" * 40,
+        store,
+        tmp_path / "private-runner",
+        run_id="100",
+        attempt="1",
+        head_sha="a" * 40,
         tickers=("1234",),
     )
     assert summary["status"] == "measured"
@@ -771,7 +789,11 @@ def test_private_acceptance_uses_only_financial_master_and_never_overwrites_resu
     assert all(name.startswith("lake/") or name == key for name in store.get_keys)
     with pytest.raises(LakeCASConflict):
         execute(
-            store, tmp_path / "second-runner", run_id="100", attempt="1", head_sha="a" * 40,
+            store,
+            tmp_path / "second-runner",
+            run_id="100",
+            attempt="1",
+            head_sha="a" * 40,
             tickers=("1234",),
         )
     assert store.values[key].body == private

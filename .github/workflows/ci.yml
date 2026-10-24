@@ -179,7 +179,7 @@ jobs:
         && (github.ref == 'refs/heads/feat/1588-company-growth' || github.ref == 'refs/heads/main')
         && needs.quality.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     concurrency:
       group: company-growth-acceptance
       cancel-in-progress: false
