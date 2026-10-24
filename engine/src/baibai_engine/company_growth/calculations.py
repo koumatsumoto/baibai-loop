@@ -203,7 +203,7 @@ def _derived(
             metrics[metric] = Value(reason="statement_basis_incomparable")
         elif metric == "parent_profit" and statement_basis(row) != "consolidated":
             metrics[metric] = Value(reason="parent_attribution_unverified")
-        elif any(_later_changed(r, row, all_rows, field) for r in operands) or (
+        elif (not ttm and _later_changed(operands[0], row, all_rows, field)) or (
             ttm and _later_changed(operands[-1], operands[0], all_rows, field)
         ):
             metrics[metric] = Value(reason="inconsistent_cumulative_revision")

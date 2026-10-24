@@ -1,0 +1,319 @@
+"""r4の有限反例と、公開読取からResearchの固定保存・再開まで。実providerを使わない。"""
+
+from contextlib import closing
+from copy import deepcopy
+from datetime import date, datetime, timedelta
+import socket
+import sqlite3
+
+import pytest
+import yaml
+
+from baibai_engine.company_growth.calculations import build_changes, build_period_states
+from baibai_engine.market.financial_documents import normalize_financial_summary
+from baibai_engine.market.financial_periods import prior_year_period_matches
+from baibai_engine.read_api.company_growth import company_growth
+from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.research.operation.progress import selection_binding
+from baibai_engine.research.operation.service import OperationService
+from baibai_engine.research.selection import ResearchSelection, parse_selection, selection_sha256
+from baibai_engine.research.workspace import (
+    ResearchWorkspaceConflictError,
+    prepare_selected_workspace,
+    resume_selected_workspace,
+)
+from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.observations.schema import open_connection
+from tests.helpers.research_selection import draft_for, selection
+from tests.helpers.screening_sqlite import insert_financial_record
+
+NOW = datetime.fromisoformat("2026-10-24T18:00:00+09:00")
+
+
+def document(year, quarter, sales, op=None, profit=None, **updates):
+    end = (date(year, 6, 30), date(year, 9, 30), date(year, 12, 31), date(year + 1, 3, 31))[quarter - 1]
+    record = {
+        "Code": "12340",
+        "DiscDate": (end + timedelta(days=45)).isoformat(),
+        "DiscTime": "15:00:00",
+        "DiscNo": f"synthetic-{year}-{quarter}",
+        "DocType": "FinancialStatements_Consolidated_JP",
+        "CurPerType": ("1Q", "2Q", "3Q", "FY")[quarter - 1],
+        "CurPerSt": date(year, 4, 1).isoformat(),
+        "CurPerEn": end.isoformat(),
+        "CurFYEn": date(year + 1, 3, 31).isoformat(),
+        "Sales": sales,
+        "OP": op,
+        "NP": profit,
+    }
+    return {**record, **updates}
+
+
+def states(records, sector="情報・通信業"):
+    rows = [normalize_financial_summary(r) for r in records]
+    assert all(row is not None for row in rows)
+    return build_period_states(rows, sector=sector)
+
+
+def observation(state, measurement):
+    return next(o for o in state.observations if o.measurement == measurement)
+
+
+def amount(state, measurement, metric):
+    return observation(state, measurement).metrics[metric]
+
+
+def change(result, end, metric, measurement="reported"):
+    return next(c for c in result if c.to_end == end and c.metric == metric and c.measurement == measurement)
+
+
+def market_store(tmp_path, records, *, release="synthetic-release-1"):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection, connection:
+        for record in records:
+            insert_financial_record(connection, record)
+        if release:
+            write_lake_store_origin(connection, LakeStoreOrigin(release, "a" * 64))
+    return path
+
+
+def test_seasonality_and_one_time_gain_remain_one_quarter_observation():
+    records = []
+    for year in (2022, 2023, 2024):
+        cumulative = 0
+        for quarter in range(1, 5):
+            cumulative += 200 if (year, quarter) == (2023, 1) else 100
+            records.append(document(year, quarter, cumulative * 10, cumulative, cumulative))
+    result = states(records)
+    quarters = [amount(s, "quarter", "parent_profit").value for s in result]
+    assert quarters[4:8] == [200, 100, 100, 100]
+    ttm = [amount(s, "annual_ttm", "parent_profit").value for s in result]
+    assert ttm[4:8] == [500] * 4
+    assert ttm[8] == 400
+    assert "sustained_growth" not in result[4].model_dump_json()
+
+
+def test_cumulative_difference_and_reported_eps_never_share_arithmetic():
+    result = states([
+        document(2024, 1, 100, 10, 100, EPS=1, AvgSh=100),
+        document(2024, 2, 230, 25, 200, EPS=200 / 150, AvgSh=150),
+    ])
+    assert amount(result[1], "quarter", "sales").value == 130
+    assert amount(result[1], "quarter", "parent_profit").value == 100
+    assert amount(result[1], "reported", "reported_basic_eps").value == pytest.approx(200 / 150)
+    assert "reported_basic_eps" not in observation(result[1], "quarter").metrics
+    assert "reported_basic_eps" not in observation(result[1], "annual_ttm").metrics
+    assert observation(result[1], "quarter").period_start == date(2024, 7, 1)
+
+
+@pytest.mark.parametrize(("corrected", "expected"), [(100, 130), (90, None)])
+def test_later_q1_correction_only_blocks_a_known_changed_cumulative_pair(corrected, expected):
+    records = [document(2024, 1, 100), document(2024, 2, 230)]
+    records.append(document(2024, 1, corrected, DiscDate="2025-02-01", DiscNo="correction"))
+    result = states(records)
+    value = amount(result[1], "quarter", "sales")
+    assert value.value == expected
+    if expected is None:
+        assert value.reason == "inconsistent_cumulative_revision"
+    assert amount(result[0], "reported", "sales").value == corrected
+    # A new H1 on the corrected basis makes the pair usable again.
+    records.append(document(2024, 2, 230, DiscDate="2025-02-02", DiscNo="h1-corrected"))
+    assert amount(states(records)[1], "quarter", "sales").value == 230 - corrected
+
+
+def test_partial_correction_and_same_revision_conflict_are_metric_local():
+    base = document(2024, 1, 100, 10, 8)
+    correction = {**base, "Sales": None, "OP": 15, "NP": None, "DiscDate": "2024-08-20", "DiscNo": "op-fix"}
+    result = states([base, correction])
+    assert amount(result[0], "reported", "sales").value == 100
+    assert amount(result[0], "reported", "operating_profit").value == 15
+    assert amount(result[0], "reported", "sales").documents[0].disclosure_number == base["DiscNo"]
+    conflicting = {**correction, "OP": 16, "DiscNo": "op-conflict"}
+    result = states([base, correction, conflicting])
+    assert amount(result[0], "reported", "operating_profit").value is None
+    assert amount(result[0], "reported", "sales").value == 100
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "rate", "difference"),
+    [(10, -10, -2, -20), (-100, -50, None, 50), (0, 10, None, 10), (1, 2, 1, 1), (100, 200, 1, 100)],
+)
+def test_growth_rates_keep_amounts_sign_and_nonpositive_base(before, after, rate, difference):
+    result = build_changes(states([document(2023, 1, before), document(2024, 1, after)]))
+    value = change(result, date(2024, 6, 30), "sales")
+    assert (value.from_value, value.to_value) == (before, after)
+    assert value.difference == difference
+    assert value.rate == rate
+    assert value.sign_change is not None
+    if before <= 0:
+        assert value.reason == "nonpositive_base"
+
+
+def test_margin_points_do_not_become_a_growth_score():
+    result = build_changes(states([document(2023, 1, 100, 20), document(2024, 1, 200, 30)]))
+    value = change(result, date(2024, 6, 30), "operating_margin")
+    assert value.margin_points == pytest.approx(-5)
+    assert value.rate is None
+    assert change(result, date(2024, 6, 30), "operating_profit").rate == 0.5
+
+
+def test_eps_split_comparison_is_unverified_but_reported_values_survive():
+    result = states([
+        document(2023, 4, 100, 20, 10, EPS=788.29, ShOutFY=100, TrShFY=20),
+        document(2024, 4, 120, 25, 12, EPS=188.71, ShOutFY=500, TrShFY=100),
+    ])
+    value = change(build_changes(result), date(2025, 3, 31), "reported_basic_eps")
+    assert (value.from_value, value.to_value) == (788.29, 188.71)
+    assert value.difference is None
+    assert value.reason == "share_basis_unverified"
+    assert amount(result[0], "balance", "issued_shares").value == 100
+    assert amount(result[1], "balance", "treasury_shares").value == 100
+
+
+def test_cf_bs_and_ordinary_profit_are_not_filled_or_relabelled():
+    result = states([
+        document(2024, 1, 100, None, -30, OdP=20, CFO=50, TA=1000, Eq=400),
+        document(2024, 2, 230, 25, -60),
+    ])
+    assert amount(result[0], "reported", "operating_profit").value is None
+    assert amount(result[0], "reported", "parent_profit").value == -30
+    assert amount(result[1], "reported", "operating_cash_flow").value is None
+    assert amount(result[1], "balance", "total_assets").value is None
+    assert "operating_cash_flow" not in observation(result[0], "quarter").metrics
+    assert amount(result[0], "balance", "net_assets").value == 400
+    assert "common_equity" not in observation(result[0], "balance").metrics
+
+
+@pytest.mark.parametrize("sector", ["銀行業", "保険業", "7100", None])
+def test_financial_or_unknown_sector_does_not_get_nonfinancial_margin(sector):
+    result = states([document(2024, 1, 100, 20)], sector=sector)
+    value = amount(result[0], "reported", "operating_margin")
+    assert value.value is None
+    assert value.reason in {"sector_unverified", "not_applicable_to_financial_sector"}
+    assert amount(result[0], "reported", "operating_profit").value == 20
+
+
+def test_basis_and_irregular_year_do_not_gain_convenient_ttm():
+    result = states([
+        document(2023, 1, 100),
+        document(2023, 4, 400),
+        document(2024, 1, 120, DocType="FinancialStatements_NonConsolidated_JP"),
+    ])
+    assert amount(result[2], "annual_ttm", "sales").value is None
+    assert amount(result[2], "annual_ttm", "sales").reason == "statement_basis_incomparable"
+    assert change(build_changes(result), date(2024, 6, 30), "sales").difference is None
+    short = document(2024, 4, 400, CurPerSt="2024-07-01")
+    assert amount(states([short])[0], "annual_ttm", "sales").value is None
+    first = normalize_financial_summary(document(2023, 1, 100))
+    second = normalize_financial_summary(document(2024, 1, 120, CurPerEn="2024-07-05"))
+    assert prior_year_period_matches(first, second, length_tolerance_ratio=0.1, end_tolerance_days=45)
+    shifted = normalize_financial_summary(document(2024, 1, 120, CurPerSt="2024-07-01", CurPerEn="2024-09-30"))
+    assert not prior_year_period_matches(first, shifted, length_tolerance_ratio=0.1, end_tolerance_days=45)
+
+
+def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges(tmp_path):
+    records = [document(y, q, q * 100) for y in (2022, 2023, 2024) for q in range(1, 5)]
+    records.append(document(2022, 4, 450, DiscDate="2026-10-01", DiscNo="late-old-fy"))
+    path = market_store(tmp_path, records)
+    before = path.read_bytes()
+    narrow = company_growth(path, ticker="1234", as_of=NOW.date(), start=date(2023, 4, 1), end=date(2023, 12, 31))
+    broad = company_growth(path, ticker="1234", as_of=NOW.date(), start=date(2022, 4, 1), end=date(2025, 3, 31))
+    assert narrow.periods == tuple(s for s in broad.periods if date(2023, 4, 1) <= s.period_end <= date(2023, 12, 31))
+    assert narrow.changes == tuple(c for c in broad.changes if date(2023, 4, 1) <= c.to_end <= date(2023, 12, 31))
+    ttm = amount(narrow.periods[0], "annual_ttm", "sales")
+    assert ttm.value == 450
+    assert any(d.disclosure_number == "late-old-fy" for d in ttm.documents)
+    assert narrow.input_release.release_id == "synthetic-release-1"
+    assert narrow.input_release.receipt_cutoff is None
+    assert narrow.coverage.status == "unverified"
+    assert narrow.coverage.observed_start == date(2022, 6, 30)
+    assert narrow.per.status == narrow.peer.status == "not_provided"
+    assert path.read_bytes() == before
+
+
+def test_observations_do_not_prove_continuous_acquisition_coverage(tmp_path):
+    path = market_store(tmp_path, [document(2022, 1, 100), document(2024, 1, 200)])
+    result = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert result.status == "available"
+    assert result.coverage.status == "unverified"
+    assert result.coverage.gaps_between_observations == ((date(2022, 6, 30), date(2024, 6, 30)),)
+    value = change(result.changes, date(2024, 6, 30), "sales")
+    assert value.from_value is None
+    assert value.reason == "comparable_prior_period_not_observed"
+
+
+def test_missing_store_unfixed_release_and_invalid_period_are_local_states(tmp_path):
+    path = tmp_path / "absent.sqlite"
+    assert company_growth(path, ticker="1234", as_of=NOW.date()).reason == "market_store_unavailable"
+    assert not path.exists()
+    path = market_store(tmp_path, [document(2024, 1, 100)], release=None)
+    assert company_growth(path, ticker="1234", as_of=NOW.date()).reason == "fixed_release_unavailable"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        write_lake_store_origin(connection, LakeStoreOrigin("fixed", "b" * 64))
+        insert_financial_record(connection, document(2024, 2, 230, CurPerEn="2027-03-31"))
+    result = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert len(result.periods) == 1
+    assert result.coverage.excluded_document_count == 1
+    with pytest.raises(ValueError, match="start <= end"):
+        company_growth(path, ticker="1234", as_of=NOW.date(), start=date(2027, 1, 1))
+
+
+def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_path, monkeypatch):
+    records = [document(2023, 1, 100, 20, 10), document(2024, 1, 200, 30, 25)]
+    path = market_store(tmp_path, records)
+    selected = selection(now=NOW, tickers=("1234",))
+    monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("network used"))
+    inputs = collect_research_inputs(
+        snapshot=selected.inputs.analysis, input_gaps=selected.inputs.input_gaps,
+        tickers=("1234",), research_as_of=NOW.date(), input_known_at=NOW,
+        market_path=path, indicators_path=tmp_path / "absent-indicators", app_path=tmp_path / "absent-app",
+        company_growth_start=date(2024, 4, 1), company_growth_end=date(2024, 6, 30),
+    )
+    saved = ResearchSelection.model_validate_json(selected.model_copy(update={"inputs": inputs}).model_dump_json())
+    expected = deepcopy(inputs.securities_context["1234"]["company_growth"])
+    assert inputs.analysis == selected.inputs.analysis
+    assert inputs.input_gaps == selected.inputs.input_gaps
+    assert expected["changes"][0]["from_value"] == 100
+    assert expected["changes"][0]["to_value"] == 200
+    assert expected["periods"][0]["period_end"] == "2024-06-30"
+    # Release, method and newly published numbers cannot replace the saved output.
+    with closing(sqlite3.connect(path)) as connection, connection:
+        write_lake_store_origin(connection, LakeStoreOrigin("synthetic-release-2", "c" * 64))
+        insert_financial_record(connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed"))
+    monkeypatch.setattr("baibai_engine.research.inputs.company_growth", lambda *_a, **_kw: pytest.fail("growth recomputed"))
+    assert project_research_inputs(saved)["securities"]["1234"]["company_growth"] == expected
+    assert selection_sha256(saved) != selection_sha256(selected)
+    legacy = saved.model_dump(mode="json")
+    del legacy["inputs"]["securities_context"]["1234"]["company_growth"]
+    assert "company_growth" not in project_research_inputs(parse_selection(legacy))["securities"]["1234"]
+    legacy["inputs"]["securities_context"]["1234"]["growth_score"] = 100
+    with pytest.raises(ValueError, match="security context"):
+        parse_selection(legacy)
+
+
+def test_workspace_resume_restores_saved_growth_without_store_or_current_method(tmp_path, monkeypatch):
+    path = market_store(tmp_path, [document(2023, 1, 100), document(2024, 1, 200)])
+    selected = selection(now=NOW, tickers=("1234",))
+    draft = draft_for(selected).model_copy(update={
+        "company_growth_start": date(2024, 4, 1), "company_growth_end": date(2024, 6, 30),
+    })
+    db, workspace = tmp_path / "application.sqlite", tmp_path / "workspace"
+    arguments = dict(db_path=db, workspace=workspace, now=NOW)
+    prepared = prepare_selected_workspace(
+        draft=draft, sqlite_path=path, runs_path=tmp_path / "runs", indicators_path=tmp_path / "absent-indicators", **arguments,
+    )
+    saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
+    expected = project_research_inputs(saved)
+    output = workspace / "domain-inputs.yaml"
+    output.write_text("damaged projection", encoding="utf-8")
+    monkeypatch.setattr("baibai_engine.research.workspace.selected_prepare.collect_research_inputs", lambda **_kw: pytest.fail("inputs recollected"))
+    monkeypatch.setattr("baibai_engine.research.inputs.company_growth", lambda *_a, **_kw: pytest.fail("current method used"))
+    resumed = resume_selected_workspace(operation_id=prepared.operation_id, force=True, **arguments)
+    assert resumed.status == "resumed"
+    assert yaml.safe_load(output.read_text(encoding="utf-8")) == expected
+    assert expected["securities"]["1234"]["company_growth"]["input_release"]["release_id"] == "synthetic-release-1"
+    with pytest.raises(ResearchWorkspaceConflictError, match="different fixed selection"):
+        prepare_selected_workspace(
+            draft=draft.model_copy(update={"company_growth_start": date(2023, 4, 1)}),
+            sqlite_path=path, runs_path=tmp_path / "runs", indicators_path=tmp_path / "absent-indicators", **arguments,
+        )
