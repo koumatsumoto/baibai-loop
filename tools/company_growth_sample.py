@@ -31,12 +31,18 @@ class SampleInput(BaseModel):
     samples: tuple[Sample, ...] = Field(min_length=1)
 
 
-def measure_samples(path: Path, spec: SampleInput, *, mirror: Path = Path("stores")) -> dict[str, object]:
+def measure_samples(
+    path: Path, spec: SampleInput, *, mirror: Path = Path("stores")
+) -> dict[str, object]:
     reports: list[dict[str, object]] = []
     for sample in spec.samples:
         started = perf_counter()
         result = company_growth(
-            path, ticker=sample.ticker, as_of=spec.as_of, start=sample.start, end=sample.end,
+            path,
+            ticker=sample.ticker,
+            as_of=spec.as_of,
+            start=sample.start,
+            end=sample.end,
             mirror=mirror,
         )
         elapsed = perf_counter() - started

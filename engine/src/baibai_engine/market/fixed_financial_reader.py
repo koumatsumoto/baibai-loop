@@ -32,7 +32,8 @@ def read_fixed_financial_documents(
     """Read only verified local objects; never fetch sources, R2, or mutable SQLite rows."""
     with open_lake(mirror=mirror) as (session, cache):
         release = resolve_release(
-            cache.source, origin.release_id,
+            cache.source,
+            origin.release_id,
             manifest_sha256=origin.release_manifest_sha256,
         )
         dataset = accepted_dataset(release, JQUANTS_FIN_SUMMARIES.name)
@@ -51,7 +52,8 @@ def read_fixed_financial_documents(
         if JQUANTS_MASTER_SNAPSHOTS.name in release.dataset_names():
             master_dataset = accepted_dataset(release, JQUANTS_MASTER_SNAPSHOTS.name)
             master_paths = materialize_partitions(
-                cache, dataset=master_dataset,
+                cache,
+                dataset=master_dataset,
                 partitions=selected_partitions(release, master_dataset.name),
             )
             if master_paths:

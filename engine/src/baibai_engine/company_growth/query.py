@@ -10,8 +10,8 @@ from pathlib import Path
 
 from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.market.financial_periods import period_days
-from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.fixed_financial_reader import read_fixed_financial_documents
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.lake.objects import LakeObjectError
 from baibai_engine.storage.lake.reader import LakeReadError
 from baibai_engine.storage.observations.lake_origin import (

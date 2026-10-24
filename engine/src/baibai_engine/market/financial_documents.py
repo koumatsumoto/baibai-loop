@@ -132,16 +132,12 @@ def disclosure_revision(row: JQuantsFinancialSummary) -> tuple[date, str]:
     return row.disclosed_at, row.disclosed_time or ""
 
 
-def certainly_disclosed_by(
-    row: JQuantsFinancialSummary, cutoff: JQuantsFinancialSummary
-) -> bool:
+def certainly_disclosed_by(row: JQuantsFinancialSummary, cutoff: JQuantsFinancialSummary) -> bool:
     """Earlier dates or ordered known same-day times; an unknown time proves no order."""
     if row.disclosed_at != cutoff.disclosed_at:
         return row.disclosed_at < cutoff.disclosed_at
     return bool(
-        row.disclosed_time
-        and cutoff.disclosed_time
-        and row.disclosed_time <= cutoff.disclosed_time
+        row.disclosed_time and cutoff.disclosed_time and row.disclosed_time <= cutoff.disclosed_time
     )
 
 

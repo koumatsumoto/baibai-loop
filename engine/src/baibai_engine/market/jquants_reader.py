@@ -42,7 +42,6 @@ from baibai_engine.storage.observations.coverage import covered_intervals, range
 from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import connect_current
 
-
 if TYPE_CHECKING:
     import duckdb
 

@@ -1,8 +1,10 @@
 # 企業成長
 
-`company_growth/` は企業価値と兄弟のL2で、過去の実績状態と変化をResearchへ渡す。将来予測・成長認定・総合点・Screeningの足切りは行わない。採用仕様は [Issue #1588 r5](https://github.com/koumatsumoto/baibai-loop/issues/1588)。
+`company_growth/` は企業価値と兄弟のL2で、過去の実績状態と変化をResearchへ渡す。将来予測・成長認定・総合点・Screeningの足切りは行わない。採用仕様は [Issue #1588 r6](https://github.com/koumatsumoto/baibai-loop/issues/1588)。
 
 ## 入力と時間
+
+初期の全社四半期実績はr6で採用されたJ-Quants `fins/summary` を使い、会社予想を実績へ混ぜない。ユーザー承認済みの役割分担として、L3でEBITDAの構成・減価償却等を詳しく調べるときはEDINET原典を参照する。EDINET詳細抽出を成長L2の実行条件にせず、既存valuationのEDINET利用は維持する。EDINETの現行metrics/factsはこの四半期全社履歴の代用品とせず、CF・投資・segment等の次の問いや同一期照合に応じてmarket側の小さなadapterを検討する。JQ `fins/details` も追加項目の候補であり、JQ優先を全項目の永久ルールにしない。EDINET docIDをJQ DiscNoへ偽装せず、差異は期間・連結・科目・訂正を確認するまで並存させる。今回新しいprovider基盤や全財務抽出は追加しない。採否の根拠はIssueの「入力元の採否」節が所有する。
 
 公開入口は `read_api.company_growth.company_growth(path, ticker=..., as_of=..., start=..., end=..., mirror=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。release全体の `data_as_of` は他datasetを含む最古watermarkなので、財務開示日終端へ流用しない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
 
