@@ -110,19 +110,33 @@ def explicit_recovery_ranges(
 ) -> tuple[tuple[date, date], ...]:
     """Expose unfinished broad acquisitions without restarting them in a daily run."""
     pending: list[tuple[date, date]] = []
+    anchor_row = connection.execute(
+        "SELECT MIN(range_start) FROM economic_source_runs WHERE source_id = ? "
+        "AND (status = 'ok' OR julianday(range_end) - julianday(range_start) <= ?)",
+        (source.source_id, source_policy(source).lookback_days),
+    ).fetchone()
+    anchor = date.fromisoformat(anchor_row[0]) if anchor_row and anchor_row[0] else None
     for start_raw, end_raw in connection.execute(
         "SELECT DISTINCT range_start, range_end FROM economic_source_runs "
         "WHERE source_id = ? AND status = 'failed' AND range_start <= ?",
         (source.source_id, end.isoformat()),
     ):
-        first, last = date.fromisoformat(start_raw), min(end, date.fromisoformat(end_raw))
-        if (last - first).days > source_policy(source).lookback_days:
+        first, finish = date.fromisoformat(start_raw), date.fromisoformat(end_raw)
+        if (finish - first).days <= source_policy(source).lookback_days:
+            continue
+        last = min(end, finish)
+        if anchor is not None:
+            last = min(last, anchor - timedelta(days=1))
+        if first <= last:
             pending.extend(_missing_ranges(connection, source, first, last, []))
     return tuple(sorted(set(pending)))
 
 
 def _missing_ranges(
-    connection: sqlite3.Connection, source: SourceDefinition, first: date, last: date,
+    connection: sqlite3.Connection,
+    source: SourceDefinition,
+    first: date,
+    last: date,
     covered: list[tuple[date, date]],
 ) -> tuple[tuple[date, date], ...]:
     covered.extend(
@@ -146,7 +160,9 @@ def _missing_ranges(
             (source.source_id,),
         ):
             month = date.fromisoformat(json.loads(metadata)["observed_at"])
-            covered.append((month, month.replace(day=calendar.monthrange(month.year, month.month)[1])))
+            covered.append(
+                (month, month.replace(day=calendar.monthrange(month.year, month.month)[1]))
+            )
     cursor = first
     missing: list[tuple[date, date]] = []
     for start, finish in sorted(covered):

@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.jobs.economic import acquire, receive
-from baibai_batch.storage.store_merge import MergeError
-from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_batch.storage.economic_staging import load_handoff, save_handoff
-from tests.helpers.r2_store import MemoryR2Store
+from baibai_batch.storage.lake_publish import LakePublishError
+from baibai_batch.storage.store_merge import MergeError
 from baibai_engine.collection.economic import acquisition
 from baibai_engine.collection.economic.handoff import export_receipts
 from baibai_engine.collection.economic.records import read_snapshots, store_snapshot
@@ -149,9 +149,14 @@ def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
     stage = save_handoff(store, "42-1-fred_csv", directory)
     downloaded = tmp_path / "downloaded"
     load_handoff(store, stage, downloaded)
-    assert (downloaded / "receipts.sqlite").read_bytes() == (directory / "receipts.sqlite").read_bytes()
+    assert (downloaded / "receipts.sqlite").read_bytes() == (
+        directory / "receipts.sqlite"
+    ).read_bytes()
     assert all(key.startswith("coordination/economic-sources/") for key in store.put_keys)
-    assert not any("artifact" in str(workflow(name)) for name in ("cloud-economic-source.yml", "cloud-economic-sources.yml"))
+    assert not any(
+        "artifact" in str(workflow(name))
+        for name in ("cloud-economic-source.yml", "cloud-economic-sources.yml")
+    )
     assert save_handoff(store, "42-1-fred_csv", directory) == stage
     key = next(key for key in store.values if key.endswith(".sqlite"))
     store.values[key].body = b"tampered"

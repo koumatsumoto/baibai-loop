@@ -67,7 +67,7 @@ def refresh_sources(
         raise ValueError("end must be on or after start")
     catalog = load_sources()
     outcomes: list[SourceRefreshOutcome] = []
-    rate_limited: set[str] = set()
+    stopped_providers: set[str] = set()
     selected = list(dict.fromkeys(source_ids))
     if not any(source_id in catalog for source_id in selected):
         return tuple(
@@ -83,10 +83,11 @@ def refresh_sources(
                 if source_id not in catalog:
                     raise ValueError(f"unknown economic source: {source_id}")
                 source = catalog[source_id]
-                if source.provider in rate_limited:
-                    raise ProviderRateLimitError("provider rate-limited earlier in this run")
+                if source.provider in stopped_providers:
+                    raise ProviderFetchStoppedError("provider acquisition stopped earlier in this run")
                 if (
-                    recent and source_policy(source).mode == "current_only"
+                    recent
+                    and source_policy(source).mode == "current_only"
                     and end != datetime.now(ZoneInfo("Asia/Tokyo")).date()
                 ):
                     raise ValueError("current-only source cannot recover a historical date")
@@ -103,8 +104,12 @@ def refresh_sources(
                 if recent:
                     for missing_start, missing_end in recovery_ranges(connection, source, end):
                         received += _refresh_source(
-                            connection, source, start=missing_start, end=missing_end,
-                            context=context, recheck_existing=False,
+                            connection,
+                            source,
+                            start=missing_start,
+                            end=missing_end,
+                            context=context,
+                            recheck_existing=False,
                         )
                         first = min(first, missing_start)
                 outcomes.append(SourceRefreshSuccess(source_id, first, end, received))
@@ -113,7 +118,7 @@ def refresh_sources(
                     isinstance(error, ProviderFetchStoppedError)
                     and catalog[source_id].provider == "spglobal_pmi"
                 ):
-                    rate_limited.add(catalog[source_id].provider)
+                    stopped_providers.add(catalog[source_id].provider)
                 outcomes.append(SourceRefreshFailure(source_id, redact_credentials(str(error))))
     return tuple(outcomes)
 

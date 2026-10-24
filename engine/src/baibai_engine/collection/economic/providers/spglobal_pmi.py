@@ -13,7 +13,14 @@ from baibai_engine.collection.economic.provider_specs import ProviderSpec
 from baibai_engine.collection.economic.sources import SourceDefinition
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-from .base import FetchContext, HttpSession, IndicatorsProviderError, ProviderFetchStoppedError, fetch_bytes
+from .base import (
+    FetchContext,
+    HttpSession,
+    IndicatorsProviderError,
+    ProviderFetchStoppedError,
+    SourceWithheldError,
+    fetch_bytes,
+)
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 RELEASE_URL_RE = re.compile(
@@ -63,8 +70,11 @@ class SpGlobalPmiSource:
             }
             stored = existing.get(key)
             if (
-                not recheck_existing and not force and stored is not None
-                and stored.source_url == entry.url and stored.metadata == metadata
+                not recheck_existing
+                and not force
+                and stored is not None
+                and stored.source_url == entry.url
+                and stored.metadata == metadata
                 and stored.content_type == "application/pdf"
             ):
                 continue
@@ -72,6 +82,10 @@ class SpGlobalPmiSource:
                 body = fetch_pdf_bytes(entry.url, session=session, context=context)
             except ProviderFetchStoppedError:
                 raise
+            except SourceWithheldError as error:
+                # This PMI route is currently refused with 403. Do not fan the
+                # refusal out across the remaining monthly PDFs in this pass.
+                raise ProviderFetchStoppedError(str(error)) from error
             except IndicatorsProviderError as error:
                 failures.append(str(error))
                 continue

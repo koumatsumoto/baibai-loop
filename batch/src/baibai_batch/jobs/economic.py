@@ -110,7 +110,9 @@ def receive(directory: Path, database: Path, group: str, source_id: str, *, veri
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "acquire", "stage", "download", "merge", "verify"))
+    parser.add_argument(
+        "command", choices=("plan", "acquire", "stage", "download", "merge", "verify")
+    )
     parser.add_argument("--group", default="all")
     parser.add_argument("--source-id", default="")
     parser.add_argument("--asof", type=date.fromisoformat)
@@ -155,7 +157,15 @@ def main(argv: list[str] | None = None) -> int:
         receive(
             args.directory, args.db, args.group, args.source_id, verify=args.command == "verify"
         )
-    except (OSError, sqlite3.Error, ValueError, KeyError, EconomicSchemaError, MergeError, LakePublishError) as error:
+    except (
+        OSError,
+        sqlite3.Error,
+        ValueError,
+        KeyError,
+        EconomicSchemaError,
+        MergeError,
+        LakePublishError,
+    ) as error:
         print(f"economic handoff failed: {type(error).__name__}", file=sys.stderr)
         return 1
     return 0

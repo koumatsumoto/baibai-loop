@@ -6,7 +6,12 @@ from baibai_engine.collection.economic.acquisition import (
     SourceRefreshSuccess,
     refresh_sources,
 )
-from baibai_engine.collection.economic.refresh_policy import recent_start, recovery_ranges, source_policy
+from baibai_engine.collection.economic.refresh_policy import (
+    explicit_recovery_ranges,
+    recent_start,
+    recovery_ranges,
+    source_policy,
+)
 from baibai_engine.collection.economic.sources import load_sources
 from baibai_engine.collection.economic.store import initialize_database, record_source_run
 
@@ -104,11 +109,17 @@ def test_failed_all_history_attempt_does_not_reopen_itself_during_recent_refresh
     source = load_sources()["fred-payems"]
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
         attempt(conn, date(1900, 1, 1), END, "failed")
-        store_snapshot(conn, source_id=source.source_id, observed_at=date(1900, 1, 1),
-                       fetched_at=datetime(2026, 10, 23, tzinfo=UTC), records=[])
+        store_snapshot(
+            conn,
+            source_id=source.source_id,
+            observed_at=date(1900, 1, 1),
+            fetched_at=datetime(2026, 10, 23, tzinfo=UTC),
+            records=[],
+        )
         assert recent_start(source, END) == END - timedelta(days=370)
         assert recovery_ranges(conn, source, END) == ()
         assert conn.execute("SELECT status FROM economic_source_runs").fetchone()[0] == "failed"
+        assert explicit_recovery_ranges(conn, source, END)
 
 
 def test_partially_received_native_days_are_not_reacquired_as_missing_history(tmp_path):
@@ -118,8 +129,13 @@ def test_partially_received_native_days_are_not_reacquired_as_missing_history(tm
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
         attempt(conn, date(2024, 1, 1), date(2024, 1, 31))
         attempt(conn, date(2024, 3, 1), END)
-        store_snapshot(conn, source_id=source.source_id, observed_at=date(2024, 2, 1),
-                       fetched_at=datetime(2026, 10, 23, tzinfo=UTC), records=[])
+        store_snapshot(
+            conn,
+            source_id=source.source_id,
+            observed_at=date(2024, 2, 1),
+            fetched_at=datetime(2026, 10, 23, tzinfo=UTC),
+            records=[],
+        )
         assert recovery_ranges(conn, source, END) == ((date(2024, 2, 2), date(2024, 2, 29)),)
 
 

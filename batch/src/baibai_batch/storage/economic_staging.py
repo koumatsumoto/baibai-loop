@@ -32,15 +32,24 @@ def save_handoff(store: ObjectStore, stage_id: str, directory: Path) -> str:
     if remote is None:
         path.chmod(0o600)
         remote = store.put_file(
-            key, path, sha256=digest, content_md5=base64.b64encode(md5.digest()).decode(),
-            content_type="application/vnd.sqlite3", if_none_match=True,
+            key,
+            path,
+            sha256=digest,
+            content_md5=base64.b64encode(md5.digest()).decode(),
+            content_type="application/vnd.sqlite3",
+            if_none_match=True,
         )
     if remote.size != size or remote.metadata.get("sha256") != digest:
         raise LakePublishError("economic private receipt write mismatch")
-    manifest = json.dumps({
-        "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
-        "receipt_key": key, "receipt_sha256": digest, "receipt_bytes": size,
-    }, sort_keys=True).encode()
+    manifest = json.dumps(
+        {
+            "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
+            "receipt_key": key,
+            "receipt_sha256": digest,
+            "receipt_bytes": size,
+        },
+        sort_keys=True,
+    ).encode()
     manifest_key = prefix + "/handoff.json"
     prior = read_private(store, manifest_key)
     if prior is None:

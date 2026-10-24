@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 import requests
 
-from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded, check_acquisition_deadline
+from baibai_engine.collection.read_http import (
+    AcquisitionDeadlineExceeded,
+    check_acquisition_deadline,
+)
 
 if TYPE_CHECKING:
     from .browser import BrowserFetcher
