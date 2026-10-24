@@ -61,9 +61,8 @@ TARGET_RETAINED_KEYS: Mapping[str, tuple[str, ...]] = LOCAL_METADATA_KEYS
 ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **TARGET_RETAINED_KEYS}
 
 # When a store read the source, not what the source said. Two stores that read the same
-# range at different moments differ here by construction — measured on the real stores,
-# 218 of 220 disagreements were nothing but `fetched_at_utc` — so comparing it would
-# refuse every merge. The insert leaves the target's reading in place.
+# range at different moments differ here by construction, so comparing fetch times
+# would reject equivalent coverage. The insert keeps the target's timestamp.
 UNCOMPARED: Mapping[str, tuple[str, ...]] = {
     "source_coverage": ("fetched_at_utc",),
 }

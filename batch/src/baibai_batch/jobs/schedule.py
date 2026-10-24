@@ -1,4 +1,4 @@
-"""Stop the L1 daily screening path from drifting away from its scheduled as-of."""
+"""Resolve acquisition and integration target dates from their independent schedules."""
 
 from __future__ import annotations
 

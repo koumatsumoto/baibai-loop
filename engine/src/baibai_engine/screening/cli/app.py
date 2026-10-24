@@ -687,9 +687,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
-    if args.command in {"bootstrap-cache", "extract-edinet-metrics", "refresh-edinet-metrics"}:
-        if args.sqlite_path:
-            sqlite_path = Path(args.sqlite_path)
+    if (
+        args.command in {"bootstrap-cache", "extract-edinet-metrics", "refresh-edinet-metrics"}
+        and args.sqlite_path
+    ):
+        sqlite_path = Path(args.sqlite_path)
     if args.command == "build-tender-offer-exits":
         exits_path = Path(args.sqlite_path)
         return build_tender_offer_exits_command(

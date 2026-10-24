@@ -19,9 +19,7 @@ def test_source_command_preserves_selected_database(source, tmp_path):
 @pytest.mark.parametrize("source", ["edinet-metrics", "edinet-facts"])
 def test_replay_extracts_from_the_same_database_as_import(source, tmp_path, mocker):
     database = tmp_path / "scoped.sqlite"
-    (tmp_path / "result.json").write_text(
-        json.dumps({"source": source, "asof": "2026-10-24"})
-    )
+    (tmp_path / "result.json").write_text(json.dumps({"source": source, "asof": "2026-10-24"}))
     imported = mocker.patch.object(source_handoff, "import_edinet_handoff", return_value={})
     reader = mocker.patch.object(app, "EDINETReader")
     handler = mocker.patch.object(

@@ -45,9 +45,7 @@ SOURCES = (
 _JPX_COLLECTION = {"jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations"}
 
 
-def _command(
-    source: str, asof: date, *, database: Path, offline: bool = False
-) -> list[str]:
+def _command(source: str, asof: date, *, database: Path, offline: bool = False) -> list[str]:
     if source in {"edinet-metrics", "edinet-facts"}:
         verb = ("extract-" if offline else "refresh-") + source
         return [
