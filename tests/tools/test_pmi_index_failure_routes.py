@@ -2,12 +2,12 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from tools import pmi_manifest
 
 from baibai_engine.collection.economic.providers.base import (
     IndicatorsProviderError,
     SourceWithheldError,
 )
-from tools import pmi_manifest
 
 
 @pytest.mark.parametrize(
