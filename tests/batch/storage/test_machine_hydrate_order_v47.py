@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
         ("cloud-daily-batch.yml", "daily", "pull-machine", "baibai-batch daily"),
         ("cloud-materialize.yml", "materialize", "pull-machine", "baibai_web.materialize"),
         (
-            "cloud-external-assessment.yml",
+            "cloud-external-assessment-source.yml",
             "publish",
             "pull-market",
             "external_assessment_sources publish",

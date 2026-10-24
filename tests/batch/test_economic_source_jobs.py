@@ -166,6 +166,7 @@ def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
 
 def test_lease_release_failure_does_not_misreport_completed_publication(monkeypatch, capsys):
     from baibai_batch.observability import economic_discord
+
     monkeypatch.setenv("ACQUIRE_RESULT", "success")
     monkeypatch.setenv("PUBLISH_RESULT", "success")
     monkeypatch.setenv("LEASE_RELEASE_RESULT", "failure")
@@ -187,17 +188,23 @@ def test_serving_composition_is_once_per_macro_run_and_includes_weekends():
     assert parent["on"]["schedule"][0]["cron"].endswith("* * *")
 
 
-def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(tmp_path, monkeypatch):
+def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(
+    tmp_path, monkeypatch
+):
     from baibai_engine.collection.economic.providers import base
     from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded
+
     expired = False
+
     def check(waiting=0):
         if expired:
             raise AcquisitionDeadlineExceeded("acquisition job deadline exhausted")
+
     def fetch(source, **kwargs):
         nonlocal expired
         expired = True
         return {DAY: [{"value": "confirmed before cutoff"}]}
+
     monkeypatch.setattr(base, "check_acquisition_deadline", check)
     monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
     database = tmp_path / "source.sqlite"

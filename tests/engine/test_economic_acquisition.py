@@ -159,31 +159,51 @@ def test_old_pdf_failure_keeps_original_and_does_not_block_new_month(tmp_path, m
     source_id = "spglobal-jp-pmi-mfg"
     old, new = date(2026, 7, 1), date(2026, 9, 1)
     old_url, new_url = "https://example.com/old.pdf", "https://example.com/new.pdf"
-    monkeypatch.setattr(pmi, "load_manifest", lambda _: {"jp_manufacturing": (
-        pmi.Release(old, old, old_url), pmi.Release(new, new, new_url),
-    )})
+    monkeypatch.setattr(
+        pmi,
+        "load_manifest",
+        lambda _: {
+            "jp_manufacturing": (
+                pmi.Release(old, old, old_url),
+                pmi.Release(new, new, new_url),
+            )
+        },
+    )
     calls = []
+
     def fetch(url, **kwargs):
         calls.append(url)
         if url == old_url:
             raise IndicatorsProviderError("404: expired PDF URL")
         return b"%PDF newer original"
+
     monkeypatch.setattr(pmi, "fetch_pdf_bytes", fetch)
     path = tmp_path / "source.sqlite"
     with closing(store.initialize_database(path)) as conn, conn:
-        store_document(conn, SourceDocument(
-            source_id, old.isoformat(), old_url, "application/pdf",
-            datetime(2026, 8, 1, tzinfo=UTC), b"%PDF retained old original",
-            {"observed_at": old.isoformat(), "release_observed_at": old.isoformat()},
-        ))
-    outcome = acquisition.refresh_sources([source_id], db_path=path, start=old, end=date(2026, 10, 23))[0]
+        store_document(
+            conn,
+            SourceDocument(
+                source_id,
+                old.isoformat(),
+                old_url,
+                "application/pdf",
+                datetime(2026, 8, 1, tzinfo=UTC),
+                b"%PDF retained old original",
+                {"observed_at": old.isoformat(), "release_observed_at": old.isoformat()},
+            ),
+        )
+    outcome = acquisition.refresh_sources(
+        [source_id], db_path=path, start=old, end=date(2026, 10, 23)
+    )[0]
     assert isinstance(outcome, acquisition.SourceRefreshFailure)
     assert calls == [old_url, new_url]
     with closing(store.open_read_only_connection(path)) as conn:
         documents = {item.request_key: item for item in read_documents(conn, source_id)}
         assert documents[old.isoformat()].payload == b"%PDF retained old original"
         assert documents[new.isoformat()].payload == b"%PDF newer original"
-        assert tuple(conn.execute("SELECT status, record_count FROM economic_source_runs").fetchone()) == ("failed", 1)
+        assert tuple(
+            conn.execute("SELECT status, record_count FROM economic_source_runs").fetchone()
+        ) == ("failed", 1)
 
 
 def test_pmi_rate_limit_stops_new_requests_to_sibling_series(tmp_path, monkeypatch):
@@ -193,13 +213,22 @@ def test_pmi_rate_limit_stops_new_requests_to_sibling_series(tmp_path, monkeypat
     sources = [s for s in load_sources().values() if s.provider == "spglobal_pmi"]
     month = date(2026, 9, 1)
     release = pmi.Release(month, month, "https://example.com/release.pdf")
-    monkeypatch.setattr(pmi, "load_manifest", lambda _: {s.provider_series_id: (release,) for s in sources})
+    monkeypatch.setattr(
+        pmi, "load_manifest", lambda _: {s.provider_series_id: (release,) for s in sources}
+    )
     calls = []
+
     def fetch(url, **kwargs):
         calls.append(url)
         raise ProviderRateLimitError("429")
+
     monkeypatch.setattr(pmi, "fetch_pdf_bytes", fetch)
-    outcomes = acquisition.refresh_sources([s.source_id for s in sources], db_path=tmp_path / "source.sqlite", start=month, end=date(2026, 10, 23))
+    outcomes = acquisition.refresh_sources(
+        [s.source_id for s in sources],
+        db_path=tmp_path / "source.sqlite",
+        start=month,
+        end=date(2026, 10, 23),
+    )
     assert len(calls) == 1
     assert all(isinstance(item, acquisition.SourceRefreshFailure) for item in outcomes)
 
