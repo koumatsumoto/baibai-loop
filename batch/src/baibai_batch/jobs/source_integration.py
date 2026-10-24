@@ -175,8 +175,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lease-handle", type=Path)
     args = parser.parse_args(argv)
     try:
-        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         directory = args.directory
+        if args.command == "check":
+            report = json.loads((directory / "applied.json").read_text())
+            return int(
+                any(item["failed"] for item in report["handoffs"])
+                or any(item["exit_code"] for item in report["extractions"].values())
+                or bool(report.get("external_failed"))
+                or bool((report.get("external") or {}).get("failed"))
+            )
+        if args.command == "verify":
+            report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
+            for index, outcome in enumerate(report["handoffs"]):
+                if not outcome["entry"]["market"] and outcome["applied"]:
+                    verify_stores(
+                        directory / f"receipt-{index:05d}" / "accepted.sqlite", args.economic
+                    )
+            return 0
+        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         directory.mkdir(parents=True, exist_ok=True)
         if args.command == "plan":
             if (directory / "plan.json").exists():
@@ -197,21 +213,6 @@ def main(argv: list[str] | None = None) -> int:
                 store, directory, market=args.market, economic=args.economic, asof=args.asof
             )
             print(json.dumps(report, sort_keys=True))
-        elif args.command == "check":
-            report = json.loads((directory / "applied.json").read_text())
-            return int(
-                any(item["failed"] for item in report["handoffs"])
-                or any(item["exit_code"] for item in report["extractions"].values())
-                or bool(report.get("external_failed"))
-                or bool((report.get("external") or {}).get("failed"))
-            )
-        elif args.command == "verify":
-            report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
-            for index, outcome in enumerate(report["handoffs"]):
-                if not outcome["entry"]["market"] and outcome["applied"]:
-                    verify_stores(
-                        directory / f"receipt-{index:05d}" / "accepted.sqlite", args.economic
-                    )
         else:
             if args.lease_handle is None:
                 raise ValueError("common integration writes require the publication lease")
