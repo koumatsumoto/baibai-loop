@@ -1349,7 +1349,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.EXACT)
         self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
-    def test_edinet_reader_reads_cached_metrics_without_api_key(self) -> None:
+    def test_edinet_reader_does_not_adopt_incompatible_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "data" / "screening" / "market.sqlite"
             store_edinet_metrics(
@@ -1368,8 +1368,7 @@ class ScreeningProviderTests(unittest.TestCase):
             reader = EDINETReader(sqlite_path)
             records = reader.load_metric_records(date(2026, 5, 1))
 
-        self.assertEqual(records["7203"].cash, 100.0)
-        self.assertEqual(records["7203"].debt, 10.0)
+        self.assertEqual(records, {})
 
     def test_edinet_refresh_requires_api_key_for_unretained_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

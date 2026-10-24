@@ -267,7 +267,7 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
             self.assertEqual(len(docs), 1)
             self.assertEqual(docs[0]["docID"], "S100B")
 
-    def test_load_metric_records_uses_sqlite_when_available(self) -> None:
+    def test_load_metric_records_rejects_sqlite_values_without_revision_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
@@ -302,9 +302,10 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
 
             records = reader.load_metric_records(date(2026, 4, 24))
 
-            self.assertIn("1301", records)
-            self.assertEqual(records["1301"].sales_ttm, 1_000_000.0)
-            self.assertEqual(records["1301"].source_submit_datetime, "2026-04-01 12:00")
+            self.assertEqual(records, {})
+            retained = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            self.assertEqual(retained["1301"].sales_ttm, 1_000_000.0)
+            self.assertEqual(retained["1301"].source_submit_datetime, "2026-04-01 12:00")
 
     def test_reader_list_documents_raises_when_sqlite_missing_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

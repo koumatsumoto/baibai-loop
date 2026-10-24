@@ -553,7 +553,7 @@ def test_saved_input_integration_gates_workflow_resolved_weekend(
     _seed_calendar(tmp_path, {target: "0"})
     runner = _runner()
     args = build_parser().parse_args(
-        ["--saved-inputs", "--asof", target.isoformat()]
+        ["--saved-inputs", "--asof", target.isoformat(), "--output-dir", str(tmp_path / "serving")]
         + (["--scheduled"] if scheduled else [])
     )
     result = run_daily_batch_structured(

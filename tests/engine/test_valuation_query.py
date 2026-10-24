@@ -58,6 +58,8 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
             "fcf_ttm": fcf,
             "fcf_yield": None if fcf is None else fcf / 1000,
             "fin_latest_disclosed_date": "2026-09-18",
+            "edinet_snapshot_asof": "2026-09-11",
+            "edinet_snapshot_recorded_at_utc": "2026-09-11T10:00:00+00:00",
             "edinet_source_doc_id": "S100SYNTHETIC",
             "edinet_document_type": "160",
             "edinet_source_submit_datetime": "2026-09-10 12:00",
@@ -126,6 +128,8 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
             "fin_latest_disclosed_date": "2026-09-18",
         },
         "edinet": {
+            "edinet_snapshot_asof": "2026-09-11",
+            "edinet_snapshot_recorded_at_utc": "2026-09-11T10:00:00+00:00",
             "edinet_ocf_ttm": edinet_ocf,
             "capex_ttm": capex,
             "fcf_ttm": fcf,
@@ -161,6 +165,8 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     assert bs["edinet"]["debt"] == capex
     assert bs["edinet"]["net_cash"] == fcf
     assert bs["edinet"]["investment_securities"] == 75.0
+    assert bs["edinet"]["edinet_snapshot_asof"] == "2026-09-11"
+    assert bs["edinet"]["edinet_snapshot_recorded_at_utc"] == "2026-09-11T10:00:00+00:00"
     assert bs["edinet"]["measurement_date"] is None
     assert bs["edinet"]["debt_scope"] is None
     assert bs["edinet"]["document_metadata"] == security["cash_flow"]["edinet"]["document_metadata"]

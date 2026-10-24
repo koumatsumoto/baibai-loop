@@ -625,6 +625,7 @@ class ScreeningCliTests(unittest.TestCase):
                         config,
                         providers,
                         now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                        output_path=build_output_path(date(2026, 4, 24)),
                     )
                 self.assertIn(exit_code, (0, 2))
                 payload = safe_load(build_output_path(date(2026, 4, 24)).read_text())
@@ -634,10 +635,15 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 self.assertNotIn("edinet-preprocessed-metrics", payload["data_sources"])
                 self.assertTrue(payload["stock_analyses"])
-                self.assertTrue(any(stock["per_forward"] is not None
-                                    for stock in payload["stock_analyses"]))
-                self.assertTrue(all(stock["metrics"]["edinet_source_doc_id"] is None
-                                    for stock in payload["stock_analyses"]))
+                self.assertTrue(
+                    any(stock["per_forward"] is not None for stock in payload["stock_analyses"])
+                )
+                self.assertTrue(
+                    all(
+                        stock["metrics"]["edinet_source_doc_id"] is None
+                        for stock in payload["stock_analyses"]
+                    )
+                )
             finally:
                 os.chdir(cwd)
 
