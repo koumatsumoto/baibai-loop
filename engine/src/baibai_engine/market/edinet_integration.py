@@ -83,7 +83,8 @@ def extract_saved_edinet(
         window_start = available - timedelta(days=lookback_days)
         selection = select_document_candidates(
             [
-                doc for doc in documents
+                doc
+                for doc in documents
                 if window_start.isoformat() <= str(doc["doc_date"]) <= available.isoformat()
             ],
             origin_start=window_start,
@@ -111,7 +112,10 @@ def extract_saved_edinet(
                 metrics["deferred_inputs"].append("csv_archives_unavailable")
                 metrics["missing_archive_count"] = len(missing)
             code = extract_edinet_metrics_from_plan(
-                asof_date=available, plan=plan, reader=reader, sqlite_path=database,
+                asof_date=available,
+                plan=plan,
+                reader=reader,
+                sqlite_path=database,
                 unavailable_doc_ids=frozenset(missing),
             )
             metrics.update(

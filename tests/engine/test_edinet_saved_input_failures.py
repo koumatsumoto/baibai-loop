@@ -64,10 +64,14 @@ def test_partial_inputs_update_ready_issuer_and_retry_missing_archive_after_arri
     assert selected["8306"].source_doc_id == "S100READY"
     assert selected["8306"].sales_ttm is not None
     with closing(open_connection(path)) as conn:
-        assert conn.execute(
-            "SELECT status FROM source_coverage WHERE source = 'edinet_metrics' "
-            "AND coverage_key = ?", (TARGET.isoformat(),)
-        ).fetchone()[0] == "partial"
+        assert (
+            conn.execute(
+                "SELECT status FROM source_coverage WHERE source = 'edinet_metrics' "
+                "AND coverage_key = ?",
+                (TARGET.isoformat(),),
+            ).fetchone()[0]
+            == "partial"
+        )
     assert read_edinet_metrics(path, TARGET) is None
     before = path.read_bytes()
     extract_saved_edinet(path, asof=TARGET + timedelta(days=1), lookback_days=3)
@@ -96,8 +100,10 @@ def test_partial_baseline_is_validated_without_falling_back_past_damage(tmp_path
             conn.execute(
                 "UPDATE source_coverage SET error = ? WHERE source = 'edinet_metrics' "
                 "AND coverage_key = ?",
-                (json.dumps({"reason": "csv_archives_unavailable", "doc_ids": ["S100OTHER"]}),
-                 TARGET.isoformat()),
+                (
+                    json.dumps({"reason": "csv_archives_unavailable", "doc_ids": ["S100OTHER"]}),
+                    TARGET.isoformat(),
+                ),
             )
         elif damage == "numeric_value":
             conn.execute(
@@ -107,7 +113,8 @@ def test_partial_baseline_is_validated_without_falling_back_past_damage(tmp_path
         else:
             conn.execute(
                 "UPDATE source_coverage SET status = 'ok', error = NULL "
-                "WHERE source = 'edinet_metrics' AND coverage_key = ?", (TARGET.isoformat(),)
+                "WHERE source = 'edinet_metrics' AND coverage_key = ?",
+                (TARGET.isoformat(),),
             )
     with pytest.raises(EDINETMetricBaselineError):
         read_edinet_metric_baseline(path, TARGET)
@@ -119,8 +126,12 @@ def test_old_outside_window_edit_cannot_quarantine_current_annual(tmp_path):
     for offset in (1, 2, 3):
         store_edinet_documents(path, BASE - timedelta(days=offset), [])
     old = dict(documents[0])
-    old.update(docID="S100OLD", periodStart="2023-04-01", periodEnd="2024-03-31",
-               submitDateTime="2024-04-01 12:00")
+    old.update(
+        docID="S100OLD",
+        periodStart="2023-04-01",
+        periodEnd="2024-03-31",
+        submitDateTime="2024-04-01 12:00",
+    )
     store_edinet_documents(path, date(2024, 4, 1), [old])
     edit = dict(old)
     edit.update(docInfoEditStatus="1", docDescription="old edit", opeDateTime="2024-04-02 12:00")
@@ -140,14 +151,17 @@ def test_old_outside_window_edit_cannot_quarantine_current_annual(tmp_path):
 def _receipt(path, content, seconds):
     with closing(open_connection(path)) as conn:
         retain_list_response(
-            conn, doc_date=TARGET,
+            conn,
+            doc_date=TARGET,
             received_at=datetime(2026, 4, 27, tzinfo=UTC) + timedelta(seconds=seconds),
             body=content,
         )
     return rebuild_edinet_document_day(path, TARGET)
 
 
-@pytest.mark.parametrize("bad", [b"{broken JSON", b'{"metadata":{"status":"500","resultset":{"count":0}},"results":[]}'])
+@pytest.mark.parametrize(
+    "bad", [b"{broken JSON", b'{"metadata":{"status":"500","resultset":{"count":0}},"results":[]}']
+)
 def test_retained_projection_failure_remains_error_without_a_fresh_handoff(tmp_path, bad):
     path = tmp_path / "market.sqlite"
     _seed(path)
@@ -172,7 +186,8 @@ def test_failed_acquisition_with_valid_retained_receipt_is_not_a_projection_erro
     with closing(open_connection(path)) as conn, conn:
         conn.execute(
             "UPDATE source_coverage SET status = 'failed', error = 'HTTP 302' "
-            "WHERE source = 'edinet_documents' AND coverage_key = ?", (TARGET.isoformat(),)
+            "WHERE source = 'edinet_documents' AND coverage_key = ?",
+            (TARGET.isoformat(),),
         )
     before = path.read_bytes()
     result = extract_saved_edinet(path, asof=TARGET, lookback_days=0)
@@ -193,7 +208,9 @@ def test_known_event_inside_saved_window_keeps_its_effect(tmp_path, event):
     else:
         changed = dict(EDINETReader(path).list_documents(BASE)[0])
         changed.update(
-            docID="S100WITHDRAW", parentDocID="S100SAVED", withdrawalStatus="1",
+            docID="S100WITHDRAW",
+            parentDocID="S100SAVED",
+            withdrawalStatus="1",
             opeDateTime="2026-04-27 12:00",
         )
     store_edinet_documents(path, TARGET, [changed])

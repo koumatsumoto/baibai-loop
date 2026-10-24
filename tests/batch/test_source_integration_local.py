@@ -105,7 +105,9 @@ def test_deferred_input_is_reported_without_failing_successful_integration(tmp_p
 
 def test_invalid_retained_list_failure_is_not_hidden_by_another_input_delay(tmp_path, capsys):
     report = {
-        "handoffs": [], "external_failed": [], "external": None,
+        "handoffs": [],
+        "external_failed": [],
+        "external": None,
         "extractions": {
             "edinet-metrics": {"exit_code": 0, "deferred_inputs": ["document_list_unavailable"]},
             "edinet-list": {"exit_code": 1, "status": "failed"},

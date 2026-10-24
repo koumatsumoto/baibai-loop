@@ -418,9 +418,9 @@ def extract_edinet_metrics_from_plan(
         asof_date,
         payload,
         status="partial" if unavailable_doc_ids else "ok",
-        error=json.dumps(
-            {"reason": PARTIAL_CSV_COVERAGE, "doc_ids": sorted(unavailable_doc_ids)}
-        ) if unavailable_doc_ids else None,
+        error=json.dumps({"reason": PARTIAL_CSV_COVERAGE, "doc_ids": sorted(unavailable_doc_ids)})
+        if unavailable_doc_ids
+        else None,
     )
     print(
         "EDINET extraction summary: "

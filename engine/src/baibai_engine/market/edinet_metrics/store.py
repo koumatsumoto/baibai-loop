@@ -193,9 +193,11 @@ def _validate_deferred_coverage(
         valid = (
             isinstance(details, dict)
             and details.get("reason") == PARTIAL_CSV_COVERAGE
-            and isinstance(ids, list) and bool(ids)
+            and isinstance(ids, list)
+            and bool(ids)
             and all(isinstance(item, str) for item in ids)
-            and len(set(ids)) == len(ids) and set(ids) == missing
+            and len(set(ids)) == len(ids)
+            and set(ids) == missing
         )
     except (TypeError, ValueError) as exc:
         raise EDINETMetricBaselineError(f"EDINET partial coverage is invalid for {key}") from exc
