@@ -101,6 +101,7 @@ class SpGlobalPmiSource:
         # Report an unavailable recent range without throwing away known originals.
         try:
             _require_current_manifest(source, releases, end=end)
+            _require_target_months(releases, start=start, end=end)
         except IndicatorsProviderError as error:
             failures.append(str(error))
         if failures:
@@ -108,6 +109,21 @@ class SpGlobalPmiSource:
                 f"spglobal_pmi incomplete: {len(failures)} document/manifest failures; "
                 + "; ".join(failures[:2])
             )
+
+
+def _require_target_months(releases: tuple[Release, ...], *, start: date, end: date) -> None:
+    first = max(start, SpGlobalPmiSource.spec.all_history_start or start)
+    if first.day != 1:
+        first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    expected = _expected_newest_month(end)
+    available = {release.observed_at for release in releases}
+    missing: list[str] = []
+    while first <= expected:
+        if first not in available:
+            missing.append(first.isoformat())
+        first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    if missing:
+        raise IndicatorsProviderError("spglobal_pmi manifest is missing target months: " + ", ".join(missing))
 
 
 def fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | None) -> bytes:

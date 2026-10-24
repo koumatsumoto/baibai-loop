@@ -96,7 +96,8 @@ def recovery_ranges(
         start, finish = date.fromisoformat(start_raw), date.fromisoformat(end_raw)
         if status == "ok":
             anchors.append(start)
-            covered.append((start, finish))
+            if source.provider != "spglobal_pmi":
+                covered.append((start, finish))
         elif (finish - start).days <= source_policy(source).lookback_days:
             anchors.append(start)
     if not anchors or min(anchors) > last:
@@ -139,7 +140,7 @@ def _missing_ranges(
     last: date,
     covered: list[tuple[date, date]],
 ) -> tuple[tuple[date, date], ...]:
-    covered.extend(
+    successful_ranges = (
         (date.fromisoformat(row[0]), date.fromisoformat(row[1]))
         for row in connection.execute(
             "SELECT range_start, range_end FROM economic_source_runs "
@@ -147,6 +148,8 @@ def _missing_ranges(
             (source.source_id, last.isoformat(), first.isoformat()),
         )
     )
+    if source.provider != "spglobal_pmi":
+        covered.extend(successful_ranges)
     for (observed,) in connection.execute(
         "SELECT DISTINCT observed_at FROM economic_source_records "
         "WHERE source_id = ? AND observed_at BETWEEN ? AND ?",
