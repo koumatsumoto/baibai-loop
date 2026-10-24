@@ -15,8 +15,8 @@ on:
         description: "Private R2 company-growth sample; summary only in public logs"
         type: boolean
         default: false
-      company_growth_saved_result_key:
-        description: "Optional existing private validation report to measure saved-input L3 projection"
+      company_growth_saved_run:
+        description: "Optional validation Actions run: <run>-<attempt>/<head>, for saved-input projection"
         type: string
         default: ""
       tradingview_oauth_smoke:
@@ -224,13 +224,13 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          SAVED_RESULT_KEY: ${{ inputs.company_growth_saved_result_key }}
+          SAVED_RESULT_RUN: ${{ inputs.company_growth_saved_run }}
         run: |
           umask 077
           uv run python -m tools.company_growth_acceptance \
             --directory "$RUNNER_TEMP/company-growth-acceptance" \
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$GITHUB_SHA" \
-            --saved-result-key "$SAVED_RESULT_KEY"
+            --saved-result-run "$SAVED_RESULT_RUN"
       - name: Remove private runner copies
         if: ${{ always() }}
         run: rm -rf -- "$RUNNER_TEMP/company-growth-acceptance"
