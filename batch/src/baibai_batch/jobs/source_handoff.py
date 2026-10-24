@@ -23,6 +23,7 @@ from baibai_engine.batch_api import (
     export_edinet_handoff,
     export_jpx_handoff,
     export_jquants_handoff,
+    export_master_calendar_dependencies,
     export_tradingview_handoff,
     import_edinet_handoff,
     import_jpx_handoff,
@@ -93,6 +94,9 @@ def _export(
         report.update(
             export_edinet_handoff(database, path, since=since, archives=archives or set())
         )
+    if source in {"jquants-market", "tradingview"}:
+        for dependency in export_master_calendar_dependencies(database, since=since):
+            write_json_atomic(directory / f"dependency-{dependency['request_id']}.json", dependency)
     write_json_atomic(directory / "result.json", report)
 
 

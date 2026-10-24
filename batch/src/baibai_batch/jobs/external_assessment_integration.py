@@ -49,12 +49,13 @@ from baibai_engine.batch_api import (
     read_lake_store_origin,
 )
 
-_DATASETS = {
+_EXCLUSIVE_DATASETS = {
     SOURCE_RESPONSES_DATASET,
     VALUATION_DATASET,
     RATING_DATASET,
     QUANTS_DATASET,
 }
+_READBACK_DATASETS = _EXCLUSIVE_DATASETS | {ANALYST_FORECAST_DATASET}
 
 
 def merge_ready(
@@ -163,10 +164,10 @@ def verify_and_seal(
     )
     changed = {(str(name), int(year), int(month)) for name, year, month in state["changed"]}
     old = {
-        key: value for key, value in unchanged_objects(before, changed).items() if key in _DATASETS
+        key: value for key, value in unchanged_objects(before, changed).items() if key in _EXCLUSIVE_DATASETS
     }
     new = {
-        key: value for key, value in unchanged_objects(after, changed).items() if key in _DATASETS
+        key: value for key, value in unchanged_objects(after, changed).items() if key in _EXCLUSIVE_DATASETS
     }
     if old != new:
         raise LakePublishError(
@@ -183,7 +184,7 @@ def verify_and_seal(
             for observation in stage.result.observations
         )
     for name, manifest in after.dataset_manifests.items():
-        if name not in _DATASETS:
+        if name not in _READBACK_DATASETS:
             continue
         for part in manifest.partitions:
             if (name, part.values["year"], part.values["month"]) in changed:

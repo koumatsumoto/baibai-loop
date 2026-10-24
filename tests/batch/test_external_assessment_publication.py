@@ -87,6 +87,7 @@ def publication(tmp_path, monkeypatch):
         external_assessment.RATING_DATASET,
         external_assessment.QUANTS_DATASET,
         external_assessment.ANALYST_FORECAST_DATASET,
+        "tradingview.forecast_snapshots",
     )
     narrow_release_policy(monkeypatch, datasets=datasets)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)

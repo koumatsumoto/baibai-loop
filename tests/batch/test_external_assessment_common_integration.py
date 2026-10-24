@@ -161,3 +161,30 @@ def test_failed_decode_in_another_month_keeps_originals_and_does_not_block_healt
     assert results[0]["readback"] == "verified"
     assert staging.read_terminal(store, failed) is None
     assert staging.read_terminal(store, staging.read_plan(store, selected[1]["run_id"])) is not None
+
+
+def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(publication):
+    store, previous, handle, database, mirror, directory = publication
+    plan = _plan(previous, run_id="minkabu-common-forecast", sources=("minkabu",))
+    responses = pair_responses("minkabu", "7203", received_at_utc=RECEIVED)
+    observation = external_assessment_decode_attempt(responses)
+    _stage(store, plan, 0, [
+        ("minkabu", "7203", "observed", responses[0].attempt_id, observation, 200),
+    ], responses)
+    staging.save_new_plan(store, plan)
+    reference = save_ready(store, prepare_publication(store, plan))
+    state = merge_ready(store, [reference], database=database)
+    assert state["failed"] == []
+    with closing(sqlite3.connect(database)) as conn, conn:
+        conn.execute(
+            "INSERT INTO tradingview_forecast_snapshots "
+            "(snapshot_date,ticker,provider_symbol,fetched_at_utc,fetch_status) VALUES (?,?,?,?,?)",
+            ("2026-09-30", "7203", "TSE:7203", RECEIVED.isoformat(), "ok"),
+        )
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    fresh = directory / "minkabu-fresh-readback"
+    assert not fresh.exists()
+    results = verify_and_seal(store, state, handle=handle, directory=fresh)
+    assert results[0]["readback"] == "verified"
+    assert staging.read_terminal(store, plan)["observations"] == 1
+    assert any("analyst_forecast_observations" in str(path) for path in fresh.rglob("*.parquet"))

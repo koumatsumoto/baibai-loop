@@ -47,6 +47,9 @@ from baibai_engine.collection.equity_web.receipts import (
 from baibai_engine.collection.equity_web.receipts import (
     validate_response as equity_web_validate_response,
 )
+from baibai_engine.collection.jquants.dependencies import (
+    export_dependencies as export_master_calendar_dependencies,
+)
 from baibai_engine.external_assessment.acquisition.cli import (
     main as external_assessment_acquisition_main,
 )
@@ -64,6 +67,12 @@ from baibai_engine.external_assessment.acquisition.collection import (
 )
 from baibai_engine.external_assessment.acquisition.collection import (
     collector_binding as external_assessment_collector_binding,
+)
+from baibai_engine.external_assessment.acquisition.universe import (
+    received_calendar as external_assessment_received_calendar,
+)
+from baibai_engine.external_assessment.acquisition.universe import (
+    received_master_universe as external_assessment_received_master_universe,
 )
 from baibai_engine.external_assessment.acquisition.universe import (
     calendar_master_asof as external_assessment_calendar_master_asof,
@@ -265,6 +274,7 @@ __all__ = [
     "export_edinet_handoff",
     "export_jpx_handoff",
     "export_jquants_handoff",
+    "export_master_calendar_dependencies",
     "export_market_source_input",
     "export_market_store",
     "export_tradingview_handoff",
@@ -276,6 +286,8 @@ __all__ = [
     "external_assessment_frozen_lake_universe",
     "external_assessment_history_digests",
     "external_assessment_parse_failure_reasons",
+    "external_assessment_received_calendar",
+    "external_assessment_received_master_universe",
     "external_assessment_save_observations",
     "external_assessment_verify_release_history",
     "import_edinet_handoff",

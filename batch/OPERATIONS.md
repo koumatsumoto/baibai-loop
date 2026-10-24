@@ -429,7 +429,7 @@ importは原本を保持して選択attemptを再解析する。parse失敗時�
 
 ### 日次取得と固定コホートの再開
 
-source別planは固定release/calendar/masterとparser/request条件へ束縛する。sourceはmonex/rakuten/kabumap/minkabu、allは4取得元を選ぶ。同sourceのlocalとActions取得を重ねない。scheduleの対象日は元runから固定し、受領日をmaster/cron日へ替えない。
+source別planは固定release/calendar/masterとparser/request条件へ束縛する。19:13 JSTの新規plan作成時に当日exact masterがまだlake未反映なら、J-Quants/TVのready handoffが公開する小さなmaster/calendar依存入力を使う。価格を含むSQLite全体は取得せず、原受領ID・元の受領時刻・dependency/handoff hashとbase releaseをplanへ固定する。過去masterを当日へ読み替えない。継続pagination・不完全master・calendarの欠落は不適格として取得前に失敗し、既存planの再開は最新依存を読み直さない。初回移行ではinput生成後に新しいJ-Quants/TV取得がdependency付きreadyを保存したことを確認してから外部評価を受け入れる。masterが遅延した場合はそのsourceを限定再実行し、共通統合の先行公開で帳尻を合わせない。sourceはmonex/rakuten/kabumap/minkabu、allは4取得元を選ぶ。同sourceのlocalとActions取得を重ねない。scheduleの対象日は元runから固定し、受領日をmaster/cron日へ替えない。
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \

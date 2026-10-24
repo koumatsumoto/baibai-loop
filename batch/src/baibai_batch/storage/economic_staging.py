@@ -10,6 +10,7 @@ from pathlib import Path
 
 from baibai_batch.storage.external_assessment_staging import put_private, read_private
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
+from baibai_batch.storage.source_dependencies import save_dependencies
 
 
 def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
@@ -51,15 +52,15 @@ def save_handoff(
         )
     if remote.size != size or remote.metadata.get("sha256") != digest:
         raise LakePublishError("source private receipt write mismatch")
-    manifest = json.dumps(
-        {
+    value: dict[str, object] = {
             "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
             "receipt_key": key,
             "receipt_sha256": digest,
             "receipt_bytes": size,
-        },
-        sort_keys=True,
-    ).encode()
+    }
+    if market:
+        value["dependencies"] = save_dependencies(store, prefix, directory)
+    manifest = json.dumps(value, sort_keys=True).encode()
     manifest_key = prefix + "/handoff.json"
     prior = read_private(store, manifest_key)
     if prior is None:

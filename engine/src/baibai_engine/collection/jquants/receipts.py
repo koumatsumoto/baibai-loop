@@ -132,7 +132,13 @@ def read_request_pages(conn: sqlite3.Connection, request_id: str) -> tuple[JQuan
 
 def read_complete_request(conn: sqlite3.Connection, request_id: str) -> JQuantsRequest:
     """Require a closed, ordered source pagination chain before L2 uses its rows."""
-    pages = read_request_pages(conn, request_id)
+    return complete_request(read_request_pages(conn, request_id))
+
+
+def complete_request(pages: Sequence[JQuantsPage]) -> JQuantsRequest:
+    """Validate the same native pagination chain in a bounded dependency handoff."""
+    if not pages:
+        raise JQuantsAcquisitionError("J-Quants request has no pages")
     source = pages[0].source
     base = dict(pages[0].query)
     if "pagination_key" in base:
@@ -148,7 +154,7 @@ def read_complete_request(conn: sqlite3.Connection, request_id: str) -> JQuantsR
         if cursor is None or cursor == "":
             if index != len(pages) - 1:
                 raise JQuantsAcquisitionError("J-Quants request continues after its final page")
-            return JQuantsRequest(source, pages[0].query, pages)
+            return JQuantsRequest(source, pages[0].query, tuple(pages))
         if not isinstance(cursor, str) or cursor in seen:
             raise JQuantsAcquisitionError("invalid or repeated J-Quants pagination key")
         seen.add(cursor)
