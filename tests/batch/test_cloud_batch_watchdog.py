@@ -142,8 +142,8 @@ def test_only_failed_runs_inside_the_window_is_a_gap() -> None:
 def test_a_batch_still_running_when_the_watchdog_fires_is_not_a_gap() -> None:
     """A late start is not a missing run, and alerting on it would be the false alarm.
 
-    The schedule queue can push the 07:43 UTC batch past the watchdog's 12:00 UTC
-    firing. This watchdog defers to the in-flight run; this test does not prove
+    The schedule queue can push integration past the watchdog's firing.
+    This test does not prove
     that a later timeout or cancellation notification will be delivered.
     """
     runs = parse_runs(
@@ -343,10 +343,12 @@ def test_api_reader_selects_the_listed_attempt(monkeypatch) -> None:
 def test_yesterdays_successful_run_falls_outside_the_window() -> None:
     """The back edge is what stops yesterday's success from masking today's gap.
 
-    `cloud-daily-batch` is scheduled at 07:43 UTC; at the watchdog's 12:00 UTC
-    firing that run is more than 28 hours old, well beyond the window.
+    The previous scheduled integration is outside the current watchdog window.
     """
-    yesterday = FIRED_AT.replace(hour=7, minute=43) - timedelta(days=1)
+    scheduled = FIRED_AT.replace(
+        hour=BATCH_SCHEDULED_FIRE_TIME.hour, minute=BATCH_SCHEDULED_FIRE_TIME.minute
+    )
+    yesterday = scheduled - timedelta(days=1)
     runs = parse_runs(_listing(_run(created_at=yesterday)))
 
     verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
@@ -359,10 +361,12 @@ def test_a_late_watchdog_firing_still_sees_the_days_batch() -> None:
     """The front edge absorbs the watchdog's own schedule delay.
 
     The schedule queue can delay execution; the window has to hold the day's
-    07:43 UTC batch even when the watchdog fires far later than due,
+    scheduled integration even when the watchdog fires far later than due,
     otherwise the delay itself becomes the false alarm.
     """
-    batch = FIRED_AT.replace(hour=7, minute=43)
+    batch = FIRED_AT.replace(
+        hour=BATCH_SCHEDULED_FIRE_TIME.hour, minute=BATCH_SCHEDULED_FIRE_TIME.minute
+    )
     runs = parse_runs(_listing(_run(created_at=batch)))
 
     late = evaluate(
@@ -478,7 +482,7 @@ def test_the_day_a_run_answers_for_is_anchored_on_the_batch_cron_not_on_midnight
     late = datetime(2026, 8, 3, 15, 30, tzinfo=UTC)
 
     assert batch_target_date(late) == date(2026, 8, 3)
-    # 07:00 UTC is before the batch's own 07:43 UTC cron, so the day in question is
+    # 07:00 UTC is before the integration cron, so the day in question is
     # still the previous one.
     assert batch_target_date(datetime(2026, 8, 3, 7, 0, tzinfo=UTC)) == date(2026, 8, 2)
     assert batch_target_date(datetime(2026, 8, 3, 13, 43, tzinfo=UTC)) == date(2026, 8, 3)
@@ -621,7 +625,7 @@ def test_main_sends_nothing_when_the_window_holds_a_successful_run(
     An empty check date closes the window at the wall clock, and the day a run answers
     for is anchored on the batch cron — so a run placed at an offset from `now` lands on
     the wrong side of that anchor for part of every day. Pinning the firing keeps the one
-    realistic shape (batch at 07:43 UTC, watchdog at 12:00 UTC) true at every hour.
+    explicit test window independent of the machine's current clock.
     """
     payload = _listing(_run(created_at=FIRED_AT - timedelta(hours=2)))
 

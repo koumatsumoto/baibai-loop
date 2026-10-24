@@ -44,32 +44,15 @@ gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 
 保存入力の共通統合は、手動dispatchで解決済みの `asof` を渡しても営業日判定を行う。非営業日は新しいScreeningを作らず、前回runの日付・ID・計算時刻を維持して統合・公開を続ける。過去の営業日を明示した再計算は可能だが、その日のmaster・価格・財務coverage要件を省略しない。
 
-共通統合のEDINET抽出は統合日を当日原本の取得完了とみなさない。metricsは最新の保存済み一覧日と既存540日窓を使い、窓の下限・上限外の文書／eventを抽出計画へ混ぜない。一覧窓や全必要CSVが未到着なら適格な保存snapshotを保持する。一部CSVが到着済みなら解析を進め、不足doc IDと値のない欠測行を持つpartial snapshotへ保存する。ok coverageや取得成功は作らず、欠測行を再利用しないため原本到着後に再抽出する。保存済みCSVの解析失敗は別文書の未到着で隠さない。factsは既知文書の既存doc単位planから保存XBRLを処理し、不足原本は延期する。取得jobと取得coverageの失敗は変更せず、旧snapshot日・開示日を当日へ書き換えない。`applied.json` の `deferred_inputs` と通知の「入力延期」で未到達を確認する。`source-check` は入力延期だけなら統合成功とし、不正受領・解析失敗・破損・公開／readback失敗のエラーは維持する。failed一覧coverageに対応するretained receiptのprojectionが不正なら、新規handoffがない再実行でもエラーを残す。通信未到達だけのfailed coverageを一律にfatalへ戻さない。原本到着後の次回統合が通常の回復入口で、全体checkの無効化や取得の重複起動で対応しない。
+EDINETは取得日と抽出日を分ける。当日一覧・必要archiveの未到着は `applied.json` の `deferred_inputs` と通知の「入力延期」に残し、適格な保存値で統合を続ける。原本が届けば次回統合で再抽出する。別文書の未到着を理由に、保存済み原本の破損・解析失敗を隠さない。
 
-EDINETの取得／抽出失敗は独立した統合結果に残るため、Screening成功だけで全source成功とは判断しない。保存値の採用は[Screeningの入力適格性](../docs/reference/screening-runtime.md#入力不足と品質)に従う。出力の `edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc` と既存の文書ID・提出日時・対象期間で鮮度を確認する。旧行を当日coverageへ複製せず、不足sourceの限定取得後、次の共通統合で新しい適格snapshotへ進む。
+Screening成功は全source成功を意味しない。旧snapshot日を当日へ書き換えず、`edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc`、文書ID・提出日時・対象期間で鮮度を確認する。採用条件は[Screeningの入力適格性](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。入力延期だけなら `source-check` は成功、不正受領・解析・公開・readbackの失敗はエラーになる。check無効化や全取得の重複起動ではなく、失敗したsourceだけを修復する。
 
 ### マクロ原本の独立更新
 
 `cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領を独立させる。取得側は担当groupだけの再生成可能なread-only inputを読み、正本全体をpullしない。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。
 
-| acquisition group / provider | 取得方式と比較範囲 |
-| --- | --- |
-| boj / boj・boj_timeseries | XLSX全体または系列API。月次・四半期370日、日次14日 |
-| estat / estat・estat_dashboard | 指定系列の全体応答をfilter、370日。dashboard速報native行も保存し、L2のfinal_onlyとは分離 |
-| fred_csv | 全体CSVをfilter。日次14日、週次60日、月次・四半期370日 |
-| frb_h15 | 期間指定CSV、14日。このgroupだけ既存browser fallbackを準備。現行Nikkeiは直接HTTP、PMIは直接PDFでbrowserを使わない |
-| cftc | 期間指定JSON、60日。上限到達は完全取得にしない |
-| ecb_fx・mof_jgb | 全体ファイルをfilter、14日 |
-| multpl | 全体のdated表をfilter、14日 |
-| umich_sca | 全体CSVをfilter、370日 |
-| jquants / indices・flows・options | indicesは14日、flowsは公表日基準60日、optionsは日別要求14日。共通credentialと既存2req/sを維持 |
-| nikkei_indexes | 月別ページを取得後filter、14日 |
-| yahoo | 期間指定API、14日 |
-| spglobal_pmi | manifest内の対象PDFを再確認、370日。同URLも比較。新配信元・速報採用は #1477 の未完了範囲 |
-| tsr_bankruptcies | 全体JSON原本を再確認、370日の取得記録 |
-| matsui_margin | 現在ページを一回取得。当日の受領だけを記録し、過去を回復できた扱いにしない |
-
-今回の数値は現行窓を保守的に維持する決定であり、全sourceの最低必要窓を実証したという意味ではない。PAYEMSの公表遅延＋通常2回改訂、GDPの四半期終了後3か月の公表を落とさないため、月次・四半期を一律「当月＋直前2完了月」へ縮めない。optionsの日別要求も14日から増やさない。全体配信では比較範囲を絞っても通信量削減を主張しない。
+groupと取得範囲は `collection economic groups` とCollectionのsource catalogを正本とする。共有quota・取得方式ごとの制約を保ち、月次・四半期を一律「直前2か月」に縮めない。通常改訂や公表遅延を落とすためで、古い年次改訂は別の明示取得で扱う。全体ファイル配信では比較範囲を絞っても通信量は減らない。松井の現在ページから過去履歴を回復したとは扱わない。PMIの新配信元・速報採用は #1477 の未完了範囲。
 
 `--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗は通知の「全履歴の限定回復待ち」に出し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
 
@@ -80,7 +63,7 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。経済の取得開始は従来dailyと同じ07:43 UTCで、土日も実行する。45分の取得期限と60分のjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値でReading/Research/表示を更新する。遅着は次回統合へ入り、取得成功ごとのmaterializeは行わない。土日も共通統合する。
 
-### source入力・市場原本の引渡しと初回移行
+### source入力・市場原本の引渡し
 
 共通統合だけが`cloud-publish`と共通leaseを持つ。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・TV master補完・経済取得は共有quotaを守る。
 
@@ -88,7 +71,7 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同日最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
 
-移行はコード反映と既存scheduleの置換を同時に扱う。最初に既存正本から共通統合を一回実行し、`coordination/source-inputs/`の担当inputを生成する。input不足を全DB取得や空seedで迂回しない。その後に独立取得の結果、共通統合のrelease/readback、表示時刻、watchdogを順に受け入れる。新bucket／権限は不要。旧daily内の取得とsource別publishを並走させない。localの複合daily入口は旧手動経路として残るため、新scheduleと重ねず、保存入力の生成には`--saved-inputs`を使う。
+初回input生成は既存正本から共通統合を一回実行する。`coordination/source-inputs/` のinput不足を全DB取得や空seedで迂回しない。独立取得の受領、共通統合のrelease/readback、表示時刻、watchdogを確認する。旧daily内の取得とsource別publishは並走させない。localの複合dailyを使う場合も新scheduleと重ねず、保存入力だけの統合には `--saved-inputs` を使う。
 
 通常の遅着・未統合受領は次回共通統合、必要なら既存dailyの手動実行で拾う。一つのinput exportが失敗しても前回pointerを保ち、正常groupは更新する。経済の実取得はseedと同値でも一時受領へ残し、統合時にfresh canonicalと比較して変更だけ追記する。同値no-opを統合したstageもsource watermarkを進める。
 
@@ -597,15 +580,6 @@ uv run baibai-engine screening calibration-evaluate \
 ```
 
 required-asofは事前に選んだ全対象月分を繰り返す。配布前にoperative runのrules/model identity・期限・不足を照合し、Gitでreviewする。[較正の意味](../docs/reference/estimate-calibration.md)に従い、記述context成功をformal evidence成立としない。古いcontextの日付・hashだけを編集しない。
-
-pre-2019の短窓診断が必要な時は通常snapshotと別directoryを使う。productionの750-sessionと異なり、formal evidenceへ使わない。
-
-```bash
-uv run baibai-engine screening calibration-build \
-  --start 2018-03-01 --end 2019-10-31 \
-  --calibration-dir stores/screening/calibration/variants/pre2019 \
-  --panel-variant pre2019_self_range_375 --force
-```
 
 PMIは公表翌週、TSE資本政策とJPX廃止は翌月15日以降に既存refresh/buildを行い、必要なlake/store公開へ進む。全履歴監査を定例に増やさない。注文結果の計測が依頼された場合は既存measure_limit_outcomesの対象と限界を確認し、価格差を逸失利益や指値規律の因果効果にしない。
 
