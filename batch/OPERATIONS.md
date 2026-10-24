@@ -393,8 +393,8 @@ optionsのall-historyは保存済み古い日を再利用して直近と不足�
 PMI manifestは公表翌週にdry-run→更新→対象月refresh→公表値照合→commitする。
 
 ```bash
-uv run python -m baibai_engine.market_context.indicators.pmi_manifest --dry-run
-uv run python -m baibai_engine.market_context.indicators.pmi_manifest
+uv run python -m tools.pmi_manifest --dry-run
+uv run python -m tools.pmi_manifest
 ```
 
 PDF自身のPMI名・embargo月・対象headline月を確認し、月の穴を飛び越えない。indexの最新月以前はarchive snapshotからrelease IDを辿り、既存月と照合する。翌月PDFの明示restateを使う時も元の対象月を保つ。URL訂正と同URL本文差替えを区別し、抽出式だけなら保存PDFを再読する。

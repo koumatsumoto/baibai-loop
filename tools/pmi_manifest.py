@@ -1,16 +1,8 @@
-"""Find and verify the current month's S&P Global PMI release URLs for the manifest.
+"""Maintain the Collection PMI manifest using L2 extraction for verification.
 
-Collection retains the original PDF named by each manifest entry; L2 extracts
-the headline later. The manifest is maintained by hand. The provider
-fails a refresh once a published month is missing from it, so the append is not a
-task that can be forgotten — it is a task that recurs every month for four streams.
-
-This finds the release the publisher's press-release index currently lists for each
-stream and requires the release PDF to tie its headline to the month the entry would
-claim before that entry is written. The index lists roughly the current month only,
-so a month missing before it is a manual job, and appending across such a gap is
-refused: the provider's own guard compares the newest manifest month against the
-release calendar, so an entry written past a hole would silence it for good.
+This operator tool discovers current release links, verifies their identity and
+headline, and optionally edits the checked-in manifest. It is not an L2 read path.
+Older missing releases still require manual source research.
 """
 
 from __future__ import annotations
@@ -347,15 +339,13 @@ def resolve_stream(
             f"which is not a month that can have been reported yet",
             resolved=False,
         )
-    # The provider compares only the newest manifest month against the release
-    # calendar, so an entry written past a hole would satisfy that guard forever and
-    # the skipped months would never be reported again.
+    # Keep append operations contiguous; historical gaps need their own source research.
     if newest_stored is not None and _previous_month(release_candidate.observed_at) > newest_stored:
         return StreamOutcome(
             stream,
             f"the manifest ends at {newest_stored.isoformat()} and the index only lists "
             f"{release_candidate.observed_at.isoformat()}; the months between have to be added "
-            f"by hand first or the currency guard would stop reporting them",
+            f"by hand first",
             resolved=False,
         )
     if context is None:
