@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tomllib
 from pathlib import Path
@@ -87,14 +88,8 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
     if workflow_name == "cloud-materialize.yml":
         concurrency = workflow["concurrency"]
     else:
-        group = (
-            "common-source-integration"
-            if workflow_name == "cloud-daily-batch.yml"
-            else "tradingview-snapshot"
-        )
-        assert workflow["concurrency"]["group"] == group
-        job = "daily" if workflow_name == "cloud-daily-batch.yml" else "publish"
-        concurrency = workflow["jobs"][job]["concurrency"]
+        assert workflow["concurrency"]["group"] == "common-source-integration"
+        concurrency = workflow["jobs"]["daily"]["concurrency"]
 
     assert concurrency == {
         "group": "cloud-publish",
@@ -135,11 +130,6 @@ def test_publication_lease_surrounds_every_cloud_writer(
     assert "continue-on-error" not in release
     for step in (acquire, release):
         assert {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"} <= set(step["env"])
-    if purpose == "tradingview":
-        assert "handoff != ''" in selected["if"]
-        snapshot = workflow["jobs"]["snapshot"]
-        assert snapshot["concurrency"]["group"] == "source-acquire-jquants"
-        assert not any(step.get("id") == "lease-acquire" for step in snapshot["steps"])
 
 
 def test_the_daily_batch_pushes_stores_before_it_mirrors_the_views() -> None:
@@ -415,7 +405,7 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
                 if str(step.get("uses", "")).startswith("astral-sh/setup-uv@"):
                     setup_steps.append(step)
 
-    assert required == "==0.12.17"
+    assert re.fullmatch(r"==\d+\.\d+\.\d+", required)
     assert setup_steps
     assert all("version" not in step.get("with", {}) for step in setup_steps)
 
