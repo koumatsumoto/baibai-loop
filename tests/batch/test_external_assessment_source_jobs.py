@@ -719,9 +719,13 @@ def test_source_notice_never_reports_old_values_as_new_success(tmp_path):
     assert "正常null=不明" in text
 
 
-def test_workflow_publishes_each_source_without_waiting_for_its_siblings():
+def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     path = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
     parent = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    assert parent["on"]["workflow_dispatch"]["inputs"]["operation"]["options"] == [
+        "collect",
+        "stage_confirmed_partial",
+    ]
     assert "publish" not in parent["jobs"]
     source = parent["jobs"]["source"]
     assert source["needs"] == "plan"
@@ -736,7 +740,7 @@ def test_workflow_publishes_each_source_without_waiting_for_its_siblings():
     )
     assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
     acquire = child["jobs"]["acquire"]
-    assert "inputs.operation == 'collect_and_publish'" in acquire["if"]
+    assert "inputs.operation == 'collect'" in acquire["if"]
     assert "cloud-publish" not in str(acquire)
     assert "publish" not in child["jobs"]
     handoff = child["jobs"]["handoff"]

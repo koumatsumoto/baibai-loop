@@ -440,12 +440,12 @@ raw bundleをstageより先にuploadする。未確定GETはhard kill後に繰�
 
 readback後にsource別terminalを保存する。pointer成功後のterminal失敗は未反映と断定せず、既存terminalを読んで再開する。sealed sourceは以前の検証としてno-op、未sealedはfresh hydrateからidempotentに再適用する。未確認件数を0にしない。
 
-403/429・未完了sourceを自動で閉じない。確定分だけを明示する操作はsource単独で行い、取得を再実行しない。`publish_confirmed_partial`は確定stageをprivate readyへ固定し、実際の公開とterminalは次回共通統合で行う。
+403/429・未完了sourceを自動で閉じない。確定分だけを明示する操作はsource単独で行い、取得を再実行しない。`stage_confirmed_partial`は確定stageをprivate readyへ固定し、実際の公開とterminalは次回共通統合で行う。
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \
   -f source=minkabu -f batch_id=<LABEL> -f master_asof=<YYYY-MM-DD> \
-  -f operation=publish_confirmed_partial
+  -f operation=stage_confirmed_partial
 ```
 
 固定pair、正常null、失敗・未試行、完全/部分公開、release/hash・readback・lease解放を確認する。lake反映とWeb更新は別で、通常daily/materializeを使う。通知・CI緑・stage保存だけで取得成功や画面反映を認定しない。
