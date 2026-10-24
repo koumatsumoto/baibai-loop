@@ -21,7 +21,7 @@ PREVIOUS = date(2026, 10, 16)
 RECEIVED = datetime(2026, 10, 19, 7, 43, tzinfo=UTC)
 
 
-def stage_dependencies(store, root, *, source="jquants-market", fault=None):
+def stage_dependencies(store, root, *, source="jquants-market", fault=None, rest_day=False):
     database = root / "source.sqlite"
     query_day = PREVIOUS if fault == "old" else DAY
     record_day = PREVIOUS if fault == "wrong_date" else query_day
@@ -35,7 +35,7 @@ def stage_dependencies(store, root, *, source="jquants-market", fault=None):
         with closing(open_connection(database)) as conn, conn:
             conn.execute("UPDATE jquants_source_pages SET body_gzip=? WHERE request_id=?",
                          (gzip.compress(body(records, cursor="unfinished"), mtime=0), master))
-    rows = [{"Date": f"2026-10-{day}", "HolDiv": "1" if day in {16, 19} else "0"}
+    rows = [{"Date": f"2026-10-{day}", "HolDiv": "1" if day == 16 or (day == 19 and not rest_day) else "0"}
             for day in range(16, 20)]
     calendar = receive(database, "market_calendar", {"from": "2026-10-16", "to": "2026-10-19"}, body(rows), RECEIVED)
     if fault is None:
@@ -51,10 +51,14 @@ def stage_dependencies(store, root, *, source="jquants-market", fault=None):
 
 @pytest.mark.parametrize("source", ["jquants-market", "tradingview"])
 def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
-    tmp_path, monkeypatch, source,
+    tmp_path,
+    monkeypatch,
+    source,
 ):
     store, release, _ = build_master_lake(
-        tmp_path, monkeypatch, snapshot=PREVIOUS,
+        tmp_path,
+        monkeypatch,
+        snapshot=PREVIOUS,
         calendar=[("2026-10-16", 1), ("2026-10-17", 0), ("2026-10-18", 0)],
     )
     original_pointer = store.values[current_release_pointer_key()].body
@@ -62,8 +66,14 @@ def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
     root.mkdir()
     master, calendar = stage_dependencies(store, root, source=source)
     store.get_keys.clear()
-    plan = daily.initialize(store, run_id="monex-before-integration", source="monex",
-                            master_asof=None, observation_date=DAY, mirror=tmp_path / "new-plan")
+    plan = daily.initialize(
+        store,
+        run_id="monex-before-integration",
+        source="monex",
+        master_asof=None,
+        observation_date=DAY,
+        mirror=tmp_path / "new-plan",
+    )
     binding = json.loads(plan.universe_binding)
     assert binding["master_asof"] == DAY.isoformat()
     assert binding["base_release_manifest_sha256"] == release.manifest_sha256
@@ -71,7 +81,11 @@ def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
     assert binding["calendar_receipt"]["request_id"] == calendar
     assert datetime.fromisoformat(binding["master_receipt"]["received_at"]) == RECEIVED
     assert len(plan.tickers) == 2500
-    assert not any(key.endswith(".sqlite") or "daily_bars/" in key for key in store.get_keys)
+    assert not any(key.endswith(".sqlite") or ("daily_bars/" in key and key.endswith(".parquet")) for key in store.get_keys)
+    assert not any(
+        "jquants.master_snapshots/" in key and key.endswith(".parquet")
+        for key in store.get_keys
+    )
     assert not list((tmp_path / "new-plan").rglob("*.sqlite"))
     calls = wire_success(monkeypatch, store, plan)
     acquired = daily.acquire_cohort(store, plan, 0)
@@ -81,15 +95,26 @@ def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
     # A retry does not reread dependency pointers, release or a new Universe.
     store.store_object(current_release_pointer_key(), b"newer unreadable release")
     store.get_keys.clear()
-    assert daily.initialize(store, run_id=plan.run_id, source="monex", master_asof=None,
-                            observation_date=DAY, mirror=None) == plan
+    assert (
+        daily.initialize(
+            store,
+            run_id=plan.run_id,
+            source="monex",
+            master_asof=None,
+            observation_date=DAY,
+            mirror=None,
+        )
+        == plan
+    )
     assert store.get_keys == [f"coordination/external-assessment/{plan.run_id}/plan.json"]
 
 
 @pytest.mark.parametrize("fault", ["old", "partial", "wrong_date"])
 def test_unqualified_dependency_cannot_replace_today_exact_master(tmp_path, monkeypatch, fault):
     store, _, _ = build_master_lake(
-        tmp_path, monkeypatch, snapshot=PREVIOUS,
+        tmp_path,
+        monkeypatch,
+        snapshot=PREVIOUS,
         calendar=[("2026-10-16", 1), ("2026-10-17", 0), ("2026-10-18", 0)],
     )
     root = tmp_path / "invalid"
@@ -97,8 +122,39 @@ def test_unqualified_dependency_cannot_replace_today_exact_master(tmp_path, monk
     stage_dependencies(store, root, fault=fault)
     before = set(store.values)
     with pytest.raises((ValueError, JQuantsProviderError)):
-        daily.initialize(store, run_id="no-false-current-master", source="monex",
-                         master_asof=None, observation_date=DAY, mirror=tmp_path / "refused")
+        daily.initialize(
+            store,
+            run_id="no-false-current-master",
+            source="monex",
+            master_asof=None,
+            observation_date=DAY,
+            mirror=tmp_path / "refused",
+        )
     assert set(store.values) == before
     with closing(open_connection(root / "source.sqlite")) as conn:
         assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone()[0] == 3
+
+
+def test_ready_calendar_can_select_an_exact_published_rest_day_master(tmp_path, monkeypatch):
+    store, release, _ = build_master_lake(
+        tmp_path,
+        monkeypatch,
+        snapshot=PREVIOUS,
+        calendar=[("2026-10-16", 1), ("2026-10-17", 0), ("2026-10-18", 0)],
+    )
+    root = tmp_path / "calendar-only"
+    root.mkdir()
+    _, calendar = stage_dependencies(store, root, fault="old", rest_day=True)
+    plan = daily.initialize(
+        store,
+        run_id="monex-calendar-only",
+        source="monex",
+        master_asof=None,
+        observation_date=DAY,
+        mirror=tmp_path / "holiday",
+    )
+    binding = json.loads(plan.universe_binding)
+    assert binding["master_asof"] == PREVIOUS.isoformat()
+    assert binding["release_manifest_sha256"] == release.manifest_sha256
+    assert binding["calendar_receipt"]["request_id"] == calendar
+    assert "master_receipt" not in binding

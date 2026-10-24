@@ -8,14 +8,18 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import duckdb
 
 from baibai_engine.collection.jquants.dependencies import read_dependency
 from baibai_engine.market.jquants_reader import read_eq_master_asof
-from baibai_engine.market.master_snapshot import MIN_COMMON_STOCK_MASTER_ROWS, masters_from_payloads, validate_master_snapshot
+from baibai_engine.market.master_snapshot import (
+    MIN_COMMON_STOCK_MASTER_ROWS,
+    masters_from_payloads,
+    validate_master_snapshot,
+)
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.lake.duck import LakeSession
@@ -62,6 +66,8 @@ def frozen_lake_universe(
     manifest = release.dataset_manifest(dataset.name)
     if manifest.data_as_of is not None:
         _require_master_date(manifest.data_as_of)
+        if manifest.data_as_of < master_asof:
+            raise ValueError("external assessment universe requires a complete exact saved master")
     partitions = selected_partitions(release, dataset.name, periods=((master_asof.year,),))
     paths = materialize_partitions(cache, dataset=dataset, partitions=partitions)
     if not paths:
@@ -97,20 +103,29 @@ def calendar_master_asof(
         partitions = selected_partitions(release, dataset.name, periods=((year,),))
         paths = materialize_partitions(cache, dataset=dataset, partitions=partitions)
         try:
-            rows = session.connection.execute(
-                "SELECT day,holiday_division IN ('1', '2') "
-                "FROM read_parquet($files,union_by_name=false) "
-                "WHERE day<=$day ORDER BY day DESC",
-                {"files": [str(path) for path in paths], "day": expected.isoformat()},
-            ).fetchall() if paths else []
+            rows = (
+                session.connection.execute(
+                    "SELECT day,holiday_division IN ('1', '2') "
+                    "FROM read_parquet($files,union_by_name=false) "
+                    "WHERE day<=$day ORDER BY day DESC",
+                    {"files": [str(path) for path in paths], "day": expected.isoformat()},
+                ).fetchall()
+                if paths
+                else []
+            )
         except duckdb.Error as error:
             raise LakeReadError(
                 f"external assessment calendar cannot be read: {session.redact(str(error))}"
             ) from None
         if overrides:
             merged = {date.fromisoformat(str(day)): business for day, business in rows}
-            merged.update({day: int(business) for day, business in overrides.items()
-                           if day.year == year and day <= expected})
+            merged.update(
+                {
+                    day: int(business)
+                    for day, business in overrides.items()
+                    if day.year == year and day <= expected
+                }
+            )
             rows = sorted(merged.items(), reverse=True)
         for day, business in rows:
             if str(day) != expected.isoformat() or business not in (0, 1):
@@ -141,11 +156,18 @@ def received_calendar(value: dict[str, Any]) -> dict[date, bool]:
     request = read_dependency(value)
     if request.source != "market_calendar":
         raise ValueError("external assessment requires a calendar receipt")
-    first, last = date.fromisoformat(request.params["from"]), date.fromisoformat(request.params["to"])
+    first, last = (
+        date.fromisoformat(request.params["from"]),
+        date.fromisoformat(request.params["to"]),
+    )
     rows = request.records()
     result = {date.fromisoformat(row["Date"]): str(row["HolDiv"]) in {"1", "2"} for row in rows}
-    if (last < first or len(result) != len(rows) or len(result) != (last - first).days + 1
-            or any(day < first or day > last for day in result)):
+    if (
+        last < first
+        or len(result) != len(rows)
+        or len(result) != (last - first).days + 1
+        or any(day < first or day > last for day in result)
+    ):
         raise ValueError("external assessment dependency calendar is incomplete")
     return result
 

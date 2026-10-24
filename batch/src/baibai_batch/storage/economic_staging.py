@@ -53,10 +53,10 @@ def save_handoff(
     if remote.size != size or remote.metadata.get("sha256") != digest:
         raise LakePublishError("source private receipt write mismatch")
     value: dict[str, object] = {
-            "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
-            "receipt_key": key,
-            "receipt_sha256": digest,
-            "receipt_bytes": size,
+        "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
+        "receipt_key": key,
+        "receipt_sha256": digest,
+        "receipt_bytes": size,
     }
     if market:
         value["dependencies"] = save_dependencies(store, prefix, directory)

@@ -168,9 +168,15 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(publ
     plan = _plan(previous, run_id="minkabu-common-forecast", sources=("minkabu",))
     responses = pair_responses("minkabu", "7203", received_at_utc=RECEIVED)
     observation = external_assessment_decode_attempt(responses)
-    _stage(store, plan, 0, [
-        ("minkabu", "7203", "observed", responses[0].attempt_id, observation, 200),
-    ], responses)
+    _stage(
+        store,
+        plan,
+        0,
+        [
+            ("minkabu", "7203", "observed", responses[0].attempt_id, observation, 200),
+        ],
+        responses,
+    )
     staging.save_new_plan(store, plan)
     reference = save_ready(store, prepare_publication(store, plan))
     state = merge_ready(store, [reference], database=database)

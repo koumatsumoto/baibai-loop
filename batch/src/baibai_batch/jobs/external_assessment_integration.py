@@ -164,10 +164,14 @@ def verify_and_seal(
     )
     changed = {(str(name), int(year), int(month)) for name, year, month in state["changed"]}
     old = {
-        key: value for key, value in unchanged_objects(before, changed).items() if key in _EXCLUSIVE_DATASETS
+        key: value
+        for key, value in unchanged_objects(before, changed).items()
+        if key in _EXCLUSIVE_DATASETS
     }
     new = {
-        key: value for key, value in unchanged_objects(after, changed).items() if key in _EXCLUSIVE_DATASETS
+        key: value
+        for key, value in unchanged_objects(after, changed).items()
+        if key in _EXCLUSIVE_DATASETS
     }
     if old != new:
         raise LakePublishError(
