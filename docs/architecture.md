@@ -6,7 +6,7 @@ Baibai Loopは、外部から受領した事実を保存し、機械分析から
 
 ```mermaid
 flowchart LR
-    S[外部source] --> C[Collection / L1] --> D[共通market・四分析領域 / L2]
+    S[外部source] --> C[Collection / L1] --> D[共通market・五分析領域 / L2]
     D --> R[Research / L3]
     D -->|Valuation・Market Context| F[Screening]
     F -->|候補文脈| R
@@ -15,7 +15,7 @@ flowchart LR
     H -->|確認済み取引| L[Position / 台帳] --> R
 ```
 
-L1は原本またはsource契約で明示したprovider-native表現と受領事実、L2はその入力を選択・正規化・計算した情報、L3は仮定を伴う解釈・評価・判断である。型付き行は原本の代わりにならず、仮定を決定的な式で計算しても観測事実にはならない。四分析領域はL2の責務区分であり、領域ごとにL1/L2/L3の一式やDBを作らない。
+L1は原本またはsource契約で明示したprovider-native表現と受領事実、L2はその入力を選択・正規化・計算した情報、L3は仮定を伴う解釈・評価・判断である。型付き行は原本の代わりにならず、仮定を決定的な式で計算しても観測事実にはならない。五分析領域はL2の責務区分であり、領域ごとにL1/L2/L3の一式やDBを作らない。
 
 ## 責務と配置
 
@@ -25,6 +25,7 @@ engineのdomainは`engine/src/baibai_engine/`に置く。意味を持つ処理�
 | --- | --- |
 | `collection/` | sourceとの通信、原本・native record・受領の契約 |
 | `market/` | 保存された銘柄・財務・価格・公表日の共通読取と正規化、source固有の取得計画と取得・投影・保存の合成 |
+| `company_growth/` | 固定releaseの過去実績状態・変化、会計四半期を整理軸とする振り返り |
 | `valuation/` | 財務指標と機械ER/FV、較正文脈、条件付きscenarioの算術 |
 | `market_context/` | 経済Reading、市場・業種・個別の相対状態 |
 | `external_assessment/` | 外部提示値の抽出、出所・対象期・比較条件と欠測の整理 |
@@ -36,9 +37,11 @@ engineのdomainは`engine/src/baibai_engine/`に置く。意味を持つ処理�
 
 共通価格は、`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更は異なるため、同じ価格を扱う処理を一つの契約へ潰さない。
 
-分析領域は必要な共通marketを使い、Research・Screening・UIへ逆依存しない。Researchは領域の公開読取入口から四領域と一次資料を統合する。Screeningは探索の入口を作り、企業価値や買付採否を確定しない。PositionはResearchへ逆依存せず、人間が確認した事実を保存する。
+分析領域は必要な共通marketを使い、Research・Screening・UIへ逆依存しない。Researchは領域の公開読取入口から五領域と一次資料を統合する。Screeningは探索の入口を作り、企業価値や買付採否を確定しない。PositionはResearchへ逆依存せず、人間が確認した事実を保存する。
 
 `web/`はbackend・frontend・edgeによる読取表示、`batch/`は定期処理と公開の合成、`tools/`は開発・保守用の入口である。Webは`read_api`、Batchは`batch_api`・`read_api`を通し、domainの算術・保存条件を複製しない。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
+
+企業成長の期間・欠測・固定入力と実データ受入は[企業成長](reference/company-growth.md)が所有する。
 
 ## 判断と進行
 

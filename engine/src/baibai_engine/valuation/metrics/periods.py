@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import replace
 from datetime import date
-from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.financial_documents import (
@@ -14,6 +12,12 @@ from baibai_engine.market.financial_documents import (
     disclosure_revision,
     latest_disclosure_candidates,
     statement_basis,
+)
+from baibai_engine.market.financial_periods import (
+    ACTUAL_FIELDS,
+    compose_ttm_amount,
+    period_days,
+    prior_year_period_matches,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
@@ -45,59 +49,8 @@ def _latest_consistent_actual(
     # not establish a publication order, and never fills a capital pair across rows.
     return max(
         latest,
-        key=lambda row: sum(
-            getattr(row, field) is not None for field in (fields or _ACTUAL_ANCHOR_FIELDS)
-        ),
+        key=lambda row: sum(getattr(row, field) is not None for field in (fields or ACTUAL_FIELDS)),
     )
-
-
-_ACTUAL_ANCHOR_FIELDS = (
-    "sales",
-    "cfo",
-    "cash_eq",
-    "total_assets",
-    "equity",
-    "operating_profit",
-    "ordinary_profit",
-    "profit",
-    "eps_ttm",
-    "bps",
-    "shares_outstanding",
-    "treasury_shares",
-    "equity_to_asset_ratio",
-    "dps_actual_annual",
-    "average_shares",
-)
-
-
-def resolve_actual_conflicts(
-    summaries: Sequence[JQuantsFinancialSummary],
-) -> list[JQuantsFinancialSummary]:
-    """Mask only contradictory fields in a period/revision cohort; keep source rows."""
-    groups: dict[AccountingPeriodKey, list[JQuantsFinancialSummary]] = {}
-    for row in summaries:
-        groups.setdefault(accounting_period_identity(row), []).append(row)
-    changes: dict[int, JQuantsFinancialSummary] = {}
-    for group in groups.values():
-        for field in _ACTUAL_ANCHOR_FIELDS:
-            observed = [
-                row
-                for row in group
-                if getattr(row, field) is not None or field in row.unresolved_actual_fields
-            ]
-            latest = latest_disclosure_candidates(observed)
-            if len({getattr(row, field) for row in latest if getattr(row, field) is not None}) <= 1:
-                continue
-            for row in latest:
-                current = changes.get(id(row), row)
-                values: dict[str, Any] = {
-                    field: None,
-                    "unresolved_actual_fields": tuple(
-                        sorted(set(current.unresolved_actual_fields) | {field})
-                    ),
-                }
-                changes[id(row)] = replace(current, **values)
-    return [changes.get(id(row), row) for row in summaries]
 
 
 def _actual_rows(
@@ -107,7 +60,7 @@ def _actual_rows(
         summary
         for summary in summaries
         if summary.unresolved_actual_fields
-        or any(getattr(summary, field_name) is not None for field_name in _ACTUAL_ANCHOR_FIELDS)
+        or any(getattr(summary, field_name) is not None for field_name in ACTUAL_FIELDS)
     ]
 
 
@@ -116,7 +69,7 @@ def _latest_actual_row(
     *,
     field_names: Sequence[str] = (),
 ) -> JQuantsFinancialSummary | None:
-    required = tuple(field_names) or _ACTUAL_ANCHOR_FIELDS
+    required = tuple(field_names) or ACTUAL_FIELDS
     candidates = [
         summary
         for summary in summaries
@@ -308,7 +261,7 @@ def _ttm_value(
     latest_value = getattr(latest, field)
     if latest_value is None:
         return None, TTMQuality.UNAVAILABLE
-    latest_days = _period_days(latest)
+    latest_days = period_days(latest)
     if latest_days is None:
         return None, TTMQuality.UNAVAILABLE
     if ttm_rules.full_year_min_days <= latest_days <= ttm_rules.full_year_max_days:
@@ -334,7 +287,7 @@ def _ttm_value(
     prior_same_value = getattr(prior_same, field)
     if prior_fy_value is None or prior_same_value is None:
         return None, TTMQuality.UNAVAILABLE
-    return latest_value + prior_fy_value - prior_same_value, TTMQuality.EXACT
+    return compose_ttm_amount(latest_value, prior_fy_value, prior_same_value), TTMQuality.EXACT
 
 
 def _latest_full_year_summary(
@@ -348,7 +301,7 @@ def _latest_full_year_summary(
         summary
         for summary in summaries
         if summary.fiscal_year_end == fiscal_year_end
-        and (days := _period_days(summary)) is not None
+        and (days := period_days(summary)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
     ]
     return _latest_consistent_actual(candidates, (field_name,) if field_name else ())
@@ -364,12 +317,9 @@ def _matched_prior_period_summary(
 ) -> JQuantsFinancialSummary | None:
     if latest.period_start is None or latest.period_end is None:
         return None
-    latest_days = _period_days(latest)
-    prior_start = add_months_clamped(latest.period_start, -12)
-    prior_end = add_months_clamped(latest.period_end, -12)
+    latest_days = period_days(latest)
     if latest_days is None:
         return None
-    max_length_delta = max(1, round(latest_days * ttm_rules.period_length_tolerance_ratio))
     candidates: list[JQuantsFinancialSummary] = []
     for summary in _actual_rows(summaries):
         if (
@@ -380,26 +330,15 @@ def _matched_prior_period_summary(
             continue
         if summary.period_start is None or summary.period_end is None:
             continue
-        summary_days = _period_days(summary)
-        if summary_days is None or abs(summary_days - latest_days) > max_length_delta:
-            continue
-        if abs((summary.period_end - prior_end).days) > ttm_rules.period_end_tolerance_days:
-            continue
-        if abs((summary.period_start - prior_start).days) > ttm_rules.period_end_tolerance_days:
+        if not prior_year_period_matches(
+            summary,
+            latest,
+            length_tolerance_ratio=ttm_rules.period_length_tolerance_ratio,
+            end_tolerance_days=ttm_rules.period_end_tolerance_days,
+        ):
             continue
         candidates.append(summary)
     comparison_field = value_field or field_name
     return _latest_consistent_actual(
         candidates, (comparison_field,) if comparison_field is not None else ()
     )
-
-
-def _period_days(summary: JQuantsFinancialSummary) -> int | None:
-    if (
-        summary.period_start is None
-        or summary.period_end is None
-        or summary.period_end > summary.disclosed_at
-    ):
-        return None
-    days = (summary.period_end - summary.period_start).days + 1
-    return days if days > 0 else None

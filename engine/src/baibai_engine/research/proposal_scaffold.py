@@ -42,7 +42,7 @@ def scaffold_proposal(
         else:
             reference = outcome.assessment_ref
             rationale = (
-                "保存評価の四領域を踏まえ、今買う・待つ・見送る等の行動と比較理由を記述する。"
+                "保存評価の各領域を踏まえ、今買う・待つ・見送る等の行動と比較理由を記述する。"
                 "重要なtechnical所見との関係を示し、technicalだけでPmax・gate・sell条件を変えない。"
             )
             message = "行動・具体条件・比較理由の執筆と独立Reviewが未了です。"

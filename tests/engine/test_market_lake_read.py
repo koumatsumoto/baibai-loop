@@ -2309,3 +2309,20 @@ class TestPrefetchingHydration:
         err = capfd.readouterr().err
         assert "prefetch disabled" in err
         assert f"served 0/{len(planned)} planned objects" in err
+
+
+def test_hydration_retains_fixed_metadata_for_offline_research(session, lake, tmp_path):
+    release = resolve_current_release(LocalMirrorSource(lake.mirror))
+    cache_root = tmp_path / "fresh-runner-cache"
+    hydrate_market_store(
+        session,
+        release=release,
+        cache=LakeObjectCache(root=cache_root, source=LocalMirrorSource(lake.mirror)),
+        store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+        dataset_names=release.dataset_names(),
+    )
+    offline = resolve_release(
+        LocalMirrorSource(cache_root), release.release_id, manifest_sha256=release.manifest_sha256
+    )
+    assert offline.manifest_sha256 == release.manifest_sha256
+    assert offline.dataset_manifest_sha256 == release.dataset_manifest_sha256

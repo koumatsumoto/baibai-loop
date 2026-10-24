@@ -225,7 +225,7 @@ source_modules = ["baibai_engine.foundation"]
 forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment",
 
   "baibai_engine.position",
@@ -245,7 +245,7 @@ forbidden_modules = [
 
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment",
   "baibai_engine.position",
   "baibai_engine.research",
@@ -261,7 +261,7 @@ forbidden_modules = [
 
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment",
   "baibai_engine.position",
   "baibai_engine.research",
@@ -275,7 +275,7 @@ source_modules = ["baibai_engine.market"]
 forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment.acquisition",
   "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.analysis",
@@ -316,7 +316,7 @@ source_modules = [
 
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment",
   "baibai_engine.position",
 ]
@@ -362,7 +362,7 @@ forbidden_modules = [
   "baibai_engine.research",
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment",
   "baibai_engine.tasks",
   "baibai_engine.collection",
@@ -394,7 +394,7 @@ forbidden_modules = [
   "baibai_engine.research",
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment",
   "baibai_engine.tasks",
   "baibai_engine.collection",
@@ -504,7 +504,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.valuation"]
 forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api",
-  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth",
   "baibai_engine.external_assessment",
   "baibai_engine.market.edinet_metrics.csv", "baibai_engine.market.price_reader", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.position",
   "baibai_engine.storage", "baibai_engine.tasks",
@@ -523,6 +523,7 @@ source_modules = [
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.models",
 ]
 forbidden_modules = [
+  "baibai_engine.company_growth",
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
   "baibai_engine.storage.application.write", "baibai_engine.market_context.reading.cli",
@@ -534,6 +535,7 @@ name = "economic observations do not depend on reading computation"
 type = "forbidden"
 source_modules = ["baibai_engine.market_context.indicators"]
 forbidden_modules = [
+  "baibai_engine.company_growth",
   "baibai_engine.market_context.indicator_service",
   "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",
@@ -550,7 +552,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.external_assessment.models", "baibai_engine.external_assessment.analysis", "baibai_engine.external_assessment.reader", "baibai_engine.external_assessment.query"]
 forbidden_modules = [
   "baibai_engine.research", "baibai_engine.screening", "baibai_engine.position",
-  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.read_api",
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth", "baibai_engine.read_api",
   "baibai_engine.external_assessment.acquisition.collection", "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.normalization", "baibai_engine.external_assessment.acquisition.cli",
   "baibai_engine.external_assessment.tradingview.collector",
@@ -563,7 +565,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.screening.discovery.contracts"]
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market",
-  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.external_assessment",
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth", "baibai_engine.external_assessment",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api", "baibai_engine.batch_api",
   "baibai_engine.screening.discovery.candidates", "baibai_engine.screening.metric_builder",
   "baibai_engine.screening.rule_config", "baibai_engine.screening.run_store", "baibai_engine.screening.cli",
@@ -581,7 +583,7 @@ forbidden_modules = [
   "baibai_engine.market.jquants_writer", "baibai_engine.market.jpx_rebuild",
   "baibai_engine.market.edinet_list_rebuild", "baibai_engine.market.edinet_metrics.write",
   "baibai_engine.research", "baibai_engine.screening", "baibai_engine.position",
-  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.tasks",
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth", "baibai_engine.tasks",
   "baibai_engine.read_api", "baibai_engine.batch_api",
   "baibai_engine.market.edinet_metrics.csv", "baibai_engine.market.edinet_metrics",
   "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
@@ -706,7 +708,36 @@ name = "collection does not depend on calculations or judgments"
 type = "forbidden"
 source_modules = ["baibai_engine.collection"]
 forbidden_modules = [
-  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.research",
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.technical_analysis", "baibai_engine.company_growth", "baibai_engine.research",
   "baibai_engine.screening", "baibai_engine.external_assessment", "baibai_engine.position",
   "baibai_engine.market", "baibai_engine.read_api", "baibai_engine.batch_api",
+]
+
+[[tool.importlinter.contracts]]
+name = "company growth reads inputs without decisions or writes"
+type = "forbidden"
+source_modules = ["baibai_engine.company_growth"]
+forbidden_modules = [
+  "baibai_engine.valuation", "baibai_engine.screening", "baibai_engine.research",
+  "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
+  "baibai_engine.market_context", "baibai_engine.technical_analysis",
+  "baibai_engine.external_assessment.analysis", "baibai_engine.external_assessment.reader",
+  "baibai_engine.external_assessment.query", "baibai_engine.external_assessment.acquisition",
+  "baibai_engine.external_assessment.store", "baibai_engine.storage.application.write",
+  "baibai_engine.market.jquants_writer", "baibai_engine.market.jquants_refresh",
+  "baibai_engine.collection.jquants.http", "baibai_engine.batch_api",
+]
+
+[[tool.importlinter.contracts]]
+name = "company growth and common financial arithmetic are pure"
+type = "forbidden"
+source_modules = [
+  "baibai_engine.company_growth.models", "baibai_engine.company_growth.calculations",
+  "baibai_engine.market.financial_periods",
+]
+forbidden_modules = [
+  "baibai_engine.storage", "baibai_engine.market.jquants_reader",
+  "baibai_engine.market.price_reader", "baibai_engine.company_growth.query",
+  "baibai_engine.valuation", "baibai_engine.research", "baibai_engine.screening",
+  "baibai_engine.read_api", "baibai_engine.batch_api",
 ]

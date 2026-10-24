@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.market import master_snapshot as master_contract
@@ -40,6 +41,9 @@ from baibai_engine.market.price_reader import read_adjustment_factor_bars, read_
 from baibai_engine.storage.observations.coverage import covered_intervals, range_covered
 from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import connect_current
+
+if TYPE_CHECKING:
+    import duckdb
 
 
 def _required[T](value: T | None, source: str) -> T:
@@ -287,7 +291,11 @@ def read_fin_summaries(
 
 
 def read_financial_documents(
-    conn: sqlite3.Connection, *, start: date, end: date, ticker: str | None = None
+    conn: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    *,
+    start: date,
+    end: date,
+    ticker: str | None = None,
 ) -> list[JQuantsFinancialSummary]:
     """Read stored documents without asserting provider acquisition coverage."""
     cursor = conn.execute(
@@ -297,7 +305,7 @@ def read_financial_documents(
         (start.isoformat(), end.isoformat(), ticker, ticker),
     )
     summaries: list[JQuantsFinancialSummary] = []
-    for (payload,) in cursor:
+    for (payload,) in cursor.fetchall():
         try:
             record = json.loads(payload)
             if not isinstance(record, dict):

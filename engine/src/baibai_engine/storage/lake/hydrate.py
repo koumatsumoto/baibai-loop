@@ -47,6 +47,7 @@ from baibai_engine.storage.lake.reader import (
     accepted_dataset,
     iter_partition_rows,
     materialize_partitions,
+    materialize_release_metadata,
     partition_objects,
     selected_partitions,
 )
@@ -241,6 +242,7 @@ def hydrate_market_store(
                     f"hydration moved the market schema version from {schema_version} "
                     f"to {filled_version}"
                 )
+            materialize_release_metadata(cache, release)
             require_still_current(still_current, release)
             durable_replace(temporary, store)
         except BaseException:

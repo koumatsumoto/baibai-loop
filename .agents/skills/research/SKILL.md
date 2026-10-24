@@ -15,7 +15,9 @@ uv run baibai-engine research selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
-指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、四領域・保有・既存調査を比較する。必要な候補外の対照も同じ固定runから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。
+指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、五領域・保有・既存調査を比較する。必要な候補外の対照も同じ固定runから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。
+
+企業成長L2の原系列はJ-Quants財務サマリーを使う。L3でEBITDAの構成・減価償却等を詳しく調べる場合はEDINET原典へ戻り、期間・科目・連結基準を照合する。EDINET詳細抽出を成長L2の実行条件にはしない。企業成長は配置済みの固定release mirrorを読む。別配置ならprepareの `--company-growth-mirror` で指定し、mirror不足を作業SQLiteの更新行で代替しない。企業成長の会計期末範囲は、問いに応じてdraftの `company_growth_start` / `company_growth_end` へ指定できる。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)を確認し、PER/peerの未提供やcoverage未確認を企業価値のInputGapへ加えない。
 
 contextのrun・Research日・cutoff・requestをdraftへ引き継ぎ、対象と問い、選定理由、比較した代替と未確認の範囲を記す。runを別途読む時はcontextとrevision・analysis日が一致し、run_atがcutoff以前であることを確認する。全runをLLMへ一括投入しない。
 
@@ -28,6 +30,8 @@ uv run baibai-engine research prepare \
 ```
 
 Operationが対象・問い・唯一の入力snapshotを保持し、`domain-inputs.yaml`はその読取投影となる。新しい資料は評価のsourcesへ加え、開始入力へ挿入しない。固定は全入力のintraday PIT再現を保証しない。観測日、公表/受領cutoff、Readingのread_semantics、正式評価日を区別する。
+
+企業成長の通常投影は保存済み結果の直近12会計期をFY/累計の薄い表と既存YoYで示す。保存結果とdraftの要求範囲は削らない。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げる。既存workspaceの切替は `--force` を付け、`full_result_ref` の完全結果は同じOperationの保存Selectionから読む。四半期単独・TTM・BS/CFは完全結果に残り、FY/累計を単独四半期と読まない。
 
 ## 評価と独立Review
 

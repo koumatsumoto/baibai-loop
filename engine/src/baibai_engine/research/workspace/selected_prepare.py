@@ -44,6 +44,17 @@ class SelectedResearchPreparation:
     next_step: str | None
 
 
+def _growth_range_matches(value: object, draft: ResearchSelectionDraft) -> bool:
+    if not isinstance(value, dict):
+        return draft.company_growth_start is None and draft.company_growth_end is None
+    return (
+        value.get("requested_start")
+        == (draft.company_growth_start.isoformat() if draft.company_growth_start else None)
+        and value.get("requested_end")
+        == (draft.company_growth_end or draft.research_as_of).isoformat()
+    )
+
+
 def _same_draft(selection: ResearchSelection, draft: ResearchSelectionDraft) -> bool:
     return (
         selection.request == draft.request
@@ -53,6 +64,10 @@ def _same_draft(selection: ResearchSelection, draft: ResearchSelectionDraft) -> 
         and selection.targets == draft.targets
         and selection.selection_summary == draft.selection_summary
         and selection.inputs.input_gaps == draft.input_gaps
+        and all(
+            _growth_range_matches(row.get("company_growth"), draft)
+            for row in selection.inputs.securities_context.values()
+        )
     )
 
 
@@ -66,6 +81,8 @@ def prepare_selected_workspace(
     indicators_path: Path,
     now: datetime,
     force: bool = False,
+    company_growth_mirror: Path = Path("stores"),
+    company_growth_periods: int | None = 12,
 ) -> SelectedResearchPreparation:
     if now.utcoffset() is None or draft.input_known_at > now:
         raise ResearchWorkspaceConflictError("input_known_at is after prepare time")
@@ -82,6 +99,7 @@ def prepare_selected_workspace(
             workspace=workspace,
             now=now,
             force=force,
+            company_growth_periods=company_growth_periods,
         )
     active = service.active()
     if active is not None:
@@ -90,7 +108,14 @@ def prepare_selected_workspace(
             raise ResearchWorkspaceConflictError(
                 f"different active Operation: {active.operation_id}"
             )
-        return _materialize(active, saved, workspace, status="resumed", force=force)
+        return _materialize(
+            active,
+            saved,
+            workspace,
+            status="resumed",
+            force=force,
+            company_growth_periods=company_growth_periods,
+        )
     try:
         validate_capacity(len(draft.targets), CURRENT_RESEARCH_CAPACITY)
     except ValueError as error:
@@ -125,6 +150,9 @@ def prepare_selected_workspace(
         market_path=sqlite_path,
         indicators_path=indicators_path,
         app_path=database_path(db_path),
+        company_growth_mirror=company_growth_mirror,
+        company_growth_start=draft.company_growth_start,
+        company_growth_end=draft.company_growth_end,
     )
     selection = ResearchSelection(
         request=draft.request,
@@ -151,11 +179,24 @@ def prepare_selected_workspace(
     committed = service.get(operation.operation_id)
     saved = selection_binding(committed.payload)
     assert saved is not None
-    return _materialize(committed, saved, workspace, status="prepared", force=force)
+    return _materialize(
+        committed,
+        saved,
+        workspace,
+        status="prepared",
+        force=force,
+        company_growth_periods=company_growth_periods,
+    )
 
 
 def resume_selected_workspace(
-    *, operation_id: str, db_path: Path | None, workspace: Path, now: datetime, force: bool = False
+    *,
+    operation_id: str,
+    db_path: Path | None,
+    workspace: Path,
+    now: datetime,
+    force: bool = False,
+    company_growth_periods: int | None = 12,
 ) -> SelectedResearchPreparation:
     operation = OperationService(db_path).get(operation_id)
     selection = selection_binding(operation.payload)
@@ -176,6 +217,7 @@ def resume_selected_workspace(
         workspace,
         status="already_completed" if operation.status == "completed" else "resumed",
         force=force,
+        company_growth_periods=company_growth_periods,
     )
 
 
@@ -186,9 +228,10 @@ def _materialize(
     *,
     status: Literal["prepared", "resumed", "already_completed"],
     force: bool,
+    company_growth_periods: int | None,
 ) -> SelectedResearchPreparation:
     digest = selection_sha256(selection)
-    projection = project_research_inputs(selection)
+    projection = project_research_inputs(selection, company_growth_periods=company_growth_periods)
     purpose = "holding" if selection.request.scope == "review_positions" else "fundamental_research"
     manifest = {
         "schema_version": 2,
@@ -197,6 +240,8 @@ def _materialize(
         "selection_sha256": digest,
         "purpose": purpose,
     }
+    if any("company_growth" in row for row in selection.inputs.securities_context.values()):
+        manifest["company_growth_periods"] = company_growth_periods
     try:
         workspace.mkdir(parents=True, exist_ok=True)
         inputs_path = workspace / "domain-inputs.yaml"

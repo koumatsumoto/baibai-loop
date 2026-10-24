@@ -10,12 +10,13 @@ from math import isfinite
 from pathlib import Path
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents
 from baibai_engine.market.price_basis import asof_basis_closes, asof_basis_prices
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.valuation.metrics.dividends import _dividend_basis_requires_resolution
-from baibai_engine.valuation.metrics.periods import _latest_consistent_actual, _period_days
+from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
 
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
@@ -682,7 +683,7 @@ def _load_fy_dividends(
                 fiscal_year_end=year,
                 disclosed_at=selected.disclosed_at,
                 dps_actual_annual=selected.dps_actual_annual
-                if selected.dps_actual_annual == 0 or _period_days(selected) is not None
+                if selected.dps_actual_annual == 0 or period_days(selected) is not None
                 else None,
                 period_start=selected.period_start,
             )

@@ -9,6 +9,7 @@ from math import isfinite
 from statistics import fmean
 
 from baibai_engine.market.financial_documents import statement_basis
+from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
@@ -21,7 +22,6 @@ from baibai_engine.valuation.metrics.models import TTMRules
 from baibai_engine.valuation.metrics.periods import (
     _carry_forward,
     _latest_summary,
-    _period_days,
     _ttm_value,
 )
 
@@ -105,7 +105,7 @@ def build_normalized_profit_signals(
         if row.fiscal_year_end is not None
         and row.eps_ttm is not None
         and row.period_end == row.fiscal_year_end
-        and (days := _period_days(row)) is not None
+        and (days := period_days(row)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
         and statement_basis(row) == latest_basis
     }

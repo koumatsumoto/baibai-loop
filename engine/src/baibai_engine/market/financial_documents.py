@@ -132,6 +132,15 @@ def disclosure_revision(row: JQuantsFinancialSummary) -> tuple[date, str]:
     return row.disclosed_at, row.disclosed_time or ""
 
 
+def certainly_disclosed_by(row: JQuantsFinancialSummary, cutoff: JQuantsFinancialSummary) -> bool:
+    """Earlier dates or ordered known same-day times; an unknown time proves no order."""
+    if row.disclosed_at != cutoff.disclosed_at:
+        return row.disclosed_at < cutoff.disclosed_at
+    return bool(
+        row.disclosed_time and cutoff.disclosed_time and row.disclosed_time <= cutoff.disclosed_time
+    )
+
+
 def latest_disclosure_candidates(
     rows: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
@@ -172,11 +181,7 @@ def _primary_source_basis(
         return statement_basis(row)
     previous = [s for s in statements if s.disclosed_at < row.disclosed_at]
     same_day = [s for s in statements if s.disclosed_at == row.disclosed_at]
-    certain = [
-        s
-        for s in same_day
-        if s.disclosed_time and row.disclosed_time and s.disclosed_time <= row.disclosed_time
-    ]
+    certain = [s for s in same_day if certainly_disclosed_by(s, row)]
     uncertain = [s for s in same_day if not s.disclosed_time or not row.disclosed_time]
     basis = _statement_basis_state([*previous, *certain])
     alternatives = {basis, *(statement_basis(s) for s in uncertain)}

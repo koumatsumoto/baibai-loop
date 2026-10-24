@@ -48,6 +48,18 @@ def _emit(payload: object, out: TextIO) -> None:
     yaml.safe_dump(payload, out, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
+def _growth_display_periods(value: str) -> int | None:
+    if value == "all":
+        return None
+    try:
+        count = int(value)
+        if count > 0:
+            return count
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError("use a positive period count or all")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine research")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -87,6 +99,13 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     prepare_parser.add_argument("--indicators-path", type=Path, default=INDICATORS_DB_PATH)
+    prepare_parser.add_argument("--company-growth-mirror", type=Path, default=Path("stores"))
+    prepare_parser.add_argument(
+        "--company-growth-periods",
+        type=_growth_display_periods,
+        default=12,
+        help="display latest N saved growth periods, or all; does not change saved inputs",
+    )
     prepare_parser.add_argument(
         "--force", action="store_true", help="repair generated projections; retain authored drafts"
     )
@@ -233,6 +252,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         sqlite_path=args.sqlite_path,
                         runs_path=args.runs_path,
                         indicators_path=args.indicators_path,
+                        company_growth_mirror=args.company_growth_mirror,
+                        company_growth_periods=args.company_growth_periods,
                         now=resolved_now,
                         force=args.force,
                     )
@@ -243,6 +264,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         workspace=args.workspace,
                         now=resolved_now,
                         force=args.force,
+                        company_growth_periods=args.company_growth_periods,
                     )
                 result = asdict(prepared)
                 result["workspace"] = str(prepared.workspace)
