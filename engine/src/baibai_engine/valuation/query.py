@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
+from baibai_engine.foundation.coerce import string_or_none as _text
+
 from .estimates import EXPECTED_RETURN_MODEL_VERSION
 
 CARRY_MISSING_ASSUMPTION = (
@@ -182,7 +184,3 @@ def _number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value) if isfinite(value) else None
-
-
-def _text(value: object) -> str | None:
-    return value if isinstance(value, str) else None

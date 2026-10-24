@@ -57,10 +57,6 @@ def _nonempty_string(value: object, *, label: str) -> str:
     return value
 
 
-def _string_or_none(value: object) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
 def _parse_date(value: str, *, label: str) -> date:
     try:
         return date.fromisoformat(value)

@@ -5,7 +5,6 @@ from contextlib import closing
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -150,19 +149,28 @@ def test_scaffold_export_cannot_replace_its_new_publication_identity(case, force
     assert not (workspace / "1234").exists()
 
 
-@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), True])
-def test_nonfinite_or_boolean_cached_price_does_not_create_draft(case, monkeypatch, invalid):
-    monkeypatch.setattr(
-        scaffold_module,
-        "read_unadjusted_close",
-        lambda **_kw: SimpleNamespace(
-            close_yen=invalid,
-            price_as_of=NOW.date(),
-        ),
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), 0.0, -1.0, "bad"])
+def test_invalid_stored_price_remains_unresolved_in_draft(case, invalid):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    db, workspace, _ = case
+    market = workspace / "market.sqlite"
+    seed_daily_bars(market, [("1234", NOW.date().isoformat(), 100.0, 1.0)])
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close = ?", (invalid,))
+    result = scaffold_assessment(
+        workspace=workspace,
+        ticker="1234",
+        sqlite_path=market,
+        as_of=NOW.date(),
+        retrieved_at=NOW,
+        db_path=db,
     )
-    with pytest.raises(ResearchWorkspaceDataError, match=r"finite|number"):
-        scaffold(case)
-    assert not (case[1] / "1234").exists()
+    draft = yaml.safe_load(Path(result["assessment_draft"]).read_text())
+    assert result["close_yen"] is None
+    assert draft["input_snapshot"]["facts"] == []
+    assert draft["valuation"]["market_price_fact_id"] is None
+    assert draft["valuation"]["status"] == "unresolved"
 
 
 @pytest.mark.parametrize(
@@ -505,7 +513,10 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
         lambda: scaffold_review(workspace=child, ticker="2331", db_path=db, force=True),
         lambda: promote(workspace=child, ticker="2331", db_path=db, now=sold_at),
     ):
-        with pytest.raises(ResearchWorkspaceConflictError, match="current holding"):
+        with pytest.raises(
+            ResearchWorkspaceConflictError,
+            match="completed research Operation" if completed else "current holding",
+        ):
             write()
     assert db.read_bytes() == saved_database
     assert {path: path.read_bytes() for path in saved_files} == saved_files

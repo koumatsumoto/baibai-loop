@@ -59,9 +59,7 @@ def promote(
     path confinement. Reusing an immutable ID with different content is rejected.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    gate = require_authoring_selection(
-        manifest, ticker=ticker, action="promote", db_path=db_path
-    )
+    gate = require_authoring_selection(manifest, ticker=ticker, action="promote", db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     # Every researched ticker earns a canonical assessment, not only the one being bought.
     # A cycle that buys nothing still produced the judgment that says why, and the
