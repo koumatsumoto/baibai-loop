@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -61,7 +62,10 @@ def _validate_editable_drafts(
     ):
         raise ResearchWorkspaceConflictError("invalid parent domain input reference")
     actual = _load_mapping(path, label="domain inputs")
-    if canonical_json(actual) != canonical_json(project_research_inputs(gate)):
+    periods = cast("int | None", manifest.get("company_growth_periods", 12))
+    if canonical_json(actual) != canonical_json(
+        project_research_inputs(gate, company_growth_periods=periods)
+    ):
         raise ResearchWorkspaceConflictError(
             "domain inputs differ from the Operation's fixed snapshot"
         )

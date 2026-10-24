@@ -14,6 +14,7 @@ from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.research.company_growth_projection import project_company_growth
 from baibai_engine.research.market_context.projection import assessment_projection
 from baibai_engine.research.market_context.query import latest_assessment
 from baibai_engine.research.selection import (
@@ -86,14 +87,21 @@ def collect_research_inputs(
     )
 
 
-def project_research_inputs(selection: ResearchSelection) -> dict[str, JsonValue]:
+def project_research_inputs(
+    selection: ResearchSelection, *, company_growth_periods: int | None = 12
+) -> dict[str, JsonValue]:
     snapshot = selection.inputs.analysis
     securities: dict[str, object] = {}
     for target in selection.targets:
         ticker = target.ticker
         analysis = snapshot.analyses.get(ticker)
+        context = dict(selection.inputs.securities_context[ticker])
+        if "company_growth" in context:
+            context["company_growth"] = project_company_growth(
+                context["company_growth"], ticker=ticker, periods=company_growth_periods
+            )
         securities[ticker] = {
-            **selection.inputs.securities_context[ticker],
+            **context,
             "machine_valuation": None
             if analysis is None
             else {

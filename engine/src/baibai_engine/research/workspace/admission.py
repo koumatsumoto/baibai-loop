@@ -32,6 +32,11 @@ def workspace_selection(
     }
     if manifest.get("holding_ticker") is not None:
         expected_keys |= {"holding_ticker", "domain_inputs_ref"}
+    if "company_growth_periods" in manifest:
+        expected_keys.add("company_growth_periods")
+        periods = manifest["company_growth_periods"]
+        if periods is not None and (type(periods) is not int or periods < 1):
+            raise ResearchWorkspaceConflictError("invalid company growth display periods")
     if set(manifest) != expected_keys:
         raise ResearchWorkspaceConflictError("workspace manifest fields differ from V2")
     if manifest.get("schema_version") != 2:

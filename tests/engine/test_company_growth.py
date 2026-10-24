@@ -1,5 +1,6 @@
 """r6の有限反例と、公開読取からResearchの固定保存・再開まで。実providerを使わない。"""
 
+import json
 import socket
 import sqlite3
 from contextlib import closing
@@ -415,7 +416,11 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
         "baibai_engine.research.inputs.company_growth",
         lambda *_a, **_kw: pytest.fail("growth recomputed"),
     )
-    assert project_research_inputs(saved)["securities"]["1234"]["company_growth"] == expected
+    projected = project_research_inputs(saved)["securities"]["1234"]["company_growth"]
+    assert projected["input_release"] == expected["input_release"]
+    assert projected["reported"]["rows"][0]["values"][:3] == [200, 30, 25]
+    assert projected["reported_yoy"]["rows"][0][5:8] == [100, 100, 1]
+    assert saved.inputs.securities_context["1234"]["company_growth"] == expected
     assert selection_sha256(saved) != selection_sha256(selected)
     legacy = saved.model_dump(mode="json")
     del legacy["inputs"]["securities_context"]["1234"]["company_growth"]
@@ -513,6 +518,96 @@ def test_legacy_selection_hash_keeps_its_original_serialized_inputs():
     assert restored.model_dump(mode="json") == old
     assert selection_sha256(restored) == expected
     assert "company_growth" not in restored.inputs.securities_context["1234"]
+    assert "company_growth" not in project_research_inputs(restored)["securities"]["1234"]
+
+
+@pytest.mark.parametrize("start", [None, date(2021, 6, 30)])
+def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged(
+    tmp_path, monkeypatch, capsys, start
+):
+    from baibai_engine.research.workspace import compute_status
+    from baibai_engine.research.workspace_cli import main
+
+    records = [
+        document(year, quarter, quarter * 100, quarter * 20, quarter * 10)
+        for year in range(2020, 2025)
+        for quarter in range(1, 5)
+    ]
+    path = market_store(tmp_path, records)
+    draft = draft_for(selection(now=NOW, tickers=("1234",))).model_copy(
+        update={"company_growth_start": start, "company_growth_end": date(2025, 3, 31)}
+    )
+    arguments = dict(
+        draft=draft,
+        db_path=tmp_path / "application.sqlite",
+        workspace=tmp_path / "workspace",
+        sqlite_path=path,
+        runs_path=tmp_path / "runs",
+        indicators_path=tmp_path / "absent-indicators",
+        company_growth_mirror=tmp_path / "mirror",
+        now=NOW,
+    )
+    prepared = prepare_selected_workspace(**arguments)
+    service = OperationService(arguments["db_path"])
+    saved = selection_binding(service.get(prepared.operation_id).payload)
+    original = saved.model_dump(mode="json")
+    digest = selection_sha256(saved)
+    growth = saved.inputs.securities_context["1234"]["company_growth"]
+    assert len(growth["periods"]) == (20 if start is None else 16)
+    output = arguments["workspace"] / "domain-inputs.yaml"
+
+    def displayed():
+        return yaml.safe_load(output.read_text())["securities"]["1234"]["company_growth"]
+
+    compact = displayed()
+    assert compact["saved_scope"]["requested_start"] == (start.isoformat() if start else None)
+    assert compact["saved_scope"]["requested_end"] == "2025-03-31"
+    assert compact["display_scope"]["period_count"] == 12
+    assert len(compact["reported"]["rows"]) == 12
+    assert compact["reported"]["rows"][0]["values"][:3] == [100, 20, 10]
+    assert compact["reported"]["rows"][0]["missing"]["reported_basic_eps"] == "not_observed"
+    assert compact["documents"]["d1"]["disclosure_number"] == "synthetic-2022-1"
+    # These must be the already saved calculations, including prior operands outside the display.
+    columns = compact["reported_yoy"]["columns"]
+    first = dict(zip(columns, compact["reported_yoy"]["rows"][0], strict=True))
+    assert first["from_end"] == "2021-06-30"
+    assert first["from_value"] == 100
+    assert first["rate"] == 0
+    assert "periods" not in compact
+    assert compact["full_result_ref"] == "/inputs/securities_context/1234/company_growth"
+
+    monkeypatch.setattr(
+        "baibai_engine.research.workspace.selected_prepare.collect_research_inputs",
+        lambda **_kw: pytest.fail("inputs recollected"),
+    )
+    authored = arguments["workspace"] / "assessment-draft.yaml"
+    authored.write_text("authored draft retained")
+    resumed = prepare_selected_workspace(**arguments, company_growth_periods=16, force=True)
+    assert resumed.selection_sha256 == digest
+    assert displayed()["display_scope"]["period_count"] == 16
+    assert main(
+        [
+            "prepare",
+            "--operation-id",
+            prepared.operation_id,
+            "--db",
+            str(arguments["db_path"]),
+            "--workspace",
+            str(arguments["workspace"]),
+            "--company-growth-periods",
+            "all",
+            "--force",
+        ],
+        now=NOW,
+    ) == 0
+    capsys.readouterr()
+    assert displayed()["display_scope"]["period_count"] == len(growth["periods"])
+    assert displayed()["display_scope"]["latest_period_limit"] is None
+    assert compute_status(arguments["workspace"], db_path=arguments["db_path"], now=NOW)
+    assert authored.read_text() == "authored draft retained"
+    restored = selection_binding(service.get(prepared.operation_id).payload)
+    assert restored.model_dump(mode="json") == original
+    assert selection_sha256(restored) == digest
 
 
 def test_old_other_dataset_watermark_cannot_hide_a_retained_financial_correction(tmp_path):
@@ -797,3 +892,23 @@ def test_private_acceptance_uses_only_financial_master_and_never_overwrites_resu
             tickers=("1234",),
         )
     assert store.values[key].body == private
+    store.get_keys.clear()
+    projected = execute(
+        store,
+        tmp_path / "projection-runner",
+        run_id="101",
+        attempt="1",
+        head_sha="b" * 40,
+        saved_result_key=key,
+    )
+    new_key = projected["private_result_key"]
+    assert set(store.get_keys) == {key, new_key}
+    assert (
+        projected["samples"][0]["l3_projection_json_bytes"]
+        < summary["samples"][0]["history_json_bytes"]
+    )
+    assert "sales" not in projected["samples"][0]
+    assert store.values[key].body == private
+    result = json.loads(store.values[new_key].body)
+    assert result["l3_projections"]["1234"]["display_scope"]["period_count"] == 12
+    assert result["saved_result_key"] == key

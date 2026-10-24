@@ -17,6 +17,7 @@ from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError, Ob
 from baibai_engine.company_growth.models import CompanyGrowth, InputRelease
 from baibai_engine.company_growth.query import company_growth
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.research.company_growth_projection import project_company_growth
 from baibai_engine.storage.lake.datasets import JQUANTS_FIN_SUMMARIES, JQUANTS_MASTER_SNAPSHOTS
 from baibai_engine.storage.lake.objects import LakeObjectCache
 from baibai_engine.storage.lake.reader import (
@@ -77,11 +78,59 @@ def execute(
     attempt: str,
     head_sha: str,
     tickers: tuple[str, ...] = _TICKERS,
+    saved_result_key: str | None = None,
 ) -> dict[str, object]:
     key = result_key(run_id, attempt, head_sha)
     if directory.exists():
         raise FileExistsError("acceptance workspace already exists")
     directory.mkdir(parents=True, mode=0o700)
+    if saved_result_key:
+        if not re.fullmatch(
+            r"validation/company-growth/pr-1592/[0-9]+-[1-9][0-9]*/[0-9a-f]{40}/report\.json",
+            saved_result_key,
+        ):
+            raise ValueError("expected an existing private company growth validation result")
+        saved_report = json.loads(store.get_bytes(saved_result_key))
+        adopted = InputRelease.model_validate(saved_report["input_release"])
+        projections: dict[str, object] = {}
+        rows: list[dict[str, object]] = []
+        for ticker, payload in saved_report["retained_histories"].items():
+            history = CompanyGrowth.model_validate(payload)
+            if history.input_release != adopted:
+                raise ValueError("saved history differs from its fixed release")
+            started = perf_counter()
+            projection = project_company_growth(payload, ticker=ticker)
+            elapsed = perf_counter() - started
+            projections[ticker] = projection
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "retained_period_count": len(history.periods),
+                    "history_json_bytes": len(canonical_json(payload).encode()),
+                    "l3_projection_json_bytes": len(canonical_json(projection).encode()),
+                    "projection_seconds": elapsed,
+                }
+            )
+        public = {
+            "status": "measured",
+            "head_sha": head_sha,
+            "sample_count": len(rows),
+            "samples": rows,
+            "saved_result_key": saved_result_key,
+            "private_result_key": key,
+            "l3_value_review": "pending",
+        }
+        return _save_private_result(
+            store,
+            directory,
+            public,
+            {
+                "summary": public,
+                "input_release": adopted.model_dump(mode="json"),
+                "saved_result_key": saved_result_key,
+                "l3_projections": projections,
+            },
+        )
     mirror = directory / "mirror"
     cache = LakeObjectCache(root=mirror, source=_StoreSource(store))
     started = perf_counter()
@@ -167,6 +216,13 @@ def execute(
         "sample_report": sample_report,
         "retained_histories": {t: h.model_dump(mode="json") for t, h in histories.items()},
     }
+    return _save_private_result(store, directory, public, private)
+
+
+def _save_private_result(
+    store: ObjectStore, directory: Path, public: dict[str, object], private: dict[str, object]
+) -> dict[str, object]:
+    key = str(public["private_result_key"])
     payload = canonical_json(private).encode()
     report = directory / "report.json"
     report.write_bytes(payload)
@@ -195,6 +251,7 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--attempt", required=True)
     parser.add_argument("--head-sha", required=True)
+    parser.add_argument("--saved-result-key", default="")
     args = parser.parse_args()
     try:
         summary = execute(
@@ -203,6 +260,7 @@ def main() -> int:
             run_id=args.run_id,
             attempt=args.attempt,
             head_sha=args.head_sha,
+            saved_result_key=args.saved_result_key or None,
         )
     except Exception as error:
         # Public Actions logs must not receive native records, numeric facts or endpoints.

@@ -31,6 +31,8 @@ uv run baibai-engine research prepare \
 
 Operationが対象・問い・唯一の入力snapshotを保持し、`domain-inputs.yaml`はその読取投影となる。新しい資料は評価のsourcesへ加え、開始入力へ挿入しない。固定は全入力のintraday PIT再現を保証しない。観測日、公表/受領cutoff、Readingのread_semantics、正式評価日を区別する。
 
+企業成長の通常投影は保存済み結果の直近12会計期をFY/累計の薄い表と既存YoYで示す。保存結果とdraftの要求範囲は削らない。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げる。既存workspaceの切替は `--force` を付け、`full_result_ref` の完全結果は同じOperationの保存Selectionから読む。四半期単独・TTM・BS/CFは完全結果に残り、FY/累計を単独四半期と読まない。
+
 ## 評価と独立Review
 
 1. `research assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。
