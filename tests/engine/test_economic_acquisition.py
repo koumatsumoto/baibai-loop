@@ -264,14 +264,19 @@ def test_pmi_refusal_stops_this_route_without_changing_other_provider_fallbacks(
 
 def test_pmi_missing_middle_manifest_month_is_not_complete_coverage(tmp_path, monkeypatch):
     from baibai_engine.collection.economic.providers import spglobal_pmi as pmi
+
     source_id = "spglobal-jp-pmi-mfg"
     months = (date(2026, 7, 1), date(2026, 9, 1))
-    monkeypatch.setattr(pmi, "load_manifest", lambda _: {"jp_manufacturing": tuple(
-        pmi.Release(day, day, f"https://example.com/{day}.pdf") for day in months
-    )})
+    releases = (
+        pmi.Release(months[0], months[0], "https://example.com/first.pdf"),
+        pmi.Release(months[1], months[1], "https://example.com/last.pdf"),
+    )
+    monkeypatch.setattr(pmi, "load_manifest", lambda _: {"jp_manufacturing": releases})
     monkeypatch.setattr(pmi, "fetch_pdf_bytes", lambda *a, **k: b"%PDF original")
     path = tmp_path / "source.sqlite"
-    outcome = acquisition.refresh_sources([source_id], db_path=path, start=months[0], end=date(2026, 10, 23))[0]
+    outcome = acquisition.refresh_sources(
+        [source_id], db_path=path, start=months[0], end=date(2026, 10, 23)
+    )[0]
     assert isinstance(outcome, acquisition.SourceRefreshFailure)
     assert "2026-08-01" in outcome.message
     with closing(store.open_read_only_connection(path)) as conn:
