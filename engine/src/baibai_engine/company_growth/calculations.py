@@ -150,7 +150,7 @@ def _derived(
 ) -> tuple[date, dict[Metric, Value]]:
     anchor = current[0]
     assert anchor.period_start is not None
-        assert anchor.period_end is not None
+    assert anchor.period_end is not None
     start = (
         add_months_clamped(anchor.period_end, -12) + timedelta(days=1)
         if ttm

@@ -24,9 +24,7 @@ from baibai_engine.valuation.metrics.models import (
     UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
     UNRESOLVED_DIVIDEND_BASIS,
 )
-from baibai_engine.valuation.metrics.periods import (
-    _accounting_observation_key,
-)
+from baibai_engine.valuation.metrics.periods import _accounting_observation_key
 
 # 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
 # 特別配当か未実現の還元転換かを機械入力から区別できない。実績が正なら既存の実績経路へ
