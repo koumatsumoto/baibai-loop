@@ -14,6 +14,7 @@ from baibai_engine.machine_analysis.technical_analysis.calculations import (
     simple_moving_average,
 )
 from baibai_engine.machine_analysis.technical_analysis.cli import main
+from baibai_engine.machine_analysis.technical_analysis.generation import generate_technical_analysis
 from baibai_engine.market.price_models import PriceBar
 from baibai_engine.read_api.technical_analysis import technical_analysis
 from baibai_engine.storage.observations.schema import open_connection
@@ -119,6 +120,20 @@ def test_missing_store_returns_missing_indicators_without_creating_a_store(tmp_p
     assert result["bollinger_20bar"]["status"] == "insufficient_history"
     assert result["rsi_14bar"]["status"] == "insufficient_history"
     assert not path.exists()
+
+
+def test_shared_price_generation_uses_the_same_calculations_at_the_fixed_date():
+    bars = observed(list(range(100, 140)))
+    result = generate_technical_analysis(
+        [PriceBar(ASOF + timedelta(days=1), 999.0, None), *reversed(bars)],
+        ticker="1234",
+        as_of=ASOF,
+    )
+    assert result["bar_count"] == 40
+    assert result["history_end_date"] == ASOF.isoformat()
+    assert result["rsi_14bar"] == rsi_14bar(bars)
+    assert result["bollinger_20bar"] == bollinger_20bar(bars)
+    assert result["moving_averages"]["sma_20bar"] == simple_moving_average(bars, window_bars=20)
 
 
 def test_sma_requires_its_own_window_and_reports_price_distance():

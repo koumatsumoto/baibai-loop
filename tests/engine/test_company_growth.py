@@ -751,6 +751,36 @@ def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
     assert amount(published.periods[0], "reported", "sales").value == 900
 
 
+def test_shared_population_and_individual_generation_use_the_same_fixed_documents(tmp_path):
+    from baibai_engine.machine_analysis.company_growth.generation import generate_company_growth
+    from baibai_engine.machine_analysis.company_growth.models import InputRelease
+    from baibai_engine.market.fixed_financial_reader import read_fixed_financial_population
+
+    path = market_store(
+        tmp_path,
+        [document(2024, 1, 100), document(2024, 1, 200, Code="56780", DiscNo="second-company")],
+    )
+    origin = read_lake_store_origin(path)
+    population = read_fixed_financial_population(
+        path.parent / "mirror", origin=origin, as_of=NOW.date()
+    )
+    assert set(population) == {"1234", "5678"}
+    release = InputRelease(
+        release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
+    )
+    for ticker, fixed in population.items():
+        shared = generate_company_growth(
+            fixed.documents,
+            ticker=ticker,
+            sector=fixed.sector,
+            as_of=NOW.date(),
+            input_release=release,
+        )
+        assert shared == company_growth(path, ticker=ticker, as_of=NOW.date())
+    assert population["1234"].documents[0].sales == 100
+    assert population["5678"].documents[0].sales == 200
+
+
 def test_missing_fixed_release_objects_are_local_unavailability(tmp_path):
     path = market_store(tmp_path, [document(2024, 1, 100)])
     result = public_company_growth(

@@ -9,11 +9,9 @@ from baibai_engine.market.price_models import PriceBar
 def calendar():
     # Calendar positions, not elapsed days, define the observation period.
     start = date(2025, 1, 1)
-    return [
-        day
-        for offset in range(400)
-        if (day := start + timedelta(days=offset)).weekday() < 5
-    ][:253]
+    return [day for offset in range(400) if (day := start + timedelta(days=offset)).weekday() < 5][
+        :253
+    ]
 
 
 def test_momentum_uses_shared_calendar_endpoints_not_company_observation_indices():

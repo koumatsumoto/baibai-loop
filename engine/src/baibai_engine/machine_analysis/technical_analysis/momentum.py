@@ -30,7 +30,7 @@ def price_momentum_12_1(
     配当込みリターンではない。途中の終値欠測だけでは端点比較を無効にしない。
     調整係数の検証と原本の選択は呼出元が担い、ここでは再取得や補完をしない。
     """
-    dates = sorted(set(day for day in trading_dates if day <= as_of))
+    dates = sorted({day for day in trading_dates if day <= as_of})
     reference = dates[-1] if dates else None
     if len(dates) < 253:
         return PriceMomentum("insufficient_calendar", reference, None, None, None, None, None)

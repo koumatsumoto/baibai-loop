@@ -9,7 +9,11 @@ from math import isfinite
 
 from baibai_engine.market.financial_documents import project_financial_documents, statement_basis
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar, PriceBar
+from baibai_engine.market.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    PriceBar,
+)
 
 from .metrics.capital import _normalize_summaries_with_status, _resolve_capital_basis
 from .metrics.models import TTMRules

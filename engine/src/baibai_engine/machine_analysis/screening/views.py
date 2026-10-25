@@ -77,10 +77,9 @@ def select_views(
         earnings.append((row.ticker, value))
         momentum = row.price_momentum
         if momentum is not None:
-            score = (
-                policy.earnings_weight * value / (policy.earnings_scale + abs(value))
-                + policy.momentum_weight * momentum / (policy.momentum_scale + abs(momentum))
-            )
+            score = policy.earnings_weight * value / (
+                policy.earnings_scale + abs(value)
+            ) + policy.momentum_weight * momentum / (policy.momentum_scale + abs(momentum))
             combined.append((row.ticker, score))
     return ViewSelection(
         policy=policy,
