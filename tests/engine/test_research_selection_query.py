@@ -83,7 +83,7 @@ def test_timezone_equivalent_cutoffs_use_same_jst_research_date(tmp_path):
 def test_unknown_explicit_source_does_not_fall_back_to_latest(tmp_path, source):
     path = tmp_path / "runs"
     selected = seed_generated_selection(runs=path, now=NOW)
-    with pytest.raises(ValueError, match="differs|unknown|unavailable"):
+    with pytest.raises(ValueError, match=r"differs|unknown|unavailable"):
         load_generated_selection_context(
             request=ResearchRequest(
                 text="request", scope="specified_stocks", requested_tickers=("1234",)

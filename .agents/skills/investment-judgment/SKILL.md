@@ -41,7 +41,7 @@ uv run baibai-engine investment-judgment selection-context \
 ```bash
 uv run baibai-engine investment-judgment prepare \
   --selection-file <SELECTION_JSON> --db stores/application/baibai.sqlite \
-  --workspace .cache/research/<ASOF> --sqlite-path stores/market/market.sqlite
+  --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
 Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料は評価のsourcesへ加え、開始入力へ挿入しない。時点の制約は[入力の意味](../../../docs/reference/data-sources.md)と[Reading](../../../docs/reference/market-context.md#reading)に従う。

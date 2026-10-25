@@ -730,7 +730,7 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
 def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
     tmp_path, holding_case, monkeypatch, capsys
 ):
-    db, market, _ = holding_case
+    db, _market, _ = holding_case
     value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("2331",))
     monkeypatch.setattr(
         selected_prepare,

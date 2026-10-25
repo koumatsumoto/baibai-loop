@@ -584,7 +584,7 @@ def test_domain_inputs_preserve_gaps_and_null_and_do_not_write_or_use_network(
 
 
 def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypatch):
-    db, market = case
+    _db, market = case
     insert_daily_bars_from_closes(market, "1234", [100] * 19 + [120], end_date=NOW.date())
     selected = make_selection(now=NOW, tickers=("1234",))
     from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
