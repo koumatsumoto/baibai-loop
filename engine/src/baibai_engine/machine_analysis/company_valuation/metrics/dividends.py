@@ -1,4 +1,4 @@
-"""配当・自己株取得と株主還元を、予想と実績のbasisで計算する。"""
+"""配当・株式数変化を、予想と実績のbasisで計算する。"""
 
 from __future__ import annotations
 

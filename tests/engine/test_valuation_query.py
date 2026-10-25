@@ -17,7 +17,6 @@ from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, I
 from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
 from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 from baibai_engine.machine_analysis.company_valuation.query import (
-    anchor_gap_pct,
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
     forecast_sources_from_analysis,
@@ -493,7 +492,6 @@ def test_saved_non_candidate_uses_latest_run_before_cutoff(tmp_path):
     valuation = machine_valuation_from_analysis(result.stock_analyses[0])
     assert valuation.sector_median_anchor_yen == 1600
     assert valuation.er_annual == 0.075
-    assert anchor_gap_pct(valuation) == 60
     assert reader.valuation_run(as_of=date(2026, 9, 17)) is None
 
 
@@ -520,7 +518,6 @@ def test_missing_scope_coordinates_and_broken_store_remain_distinct(tmp_path):
     valuation = machine_valuation_from_analysis(result.stock_analyses[0])
     assert valuation.sector_median_anchor_yen is None
     assert valuation.er_annual == 0.075
-    assert anchor_gap_pct(valuation) is None
     for raw in ({}, {"metrics": {}}, {"metrics": None}):
         assert machine_valuation_from_analysis(raw).sector_median_anchor_yen is None
     connection = sqlite3.connect(path)

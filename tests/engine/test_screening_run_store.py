@@ -465,3 +465,27 @@ def test_reader_rejects_inconsistent_candidate_union(tmp_path: Path, mutation: s
     message = "ranks must be contiguous" if mutation == "rank" else "diagnostics differ"
     with pytest.raises(ValueError, match=message):
         ScreeningRunReader(path).get_run("run-a")
+
+
+def test_retired_annotations_remain_exact_in_saved_historical_export(tmp_path):
+    path = tmp_path / "runs.sqlite"
+    row = {
+        **_analysis("1111"),
+        "next_earnings_date": "2026-10-20",
+        "freshness_warnings": [{"original": "retained claim, not recomputed"}],
+    }
+    row["metrics"] = {
+        **row["metrics"],
+        "next_earnings_status": "announced",
+        "next_earnings_estimated_date": None,
+        "stale_fin_flag": False,
+        "tse_capital_policy_status": "disclosed",
+    }
+    identity = _publish(path, _run(rows=[row]))
+    saved = ScreeningRunReader(path).get_run(identity)
+    assert saved is not None
+    exported = published_run_payload(saved)["stock_analyses"][0]
+    assert exported["next_earnings_date"] == row["next_earnings_date"]
+    assert exported["freshness_warnings"] == row["freshness_warnings"]
+    assert exported["metrics"] == row["metrics"]
+    assert yaml.safe_load(serialize_published_run_yaml(saved))["stock_analyses"][0] == exported

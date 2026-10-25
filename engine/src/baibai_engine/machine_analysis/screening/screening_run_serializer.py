@@ -10,7 +10,7 @@ import yaml
 
 from baibai_engine.market.metric_quality import TTMQuality
 
-from .schema import FreshnessWarning, MetricValueMap, StockAnalysis
+from .schema import MetricValueMap, StockAnalysis
 
 _DECIMAL_PLACES = {
     "per_forward": 2,
@@ -103,14 +103,6 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
     entry["price_history_sessions_750d"] = analysis.price_history_sessions_750d
     entry["price_history_coverage_750d"] = _round_ratio(analysis.price_history_coverage_750d)
     entry["metrics"] = _round_metrics(analysis.metrics)
-    entry["next_earnings_date"] = (
-        QuotedString(analysis.next_earnings_date.isoformat())
-        if analysis.next_earnings_date is not None
-        else None
-    )
-    entry["freshness_warnings"] = [
-        _build_freshness_warning(warning) for warning in analysis.freshness_warnings
-    ]
     entry["ttm_quality"] = {
         "ev_ebitda": analysis.ttm_quality["ev_ebitda"].value
         if "ev_ebitda" in analysis.ttm_quality
@@ -129,24 +121,6 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
         analysis.candidate.model_dump(mode="json") if analysis.candidate is not None else None
     )
     return entry
-
-
-def _build_freshness_warning(warning: FreshnessWarning) -> dict[str, object]:
-    return {
-        "source_family": QuotedString(warning.source_family),
-        "stale_metric": QuotedString(warning.stale_metric),
-        "reason": QuotedString(warning.reason),
-        "event_date": QuotedString(warning.event_date.isoformat()),
-        "event_kind": QuotedString(warning.event_kind),
-        "event_title": QuotedString(warning.event_title),
-        "event_source": QuotedString(warning.event_source),
-        "event_url": QuotedString(warning.event_url) if warning.event_url is not None else None,
-        "edinet_source_submit_datetime": (
-            QuotedString(warning.edinet_source_submit_datetime)
-            if warning.edinet_source_submit_datetime is not None
-            else None
-        ),
-    }
 
 
 def _round_ratio(value: float | None) -> float | None:

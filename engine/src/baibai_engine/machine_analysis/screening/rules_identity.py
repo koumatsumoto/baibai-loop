@@ -1,9 +1,4 @@
-"""Semantic identity shared by production screening producers and validators.
-
-This module stays outside ``calibration.identity`` because calibration panels import
-that lower-level hash primitive. Production-only helpers cannot change historical
-panel rows and therefore must not force a full calibration rebuild.
-"""
+"""旧runと較正文脈の意味identity。新しい五モデル・候補政策のidentityではない。"""
 
 from __future__ import annotations
 
@@ -14,7 +9,7 @@ from .universe import UNIVERSE_SCOPE_REVISION
 def production_rules_contract_hash(
     rules_json: str, *, universe_scope_revision: str = UNIVERSE_SCOPE_REVISION
 ) -> str:
-    """Return the exact screening identity used by production runs and candidate contexts."""
+    """Keep the historical production-variant identity used by calibration contexts."""
 
     from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import (
         VALUATION_CALCULATION_REVISION,

@@ -121,21 +121,6 @@ class DerivedMetrics:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class FreshnessWarning:
-    """Retained warning claims in saved Stock Analyses, not a current title scanner."""
-
-    source_family: NonEmptyString
-    stale_metric: NonEmptyString
-    reason: NonEmptyString
-    event_date: date
-    event_kind: NonEmptyString
-    event_title: NonEmptyString
-    event_source: NonEmptyString
-    edinet_source_submit_datetime: str | None = None
-    event_url: str | None = None
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class StockAnalysis:
     ticker: Ticker
     name: NonEmptyString
@@ -161,11 +146,9 @@ class StockAnalysis:
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
     metrics: MetricValueMap = Field(default_factory=dict)
-    next_earnings_date: date | None = None
-    freshness_warnings: tuple[FreshnessWarning, ...] = ()
     candidate: StockCandidateContext | None = None
 
-    @field_validator("freshness_warnings", "jpx_flags", mode="before")
+    @field_validator("jpx_flags", mode="before")
     @classmethod
     def _tuple_sequence(cls, value: Sequence[Any]) -> tuple[Any, ...]:
         return tuple(value)

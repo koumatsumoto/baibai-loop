@@ -22,9 +22,6 @@ from baibai_engine.machine_analysis.screening.schema import (
     UniverseSnapshot,
 )
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
-
-from .earnings_lag import EarningsLag
 
 
 def build_stock_analysis(
@@ -34,10 +31,7 @@ def build_stock_analysis(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
     universe_snapshot: UniverseSnapshot,
-    next_earnings_date: date | None = None,
-    earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
-    valuation_catalyst_context: ValuationCatalystContext | None = None,
 ) -> StockAnalysis:
     return StockAnalysis(
         ticker=ticker,
@@ -81,10 +75,7 @@ def build_stock_analysis(
             derived=derived,
             estimate=estimate_expected_return(expected_return_inputs(financial, derived)),
             normalized_per_3fy=normalized_per_3fy,
-            earnings_lag=earnings_lag,
-            valuation_catalyst_context=valuation_catalyst_context,
         ),
-        next_earnings_date=next_earnings_date,
     )
 
 
@@ -94,8 +85,6 @@ def build_stock_analysis_metrics(
     derived: DerivedMetrics,
     estimate: ExpectedReturnEstimate | None = None,
     normalized_per_3fy: float | None = None,
-    earnings_lag: EarningsLag | None = None,
-    valuation_catalyst_context: ValuationCatalystContext | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         # Approach-native relative valuation coordinates. These are L2 derived
@@ -179,15 +168,7 @@ def build_stock_analysis_metrics(
         # 3 FY平均EPSに対する現在株価の倍率。正常利益や安全性の判定ではなく、
         # Normalized Earnings Powerのeligibility/orderと利益cycle比較に使い、FV/E[r]には入れない。
         "normalized_per_3fy": normalized_per_3fy,
-        # 決算開示と as-of 財務のラグ (earnings_lag.py)。annotation であり ranking・
-        # gate・E[r] へ入らない。fin_latest_disclosed_date は本行の財務が含む最後の
-        # 開示。stale_fin_flag は予定日から離れた古い財務行を示し、発表確認ではない。
         "fin_latest_disclosed_date": _date_iso(financial.latest_financial_disclosure_date),
-        "next_earnings_estimated_date": (
-            None if earnings_lag is None else _date_iso(earnings_lag.next_earnings_estimated_date)
-        ),
-        "next_earnings_status": None if earnings_lag is None else earnings_lag.next_earnings_status,
-        "stale_fin_flag": None if earnings_lag is None else earnings_lag.stale_fin_flag,
         # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は valuation/estimates.py。
         "er_annual": estimate.er_annual if estimate else None,
         "er_reversion_annual": estimate.reversion_annual if estimate else None,
@@ -201,41 +182,6 @@ def build_stock_analysis_metrics(
         "er_model_version": estimate.model_version if estimate else None,
         "er_unit": estimate.unit if estimate else None,
         "er_assumptions": estimate.assumptions if estimate else None,
-        # 資本配分・支配権イベントの typed fact (valuation_catalysts.py)。TSE の開示状況は
-        # 月次スナップショットの point-in-time 参照で、"none" は「その月の一覧に居ない」、
-        # None は「参照できる月次スナップショットが無い」。イベントは対象会社側から見た
-        # 直近 6 か月の提出有無で、None は観測窓が埋まっていない状態、False は窓を観測して
-        # 提出が無かった状態。いずれも annotation であり ranking・gate・E[r] へは入らない。
-        "tse_capital_policy_status": (
-            None
-            if valuation_catalyst_context is None
-            else valuation_catalyst_context.tse_capital_policy_status
-        ),
-        "tse_capital_policy_updated_on": (
-            None
-            if valuation_catalyst_context is None
-            else _date_iso(valuation_catalyst_context.tse_capital_policy_updated_on)
-        ),
-        "large_holding_event_recent": (
-            None
-            if valuation_catalyst_context is None
-            else valuation_catalyst_context.large_holding_filing_within_lookback
-        ),
-        "large_holding_event_latest_on": (
-            None
-            if valuation_catalyst_context is None
-            else _date_iso(valuation_catalyst_context.latest_large_holding_filing_date)
-        ),
-        "tender_offer_event_recent": (
-            None
-            if valuation_catalyst_context is None
-            else valuation_catalyst_context.tender_offer_filing_within_lookback
-        ),
-        "tender_offer_event_latest_on": (
-            None
-            if valuation_catalyst_context is None
-            else _date_iso(valuation_catalyst_context.latest_tender_offer_filing_date)
-        ),
     }
 
 
