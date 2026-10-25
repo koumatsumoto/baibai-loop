@@ -5,11 +5,9 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from datetime import date
-from itertools import pairwise
 from pathlib import Path
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
-from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.fixed_financial_reader import read_fixed_financial_documents
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.lake.objects import LakeObjectError
@@ -20,8 +18,8 @@ from baibai_engine.storage.observations.lake_origin import (
 from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
-from .calculations import build_changes, build_period_states
-from .models import CompanyGrowth, Coverage, InputRelease
+from .generation import generate_company_growth
+from .models import CompanyGrowth, InputRelease
 
 
 def company_growth(
@@ -66,32 +64,14 @@ def company_growth(
         fixed = read_fixed_financial_documents(mirror, origin=origin, ticker=ticker, as_of=as_of)
     except (LakeReadError, LakeObjectError, JQuantsProviderError, OSError):
         return result.model_copy(update={"reason": "fixed_release_inputs_unavailable"})
-    documents = fixed.documents
-    states = build_period_states(documents, sector=fixed.sector)
-    changes = build_changes(states)
-    observed = tuple(sorted({state.period_end for state in states}))
-    displayed = tuple(
-        s for s in states if (start is None or start <= s.period_end) and s.period_end <= end
-    )
-    return result.model_copy(
-        update={
-            "status": "available" if displayed else "unavailable",
-            "reason": None if displayed else "accounting_period_not_observed",
-            "input_release": InputRelease(
-                release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
-            ),
-            "periods": displayed,
-            "changes": tuple(
-                c for c in changes if (start is None or start <= c.to_end) and c.to_end <= end
-            ),
-            "coverage": Coverage(
-                observed_start=observed[0] if observed else None,
-                observed_end=observed[-1] if observed else None,
-                observed_period_ends=observed,
-                gaps_between_observations=tuple(
-                    (a, b) for a, b in pairwise(observed) if (b - a).days > 110
-                ),
-                excluded_document_count=sum(period_days(row) is None for row in documents),
-            ),
-        }
+    return generate_company_growth(
+        fixed.documents,
+        ticker=ticker,
+        sector=fixed.sector,
+        as_of=as_of,
+        input_release=InputRelease(
+            release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
+        ),
+        start=start,
+        end=end,
     )
