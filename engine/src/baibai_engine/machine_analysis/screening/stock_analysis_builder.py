@@ -1,8 +1,4 @@
-"""Build the Stock Analysis used by production runs and calibration replay.
-
-Both paths must assemble the same Stock Analysis; otherwise calibration would
-measure a different Candidate Discovery input from the production Screening Run.
-"""
+"""旧run契約のStock Analysisを較正replayへ組み立てる。新候補の生成には使わない。"""
 
 from __future__ import annotations
 

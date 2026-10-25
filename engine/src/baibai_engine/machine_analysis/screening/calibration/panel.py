@@ -3,9 +3,9 @@
 保存済み資料を基準日で絞る回顧的な再計算。取得時点の全 vintage を復元した
 厳密な point-in-time データセットではない。
 
-本番 run と同じ部品 (`build_metrics` / `stock_analysis_payload` /
-`build_candidate_contexts`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
-実装の単一性で担保する。相違点は入力の中立化だけ:
+旧run契約の部品 (`build_metrics` / `stock_analysis_payload` /
+`build_candidate_contexts`) を使う。新しい五モデル・二view政策の成績ではない。
+旧runとの相違点は入力の中立化:
 
 - 市場環境判断は候補順位の入力にしない
 - 過去の候補集合や判断を過去cohortの順位へ混入させない

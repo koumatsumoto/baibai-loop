@@ -1,7 +1,7 @@
 """Screening SQLite cache coverage verification.
 
-`screening run` refuses to execute unless the cache passes these checks, so
-provider fetch gaps surface as explicit issues instead of silent fallbacks.
+手動の保守診断として、旧較正契約のsource範囲を確認する。
+新しいモデル生成・候補政策へ一律の共通資格として適用しない。
 """
 
 from .core import verify_screening_sqlite_coverage

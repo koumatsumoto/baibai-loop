@@ -39,9 +39,6 @@ from baibai_engine.machine_analysis.screening.rule_config import (
     DEFAULT_RULES_PATH,
     load_screening_rules,
 )
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
-    verify_screening_sqlite_coverage,
-)
 from baibai_engine.market.delistings import DelistingSourceError
 from baibai_engine.market.edinet_facts.service import (
     extract_edinet_facts_command,
@@ -72,7 +69,6 @@ from baibai_engine.read_api.market import market_calendar_business_day
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 from .cache import (
-    _print_cache_coverage_issues,
     backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
@@ -94,7 +90,6 @@ from .query import (
     run_show_command,
     ticker_profile_command,
 )
-from .run import run_command
 from .valuation_catalyst_cli import (
     backfill_edinet_identity_command,
     refresh_tse_capital_policy_command,
@@ -104,33 +99,6 @@ from .valuation_catalyst_cli import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine screening")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    run_parser = subparsers.add_parser("run", help="produce a Screening Run")
-    run_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
-    run_parser.add_argument(
-        "--allow-stale-jpx",
-        action="store_true",
-        help="allow an already-cached stale JPX snapshot for a historical backfill asof",
-    )
-    run_parser.add_argument(
-        "--output-path",
-        help=("also write the DB publication view as local YAML to this path"),
-    )
-    run_parser.add_argument("--runs-db", help="screening run store path")
-    run_parser.add_argument(
-        "--run-revision-id",
-        help="preallocated immutable revision for idempotent machine resume",
-    )
-    run_parser.add_argument(
-        "--run-at",
-        type=datetime.fromisoformat,
-        help="fixed timezone-aware publication clock for idempotent machine resume",
-    )
-    run_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite an existing Screening Run YAML output path",
-    )
 
     prune_parser = subparsers.add_parser(
         "prune",
@@ -358,10 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.add_argument(
         "--allow-stale-jpx",
         action="store_true",
-        help=(
-            "degraded verification only; allow old JPX fetched_at_utc snapshots "
-            "(use together with run --allow-stale-jpx)"
-        ),
+        help="degraded verification only; allow old JPX fetched_at_utc snapshots",
     )
 
     run_show = subparsers.add_parser("run-show", help="export one saved Stock Analysis run")
@@ -754,23 +719,6 @@ def main(argv: list[str] | None = None) -> int:
                 initialize=args.initialize,
                 tickers=tuple(args.ticker),
             )
-    run_asof_date = _parse_iso_date(args.asof) if args.command == "run" else None
-    run_rules = load_screening_rules(config.rules_path) if args.command == "run" else None
-    if args.command == "run":
-        if run_asof_date is None:
-            print("--asof is required for run", file=sys.stderr)
-            return 1
-        coverage_issues = verify_screening_sqlite_coverage(
-            sqlite_path,
-            run_asof_date,
-            required_jpx_sources=run_rules.universe.required_jpx_flags if run_rules else (),
-            allow_stale_jpx=args.allow_stale_jpx,
-        )
-        if coverage_issues:
-            _print_cache_coverage_issues(
-                coverage_issues, asof_date=run_asof_date, stream=sys.stderr
-            )
-            return 1
     with ExitStack() as resources:
         jquants_refresh = (
             JQuantsRefresh(sqlite_path, config.jquants_api_key)
@@ -813,30 +761,11 @@ def main(argv: list[str] | None = None) -> int:
         providers = ProviderBundle(
             jquants=JQuantsReader(sqlite_path),
             edinet=edinet_reader,
-            jpx=JPXReader(
-                sqlite_path,
-                allow_stale_snapshot=args.allow_stale_jpx if args.command == "run" else False,
-            ),
+            jpx=JPXReader(sqlite_path),
             jquants_refresh=jquants_refresh,
             edinet_refresh=edinet_refresh,
             jpx_refresh=jpx_refresh,
         )
-
-        if args.command == "run":
-            if run_asof_date is None:
-                print("--asof is required for run", file=sys.stderr)
-                return 1
-            return run_command(
-                run_asof_date,
-                config,
-                providers,
-                rules=run_rules,
-                now=args.run_at,
-                output_path=Path(args.output_path) if args.output_path else None,
-                force=args.force,
-                run_store_path=Path(args.runs_db) if args.runs_db else None,
-                run_revision_id=args.run_revision_id,
-            )
 
         if args.command == "bootstrap-cache":
             return bootstrap_cache_command(

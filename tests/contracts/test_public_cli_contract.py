@@ -12,9 +12,12 @@ def _choices(parser) -> set[str]:
     return set(subparsers.choices)
 
 
-def test_screening_cli_owns_single_runs_and_candidate_reads() -> None:
+def test_screening_cli_preserves_saved_reads_without_legacy_live_generation() -> None:
     choices = _choices(build_screening_parser())
-    assert {"run", "run-show", "candidates"} <= choices
+    assert {"run-show", "candidates"} <= choices
+    assert "run" not in choices
+    with pytest.raises(SystemExit):
+        build_screening_parser().parse_args(["run", "--asof", "2026-10-23"])
     assert "review-set" not in choices
     assert "research-triage" not in choices
     assert not ({"select", "selection", "shortlist"} & choices)

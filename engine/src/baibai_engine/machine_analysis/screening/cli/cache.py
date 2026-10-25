@@ -71,7 +71,7 @@ def verify_cache_coverage_command(
     allow_stale_jpx: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
-    """Check whether SQLite can serve every source `screening run` will read.
+    """Diagnose saved SQLite inputs for the legacy calibration contract.
 
     This is intentionally local-only: it does not inspect raw JSON files and
     does not call provider APIs. Refresh/rebuild must happen before this check.
@@ -103,7 +103,7 @@ def _print_cache_coverage_issues(
     for issue in issues:
         print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
     print(
-        "screening run is cache-only and will not fall back to raw JSON or provider APIs; "
+        "coverage verification is read-only and does not fetch raw JSON or provider APIs; "
         "run bootstrap-cache --asof and refresh-edinet-metrics, then rerun coverage verification.",
         file=stream,
     )

@@ -53,7 +53,6 @@ from baibai_engine.machine_analysis.screening.metric_builder import (
 )
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
-from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -313,42 +312,6 @@ def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
     routed = command.call_args.kwargs[provider_arg]
     assert (routed if provider_arg == "acquisition" else routed.edinet_refresh) is edinet
     assert edinet.close_count == 1
-
-
-@pytest.mark.parametrize("allow_stale", [False, True])
-def test_main_run_uses_only_offline_readers(allow_stale: bool) -> None:
-    argv = ["run", "--asof", "2026-05-08"]
-    if allow_stale:
-        argv.append("--allow-stale-jpx")
-    with (
-        patch.dict(
-            os.environ,
-            {"JQUANTS_API_KEY": "test-jquants-key", "EDINET_API_KEY": "test-edinet-key"},
-        ),
-        patch.object(
-            app, "EDINETRefresh", side_effect=AssertionError("acquisition constructed")
-        ) as factory,
-        patch.object(
-            app, "JPXRefresh", side_effect=AssertionError("JPX acquisition constructed")
-        ) as jpx_factory,
-        patch(
-            "requests.Session", side_effect=AssertionError("HTTP session constructed")
-        ) as session,
-        patch.object(app, "verify_screening_sqlite_coverage", return_value=[]),
-        patch.object(app, "load_screening_rules") as rules,
-        patch.object(app, "run_command", return_value=0) as run,
-    ):
-        rules.return_value.universe.required_jpx_flags = ()
-        assert app.main(argv) == 0
-    factory.assert_not_called()
-    jpx_factory.assert_not_called()
-    session.assert_not_called()
-    providers = run.call_args.args[2]
-    assert isinstance(providers.edinet, EDINETReader)
-    assert providers.edinet_refresh is None
-    assert isinstance(providers.jpx, JPXReader)
-    assert providers.jpx._allow_stale_snapshot is allow_stale
-    assert providers.jpx_refresh is None
 
 
 def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> None:

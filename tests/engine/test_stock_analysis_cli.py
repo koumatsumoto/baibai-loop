@@ -1,25 +1,16 @@
-"""保存runの公開CLIとDB成功後export失敗からの回収。"""
+"""保存済み旧runの公開読取CLI。新しい旧runは生成しない。"""
 
 from __future__ import annotations
 
 import json
 import subprocess
 import sys
-from datetime import date, datetime
 
 import pytest
 import yaml
-from tests.engine.test_screening_cli import (
-    FakeEDINETReader,
-    FakeJPXProvider,
-    FakeJQuantsProvider,
-)
-from tests.engine.test_screening_run_store import RULES, _publish, _run
+from tests.engine.test_screening_run_store import _publish, _run
 
-from baibai_engine.machine_analysis.screening.cli import run as run_module
 from baibai_engine.machine_analysis.screening.cli.app import main as screening_main
-from baibai_engine.machine_analysis.screening.cli.providers import ProviderBundle
-from baibai_engine.machine_analysis.screening.config import ScreeningConfig
 from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 from baibai_engine.machine_analysis.screening.screening_run_serializer import published_run_payload
 
@@ -95,54 +86,3 @@ def test_public_cli_subprocess_reads_zero_candidates_and_unknown_revision(tmp_pa
 def test_removed_review_set_public_cli_is_rejected() -> None:
     with pytest.raises(SystemExit, match="2"):
         screening_main(["review-set", "publish"])
-
-
-def test_committed_run_export_failure_reports_revision_and_run_show_recovers(
-    tmp_path, monkeypatch, capsys
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    path = tmp_path / "runs.sqlite"
-    output = tmp_path / "failed.yaml"
-    config = ScreeningConfig("synthetic-token", "synthetic-key")
-    providers = ProviderBundle(
-        jquants=FakeJQuantsProvider(), edinet=FakeEDINETReader(), jpx=FakeJPXProvider()
-    )
-
-    def fail_export(*_args, **_kwargs):
-        raise OSError("synthetic file failure")
-
-    monkeypatch.setattr(run_module, "write_text_atomic", fail_export)
-    result = run_module.run_command(
-        date(2026, 4, 24),
-        config,
-        providers,
-        rules=RULES,
-        now=datetime.fromisoformat("2026-04-24T09:00:00+09:00"),
-        run_store_path=path,
-        run_revision_id="committed-run",
-        output_path=output,
-    )
-    assert result == 1
-    diagnostics = capsys.readouterr().err
-    assert "run_revision_id=committed-run" in diagnostics
-    assert "export failed" in diagnostics
-    saved = ScreeningRunReader(path).get_run("committed-run")
-    assert saved is not None
-    assert not output.exists()
-    recovered = tmp_path / "recovered.yaml"
-    assert (
-        screening_main(
-            [
-                "run-show",
-                "--run-revision-id",
-                "committed-run",
-                "--runs-db",
-                str(path),
-                "--output-path",
-                str(recovered),
-            ]
-        )
-        == 0
-    )
-    assert yaml.safe_load(recovered.read_text()) == published_run_payload(saved)
-    assert len(ScreeningRunReader(path).list_runs()) == 1

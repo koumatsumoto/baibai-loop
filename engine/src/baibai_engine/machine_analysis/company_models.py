@@ -106,13 +106,14 @@ def generate_financial_and_price_models(
         GeneratedModel(
             model_id="company_valuation",
             subject=ticker,
-            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v3",
+            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v4",
             payload=json.loads(
                 canonical_json(
                     {
                         "as_of": as_of,
                         "read_semantics": "retained_disclosures_through_as_of_not_receipt_vintage",
                         "earnings_price": asdict(earnings),
+                        "earnings_basis": "reported_profit_before_common_share_allocations",
                         "expected_price_date": expected_price_date,
                         "financial": financial,
                         "ttm_rules": ttm_rules.model_dump(mode="json"),

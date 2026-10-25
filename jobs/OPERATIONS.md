@@ -68,7 +68,7 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同日最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
 
-初回input生成は既存正本から共通統合を一回実行する。`coordination/source-inputs/` のinput不足を全DB取得や空seedで迂回しない。独立取得の受領、共通統合のrelease/readback、表示時刻、watchdogを確認する。旧daily内の取得とsource別publishは並走させない。localの複合dailyを使う場合も新scheduleと重ねず、保存入力だけの統合には `--saved-inputs` を使う。
+初回input生成は既存正本から共通統合を一回実行する。`coordination/source-inputs/` のinput不足を全DB取得や空seedで迂回しない。独立取得の受領、共通統合のrelease/readback、モデル生成・候補公開時刻、watchdogを確認する。取得workflowと共通統合の責務を分け、削除済みの複合dailyを復活させない。
 
 通常の遅着・未統合受領は次回共通統合、必要なら既存dailyの手動実行で拾う。一つのinput exportが失敗しても前回pointerを保ち、正常groupは更新する。経済の実取得はseedと同値でも一時受領へ残し、統合時にfresh canonicalと比較して変更だけ追記する。同値no-opを統合したstageもsource watermarkを進める。
 

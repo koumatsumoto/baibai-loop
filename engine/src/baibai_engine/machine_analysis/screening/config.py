@@ -9,8 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLITE_CACHE_DIR
 
-from .rule_config import DEFAULT_RULES_PATH
-
 
 class ConfigError(ValueError):
     """Raised when required screening configuration is missing."""
@@ -22,7 +20,6 @@ class ScreeningConfig(BaseModel):
     jquants_api_key: str | None = Field(default=None, min_length=1)
     edinet_api_key: str | None = None
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
-    rules_path: Path = DEFAULT_RULES_PATH
 
     def __init__(
         self,
@@ -37,7 +34,7 @@ class ScreeningConfig(BaseModel):
             data["edinet_api_key"] = edinet_api_key
         super().__init__(**data)
 
-    @field_validator("sqlite_cache_dir", "rules_path", mode="before")
+    @field_validator("sqlite_cache_dir", mode="before")
     @classmethod
     def _coerce_dir(cls, value: object) -> Path:
         if isinstance(value, Path):
@@ -57,7 +54,6 @@ class ScreeningConfig(BaseModel):
                 jquants_api_key=source.get("JQUANTS_API_KEY") or None,
                 edinet_api_key=source.get("EDINET_API_KEY") or None,
                 sqlite_cache_dir=sqlite_cache_dir_value,
-                rules_path=str(Path(source.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)),
             )
         except ValidationError as exc:
             raise ConfigError(str(exc)) from exc

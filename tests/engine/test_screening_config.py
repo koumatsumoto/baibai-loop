@@ -27,19 +27,3 @@ class ScreeningConfigTests(unittest.TestCase):
 
         with self.assertRaisesRegex(JQuantsAcquisitionError, "JQUANTS_API_KEY"):
             JQuantsHTTP("")
-
-
-def test_cache_only_run_reaches_local_preflight_without_api_keys(tmp_path, monkeypatch, capsys):
-    from baibai_engine.machine_analysis.screening.cli import app
-
-    # Do not let a developer or repository .env reintroduce credentials.
-    monkeypatch.setattr(app, "load_project_env", lambda: None)
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("JQUANTS_API_KEY", raising=False)
-    monkeypatch.delenv("EDINET_API_KEY", raising=False)
-    # The store is absent: fail for the missing local input, not unrelated credentials.
-    assert app.main(["run", "--asof", "2026-04-24"]) == 1
-    error = capsys.readouterr().err
-    assert "SQLite cache coverage incomplete" in error
-    assert "JQUANTS_API_KEY" not in error

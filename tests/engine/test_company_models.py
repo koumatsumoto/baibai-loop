@@ -80,6 +80,7 @@ def test_owner_results_round_trip_into_selection_without_legacy_er(profit):
     assert saved == generated
     valuation = saved.result("company_valuation", "1001").payload
     assert valuation["earnings_price"]["earnings_yield"] == profit / 800
+    assert valuation["earnings_basis"] == "reported_profit_before_common_share_allocations"
     assert valuation["earnings_price"]["price_date"] == ASOF.isoformat()
     assert valuation["earnings_price"]["profit_components"][0]["disclosure_number"] == (
         "synthetic-annual"

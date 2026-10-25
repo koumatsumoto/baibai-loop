@@ -12,7 +12,7 @@
 <a id="candidate-discovery"></a>
 ## 調査への引渡し
 
-機械E[r]/FV、四Approachの旧membership、保存市場判断、portfolioは新しい候補membership・順位を決めない。Investment Judgmentは五モデル・一次資料・必要な少数の候補外対照を比較し、価値獲得経路と反証を自ら評価する。旧run・旧Selectionは保存済みidentityと内容のまま読めるが、新しい標準経路へ混ぜない。
+機械E[r]/FV、四Approachの旧membership、保存市場判断、portfolioは新しい候補membership・順位を決めない。Investment Judgmentは五モデル・一次資料・必要な少数の候補外対照を比較し、価値獲得経路と反証を自ら評価する。旧run・旧Selectionは保存済みidentityと内容のまま読めるが、新しい標準経路へ混ぜない。旧runを新規生成するscreening run入口は撤去し、旧較正は当時のモデル契約を明示して別に扱う。
 
 ## 入力不足と品質
 
