@@ -85,9 +85,8 @@ def tradingview_rows_at_cutoff(
     cutoff: datetime,
     *,
     ticker: str | None = None,
-    columns: tuple[Column, ...] = TV_COLUMNS,
 ) -> list[sqlite3.Row]:
-    """Use the same exact received-time predicate for identities and value reads."""
+    """Read saved TradingView values at the exact received-time cutoff."""
     if (
         conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TV_TABLE,)
@@ -95,11 +94,11 @@ def tradingview_rows_at_cutoff(
         is None
     ):
         return []
-    names = ",".join(column[0] for column in columns)
+    names = ",".join(column[0] for column in TV_COLUMNS)
     day = cutoff.astimezone(ZoneInfo("Asia/Tokyo")).date().isoformat()
     predicate = "snapshot_date<=?" + (" AND ticker=?" if ticker is not None else "")
     # Writers normalize received time to UTC with optional fractional seconds.
-    # Parse it here so enumerating identities and reading values agree exactly,
+    # Parse it here so single-company and population reads agree exactly,
     # also for equivalent aware ISO representations in saved input.
     rows = conn.execute(
         f"SELECT {names} FROM {TV_TABLE} WHERE {predicate}",  # nosec B608

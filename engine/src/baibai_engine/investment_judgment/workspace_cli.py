@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--compare-ticker",
         action="append",
         default=[],
-        help="read comparison rows from the same run without requesting or selecting them",
+        help="read comparison models from the same generation without selecting them",
     )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
     context_parser.add_argument("--generation-id")

@@ -1,4 +1,4 @@
-"""Deterministic market SQLite to L1 Canonical Parquet export."""
+"""Deterministic market SQLite export to source-owned L1 and processed L2 Parquet."""
 
 from __future__ import annotations
 

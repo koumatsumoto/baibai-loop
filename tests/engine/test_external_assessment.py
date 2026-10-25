@@ -16,10 +16,7 @@ from baibai_engine.machine_analysis.external_assessment.analysis import FORECAST
 from baibai_engine.machine_analysis.external_assessment.observations.models import (
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.query import (
-    external_assessment,
-    observed_tickers,
-)
+from baibai_engine.machine_analysis.external_assessment.query import external_assessment
 from baibai_engine.machine_analysis.external_assessment.reader import (
     read_observation_population,
     read_observations,
@@ -184,7 +181,6 @@ def test_exact_received_cutoff_does_not_include_later_same_day_microsecond(tmp_p
     tv_row(path, cutoff + timedelta(microseconds=1), ticker="5678", eps_forecast_next_fy=99)
     result = external_assessment(path, ticker="5678", cutoff=cutoff, evaluated_at=cutoff)
     assert result.tradingview.availability == "not_observed"
-    assert observed_tickers(path, cutoff=cutoff) == ["1234"]
     assert read(path, cutoff).tradingview.inputs.latest.eps_forecast_next_fy == 10
 
 
@@ -224,11 +220,9 @@ def test_query_and_public_show_have_no_network_or_writes(tmp_path, monkeypatch, 
         main(["show", "--db", str(path), "--ticker", "1234", "--cutoff", RECEIVED.isoformat()]) == 0
     )
     assert '"consensus_target"' in capsys.readouterr().out
-    assert observed_tickers(path, cutoff=RECEIVED) == ["1234"]
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
     missing = tmp_path / "absent.sqlite"
     assert read(missing).model_valuations == ()
-    assert observed_tickers(missing, cutoff=RECEIVED) == []
     assert not missing.exists()
 
 
@@ -276,7 +270,7 @@ def test_tradingview_row_year_metadata_does_not_establish_each_metric_period(tmp
 @pytest.mark.parametrize("stored_offset", [-7, 0, 9])
 @pytest.mark.parametrize("cutoff_offset", [-7, 0, 9])
 @pytest.mark.parametrize("fraction", [0, 123456])
-def test_tradingview_identity_and_value_reads_agree_at_subsecond_and_offset_boundaries(
+def test_tradingview_population_and_single_reads_agree_at_subsecond_and_offset_boundaries(
     tmp_path, stored_offset, cutoff_offset, fraction
 ):
     from datetime import timezone
@@ -289,13 +283,19 @@ def test_tradingview_identity_and_value_reads_agree_at_subsecond_and_offset_boun
     for ticker, shift in (("1001", -1), ("1002", 0), ("1003", 1)):
         received = (cutoff + timedelta(microseconds=shift)).astimezone(stored_zone)
         tv_row(path, received, ticker=ticker, eps_forecast_next_fy=1)
-    listed = observed_tickers(path, cutoff=requested_cutoff)
-    assert listed == ["1001", "1002"]
+    population = read_observation_population(
+        path, tickers=("1001", "1002", "1003"), cutoff=requested_cutoff
+    )
+    assert {ticker for ticker, row in population.items() if row.tradingview.latest is not None} == {
+        "1001",
+        "1002",
+    }
     for ticker in ("1001", "1002", "1003"):
         assessment = external_assessment(
             path, ticker=ticker, cutoff=requested_cutoff, evaluated_at=requested_cutoff
         )
-        assert (assessment.tradingview.inputs.latest is not None) == (ticker in listed)
+        assert assessment.tradingview.inputs == population[ticker].tradingview
+        assert (assessment.tradingview.inputs.latest is not None) == (ticker in {"1001", "1002"})
 
 
 def test_show_parser_does_not_import_acquisition_or_store_implementations():

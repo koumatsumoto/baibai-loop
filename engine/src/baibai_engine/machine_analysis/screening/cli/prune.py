@@ -1,4 +1,4 @@
-"""Manual retention command for the rebuildable screening run cache."""
+"""Explicit retention command for historical screening runs; never a daily write."""
 
 from __future__ import annotations
 
