@@ -1744,10 +1744,15 @@ def test_runs_only_push_refuses_changed_cloud_generation_without_writing(tmp_pat
 
 
 @pytest.mark.parametrize("missing", [None, "portfolio-dashboard", "tasks", "outcomes"])
-def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(tmp_path, missing):
+@pytest.mark.parametrize("in_actions", [False, True])
+def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
+    tmp_path, missing, in_actions
+):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
+    if in_actions:
+        environment["GITHUB_ACTIONS"] = "true"
     export = tmp_path / "export"
     views = export / "views"
     views.mkdir(parents=True)
@@ -1765,6 +1770,11 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(tm
     )
     commands = _transfer_commands(log)
     uploads = [command for command in commands if command.startswith("s3 cp ")]
+    if not in_actions:
+        assert completed.returncode == 2
+        assert uploads == []
+        assert "refusing serving upload outside GitHub Actions" in completed.stderr
+        return
     if missing is not None:
         assert completed.returncode == 2
         assert uploads == []
