@@ -1,3 +1,5 @@
+"""旧較正リプレイの合成と共有計算の回帰。現行五モデルの候補gateではない。"""
+
 from __future__ import annotations
 
 from dataclasses import replace

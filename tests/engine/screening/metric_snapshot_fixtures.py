@@ -1,3 +1,5 @@
+"""旧較正リプレイのbuild_metricsを組み立てるfixture。新規モデル生成とは別。"""
+
 from __future__ import annotations
 
 import unittest

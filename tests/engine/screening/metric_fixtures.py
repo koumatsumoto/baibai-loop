@@ -1,3 +1,5 @@
+"""財務・株式基準の共有合成fixture。旧較正リプレイからも使用する。"""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
