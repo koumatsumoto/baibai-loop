@@ -54,7 +54,9 @@ class ModelGeneration(BaseModel):
 
     @field_validator("models")
     @classmethod
-    def canonical_model_order(cls, models: tuple[GeneratedModel, ...]) -> tuple[GeneratedModel, ...]:
+    def canonical_model_order(
+        cls, models: tuple[GeneratedModel, ...]
+    ) -> tuple[GeneratedModel, ...]:
         return tuple(sorted(models, key=lambda model: (model.model_id, model.subject)))
 
     @model_validator(mode="after")

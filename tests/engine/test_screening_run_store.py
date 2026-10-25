@@ -21,7 +21,6 @@ from baibai_engine.machine_analysis.screening.run_store import (
     ScreeningRunStore,
     initialize_run_store,
 )
-from baibai_engine.machine_analysis.screening.run_store import store as run_store
 from baibai_engine.machine_analysis.screening.schema import ScreeningRunDocument, StockAnalysis
 from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     published_run_payload,
@@ -30,6 +29,7 @@ from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     stock_analysis_payload,
 )
 from baibai_engine.read_api.screening import previous_run_revision_id
+from baibai_engine.storage import machine_analysis as machine_store
 from baibai_engine.storage.machine_analysis import RUN_STORE_SCHEMA_VERSION
 
 RULES = load_screening_rules()
@@ -509,7 +509,7 @@ def test_previous_run_facade_preserves_exact_instant_order(precise_clock_runs):
 def test_initialization_failure_rolls_back_run_schema_and_can_retry(tmp_path, monkeypatch):
     path = tmp_path / "runs.sqlite"
     with monkeypatch.context() as patch:
-        patch.setattr(run_store, "SCHEMA_SQL", run_store.SCHEMA_SQL + "\nINVALID SQL;")
+        patch.setattr(machine_store, "SCHEMA_SQL", machine_store.SCHEMA_SQL + "\nINVALID SQL;")
         with pytest.raises(sqlite3.OperationalError):
             initialize_run_store(path)
     with closing(sqlite3.connect(path)) as connection:

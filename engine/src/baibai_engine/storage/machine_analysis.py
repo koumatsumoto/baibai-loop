@@ -168,4 +168,3 @@ def migrate_run_store_v6(path: Path) -> int:
             connection.rollback()
             raise
     return RUN_STORE_SCHEMA_VERSION
-

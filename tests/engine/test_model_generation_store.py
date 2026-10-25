@@ -93,7 +93,7 @@ def test_generation_identity_cannot_be_reused_for_new_values_or_new_inputs(tmp_p
 def test_failed_generation_publication_rolls_back_header_and_models(tmp_path):
     path = tmp_path / "runs.sqlite"
     store = ModelGenerationStore(path)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Out of range float"):
         store.publish(generation(value=float("nan")))
     assert store.read("synthetic-generation") is None
     with closing(sqlite3.connect(path)) as connection:
@@ -143,7 +143,17 @@ def test_schema6_requires_explicit_migration_and_preserves_existing_data(tmp_pat
         connection.execute("PRAGMA user_version=6")
         connection.execute(
             "INSERT INTO screening_run VALUES (?,?,?,?,?,?,?,?,?)",
-            ("old", "old", "2026-10-23", "2026-10-23", "2026-10-23T00:00:00Z", 0, None, "old", "{}"),
+            (
+                "old",
+                "old",
+                "2026-10-23",
+                "2026-10-23",
+                "2026-10-23T00:00:00Z",
+                0,
+                None,
+                "old",
+                "{}",
+            ),
         )
         connection.commit()
     with pytest.raises(RuntimeError, match="obsolete schema"):
