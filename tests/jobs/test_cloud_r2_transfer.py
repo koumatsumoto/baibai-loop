@@ -196,12 +196,25 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
   exit 0
 fi
 if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
-  printf 'x' > "$4"
+  key="${3#s3://}"
+  key="${key#*/}"
+  stored="${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
+  if [[ "$key" == "${AWS_FAKE_FAIL_DOWNLOAD_KEY:-}" ]]; then
+    printf 'synthetic-private-value' >&2
+    exit 254
+  elif [[ "$key" == "${AWS_FAKE_CORRUPT_DOWNLOAD_KEY:-}" ]]; then
+    printf 'corrupted-private-payload' > "$4"
+  elif [[ -f "$stored" ]]; then
+    cp "$stored" "$4"
+  else
+    printf 'x' > "$4"
+  fi
 fi
 if [[ "$1 $2" == "s3 cp" && "$4" == s3://* ]]; then
   key="${4#s3://}"
   key="${key#*/}"
   slug="$(printf '%s' "$key" | tr / _)"
+  cp "$3" "${AWS_FAKE_STATE}/put-${slug}"
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
   rm -f "${AWS_FAKE_STATE}/deleted-${slug}"
 fi
@@ -1769,7 +1782,11 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
         text=True,
     )
     commands = _transfer_commands(log)
-    uploads = [command for command in commands if command.startswith("s3 cp ")]
+    uploads = [
+        command
+        for command in commands
+        if command.startswith("s3 cp ") and command.split()[3].startswith("s3://")
+    ]
     if not in_actions:
         assert completed.returncode == 2
         assert uploads == []
@@ -1787,3 +1804,40 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     ]
     assert not any("views/dashboard.json" in command for command in commands)
     assert not any("delete-object" in command or "s3 rm" in command for command in commands)
+    downloads = [command for command in commands if command.startswith("s3 cp s3://")]
+    assert [command.split()[2] for command in downloads] == [
+        f"s3://baibai-serving/views/{name}.json"
+        for name in ("portfolio-dashboard", "tasks", "outcomes")
+    ]
+    assert "portfolio views verified from remote readback: 3" in completed.stdout
+    assert '"synthetic": true' not in completed.stdout + completed.stderr
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize("failure", ["FAIL", "CORRUPT"])
+@pytest.mark.parametrize("name", ["portfolio-dashboard", "tasks", "outcomes"])
+def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, failure, name):
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["GITHUB_ACTIONS"] = "true"
+    environment[f"AWS_FAKE_{failure}_DOWNLOAD_KEY"] = f"views/{name}.json"
+    export = tmp_path / "export"
+    views = export / "views"
+    views.mkdir(parents=True)
+    for view in ("portfolio-dashboard", "tasks", "outcomes"):
+        (views / f"{view}.json").write_text('{"private": "synthetic-private-value"}\n')
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", str(export)],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode != 0
+    assert "portfolio views verified" not in completed.stdout
+    assert "synthetic-private-value" not in completed.stdout + completed.stderr
+    assert "corrupted-private-payload" not in completed.stdout + completed.stderr
+    assert not list(root.glob(".r2-transfer.*"))
+    assert not any("delete-object" in command for command in _transfer_commands(log))
