@@ -10,7 +10,7 @@ import pytest
 from baibai_engine.machine_analysis.screening.calibration.forward import latest_market_data_date
 from baibai_engine.machine_analysis.screening.sqlite_coverage.core import _connect_readonly
 from baibai_engine.market import jquants_reader
-from baibai_engine.market.adjusted_prices import close_change_since
+from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -144,25 +144,7 @@ def _seed_calendar(path: Path, rows: list[tuple[str, int]]) -> None:
         connection.close()
 
 
-def test_close_change_since_measures_from_the_last_close_at_or_before_the_day(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_bars_with_factors(
-        database,
-        [
-            ("2331", "2026-07-27", 100.0, 1.0),
-            ("2331", "2026-07-28", 110.0, 1.0),
-            ("2331", "2026-07-29", 121.0, 1.0),
-        ],
-    )
-
-    # The boundary is inclusive, so 07-28's own close is the earlier side.
-    assert close_change_since(database, ["2331"], since=date(2026, 7, 28)) == {"2331": 10.0}
-    assert close_change_since(database, ["2331"], since=date(2026, 7, 27)) == {"2331": 21.0}
-
-
-def test_close_change_since_puts_both_ends_on_the_latest_share_basis(tmp_path: Path) -> None:
+def test_adjusted_price_reader_puts_both_ends_on_the_same_price_basis(tmp_path: Path) -> None:
     # A 1:2 split halves the stored close. Reporting that as a 50% fall would send the
     # reader to review a holding that did not move.
     database = tmp_path / "market.sqlite"
@@ -174,10 +156,15 @@ def test_close_change_since_puts_both_ends_on_the_latest_share_basis(tmp_path: P
         ],
     )
 
-    assert close_change_since(database, ["2331"], since=date(2026, 7, 28)) == {"2331": 1.0}
+    assert [
+        bar.price
+        for bar in read_price_bars(
+            database, tickers=("2331",), start=date(2026, 7, 28), end=date(2026, 7, 29)
+        )["2331"]
+    ] == [500.0, 505.0]
 
 
-def test_close_change_since_keeps_factor_on_a_close_null_day(tmp_path: Path) -> None:
+def test_adjusted_price_reader_keeps_factor_on_a_close_null_day(tmp_path: Path) -> None:
     database = tmp_path / "market.sqlite"
     _seed_bars_with_factors(
         database,
@@ -188,26 +175,12 @@ def test_close_change_since_keeps_factor_on_a_close_null_day(tmp_path: Path) -> 
         ],
     )
 
-    assert close_change_since(database, ["2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
-
-
-def test_close_change_since_skips_a_ticker_with_no_close_by_the_day(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_bars_with_factors(
-        database,
-        [
-            ("2331", "2026-07-29", 100.0, 1.0),
-            ("4432", "2026-07-28", 200.0, None),
-            ("4432", "2026-07-29", None, None),
-        ],
-    )
-
-    # 2331 has nothing to compare against; 4432's only later close is NULL.
-    assert close_change_since(database, ["2331", "4432"], since=date(2026, 7, 28)) == {}
-
-
-def test_close_change_since_is_empty_without_file_or_tickers(tmp_path: Path) -> None:
-    assert close_change_since(tmp_path / "absent.sqlite", ["2331"], since=date(2026, 7, 28)) == {}
+    assert [
+        bar.price
+        for bar in read_price_bars(
+            database, tickers=("2331",), start=date(2026, 7, 28), end=date(2026, 7, 30)
+        )["2331"]
+    ] == [100.0, 100.0]
 
 
 @pytest.mark.parametrize("name", ["market #1.sqlite", "market?mode=rw.sqlite", "市場%20.sqlite"])
@@ -242,7 +215,9 @@ def test_order_session_rejects_naive_instant_before_store_read(tmp_path: Path) -
     assert not path.exists()
 
 
-def test_close_change_keeps_ticker_scope_without_changing_the_store(tmp_path: Path) -> None:
+def test_adjusted_price_reader_keeps_ticker_scope_without_changing_the_store(
+    tmp_path: Path,
+) -> None:
     database = tmp_path / "market.sqlite"
     _seed_bars_with_factors(
         database,
@@ -256,10 +231,20 @@ def test_close_change_keeps_ticker_scope_without_changing_the_store(tmp_path: Pa
         ],
     )
     before = database.read_bytes()
-    assert close_change_since(database, ["2331", "2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
+    result = read_price_bars(
+        database, tickers=("2331", "2331"), start=date(2026, 7, 28), end=date(2026, 7, 31)
+    )
+    assert set(result) == {"2331"}
+    assert [bar.price for bar in result["2331"]] == [50.0, 60.0, 45.0, 50.0]
     assert database.read_bytes() == before
     missing = tmp_path / "absent.sqlite"
-    assert close_change_since(missing, [], since=date(2026, 7, 28)) == {}
+    assert (
+        read_price_bars(missing, tickers=(), start=date(2026, 7, 28), end=date(2026, 7, 31)) == {}
+    )
+    assert (
+        read_price_bars(missing, tickers=("2331",), start=date(2026, 7, 28), end=date(2026, 7, 31))
+        == {}
+    )
     assert not missing.exists()
 
 
