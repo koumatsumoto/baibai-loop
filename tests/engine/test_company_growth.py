@@ -16,9 +16,11 @@ from tests.helpers.research_selection import draft_for, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.company_growth.calculations import build_changes, build_period_states
+from baibai_engine.company_growth.models import CompanyGrowth
 from baibai_engine.market.financial_documents import normalize_financial_summary
 from baibai_engine.market.financial_periods import prior_year_period_matches
 from baibai_engine.read_api.company_growth import company_growth as public_company_growth
+from baibai_engine.research.company_growth_projection import project_company_growth
 from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
 from baibai_engine.research.operation.progress import selection_binding
 from baibai_engine.research.operation.service import OperationService
@@ -910,3 +912,82 @@ def test_acceptance_cli_keeps_private_result_keys_and_digest_out_of_public_logs(
     assert public["status"] == "measured"
     assert public["sample_count"] == 5
     assert public["private_result_bytes"] == 73660
+
+
+def test_compact_growth_keeps_quarter_and_annual_conflict_and_reported_cash_flow():
+    periods = states(
+        [
+            document(2023, 1, 100, 30, 40),
+            document(2023, 4, 400, 80, 100, CFO=110),
+            document(2024, 1, 110, 15, 10),
+            document(2024, 4, 440, 90, 120, CFO=105),
+            document(2025, 1, 115, 20, 8, TA=300, Eq=150),
+        ]
+    )
+    growth = CompanyGrowth(
+        ticker="1234",
+        status="available",
+        requested_start=None,
+        requested_end=date(2025, 6, 30),
+        periods=periods,
+        changes=build_changes(periods),
+    )
+    saved = growth.model_dump(mode="json")
+    original = deepcopy(saved)
+    projected = project_company_growth(saved, ticker="1234")
+    latest = projected["latest_observations"]
+
+    def values(measurement):
+        view = latest[measurement]
+        return dict(zip(view["columns"], view["row"]["values"], strict=True))
+
+    assert values("quarter")["parent_profit"] == 8
+    assert values("annual_ttm")["parent_profit"] == 118
+    quarter_change = next(
+        c for c in latest["quarter"]["yoy"] if c["metric"] == "parent_profit"
+    )
+    annual_change = next(
+        c for c in latest["annual_ttm"]["yoy"] if c["metric"] == "parent_profit"
+    )
+    assert quarter_change["rate"] == pytest.approx(-0.2)
+    assert annual_change["from_value"] == 70
+    assert annual_change["to_value"] == 118
+    assert annual_change["rate"] == pytest.approx(48 / 70)
+    assert latest["annual_ttm"]["row"]["period_start"] == "2024-07-01"
+    assert values("balance")["net_assets"] == 150
+    assert latest["balance"]["row"]["period_start"] == "2025-06-30"
+    cf = projected["reported_cash_flow"]
+    assert cf["measurement"] == "reported_FY_or_year_to_date_not_single_quarter"
+    assert [row["values"][0] for row in cf["rows"]] == [None, 110, None, 105, None]
+    assert cf["rows"][-1]["missing"]["operating_cash_flow"] == "not_observed"
+    for view in latest.values():
+        for ref in view["row"]["sources"]:
+            assert ref in projected["documents"]
+    assert saved == original
+    # The saved TTM/YoY survive even when their old operands are outside the payload.
+    latest_only = {**saved, "periods": saved["periods"][-1:]}
+    narrow = project_company_growth(latest_only, ticker="1234")["latest_observations"]
+    for measurement, view in latest.items():
+        assert narrow[measurement]["row"]["values"] == view["row"]["values"]
+        assert narrow[measurement]["yoy"] == view["yoy"]
+
+
+def test_compact_growth_does_not_replace_latest_missing_ttm_with_old_fy():
+    periods = states(
+        [document(2024, 4, 400, 80, 100), document(2025, 2, 220, 30, 20)],
+        sector="銀行業",
+    )
+    growth = CompanyGrowth(
+        ticker="1234",
+        status="available",
+        requested_start=None,
+        requested_end=date(2025, 9, 30),
+        periods=periods,
+        changes=build_changes(periods),
+    )
+    projected = project_company_growth(growth.model_dump(mode="json"), ticker="1234")
+    latest = projected["latest_observations"]["annual_ttm"]
+    assert latest["row"]["period_end"] == "2025-09-30"
+    assert latest["row"]["values"] == [None, None, None, None]
+    assert latest["row"]["missing"]["parent_profit"] == "matching_period_not_observed"
+    assert latest["row"]["missing"]["operating_margin"] == "not_applicable_to_financial_sector"

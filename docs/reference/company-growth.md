@@ -35,7 +35,7 @@ PERとpeerはこの版では **未提供**。PERは価格・期末自己株式�
 
 mirrorの準備・指定は[Research入力の準備](../../batch/OPERATIONS.md#research-input-preparation)に従う。Selection draftの任意 `company_growth_start` / `company_growth_end` で問いに合う会計期末範囲を選ぶ。省略時は保持済み全範囲を選ぶ。範囲外も含む観測可能範囲を結果内で区別する。固定入力の `securities_context[ticker].company_growth` に計算済み状態・変化・release・方法・要求範囲・不足を完全保存する。再開ではこの結果を投影し、最新原本・新しい計算法へ付け替えない。旧Selectionは保存された入力のまま成長なしで再開できる。InputGapは引き続き `analysis.unavailable` と厳密に一致し、成長欠測は加えない。
 
-通常L3投影は直近12会計期のFY/累計表（売上・営業利益・親会社利益・営業利益率・報告EPS）と同期間の保存済みYoYに絞る。12期は[固定した入力量測定](https://github.com/koumatsumoto/baibai-loop/blob/4680cc0c3d33212e9e2779d0eaa38e8babdb8f7c/docs/reference/company-growth.md#2026-10-24-の実データ測定)を根拠にした表示既定で、原本保存期間・query範囲・Selectionの要求範囲を制限しない。投影の `saved_scope` と `display_scope` に保存範囲と表示範囲を分け、欠測理由・文書ID/開示日時・固定release・より長い観測範囲を残す。株式基準は未検証のまま保持する。四半期単独/TTMをFY/累計へ混ぜたり、同じ値を四つのobservationとして反復したりしない。
+通常L3投影は直近12会計期のFY/累計表（売上・営業利益・親会社利益・営業利益率・報告EPS）と同期間の保存済みYoYを軸にする。最新会計期の単独四半期・年間/TTM・BSと保存済みYoY、表示範囲の期間付き営業CFも短く投影する。最新値の欠測を過去の正常値で埋めず、CFを四半期差分・年率化しない。Q1と同期間のreported、重なるTTMは別の独立証拠ではない。12期は[固定した入力量測定](https://github.com/koumatsumoto/baibai-loop/blob/4680cc0c3d33212e9e2779d0eaa38e8babdb8f7c/docs/reference/company-growth.md#2026-10-24-の実データ測定)を根拠にした表示既定で、原本保存期間・query範囲・Selectionの要求範囲を制限しない。投影の `saved_scope` と `display_scope` に保存範囲と表示範囲を分け、欠測理由・文書ID/開示日時・固定release・より長い観測範囲を残す。株式基準は未検証のまま保持する。四半期単独/TTMをFY/累計へ混ぜたり、同じ値を四つのobservationとして反復したりしない。
 
 表示の切替は[Research skill](../../.agents/skills/research/SKILL.md#完了と再開)に従い、同じ保存結果から投影する。表示期数はworkspace manifestだけの設定で、保存入力・selection hash・draftのstart/end・同一draft判定を変えない。`full_result_ref` はOperation内のResearchSelectionを起点としたJSON pointerであり、全状態/Changes・BS/CF・比較元/採用文書を完全結果で確認できる。原本の再取得や財務再計算は行わない。
 

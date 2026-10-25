@@ -6,7 +6,13 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.company_growth.models import CompanyGrowth, Metric, SourceDocument
+from baibai_engine.company_growth.models import (
+    CompanyGrowth,
+    Metric,
+    Observation,
+    PeriodState,
+    SourceDocument,
+)
 
 _METRICS: tuple[Metric, ...] = (
     "sales",
@@ -29,32 +35,65 @@ def project_company_growth(
     def references(sources: tuple[SourceDocument, ...]) -> list[str]:
         return [documents.setdefault(source, f"d{len(documents) + 1}") for source in sources]
 
-    rows: list[dict[str, object]] = []
-    for period in shown:
-        for observation in period.observations:
-            if observation.measurement != "reported":
-                continue
-            metrics = {name: observation.metrics[name] for name in _METRICS}
-            sources = tuple(dict.fromkeys(d for value in metrics.values() for d in value.documents))
-            row: dict[str, object] = {
-                "period_start": observation.period_start.isoformat(),
-                "period_end": observation.period_end.isoformat(),
-                "fiscal_period": period.fiscal_period,
-                "fiscal_year_end": None
-                if period.fiscal_year_end is None
-                else period.fiscal_year_end.isoformat(),
-                "statement_basis": observation.statement_basis,
-                "values": [value.value for value in metrics.values()],
-                "sources": references(sources),
+    def project_row(
+        period: PeriodState, observation: Observation, names: tuple[Metric, ...]
+    ) -> dict[str, object]:
+        metrics = {name: observation.metrics[name] for name in names}
+        sources = tuple(dict.fromkeys(d for value in metrics.values() for d in value.documents))
+        row: dict[str, object] = {
+            "period_start": observation.period_start.isoformat(),
+            "period_end": observation.period_end.isoformat(),
+            "fiscal_period": period.fiscal_period,
+            "fiscal_year_end": None
+            if period.fiscal_year_end is None
+            else period.fiscal_year_end.isoformat(),
+            "statement_basis": observation.statement_basis,
+            "values": [value.value for value in metrics.values()],
+            "sources": references(sources),
+        }
+        missing = {name: value.reason for name, value in metrics.items() if value.reason}
+        if missing:
+            row["missing"] = missing
+        if any(value.documents != sources for value in metrics.values()):
+            row["metric_sources"] = {
+                name: references(value.documents) for name, value in metrics.items()
             }
-            missing = {name: value.reason for name, value in metrics.items() if value.reason}
-            if missing:
-                row["missing"] = missing
-            if any(value.documents != sources for value in metrics.values()):
-                row["metric_sources"] = {
-                    name: references(value.documents) for name, value in metrics.items()
-                }
-            rows.append(row)
+        return row
+
+    rows = [
+        project_row(period, observation, _METRICS)
+        for period in shown
+        for observation in period.observations
+        if observation.measurement == "reported"
+    ]
+    # Only the newest saved period is summarized. Do not search backwards for a
+    # non-null result, derive a new TTM, or promote old balances to the current date.
+    latest = shown[-1] if shown else None
+    latest_observations: dict[str, object] = {}
+    if latest is not None:
+        for observation in latest.observations:
+            if observation.measurement == "reported":
+                continue
+            names = tuple(observation.metrics)
+            latest_observations[observation.measurement] = {
+                "columns": list(names),
+                "units": {name: result.metric_units[name] for name in names},
+                "share_basis": observation.share_basis,
+                "row": project_row(latest, observation, names),
+                "yoy": [
+                    change.model_dump(mode="json")
+                    for change in result.changes
+                    if change.measurement == observation.measurement
+                    and change.to_start == observation.period_start
+                    and change.to_end == observation.period_end
+                ],
+            }
+    cash_flow_rows = [
+        project_row(period, observation, ("operating_cash_flow",))
+        for period in shown
+        for observation in period.observations
+        if observation.measurement == "reported"
+    ]
     shown_periods = {(period.period_start, period.period_end) for period in shown}
     changes = [
         [
@@ -135,6 +174,13 @@ def project_company_growth(
                 ],
                 "to_values_ref": "reported.rows by period_start/period_end and metric column",
                 "rows": changes,
+            },
+            "latest_observations": latest_observations,
+            "reported_cash_flow": {
+                "measurement": "reported_FY_or_year_to_date_not_single_quarter",
+                "columns": ["operating_cash_flow"],
+                "units": {"operating_cash_flow": result.metric_units["operating_cash_flow"]},
+                "rows": cash_flow_rows,
             },
             "documents": {ref: source.model_dump(mode="json") for source, ref in documents.items()},
             "other_measurements_ref": "full_result_ref: periods.observations and changes",
