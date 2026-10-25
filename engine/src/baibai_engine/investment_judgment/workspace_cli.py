@@ -30,7 +30,7 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError
 
 from .operation.service import OperationConflictError
-from .selection import ResearchRequest, ResearchSelectionDraft
+from .selection import ResearchRequest, ResearchSelectionDraft, GeneratedResearchSelectionDraft
 from .selection_query import ResearchInputsRequiredError, load_selection_context
 from .workspace import (
     ResearchWorkspaceConflictError,
@@ -82,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
     context_parser.add_argument("--run-revision-id")
+    context_parser.add_argument("--generation-id")
+    context_parser.add_argument("--screening-selection-id")
     context_parser.add_argument("--db", type=Path)
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     context_parser.add_argument("--out", type=Path)
@@ -221,15 +223,31 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     )
                 except ValidationError as error:
                     parser.error(str(error))
-                payload = load_selection_context(
-                    request=request,
-                    research_as_of=args.research_asof,
-                    run_revision_id=args.run_revision_id,
-                    known_at=resolved_now,
-                    runs_path=args.runs_path,
-                    db_path=args.db,
-                    comparison_tickers=tuple(args.compare_ticker),
-                )
+                if args.generation_id is not None or args.screening_selection_id is not None:
+                    from .selection_query import load_generated_selection_context
+
+                    if args.run_revision_id is not None:
+                        raise ValueError("choose generated models or a legacy run, not both")
+                    payload = load_generated_selection_context(
+                        request=request,
+                        research_as_of=args.research_asof,
+                        generation_id=args.generation_id,
+                        screening_selection_id=args.screening_selection_id,
+                        known_at=resolved_now,
+                        runs_path=args.runs_path,
+                        db_path=args.db,
+                        comparison_tickers=tuple(args.compare_ticker),
+                    )
+                else:
+                    payload = load_selection_context(
+                        request=request,
+                        research_as_of=args.research_asof,
+                        run_revision_id=args.run_revision_id,
+                        known_at=resolved_now,
+                        runs_path=args.runs_path,
+                        db_path=args.db,
+                        comparison_tickers=tuple(args.compare_ticker),
+                    )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:
                     from baibai_engine.foundation.filesystem import write_text_atomic
@@ -260,9 +278,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             case "prepare":
                 if args.selection_file is not None:
                     prepared = prepare_selected_workspace(
-                        draft=ResearchSelectionDraft.model_validate_json(
-                            args.selection_file.read_text()
-                        ),
+                        draft=(
+                            GeneratedResearchSelectionDraft
+                            if json.loads(args.selection_file.read_text()).get("schema_version") == 2
+                            else ResearchSelectionDraft
+                        ).model_validate_json(args.selection_file.read_text()),
                         db_path=args.db,
                         workspace=args.workspace,
                         sqlite_path=args.sqlite_path,

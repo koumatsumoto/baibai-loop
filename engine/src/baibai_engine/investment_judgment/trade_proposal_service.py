@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from baibai_engine.investment_judgment.selection import saved_market_assessment
+
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
@@ -195,7 +197,7 @@ def check_proposal(
         raise ProposalConflictError("proposal preparation precedes its saved Research inputs")
     if proposal.liquidity_context != proposal_liquidity_context(selection):
         raise ProposalConflictError("proposal liquidity differs from the saved selection snapshot")
-    market_context = selection.inputs.market_context.get("saved_market_context_assessment")
+    market_context = saved_market_assessment(selection)
     context_id = market_context.get("context_id") if isinstance(market_context, dict) else None
     if proposal.market_context_assessment_id != context_id:
         raise ProposalConflictError(

@@ -11,7 +11,7 @@ from baibai_engine.machine_analysis.company_valuation.calibration.query import (
     load_er_calibration_context,
 )
 
-from .selection import ResearchSelection, selection_sha256
+from .selection import GeneratedResearchSelection, ResearchSelectionRecord as ResearchSelection, selection_sha256
 
 
 def research_calibration_context(
@@ -19,6 +19,14 @@ def research_calibration_context(
 ) -> dict[str, object]:
     """Read a diagnostic only; never change Selection, candidate order or decisions."""
 
+    if isinstance(selection, GeneratedResearchSelection):
+        return {
+            "selection_sha256": selection_sha256(selection),
+            "generation_id": selection.inputs.generation.generation_id,
+            "checked_as_of": as_of.isoformat(),
+            "status": "not_applicable",
+            "unavailable_reason": "generated_models_do_not_emit_legacy_er",
+        }
     source = selection.inputs.analysis
     result: dict[str, object] = {
         "selection_sha256": selection_sha256(selection),

@@ -36,6 +36,9 @@ from baibai_engine.investment_judgment.operation.validation import (
     validate_selection,
 )
 from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.investment_judgment.selection import GeneratedResearchSelection
+from baibai_engine.investment_judgment.generated_inputs import verify_generated_inputs
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.investment_judgment.selection_query import verify_analysis_snapshot
 from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
@@ -100,12 +103,20 @@ class OperationService:
         )
         if session_kind != expected_kind or ticker != expected_ticker:
             raise OperationConflictError("Operation kind/ticker differs from Research scope")
-        verify_analysis_snapshot(
-            selection.inputs.analysis,
-            tickers=tuple(t.ticker for t in selection.targets),
-            known_at=selection.input_known_at,
-            runs_path=self._runs_path,
-        )
+        if isinstance(selection, GeneratedResearchSelection):
+            verify_generated_inputs(selection.inputs.generation, runs_path=self._runs_path)
+            selection_id = selection.inputs.screening_selection_id
+            if selection_id is not None:
+                screening = ScreeningSelectionStore(self._runs_path).read(selection_id)
+                if screening is None or screening.generation_id != selection.inputs.generation.generation_id:
+                    raise OperationConflictError("screening selection differs from chosen generation")
+        else:
+            verify_analysis_snapshot(
+                selection.inputs.analysis,
+                tickers=tuple(t.ticker for t in selection.targets),
+                known_at=selection.input_known_at,
+                runs_path=self._runs_path,
+            )
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"

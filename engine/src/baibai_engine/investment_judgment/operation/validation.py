@@ -7,7 +7,7 @@ from datetime import datetime
 
 from baibai_engine.investment_judgment.operation.progress import ResearchProgress, require_coverage
 from baibai_engine.investment_judgment.selection import (
-    ResearchSelection,
+    ResearchSelectionRecord as ResearchSelection,
     ResearchTarget,
     selection_targets,
 )

@@ -19,6 +19,10 @@ from baibai_engine.investment_judgment.operation.validation import validate_targ
 from baibai_engine.investment_judgment.selection import (
     ResearchScope,
     ResearchSelection,
+    ResearchSelectionRecord,
+    GeneratedResearchSelection,
+    GeneratedResearchSelectionDraft,
+    GeneratedResearchInputs,
     ResearchSelectionDraft,
     ResearchTarget,
     selection_sha256,
@@ -28,6 +32,10 @@ from baibai_engine.investment_judgment.selection_policy import (
     validate_capacity,
 )
 from baibai_engine.investment_judgment.selection_query import load_analysis_snapshot
+from baibai_engine.investment_judgment.market_context.query import latest_assessment
+from baibai_engine.investment_judgment.market_context.projection import assessment_projection
+from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.investment_judgment.workspace.admission import workspace_selection
 from baibai_engine.investment_judgment.workspace.files import (
     ResearchWorkspaceConflictError,
@@ -61,14 +69,28 @@ def _growth_range_matches(value: object, draft: ResearchSelectionDraft) -> bool:
     )
 
 
-def _same_draft(selection: ResearchSelection, draft: ResearchSelectionDraft) -> bool:
-    return (
+def _same_draft(
+    selection: ResearchSelectionRecord,
+    draft: ResearchSelectionDraft | GeneratedResearchSelectionDraft,
+) -> bool:
+    common = (
         selection.request == draft.request
         and selection.research_as_of == draft.research_as_of
         and selection.input_known_at == draft.input_known_at
-        and selection.inputs.analysis.run_revision_id == draft.run_revision_id
         and selection.targets == draft.targets
         and selection.selection_summary == draft.selection_summary
+    )
+    if isinstance(selection, GeneratedResearchSelection):
+        return (
+            common
+            and isinstance(draft, GeneratedResearchSelectionDraft)
+            and selection.inputs.generation.generation_id == draft.generation_id
+            and selection.inputs.screening_selection_id == draft.screening_selection_id
+        )
+    return (
+        common
+        and isinstance(draft, ResearchSelectionDraft)
+        and selection.inputs.analysis.run_revision_id == draft.run_revision_id
         and selection.inputs.input_gaps == draft.input_gaps
         and all(
             _growth_range_matches(row.get("company_growth"), draft)
@@ -77,9 +99,43 @@ def _same_draft(selection: ResearchSelection, draft: ResearchSelectionDraft) -> 
     )
 
 
+def _generated_selection(
+    draft: GeneratedResearchSelectionDraft, *, runs_path: Path, app_path: Path
+) -> GeneratedResearchSelection:
+    if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
+        raise ValueError("discovery requires an explicit saved screening selection")
+    if draft.screening_selection_id is not None:
+        screening = ScreeningSelectionStore(runs_path).read(draft.screening_selection_id)
+        if screening is None or screening.generation_id != draft.generation_id:
+            raise ValueError("screening selection differs from the chosen generation")
+    models = ModelGenerationStore(runs_path).read_subjects(
+        draft.generation_id, subjects=("market", *(t.ticker for t in draft.targets))
+    )
+    if models is None:
+        raise ValueError("chosen model generation is unavailable")
+    context = latest_assessment(
+        app_path, as_of=draft.research_as_of, known_at=draft.input_known_at
+    )
+    return GeneratedResearchSelection(
+        request=draft.request,
+        research_as_of=draft.research_as_of,
+        input_known_at=draft.input_known_at,
+        selection_summary=draft.selection_summary,
+        targets=draft.targets,
+        capacity=CURRENT_RESEARCH_CAPACITY,
+        inputs=GeneratedResearchInputs(
+            generation=models,
+            screening_selection_id=draft.screening_selection_id,
+            saved_market_context_assessment=None if context is None else assessment_projection(
+                context, as_of=draft.research_as_of
+            ),
+        ),
+    )
+
+
 def prepare_selected_workspace(
     *,
-    draft: ResearchSelectionDraft,
+    draft: ResearchSelectionDraft | GeneratedResearchSelectionDraft,
     db_path: Path | None,
     workspace: Path,
     sqlite_path: Path,
@@ -127,14 +183,6 @@ def prepare_selected_workspace(
     except ValueError as error:
         raise ResearchWorkspaceConflictError(str(error)) from error
     tickers = tuple(t.ticker for t in draft.targets)
-    snapshot = load_analysis_snapshot(
-        run_revision_id=draft.run_revision_id,
-        research_as_of=draft.research_as_of,
-        tickers=tickers,
-        gaps=draft.input_gaps,
-        known_at=draft.input_known_at,
-        runs_path=runs_path,
-    )
     if database_path(db_path).exists():
         with closing(connect_read_only(database_path(db_path))) as connection:
             try:
@@ -147,28 +195,42 @@ def prepare_selected_workspace(
                 )
             except ValueError as error:
                 raise ResearchWorkspaceConflictError(str(error)) from error
-    inputs = collect_research_inputs(
-        snapshot=snapshot,
-        input_gaps=draft.input_gaps,
-        tickers=tickers,
-        research_as_of=draft.research_as_of,
-        input_known_at=draft.input_known_at,
-        market_path=sqlite_path,
-        indicators_path=indicators_path,
-        app_path=database_path(db_path),
-        company_growth_mirror=company_growth_mirror,
-        company_growth_start=draft.company_growth_start,
-        company_growth_end=draft.company_growth_end,
-    )
-    selection = ResearchSelection(
-        request=draft.request,
-        research_as_of=draft.research_as_of,
-        input_known_at=draft.input_known_at,
-        selection_summary=draft.selection_summary,
-        targets=draft.targets,
-        capacity=CURRENT_RESEARCH_CAPACITY,
-        inputs=inputs,
-    )
+    selection: ResearchSelectionRecord
+    if isinstance(draft, GeneratedResearchSelectionDraft):
+        selection = _generated_selection(draft, runs_path=runs_path, app_path=database_path(db_path))
+        canonical_refs = (draft.generation_id,)
+    else:
+        snapshot = load_analysis_snapshot(
+            run_revision_id=draft.run_revision_id,
+            research_as_of=draft.research_as_of,
+            tickers=tickers,
+            gaps=draft.input_gaps,
+            known_at=draft.input_known_at,
+            runs_path=runs_path,
+        )
+        inputs = collect_research_inputs(
+            snapshot=snapshot,
+            input_gaps=draft.input_gaps,
+            tickers=tickers,
+            research_as_of=draft.research_as_of,
+            input_known_at=draft.input_known_at,
+            market_path=sqlite_path,
+            indicators_path=indicators_path,
+            app_path=database_path(db_path),
+            company_growth_mirror=company_growth_mirror,
+            company_growth_start=draft.company_growth_start,
+            company_growth_end=draft.company_growth_end,
+        )
+        selection = ResearchSelection(
+            request=draft.request,
+            research_as_of=draft.research_as_of,
+            input_known_at=draft.input_known_at,
+            selection_summary=draft.selection_summary,
+            targets=draft.targets,
+            capacity=CURRENT_RESEARCH_CAPACITY,
+            inputs=inputs,
+        )
+        canonical_refs = () if snapshot.run_revision_id is None else (snapshot.run_revision_id,)
     holding = draft.request.scope == "review_positions"
     operation = service.start(
         session_kind="position-review" if holding else "capital-allocation",
@@ -178,7 +240,7 @@ def prepare_selected_workspace(
         payload=OperationPayload(
             checkpoint="Research selection and fixed inputs saved",
             artifacts=(selection.model_dump(mode="json"),),
-            canonical_refs=() if snapshot.run_revision_id is None else (snapshot.run_revision_id,),
+            canonical_refs=canonical_refs,
             next="research the selected targets; record completed or unfinished outcomes",
         ),
     )
@@ -207,7 +269,7 @@ def resume_selected_workspace(
     operation = OperationService(db_path).get(operation_id)
     selection = selection_binding(operation.payload)
     if selection is None:
-        raise ResearchWorkspaceConflictError("Operation has no V2 selection")
+        raise ResearchWorkspaceConflictError("Operation has no fixed selection")
     if now.utcoffset() is None or now < operation.started_at:
         raise ResearchWorkspaceConflictError("resume precedes the Operation start")
     manifest_path = workspace / "manifest.yaml"
@@ -229,7 +291,7 @@ def resume_selected_workspace(
 
 def _materialize(
     operation: OperationSession,
-    selection: ResearchSelection,
+    selection: ResearchSelectionRecord,
     workspace: Path,
     *,
     status: Literal["prepared", "resumed", "already_completed"],
@@ -246,7 +308,12 @@ def _materialize(
         "selection_sha256": digest,
         "purpose": purpose,
     }
-    if any("company_growth" in row for row in selection.inputs.securities_context.values()):
+    has_growth = (
+        any(model.model_id == "company_growth" for model in selection.inputs.generation.models)
+        if isinstance(selection, GeneratedResearchSelection)
+        else any("company_growth" in row for row in selection.inputs.securities_context.values())
+    )
+    if has_growth:
         manifest["company_growth_periods"] = company_growth_periods
     try:
         workspace.mkdir(parents=True, exist_ok=True)

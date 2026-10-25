@@ -10,13 +10,15 @@ from typing import cast
 from pydantic import JsonValue
 
 from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
+from baibai_engine.investment_judgment.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.market_context.projection import assessment_projection
 from baibai_engine.investment_judgment.market_context.query import latest_assessment
 from baibai_engine.investment_judgment.selection import (
     AnalysisInputSnapshot,
     InputGap,
     ResearchInputsSnapshot,
-    ResearchSelection,
+    ResearchSelectionRecord,
+    GeneratedResearchSelection,
     selection_targets,
 )
 from baibai_engine.machine_analysis.company_growth.query import company_growth
@@ -91,8 +93,26 @@ def collect_research_inputs(
 
 
 def project_research_inputs(
-    selection: ResearchSelection, *, company_growth_periods: int | None = 12
+    selection: ResearchSelectionRecord, *, company_growth_periods: int | None = 12
 ) -> dict[str, JsonValue]:
+    if isinstance(selection, GeneratedResearchSelection):
+        return {
+            **project_generated_inputs(
+                selection.inputs.generation, company_growth_periods=company_growth_periods
+            ),
+            "research_as_of": selection.research_as_of.isoformat(),
+            "known_at": selection.input_known_at.isoformat(),
+            "saved_market_context_assessment": selection.inputs.saved_market_context_assessment,
+            "research_targets": [
+                target.model_dump(mode="json") for target in selection_targets(selection)
+            ],
+            "research_selection": {
+                "request": selection.request.model_dump(mode="json"),
+                "scope": selection.request.scope,
+                "selection_summary": selection.selection_summary,
+                "targets": [target.model_dump(mode="json") for target in selection.targets],
+            },
+        }
     snapshot = selection.inputs.analysis
     securities: dict[str, object] = {}
     for target in selection.targets:

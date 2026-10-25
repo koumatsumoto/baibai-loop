@@ -8,7 +8,7 @@ from pathlib import Path
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.selection import (
-    ResearchSelection,
+    ResearchSelectionRecord as ResearchSelection,
     ResearchTarget,
     selection_sha256,
     selection_targets,
