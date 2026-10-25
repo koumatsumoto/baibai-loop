@@ -57,7 +57,7 @@ it.each(['invalid ledger', ''])('does not describe an unreadable ledger as an em
   expect(html).not.toContain('保有銘柄はありません')
   expect(html).not.toContain('銘柄を保有')
   expect(html).not.toContain('資産と損益')
-  expect(html).toContain('前回実行からの変化')
+  expect(html).not.toContain('前回実行からの変化')
 })
 
 it('keeps portfolio information visible when the independent outcomes request fails', () => {
@@ -70,16 +70,15 @@ it('keeps portfolio information visible when the independent outcomes request fa
   expect(html).not.toContain('Dashboard read error')
 })
 
-it('routes an operations request failure to its own state, not the portfolio error', async () => {
+it('routes an outcomes request failure to its own state, not the portfolio error', async () => {
   vi.mocked(fetchJson)
     .mockResolvedValueOnce(dashboard())
     .mockRejectedValueOnce(new Error('outcomes unavailable'))
-    .mockReturnValueOnce(new Promise(() => {}))
   DashboardPage()
   hooks.effects[0]()
   await Promise.resolve()
   await Promise.resolve()
   expect(hooks.setters[2]).toHaveBeenCalledWith('outcomes unavailable')
-  expect(hooks.setters[5]).not.toHaveBeenCalled()
+  expect(hooks.setters[3]).not.toHaveBeenCalled()
   expect(hooks.setters[0]).toHaveBeenCalledWith(dashboard())
 })

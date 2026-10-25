@@ -22,6 +22,8 @@ from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.time import JST
 from baibai_engine.investment_judgment.selection_policy import ResearchCapacity, validate_capacity
+from baibai_engine.machine_analysis.model_generation import ModelInputSlice
+from baibai_engine.machine_analysis.screening.model_projection import ScreeningSelection
 
 
 def _ticker(value: object) -> str:
@@ -73,31 +75,6 @@ class InputGap(_Contract):
     ticker: Ticker
     reason: Text
     attempted_sources: tuple[Text, ...] = Field(min_length=1)
-
-
-class ResearchSelectionDraft(_Contract):
-    schema_version: Literal[1]
-    request: ResearchRequest
-    research_as_of: date
-    input_known_at: AwareDatetime
-    run_revision_id: Text | None = None
-    selection_summary: Text
-    targets: tuple[SelectedTarget, ...] = ()
-    input_gaps: tuple[InputGap, ...] = ()
-    company_growth_start: date | None = None
-    company_growth_end: date | None = None
-
-    @model_validator(mode="after")
-    def validate_selection(self) -> Self:
-        _validate_subjects(self.request, self.targets, self.input_gaps)
-        end = self.company_growth_end or self.research_as_of
-        if end > self.research_as_of or (
-            self.company_growth_start is not None and self.company_growth_start > end
-        ):
-            raise ValueError("company growth requires start <= end <= research_as_of")
-        if self.research_as_of > self.input_known_at.astimezone(JST).date():
-            raise ValueError("research_as_of is after the input cutoff's JST date")
-        return self
 
 
 class AnalysisInputSnapshot(_Contract):
@@ -182,6 +159,87 @@ class ResearchSelection(_Contract):
         return self
 
 
+class GeneratedResearchInputs(_Contract):
+    """生成済みモデルの対象別コピー。旧runや可変storeを再計算しない。"""
+
+    generation: ModelInputSlice
+    screening_selection_id: Text | None = None
+    screening_selection: ScreeningSelection | None = None
+    screening_published_at: AwareDatetime | None = None
+    saved_market_context_assessment: dict[str, JsonValue] | None = None
+
+    @model_validator(mode="after")
+    def fixed_policy(self) -> Self:
+        present = (
+            self.screening_selection_id is not None,
+            self.screening_selection is not None,
+            self.screening_published_at is not None,
+        )
+        if any(present) and not all(present):
+            raise ValueError("screening identity, result and publication time must be paired")
+        if (
+            self.screening_selection is not None
+            and self.screening_selection.generation_id != self.generation.generation_id
+        ):
+            raise ValueError("screening selection differs from the chosen generation")
+        return self
+
+
+class GeneratedResearchSelectionDraft(_Contract):
+    schema_version: Literal[2]
+    request: ResearchRequest
+    research_as_of: date
+    input_known_at: AwareDatetime
+    generation_id: Text
+    screening_selection_id: Text | None = None
+    selection_summary: Text
+    targets: tuple[SelectedTarget, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> Self:
+        _validate_subjects(self.request, self.targets, ())
+        if self.research_as_of > self.input_known_at.astimezone(JST).date():
+            raise ValueError("research_as_of is after the input cutoff's JST date")
+        return self
+
+
+class GeneratedResearchSelection(_Contract):
+    kind: Literal["research_selection"] = "research_selection"
+    schema_version: Literal[3] = 3
+    request: ResearchRequest
+    research_as_of: date
+    input_known_at: AwareDatetime
+    selection_summary: Text
+    targets: tuple[SelectedTarget, ...]
+    capacity: ResearchCapacity
+    inputs: GeneratedResearchInputs
+
+    @model_validator(mode="after")
+    def fixed_inputs(self) -> Self:
+        _validate_subjects(self.request, self.targets, ())
+        validate_capacity(len(self.targets), self.capacity)
+        generation = self.inputs.generation
+        if self.request.scope == "discover_new" and self.inputs.screening_selection_id is None:
+            raise ValueError("discovery requires an explicit saved screening selection")
+        if set(generation.subjects) != {"market", *(t.ticker for t in self.targets)}:
+            raise ValueError("model input scope must exactly cover targets and common market")
+        if self.research_as_of > self.input_known_at.astimezone(JST).date():
+            raise ValueError("research_as_of is after the input cutoff's JST date")
+        if generation.as_of > self.research_as_of:
+            raise ValueError("generation as_of is after research_as_of")
+        if generation.evaluation_time > self.input_known_at:
+            raise ValueError("generation evaluation_time is after input_known_at")
+        if (
+            self.inputs.screening_published_at is not None
+            and self.inputs.screening_published_at > self.input_known_at
+        ):
+            raise ValueError("screening publication is after input_known_at")
+        return self
+
+
+type ResearchSelectionRecord = ResearchSelection | GeneratedResearchSelection
+
+
 def _validate_subjects(
     request: ResearchRequest, targets: tuple[SelectedTarget, ...], gaps: tuple[InputGap, ...]
 ) -> None:
@@ -199,17 +257,25 @@ def _validate_subjects(
         raise ValueError("input gaps must be unique selected tickers")
 
 
-def parse_selection(payload: Mapping[str, object]) -> ResearchSelection:
+def parse_selection(payload: Mapping[str, object]) -> ResearchSelectionRecord:
+    if payload.get("schema_version") == 3:
+        return GeneratedResearchSelection.model_validate(payload)
     if payload.get("schema_version") != 2:
         raise ValueError("Research selection requires an explicit V2 cutover")
     return ResearchSelection.model_validate(payload)
 
 
-def selection_targets(selection: ResearchSelection) -> tuple[ResearchTarget, ...]:
+def selection_targets(selection: ResearchSelectionRecord) -> tuple[ResearchTarget, ...]:
     return tuple(
         ResearchTarget(ticker=item.ticker, purpose=item.purpose) for item in selection.targets
     )
 
 
-def selection_sha256(selection: ResearchSelection) -> str:
+def selection_sha256(selection: ResearchSelectionRecord) -> str:
     return sha256(canonical_json(selection.model_dump(mode="json")).encode()).hexdigest()
+
+
+def saved_market_assessment(selection: ResearchSelectionRecord) -> JsonValue:
+    if isinstance(selection, GeneratedResearchSelection):
+        return selection.inputs.saved_market_context_assessment
+    return selection.inputs.market_context.get("saved_market_context_assessment")

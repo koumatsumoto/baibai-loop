@@ -1,3 +1,5 @@
+"""現行市場readerの日足・調整係数・取得coverage。旧screening writerとは独立。"""
+
 from __future__ import annotations
 
 import sqlite3

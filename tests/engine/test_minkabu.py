@@ -13,7 +13,6 @@ from baibai_engine.machine_analysis.external_assessment.models import (
     ObservationHistory,
 )
 from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, minkabu
-from baibai_engine.machine_analysis.external_assessment.query import observed_tickers
 from baibai_engine.machine_analysis.external_assessment.reader import read_observations
 from baibai_engine.machine_analysis.external_assessment.rebuild import rebuild_attempts
 from baibai_engine.machine_analysis.external_assessment.store import (
@@ -152,7 +151,6 @@ def test_l1_replay_immutable_history_and_exact_cutoff(tmp_path):
     history = read_observations(db, "7203", NOW + timedelta(days=1))
     assert history.minkabu.latest == later
     assert history.minkabu.previous == parse()
-    assert observed_tickers(db, cutoff=NOW) == ["7203"]
     with pytest.raises(ObservationConflictError):
         save_observations(db, [parse(html(eps="9"))])
 

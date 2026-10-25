@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.machine_analysis.screening.metric_builder import (
+from baibai_engine.market.input_windows import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
@@ -49,12 +49,10 @@ def verify_screening_sqlite_coverage(
     required_jpx_sources: Iterable[str] = (),
     allow_stale_jpx: bool = False,
 ) -> tuple[CacheCoverageIssue, ...]:
-    """Return cache coverage gaps that must block `screening run`.
+    """Return saved-input gaps for manual maintenance diagnosis.
 
-    This verifier is local-only. It checks the SQLite cache that `run` will
-    read, and it never fetches raw JSON or provider APIs. If a required source
-    is incomplete, callers must stop and refresh the cache before running the
-    screen.
+    This verifier is local-only and retains the legacy calibration input contract.
+    It never fetches raw JSON or provider APIs, and is not a new-policy eligibility gate.
     """
     if not sqlite_path.exists():
         return (

@@ -1,3 +1,5 @@
+"""旧較正replayの入力adapterとCompany Valuationの機械見積り算術。五モデルの選定政策とは別。"""
+
 from __future__ import annotations
 
 import unittest

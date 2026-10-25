@@ -19,7 +19,7 @@ class TTMRules(BaseModel):
     """変則決算や前年期間のずれを区別し、別期間の利益をTTMへ混ぜない。
 
     算術の期間照合であり、購入の要求期間ではない。
-    docs/reference/screening-runtime.md#input-scope
+    docs/reference/company-valuation.md
     """
 
     model_config = ConfigDict(frozen=True, strict=True)
@@ -28,6 +28,14 @@ class TTMRules(BaseModel):
     full_year_max_days: int = Field(ge=1)
     period_length_tolerance_ratio: float = Field(ge=0)
     period_end_tolerance_days: int = Field(ge=0)
+
+
+DEFAULT_TTM_RULES = TTMRules(
+    full_year_min_days=330,
+    full_year_max_days=370,
+    period_length_tolerance_ratio=0.1,
+    period_end_tolerance_days=45,
+)
 
 
 # field が 80 を超えるので kw_only にする。位置引数で組めると、先頭へ 1 つ足しただけで
@@ -59,6 +67,10 @@ class FinancialSnapshot:
     # 予想があれば使い、無ければ利回りと E[r] を出さない。
     # dividend_split_factor は配当計算窓に調整があれば累積 factor を記録する。
     # 相殺して 1 でも記録する。変更なし・factor 不明は None。値だけでは解決状態を表さない。
+    # 倍率/警告の元数値を同じsource traceと保持する。EPSはas-of株式basis。
+    forecast_eps_yen: float | None = None
+    forecast_profit_yen: float | None = None
+    forecast_ordinary_profit_yen: float | None = None
     earnings_forecast_source: dict[str, str | None] | None = None
     dividend_forecast_source: dict[str, str | None] | None = None
     dps_actual_annual: float | None = None

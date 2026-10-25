@@ -50,7 +50,8 @@ def _command(source: str, asof: date, *, database: Path, offline: bool = False) 
         verb = ("extract-" if offline else "refresh-") + source
         return [
             "baibai-engine",
-            "screening",
+            "data-collection",
+            "market",
             verb,
             "--asof",
             asof.isoformat(),
@@ -61,7 +62,8 @@ def _command(source: str, asof: date, *, database: Path, offline: bool = False) 
         raise ValueError("this source has no extraction command")
     return [
         "baibai-engine",
-        "screening",
+        "data-collection",
+        "market",
         "bootstrap-cache",
         "--source-group",
         source,

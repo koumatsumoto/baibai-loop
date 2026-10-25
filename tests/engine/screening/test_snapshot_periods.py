@@ -1,3 +1,5 @@
+"""旧較正リプレイの合成と共有計算の回帰。現行五モデルの候補gateではない。"""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -89,7 +91,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 prior = _summary(
                     "130A",
                     date(2025, 8, 1),
-                    eps_ttm=None,
+                    cumulative_eps=None,
                     fiscal_year_end=date(2026, 3, 31),
                     period_start=date(2025, 4, 1),
                     period_end=date(2025, 6, 30),
@@ -100,7 +102,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 current = _summary(
                     "130A",
                     date(2026, 8, 1),
-                    eps_ttm=None,
+                    cumulative_eps=None,
                     fiscal_year_end=date(2027, 3, 31),
                     period_start=date(2026, 4, 1),
                     period_end=date(2026, 6, 30),
@@ -167,9 +169,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
             (
                 date(2024, 1, 31),
                 date(2025, 1, 31),
-                date(2023, 2, 28),
                 date(2023, 2, 1),
-                date(2024, 2, 29),
+                date(2023, 2, 1),
+                date(2024, 2, 1),
                 date(2023, 7, 31),
                 date(2024, 7, 31),
             ),
@@ -223,6 +225,40 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 for field in ("sales", "cfo", "operating_profit", "profit"):
                     self.assertEqual(_ttm_value(rows, field, rules.ttm), (110.0, TTMQuality.EXACT))
 
+    def test_nearby_dates_do_not_hide_a_gap_and_unsubtracted_old_period(self) -> None:
+        rows = [
+            _summary(
+                "130A",
+                date(2023, 8, 30),
+                fiscal_year_end=date(2024, 1, 31),
+                period_start=date(2023, 2, 28),
+                period_end=date(2023, 7, 31),
+                profit=20.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 3, 11),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 1, 31),
+                period_start=date(2023, 2, 1),
+                period_end=date(2024, 1, 31),
+                profit=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 8, 30),
+                fiscal_year_end=date(2025, 1, 31),
+                period_start=date(2024, 2, 29),
+                period_end=date(2024, 7, 31),
+                profit=30.0,
+            ),
+        ]
+        # The old February days survive subtraction while current February is absent.
+        # Similar total durations cannot make this a continuous trailing year.
+        self.assertEqual(
+            _ttm_value(rows, "profit", load_screening_rules().ttm), (None, TTMQuality.UNAVAILABLE)
+        )
+
     def test_prior_year_actual_period_matches_february_month_end(self) -> None:
         rows = [
             _summary(
@@ -253,7 +289,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 fiscal_year_end=date(year, 2, 29 if year == 2024 else 28),
                 period_start=date(year - 1, 3, 1),
                 period_end=date(year, 2, 29 if year == 2024 else 28),
-                eps_ttm=float((year - 2020) * 10),
+                cumulative_eps=float((year - 2020) * 10),
             )
             for year in range(2021, 2026)
         ]
@@ -271,7 +307,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(year + 1, 5, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(year + 1, 3, 31),
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
             )
             for year in range(2023, 2026)
         ]
@@ -281,7 +317,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2026, 5, 20),
                 fiscal_period="FY",
                 fiscal_year_end=date(2026, 3, 31),
-                eps_ttm=None,
+                cumulative_eps=None,
             )
         )
 
@@ -334,7 +370,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 5, 15),
-                eps_ttm=26.0,
+                cumulative_eps=26.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -343,7 +379,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 2, 6),
-                eps_ttm=114.0,
+                cumulative_eps=114.0,
                 fiscal_period="FY",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -352,7 +388,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 5, 15),
-                eps_ttm=24.0,
+                cumulative_eps=24.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2026, 12, 31),
                 period_start=date(2026, 1, 1),
@@ -528,7 +564,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 5, 15),
-                eps_ttm=40.0,
+                cumulative_eps=40.0,
                 shares_outstanding=100_000_000.0,
                 treasury_shares=30_000_000.0,
                 fiscal_period="FY",
@@ -565,7 +601,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 5, 15),
-                eps_ttm=24.0,
+                cumulative_eps=24.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2026, 12, 31),
                 period_start=date(2026, 1, 1),
@@ -589,7 +625,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 4, 24),
-                eps_ttm=10.0,
+                cumulative_eps=10.0,
                 sales=100.0,
                 cfo=20.0,
                 operating_profit=20.0,
@@ -601,7 +637,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 7, 24),
-                eps_ttm=40.0,
+                cumulative_eps=40.0,
                 sales=400.0,
                 operating_profit=80.0,
                 fiscal_period="2Q",
@@ -612,7 +648,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 10, 24),
-                eps_ttm=50.0,
+                cumulative_eps=50.0,
                 sales=500.0,
                 operating_profit=100.0,
                 fiscal_period="3Q",
@@ -623,7 +659,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 1, 24),
-                eps_ttm=60.0,
+                cumulative_eps=60.0,
                 sales=600.0,
                 operating_profit=120.0,
                 fiscal_period="FY",
@@ -634,7 +670,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 4, 24),
-                eps_ttm=15.0,
+                cumulative_eps=15.0,
                 sales=125.0,
                 cfo=25.0,
                 operating_profit=25.0,
@@ -714,7 +750,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 4, 24),
-                eps_ttm=10.0,
+                cumulative_eps=10.0,
                 sales=100.0,
                 operating_profit=20.0,
                 fiscal_period="1Q",
@@ -725,7 +761,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 7, 24),
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
                 sales=200.0,
                 operating_profit=40.0,
                 fiscal_period="2Q",
@@ -736,7 +772,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 10, 24),
-                eps_ttm=30.0,
+                cumulative_eps=30.0,
                 sales=300.0,
                 operating_profit=60.0,
                 fiscal_period="3Q",
@@ -747,7 +783,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 1, 24),
-                eps_ttm=80.0,
+                cumulative_eps=80.0,
                 sales=800.0,
                 operating_profit=160.0,
                 fiscal_period="FY",
@@ -758,7 +794,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 4, 24),
-                eps_ttm=10.0,
+                cumulative_eps=10.0,
                 sales=100.0,
                 operating_profit=20.0,
                 fiscal_period="1Q",
@@ -787,7 +823,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 4, 24),
-                eps_ttm=10.0,
+                cumulative_eps=10.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -796,14 +832,14 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 6, 1),
-                eps_ttm=999.0,
+                cumulative_eps=999.0,
                 fiscal_period="OTHER",
                 fiscal_year_end=date(2026, 3, 31),
             ),
             _summary(
                 "130A",
                 date(2025, 7, 24),
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
                 fiscal_period="2Q",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -812,7 +848,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 10, 24),
-                eps_ttm=30.0,
+                cumulative_eps=30.0,
                 fiscal_period="3Q",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -821,7 +857,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 1, 24),
-                eps_ttm=40.0,
+                cumulative_eps=40.0,
                 fiscal_period="FY",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -830,7 +866,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 4, 24),
-                eps_ttm=15.0,
+                cumulative_eps=15.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2026, 12, 31),
                 period_start=date(2026, 1, 1),
@@ -852,35 +888,35 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 4, 24),
-                eps_ttm=10.0,
+                cumulative_eps=10.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2026, 3, 31),
             ),
             _summary(
                 "130A",
                 date(2025, 7, 24),
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
                 fiscal_period="2Q",
                 fiscal_year_end=date(2026, 3, 31),
             ),
             _summary(
                 "130A",
                 date(2025, 10, 24),
-                eps_ttm=30.0,
+                cumulative_eps=30.0,
                 fiscal_period="3Q",
                 fiscal_year_end=date(2026, 3, 31),
             ),
             _summary(
                 "130A",
                 date(2026, 1, 24),
-                eps_ttm=40.0,
+                cumulative_eps=40.0,
                 fiscal_period="FY",
                 fiscal_year_end=date(2026, 3, 31),
             ),
             _summary(
                 "130A",
                 date(2026, 4, 24),
-                eps_ttm=15.0,
+                cumulative_eps=15.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2027, 5, 31),
             ),
@@ -905,7 +941,7 @@ def test_prior_year_conflict_does_not_revive_an_older_revision(with_period_dates
         fiscal_year_end=date(2026, 3, 31),
         period_start=date(2025, 4, 1) if with_period_dates else None,
         period_end=date(2025, 6, 30) if with_period_dates else None,
-        eps_ttm=80.0,
+        cumulative_eps=80.0,
         sales=80.0,
         cfo=80.0,
         operating_profit=-80.0,
@@ -913,19 +949,19 @@ def test_prior_year_conflict_does_not_revive_an_older_revision(with_period_dates
     first = replace(
         old,
         disclosed_at=date(2025, 8, 1),
-        eps_ttm=100.0,
+        cumulative_eps=100.0,
         sales=100.0,
         cfo=100.0,
         operating_profit=-100.0,
     )
-    second = replace(first, eps_ttm=120.0, sales=120.0, cfo=120.0, operating_profit=-120.0)
+    second = replace(first, cumulative_eps=120.0, sales=120.0, cfo=120.0, operating_profit=-120.0)
     current = _summary(
         "130A",
         date(2026, 8, 1),
         fiscal_year_end=date(2027, 3, 31),
         period_start=date(2026, 4, 1) if with_period_dates else None,
         period_end=date(2026, 6, 30) if with_period_dates else None,
-        eps_ttm=110.0,
+        cumulative_eps=110.0,
         sales=110.0,
         cfo=110.0,
         operating_profit=-50.0,

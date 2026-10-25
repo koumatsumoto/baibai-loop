@@ -86,13 +86,6 @@ def valuation_metrics_from_analysis(analysis: Mapping[str, object]) -> dict[str,
     }
 
 
-def anchor_gap_pct(valuation: MachineValuation) -> float | None:
-    anchor, price = valuation.sector_median_anchor_yen, valuation.market_price_yen
-    if anchor is None or price is None or price == 0:
-        return None
-    return round((anchor / price - 1) * 100, 4)
-
-
 def forecast_sources_from_analysis(analysis: Mapping[str, object]) -> dict[str, object]:
     """Decode saved trace objects for reading; keep fields and unresolved sources intact."""
     raw = analysis.get("metrics")

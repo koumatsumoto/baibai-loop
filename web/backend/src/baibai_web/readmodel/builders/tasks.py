@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 
-from baibai_engine.read_api import PortfolioLedgerError
-from baibai_web.readmodel.builders.presentation import (
-    _JST,
-    latest_research_by_ticker,
-    reservation_last_valid_day,
-    security_names_for_run,
-)
+from baibai_engine.foundation.time import JST
+from baibai_engine.tasks.models import Task
+from baibai_web.readmodel.builders.presentation import reservation_last_valid_day
 from baibai_web.readmodel.models import (
     TasksView,
     TaskView,
@@ -19,12 +16,9 @@ from baibai_web.readmodel.models import (
 )
 from baibai_web.sources.protocols import (
     LedgerSource,
-    MarketPriceSource,
-    ResearchSource,
-    ScreeningSource,
+    MarketSource,
     TaskSource,
 )
-from baibai_web.sources.types import TaskRecord
 
 _EVENT_WINDOW_DAYS = 14
 _EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
@@ -33,28 +27,26 @@ _EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
 def build_tasks(
     tasks: TaskSource,
     ledger: LedgerSource,
-    research: ResearchSource,
-    screening: ScreeningSource,
-    market: MarketPriceSource,
+    market: MarketSource,
 ) -> TasksView:
     """Build task workflow independently from Dashboard portfolio presentation."""
 
-    now = datetime.now(_JST)
+    now = datetime.now(JST)
     today = now.date()
     open_tasks, next_task = _task_views(tasks.list_tasks(), today=today)
     tasks_exist = tasks.exists()
-    if not ledger.exists():
-        return TasksView(
-            generated_at=now,
-            tasks_exist=tasks_exist,
-            open_tasks=open_tasks,
-            next_task=next_task,
-            upcoming_events=[],
-            ledger_error=None,
-        )
     try:
+        if not ledger.exists():
+            return TasksView(
+                generated_at=now,
+                tasks_exist=tasks_exist,
+                open_tasks=open_tasks,
+                next_task=next_task,
+                upcoming_events=[],
+                ledger_error=None,
+            )
         snapshot = ledger.snapshot()
-    except PortfolioLedgerError as error:
+    except (ValueError, RuntimeError, sqlite3.Error) as error:
         return TasksView(
             generated_at=now,
             tasks_exist=tasks_exist,
@@ -64,13 +56,9 @@ def build_tasks(
             ledger_error=str(error),
         )
 
-    latest_research = latest_research_by_ticker(research.revisions())
-    security_names = security_names_for_run(screening.latest_run())
+    security_names = market.security_names(as_of=today)
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
     earnings_dates = market.next_earnings_dates(holding_tickers, as_of=today)
-    security_names.update(
-        {ticker: revision.company_name for ticker, revision in latest_research.items()}
-    )
     return TasksView(
         generated_at=now,
         tasks_exist=tasks_exist,
@@ -78,16 +66,17 @@ def build_tasks(
         next_task=next_task,
         upcoming_events=_upcoming_events(
             today=today,
-            earnings=earnings_dates,
+            earnings=earnings_dates or {},
             names=security_names,
             expiries=((item.ticker, item.expires_at) for item in snapshot.active_reservations),
         ),
+        earnings_calendar_available=None if not holding_tickers else earnings_dates is not None,
         ledger_error=None,
     )
 
 
 def _task_views(
-    records: list[TaskRecord],
+    records: list[Task],
     *,
     today: date,
 ) -> tuple[list[TaskView], TaskView | None]:
@@ -99,7 +88,7 @@ def _task_views(
     return views, views[0] if views else None
 
 
-def _task_view(record: TaskRecord, *, today: date) -> TaskView:
+def _task_view(record: Task, *, today: date) -> TaskView:
     return TaskView(
         task_id=record.task_id,
         title=record.title,

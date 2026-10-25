@@ -8,24 +8,24 @@ function activeLabels(pathname: string): string[] {
 
 describe('NAV_TABS active matching', () => {
   it('activates exactly one tab per route', () => {
-    for (const pathname of ['/', '/market-context', '/market-context/assessments/x', '/stocks', '/stocks/explore', '/stocks/investment-proposals/x', '/stocks/stock-assessments/x', '/securities/2331', '/tasks']) {
+    for (const pathname of ['/', '/tasks']) {
       expect(activeLabels(pathname)).toHaveLength(1)
     }
   })
 
   it('keeps Dashboard exact so it does not match sub-routes', () => {
     expect(activeLabels('/')).toEqual(['Dashboard'])
-    expect(activeLabels('/market-context')).toEqual(['投資判断'])
+    expect(activeLabels('/market-context')).toEqual([])
   })
 
-  it('keeps Market Context active on the report detail route', () => {
-    expect(activeLabels('/market-context/assessments/macro-context-2026-07-01')).toEqual(['投資判断'])
+  it('does not retain the removed market route', () => {
+    expect(activeLabels('/market-context/assessments/macro-context-2026-07-01')).toEqual([])
   })
 
-  it('keeps Stocks active on proposal, assessment and security detail routes', () => {
-    expect(activeLabels('/stocks/investment-proposals/investment-proposal-original')).toEqual(['投資判断'])
-    expect(activeLabels('/stocks/stock-assessments/stock-assessment-original')).toEqual(['投資判断'])
-    expect(activeLabels('/securities/2331')).toEqual(['投資判断'])
+  it('does not retain removed research routes', () => {
+    expect(activeLabels('/stocks/investment-proposals/investment-proposal-original')).toEqual([])
+    expect(activeLabels('/stocks/stock-assessments/stock-assessment-original')).toEqual([])
+    expect(activeLabels('/securities/2331')).toEqual([])
   })
 
   it('keeps Tasks isolated from Dashboard', () => {

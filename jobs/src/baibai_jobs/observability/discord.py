@@ -2,10 +2,10 @@
 
 One message per terminal state of ``cloud-daily-batch``. It serves the daily
 machine loop's "見せる" role: from one message a reader learns whether the day's
-artefacts were published, which step to open when they were not, and which names
-entered or left the candidate list — the only channel that reaches the reader without
-being opened. Detailed metrics and release identifiers stay in the workflow log linked by
-the Run line. Shared formatting also serves source receipts and missing-run alerts.
+artefacts were published, which step to open when they were not, and the generated
+company/model/candidate counts. Generation is distinct from cloud-store reflection.
+Detailed metrics and release identifiers stay in the workflow log linked by the Run
+line. Shared formatting also serves source receipts and missing-run alerts.
 
 Dependency-free by design: only the Python standard library and no 3.13+ syntax,
 so the notification step (and the pre-``setup-python`` smoke check) can import
@@ -37,27 +37,18 @@ from pathlib import Path
 WEBHOOK_ENV_VAR = "DISCORD_WEBHOOK_URL"
 DEFAULT_TIMEOUT_SECONDS = 10.0
 MESSAGE_MAX_CHARS = 2000
-ENTERED_TICKERS_SHOWN = 5
 _SCALAR_MAX_CHARS = 120
-_ENTRY_MAX_CHARS = 48
 
 OUTCOME_OK = "ok"
-OUTCOME_SKIPPED = "skipped"
 OUTCOME_DEGRADED = "degraded"
 OUTCOME_FAILED = "failed"
 OUTCOME_CANCELLED = "cancelled"
 OUTCOME_LABELS = {
     OUTCOME_OK: "[OK]",
-    OUTCOME_SKIPPED: "[SKIPPED]",
     OUTCOME_DEGRADED: "[DEGRADED]",
     OUTCOME_FAILED: "[FAILED]",
     OUTCOME_CANCELLED: "[CANCELLED]",
 }
-# The batch exported the complete serving image with a domain failure.
-# Screening may have stayed on a retained publication. The job stays green;
-# this label is how the failure reaches the reader.
-EXIT_DEFERRED_FAILURE = "3"
-
 # Non-batch workflow steps in execution order. The first one that neither
 # succeeded nor was skipped names where the reader should look first; a step that
 # was cancelled rather than failed still stopped the publish.
@@ -71,19 +62,13 @@ STEP_ORDER = (
     "source-integration",
     "publish-lake",
     "upload-stores",
-    "publish-serving",
-    "lease-release",
     "source-seal",
     "source-inputs",
     "source-check",
+    "portfolio-views",
+    "lease-release",
 )
 
-_ENTERED_PREFIX = "🆕 新規 候補入り: "
-_EXITED_PREFIX = "👋 候補退出: "
-_DELTA_EMPTY_TEXT = "なし"
-_DELTA_UNMEASURED_TEXT = "計測なし"
-_DELTA_UNMEASURED_UNKNOWN_REASON = "理由不明"
-_DELTA_UNREADABLE_REASON = "metric_unreadable"
 _DISCORD_HOSTS = ("discord.com", "discordapp.com")
 _WEBHOOK_PATH_PREFIX = "/api/webhooks/"
 # Any C0 control, space, or DEL: a webhook secret pasted with stray whitespace
@@ -244,58 +229,27 @@ def decide_outcome(
 
     if cancelled:
         return OUTCOME_CANCELLED
+    if failed_step == "portfolio-views" and batch_exit_code == "0":
+        return OUTCOME_DEGRADED
     if failed_step:
         return OUTCOME_FAILED
     if batch_exit_code == "0":
         return OUTCOME_OK
-    if batch_exit_code == EXIT_DEFERRED_FAILURE:
-        return OUTCOME_DEGRADED
     return OUTCOME_FAILED
 
 
-def _render_side(value: object) -> str:
-    if not isinstance(value, list):
-        return f"{_DELTA_UNMEASURED_TEXT}（{_DELTA_UNREADABLE_REASON}）"
-    entries = [text for item in value if (text := sanitize_one_line(item, _ENTRY_MAX_CHARS))]
-    if not entries:
-        return _DELTA_EMPTY_TEXT
-    rendered = " / ".join(entries[:ENTERED_TICKERS_SHOWN])
-    if len(entries) > ENTERED_TICKERS_SHOWN:
-        rendered = (
-            f"全{len(entries)}件・銘柄コード順で{ENTERED_TICKERS_SHOWN}件表示: "
-            + rendered
-            + f"（他{len(entries) - ENTERED_TICKERS_SHOWN}件）"
-        )
-    return rendered
+def render_generation(notice: Mapping[str, object]) -> list[str]:
+    """Report generation counts without claiming that cloud-store upload succeeded."""
 
-
-def render_delta(notice: Mapping[str, object]) -> list[str]:
-    """Render candidate entries/exits whenever the machine run was updated.
-
-    Silence would carry three different facts — nothing entered, the delta could not
-    be measured, and the notification path is broken — and a reader cannot tell them
-    apart. So on every run that reached the export the two lines are present and say
-    which case it is. A non-business day or failed screening reports that the
-    stored result was retained, without claiming a new candidate delta.
-    """
-
-    if not notice:
+    if notice.get("models_ready") is False:
+        return ["モデル統合: 未完了"]
+    if notice.get("models_ready") is not True:
         return []
-    screening_status = notice.get("screening_status")
-    if screening_status in {"skipped_non_business_day", "failed"}:
-        reason = "非営業日" if screening_status == "skipped_non_business_day" else "失敗"
-        return [f"Screening更新なし（{reason}）; 保存済み結果を保持"]
-    if notice.get("delta_measured") is not True:
-        reason = sanitize_one_line(
-            notice.get("delta_unmeasured_reason") or _DELTA_UNMEASURED_UNKNOWN_REASON,
-            _ENTRY_MAX_CHARS,
-        )
-        text = f"{_DELTA_UNMEASURED_TEXT}（{reason}）"
-        return [_ENTERED_PREFIX + text, _EXITED_PREFIX + text]
-    return [
-        _ENTERED_PREFIX + _render_side(notice.get("entered")),
-        _EXITED_PREFIX + _render_side(notice.get("exited")),
-    ]
+    counts = [notice.get(key) for key in ("company_count", "model_count", "candidate_count")]
+    if any(type(value) is not int or value < 0 for value in counts):
+        return ["モデル生成: 完了 / 件数未確認"]
+    companies, models, candidates = counts
+    return [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
 
 
 def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
@@ -354,7 +308,7 @@ def render_message(
     integration_report: Mapping[str, object] | None = None,
     step_outcomes: Mapping[str, str] | None = None,
 ) -> str:
-    """Separate workflow outcome, publication steps and retained screening data."""
+    """Separate workflow outcome, publication steps and generated-model counts."""
 
     details = []
     if failed_step:
@@ -367,11 +321,15 @@ def render_message(
                 for step, name in (
                     ("publish-lake", "Lake公開"),
                     ("upload-stores", "Store反映"),
-                    ("publish-serving", "表示公開"),
+                    ("portfolio-views", "保有・運用画面更新"),
                 )
             )
         )
-    details.extend(render_delta(notice))
+    if outcome != OUTCOME_CANCELLED:
+        generation_notice = notice
+        if step_outcomes and step_outcomes.get("publish-lake") in {"failure", "cancelled"}:
+            generation_notice = {"models_ready": False}
+        details.extend(render_generation(generation_notice))
     details.extend(render_deferred_inputs(integration_report or {}))
     return render_run_notice(
         label=OUTCOME_LABELS[outcome],
@@ -442,22 +400,20 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     if not failed_step:
         if args.batch_exit_code == "":
             # The batch was never reached and no tracked step failed: an untracked
-            # one (checkout, setup-uv, the Playwright steps) did.
+            # one (such as checkout or setup-uv) did.
             failed_step = "pre-batch"
-        elif args.batch_exit_code not in {"0", EXIT_DEFERRED_FAILURE}:
+        elif args.batch_exit_code != "0":
             failed_step = sanitize_one_line(notice.get("failed_stage") or "batch")
     outcome = decide_outcome(
         batch_exit_code=args.batch_exit_code,
         failed_step=failed_step,
         cancelled=args.cancelled == "true",
     )
-    if outcome == OUTCOME_DEGRADED and not failed_step:
-        failed_step = sanitize_one_line(notice.get("failed_stage") or "")
     message = render_message(
         outcome=outcome,
         asof=sanitize_one_line(notice.get("asof") or ""),
         failed_step=failed_step,
-        notice=notice,
+        notice=notice if args.batch_exit_code == "0" or not notice else {"models_ready": False},
         url=run_url(env),
         integration_report=load_notice(args.integration_report_path),
         step_outcomes=step_outcomes,

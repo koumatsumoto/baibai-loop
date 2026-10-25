@@ -63,10 +63,10 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
         "create_lake_release",
         lambda **kwargs: create_release(created_at=fixed_now, **kwargs),
     )
-    export_lake = market_publish_module.export_market_store
+    export_lake = market_publish_module.export_market_snapshot
     monkeypatch.setattr(
         market_publish_module,
-        "export_market_store",
+        "export_market_snapshot",
         lambda **kwargs: export_lake(created_at=fixed_now, **kwargs),
     )
 
@@ -532,7 +532,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
     )
     _bind_market_store_to_pointer(tmp_path / "market.sqlite", pointer)
     successor_path = _successor_release(mirror, "concurrent-successor")
-    original_export = market_publish_module.export_market_store
+    original_export = market_publish_module.export_market_snapshot
 
     def concurrent_export(**kwargs: object) -> object:
         publish_release(
@@ -542,7 +542,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
         )
         return original_export(**kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(market_publish_module, "export_market_store", concurrent_export)
+    monkeypatch.setattr(market_publish_module, "export_market_snapshot", concurrent_export)
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
 
     with pytest.raises(LakeCASConflict):
@@ -727,7 +727,7 @@ def test_remote_manifest_digest_mismatch_stops_before_export(
         export_called = True
         raise AssertionError("export must not start")
 
-    monkeypatch.setattr(market_publish_module, "export_market_store", unexpected_export)
+    monkeypatch.setattr(market_publish_module, "export_market_snapshot", unexpected_export)
 
     with pytest.raises(LakePublishError, match="downloaded lake object digest mismatch"):
         market_publish_module.publish_market_lake(
@@ -1312,3 +1312,48 @@ def test_market_cli_refuses_a_lost_lease_before_pointer_switch(
     assert "publication lease" in capsys.readouterr().err
     if lose_during_upload:
         assert released
+
+
+def test_prepared_release_reuses_one_seal_without_publishing_or_reexporting(tmp_path, monkeypatch):
+    mirror, _ = _release(tmp_path)
+    store = MemoryR2Store()
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+    path = tmp_path / "market.sqlite"
+    with market_publish_module.prepare_market_lake(
+        sqlite_path=path, mirror_root=mirror, store=store, release_id="fixed-for-models"
+    ) as prepared:
+        snapshot_path = prepared.source_snapshot.path
+        assert snapshot_path.is_file()
+        assert prepared.release.release_id == "fixed-for-models"
+        assert "lake/pointers/market/current.json" not in store.values
+        assert read_lake_store_origin(path) is None
+
+        def unexpected_export(**kwargs):
+            raise AssertionError("publication must reuse the generation input")
+
+        monkeypatch.setattr(market_publish_module, "export_market_snapshot", unexpected_export)
+        report = market_publish_module.publish_prepared_market_lake(prepared, store=store)
+        assert report.release_id == prepared.release.release_id
+        assert report.release_manifest_sha256 == prepared.release_sha256
+    assert not snapshot_path.exists()
+
+
+def test_failure_after_prepare_does_not_advance_pointer_or_origin(tmp_path, monkeypatch):
+    mirror, _ = _release(tmp_path)
+    store = MemoryR2Store()
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+    path = tmp_path / "market.sqlite"
+    snapshot_paths = []
+
+    def prepare_then_fail():
+        with market_publish_module.prepare_market_lake(
+            sqlite_path=path, mirror_root=mirror, store=store, release_id="not-published"
+        ) as prepared:
+            snapshot_paths.append(prepared.source_snapshot.path)
+            raise RuntimeError("generation failed")
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        prepare_then_fail()
+    assert not snapshot_paths[0].exists()
+    assert "lake/pointers/market/current.json" not in store.values
+    assert read_lake_store_origin(path) is None

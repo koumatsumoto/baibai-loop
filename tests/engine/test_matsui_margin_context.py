@@ -1,8 +1,7 @@
 """Synthetic current-page receipts only; these tests never contact Matsui."""
 
-import json
 from contextlib import closing
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
@@ -28,9 +27,6 @@ from baibai_engine.machine_analysis.market_context.reading.observations import (
 )
 from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
 from baibai_engine.machine_analysis.market_context.reading.rules import load_reading_rules
-from baibai_engine.read_api.market_context import indicator_series
-from baibai_jobs.jobs.daily import _economic_refresh_groups, _parse_economic_sources
-from baibai_web.readmodel.models import ReadingSeriesView
 
 SERIES_ID = "jp.matsui_margin_long_evaluation_pnl"
 SOURCE_ID = "matsui-margin"
@@ -205,7 +201,6 @@ def test_latest_unreadable_source_withholds_only_this_series(tmp_path, body):
     assert rows[SERIES_ID]["flags"] == ["source_unreadable"]
     assert rows[SERIES_ID]["notes"]
     assert rows["jp.10y"]["flags"] == []  # unrelated readings still materialize
-    assert indicator_series(path, series_id=SERIES_ID)["points"] == []
     assert path.read_bytes() == before
 
 
@@ -233,16 +228,9 @@ def test_latest_per_request_then_per_observation_and_weekend_freshness(tmp_path,
     assert row["flags"] == ["year_inferred"]
     assert row["read_semantics"]["known_at_applied"] is False
     assert row["read_semantics"]["point_in_time_guaranteed"] is False
-    chart = indicator_series(path, series_id=SERIES_ID)
-    assert chart["points"][0]["quality_flags"] == ["year_inferred"]
-    assert row["notes"] == [
-        f"Series definition: {series.notes}",
-        *chart["points"][0]["notes"],
-    ]
-    assert chart["points"][0]["vintage_at"] == row["vintage_at"]
-    projected = ReadingSeriesView.model_validate(row).model_dump(mode="json")
-    assert projected["notes"] == row["notes"]
-    assert projected["vintage_at"] is not None
+    assert list(values[0].quality_flags) == ["year_inferred"]
+    assert row["notes"] == [f"Series definition: {series.notes}", *values[0].notes]
+    assert values[0].vintage_at.isoformat() == row["vintage_at"]
     assert row["percentile"] is None
     assert row["insufficient_history"]
     assert (
@@ -339,12 +327,8 @@ def test_latest_unresolvable_date_still_fails_closed_for_an_earlier_range(tmp_pa
         IndicatorsService(path).get_range(SERIES_ID, start=day, end=day)
 
 
-def test_matsui_is_scheduled_once_with_daily_sources_and_has_no_history_archive():
-    sources = load_sources()
-    parsed = _parse_economic_sources(json.dumps([asdict(item) for item in sources.values()]))
-    scheduled = [item for _, group in _economic_refresh_groups(parsed) for item in group]
-    assert scheduled.count(SOURCE_ID) == 1
-    assert "fed-h15" in scheduled
+def test_matsui_source_is_registered_and_has_no_history_archive():
+    assert SOURCE_ID in load_sources()
     assert matsui_margin.MatsuiMarginSource.spec.all_history_start is None
 
 

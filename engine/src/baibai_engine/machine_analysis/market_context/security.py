@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -14,14 +14,13 @@ from baibai_engine.market.price_models import PriceBar
 
 from .benchmark import NIKKEI225_ETF_PROXY, compute_benchmark_trend
 from .history import trailing_return
-from .snapshot import PreparedMarketContext
+from .snapshot import SECURITY_LOOKBACK_CALENDAR_DAYS, PreparedMarketContext
 
 _WEEK_52_WINDOW_BARS = 252
 _VOL_WINDOW_BARS = 20
 _TURNOVER_WINDOW_BARS = 20
 _RETURN_WINDOWS_BARS = (1, 5, 20, 60)
 _PEER_RETURN_WINDOW_BARS = 20
-_TICKER_LOOKBACK_CALENDAR_DAYS = 1130
 
 
 def build_security_market_context(
@@ -51,6 +50,7 @@ def build_security_market_contexts(
     self_range_window_bars: int,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
     prepared: PreparedMarketContext | None = None,
+    price_bars_by_ticker: Mapping[str, Sequence[PriceBar]] | None = None,
 ) -> dict[str, dict[str, object]]:
     """渡された有限集合の長期価格を一括読取し、barsを保持せず個別状態を返す。"""
     if prepared is not None and (
@@ -59,11 +59,18 @@ def build_security_market_contexts(
         or prepared.benchmark_ticker != benchmark_ticker
     ):
         raise ValueError("prepared market context does not match the requested scope")
-    bars_by_ticker = read_price_bars(
-        sqlite_path,
-        tickers=tuple(tickers),
-        start=asof_date - timedelta(days=_TICKER_LOOKBACK_CALENDAR_DAYS),
-        end=asof_date,
+    start = asof_date - timedelta(days=SECURITY_LOOKBACK_CALENDAR_DAYS)
+    bars_by_ticker = (
+        read_price_bars(sqlite_path, tickers=tuple(tickers), start=start, end=asof_date)
+        if price_bars_by_ticker is None
+        else {
+            ticker: [
+                bar
+                for bar in price_bars_by_ticker.get(ticker, ())
+                if start <= bar.traded_at <= asof_date
+            ]
+            for ticker in tickers
+        }
     )
     master = (
         read_master_snapshot(sqlite_path, as_of=asof_date) if prepared is None else prepared.master

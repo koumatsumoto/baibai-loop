@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from tests.engine.test_edinet_metric_eligibility import BASE, TARGET, _seed
 from tests.engine.test_edinet_research_facts import source_zip
-from tests.engine.test_screening_cli import _edinet_csv_zip
+from tests.engine.test_source_maintenance_cli import _edinet_csv_zip
 from tests.helpers.edinet_documents import store_edinet_documents
 
 from baibai_engine.data_collection.edinet.archives import retain_source_archive

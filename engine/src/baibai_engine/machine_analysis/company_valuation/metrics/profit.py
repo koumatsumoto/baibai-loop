@@ -102,10 +102,10 @@ def build_normalized_profit_signals(
     fy_rows = _latest_fy_revisions(normalized)
     latest_basis = statement_basis(fy_rows[-1]) if fy_rows else None
     eps_values = {
-        row.fiscal_year_end: row.eps_ttm
+        row.fiscal_year_end: row.cumulative_eps
         for row in fy_rows
         if row.fiscal_year_end is not None
-        and row.eps_ttm is not None
+        and row.cumulative_eps is not None
         and row.period_end == row.fiscal_year_end
         and (days := period_days(row)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days

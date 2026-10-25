@@ -17,11 +17,6 @@ class JQuantsProviderError(RuntimeError):
     """Raised when a required J-Quants fetch or normalization fails."""
 
 
-def parse_jquants_code(code: Any) -> str:
-    """Return the 4-char ticker portion of a J-Quants 5-char issue code."""
-    return parse_jquants_code_parts(code)[0]
-
-
 def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
     """Decode the primary issue suffix; ETF/REIT classification requires master ProdCat."""
     try:

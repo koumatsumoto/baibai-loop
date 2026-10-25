@@ -1,15 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link } from 'react-router'
+import { useEffect, useMemo, useState } from 'react'
 import { CircleAlert } from 'lucide-react'
 import { Pie, PieChart } from 'recharts'
 
 import { fetchJson } from '../api/client'
 import type {
-  DailyDeltaView,
-  DeltaUnavailable,
   DashboardView,
   HoldingView,
-  OperationsView,
+  OutcomesView,
   PortfolioOutcomeView,
   ReservationView,
   WarningView,
@@ -28,7 +25,7 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDateShort, formatNumber, formatPct, formatYen } from '../lib/format'
+import { EMPTY, formatPct, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
@@ -36,8 +33,7 @@ import { cn } from '../lib/utils'
 // repeats what the numbers already say.
 const HINT = {
   allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、価格変動の大きい保有を並べる。市場環境の判断と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
-  holdings: '保有中の各銘柄の取得原価・現値・原評価のPmax（新規買付上限）との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
+  holdings: '保有中の各銘柄の取得原価・現値・評価損益。未評価とゼロを区別して示す。',
   reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
   outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
@@ -245,8 +241,6 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
             <TableHead className="text-right">数量</TableHead>
             <TableHead className="text-right">取得 / 現在</TableHead>
             <TableHead className="text-right">評価額 / 損益</TableHead>
-            <TableHead className="text-right">原評価のPmax / 差</TableHead>
-            <TableHead>判断</TableHead>
             <TableHead className="w-12 pr-5 text-right sm:pr-6"><span className="sr-only">チャート</span></TableHead>
           </TableRow>
         </TableHeader>
@@ -256,7 +250,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
             return (
               <TableRow key={holding.ticker}>
                 <TableCell className="pl-5 sm:pl-6">
-                  <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${holding.ticker}`}>{holding.ticker}</Link>
+                  <span className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" >{holding.ticker}</span>
                   <span className="mt-1 block max-w-44 truncate text-xs text-muted-foreground">{holding.company_name ?? '—'}</span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{holding.sector}</TableCell>
@@ -277,12 +271,6 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
                     <PctBadge className="text-xs" tone="pnl" value={holding.unrealized_pnl_pct} />
                   </span>
                 </TableCell>
-                <TableCell className="text-right">
-                  <YenAmount value={holding.pmax_raw_yen} />
-                  <PctBadge className="mt-1 block text-xs" value={holding.pmax_gap_pct} />
-                  {holding.pmax_gap_unavailable_reason && <p className="mt-1 text-xs text-muted-foreground">{holding.pmax_gap_unavailable_reason}</p>}
-                </TableCell>
-                <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.stance ?? '—'}</Badge></TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>
               </TableRow>
             )
@@ -290,156 +278,6 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
         </TableBody>
       </Table>
       <PortfolioWarnings warnings={warnings} />
-    </SectionCard>
-  )
-}
-
-function deltaCount(delta: DailyDeltaView) {
-  return (
-    delta.entered.length +
-    delta.exited.length +
-    delta.er_moves_total +
-    delta.holdings.length
-  )
-}
-
-// The view names the section a store could not answer; the reader gets it in Japanese.
-const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
-  screening_run: 'Screening Run（run なし）',
-  previous_screening_run: 'Screening Run（比較する前 run なし）',
-  candidates: '候補（比較に必要な手法情報なし）',
-  candidate_estimate: '候補の E[r]（見積り欠損またはモデルを比較できない）',
-  holdings: '保有（台帳または価格比較を確認できない）',
-  market: '市場データ（store なし）',
-}
-
-function DeltaRow({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6">
-      <Badge className="min-w-[6.5rem] shrink-0 justify-center font-mono text-[10px]" variant="secondary">{label}</Badge>
-      <div className="flex min-w-[13rem] flex-1 flex-wrap items-center gap-x-3 gap-y-1">{children}</div>
-    </div>
-  )
-}
-
-function DeltaSecurity({ name, ticker }: { name: string | null; ticker: string }) {
-  return (
-    <Link className="min-w-0 truncate font-medium underline-offset-4 hover:underline" to={`/securities/${ticker}`}>
-      <span className="font-mono">{ticker}</span>
-      {name !== null && name !== ticker && <span className="ml-2 text-muted-foreground">{name}</span>}
-    </Link>
-  )
-}
-
-function DeltaDisclosedBadge({ disclosed }: { disclosed: boolean | null }) {
-  if (disclosed === null) return <Badge variant="secondary">開示不明</Badge>
-  return disclosed ? <Badge variant="outline">期間内に決算開示</Badge> : null
-}
-
-function DeltaEntries({ children, count, label }: { children: ReactNode; count: number; label: string }) {
-  if (count === 0) return null
-  return (
-    <details open={count <= 10}>
-      <summary className="cursor-pointer px-5 py-3 text-sm sm:px-6">{label} 全{count}件（銘柄コード順・展開して全件表示）</summary>
-      <div className="divide-y">{children}</div>
-    </details>
-  )
-}
-
-export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; failed: boolean }) {
-  const total = delta === null ? 0 : deltaCount(delta)
-  const description =
-    delta !== null && delta.previous_as_of !== null && delta.as_of !== null
-      ? `${formatJstDateShort(delta.previous_as_of)} → ${formatJstDateShort(delta.as_of)}`
-      : '保存した実行どうしの比較'
-  return (
-    <SectionCard
-      description={description}
-      hint={HINT.delta}
-      meta={delta === null ? <Badge variant="secondary">未取得</Badge> : <Badge variant="secondary">{total} 件</Badge>}
-      title="前回実行からの変化"
-    >
-      {delta === null ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          {failed ? '変化を読み込めませんでした。変化がないことを意味しません。' : '変化を読み込んでいます。'}
-        </p>
-      ) : (
-        <div className="divide-y">
-          {delta.unavailable.map((item) => (
-            <DeltaRow key={`unavailable-${item}`} label="計測不能">
-              <span className="text-sm text-muted-foreground">{deltaUnavailableLabel[item]}</span>
-            </DeltaRow>
-          ))}
-          {delta.method_changed && (
-            <DeltaRow label="手法変更">
-              <span className="text-sm text-muted-foreground">screening または Candidate Discovery の手法が異なるため、候補差分を市場の変化として比較しない。</span>
-            </DeltaRow>
-          )}
-          <DeltaEntries count={delta.entered.length} label="候補入り">
-          {delta.entered.map((item) => (
-            <DeltaRow key={`entered-${item.ticker}`} label="候補入り">
-              <DeltaSecurity name={item.company_name} ticker={item.ticker} />
-              {item.er_annual_pct !== null && <span className="font-mono text-sm tabular-nums">E[r] {formatPct(item.er_annual_pct)}</span>}
-              <DeltaDisclosedBadge disclosed={item.disclosed_since_previous} />
-            </DeltaRow>
-          ))}
-          </DeltaEntries>
-          <DeltaEntries count={delta.exited.length} label="候補外れ">
-          {delta.exited.map((item) => (
-            <DeltaRow key={`exited-${item.ticker}`} label="候補外れ">
-              {/* A name that left the candidate list may have no detail view exported, so it is
-                  shown as text rather than a link that would 404. */}
-              <span className="min-w-0 truncate font-medium">
-                <span className="font-mono">{item.ticker}</span>
-                {item.company_name !== null && item.company_name !== item.ticker && (
-                  <span className="ml-2 text-muted-foreground">{item.company_name}</span>
-                )}
-              </span>
-              <DeltaDisclosedBadge disclosed={item.disclosed_since_previous} />
-            </DeltaRow>
-          ))}
-          </DeltaEntries>
-          {delta.er_moves.map((item) => (
-            <DeltaRow key={`move-${item.ticker}`} label="E[r] 変化">
-              <DeltaSecurity name={item.company_name} ticker={item.ticker} />
-              <span className="font-mono text-sm tabular-nums">
-                {item.previous_er_annual_pct === null ? EMPTY : formatPct(item.previous_er_annual_pct)}
-                {' → '}
-                {item.er_annual_pct === null ? EMPTY : formatPct(item.er_annual_pct)}
-              </span>
-              <span className="font-mono text-sm tabular-nums">{item.change_pp > 0 ? '+' : ''}{formatNumber(item.change_pp, 1)}pt</span>
-            </DeltaRow>
-          ))}
-          {delta.er_moves_total > delta.er_moves.length && (
-            <DeltaRow label="E[r] 変化">
-              <span className="text-sm text-muted-foreground">
-                閾値を超えた変化は {delta.er_moves_total} 件で、上位 {delta.er_moves.length} 件を表示。
-              </span>
-            </DeltaRow>
-          )}
-          {delta.holdings.map((item) => (
-            <DeltaRow key={`holding-${item.ticker}`} label="保有">
-              <DeltaSecurity name={item.company_name} ticker={item.ticker} />
-              {item.change_since_previous_pct !== null && <PctBadge tone="pnl" value={item.change_since_previous_pct} />}
-              {item.days_to_next_earnings !== null && <span className="text-sm text-muted-foreground">決算まで {item.days_to_next_earnings} 日</span>}
-            </DeltaRow>
-          ))}
-          {delta.holdings_without_price > 0 && (
-            <DeltaRow label="価格なし">
-              <span className="text-sm text-muted-foreground">保有 {delta.holdings_without_price} 件は現値が無く、価格変化を確認できない。</span>
-            </DeltaRow>
-          )}
-          {total === 0 &&
-            delta.unavailable.length === 0 &&
-            !delta.method_changed &&
-            delta.holdings_without_price === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
-            )}
-          <div className="px-5 py-3 sm:px-6">
-            <Link className="inline-flex min-h-11 w-fit items-center text-sm font-medium underline underline-offset-4" to="/market-context">市場環境の根拠を見る</Link>
-          </div>
-        </div>
-      )}
     </SectionCard>
   )
 }
@@ -502,7 +340,7 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
       <TableBody>{reservations.map((reservation) => <TableRow key={reservation.reservation_id}>
         <TableCell className="pl-5 sm:pl-6">
           <span className="mr-2">{reservation.side === 'sell' ? '売' : '買'}</span>
-          <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
+          <span className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" >{reservation.ticker}</span>
           {reservation.route_label && <span className="ml-2 text-xs text-muted-foreground">{reservation.route_label}</span>}
         </TableCell>
         <TableCell className="text-right font-mono tabular-nums">
@@ -518,10 +356,8 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
 
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
-  const [operations, setOperations] = useState<OperationsView | null>(null)
+  const [operations, setOperations] = useState<OutcomesView | null>(null)
   const [operationsError, setOperationsError] = useState<string | null>(null)
-  const [delta, setDelta] = useState<DailyDeltaView | null>(null)
-  const [deltaFailed, setDeltaFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -532,16 +368,12 @@ export function DashboardPage() {
         if (controller.signal.aborted) return
         setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
       })
-    fetchJson<OperationsView>('/api/operations', { signal: controller.signal })
+    fetchJson<OutcomesView>('/api/outcomes', { signal: controller.signal })
       .then(value => { if (!controller.signal.aborted) setOperations(value) })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return
         setOperationsError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')
       })
-    // Independent evidence: an unavailable comparison does not erase the portfolio.
-    fetchJson<DailyDeltaView>('/api/daily-delta', { signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) setDelta(value) })
-      .catch(() => { if (!controller.signal.aborted) setDeltaFailed(true) })
     return () => controller.abort()
   }, [])
 
@@ -555,7 +387,6 @@ export function DashboardPage() {
 
       {data.ledger_error === null && <PortfolioAllocationCard data={data} />}
 
-      <DailyDeltaCard delta={delta} failed={deltaFailed} />
 
       {data.ledger_error === null && (!data.ledger_exists ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
@@ -570,7 +401,6 @@ export function DashboardPage() {
 
       {data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
-      <Link className="inline-flex min-h-11 w-fit items-center text-sm font-medium underline underline-offset-4" to="/stocks">投資判断を見る →</Link>
       {operationsError !== null
         ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{operationsError}</AlertDescription></Alert>
         : operations && <OutcomeCard outcomes={operations.outcomes} />}

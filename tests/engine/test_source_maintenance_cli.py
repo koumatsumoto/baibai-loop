@@ -1,0 +1,1793 @@
+from __future__ import annotations
+
+import contextlib
+import io
+import os
+import sqlite3
+import tempfile
+import unittest
+import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from io import BytesIO
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+from baibai_engine.foundation.time import JST
+from baibai_engine.market.calendar import JQuantsMarketCalendarDay
+from baibai_engine.market.edinet_metrics import service as edinet_extraction
+from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
+from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.market.jpx_models import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+    JPXRegulationSnapshot,
+)
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary, JQuantsWeeklyMargin
+from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_engine.market.jquants_writer import (
+    store_jquants_daily_bars,
+    store_jquants_weekly_margin,
+)
+from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.source_maintenance import cli as source_app
+from baibai_engine.source_maintenance.cache import (
+    backfill_history_command,
+    backfill_master_command,
+    bootstrap_cache_command,
+)
+from baibai_engine.source_maintenance.providers import ProviderBundle
+from baibai_engine.storage.observations.schema import open_connection
+
+
+@dataclass
+class FakeJQuantsProvider:
+    business_day: bool = True
+    treasury_shares: float = 0.0
+    calls: list[tuple[str, date | None, date | None]] = field(default_factory=list)
+    revision_overlap_days: list[int] = field(default_factory=list)
+
+    def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]:
+        self.calls.append(("get_mkt_calendar", start, end))
+        return [JQuantsMarketCalendarDay(day=start, is_business_day=self.business_day)]
+
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
+        self.calls.append(("get_eq_master", requested_asof, requested_asof))
+        return [
+            SecurityMaster(
+                ticker="130A",
+                name="Alpha",
+                market_segment="Prime",
+                sector_33="情報・通信業",
+                is_common_stock=True,
+            )
+        ]
+
+    def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
+        self.calls.append(("get_mkt_margin_interest_week", week_end, week_end))
+        return [
+            JQuantsWeeklyMargin(
+                ticker="130A",
+                week_end=week_end,
+                long_vol=1000.0,
+                short_vol=250.0,
+                long_std_vol=800.0,
+                long_neg_vol=200.0,
+                short_std_vol=200.0,
+                short_neg_vol=50.0,
+                issue_type="2",
+            )
+        ]
+
+    def refresh_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
+        self.calls.append(("refresh_mkt_margin_interest_week", week_end, week_end))
+        return self.get_mkt_margin_interest_week(week_end)
+
+    def get_mkt_short_sale_report_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("get_mkt_short_sale_report_range", start, end))
+        return []
+
+    def refresh_mkt_short_sale_report_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("refresh_mkt_short_sale_report_range", start, end))
+        return []
+
+    def get_mkt_margin_alert_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("get_mkt_margin_alert_range", start, end))
+        return []
+
+    def refresh_mkt_margin_alert_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("refresh_mkt_margin_alert_range", start, end))
+        return []
+
+    def get_mkt_all_issues_daily_margin(self, balance_date: date) -> list[object]:
+        self.calls.append(("get_mkt_all_issues_daily_margin", balance_date, balance_date))
+        return [object()]
+
+    def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+        self.calls.append(("get_eq_bars_daily_range", start, end))
+        # Long observed price history supplies the historical metrics in this fixture.
+        # Observation span is not evidence of the issuer's listing date.
+        total = 800
+        base = end - timedelta(days=total - 1)
+        return [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=base + timedelta(days=index),
+                close=100 + index,
+                turnover_value=300_000_000.0,
+            )
+            for index in range(total)
+        ]
+
+    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
+        self.calls.append(("ensure_eq_bars_daily_range", start, end))
+        return len(self.get_eq_bars_daily_range(start, end))
+
+    def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+        self.calls.append(("get_adjustment_factor_bars_range", start, end))
+        return []
+
+    def refresh_fin_summary_range(
+        self,
+        start: date,
+        end: date,
+        *,
+        revision_overlap_days: int,
+        progress: Callable[[int, int, date, date], None] | None = None,
+    ) -> int:
+        self.calls.append(("refresh_fin_summary_range", start, end))
+        self.revision_overlap_days.append(revision_overlap_days)
+        del progress
+        return len(self.get_fin_summary_range(start, end))
+
+    def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
+        self.calls.append(("get_fin_summary_range", start, end))
+        return [
+            JQuantsFinancialSummary(
+                # Calculation fixture: guidance has already been projected for this snapshot.
+                forecast_status="confirmed",
+                ticker="130A",
+                disclosed_at=date(2025, 12, 31),
+                forecast_eps=20.0,
+                cumulative_eps=15.0,
+                bps=120.0,
+                shares_outstanding=400_000_000.0,
+                sales=1000.0,
+                operating_profit=100.0,
+                cash_eq=200_000_000_000.0,
+                total_assets=1_000_000_000_000.0,
+                equity=600_000_000_000.0,
+                equity_to_asset_ratio=0.6,
+                treasury_shares=self.treasury_shares,
+                ordinary_profit=None,
+                profit=None,
+            ),
+            JQuantsFinancialSummary(
+                # Calculation fixture: guidance has already been projected for this snapshot.
+                forecast_status="confirmed",
+                ticker="130A",
+                disclosed_at=date(2026, 3, 31),
+                forecast_eps=22.0,
+                cumulative_eps=18.0,
+                bps=130.0,
+                shares_outstanding=400_000_000.0,
+                sales=1100.0,
+                operating_profit=110.0,
+                cash_eq=210_000_000_000.0,
+                total_assets=1_000_000_000_000.0,
+                equity=600_000_000_000.0,
+                equity_to_asset_ratio=0.6,
+                treasury_shares=self.treasury_shares,
+                ordinary_profit=None,
+                profit=None,
+            ),
+        ]
+
+    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
+        self.calls.append(("get_fy_summary_range", start, end))
+        return [
+            JQuantsFinancialSummary(
+                ticker="130A",
+                disclosed_at=date(year, 5, 15),
+                cumulative_eps=eps,
+                fiscal_period="FY",
+                fiscal_year_end=date(year, 3, 31),
+                period_start=date(year - 1, 4, 1),
+                period_end=date(year, 3, 31),
+            )
+            for year, eps in ((2023, 10.0), (2024, 20.0), (2025, 30.0))
+        ]
+
+    def ensure_master(self, day: date) -> int:
+        return len(self.get_eq_master(day))
+
+    def ensure_market_calendar(self, start: date, end: date) -> int:
+        return len(self.get_mkt_calendar(start, end))
+
+    def ensure_daily_bars(self, start: date, end: date) -> int:
+        return self.ensure_eq_bars_daily_range(start, end)
+
+    def ensure_fin_summaries(self, start: date, end: date) -> int:
+        return len(self.get_fin_summary_range(start, end))
+
+    def refresh_fin_summaries(
+        self,
+        start: date,
+        end: date,
+        *,
+        revision_overlap_days: int,
+        progress: Callable[[int, int, date, date], None] | None = None,
+    ) -> int:
+        return self.refresh_fin_summary_range(
+            start, end, revision_overlap_days=revision_overlap_days, progress=progress
+        )
+
+    def ensure_weekly_margin(self, day: date) -> int:
+        return len(self.get_mkt_margin_interest_week(day))
+
+    def refresh_weekly_margin(self, day: date) -> int:
+        return len(self.refresh_mkt_margin_interest_week(day))
+
+    def ensure_all_issues_daily_margin(self, day: date) -> int:
+        return len(self.get_mkt_all_issues_daily_margin(day))
+
+    def ensure_margin_alerts(self, start: date, end: date) -> int:
+        return len(self.get_mkt_margin_alert_range(start, end))
+
+    def refresh_margin_alerts(self, start: date, end: date) -> int:
+        return len(self.refresh_mkt_margin_alert_range(start, end))
+
+    def ensure_short_sale_reports(self, start: date, end: date) -> int:
+        return len(self.get_mkt_short_sale_report_range(start, end))
+
+    def refresh_short_sale_reports(self, start: date, end: date) -> int:
+        return len(self.refresh_mkt_short_sale_report_range(start, end))
+
+    def close(self) -> None:
+        pass
+
+
+@dataclass
+class _FailingOnDateJQuantsProvider(FakeJQuantsProvider):
+    failing_date: date | None = None
+
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
+        if requested_asof == self.failing_date:
+            raise JQuantsProviderError(f"no master for {requested_asof.isoformat()}")
+        return super().get_eq_master(requested_asof)
+
+
+@dataclass
+class FakeEDINETReader:
+    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
+        del asof_date
+        return {
+            "130A": EdinetMetricRecord(
+                ticker="130A",
+                sales_ttm=1000.0,
+                ocf_ttm=100.0,
+                debt=50.0,
+                cash=20.0,
+                ebitda_ttm=120.0,
+                consolidation_basis="consolidated",
+                ttm_quality_ev_ebitda=TTMQuality.EXACT,
+                ttm_quality_p_s=TTMQuality.APPROXIMATED,
+                ttm_quality_pcfr=TTMQuality.UNAVAILABLE,
+                snapshot_asof=date(2026, 4, 23),
+                snapshot_recorded_at_utc="2026-04-23T10:00:00+00:00",
+                source_doc_id="S100TEST",
+                source_submit_datetime="2025-10-15 12:00",
+            )
+        }
+
+    def list_documents(self, on_date: date) -> list[dict[str, Any]]:
+        del on_date
+        return []
+
+    def read_csv_zip(self, doc_id: str) -> bytes:
+        raise KeyError(doc_id)
+
+    def read_xbrl_zip(self, doc_id: str) -> bytes:
+        raise KeyError(doc_id)
+
+
+@dataclass
+class FakeEDINETProvider:
+    documents: list[dict[str, object]] | None = None
+    zip_by_doc_id: dict[str, bytes] | None = None
+    bootstrap_calls: list[tuple[date, date]] = field(default_factory=list)
+    download_calls: list[str] = field(default_factory=list)
+
+    def close(self) -> None:
+        pass
+
+    def list_documents(self, on_date: date) -> list[dict[str, object]]:
+        del on_date
+        return list(self.documents or [])
+
+    def download_csv_zip(self, doc_id: str) -> bytes:
+        self.download_calls.append(doc_id)
+        return (self.zip_by_doc_id or {})[doc_id]
+
+    def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
+        self.bootstrap_calls.append((start, end))
+        return {"ok": 1}
+
+
+@dataclass
+class FakeEDINETMetricReader:
+    documents: list[dict[str, object]] | None = None
+    zip_by_doc_id: dict[str, bytes] | None = None
+    list_calls: list[date] = field(default_factory=list)
+    read_calls: list[str] = field(default_factory=list)
+
+    def list_documents(self, on_date: date) -> list[dict[str, object]]:
+        self.list_calls.append(on_date)
+        return list(self.documents or [])
+
+    def read_csv_zip(self, doc_id: str) -> bytes:
+        self.read_calls.append(doc_id)
+        try:
+            return (self.zip_by_doc_id or {})[doc_id]
+        except KeyError as exc:
+            raise EDINETProviderError(f"stored EDINET archive is unavailable for {doc_id}") from exc
+
+
+class _CorruptSQLiteJQuantsProvider(FakeJQuantsProvider):
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
+        del requested_asof
+        raise sqlite3.DatabaseError("file is not a database")
+
+
+@dataclass
+class FakeJPXProvider:
+    fail_bootstrap: bool = False
+    source_names: tuple[str, ...] = (
+        "上場廃止警告",
+        "取引停止",
+        "整理銘柄",
+        "特別注意銘柄",
+    )
+    bootstrap_calls: list[date] = field(default_factory=list)
+    earnings_requests: list[date] = field(default_factory=list)
+    close_count: int = 0
+
+    def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot:
+        self.earnings_requests.append(asof_date)
+        return JPXEarningsCalendarSnapshot(
+            entries=(
+                JPXEarningsCalendarEntry(
+                    ticker="130A", announcement_date=asof_date + timedelta(days=7)
+                ),
+            ),
+            source_urls=("https://www.jpx.co.jp/test/kessan.xlsx",),
+            raw_record_count=1,
+            excluded_record_count=0,
+            superseded_record_count=None,
+        )
+
+    def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
+        del asof_date
+        return JPXRegulationSnapshot(flags_by_ticker={}, source_names=self.source_names)
+
+    def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
+        self.bootstrap_calls.append(asof_date)
+        if self.fail_bootstrap:
+            raise JPXProviderError("missing jpx source")
+        return {"ok": 1}
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+class SourceMaintenanceCliTests(unittest.TestCase):
+    def test_bootstrap_cache_command_fails_jpx_bootstrap_failure(self) -> None:
+        stderr = io.StringIO()
+        jquants = FakeJQuantsProvider()
+        with contextlib.redirect_stderr(stderr):
+            exit_code = bootstrap_cache_command(
+                asof_date=date(2026, 5, 8),
+                providers=ProviderBundle(
+                    jquants=jquants,
+                    edinet_refresh=FakeEDINETProvider(),
+                    jpx_refresh=FakeJPXProvider(fail_bootstrap=True),
+                    jquants_refresh=jquants,
+                ),
+                sqlite_path=Path("stores/market/market.sqlite"),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("JPXProviderError: missing jpx source", stderr.getvalue())
+
+    def test_bootstrap_cache_command_fails_cleanly_on_sqlite_corruption(self) -> None:
+        stderr = io.StringIO()
+        jquants = _CorruptSQLiteJQuantsProvider()
+        with contextlib.redirect_stderr(stderr):
+            exit_code = bootstrap_cache_command(
+                asof_date=date(2026, 5, 8),
+                providers=ProviderBundle(
+                    jquants=jquants,
+                    edinet_refresh=FakeEDINETProvider(),
+                    jpx_refresh=FakeJPXProvider(),
+                    jquants_refresh=jquants,
+                ),
+                sqlite_path=Path("stores/market/market.sqlite"),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("DatabaseError: file is not a database", stderr.getvalue())
+
+    def test_bootstrap_cache_command_asof_uses_source_specific_windows(self) -> None:
+        asof = date(2026, 5, 8)
+        jquants = FakeJQuantsProvider()
+        edinet = FakeEDINETProvider()
+        jpx = FakeJPXProvider()
+        buffer = io.StringIO()
+
+        exit_code = bootstrap_cache_command(
+            asof_date=asof,
+            providers=ProviderBundle(
+                jquants=jquants,
+                edinet_refresh=edinet,
+                jpx_refresh=jpx,
+                jquants_refresh=jquants,
+            ),
+            sqlite_path=Path("stores/market/market.sqlite"),
+            stdout=buffer,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("bootstrap-cache jquants daily_bars", buffer.getvalue())
+        self.assertIn("bootstrap-cache edinet documents", buffer.getvalue())
+        self.assertIn("bootstrap-cache done", buffer.getvalue())
+        self.assertIn(("get_eq_master", asof, asof), jquants.calls)
+        self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=2200), asof), jquants.calls)
+        self.assertIn(("get_fin_summary_range", asof - timedelta(days=2200), asof), jquants.calls)
+        self.assertEqual(
+            jquants.calls.count(("get_eq_bars_daily_range", asof - timedelta(days=2200), asof)),
+            1,
+        )
+        self.assertEqual(
+            jquants.calls.count(("refresh_fin_summary_range", asof - timedelta(days=2200), asof)),
+            1,
+        )
+        self.assertIn(
+            (
+                "get_adjustment_factor_bars_range",
+                asof - timedelta(days=2200),
+                asof,
+            ),
+            jquants.calls,
+        )
+        self.assertIn(
+            ("get_fy_summary_range", asof - timedelta(days=2200), asof),
+            jquants.calls,
+        )
+        # The calendar bootstrap fetches a forward window so the unattended daily
+        # batch can read the current (and upcoming) business-day rows.
+        self.assertIn(
+            ("get_mkt_calendar", asof - timedelta(days=7), asof + timedelta(days=45)),
+            jquants.calls,
+        )
+        self.assertIn(
+            ("refresh_mkt_short_sale_report_range", asof - timedelta(days=7), asof),
+            jquants.calls,
+        )
+        self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
+        self.assertEqual(jpx.bootstrap_calls, [asof])
+
+    def test_bootstrap_refreshes_the_final_legacy_week_after_publication(self) -> None:
+        asof = date(2026, 9, 25)
+        jquants = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            trading_days = (
+                date(2026, 9, 14),
+                date(2026, 9, 15),
+                date(2026, 9, 16),
+                date(2026, 9, 17),
+                date(2026, 9, 18),
+                date(2026, 9, 22),
+                date(2026, 9, 24),
+                date(2026, 9, 25),
+            )
+            store_jquants_daily_bars(
+                sqlite_path,
+                [{"Date": day.isoformat(), "Code": "72030", "C": 100.0} for day in trading_days],
+                requested_start=trading_days[0],
+                requested_end=trading_days[-1],
+            )
+
+            exit_code = bootstrap_cache_command(
+                asof_date=asof,
+                providers=ProviderBundle(
+                    jquants=jquants,
+                    edinet_refresh=FakeEDINETProvider(),
+                    jpx_refresh=FakeJPXProvider(),
+                    jquants_refresh=jquants,
+                ),
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            (
+                "refresh_mkt_margin_interest_week",
+                date(2026, 9, 18),
+                date(2026, 9, 18),
+            ),
+            jquants.calls,
+        )
+
+    def test_bootstrap_repairs_an_empty_week_cached_before_publication(self) -> None:
+        asof = date(2026, 8, 5)
+        week_end = date(2026, 7, 31)
+        jquants = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            trading_days = (
+                week_end,
+                date(2026, 8, 3),
+                date(2026, 8, 4),
+                asof,
+            )
+            store_jquants_daily_bars(
+                sqlite_path,
+                [{"Date": day.isoformat(), "Code": "72030", "C": 100.0} for day in trading_days],
+                requested_start=trading_days[0],
+                requested_end=trading_days[-1],
+            )
+            store_jquants_weekly_margin(sqlite_path, [], week_end=week_end)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "UPDATE source_coverage SET fetched_at_utc = ? "
+                    "WHERE source = 'jquants_weekly_margin'",
+                    ("2026-08-04T07:00:00+00:00",),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            exit_code = bootstrap_cache_command(
+                asof_date=asof,
+                providers=ProviderBundle(
+                    jquants=jquants,
+                    edinet_refresh=FakeEDINETProvider(),
+                    jpx_refresh=FakeJPXProvider(),
+                    jquants_refresh=jquants,
+                ),
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            ("refresh_mkt_margin_interest_week", week_end, week_end),
+            jquants.calls,
+        )
+
+    def test_backfill_master_fetches_only_the_master_for_each_date(self) -> None:
+        # 1 cohort あたり 1 request だけを使うことが、この命令の存在理由である。
+        jquants = FakeJQuantsProvider()
+        buffer = io.StringIO()
+        dates = [date(2026, 4, 30), date(2026, 5, 29)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = backfill_master_command(
+                asof_dates=dates,
+                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
+                sqlite_path=Path(tmpdir) / "market.sqlite",
+                stdout=buffer,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(jquants.calls, [("get_eq_master", day, day) for day in dates])
+        self.assertIn("backfill-master start: 2 date(s)", buffer.getvalue())
+        # 既存 snapshot が無いので fetch 側として報告される。
+        self.assertIn("2026-04-30: fetched", buffer.getvalue())
+        self.assertIn("backfill-master done", buffer.getvalue())
+
+    def test_backfill_master_continues_past_a_failed_date_and_fails_overall(self) -> None:
+        # 1 日の取得失敗で残りの cohort を諦めないが、成功したことにもしない。
+        jquants = _FailingOnDateJQuantsProvider(failing_date=date(2026, 4, 30))
+        buffer = io.StringIO()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = backfill_master_command(
+                asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
+                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
+                sqlite_path=Path(tmpdir) / "market.sqlite",
+                stdout=buffer,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("1 of 2 date(s) failed", stderr.getvalue())
+        self.assertIn(("get_eq_master", date(2026, 5, 29), date(2026, 5, 29)), jquants.calls)
+        self.assertNotIn("backfill-master done", buffer.getvalue())
+
+    def _backfill_master_main(self, argv: list[str]) -> tuple[int, str]:
+        """Run backfill-master through main() with no reachable provider.
+
+        The guards under test all reject before any fetch, so a provider that
+        raises on use proves the rejection happened for the stated reason.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            stderr = io.StringIO()
+            try:
+                os.chdir(Path(tmpdir))
+                with (
+                    patch.dict(os.environ, {"JQUANTS_API_KEY": "token"}),
+                    patch.object(
+                        JQuantsRefresh,
+                        "_fetch",
+                        side_effect=AssertionError("provider fetch must not be used"),
+                    ),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    exit_code = source_app.main(["backfill-master", *argv])
+            finally:
+                os.chdir(cwd)
+        return exit_code, stderr.getvalue()
+
+    def test_main_backfill_master_rejects_a_month_end_range_given_backwards(self) -> None:
+        # 空の grid を「対象が無い」と読ませず、引数の取り違えとして名指しする。
+        exit_code, stderr = self._backfill_master_main(
+            ["--month-end-from", "2025-06-30", "--month-end-to", "2024-01-31"]
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("2025-06-30 is after --month-end-to 2024-01-31", stderr)
+
+    def test_main_backfill_master_rejects_one_sided_month_end_range(self) -> None:
+        exit_code, stderr = self._backfill_master_main(["--month-end-from", "2025-06-30"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("must be given together", stderr)
+
+    def test_main_backfill_master_rejects_a_future_asof(self) -> None:
+        # 未来日の断面は存在しない。要求日を echo する provider があれば、当日の
+        # population が別日の断面として永続化されてしまう。
+        future = (datetime.now(JST).date() + timedelta(days=1)).isoformat()
+        exit_code, stderr = self._backfill_master_main(["--asof", future])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("rejects future dates", stderr)
+        self.assertIn(future, stderr)
+
+    def test_main_backfill_master_allows_today_before_bars_when_calendar_is_open(self) -> None:
+        today = datetime.now(JST).date()
+        called = []
+        with (
+            patch.object(source_app, "market_calendar_business_day", return_value=True),
+            patch(
+                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                return_value=set(),
+            ),
+            patch.object(
+                source_app,
+                "backfill_master_command",
+                side_effect=lambda **kwargs: called.append(kwargs["asof_dates"]) or 0,
+            ),
+        ):
+            exit_code, _ = self._backfill_master_main(["--asof", today.isoformat()])
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(called, [[today]])
+
+    def test_main_backfill_master_skips_today_on_closed_market(self) -> None:
+        today = datetime.now(JST).date()
+        with (
+            patch.object(source_app, "market_calendar_business_day", return_value=False),
+            patch.object(
+                source_app, "backfill_master_command", side_effect=AssertionError("no provider")
+            ),
+        ):
+            exit_code, _ = self._backfill_master_main(["--asof", today.isoformat()])
+        self.assertEqual(exit_code, 0)
+
+    def test_main_backfill_master_fails_closed_on_missing_or_broken_calendar(self) -> None:
+        today = datetime.now(JST).date()
+        for value in (None, sqlite3.OperationalError("broken")):
+            effect = {"return_value": value} if value is None else {"side_effect": value}
+            with (
+                patch.object(source_app, "market_calendar_business_day", **effect),
+                patch.object(
+                    source_app,
+                    "backfill_master_command",
+                    side_effect=AssertionError("no provider"),
+                ),
+            ):
+                exit_code, _ = self._backfill_master_main(["--asof", today.isoformat()])
+            self.assertEqual(exit_code, 1)
+
+    def test_main_backfill_master_mixed_dates_skip_only_closed_today(self) -> None:
+        today = datetime.now(JST).date()
+        historical = date(2026, 9, 18)
+        called = []
+        with (
+            patch.object(source_app, "market_calendar_business_day", return_value=False),
+            patch(
+                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                return_value={historical},
+            ),
+            patch.object(
+                source_app,
+                "backfill_master_command",
+                side_effect=lambda **kwargs: called.append(kwargs["asof_dates"]) or 0,
+            ),
+        ):
+            exit_code, _ = self._backfill_master_main(
+                ["--asof", historical.isoformat(), "--asof", today.isoformat()]
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(called, [[historical]])
+
+    def test_main_backfill_master_rejects_a_date_the_bar_store_never_priced(self) -> None:
+        # この過去日取得の入口は保存済みの取引日を要求する。
+        # 価格未保存だけで取引所の休場やproviderの断面不存在まで断定しない。
+        exit_code, stderr = self._backfill_master_main(["--asof", "2026-01-01"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("does not show as trading days", stderr)
+
+    def test_main_backfill_master_requires_at_least_one_date(self) -> None:
+        exit_code, stderr = self._backfill_master_main([])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("resolved no dates", stderr)
+
+    def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETMetricReader(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
+                        "periodStart": "2025-04-01",
+                        "periodEnd": "2026-03-31",
+                        "submitDateTime": "2026-04-01 12:00",
+                    }
+                ],
+                zip_by_doc_id={"S100TEST": _edinet_csv_zip()},
+            )
+            buffer = io.StringIO()
+            exit_code = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                reader=provider,
+                sqlite_path=sqlite_path,
+                stdout=buffer,
+            )
+            self.assertEqual(exit_code, 0)
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            record = payload["9682"]
+            self.assertEqual(record.ticker, "9682")
+            self.assertEqual(record.net_cash, 600.0)
+            self.assertEqual(record.fcf_ttm, 700.0)
+            self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
+            self.assertEqual(record.source_period_start, date(2025, 4, 1))
+            self.assertEqual(record.source_period_end, date(2026, 3, 31))
+            self.assertIn("selected=1 reused=0 parsed=1", buffer.getvalue())
+
+    def test_recording_a_failure_keeps_the_snapshot_when_the_store_cannot_be_read(
+        self,
+    ) -> None:
+        # An unreadable schema is not evidence that the day's snapshot is absent.
+        # Failure recording must preserve those rows rather than attempt a replacement.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            store_edinet_metrics(
+                sqlite_path,
+                date(2026, 4, 24),
+                [
+                    {
+                        "ticker": "9682",
+                        "sales_ttm": 1000.0,
+                        "ocf_ttm": 200.0,
+                        "extractor_revision": "test",
+                        "source_document_revision": "test",
+                    }
+                ],
+                status="ok",
+            )
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                conn.execute("PRAGMA user_version = 1")
+                conn.commit()
+            finally:
+                conn.close()
+
+            edinet_extraction._record_edinet_extraction_failure(
+                sqlite_path=sqlite_path,
+                asof_date=date(2026, 4, 24),
+                message="provider unavailable",
+            )
+
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM edinet_metrics WHERE asof_date = ?",
+                    ("2026-04-24",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)
+
+    def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETMetricReader(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
+                        "submitDateTime": "2026-04-01 12:00",
+                    }
+                ],
+                zip_by_doc_id={"S100TEST": _edinet_csv_zip(include_debt=False)},
+            )
+            buffer = io.StringIO()
+            exit_code = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                reader=provider,
+                sqlite_path=sqlite_path,
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            self.assertIn("metric_unavailable:debt", payload["9682"].failure_reasons)
+            self.assertIn("quality_issues=1", buffer.getvalue())
+            reuse_provider = FakeEDINETMetricReader(documents=list(provider.documents or []))
+            reuse_buffer = io.StringIO()
+            reuse_exit = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 25),
+                lookback_days=0,
+                reader=reuse_provider,
+                sqlite_path=sqlite_path,
+                stdout=reuse_buffer,
+            )
+            self.assertEqual(reuse_exit, 0)
+            self.assertEqual(reuse_provider.read_calls, [])
+            self.assertIn("reused=1 parsed=0", reuse_buffer.getvalue())
+            self.assertIn("quality_issues=1", reuse_buffer.getvalue())
+
+    def test_extract_edinet_metrics_command_quarantines_affected_ticker_and_continues(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETMetricReader(
+                documents=[
+                    {
+                        "docID": "S100MISSING",
+                        "secCode": "72030",
+                        "docTypeCode": "120",
+                        "docInfoEditStatus": "1",
+                        "withdrawalStatus": "0",
+                        "disclosureStatus": "0",
+                    },
+                    {
+                        "docID": "S100HEALTHY",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
+                    },
+                ],
+                zip_by_doc_id={"S100HEALTHY": _edinet_csv_zip(include_debt=True)},
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    reader=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=stdout,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(provider.read_calls, ["S100HEALTHY"])
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            self.assertIsNone(payload["7203"].sales_ttm)
+            self.assertEqual(
+                payload["7203"].failure_reasons,
+                ("document_event_quarantined:edit:S100MISSING",),
+            )
+            self.assertIsNotNone(payload["9682"].sales_ttm)
+            self.assertIn("events=1 affected_tickers=1", stderr.getvalue())
+            self.assertIn("S100MISSING(edit,type=120,ticker=7203)", stderr.getvalue())
+            self.assertIn("quarantined_events=1 quarantined_tickers=1", stdout.getvalue())
+            self.assertIn("quarantine_sample=S100MISSING:edit:120", stdout.getvalue())
+
+    def test_extract_edinet_metrics_command_uses_baseline_to_quarantine_withdrawal_ticker(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            store_edinet_metrics(
+                sqlite_path,
+                date(2026, 4, 23),
+                [
+                    {
+                        "ticker": "7203",
+                        "sales_ttm": 1000.0,
+                        "source_doc_id": "S100ORIGIN",
+                        "document_type": "120",
+                        "extractor_revision": "seed",
+                        "source_document_revision": "seed",
+                    }
+                ],
+            )
+            documents = [
+                {
+                    "docID": "S100WITHDRAW",
+                    "parentDocID": "S100ORIGIN",
+                    "docInfoEditStatus": "0",
+                    "withdrawalStatus": "1",
+                    "disclosureStatus": "0",
+                    "legalStatus": "0",
+                },
+                {
+                    "docID": "S100HEALTHY",
+                    "secCode": "96820",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                },
+            ]
+            first_provider = FakeEDINETMetricReader(
+                documents=documents,
+                zip_by_doc_id={"S100HEALTHY": _edinet_csv_zip(include_debt=True)},
+            )
+
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    reader=first_provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            first = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert first is not None
+            self.assertEqual(first["7203"].source_doc_id, "S100ORIGIN")
+            self.assertEqual(first["7203"].document_type, "120")
+            self.assertIsNone(first["7203"].sales_ttm)
+
+            second_provider = FakeEDINETMetricReader(documents=documents)
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=second_provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            second = read_edinet_metrics(sqlite_path, date(2026, 4, 25))
+            assert second is not None
+            self.assertIsNone(second["7203"].sales_ttm)
+            self.assertEqual(
+                second["7203"].failure_reasons,
+                ("document_event_quarantined:withdrawal:S100WITHDRAW",),
+            )
+            self.assertEqual(second_provider.read_calls, [])
+
+    def test_extract_edinet_metrics_command_fails_when_no_filings_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETMetricReader(documents=[])
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    reader=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("no EDINET filings selected", stderr.getvalue())
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ?",
+                    ("edinet_metrics",),
+                ).fetchone()
+            self.assertEqual(row[0], "failed")
+            self.assertIn("no EDINET filings selected", row[1])
+
+    def test_extract_edinet_metrics_command_fails_closed_on_document_listing_error(self) -> None:
+        class FailingListReader(FakeEDINETMetricReader):
+            def list_documents(self, on_date: date) -> list[dict[str, object]]:
+                del on_date
+                raise EDINETProviderError("stored document list is unavailable")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [
+                    {
+                        "ticker": "9682",
+                        "sales_ttm": 1_000.0,
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
+                status="ok",
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=asof,
+                    lookback_days=0,
+                    reader=FailingListReader(),
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("EDINET document listing failed", stderr.getvalue())
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                ).fetchone()
+            self.assertEqual(row, ("ok", None))
+
+    def test_extract_edinet_metrics_command_fails_on_invalid_document_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [
+                    {
+                        "ticker": "9682",
+                        "sales_ttm": 1_000.0,
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
+                status="ok",
+            )
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
+            provider = FakeEDINETMetricReader(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "../../96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
+                    }
+                ]
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=asof,
+                    lookback_days=0,
+                    reader=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("invalid EDINET secCode", stderr.getvalue())
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                ).fetchone()
+            self.assertEqual(row, ("ok", None))
+
+    def test_extract_edinet_metrics_command_fails_closed_on_missing_stored_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [
+                    {
+                        "ticker": "9682",
+                        "sales_ttm": 1_000.0,
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
+                status="ok",
+            )
+            provider = FakeEDINETMetricReader(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
+                    }
+                ]
+            )
+            stderr = io.StringIO()
+            stdout = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=asof,
+                    lookback_days=0,
+                    reader=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=stdout,
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("hard_failures=1", stdout.getvalue())
+            self.assertIn("output=not-written", stdout.getvalue())
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                ).fetchone()
+            self.assertEqual(row, ("ok", None))
+
+    def test_extract_edinet_metrics_reuses_cross_asof_and_same_asof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100STABLE")
+            first = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100STABLE": _edinet_csv_zip()},
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    reader=first,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            first_snapshot = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+
+            cross_asof = FakeEDINETMetricReader(documents=[document])
+            cross_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=cross_asof,
+                    sqlite_path=sqlite_path,
+                    stdout=cross_output,
+                ),
+                0,
+            )
+            self.assertEqual(cross_asof.read_calls, [])
+            self.assertEqual(
+                read_edinet_metrics(sqlite_path, date(2026, 4, 25)),
+                first_snapshot,
+            )
+            self.assertIn(
+                "selected=1 reused=1 parsed=0 baseline_asof=2026-04-24",
+                cross_output.getvalue(),
+            )
+
+            same_asof = FakeEDINETMetricReader(documents=[document])
+            same_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=same_asof,
+                    sqlite_path=sqlite_path,
+                    stdout=same_output,
+                ),
+                0,
+            )
+            self.assertEqual(same_asof.read_calls, [])
+            self.assertIn("baseline_asof=2026-04-25", same_output.getvalue())
+
+    def test_extract_edinet_metrics_mixed_delta_matches_forced_full_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            incremental_db = root / "incremental.sqlite"
+            full_db = root / "full.sqlite"
+            baseline_documents = [
+                _edinet_document(ticker="13010", doc_id="S100A"),
+                _edinet_document(ticker="72030", doc_id="S100B"),
+                _edinet_document(ticker="96820", doc_id="S100REMOVED"),
+            ]
+            baseline_provider = FakeEDINETMetricReader(
+                documents=baseline_documents,
+                zip_by_doc_id={
+                    document["docID"]: _edinet_csv_zip() for document in baseline_documents
+                },
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    reader=baseline_provider,
+                    sqlite_path=incremental_db,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            current_documents = [
+                _edinet_document(ticker="13010", doc_id="S100A"),
+                _edinet_document(ticker="72030", doc_id="S100BCORR", doc_type="130"),
+                _edinet_document(ticker="67580", doc_id="S100NEW"),
+            ]
+            delta_provider = FakeEDINETMetricReader(
+                documents=current_documents,
+                zip_by_doc_id={
+                    "S100BCORR": _edinet_csv_zip(),
+                    "S100NEW": _edinet_csv_zip(),
+                },
+            )
+            delta_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=delta_provider,
+                    sqlite_path=incremental_db,
+                    stdout=delta_output,
+                ),
+                0,
+            )
+            self.assertEqual(
+                set(delta_provider.read_calls),
+                {"S100BCORR", "S100NEW"},
+            )
+            self.assertIn("selected=3 reused=1 parsed=2", delta_output.getvalue())
+
+            full_provider = FakeEDINETMetricReader(
+                documents=current_documents,
+                zip_by_doc_id={
+                    document["docID"]: _edinet_csv_zip() for document in current_documents
+                },
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=full_provider,
+                    sqlite_path=full_db,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            incremental = read_edinet_metrics(incremental_db, date(2026, 4, 25))
+            forced_full = read_edinet_metrics(full_db, date(2026, 4, 25))
+            self.assertEqual(incremental, forced_full)
+            assert incremental is not None
+            self.assertNotIn("9682", incremental)
+
+    def test_extract_edinet_metrics_document_edit_event_forces_download(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            original = _edinet_document(ticker="96820", doc_id="S100SAME")
+            first = FakeEDINETMetricReader(
+                documents=[original],
+                zip_by_doc_id={"S100SAME": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                reader=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            # A sparse native operation omits unchanged metadata. Explicit nulls
+            # would clear it and make the filing ineligible rather than reusable.
+            edit_event = {
+                "docID": "S100SAME",
+                "docInfoEditStatus": "1",
+                "opeDateTime": "2026-04-25 09:00",
+                "seqNumber": 2,
+            }
+            second = FakeEDINETMetricReader(
+                documents=[original, edit_event],
+                zip_by_doc_id={"S100SAME": _edinet_csv_zip()},
+            )
+
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=second,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            self.assertEqual(second.read_calls, ["S100SAME"])
+
+    def test_extract_edinet_metrics_empty_csv_is_failed_and_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100EMPTY")
+            empty_buffer = io.BytesIO()
+            with zipfile.ZipFile(empty_buffer, "w") as archive:
+                archive.writestr(
+                    "XBRL_TO_CSV/empty.csv",
+                    "要素ID\tコンテキストID\tユニットID\t値\n".encode("utf-16"),
+                )
+            first = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100EMPTY": empty_buffer.getvalue()},
+            )
+
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    reader=first,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                1,
+            )
+            self.assertIsNone(read_edinet_metrics(sqlite_path, date(2026, 4, 24)))
+
+            second = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100EMPTY": _edinet_csv_zip()},
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=second,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            self.assertEqual(second.read_calls, ["S100EMPTY"])
+
+    def test_extract_edinet_metrics_skips_failed_baseline_and_excludes_future(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100BASE")
+            first = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                reader=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            store_edinet_metrics(
+                sqlite_path,
+                date(2026, 4, 25),
+                [],
+                status="failed",
+                error="transient failure",
+            )
+            after_failure = FakeEDINETMetricReader(documents=[document])
+            after_failure_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 26),
+                    lookback_days=0,
+                    reader=after_failure,
+                    sqlite_path=sqlite_path,
+                    stdout=after_failure_output,
+                ),
+                0,
+            )
+            self.assertEqual(after_failure.read_calls, [])
+            self.assertIn("baseline_asof=2026-04-24", after_failure_output.getvalue())
+
+            before_all_snapshots = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            before_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 23),
+                    lookback_days=0,
+                    reader=before_all_snapshots,
+                    sqlite_path=sqlite_path,
+                    stdout=before_output,
+                ),
+                0,
+            )
+            self.assertEqual(before_all_snapshots.read_calls, ["S100BASE"])
+            self.assertIn("baseline_asof=none", before_output.getvalue())
+
+    def test_extract_edinet_metrics_rejects_corrupt_latest_ok_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100BASE")
+            first = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                reader=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection, connection:
+                connection.execute(
+                    "UPDATE source_coverage SET record_count = 2 "
+                    "WHERE source = 'edinet_metrics' AND coverage_key = '2026-04-24'"
+                )
+            provider = FakeEDINETMetricReader(documents=[document])
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(provider.read_calls, [])
+            self.assertIn("baseline is corrupt", stderr.getvalue())
+            self.assertIsNone(read_edinet_metrics(sqlite_path, date(2026, 4, 25)))
+
+    def test_extract_edinet_metrics_revision_mismatch_rebuilds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100BASE")
+            first = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                reader=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection, connection:
+                connection.execute(
+                    "UPDATE edinet_metrics SET extractor_revision = ?",
+                    ("0" * 64,),
+                )
+            second = FakeEDINETMetricReader(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    reader=second,
+                    sqlite_path=sqlite_path,
+                    stdout=output,
+                ),
+                0,
+            )
+            self.assertEqual(second.read_calls, ["S100BASE"])
+            self.assertIn("full_rebuild_reason=incompatible_revision", output.getvalue())
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection, connection:
+                revision = connection.execute(
+                    "SELECT extractor_revision FROM edinet_metrics WHERE asof_date = '2026-04-25'"
+                ).fetchone()[0]
+            self.assertEqual(revision, EDINET_METRIC_REVISION)
+
+
+def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
+    rows = [
+        ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
+        (
+            "jpcrp_cor:NetCashProvidedByUsedInOperatingActivities",
+            "CurrentYearDuration",
+            "900",
+        ),
+        ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "150"),
+        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+        (
+            "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
+            "CurrentYearDuration",
+            "-200",
+        ),
+        ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
+        ("jppfs_cor:NetAssets", "CurrentYearInstant", "1200"),
+        ("jppfs_cor:Assets", "CurrentYearInstant", "2000"),
+        ("jppfs_cor:DepreciationAndAmortizationOpeCF", "CurrentYearDuration", "50"),
+    ]
+    if include_debt:
+        rows.extend(
+            [
+                ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "100"),
+                ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "300"),
+            ]
+        )
+    text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("XBRL_TO_CSV/test.csv", text.encode("utf-16"))
+    return buffer.getvalue()
+
+
+def _edinet_document(
+    *,
+    ticker: str,
+    doc_id: str,
+    doc_type: str = "120",
+) -> dict[str, object]:
+    return {
+        "docID": doc_id,
+        "secCode": ticker,
+        "docTypeCode": doc_type,
+        "csvFlag": "1",
+        "xbrlFlag": "1",
+        "legalStatus": "1",
+        "disclosureStatus": "0",
+        "withdrawalStatus": "0",
+        "periodStart": "2025-04-01",
+        "periodEnd": "2026-03-31",
+        "submitDateTime": "2026-04-01 12:00",
+    }
+
+
+def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
+    """Weekday rows so the weekly-margin candidates have a calendar to derive from."""
+    conn = open_connection(sqlite_path)
+    try:
+        day = start
+        rows = []
+        while day <= end:
+            if day.weekday() < 5:
+                rows.append(("7203", day.isoformat(), 1.0))
+            day += timedelta(days=1)
+        conn.executemany(
+            "INSERT OR REPLACE INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class BackfillHistoryTests(unittest.TestCase):
+    def test_normal_backfill_fetches_daily_margin_after_the_source_boundary(self) -> None:
+        provider = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2026, 9, 25), date(2026, 9, 28))
+            code = backfill_history_command(
+                start=date(2026, 9, 24),
+                end=date(2026, 9, 28),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            [call for call in provider.calls if call[0] == "get_mkt_all_issues_daily_margin"],
+            [
+                ("get_mkt_all_issues_daily_margin", date(2026, 9, 25), date(2026, 9, 25)),
+                ("get_mkt_all_issues_daily_margin", date(2026, 9, 28), date(2026, 9, 28)),
+            ],
+        )
+
+    def test_each_range_source_is_fetched_over_the_named_window(self) -> None:
+        # The window is stated once rather than derived from an as-of, so a decade of
+        # history costs one pass instead of one 1200-day re-fetch per cohort date.
+        provider = FakeJQuantsProvider()
+        output = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2016, 8, 1), date(2018, 3, 1))
+            code = backfill_history_command(
+                start=date(2016, 8, 1),
+                end=date(2018, 3, 1),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                sqlite_path=sqlite_path,
+                stdout=output,
+            )
+
+        self.assertEqual(code, 0)
+        # The row readers answer with the whole window, so the three that can
+        # span years are asked a year at a time. The interior boundaries follow the
+        # calendar, not `start`, so a run naming a different first date reuses the
+        # same fetch chunks. The calendar is one provider call and stays whole.
+        by_source: dict[str, list[tuple[date, date]]] = {}
+        for name, start, end in provider.calls:
+            by_source.setdefault(name, []).append((start, end))
+        year_spans = [
+            (date(2016, 8, 1), date(2016, 12, 31)),
+            (date(2017, 1, 1), date(2017, 12, 31)),
+            (date(2018, 1, 1), date(2018, 3, 1)),
+        ]
+        self.assertEqual(by_source["get_eq_bars_daily_range"], year_spans)
+        self.assertEqual(by_source["get_fin_summary_range"], year_spans)
+        self.assertEqual(by_source["get_mkt_short_sale_report_range"], year_spans)
+        self.assertEqual(by_source["get_mkt_calendar"], [(date(2016, 8, 1), date(2018, 3, 1))])
+        self.assertIn("backfill-history done", output.getvalue())
+
+    def test_a_historical_window_keeps_its_own_final_week(self) -> None:
+        # `end` here is a named past boundary, not today, so its week is complete
+        # and holds a real balance date. Treating it as in-progress would drop the
+        # only candidate and report a backfill that fetched nothing as success.
+        provider = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 31))
+            output = io.StringIO()
+            code = backfill_history_command(
+                start=date(2026, 7, 20),
+                end=date(2026, 7, 24),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                sqlite_path=sqlite_path,
+                stdout=output,
+            )
+
+        self.assertEqual(code, 0)
+        weeks = [
+            start for name, start, _ in provider.calls if name == "get_mkt_margin_interest_week"
+        ]
+        self.assertEqual(weeks, [date(2026, 7, 24)])
+
+    def test_a_window_with_no_complete_week_fails_rather_than_reporting_success(self) -> None:
+        provider = FakeJQuantsProvider()
+        errors = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 31))
+            with contextlib.redirect_stderr(errors):
+                code = backfill_history_command(
+                    start=date(2026, 7, 25),
+                    end=date(2026, 7, 26),
+                    providers=ProviderBundle(
+                        jquants=provider,
+                        jquants_refresh=provider,
+                    ),
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+        self.assertEqual(code, 1)
+        self.assertIn("no weekly margin balance date candidates", errors.getvalue())
+
+    def test_a_source_that_fails_does_not_stop_the_others(self) -> None:
+        # A provider that cannot answer for one source says nothing about the rest,
+        # and a run of this length should not lose hours of work to one refusal.
+        class FailingBars(FakeJQuantsProvider):
+            def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+                self.calls.append(("get_eq_bars_daily_range", start, end))
+                raise JQuantsProviderError("bars unavailable")
+
+        provider = FailingBars()
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            code = backfill_history_command(
+                start=date(2016, 8, 1),
+                end=date(2016, 8, 31),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                sqlite_path=Path("stores/market/market.sqlite"),
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("get_fin_summary_range", [call[0] for call in provider.calls])
+        self.assertIn("get_mkt_calendar", [call[0] for call in provider.calls])
+        self.assertIn("daily_bars", errors.getvalue())
+
+
+def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_path: Path) -> None:
+    class FailingFinancial(FakeJQuantsProvider):
+        def refresh_fin_summary_range(self, *args, **kwargs):
+            raise JQuantsProviderError("financial HTTP failure")
+
+    jquants = FailingFinancial()
+    edinet = FakeEDINETProvider()
+    jpx = FakeJPXProvider()
+    assert (
+        bootstrap_cache_command(
+            asof_date=date(2026, 5, 8),
+            providers=ProviderBundle(
+                jquants=jquants,
+                edinet_refresh=edinet,
+                jpx_refresh=jpx,
+                jquants_refresh=jquants,
+            ),
+            sqlite_path=tmp_path / "market.sqlite",
+            stdout=io.StringIO(),
+        )
+        == 1
+    )
+    names = [call[0] for call in jquants.calls]
+    assert "get_mkt_calendar" in names
+    assert "refresh_mkt_short_sale_report_range" in names
+    assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1
+
+
+def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_path: Path) -> None:
+    jquants = _CorruptSQLiteJQuantsProvider()
+    edinet = FakeEDINETProvider()
+    jpx = FakeJPXProvider()
+    assert (
+        bootstrap_cache_command(
+            asof_date=date(2026, 5, 8),
+            providers=ProviderBundle(
+                jquants=jquants,
+                edinet_refresh=edinet,
+                jpx_refresh=jpx,
+                jquants_refresh=jquants,
+            ),
+            sqlite_path=tmp_path / "market.sqlite",
+            stdout=io.StringIO(),
+        )
+        == 1
+    )
+    names = [call[0] for call in jquants.calls]
+    assert names.count("refresh_fin_summary_range") == 1
+    assert names.count("get_fy_summary_range") == 1
+    assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1

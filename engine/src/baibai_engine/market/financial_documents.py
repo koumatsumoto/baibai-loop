@@ -72,7 +72,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
     return JQuantsFinancialSummary(
         ticker=ticker,
         disclosed_at=parse_date(record.get("DiscDate")),
-        eps_ttm=to_float(record.get("EPS")),
+        cumulative_eps=to_float(record.get("EPS")),
         bps=to_float(record.get("BPS")),
         shares_outstanding=to_float(record.get("ShOutFY")),
         sales=to_float(record.get("Sales")),

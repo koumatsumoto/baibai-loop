@@ -394,162 +394,6 @@ def test_sqlite_helpers_run_from_the_repository_when_called_elsewhere(tmp_path: 
     assert completed.returncode == 0, completed.stderr
 
 
-def _serving_export(tmp_path: Path) -> Path:
-    output = tmp_path / "serving"
-    (output / "views").mkdir(parents=True)
-    (output / "views/dashboard.json").write_text("{}", encoding="utf-8")
-    (output / "views/meta.json").write_text("{}", encoding="utf-8")
-    (output / "history/candidate-views").mkdir(parents=True)
-    (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
-    return output
-
-
-def test_views_upload_replaces_the_mirror_and_leaves_meta_alone(tmp_path: Path) -> None:
-    """The mirror stage after the store push touches only the mutable image."""
-    bin_dir, log = _fake_aws(tmp_path)
-    output = _serving_export(tmp_path)
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "upload-serving-views", output],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    commands = _transfer_commands(log)
-    assert len(commands) == 1
-    assert commands[0].startswith("s3 sync ")
-    assert "s3://baibai-serving/views/" in commands[0]
-    assert "--delete --exclude meta.json" in commands[0]
-    assert "history/" not in commands[0]
-    # One view is mirrored; `meta.json` belongs to the tail stage and is not counted.
-    assert "serving views: objects=1 elapsed=" in result.stdout
-
-
-def test_serving_tail_appends_history_and_writes_meta_last(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    output = _serving_export(tmp_path)
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "publish-serving-tail", output],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    commands = _transfer_commands(log)
-    assert len(commands) == 2
-    assert "s3://baibai-serving/history/candidate-views/" in commands[0]
-    assert "--delete" not in commands[0]
-    assert commands[1].startswith("s3 cp ")
-    assert commands[1].endswith(
-        "s3://baibai-serving/views/meta.json --endpoint-url "
-        "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-    )
-    assert "serving tail: objects=2 elapsed=" in result.stdout
-
-
-def test_serving_transfer_raises_concurrency_without_touching_the_caller_config(
-    tmp_path: Path,
-) -> None:
-    """Transfer concurrency is isolated from the caller's persistent configuration.
-
-    It has no command-line flag, and this script also runs on a developer machine,
-    so writing it into `~/.aws/config` would change transfers this repository has
-    nothing to do with.
-    """
-    bin_dir, log = _fake_aws(tmp_path)
-    output = _serving_export(tmp_path)
-    home = tmp_path / "home"
-    home.mkdir()
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-    env["HOME"] = str(home)
-
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "upload-serving-views", output],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert "serving transfer: max_concurrent_requests=32" in result.stdout
-    assert not (home / ".aws" / "config").exists()
-    # The fake CLI echoes the config the run pointed it at, so the setting is
-    # observed where `aws` would read it rather than only where it was written.
-    assert "max_concurrent_requests = 32" in result.stdout
-
-
-def test_serving_concurrency_is_settable_without_a_code_change(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    output = _serving_export(tmp_path)
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-    env["R2_SERVING_UPLOAD_CONCURRENCY"] = "10"
-
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "upload-serving-views", output],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert "serving transfer: max_concurrent_requests=10" in result.stdout
-
-
-def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path) -> None:
-    """Each process writes its own config, so neither can read the other's value.
-
-    Independent invocations must keep their transfer settings isolated even when
-    they overlap; the daily workflow itself serializes the store and views pushes.
-    """
-    bin_dir, log = _fake_aws(tmp_path)
-    output = _serving_export(tmp_path)
-    base = _environment(bin_dir, log)
-    base["GITHUB_ACTIONS"] = "true"
-    # Both processes write into a directory of their own so the survival check below
-    # sees these two configs and not whichever ones a parallel test happens to hold
-    # open in the shared temporary directory.
-    scratch = tmp_path / "tmp"
-    scratch.mkdir()
-    base["TMPDIR"] = str(scratch)
-
-    processes = []
-    for concurrency in ("11", "22"):
-        env = {**base, "R2_SERVING_UPLOAD_CONCURRENCY": concurrency, "AWS_LOG": str(log)}
-        processes.append(
-            subprocess.Popen(
-                [TRANSFER_SCRIPT, "upload-serving-views", output],
-                cwd=REPO_ROOT,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-        )
-    outputs = [process.communicate()[0] for process in processes]
-
-    assert all(process.returncode == 0 for process in processes)
-    assert "max_concurrent_requests = 11" in outputs[0]
-    assert "max_concurrent_requests = 22" not in outputs[0]
-    assert "max_concurrent_requests = 22" in outputs[1]
-    assert "max_concurrent_requests = 11" not in outputs[1]
-    # The trap removes each config, so neither survives its own process.
-    assert not list(scratch.glob("baibai-r2-transfer.*"))
-
-
 def test_pull_app_refuses_to_overwrite_a_local_application_store(tmp_path: Path) -> None:
     # R2 is authoritative, but the local working copy may contain unpublished
     # judgments. Pull must not overwrite those changes merely because a remote
@@ -615,50 +459,6 @@ def test_pull_runs_is_scoped_to_the_cloud_authoritative_run_store() -> None:
     assert "pull_keys runs.sqlite" in block
     assert "market.sqlite" not in block
     assert "indicators.sqlite" not in block
-
-
-@pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])
-def test_serving_publish_rejects_an_export_without_meta(tmp_path: Path, subcommand: str) -> None:
-    """Both stages refuse a partial export, because the mirror runs with `--delete`."""
-    bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "serving"
-    (output / "views").mkdir(parents=True)
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, subcommand, output],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "meta.json is missing" in completed.stderr
-    assert not log.exists()
-
-
-@pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])
-def test_serving_publish_is_github_actions_only(tmp_path: Path, subcommand: str) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "serving"
-    (output / "views").mkdir(parents=True)
-    (output / "views/meta.json").write_text("{}", encoding="utf-8")
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, subcommand, output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "outside GitHub Actions" in completed.stderr
-    assert not log.exists()
 
 
 def test_initial_seed_refuses_to_overwrite_an_existing_store(tmp_path: Path) -> None:
@@ -1899,3 +1699,91 @@ def test_initial_seed_refuses_a_race_after_the_absence_check(tmp_path: Path) -> 
     assert not any(command.startswith(("s3 cp ", "s3api copy-object ")) for command in commands)
     assert remote.read_bytes() == b"created by another writer after preflight"
     assert not list(root.glob(".r2-transfer.*"))
+
+
+def test_runs_only_push_uses_pulled_generation_and_does_not_reupload_other_stores(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-runs"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    uploads = [
+        command for command in _transfer_commands(log) if command.startswith("s3api put-object ")
+    ]
+    assert len(uploads) == 2
+    assert "--key runs.sqlite " in uploads[0]
+    assert '--if-match "etag-stable"' in uploads[0]
+    assert "--key machine-manifest.json " in uploads[1]
+    assert not any(
+        "--key market.sqlite " in command or "--key indicators.sqlite " in command
+        for command in uploads
+    )
+
+
+def test_runs_only_push_refuses_changed_cloud_generation_without_writing(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_CHANGED_KEY"] = "runs.sqlite"
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-runs"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode != 0
+    assert "runs.sqlite changed on R2" in completed.stderr
+    assert not any(command.startswith("s3api put-object ") for command in _transfer_commands(log))
+
+
+@pytest.mark.parametrize("missing", [None, "portfolio-dashboard", "tasks", "outcomes"])
+@pytest.mark.parametrize("in_actions", [False, True])
+def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
+    tmp_path, missing, in_actions
+):
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    if in_actions:
+        environment["GITHUB_ACTIONS"] = "true"
+    export = tmp_path / "export"
+    views = export / "views"
+    views.mkdir(parents=True)
+    # Even a stale artifact in a reused export directory must not reach the old key.
+    for name in ("dashboard", "portfolio-dashboard", "tasks", "outcomes"):
+        if name != missing:
+            (views / f"{name}.json").write_text('{"synthetic": true}\n')
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", str(export)],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    commands = _transfer_commands(log)
+    uploads = [command for command in commands if command.startswith("s3 cp ")]
+    if not in_actions:
+        assert completed.returncode == 2
+        assert uploads == []
+        assert "refusing serving upload outside GitHub Actions" in completed.stderr
+        return
+    if missing is not None:
+        assert completed.returncode == 2
+        assert uploads == []
+        assert f"missing portfolio view: {missing}" in completed.stderr
+        return
+    assert completed.returncode == 0, completed.stderr
+    assert [command.split()[3] for command in uploads] == [
+        f"s3://baibai-serving/views/{name}.json"
+        for name in ("portfolio-dashboard", "tasks", "outcomes")
+    ]
+    assert not any("views/dashboard.json" in command for command in commands)
+    assert not any("delete-object" in command or "s3 rm" in command for command in commands)

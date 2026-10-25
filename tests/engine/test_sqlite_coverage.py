@@ -9,7 +9,6 @@ from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.helpers.master import insert_master_rows
@@ -208,14 +207,7 @@ def _complete_coverage_database() -> Iterator[Path]:
 
 
 class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
-    """2026-08-24 replayed at both gates that read the coverage verdict.
-
-    The exchange was four to five weeks behind on the weekly balance. The reader nulls
-    the margin axes past `MARGIN_MAX_STALE_DAYS`; that is the whole degrade, and neither
-    `verify-cache-coverage` nor the `run` preflight has anything to add to it. The
-    preflight is here because an informational verify line once turned into exit 1
-    there — the two gates must read one verdict.
-    """
+    """古い週次残高は任意軸の欠測であり、原本coverage不足へ格上げしない。"""
 
     _STALE_DAYS = 40
 
@@ -257,36 +249,6 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
         self.assertEqual(code, 0, stream.getvalue())
         self.assertIn("coverage complete", stream.getvalue())
         self.assertNotIn("weekly_margin", stream.getvalue())
-
-    def test_run_preflight_reaches_the_run(self) -> None:
-        from baibai_engine.machine_analysis.screening.cli import app as app_module
-        from baibai_engine.machine_analysis.screening.config import ScreeningConfig
-
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = self._store_with_a_stale_balance(tmp)
-            config = ScreeningConfig("token", None, sqlite_cache_dir=sqlite_path.parent)
-            reached: list[date] = []
-
-            def fake_run(asof_date: date, *args: object, **kwargs: object) -> int:
-                reached.append(asof_date)
-                return 0
-
-            # The production rules require the JPX regulation sources the fixture does
-            # not seed; the gate under test is the weekly balance, not those.
-            rules = SimpleNamespace(universe=SimpleNamespace(required_jpx_flags=()))
-            with (
-                patch.object(ScreeningConfig, "from_env", staticmethod(lambda: config)),
-                patch.object(app_module, "load_screening_rules", lambda _path: rules),
-                patch.object(app_module, "run_command", fake_run),
-                patch.object(app_module, "JQuantsReader"),
-                patch.object(app_module, "EDINETRefresh"),
-                patch.object(app_module, "JPXRefresh"),
-                patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100),
-            ):
-                code = app_module.main(["run", "--asof", _COMMON_COVERAGE_ASOF.isoformat()])
-
-        self.assertEqual(code, 0)
-        self.assertEqual(reached, [_COMMON_COVERAGE_ASOF])
 
 
 def tearDownModule() -> None:

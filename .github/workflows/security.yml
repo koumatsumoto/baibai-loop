@@ -3,8 +3,8 @@ name: security
 # Dependency advisories are the one finding that appears without anything in the
 # repository changing, so they get a clock of their own. Every gate that reacts to
 # a change instead — Bandit, and the audits' own reaction to a lockfile edit — runs
-# on the pull request that carries the change: Python checks in ci.yml and Node
-# lockfile audits in node-audit.yml. This workflow sweeps both ecosystems weekly.
+# on the pull request that carries the change: Python
+# checks in ci.yml. This workflow sweeps Python dependencies weekly.
 on:
   schedule:
     - cron: "17 3 * * 1"
@@ -35,7 +35,7 @@ jobs:
       # Pull requests are where a widened credential boundary is refused, and their
       # merge ref is main only until main moves under them. This asks the question
       # again of main itself, so a tree that runs with R2, provider, Discord and
-      # Cloudflare credentials is never more than a week from having been checked.
+      # notification credentials is never more than a week from having been checked.
       - name: Workflow trust boundary
         run: uv run python tools/quality/drift/check_workflow_trust.py
 
@@ -65,21 +65,3 @@ jobs:
           PY
           uv run pip-audit \
             -r /tmp/baibai-loop-build-requirements.txt
-
-      # This workflow reports rather than gates, so each ecosystem is asked even after
-      # another one has already found something. An advisory hidden behind an earlier
-      # failure would wait a week for the next sweep.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: ${{ !cancelled() }}
-        with:
-          node-version-file: .node-version
-
-      - name: UI dependency audit
-        if: ${{ !cancelled() }}
-        working-directory: web/frontend
-        run: npm audit --package-lock-only --audit-level=high
-
-      - name: Worker dependency audit
-        if: ${{ !cancelled() }}
-        working-directory: web/edge
-        run: npm audit --package-lock-only --audit-level=high

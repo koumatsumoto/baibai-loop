@@ -8,10 +8,9 @@ if TYPE_CHECKING:
 
 import yaml
 
-from baibai_engine.foundation.time import JST
 from baibai_engine.market.metric_quality import TTMQuality
 
-from .schema import FreshnessWarning, MetricValueMap, ScreeningRunDocument, StockAnalysis
+from .schema import MetricValueMap, StockAnalysis
 
 _DECIMAL_PLACES = {
     "per_forward": 2,
@@ -70,38 +69,11 @@ def _quoted_payload(value: object) -> object:
     return value
 
 
-def screening_run_payload(document: ScreeningRunDocument) -> dict[str, object]:
-    # The document owns date validity; export one canonical display timezone.
-    front_matter: dict[str, object] = {"schema_version": 1, "kind": "stock_analysis_run"}
-    front_matter["run_date"] = QuotedString(document.run_date.isoformat())
-    front_matter["asof_date"] = QuotedString(document.asof_date.isoformat())
-    front_matter["universe_size"] = document.universe_size
-    front_matter["filters"] = dict(document.filters.items())
-    front_matter["generated_by"] = QuotedString(document.generated_by)
-    front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
-    front_matter["run_at"] = QuotedString(document.run_at.astimezone(JST).isoformat())
-    front_matter["run_id"] = QuotedString(document.run_id)
-    front_matter["screening_rules_hash"] = QuotedString(document.screening_rules_hash)
-    front_matter["er_model_version"] = QuotedString(document.er_model_version)
-    front_matter["stock_analyses"] = [
-        stock_analysis_payload(analysis) for analysis in document.stock_analyses
-    ]
-    front_matter["provider_status_lines"] = [
-        QuotedString(line) for line in document.provider_status_lines
-    ]
-    front_matter["universe_exclusion_lines"] = [
-        QuotedString(line) for line in document.universe_exclusion_lines
-    ]
-    front_matter["ttm_quality_counts"] = dict(document.ttm_quality_counts)
-    front_matter["fallback_lines"] = [QuotedString(line) for line in document.fallback_lines]
-    return front_matter
-
-
 def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
     """Serialize one analyzed security to its YAML entry shape.
 
-    Production and calibration use the same rounded coordinates so a valuation
-    approach cannot observe a different row in replay.
+    旧保存形式とcalibrationの丸め済み座標を維持する。新しい五モデルの
+    payloadへこの丸めや旧候補契約を適用しない。
     """
     entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(analysis.ticker)
@@ -131,14 +103,6 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
     entry["price_history_sessions_750d"] = analysis.price_history_sessions_750d
     entry["price_history_coverage_750d"] = _round_ratio(analysis.price_history_coverage_750d)
     entry["metrics"] = _round_metrics(analysis.metrics)
-    entry["next_earnings_date"] = (
-        QuotedString(analysis.next_earnings_date.isoformat())
-        if analysis.next_earnings_date is not None
-        else None
-    )
-    entry["freshness_warnings"] = [
-        _build_freshness_warning(warning) for warning in analysis.freshness_warnings
-    ]
     entry["ttm_quality"] = {
         "ev_ebitda": analysis.ttm_quality["ev_ebitda"].value
         if "ev_ebitda" in analysis.ttm_quality
@@ -157,24 +121,6 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
         analysis.candidate.model_dump(mode="json") if analysis.candidate is not None else None
     )
     return entry
-
-
-def _build_freshness_warning(warning: FreshnessWarning) -> dict[str, object]:
-    return {
-        "source_family": QuotedString(warning.source_family),
-        "stale_metric": QuotedString(warning.stale_metric),
-        "reason": QuotedString(warning.reason),
-        "event_date": QuotedString(warning.event_date.isoformat()),
-        "event_kind": QuotedString(warning.event_kind),
-        "event_title": QuotedString(warning.event_title),
-        "event_source": QuotedString(warning.event_source),
-        "event_url": QuotedString(warning.event_url) if warning.event_url is not None else None,
-        "edinet_source_submit_datetime": (
-            QuotedString(warning.edinet_source_submit_datetime)
-            if warning.edinet_source_submit_datetime is not None
-            else None
-        ),
-    }
 
 
 def _round_ratio(value: float | None) -> float | None:

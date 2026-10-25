@@ -17,15 +17,9 @@ from tests.helpers.screening_sqlite import insert_financial_record, make_master_
 
 from baibai_engine.data_collection.jquants.http import JQuantsHTTP
 from baibai_engine.foundation.time import JST
-from baibai_engine.machine_analysis.screening.cli.cache import (
-    backfill_master_command,
-    bootstrap_cache_command,
-)
-from baibai_engine.machine_analysis.screening.cli.providers import ProviderBundle
 from baibai_engine.machine_analysis.screening.sqlite_coverage.jquants import (
     _append_master_snapshot_issues,
 )
-from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_reader import (
     JQuantsReader,
@@ -35,6 +29,8 @@ from baibai_engine.market.jquants_reader import (
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.jquants_writer import store_jquants_master
 from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
+from baibai_engine.source_maintenance.cache import backfill_master_command, bootstrap_cache_command
+from baibai_engine.source_maintenance.providers import ProviderBundle
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
@@ -544,9 +540,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             output = io.StringIO()
             result = backfill_master_command(
                 asof_dates=[today],
-                providers=ProviderBundle(
-                    jquants=reader, edinet=None, jpx=JPXReader(db), jquants_refresh=maintenance
-                ),
+                providers=ProviderBundle(jquants=reader, jquants_refresh=maintenance),
                 sqlite_path=db,
                 stdout=output,
             )
@@ -600,8 +594,6 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             bootstrap_jquants = _BootstrapJQuants(reader, maintenance, db)
             bundle = ProviderBundle(
                 jquants=bootstrap_jquants,
-                edinet=None,
-                jpx=JPXReader(db),
                 jpx_refresh=_BootstrapJPX(),
                 jquants_refresh=bootstrap_jquants,
             )

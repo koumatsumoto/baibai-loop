@@ -17,7 +17,6 @@ from baibai_engine.position.outcome import (
     outcome_to_payload,
 )
 from baibai_engine.position.outcome_store import PortfolioOutcomePublication, PortfolioOutcomeStore
-from baibai_engine.read_api.position import list_portfolio_outcome_payloads
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -274,7 +273,7 @@ def test_calculated_resolved_outcome_publishes_and_reads_without_inventing_exit_
     assert PortfolioOutcomeStore(database).publish(publication)
     before = database.read_bytes()
 
-    saved = list_portfolio_outcome_payloads(database)[0]
+    saved = PortfolioOutcomeStore(database).list()[0]
 
     assert saved["status"] == "resolved"
     assert saved["portfolio_twr_pct"] == result.portfolio_twr_pct
@@ -658,7 +657,7 @@ def test_outcome_cli_publishes_cash_only_after_unfilled_order_without_price_cove
     emitted = yaml.safe_load(capsys.readouterr().out)
     assert emitted["status"] == "resolved"
     assert emitted["portfolio_twr_pct"] == 0.0
-    saved = list_portfolio_outcome_payloads(application)
+    saved = PortfolioOutcomeStore(application).list()
     assert len(saved) == 1
     assert saved[0]["portfolio_twr_pct"] == 0.0
     assert saved[0]["ending_holdings_market_value_yen"] == 0

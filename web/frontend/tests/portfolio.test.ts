@@ -15,11 +15,7 @@ function holding(overrides: Partial<HoldingView>): HoldingView {
     market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000,
     unrealized_pnl_pct: 10,
-    pmax_raw_yen: null,
-    pmax_gap_pct: null, pmax_gap_unavailable_reason: null,
-    latest_assessment_id: null,
-    stance: null,
-    next_earnings_date: null,
+   
     ...overrides,
   }
 }

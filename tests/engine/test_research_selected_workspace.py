@@ -10,10 +10,18 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
-from tests.helpers.research_selection import draft_for, selected_target, selection
+from tests.helpers.db_seed import seed_historical_operation
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
+from tests.helpers.model_generation import seed_generation
+from tests.helpers.research_selection import historical_operation, selected_target, selection
 
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
+from baibai_engine.investment_judgment.selection import (
+    GeneratedResearchSelectionDraft,
+    ResearchRequest,
+    selection_sha256,
+)
 from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.workspace import (
     ResearchWorkspaceConflictError,
@@ -21,6 +29,8 @@ from baibai_engine.investment_judgment.workspace import (
     prepare_selected_workspace,
     promote,
     resume_selected_workspace,
+    scaffold_assessment,
+    scaffold_review,
     selected_prepare,
 )
 from baibai_engine.investment_judgment.workspace_cli import main
@@ -30,57 +40,52 @@ NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 
 
 def prepare(tmp_path, *, value=None, workspace=None, db=None, market=None, now=NOW):
-    value = value or selection(now=now, tickers=("1234",))
+    value = value or seed_generated_selection(runs=tmp_path / "runs", now=now, tickers=("1234",))
     return prepare_selected_workspace(
-        draft=draft_for(value),
+        draft=generated_draft_for(value),
         db_path=db or tmp_path / "app",
         workspace=workspace or tmp_path / "workspace",
-        sqlite_path=market or tmp_path / "absent-market",
         runs_path=tmp_path / "runs",
-        indicators_path=tmp_path / "absent-indicators",
         now=now,
     )
 
 
-def test_discover_new_preserves_selected_noncandidate_from_fixed_run(tmp_path):
-    from tests.helpers.screening_run import stock_analysis
+def resume_historical(tmp_path, value):
+    operation = historical_operation(value)
+    seed_historical_operation(tmp_path / "app", operation)
+    return resume_selected_workspace(
+        operation_id=operation.operation_id,
+        db_path=tmp_path / "app",
+        workspace=tmp_path / "workspace",
+        now=NOW,
+    )
 
-    from baibai_engine.investment_judgment.selection import ResearchRequest
-    from baibai_engine.investment_judgment.selection_query import load_selection_context
+
+def test_discover_new_preserves_selected_noncandidate_from_fixed_generation(tmp_path):
+    from baibai_engine.investment_judgment.selection_query import load_generated_selection_context
 
     runs = tmp_path / "runs"
-    value = selection(
-        now=NOW,
-        tickers=("1234",),
-        runs=runs,
-        rows=[stock_analysis("1234", name="合成会社")],
-    )
-    row = value.inputs.analysis.analyses["1234"]
-    assert row["candidate"]["common_eligible"] is True
-    assert row["candidate"]["reasons"] == []
-    context = load_selection_context(
-        request=ResearchRequest(text="合成例：投資提案して", scope="discover_new"),
+    value = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
+    context = load_generated_selection_context(
+        request=value.request,
         research_as_of=NOW.date(),
-        run_revision_id="run-synthetic",
+        generation_id=value.inputs.generation.generation_id,
+        screening_selection_id=value.inputs.screening_selection_id,
         known_at=NOW,
         runs_path=runs,
         db_path=tmp_path / "app",
     )
     assert context["status"] == "ready"
-    assert context["candidates"] == []
-    assert context["run_revision_id"] == "run-synthetic"
-    original_run = runs.read_bytes()
-
+    assert context["candidate_tickers"] == []
+    original = runs.read_bytes()
     prepared = prepare(tmp_path, value=value)
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
     assert prepared.status == "prepared"
     assert prepared.next_step == "investment-judgment status"
-    assert saved is not None
-    assert saved.request.scope == "discover_new"
-    assert saved.request.requested_tickers == ()
-    assert saved.inputs.analysis.run_revision_id == context["run_revision_id"]
-    assert saved.inputs.analysis.analyses["1234"] == row
-    assert runs.read_bytes() == original_run
+    assert saved.targets == value.targets
+    assert saved.inputs.generation == value.inputs.generation
+    assert saved.inputs.screening_selection == value.inputs.screening_selection
+    assert runs.read_bytes() == original
 
 
 @pytest.mark.parametrize(
@@ -88,14 +93,16 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_run(tmp_path):
     [{}, {"earnings_forecast_source": None, "dividend_forecast_source": None}],
 )
 def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monkeypatch, unrecorded):
-    from tests.helpers.screening_run import screening_run_payload, stock_analysis
+    from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.inputs import project_research_inputs
+    from baibai_engine.machine_analysis.company_valuation.query import (
+        machine_valuation_from_analysis,
+    )
     from baibai_engine.machine_analysis.screening.discovery.candidates import (
         build_candidate_contexts,
     )
-    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
-    from baibai_engine.read_api import stored_machine_valuation
+    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
     # Saved JSON is the input; expectations below are independent of the projection helper.
@@ -152,10 +159,13 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
         runs=runs,
         rows=[row, stock_analysis("5678", metrics=unrecorded)],
     )
-    machine = stored_machine_valuation(runs, ticker="1234", as_of=NOW.date()).valuation
+    stored = ScreeningRunReader(runs).get_run(value.inputs.analysis.run_revision_id)
+    machine = machine_valuation_from_analysis(
+        next(row for row in stored.stock_analyses if row["ticker"] == "1234")
+    )
     assert machine is not None
     original_run = runs.read_bytes()
-    prepared = prepare(tmp_path, value=value)
+    prepared = resume_historical(tmp_path, value)
     assert runs.read_bytes() == original_run
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
     assert saved is not None
@@ -217,8 +227,9 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     with monkeypatch.context() as projection_only:
         projection_only.setattr(sqlite3, "connect", forbidden)
         assert project_research_inputs(saved) == inputs
-    monkeypatch.setattr(selected_prepare, "collect_research_inputs", forbidden)
-    ScreeningRunStore(runs).publish_run(
+    monkeypatch.setattr(selected_prepare, "read_model_inputs", forbidden)
+    seed_saved_run(
+        runs,
         screening_run_payload(
             as_of="2026-09-08",
             stock_analyses=[
@@ -229,7 +240,6 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
             ],
         ),
         run_revision_id="replacement",
-        rules=rules,
     )
     for remove_run in (False, True):
         if remove_run:
@@ -253,7 +263,7 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
 
 
 def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_path, monkeypatch):
-    value = selection(now=NOW, tickers=("1234",), runs=tmp_path / "runs")
+    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("1234",))
     writer = selected_prepare._write_workspace_file
     monkeypatch.setattr(
         selected_prepare,
@@ -269,8 +279,8 @@ def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_
     monkeypatch.setattr(selected_prepare, "_write_workspace_file", writer)
     monkeypatch.setattr(
         selected_prepare,
-        "collect_research_inputs",
-        lambda **_kw: pytest.fail("resume reread source"),
+        "read_model_inputs",
+        lambda *_a, **_kw: pytest.fail("resume reread source"),
     )
     repaired = prepare(tmp_path, value=value)
     assert repaired.status == "resumed"
@@ -299,65 +309,66 @@ def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_
 def test_required_read_failure_and_over_capacity_do_not_write(tmp_path, monkeypatch):
     monkeypatch.setattr(
         selected_prepare,
-        "collect_research_inputs",
-        lambda **_kw: (_ for _ in ()).throw(OSError("required read failed")),
+        "read_model_inputs",
+        lambda *_a, **_kw: (_ for _ in ()).throw(OSError("required read failed")),
     )
     with pytest.raises(OSError, match="required read"):
         prepare(tmp_path)
     assert not (tmp_path / "app").exists()
     assert not (tmp_path / "workspace").exists()
-    raw = draft_for(selection(now=NOW, tickers=("1000", "1001", "1002"))).model_dump(mode="json")
+    raw = generated_draft_for(
+        seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("1000", "1001", "1002"))
+    ).model_dump(mode="json")
     raw["targets"].append(selected_target("1003").model_dump(mode="json"))
-    from baibai_engine.investment_judgment.selection import ResearchSelectionDraft
+    from baibai_engine.investment_judgment.selection import GeneratedResearchSelectionDraft
 
     with pytest.raises(ResearchWorkspaceConflictError, match="capacity"):
         prepare_selected_workspace(
-            draft=ResearchSelectionDraft.model_validate(raw),
+            draft=GeneratedResearchSelectionDraft.model_validate(raw),
             db_path=tmp_path / "app",
             workspace=tmp_path / "workspace",
-            sqlite_path=tmp_path / "absent",
             runs_path=tmp_path / "absent",
-            indicators_path=tmp_path / "absent",
             now=NOW,
         )
     assert not (tmp_path / "app").exists()
 
 
-@pytest.mark.parametrize("change", ["scope", "target", "source", "cutoff", "summary", "reason"])
+@pytest.mark.parametrize(
+    "change", ["scope", "target", "generation", "policy", "cutoff", "summary", "reason"]
+)
 def test_active_binding_cannot_be_changed_with_force(tmp_path, change):
-    value = selection(now=NOW, tickers=("1234",))
+    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("1234",))
     prepared = prepare(tmp_path, value=value)
-    raw = draft_for(value).model_dump(mode="json")
+    raw = generated_draft_for(value).model_dump(mode="json")
     if change == "scope":
         raw["request"].update(scope="specified_stocks", requested_tickers=["1234"])
     if change == "target":
         raw["targets"][0]["ticker"] = "5678"
-        raw["input_gaps"][0]["ticker"] = "5678"
-    if change == "source":
-        raw["run_revision_id"] = "other"
+    if change == "generation":
+        raw["generation_id"] = "other"
+    if change == "policy":
+        raw["screening_selection_id"] = "other"
     if change == "cutoff":
         raw["input_known_at"] = (NOW - timedelta(seconds=1)).isoformat()
     if change == "summary":
         raw["selection_summary"] = "new summary"
     if change == "reason":
         raw["targets"][0]["rationale"] = "new rationale"
-    from baibai_engine.investment_judgment.selection import ResearchSelectionDraft
+    from baibai_engine.investment_judgment.selection import GeneratedResearchSelectionDraft
 
     with pytest.raises(ResearchWorkspaceConflictError, match="fixed selection"):
         prepare_selected_workspace(
-            draft=ResearchSelectionDraft.model_validate(raw),
+            draft=GeneratedResearchSelectionDraft.model_validate(raw),
             db_path=tmp_path / "app",
             workspace=prepared.workspace,
-            sqlite_path=tmp_path / "absent",
             runs_path=tmp_path / "absent",
-            indicators_path=tmp_path / "absent",
             now=NOW,
             force=True,
         )
 
 
 def test_completed_retry_and_real_same_text_request_have_different_identities(tmp_path):
-    value = selection(now=NOW)
+    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW)
     first = prepare(tmp_path, value=value)
     service = OperationService(tmp_path / "app")
     operation = service.get(first.operation_id)
@@ -383,8 +394,9 @@ def test_completed_retry_and_real_same_text_request_have_different_identities(tm
 
 
 @pytest.mark.parametrize("scope", ["discover_new", "specified_stocks"])
+@pytest.mark.parametrize("generated", [False, True], ids=["legacy", "five_models"])
 def test_selected_promote_proposal_and_completion_use_current_scope(
-    tmp_path, scope, monkeypatch, capsys
+    tmp_path, scope, generated, monkeypatch, capsys
 ):
     from tests.helpers.db_seed import seed_ledger
 
@@ -410,14 +422,52 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
             }
         ),
     )
-    value = selection(now=NOW, tickers=("1234",), scope=scope, runs=tmp_path / "runs")
-    prepared = prepare(tmp_path, value=value)
+    if generated:
+        generation = seed_generation(tmp_path / "runs", now=NOW, as_of=NOW.date())
+        prepared = prepare_selected_workspace(
+            draft=GeneratedResearchSelectionDraft(
+                schema_version=2,
+                request=ResearchRequest(
+                    text="合成例：投資提案して",
+                    scope=scope,
+                    requested_tickers=("1234",) if scope == "specified_stocks" else (),
+                ),
+                research_as_of=NOW.date(),
+                input_known_at=NOW,
+                generation_id=generation.generation_id,
+                screening_selection_id="policy-1",
+                selection_summary="合成五モデルから判断経路を検証する",
+                targets=(selected_target(),),
+            ),
+            db_path=tmp_path / "app",
+            workspace=tmp_path / "workspace",
+            runs_path=tmp_path / "runs",
+            now=NOW,
+        )
+        # The entire judgment path must work after the rebuildable cache disappears.
+        (tmp_path / "runs").unlink()
+    else:
+        value = selection(now=NOW, tickers=("1234",), scope=scope, runs=tmp_path / "runs")
+        prepared = resume_historical(tmp_path, value)
+    saved_selection = selection_binding(
+        OperationService(tmp_path / "app").get(prepared.operation_id).payload
+    )
+    assert saved_selection.schema_version == (3 if generated else 2)
+    fixed_hash = selection_sha256(saved_selection)
     workspace = prepared.workspace
     assert not (workspace / "research-workspace.yaml").exists()
+    scaffold_assessment(
+        workspace=workspace,
+        ticker="1234",
+        sqlite_path=tmp_path / "absent-market",
+        as_of=NOW.date(),
+        retrieved_at=NOW,
+        db_path=tmp_path / "app",
+    )
     directory = workspace / "1234"
-    directory.mkdir()
     assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")
     (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(assessment))
+    scaffold_review(workspace=workspace, ticker="1234", db_path=tmp_path / "app")
     (directory / "assessment-review.yaml").write_text(yaml.safe_dump(review))
     (directory / "assessment-publication.yaml").write_text(
         yaml.safe_dump(
@@ -537,6 +587,8 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         ),
         completed_at=NOW,
     )
+    assert complete.status == "completed"
+    assert service.get(prepared.operation_id) == complete
     assert "human_confirmation" not in complete.payload.model_dump()
     assert (
         main(["trade-proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
@@ -546,6 +598,10 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     assert preview["status"] == "unchanged"
     assert preview["items"][0]["saved_terms"] is None
     assert before == (workspace / "domain-inputs.yaml").read_bytes()
+    assert selection_sha256(selection_binding(complete.payload)) == fixed_hash
+    if generated:
+        assert proposal.liquidity_context[0].generation_id == "fixed-synthetic"
+        assert proposal.liquidity_context[0].adv_yen == 125000000
 
 
 def test_cli_inputs_required_and_old_flags_are_removed(tmp_path, capsys):
@@ -592,11 +648,11 @@ def test_malformed_yaml_is_a_cli_data_error_without_writes(tmp_path, capsys, com
 
 
 def test_previous_analysis_day_current_research_and_formal_assessment_are_separate(tmp_path):
-    from tests.helpers.screening_run import screening_run_payload, stock_analysis
+    from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.inputs import project_research_inputs
-    from baibai_engine.investment_judgment.selection_query import load_analysis_snapshot
-    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+    from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot
+    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 
     runs = tmp_path / "runs"
     row = stock_analysis("1234", name="合成会社", metrics={"er_annual": 0.13})
@@ -604,22 +660,21 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
         as_of="2026-09-06", run_at="2026-09-06T18:00:00+09:00", stock_analyses=[row]
     )
     payload.pop("er_model_version")
-    ScreeningRunStore(runs).publish_run(
-        payload, run_revision_id="run-revision-" + "a" * 32, rules=load_screening_rules()
-    )
-    analysis = load_analysis_snapshot(
-        run_revision_id="run-revision-" + "a" * 32,
-        research_as_of=NOW.date(),
-        tickers=("1234",),
-        gaps=(),
-        known_at=NOW,
-        runs_path=runs,
+    seed_saved_run(runs, payload, run_revision_id="run-revision-" + "a" * 32)
+    run = ScreeningRunReader(runs).get_run("run-revision-" + "a" * 32)
+    analysis = AnalysisInputSnapshot(
+        run_revision_id=run.run_revision_id,
+        analysis_as_of=datetime.fromisoformat(run.as_of_date).date(),
+        run_at=datetime.fromisoformat(run.run_at),
+        screening_rules_hash=run.payload.get("screening_rules_hash"),
+        er_model_version=run.payload.get("er_model_version"),
+        analyses={row["ticker"]: row for row in run.stock_analyses},
     )
     value = selection(now=NOW, tickers=("1234",))
     value = value.model_copy(
         update={"inputs": value.inputs.model_copy(update={"analysis": analysis, "input_gaps": ()})}
     )
-    prepared = prepare(tmp_path, value=value)
+    prepared = resume_historical(tmp_path, value)
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
     assert saved.research_as_of.isoformat() == "2026-09-07"
     assert saved.inputs.analysis.analysis_as_of.isoformat() == "2026-09-06"
@@ -667,15 +722,15 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
 def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
     tmp_path, holding_case, monkeypatch, capsys
 ):
-    db, market, _ = holding_case
-    value = selection(now=NOW, tickers=("2331",))
+    db, _market, _ = holding_case
+    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("2331",))
     monkeypatch.setattr(
         selected_prepare,
-        "collect_research_inputs",
-        lambda **_kw: pytest.fail("purpose conflict read inputs"),
+        "read_model_inputs",
+        lambda *_a, **_kw: pytest.fail("purpose conflict read inputs"),
     )
     file = tmp_path / "selection.json"
-    file.write_text(draft_for(value).model_dump_json())
+    file.write_text(generated_draft_for(value).model_dump_json())
     assert (
         main(
             [
@@ -686,8 +741,8 @@ def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
                 str(tmp_path / "workspace"),
                 "--db",
                 str(db),
-                "--sqlite-path",
-                str(market),
+                "--runs-path",
+                str(tmp_path / "runs"),
             ],
             now=NOW,
         )
@@ -701,7 +756,9 @@ def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
 def test_saved_capacity_controls_resume_after_current_policy_changes(tmp_path, monkeypatch):
     from baibai_engine.investment_judgment.selection_policy import ResearchCapacity
 
-    value = selection(now=NOW, tickers=("1000", "1001", "1002"))
+    value = seed_generated_selection(
+        runs=tmp_path / "runs", now=NOW, tickers=("1000", "1001", "1002")
+    )
     prepared = prepare(tmp_path, value=value)
     monkeypatch.setattr(
         selected_prepare, "CURRENT_RESEARCH_CAPACITY", ResearchCapacity(max_deep_research_targets=1)
@@ -749,3 +806,66 @@ def holding_case(tmp_path):
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     seed_ledger(db, ledger)
     return db, tmp_path / "absent-market", ledger
+
+
+def test_legacy_draft_cli_cannot_start_new_operation(tmp_path, capsys):
+    source = tmp_path / "legacy-draft.json"
+    historical = selection(now=NOW, tickers=("1234",))
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "request": historical.request.model_dump(mode="json"),
+                "research_as_of": historical.research_as_of.isoformat(),
+                "input_known_at": historical.input_known_at.isoformat(),
+                "run_revision_id": None,
+                "selection_summary": historical.selection_summary,
+                "targets": [target.model_dump(mode="json") for target in historical.targets],
+                "input_gaps": [gap.model_dump(mode="json") for gap in historical.inputs.input_gaps],
+            }
+        )
+    )
+    assert (
+        main(
+            [
+                "prepare",
+                "--selection-file",
+                str(source),
+                "--workspace",
+                str(tmp_path / "workspace"),
+                "--db",
+                str(tmp_path / "app"),
+                "--runs-path",
+                str(tmp_path / "absent-runs"),
+            ],
+            now=NOW,
+        )
+        == 4
+    )
+    assert capsys.readouterr().err
+    assert not (tmp_path / "app").exists()
+    assert not (tmp_path / "workspace").exists()
+    assert not (tmp_path / "absent-runs").exists()
+
+
+def test_historical_capacity_and_hash_survive_current_policy_change(tmp_path, monkeypatch):
+    from baibai_engine.investment_judgment.selection_policy import ResearchCapacity
+
+    saved = selection(now=NOW, tickers=("1000", "1001", "1002"))
+    operation = historical_operation(saved)
+    seed_historical_operation(tmp_path / "app", operation)
+    monkeypatch.setattr(
+        selected_prepare, "CURRENT_RESEARCH_CAPACITY", ResearchCapacity(max_deep_research_targets=1)
+    )
+    resumed = resume_selected_workspace(
+        operation_id=operation.operation_id,
+        db_path=tmp_path / "app",
+        workspace=tmp_path / "workspace",
+        now=NOW,
+    )
+    assert resumed.selected_count == 3
+    assert resumed.selection_sha256 == selection_sha256(saved)
+    assert (
+        selection_binding(OperationService(tmp_path / "app").get(operation.operation_id).payload)
+        == saved
+    )

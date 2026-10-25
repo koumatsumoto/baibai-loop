@@ -26,6 +26,7 @@ from baibai_engine.market.financial_documents import (
     normalize_financial_summary,
     project_financial_documents,
 )
+from baibai_engine.market.financial_periods import resolve_actual_conflicts
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_fin_summaries, read_financial_documents
@@ -125,7 +126,7 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     assert result.earnings_forecast_source["disclosure_number"] == "income-correction"
     assert result.dividend_forecast_source
     assert result.dividend_forecast_source["disclosure_number"] == "dividend"
-    assert stored[0].eps_ttm == 33.3
+    assert stored[0].cumulative_eps == 33.3
     assert db.read_bytes() == before
     with closing(sqlite3.connect(db)) as conn, conn:
         values = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchall()
@@ -271,7 +272,7 @@ def test_conflicting_actual_eps_is_unresolved_in_normalized_fy(reverse: bool) ->
     ]
     if reverse:
         rows.reverse()
-    assert _latest_actual_row(rows, field_names=("eps_ttm",)) is None
+    assert _latest_actual_row(rows, field_names=("cumulative_eps",)) is None
     assert (
         build_normalized_profit_signals(
             rows, (), ASOF, close=1074, ttm_rules=load_screening_rules().ttm
@@ -479,14 +480,18 @@ def test_unknown_time_actual_agreement_is_kept_and_conflict_is_unresolved(revers
     rows = [unknown, known]
     if reverse:
         rows.reverse()
-    selected = _latest_actual_row(rows, field_names=("eps_ttm",))
+    selected = _latest_actual_row(rows, field_names=("cumulative_eps",))
     assert selected is not None
-    assert selected.eps_ttm == 20
+    assert selected.cumulative_eps == 20
     assert _resolve_capital_basis(rows).shares_ex_treasury == 1000
-    unknown = replace(unknown, eps_ttm=30, shares_outstanding=2000)
+    unknown = replace(unknown, cumulative_eps=30, shares_outstanding=2000)
     contradictory = [unknown, known] if not reverse else [known, unknown]
-    assert _latest_actual_row(contradictory, field_names=("eps_ttm",)) is None
+    assert _latest_actual_row(contradictory, field_names=("cumulative_eps",)) is None
     assert _resolve_capital_basis(contradictory).shares_ex_treasury is None
+    masked = resolve_actual_conflicts(contradictory)
+    assert all("cumulative_eps" in row.unresolved_actual_fields for row in masked)
+    assert all(row.cumulative_eps is None for row in masked)
+    assert {row.cumulative_eps for row in contradictory} == {20, 30}
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -551,7 +556,7 @@ def test_conflicting_pre_split_reference_cannot_choose_share_basis(
     result = _normalize_summaries_with_status(rows, events, ASOF)
     correction = result.summaries[-1]
     assert correction.shares_outstanding is None
-    assert correction.eps_ttm is None
+    assert correction.cumulative_eps is None
     capital = _resolve_capital_basis(
         result.summaries, capital_basis_barrier=result.capital_basis_barrier
     )
@@ -635,7 +640,7 @@ def test_complementary_fy_eps_and_dps_keep_both_without_joining_capital_pair(rev
     b["EPS"] = b["NP"] = b["Sales"] = ""
     rows = decode([a, b] if not reverse else [b, a])
     fy = _latest_fy_revisions(rows)[0]
-    assert fy.eps_ttm == 20
+    assert fy.cumulative_eps == 20
     assert fy.dps_actual_annual == 7
     assert fy.shares_outstanding is None or fy.treasury_shares is None
     assert _resolve_capital_basis(rows).shares_ex_treasury is None
@@ -734,7 +739,7 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
         )
     ]
     fy_rows = _latest_fy_revisions(rows)
-    assert fy_rows[0].eps_ttm == 20
+    assert fy_rows[0].cumulative_eps == 20
     assert fy_rows[0].dps_actual_annual == 7
     assert _asof_basis_fy_dps(fy_rows, events, ASOF) == {}
     assert _resolve_dividend_carry(rows, events, 100, ASOF).dividend_yield is None
@@ -782,7 +787,7 @@ def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> 
     assert json.loads(payload) == record
     rows = read_fin_summaries(db, date(2026, 9, 14), ASOF)
     assert rows is not None
-    assert rows[0].eps_ttm is None
+    assert rows[0].cumulative_eps is None
     assert rows[0].shares_outstanding is None
     assert rows[0].forecast_eps == 0
 
@@ -981,9 +986,11 @@ def test_prior_year_comparison_requires_actual_period_dates(missing_field):
     )
     current = actual_document("current")
     rules = load_screening_rules().ttm
-    assert _prior_year_summary(decode([old, current]), rules, field_name="eps_ttm") is not None
+    assert (
+        _prior_year_summary(decode([old, current]), rules, field_name="cumulative_eps") is not None
+    )
     current[missing_field] = ""
-    assert _prior_year_summary(decode([old, current]), rules, field_name="eps_ttm") is None
+    assert _prior_year_summary(decode([old, current]), rules, field_name="cumulative_eps") is None
 
 
 @pytest.mark.parametrize("dps", [0, 7])
@@ -1253,10 +1260,10 @@ def test_tied_fy_period_conflict_does_not_select_by_input_order(dps):
         rows = decode(records)
         selected = _latest_fy_revisions(rows)
         assert len(selected) == 1
-        assert selected[0].eps_ttm is None
+        assert selected[0].cumulative_eps is None
         assert selected[0].dps_actual_annual == (0 if dps == 0 else None)
         assert selected[0].shares_outstanding is None
-        assert {row.eps_ttm for row in rows} == {20, 40}
+        assert {row.cumulative_eps for row in rows} == {20, 40}
 
 
 def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
@@ -1272,7 +1279,7 @@ def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
     }
     for records in ([individual, consolidated], [consolidated, individual]):
         selected = _latest_fy_revisions(decode(records))
-        assert selected[0].eps_ttm is None
+        assert selected[0].cumulative_eps is None
         assert selected[0].dps_actual_annual == 7
 
 

@@ -32,3 +32,10 @@ def weekday_distance(start: date, end: date) -> int:
         if current.weekday() < 5:
             count += 1
     return count
+
+
+def parse_iso_date(raw: str) -> date:
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as exc:
+        raise SystemExit(f"invalid ISO date: {raw}") from exc

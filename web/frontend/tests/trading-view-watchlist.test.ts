@@ -8,8 +8,6 @@ import { TradingViewWatchlistExportButton } from '../src/components/TradingViewW
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { tradingViewChartUrl, tradingViewWatchlistText } from '../src/lib/trading-view'
 import { HoldingsTable } from '../src/pages/DashboardPage'
-import { CandidateSection } from '../src/pages/stocks/CandidateSection'
-import { stockRun, candidateMethod } from './helpers/stock-analysis'
 
 describe('TradingView watchlist TXT', () => {
   it('keeps the source order, deduplicates symbols, and preserves alphanumeric tickers', () => {
@@ -58,8 +56,8 @@ describe('TradingView watchlist TXT', () => {
     const holdings = ['7203', '130A'].map((ticker) => ({
       ticker, company_name: null, sector: '', quantity: 100, deployed_cost_yen: 1000,
       market_price_yen: null, market_price_as_of: null, market_value_yen: null,
-      unrealized_pnl_yen: null, unrealized_pnl_pct: null, pmax_raw_yen: null,
-      pmax_gap_pct: null, pmax_gap_unavailable_reason: null, latest_assessment_id: null, stance: null, next_earnings_date: null,
+      unrealized_pnl_yen: null, unrealized_pnl_pct: null,
+     
     }) satisfies HoldingView)
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, { holdings, warnings: [], ledgerAsOf: '2026-09-30' })),
@@ -70,17 +68,4 @@ describe('TradingView watchlist TXT', () => {
     expect(html).toContain('未評価')
   })
 
-  it('distinguishes zero candidates from no analysis and disables empty export', () => {
-    const html = renderToStaticMarkup(createElement(MemoryRouter, null,
-      createElement(CandidateSection, { rows: [], run: stockRun, method: { ...candidateMethod, candidate_count: 0 } }),
-    ))
-    expect(html).toContain('候補をTradingView用TXTに出力')
-    expect(html).toContain('今回の機械候補は0件')
-    expect(html).toContain('disabled')
-    const absent = renderToStaticMarkup(createElement(MemoryRouter, null,
-      createElement(CandidateSection, { rows: [], run: null, method: null }),
-    ))
-    expect(absent).not.toContain('TradingView用TXT')
-    expect(absent).toContain('分析未作成')
-  })
 })

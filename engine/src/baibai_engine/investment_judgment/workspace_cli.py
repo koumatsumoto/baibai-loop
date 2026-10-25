@@ -21,7 +21,6 @@ from pydantic import ValidationError
 
 from baibai_engine.foundation.repository_layout import (
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    INDICATORS_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
@@ -30,8 +29,8 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError
 
 from .operation.service import OperationConflictError
-from .selection import ResearchRequest, ResearchSelectionDraft
-from .selection_query import ResearchInputsRequiredError, load_selection_context
+from .selection import GeneratedResearchSelectionDraft, ResearchRequest
+from .selection_query import load_generated_selection_context
 from .workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceError,
@@ -78,10 +77,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--compare-ticker",
         action="append",
         default=[],
-        help="read comparison rows from the same run without requesting or selecting them",
+        help="read comparison models from the same generation without selecting them",
     )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
-    context_parser.add_argument("--run-revision-id")
+    context_parser.add_argument("--generation-id")
+    context_parser.add_argument("--screening-selection-id")
     context_parser.add_argument("--db", type=Path)
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     context_parser.add_argument("--out", type=Path)
@@ -103,10 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     source_parser.add_argument("--operation-id")
     prepare_parser.add_argument("--db", type=Path)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
-    prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
-    prepare_parser.add_argument("--indicators-path", type=Path, default=INDICATORS_DB_PATH)
-    prepare_parser.add_argument("--company-growth-mirror", type=Path, default=Path("stores"))
     prepare_parser.add_argument(
         "--company-growth-periods",
         type=_growth_display_periods,
@@ -221,10 +218,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     )
                 except ValidationError as error:
                     parser.error(str(error))
-                payload = load_selection_context(
+                payload = load_generated_selection_context(
                     request=request,
                     research_as_of=args.research_asof,
-                    run_revision_id=args.run_revision_id,
+                    generation_id=args.generation_id,
+                    screening_selection_id=args.screening_selection_id,
                     known_at=resolved_now,
                     runs_path=args.runs_path,
                     db_path=args.db,
@@ -260,15 +258,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             case "prepare":
                 if args.selection_file is not None:
                     prepared = prepare_selected_workspace(
-                        draft=ResearchSelectionDraft.model_validate_json(
+                        draft=GeneratedResearchSelectionDraft.model_validate_json(
                             args.selection_file.read_text()
                         ),
                         db_path=args.db,
                         workspace=args.workspace,
-                        sqlite_path=args.sqlite_path,
                         runs_path=args.runs_path,
-                        indicators_path=args.indicators_path,
-                        company_growth_mirror=args.company_growth_mirror,
                         company_growth_periods=args.company_growth_periods,
                         now=resolved_now,
                         force=args.force,
@@ -410,19 +405,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 out.write(json.dumps(preview.payload(), ensure_ascii=False) + "\n")
             case _:  # pragma: no cover - argparse enforces the command set
                 raise AssertionError(f"unreachable command: {args.command!r}")
-    except ResearchInputsRequiredError as error:
-        out.write(
-            json.dumps(
-                {
-                    "status": "inputs_required",
-                    "operation_id": None,
-                    "missing_inputs": [error.public()],
-                },
-                ensure_ascii=False,
-            )
-            + "\n"
-        )
-        return 3
     except (OperationConflictError, ProposalConflictError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 4

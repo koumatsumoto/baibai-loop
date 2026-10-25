@@ -24,10 +24,10 @@ dependencies = [
   "requests>=2.34.2",
   "urllib3>=2.0",
   "xlrd>=2.0.0",
-  "fastapi>=0.141.1",
-  "uvicorn>=0.51.0",
   "duckdb>=1.5.5",
   "boto3>=1.43.78",
+  "fastapi>=0.141.1",
+  "uvicorn>=0.51.0",
 ]
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
@@ -300,11 +300,6 @@ name = "screening does not import position (one-way market<-{screening,position}
 type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.screening"]
 forbidden_modules = ["baibai_engine.position"]
-# Only the public CLI composes the cross-domain ticker profile.
-# Direct screening -> position imports remain forbidden.
-ignore_imports = [
-  "baibai_engine.machine_analysis.screening.cli.query -> baibai_engine.read_api.ticker_profile",
-]
 
 [[tool.importlinter.contracts]]
 name = "investment judgment is the top-level domain engine (lower layers do not import it)"
@@ -337,9 +332,12 @@ forbidden_modules = [
 
 allow_indirect_imports = true
 ignore_imports = [
-  "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.run_store",
-  "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.run_store.read",
-  "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.discovery.projection",
+  # New saved policy results and pure view contracts; not the writer.
+  "baibai_engine.investment_judgment.selection -> baibai_engine.machine_analysis.screening.model_projection",
+  "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.selection_query",
+  "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.views",
+  "baibai_engine.investment_judgment.operation.service -> baibai_engine.machine_analysis.screening.selection_query",
+  "baibai_engine.investment_judgment.workspace.selected_prepare -> baibai_engine.machine_analysis.screening.selection_query",
   # Pure cash-equity cutoff only; research still cannot import market acquisition.
   "baibai_engine.investment_judgment.stock_assessment -> baibai_engine.market.sessions",
   "baibai_engine.investment_judgment.trade_proposal_service -> baibai_engine.market.sessions",
@@ -349,38 +347,10 @@ ignore_imports = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "web imports the engine only through read_api"
-type = "forbidden"
-source_modules = ["baibai_web"]
-forbidden_modules = [
-  "baibai_engine.storage",
-  "baibai_engine.job_api",
-  "baibai_engine.cli",
-  "baibai_engine.foundation",
-
-  "baibai_engine.market",
-  "baibai_engine.position",
-  "baibai_engine.investment_judgment",
-  "baibai_engine.machine_analysis.screening",
-  "baibai_engine.machine_analysis.company_valuation",
-  "baibai_engine.machine_analysis.market_context", "baibai_engine.machine_analysis.technical_analysis", "baibai_engine.machine_analysis.company_growth",
-  "baibai_engine.machine_analysis.external_assessment",
-  "baibai_engine.tasks",
-  "baibai_engine.data_collection",
-]
-allow_indirect_imports = true
-
-[[tool.importlinter.contracts]]
 name = "engine does not depend on delivery or developer systems"
 type = "forbidden"
 source_modules = ["baibai_engine"]
 forbidden_modules = ["baibai_web", "baibai_jobs", "tools"]
-
-[[tool.importlinter.contracts]]
-name = "web does not depend on jobs or developer tools"
-type = "forbidden"
-source_modules = ["baibai_web"]
-forbidden_modules = ["baibai_jobs", "tools"]
 
 [[tool.importlinter.contracts]]
 name = "jobs use only explicit engine orchestration boundaries"
@@ -399,7 +369,6 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.external_assessment",
   "baibai_engine.tasks",
   "baibai_engine.data_collection",
-  "baibai_web",
   "tools",
 ]
 allow_indirect_imports = true
@@ -407,15 +376,6 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "read_api cannot reach writer or CLI modules"
 type = "forbidden"
-# Exact pair readers receive query-only connections. Preview uses read-only
-# condition evaluation, not the publication service; its pair type is annotation-only.
-ignore_imports = [
-  "baibai_engine.read_api.stock_assessment -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.read_api.trade_proposal -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.investment_judgment.trade_proposal_query -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.investment_judgment.trade_proposal_inputs -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.investment_judgment.trade_proposal_conditions -> baibai_engine.investment_judgment.stock_assessment_store",
-]
 source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.market.jquants_writer", "baibai_engine.market.jpx_rebuild",
@@ -477,17 +437,6 @@ forbidden_modules = [
   "baibai_engine.data_collection.tradingview.client",
   "baibai_engine.data_collection.tradingview.collector",
   "baibai_engine.data_collection.tradingview.auth",
-]
-
-[[tool.importlinter.contracts]]
-name = "external assessment read facade cannot acquire or write"
-type = "forbidden"
-source_modules = ["baibai_engine.read_api.external_assessment"]
-forbidden_modules = [
-  "baibai_engine.machine_analysis.external_assessment.normalization",
-  "baibai_engine.data_collection.external_assessment.collection",
-  "baibai_engine.machine_analysis.external_assessment.store",
-  "baibai_engine.data_collection.external_assessment.cli",
 ]
 
 [[tool.importlinter.contracts]]
@@ -596,7 +545,7 @@ forbidden_modules = [
   "baibai_engine.data_collection.tradingview.collector",
   "baibai_engine.data_collection.tradingview.auth",
   "baibai_engine.data_collection.tradingview.cli",
-  "baibai_web", "baibai_jobs", "tools",
+  "baibai_jobs", "tools",
 ]
 
 [[tool.importlinter.contracts]]
@@ -610,14 +559,14 @@ forbidden_modules = [
   "baibai_engine.data_collection.tradingview.collector",
   "baibai_engine.data_collection.tradingview.auth",
   "baibai_engine.data_collection.tradingview.cli",
-  "baibai_engine.read_api", "baibai_engine.job_api", "baibai_web", "baibai_jobs", "tools",
+  "baibai_engine.read_api", "baibai_engine.job_api", "baibai_jobs", "tools",
 ]
 
 [[tool.importlinter.contracts]]
 name = "provider observation models, decoding and selection do not load acquisition or storage"
 type = "forbidden"
 source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.edinet_selection", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode", "baibai_engine.market.price_models", "baibai_engine.market.calendar"]
-forbidden_modules = ["baibai_engine.market.edinet_metrics.csv", "baibai_engine.storage", "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.job_api", "baibai_web", "baibai_jobs", "tools"]
+forbidden_modules = ["baibai_engine.market.edinet_metrics.csv", "baibai_engine.storage", "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.job_api", "baibai_jobs", "tools"]
 
 
 [[tool.importlinter.contracts]]
@@ -710,7 +659,7 @@ forbidden_modules = [
 name = "source transports and receipts do not depend on calculations or judgments"
 type = "forbidden"
 source_modules = [
-  "baibai_engine.data_collection.cli", "baibai_engine.data_collection.identifiers",
+  "baibai_engine.data_collection.identifiers",
   "baibai_engine.data_collection.read_http", "baibai_engine.data_collection.economic",
   "baibai_engine.data_collection.edinet", "baibai_engine.data_collection.equity_web",
   "baibai_engine.data_collection.jpx", "baibai_engine.data_collection.jquants",
@@ -770,3 +719,17 @@ forbidden_modules = [
   "baibai_engine.investment_judgment", "baibai_engine.position",
   "baibai_engine.machine_analysis.screening", "baibai_engine.read_api", "baibai_engine.job_api",
 ]
+
+
+[[tool.importlinter.contracts]]
+name = "queries analysis and judgments do not invoke source maintenance composition"
+type = "forbidden"
+source_modules = ["baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.position", "baibai_engine.read_api"]
+forbidden_modules = ["baibai_engine.source_maintenance", "baibai_engine.data_collection_cli"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "retained Web is independent of Screening and investment authoring"
+type = "forbidden"
+source_modules = ["baibai_web"]
+forbidden_modules = ["baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_jobs", "tools"]

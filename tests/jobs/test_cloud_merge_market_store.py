@@ -461,8 +461,9 @@ class TestFinancialSummaryCoverage:
 
         Writing this store's smaller number in would ship a ledger that understates the
         release. The next fill restores the rows, the ledger keeps the smaller number,
-        and `verify-cache-coverage` then refuses every screening run while no re-fetch is
-        ever planned: a clean financial range is considered fetched even when it has no filings.
+        and `verify-cache-coverage` then reports the inconsistent restored store while
+        no re-fetch is planned: a clean financial range is considered fetched even
+        when it has no filings.
         """
 
         source = _store(tmp_path / "source.sqlite")

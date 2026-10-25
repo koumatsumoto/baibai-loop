@@ -8,13 +8,6 @@ import { TooltipProvider } from './components/ui/tooltip'
 import './styles.css'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
-const InvestmentJudgmentPage = lazy(() => import('./pages/InvestmentJudgmentPage').then((module) => ({ default: module.InvestmentJudgmentPage })))
-const CandidateExplorationPage = lazy(() => import('./pages/CandidateExplorationPage').then((module) => ({ default: module.CandidateExplorationPage })))
-const TradeProposalPage = lazy(() => import('./pages/TradeProposalPage').then((module) => ({ default: module.TradeProposalPage })))
-const StockAssessmentPage = lazy(() => import('./pages/StockAssessmentPage').then((module) => ({ default: module.StockAssessmentPage })))
-const MarketContextPage = lazy(() => import('./pages/MarketContextPage').then((module) => ({ default: module.MarketContextPage })))
-const AssessmentPage = lazy(() => import('./pages/AssessmentPage').then((module) => ({ default: module.AssessmentPage })))
-const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
 const TasksPage = lazy(() => import('./pages/TasksPage').then((module) => ({ default: module.TasksPage })))
 
 function App() {
@@ -26,14 +19,8 @@ function App() {
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/market-context" element={<MarketContextPage />} />
-                <Route path="/market-context/assessments/:contextId" element={<AssessmentPage />} />
-                <Route path="/stocks" element={<InvestmentJudgmentPage />} />
-                <Route path="/stocks/explore" element={<CandidateExplorationPage />} />
                 <Route path="/tasks" element={<TasksPage />} />
-                <Route path="/stocks/investment-proposals/:proposalId" element={<TradeProposalPage />} />
-                <Route path="/stocks/stock-assessments/:assessmentId" element={<StockAssessmentPage />} />
-                <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
+                <Route path="*" element={<p className="p-6">この画面は廃止しました。DashboardまたはTasksをご利用ください。</p>} />
               </Route>
             </Routes>
           </RouteErrorBoundary>

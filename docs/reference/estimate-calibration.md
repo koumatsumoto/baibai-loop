@@ -1,6 +1,6 @@
 # 見積り較正
 
-保存入力から過去as-ofの機械見積り・候補を再構成し、forward outcomeと照合する。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。生成・評価は`machine_analysis/screening/calibration`、保存文脈の意味と利用可否は`machine_analysis/company_valuation/calibration`が所有する。
+現行の較正実装は旧ER/FV・四Approachを対象に、保存入力から過去as-ofを再構成しforward outcomeと照合する。新しいY/M二viewを較正済みと扱わず、新Selectionへ旧ER分布を付けずnot_applicableを返す。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。生成・評価は`machine_analysis/screening/calibration`、保存文脈の意味と利用可否は`machine_analysis/company_valuation/calibration`が所有する。
 
 ## 何を測るか
 
@@ -51,7 +51,7 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 
 ## methodと再構築
 
-productionと較正は同じ丸め済みStock Analysisと候補純関数を使う。rules/method/calculation revisionや入力窓・forward規約が異なるcacheを読み替えず、現在入力から再構築する。意味変更はownerのrevisionへ反映するが、文書・配置・importだけで進めない。field順や無効knob削除でも現行rules hashが変わる場合があり、再構築費用と便益を比較する。
+旧run経路と旧較正は同じ丸め済みStock Analysisと候補純関数を使う。新しいモデル生成・二view政策とは別契約であり、旧較正の成績を新政策へ転用しない。rules/method/calculation revisionや入力窓・forward規約が異なるcacheを読み替えず、現在入力から再構築する。意味変更はownerのrevisionへ反映するが、文書・配置・importだけで進めない。field順や無効knob削除でも現行rules hashが変わる場合があり、再構築費用と便益を比較する。
 
 calibrationは再生成可能なローカルsnapshot。generation graph・remote pointer・過去世代保持を持たず、temporary buildからatomic replaceする。全再構築は保持する全cohortを覆う範囲とforceを指定し、先に現snapshotを消さない。forceは指定範囲だけから新snapshotを作る。不足coverageは再実行だけでは解消しない。
 
@@ -59,7 +59,7 @@ calibrationは再生成可能なローカルsnapshot。generation graph・remote
 
 ### pre-2019診断
 
-pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用variant。別calibration directoryを必須とし、variantと窓をidentityへ含める。productionの750-sessionと違うためformal empirical evidenceへ使えない。実効観測本数も確認し、短い履歴をfull-windowとしない。この診断契約は維持する。
+pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用variant。別calibration directoryを必須とし、variantと窓をidentityへ含める。旧標準の750-sessionと違うためformal empirical evidenceへ使えない。実効観測本数も確認し、短い履歴をfull-windowとしない。この診断契約は維持する。
 
 ## 方法を変える判断
 

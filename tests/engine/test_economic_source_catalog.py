@@ -33,7 +33,7 @@ def test_collection_list_and_help_do_not_load_env_or_create_a_store(tmp_path, mo
     import json
     import sqlite3
 
-    from baibai_engine.data_collection import cli
+    from baibai_engine import data_collection_cli as cli
     from baibai_engine.data_collection.economic import cli as economic_cli
 
     def unexpected(*args, **kwargs):

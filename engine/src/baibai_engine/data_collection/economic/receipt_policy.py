@@ -1,4 +1,4 @@
-"""Temporary acquisition receipts differ from canonical change-only vintages."""
+"""Scoped acquisition and explicit recovery retain actual same-value receipts."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager

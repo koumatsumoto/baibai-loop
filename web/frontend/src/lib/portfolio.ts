@@ -5,9 +5,7 @@ export interface UnrealizedPnlTotal {
   pct: number | null
 }
 
-// Money outcomes wear gold when they gained and blue when they lost, apart from the
-// green/red every other number uses for direction. One holding down 3% and one screening
-// column down 3% ask for different decisions, so they are never the same color.
+// Monetary gains use gold and losses use blue. Labels and signs carry the same meaning.
 export function pnlTone(value: number | null): string {
   if (value === null || value === 0) return 'text-muted-foreground'
   return value > 0 ? 'text-profit' : 'text-loss'

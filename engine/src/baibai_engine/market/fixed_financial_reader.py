@@ -30,6 +30,21 @@ def read_fixed_financial_documents(
     mirror: Path, *, origin: LakeStoreOrigin, ticker: str, as_of: date
 ) -> FixedFinancialDocuments:
     """Read only verified local objects; never fetch sources, R2, or mutable SQLite rows."""
+    return _read_fixed_financial_population(mirror, origin=origin, ticker=ticker, as_of=as_of).get(
+        ticker, FixedFinancialDocuments((), None)
+    )
+
+
+def read_fixed_financial_population(
+    mirror: Path, *, origin: LakeStoreOrigin, as_of: date
+) -> dict[str, FixedFinancialDocuments]:
+    """全社生成でreleaseとparquetを一度だけ開く。個社queryの反復はしない。"""
+    return _read_fixed_financial_population(mirror, origin=origin, ticker=None, as_of=as_of)
+
+
+def _read_fixed_financial_population(
+    mirror: Path, *, origin: LakeStoreOrigin, ticker: str | None, as_of: date
+) -> dict[str, FixedFinancialDocuments]:
     with open_lake(mirror=mirror) as (session, cache):
         release = resolve_release(
             cache.source,
@@ -48,7 +63,7 @@ def read_fixed_financial_documents(
             documents = read_financial_documents(
                 session.connection, start=date.min, end=date.max, ticker=ticker
             )
-        sector = None
+        sectors: dict[str, str] = {}
         if JQUANTS_MASTER_SNAPSHOTS.name in release.dataset_names():
             master_dataset = accepted_dataset(release, JQUANTS_MASTER_SNAPSHOTS.name)
             master_paths = materialize_partitions(
@@ -64,9 +79,19 @@ def read_fixed_financial_documents(
                     "SELECT record_json FROM jquants_master_snapshots "
                     "WHERE snapshot_date = (SELECT MAX(snapshot_date) "
                     "FROM jquants_master_snapshots WHERE snapshot_date <= ?) "
-                    "AND security_code = ?",
-                    (as_of.isoformat(), ticker + "0"),
+                    "AND (? IS NULL OR security_code = ?)",
+                    (as_of.isoformat(), ticker, ticker + "0" if ticker is not None else None),
                 ).fetchall()
                 securities = masters_from_payloads([str(row[0]) for row in rows])
-                sector = securities[0].sector_33 if securities else None
-        return FixedFinancialDocuments(tuple(documents), sector)
+                sectors = {
+                    security.ticker: security.sector_33
+                    for security in securities
+                    if ticker is not None or security.is_common_stock
+                }
+        grouped: dict[str, list[JQuantsFinancialSummary]] = {}
+        for row in documents:
+            grouped.setdefault(row.ticker, []).append(row)
+        return {
+            code: FixedFinancialDocuments(tuple(grouped.get(code, ())), sectors.get(code))
+            for code in sorted(grouped.keys() | sectors.keys())
+        }

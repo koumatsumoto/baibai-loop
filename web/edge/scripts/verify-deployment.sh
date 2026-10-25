@@ -2,7 +2,6 @@
 set -euo pipefail
 
 base_url="${WORKER_BASE_URL:-https://baibai-loop.koumatsumoto.workers.dev}"
-ticker="${VERIFY_TICKER:-7203}"
 verification_dir="$(mktemp -d /tmp/baibai-worker-verify.XXXXXX)"
 
 cleanup() {
@@ -15,10 +14,6 @@ trap cleanup EXIT
 
 if [[ ! "${base_url}" =~ ^https://[^/]+$ ]]; then
   printf 'WORKER_BASE_URL must be an HTTPS origin without a trailing slash\n' >&2
-  exit 2
-fi
-if [[ ! "${ticker}" =~ ^[0-9A-Z]{4}$ ]]; then
-  printf 'VERIFY_TICKER must be a four-character uppercase ticker\n' >&2
   exit 2
 fi
 
@@ -79,34 +74,8 @@ request() {
   fi
 }
 
-paths=(
-  /api/health
-  /api/dashboard
-  /api/screening/latest
-  /api/screening/history
-  /api/operations
-  /api/tasks
-  /api/daily-delta
-  /api/stock-assessments
-  /api/investment-proposals
-  /api/meta
-  /api/market-context
-  /api/market-context/indicators/us.10y
-  "/api/securities/${ticker}"
-)
-
-# Keyed routes, checked with a well-formed key that serving does not carry. The
-# credential still decides the response, and a correct one resolves to a clean 404, so
-# materialized view routes are exercised without depending on which keys exist.
-absent_key_paths=(
-  /api/screening/history/2000-01-01
-  /api/market-context/assessments/no-such-context
-  /api/market-context/indicators/no.such.series
-  /api/stock-assessments/stock-assessment-00000000-0000-4000-8000-000000000000
-  /api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000000
-  /api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000000/current-preview
-  /api/securities/ZZZZ
-)
+paths=(/api/health /api/dashboard /api/tasks /api/outcomes)
+absent_key_paths=(/api/screening/latest /api/market-context /api/operations /api/lake/current /api/investment-proposals)
 
 for path in "${paths[@]}"; do
   request "${path}" '' missing 401

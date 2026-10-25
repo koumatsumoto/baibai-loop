@@ -50,3 +50,8 @@ def safe_load(stream: str | bytes) -> Any:
 def strict_safe_load(stream: str | bytes) -> Any:
     """Parse safe YAML and reject duplicate mapping keys."""
     return yaml.load(stream, Loader=_StrictSafeLoader)  # nosec B506
+
+
+class NoAliasSafeDumper(yaml.SafeDumper):
+    def ignore_aliases(self, data: object) -> bool:
+        return True

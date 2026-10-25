@@ -1,3 +1,5 @@
+"""財務・株式基準の共有合成fixture。旧較正リプレイからも使用する。"""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -32,7 +34,7 @@ def _summary(
     code: str,
     disclosed_at: date,
     *,
-    eps_ttm: float | None = 18.0,
+    cumulative_eps: float | None = 18.0,
     forecast_eps: float | None = 20.0,
     sales: float = 1_000_000_000.0,
     cfo: float | None = 100_000_000.0,
@@ -65,8 +67,8 @@ def _summary(
     # 省略時だけ生成する。明示した None は利益未観測のまま保持する。
     if isinstance(profit, _DefaultProfit):
         profit = (
-            eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
-            if eps_ttm is not None
+            cumulative_eps * (shares_outstanding - (treasury_shares or 0.0))
+            if cumulative_eps is not None
             else None
         )
     # Calculation-ready fixture; native document/period resolution has separate tests.
@@ -76,7 +78,7 @@ def _summary(
         forecast_eps=forecast_eps,
         forecast_status="confirmed",
         dividend_forecast_status="confirmed" if dps_forecast_annual is not None else "missing",
-        eps_ttm=eps_ttm,
+        cumulative_eps=cumulative_eps,
         bps=120.0,
         shares_outstanding=shares_outstanding,
         sales=sales,

@@ -15,7 +15,11 @@ from baibai_engine.foundation.numbers import finite_decimal
 from baibai_engine.foundation.time import JST
 from baibai_engine.investment_judgment.operation.models import OperationSession
 from baibai_engine.investment_judgment.operation.progress import proposal_scope, selection_binding
-from baibai_engine.investment_judgment.selection import ResearchSelection
+from baibai_engine.investment_judgment.selection import (
+    GeneratedResearchSelection,
+    saved_market_assessment,
+)
+from baibai_engine.investment_judgment.selection import ResearchSelectionRecord as ResearchSelection
 from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment_store import (
     ReviewedAssessment,
@@ -23,6 +27,7 @@ from baibai_engine.investment_judgment.stock_assessment_store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal import (
+    GeneratedLiquidityContext,
     LiquidityContext,
     PositionInput,
     ProposalError,
@@ -252,9 +257,37 @@ def collect_proposal_inputs(
     )
 
 
-def proposal_liquidity_context(selection: ResearchSelection) -> tuple[LiquidityContext, ...]:
+def proposal_liquidity_context(
+    selection: ResearchSelection,
+) -> tuple[LiquidityContext | GeneratedLiquidityContext, ...]:
+    if isinstance(selection, GeneratedResearchSelection):
+        generation = selection.inputs.generation
+        generated: list[LiquidityContext | GeneratedLiquidityContext] = []
+        for target in selection.targets:
+            model = generation.result("market_context", target.ticker)
+            price = None if model is None else model.payload.get("price")
+            try:
+                adv = (
+                    finite_decimal(
+                        price.get("avg_turnover_20d_oku") if isinstance(price, dict) else None
+                    )
+                    * 100_000_000
+                )
+            except ValueError:
+                adv = None
+            generated.append(
+                GeneratedLiquidityContext(
+                    ticker=target.ticker,
+                    generation_id=generation.generation_id,
+                    analysis_as_of=generation.as_of,
+                    calculation_revision=None if model is None else model.calculation_revision,
+                    adv_yen=adv,
+                    unavailable_reason=None if adv is not None else "保存モデルにADV値が無い",
+                )
+            )
+        return tuple(generated)
     snapshot = selection.inputs.analysis
-    result: list[LiquidityContext] = []
+    result: list[LiquidityContext | GeneratedLiquidityContext] = []
     for target in selection.targets:
         row = snapshot.analyses.get(target.ticker, {})
         try:
@@ -284,7 +317,7 @@ class ProposalAuthoringContext:
     research_scope: ProposalResearchScope
     inputs: ProposalInputs
     assessments: dict[str, ReviewedAssessment]
-    liquidity_context: tuple[LiquidityContext, ...]
+    liquidity_context: tuple[LiquidityContext | GeneratedLiquidityContext, ...]
     market_context_assessment_id: str | None
     latest_assessment_ids: dict[str, str | None]
     next_order_session: date | None
@@ -452,7 +485,7 @@ def build_proposal_context(
             target.ticker: latest_assessment_id(connection, target.ticker)
             for target in scope.targets
         }
-        saved_context = selection.inputs.market_context.get("saved_market_context_assessment")
+        saved_context = saved_market_assessment(selection)
         context_id = saved_context.get("context_id") if isinstance(saved_context, dict) else None
         if context_id is not None and not isinstance(context_id, str):
             raise ProposalError("saved Market Context Assessment identity must be text")

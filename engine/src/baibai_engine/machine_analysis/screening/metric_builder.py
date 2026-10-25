@@ -1,9 +1,9 @@
-"""source factからFinancialSnapshotとScreeningMetricsを組み立てる。"""
+"""旧較正replay用のFinancialSnapshotと比較指標を組み立てる。"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
 from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import (
@@ -36,34 +36,15 @@ from baibai_engine.machine_analysis.screening.rule_config import (
 from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.price_basis import asof_basis_closes
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-
-# metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ位置 / sigma_gap に
-# 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
-# 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
-# リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
-# 期間の理由と適用先: docs/reference/screening-runtime.md#input-scope
-BARS_INPUT_WINDOW_DAYS = 1200
-
-FIN_INPUT_WINDOW_DAYS = 730
-
-# 株主還元の変化と正規化PERは複数期の通期実績を必要とする。production の
-# FinancialSnapshot / E[r] 入力窓は上の730日のまま維持し、正規化PERだけはFY行と
-# split eventを疎に読む。全bar・全四半期を日次runへ載せないための別窓である。
-SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS = 1200
-
-NORMALIZED_EPS_HISTORY_WINDOW_DAYS = 2200
 
 
 @dataclass(frozen=True)
 class MetricBuildResult:
     financials: Mapping[str, FinancialSnapshot]
     derived: Mapping[str, DerivedMetrics]
-    ttm_quality_counts: Mapping[str, int]
-    yoy_missing_count: int
 
 
 def build_metrics(
@@ -260,20 +241,7 @@ def build_metrics(
             ),
         )
 
-    ttm_quality_counts = _count_ttm_qualities(list(financials.values()))
-    yoy_missing_count = sum(
-        1
-        for snapshot in financials.values()
-        if snapshot.eps_yoy is None
-        or snapshot.sales_yoy is None
-        or snapshot.operating_profit_yoy is None
-    )
-    return MetricBuildResult(
-        financials=financials,
-        derived=derived,
-        ttm_quality_counts=ttm_quality_counts,
-        yoy_missing_count=yoy_missing_count,
-    )
+    return MetricBuildResult(financials=financials, derived=derived)
 
 
 def group_adjustment_events_by_ticker(
@@ -303,20 +271,3 @@ def group_summaries_by_ticker(
     for ticker in grouped:
         grouped[ticker].sort(key=lambda item: item.disclosed_at)
     return grouped
-
-
-_TTM_QUALITY_FIELDS = tuple(
-    field.name for field in fields(FinancialSnapshot) if field.name.startswith("ttm_quality_")
-)
-
-
-def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, int]:
-    # 集計対象は schema の ttm_quality_* field から導出する (次元を足したとき
-    # ここの列挙更新漏れで集計 telemetry から欠落するのを防ぐ)。
-    counts = {quality.value: 0 for quality in TTMQuality}
-    for snapshot in snapshots:
-        for field_name in _TTM_QUALITY_FIELDS:
-            quality: TTMQuality | None = getattr(snapshot, field_name)
-            if quality is not None:
-                counts[quality.value] += 1
-    return counts

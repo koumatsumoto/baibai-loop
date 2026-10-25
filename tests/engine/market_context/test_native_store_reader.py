@@ -14,9 +14,7 @@ from baibai_engine.data_collection.economic import acquisition as acquisition
 from baibai_engine.data_collection.economic.providers.base import FetchContext
 from baibai_engine.data_collection.economic.providers.cftc import CftcSource
 from baibai_engine.data_collection.economic.providers.ecb_fx import EcbFxSource
-from baibai_engine.data_collection.economic.providers.estat_dashboard import (
-    EStatDashboardSource,
-)
+from baibai_engine.data_collection.economic.providers.estat_dashboard import EStatDashboardSource
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
 from baibai_engine.data_collection.economic.sources import require_source
 from baibai_engine.data_collection.economic.store import initialize_database
@@ -26,7 +24,6 @@ from baibai_engine.machine_analysis.market_context.indicators.definitions import
 from baibai_engine.machine_analysis.market_context.reading.reader import (
     build_store_observation_reader,
 )
-from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
 DAY = date(2026, 10, 13)
 
@@ -52,7 +49,6 @@ def test_cftc_keeps_paired_native_values_and_empty_correction_hides_prior_readin
     assert service.get_range(series_id, start=DAY, end=DAY).observations == result.observations
     assert len(replies) == 1
 
-    assert indicator_latest_observed_at(database) == DAY
     outcome = acquisition.refresh_sources(
         [definition.source_id], db_path=database, start=DAY, end=DAY
     )[0]
@@ -61,7 +57,6 @@ def test_cftc_keeps_paired_native_values_and_empty_correction_hides_prior_readin
     with closing(sqlite3.connect(database)) as conn:
         read = build_store_observation_reader(conn, series=load_definitions().series)
         assert read(series_id, DAY, date(2026, 10, 14)) == ()
-    assert indicator_latest_observed_at(database) is None
 
 
 def test_ecb_crosses_use_one_native_row_and_missing_leg_never_uses_old_output(tmp_path):

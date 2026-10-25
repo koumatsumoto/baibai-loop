@@ -4,33 +4,30 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict
-from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 from tests.engine.test_candidate_discovery import GOLDEN, _analysis
+from tests.helpers.screening_run import saved_candidate, seed_saved_run
 
 from baibai_engine.machine_analysis.screening.discovery.contracts import APPROACH_IDS
 from baibai_engine.machine_analysis.screening.discovery.projection import candidate_rows
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.machine_analysis.screening.run_store import (
-    RunStoreConflictError,
     ScreeningRunReader,
     ScreeningRunStore,
     initialize_run_store,
 )
-from baibai_engine.machine_analysis.screening.run_store import store as run_store
-from baibai_engine.machine_analysis.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
-from baibai_engine.machine_analysis.screening.schema import ScreeningRunDocument, StockAnalysis
+from baibai_engine.machine_analysis.screening.schema import StockAnalysis
 from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     published_run_payload,
-    screening_run_payload,
     serialize_published_run_yaml,
     stock_analysis_payload,
 )
-from baibai_engine.read_api.screening import previous_run_revision_id
+from baibai_engine.storage import machine_analysis as machine_store
+from baibai_engine.storage.machine_analysis import RUN_STORE_SCHEMA_VERSION
 
 RULES = load_screening_rules()
 RULES_HASH = production_rules_contract_hash(RULES.model_dump_json())
@@ -47,33 +44,40 @@ def _run(*, rows=None, asof="2026-10-14", at=None):
         "universe_size": len(rows) if rows is not None else 1,
         "screening_rules_hash": RULES_HASH,
         "er_model_version": "expected-return-v1",
-        "stock_analyses": [_analysis("1111")] if rows is None else rows,
+        "stock_analyses": [{**_analysis("1111"), "candidate": saved_candidate(rank=1)}]
+        if rows is None
+        else rows,
     }
 
 
 def _publish(path, payload=None, *, revision=None):
-    return ScreeningRunStore(path).publish_run(
-        _run() if payload is None else payload, rules=RULES, run_revision_id=revision
-    )
+    payload = _run() if payload is None else payload
+    identity = revision or f"saved-{payload['asof_date']}-{payload['run_at']}"
+    return seed_saved_run(path, payload, run_revision_id=identity)
 
 
-def test_schema6_contains_single_header_and_stock_rows(tmp_path: Path) -> None:
+def test_schema7_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
-    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 6
-    assert initialize_run_store(path) == 6
+    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 7
+    assert initialize_run_store(path) == 7
     result = _publish(path)
-    assert result.inserted
-    assert result.publication_id.startswith("run-revision-")
+    assert not hasattr(ScreeningRunStore(path), "publish_run")
     with closing(sqlite3.connect(path)) as connection, connection:
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
-        assert tables == {"screening_run", "stock_analysis"}
+        assert tables == {
+            "screening_run",
+            "stock_analysis",
+            "model_generation",
+            "generated_model",
+            "screening_selection",
+        }
         header = json.loads(connection.execute("SELECT payload FROM screening_run").fetchone()[0])
         assert "stock_analyses" not in header
         assert "candidate_discovery" in header
-    run = ScreeningRunReader(path).get_run(result.publication_id)
+    run = ScreeningRunReader(path).get_run(result)
     assert run is not None
     assert run.stock_analyses[0]["candidate"]["common_eligible"] is True
     assert len(run.stock_analyses[0]["candidate"]["reasons"]) == 4
@@ -82,11 +86,23 @@ def test_schema6_contains_single_header_and_stock_rows(tmp_path: Path) -> None:
     assert not hasattr(ScreeningRunReader(path), "get_review_set")
 
 
-@pytest.mark.parametrize("rows", [[], [{**_analysis("1111"), "market_cap_oku": None}]])
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [],
+        [
+            {
+                **_analysis("1111"),
+                "market_cap_oku": None,
+                "candidate": saved_candidate(eligible=False),
+            }
+        ],
+    ],
+)
 def test_zero_analyses_and_zero_candidates_are_valid_completed_runs(tmp_path: Path, rows) -> None:
     path = tmp_path / "runs.sqlite"
     result = _publish(path, _run(rows=rows))
-    run = ScreeningRunReader(path).get_run(result.publication_id)
+    run = ScreeningRunReader(path).get_run(result)
     assert run is not None
     assert len(run.stock_analyses) == len(rows)
     assert candidate_rows(run.stock_analyses) == ()
@@ -97,62 +113,6 @@ def test_zero_analyses_and_zero_candidates_are_valid_completed_runs(tmp_path: Pa
     }
 
 
-def test_immutable_idempotency_includes_header_all_rows_and_candidate_context(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "runs.sqlite"
-    result = _publish(path, revision="run-a")
-    repeated = _publish(path)
-    assert repeated.publication_id == result.publication_id
-    assert repeated.inserted is False
-    changed = _run()
-    changed["stock_analyses"][0]["metrics"]["er_annual"] = 0.15
-    with pytest.raises(RunStoreConflictError, match="differs"):
-        _publish(path, changed)
-    with pytest.raises(RunStoreConflictError, match="different run_revision_id"):
-        _publish(path, revision="run-b")
-    assert len(ScreeningRunReader(path).list_runs()) == 1
-
-
-def test_child_insert_failure_rolls_back_header_and_all_children(tmp_path: Path) -> None:
-    path = tmp_path / "runs.sqlite"
-    initialize_run_store(path)
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "CREATE TRIGGER fail_second BEFORE INSERT ON stock_analysis "
-            "WHEN NEW.ticker='2222' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END"
-        )
-    with pytest.raises(sqlite3.IntegrityError, match="synthetic failure"):
-        _publish(path, _run(rows=[_analysis("1111"), _analysis("2222")]))
-    with closing(sqlite3.connect(path)) as connection, connection:
-        assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 0
-        assert connection.execute("SELECT count(*) FROM stock_analysis").fetchone()[0] == 0
-
-
-@pytest.mark.parametrize("mutation", ["rules", "candidate", "summary", "duplicate", "legacy_key"])
-def test_writer_rejects_source_rule_mismatch_and_caller_candidate_context(
-    tmp_path: Path, mutation
-) -> None:
-    path = tmp_path / "runs.sqlite"
-    payload = _run()
-    if mutation == "rules":
-        payload["screening_rules_hash"] = "different"
-    elif mutation == "candidate":
-        payload["stock_analyses"][0]["candidate"] = {"common_eligible": False}
-    elif mutation == "summary":
-        payload["candidate_discovery"] = {}
-    elif mutation == "duplicate":
-        payload["stock_analyses"] *= 2
-    else:
-        payload["security_analyses"] = payload.pop("stock_analyses")
-    with pytest.raises(
-        ValueError,
-        match=r"rules|owned|duplicate|stock_analyses",
-    ):
-        _publish(path, payload)
-    assert not path.exists()
-
-
 def test_read_export_preserves_saved_raw_values_candidate_and_nulls(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
     raw = _run()
@@ -161,51 +121,14 @@ def test_read_export_preserves_saved_raw_values_candidate_and_nulls(tmp_path: Pa
     raw["rules_ref"] = str(retired_rules)
     raw["stock_analyses"][0]["metrics"].update(custom_known_value=0.123456789, missing=None)
     result = _publish(path, raw)
-    run = ScreeningRunReader(path).get_run(result.publication_id)
+    run = ScreeningRunReader(path).get_run(result)
     exported = published_run_payload(run)
     assert run.rules_ref == exported["rules_ref"] == str(retired_rules)
     assert yaml.safe_load(serialize_published_run_yaml(run)) == exported
-    assert exported["run_revision_id"] == result.publication_id
+    assert exported["run_revision_id"] == result
     assert exported["stock_analyses"][0]["metrics"]["custom_known_value"] == 0.123456789
     assert exported["stock_analyses"] == list(run.stock_analyses)
     assert "security_analyses" not in exported
-    with pytest.raises(ValueError, match="owned"):
-        _publish(path, exported)
-
-
-def test_latest_same_day_cutoff_and_unknown_exact_do_not_fallback(tmp_path: Path) -> None:
-    path = tmp_path / "runs.sqlite"
-    old = _publish(path, _run(asof="2026-10-13"), revision="old")
-    early = _publish(path, _run(at="2026-10-14T09:00:00+09:00"), revision="early")
-    empty = _publish(path, _run(rows=[], at="2026-10-14T12:00:00+09:00"), revision="empty")
-    future = _publish(path, _run(asof="2026-10-15"), revision="future")
-    reader = ScreeningRunReader(path)
-    assert reader.latest_run().run_revision_id == future.publication_id
-    assert reader.latest_run_on(as_of=date(2026, 10, 14)).run_revision_id == empty.publication_id
-    assert candidate_rows(reader.latest_run_on(as_of=date(2026, 10, 14)).stock_analyses) == ()
-    cutoff = datetime.fromisoformat("2026-10-14T01:00:00+00:00")
-    assert (
-        reader.analysis_run(as_of=date(2026, 10, 14), known_at=cutoff).run_revision_id
-        == early.publication_id
-    )
-    assert (
-        reader.analysis_run(as_of=date(2026, 10, 13), known_at=cutoff).run_revision_id
-        == old.publication_id
-    )
-    for identifier in ("unknown", "future", "empty"):
-        with pytest.raises(
-            ValueError,
-            match=r"unknown|cutoff",
-        ):
-            reader.analysis_run(
-                as_of=date(2026, 10, 14), known_at=cutoff, run_revision_id=identifier
-            )
-    with pytest.raises(ValueError, match="timezone"):
-        reader.analysis_run(
-            as_of=date(2026, 10, 14), known_at=datetime.fromisoformat("2026-10-14T00:00:00")
-        )
-    assert reader.latest_run_on(as_of=date(2026, 10, 12)) is None
-    assert reader.get_run("unknown") is None
 
 
 @pytest.mark.parametrize(
@@ -318,9 +241,13 @@ def test_reader_preserves_saved_ordinal_before_candidate_projection(tmp_path: Pa
         path,
         _run(
             rows=[
-                _analysis("2222"),
-                {**_analysis("1111"), "market_cap_oku": None},
-                _analysis("3333"),
+                {**_analysis("2222"), "candidate": saved_candidate(rank=1)},
+                {
+                    **_analysis("1111"),
+                    "market_cap_oku": None,
+                    "candidate": saved_candidate(eligible=False),
+                },
+                {**_analysis("3333"), "candidate": saved_candidate(rank=2)},
             ]
         ),
         revision="run-a",
@@ -338,15 +265,16 @@ def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
     pruned = ScreeningRunStore(path).prune(keep=1)
     assert pruned.deleted_runs == pruned.deleted_stock_analyses == 2
     assert not hasattr(pruned, "deleted_review_sets")
-    assert len(ScreeningRunReader(path).list_runs()) == 1
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM screening_run").fetchone() == (1,)
     legacy = tmp_path / "old.sqlite"
     with closing(sqlite3.connect(legacy)) as connection, connection:
         connection.execute("CREATE TABLE old_cache(value TEXT)")
         connection.execute("PRAGMA user_version=5")
-    with pytest.raises(RuntimeError, match="rebuild"):
+    with pytest.raises(RuntimeError, match="explicit migration"):
         initialize_run_store(legacy)
-    with pytest.raises(RuntimeError, match="rebuild"):
-        ScreeningRunReader(legacy).latest_run()
+    with pytest.raises(RuntimeError, match="explicit migration"):
+        ScreeningRunReader(legacy).get_run("absent")
 
 
 def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -> None:
@@ -373,75 +301,12 @@ def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -
         },
     )
     assert stock_analysis_payload(analysis) == {**GOLDEN["rounded_analysis"], "candidate": None}
-    document = ScreeningRunDocument(
-        run_date=date(2026, 10, 14),
-        asof_date=date(2026, 10, 14),
-        universe_size=1,
-        filters={},
-        stock_analyses=[analysis],
-        run_at=datetime.fromisoformat("2026-10-14T18:00:00+09:00"),
-        run_id="screening-20261014",
-        screening_rules_hash=RULES_HASH,
-        er_model_version="expected-return-v1",
-    )
-    payload = screening_run_payload(document)
-    assert payload["schema_version"] == 1
-    assert payload["kind"] == "stock_analysis_run"
-    assert payload["stock_analyses"][0]["candidate"] is None
     assert analysis.candidate is None
     with pytest.raises(
         ValueError,
         match="finite",
     ):
         StockAnalysis(**{**asdict(analysis), "per_forward": float("inf")})
-
-
-@pytest.mark.parametrize(
-    ("cutoff", "expected"),
-    [("000100", "zz-early"), ("000500", "aa-late"), ("000800", "00-latest")],
-)
-def test_research_cutoff_and_latest_selection_preserve_sub_millisecond_clock(
-    tmp_path: Path, cutoff: str, expected: str
-) -> None:
-    path = tmp_path / "runs.sqlite"
-    for fraction, revision in (
-        ("000000", "zz-early"),
-        ("000400", "aa-late"),
-        ("000700", "00-latest"),
-    ):
-        _publish(path, _run(at=f"2026-10-14T12:00:00.{fraction}+09:00"), revision=revision)
-    reader = ScreeningRunReader(path)
-    known_at = datetime.fromisoformat(f"2026-10-14T12:00:00.{cutoff}+09:00")
-    run = reader.analysis_run(as_of=date(2026, 10, 14), known_at=known_at)
-    assert run is not None
-    assert run.run_revision_id == expected
-    for fraction, revision in (
-        ("000000", "zz-early"),
-        ("000400", "aa-late"),
-        ("000700", "00-latest"),
-    ):
-        if fraction > cutoff:
-            with pytest.raises(ValueError, match="after the Research cutoff"):
-                reader.analysis_run(
-                    as_of=date(2026, 10, 14), known_at=known_at, run_revision_id=revision
-                )
-        else:
-            exact = reader.analysis_run(
-                as_of=date(2026, 10, 14), known_at=known_at, run_revision_id=revision
-            )
-            assert exact is not None
-            assert exact.run_revision_id == revision
-
-
-def test_research_cutoff_compares_offset_equivalent_timestamps(tmp_path: Path) -> None:
-    path = tmp_path / "runs.sqlite"
-    _publish(path, _run(at="2026-10-14T12:00:00.000400+09:00"), revision="aa-jst")
-    _publish(path, _run(at="2026-10-14T03:00:00.000400+00:00"), revision="zz-utc")
-    reader = ScreeningRunReader(path)
-    known_at = datetime.fromisoformat("2026-10-14T03:00:00.000400+00:00")
-    run = reader.analysis_run(as_of=date(2026, 10, 14), known_at=known_at)
-    assert run is not None
-    assert run.run_revision_id == "zz-utc"
 
 
 @pytest.fixture
@@ -462,28 +327,6 @@ def precise_clock_runs(tmp_path):
     return path, revisions, clocks
 
 
-@pytest.mark.parametrize(
-    "query", ["latest_run", "latest_run_on", "valuation_run", "analysis_run", "list_runs"]
-)
-def test_run_readers_use_the_same_exact_instant_order(precise_clock_runs, query):
-    path, revisions, clocks = precise_clock_runs
-    reader = ScreeningRunReader(path)
-    before = path.read_bytes()
-    arguments = {}
-    if query in {"latest_run_on", "valuation_run", "analysis_run"}:
-        arguments["as_of"] = date(2026, 10, 14)
-    if query == "analysis_run":
-        arguments["known_at"] = datetime.fromisoformat(clocks[-1])
-    result = getattr(reader, query)(**arguments)
-    if query == "list_runs":
-        assert [run.run_revision_id for run in result] == list(reversed(revisions))
-        assert [run.run_at for run in result] == list(reversed(clocks))
-    else:
-        assert result.run_revision_id == revisions[-1]
-        assert result.run_at == clocks[-1]
-    assert path.read_bytes() == before
-
-
 def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_clock_runs):
     path, revisions, clocks = precise_clock_runs
     result = ScreeningRunStore(path).prune(keep=2)
@@ -493,17 +336,10 @@ def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_
     assert retained == dict(zip(revisions[1:], clocks[1:], strict=True))
 
 
-def test_previous_run_facade_preserves_exact_instant_order(precise_clock_runs):
-    path, revisions, _ = precise_clock_runs
-    before = path.read_bytes()
-    assert previous_run_revision_id(path, date(2026, 10, 15)) == revisions[-1]
-    assert path.read_bytes() == before
-
-
 def test_initialization_failure_rolls_back_run_schema_and_can_retry(tmp_path, monkeypatch):
     path = tmp_path / "runs.sqlite"
     with monkeypatch.context() as patch:
-        patch.setattr(run_store, "SCHEMA_SQL", run_store.SCHEMA_SQL + "\nINVALID SQL;")
+        patch.setattr(machine_store, "SCHEMA_SQL", machine_store.SCHEMA_SQL + "\nINVALID SQL;")
         with pytest.raises(sqlite3.OperationalError):
             initialize_run_store(path)
     with closing(sqlite3.connect(path)) as connection:
@@ -530,3 +366,27 @@ def test_reader_rejects_inconsistent_candidate_union(tmp_path: Path, mutation: s
     message = "ranks must be contiguous" if mutation == "rank" else "diagnostics differ"
     with pytest.raises(ValueError, match=message):
         ScreeningRunReader(path).get_run("run-a")
+
+
+def test_retired_annotations_remain_exact_in_saved_historical_export(tmp_path):
+    path = tmp_path / "runs.sqlite"
+    row = {
+        **_analysis("1111"),
+        "next_earnings_date": "2026-10-20",
+        "freshness_warnings": [{"original": "retained claim, not recomputed"}],
+    }
+    row["metrics"] = {
+        **row["metrics"],
+        "next_earnings_status": "announced",
+        "next_earnings_estimated_date": None,
+        "stale_fin_flag": False,
+        "tse_capital_policy_status": "disclosed",
+    }
+    identity = _publish(path, _run(rows=[row]))
+    saved = ScreeningRunReader(path).get_run(identity)
+    assert saved is not None
+    exported = published_run_payload(saved)["stock_analyses"][0]
+    assert exported["next_earnings_date"] == row["next_earnings_date"]
+    assert exported["freshness_warnings"] == row["freshness_warnings"]
+    assert exported["metrics"] == row["metrics"]
+    assert yaml.safe_load(serialize_published_run_yaml(saved))["stock_analyses"][0] == exported

@@ -1,6 +1,5 @@
 """r6の有限反例と、公開読取からResearchの固定保存・再開まで。実providerを使わない。"""
 
-import json
 import socket
 import sqlite3
 from contextlib import closing
@@ -10,16 +9,14 @@ from hashlib import sha256
 
 import pytest
 import yaml
+from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.l1_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
-from tests.helpers.research_selection import draft_for, selection
+from tests.helpers.research_selection import historical_operation, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
-from baibai_engine.investment_judgment.inputs import (
-    collect_research_inputs,
-    project_research_inputs,
-)
+from baibai_engine.investment_judgment.inputs import project_research_inputs
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.selection import (
@@ -27,24 +24,19 @@ from baibai_engine.investment_judgment.selection import (
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.workspace import (
-    ResearchWorkspaceConflictError,
-    prepare_selected_workspace,
-    resume_selected_workspace,
-)
+from baibai_engine.investment_judgment.workspace import resume_selected_workspace
 from baibai_engine.machine_analysis.company_growth.calculations import (
     build_changes,
     build_period_states,
 )
 from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.company_growth.query import (
+    company_growth as public_company_growth,
+)
 from baibai_engine.market.financial_documents import normalize_financial_summary
 from baibai_engine.market.financial_periods import prior_year_period_matches
-from baibai_engine.read_api.company_growth import company_growth as public_company_growth
 from baibai_engine.storage.lake.keys import release_manifest_key
-from baibai_engine.storage.lake.models import (
-    ReleaseManifest,
-    canonical_lake_model_bytes,
-)
+from baibai_engine.storage.lake.models import ReleaseManifest
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
@@ -129,6 +121,35 @@ def test_seasonality_and_one_time_gain_remain_one_quarter_observation():
     assert ttm[4:8] == [500] * 4
     assert ttm[8] == 400
     assert "sustained_growth" not in result[4].model_dump_json()
+
+
+def test_eleven_month_year_remains_reported_but_not_annualized():
+    result = states([document(2025, 4, 1100, 110, 55, CurPerEn="2026-02-28", CurFYEn="2026-02-28")])
+    assert amount(result[0], "reported", "sales").value == 1100
+    assert amount(result[0], "annual_ttm", "sales").value is None
+
+
+def test_fiscal_year_change_does_not_combine_eleven_months_as_ttm():
+    result = states(
+        [
+            document(2025, 2, 600, 60, 30),
+            document(2025, 4, 1100, 110, 55, CurPerEn="2026-02-28", CurFYEn="2026-02-28"),
+            document(
+                2026,
+                2,
+                700,
+                70,
+                35,
+                CurPerSt="2026-03-01",
+                CurPerEn="2026-08-31",
+                CurFYEn="2027-02-28",
+            ),
+        ]
+    )
+    assert amount(result[-1], "reported", "sales").value == 700
+    annual = amount(result[-1], "annual_ttm", "sales")
+    assert annual.value is None
+    assert annual.reason == "accounting_periods_incomparable"
 
 
 def test_cumulative_difference_and_reported_eps_never_share_arithmetic():
@@ -342,19 +363,12 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
     path = market_store(tmp_path, records)
     selected = selection(now=NOW, tickers=("1234",))
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("network used"))
-    inputs = collect_research_inputs(
-        snapshot=selected.inputs.analysis,
-        input_gaps=selected.inputs.input_gaps,
-        tickers=("1234",),
-        research_as_of=NOW.date(),
-        input_known_at=NOW,
-        market_path=path,
-        indicators_path=tmp_path / "absent-indicators",
-        company_growth_mirror=tmp_path / "mirror",
-        app_path=tmp_path / "absent-app",
-        company_growth_start=date(2024, 4, 1),
-        company_growth_end=date(2024, 6, 30),
+    growth = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
     )
+    context = dict(selected.inputs.securities_context["1234"])
+    context["company_growth"] = growth.model_dump(mode="json")
+    inputs = selected.inputs.model_copy(update={"securities_context": {"1234": context}})
     saved = ResearchSelection.model_validate_json(
         selected.model_copy(update={"inputs": inputs}).model_dump_json()
     )
@@ -371,7 +385,7 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
             connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed")
         )
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.inputs.company_growth",
+        "baibai_engine.machine_analysis.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("growth recomputed"),
     )
     projected = project_research_inputs(saved)["securities"]["1234"]["company_growth"]
@@ -401,32 +415,26 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
 ):
     path = market_store(tmp_path, [document(2023, 1, 100), document(2024, 1, 200)])
     selected = selection(now=NOW, tickers=("1234",))
-    draft = draft_for(selected).model_copy(
+    context = dict(selected.inputs.securities_context["1234"])
+    context["company_growth"] = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
+    ).model_dump(mode="json")
+    selected = selected.model_copy(
         update={
-            "company_growth_start": date(2024, 4, 1),
-            "company_growth_end": date(2024, 6, 30),
+            "inputs": selected.inputs.model_copy(update={"securities_context": {"1234": context}})
         }
     )
     db, workspace = tmp_path / "application.sqlite", tmp_path / "workspace"
+    operation = historical_operation(selected)
+    seed_historical_operation(db, operation)
     arguments = dict(db_path=db, workspace=workspace, now=NOW)
-    prepared = prepare_selected_workspace(
-        draft=draft,
-        sqlite_path=path,
-        runs_path=tmp_path / "runs",
-        indicators_path=tmp_path / "absent-indicators",
-        company_growth_mirror=tmp_path / "mirror",
-        **arguments,
-    )
+    prepared = resume_selected_workspace(operation_id=operation.operation_id, **arguments)
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
     expected = project_research_inputs(saved)
     output = workspace / "domain-inputs.yaml"
     output.write_text("damaged projection", encoding="utf-8")
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
-        lambda **_kw: pytest.fail("inputs recollected"),
-    )
-    monkeypatch.setattr(
-        "baibai_engine.investment_judgment.inputs.company_growth",
+        "baibai_engine.machine_analysis.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("current method used"),
     )
     resumed = resume_selected_workspace(operation_id=prepared.operation_id, force=True, **arguments)
@@ -436,15 +444,6 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
         expected["securities"]["1234"]["company_growth"]["input_release"]["release_id"]
         == "synthetic-release-1"
     )
-    with pytest.raises(ResearchWorkspaceConflictError, match="different fixed selection"):
-        prepare_selected_workspace(
-            draft=draft.model_copy(update={"company_growth_start": date(2023, 4, 1)}),
-            sqlite_path=path,
-            runs_path=tmp_path / "runs",
-            indicators_path=tmp_path / "absent-indicators",
-            company_growth_mirror=tmp_path / "mirror",
-            **arguments,
-        )
 
 
 def test_same_current_state_keeps_distinct_paths_for_l3():
@@ -497,20 +496,22 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
         for quarter in range(1, 5)
     ]
     path = market_store(tmp_path, records)
-    draft = draft_for(selection(now=NOW, tickers=("1234",))).model_copy(
-        update={"company_growth_start": start, "company_growth_end": date(2025, 3, 31)}
+    selected = selection(now=NOW, tickers=("1234",))
+    context = dict(selected.inputs.securities_context["1234"])
+    context["company_growth"] = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=start, end=date(2025, 3, 31)
+    ).model_dump(mode="json")
+    selected = selected.model_copy(
+        update={
+            "inputs": selected.inputs.model_copy(update={"securities_context": {"1234": context}})
+        }
     )
+    operation = historical_operation(selected)
     arguments = dict(
-        draft=draft,
-        db_path=tmp_path / "application.sqlite",
-        workspace=tmp_path / "workspace",
-        sqlite_path=path,
-        runs_path=tmp_path / "runs",
-        indicators_path=tmp_path / "absent-indicators",
-        company_growth_mirror=tmp_path / "mirror",
-        now=NOW,
+        db_path=tmp_path / "application.sqlite", workspace=tmp_path / "workspace", now=NOW
     )
-    prepared = prepare_selected_workspace(**arguments)
+    seed_historical_operation(arguments["db_path"], operation)
+    prepared = resume_selected_workspace(operation_id=operation.operation_id, **arguments)
     service = OperationService(arguments["db_path"])
     saved = selection_binding(service.get(prepared.operation_id).payload)
     original = saved.model_dump(mode="json")
@@ -540,12 +541,14 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
     assert compact["full_result_ref"] == "/inputs/securities_context/1234/company_growth"
 
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
+        "baibai_engine.machine_analysis.company_growth.query.company_growth",
         lambda **_kw: pytest.fail("inputs recollected"),
     )
     authored = arguments["workspace"] / "assessment-draft.yaml"
     authored.write_text("authored draft retained")
-    resumed = prepare_selected_workspace(**arguments, company_growth_periods=16, force=True)
+    resumed = resume_selected_workspace(
+        operation_id=operation.operation_id, **arguments, company_growth_periods=16, force=True
+    )
     assert resumed.selection_sha256 == digest
     assert displayed()["display_scope"]["period_count"] == 16
     assert (
@@ -635,39 +638,6 @@ def test_metric_availability_cannot_change_the_shared_ttm_measurement_interval()
     assert amount(states(records)[1], "reported", "operating_profit").value == 10
 
 
-def test_finite_ci_sample_reports_inputs_cost_and_thin_table_without_claiming_l3_success(tmp_path):
-    from tools.company_growth_sample import Sample, SampleInput, measure_samples
-
-    from baibai_engine.machine_analysis.company_growth.models import InputRelease
-
-    path = market_store(tmp_path, [document(2024, 1, 100, 10, 5)])
-    spec = SampleInput(
-        input_release=InputRelease(
-            release_id="synthetic-release-1",
-            manifest_sha256=read_lake_store_origin(path).release_manifest_sha256,
-        ),
-        as_of=NOW.date(),
-        samples=(Sample(ticker="1234", start=date(2024, 4, 1), end=date(2024, 6, 30)),),
-    )
-    report = measure_samples(path, spec, mirror=path.parent / "mirror")
-    sample = report["samples"][0]
-    assert sample["company_growth"]["periods"][0]["period_end"] == "2024-06-30"
-    assert sample["thin_reported_table"][0]["reported"]["sales"] == 100
-    assert sample["query_seconds"] >= 0
-    assert sample["company_growth_json_bytes"] > sample["thin_reported_table_json_bytes"]
-    assert report["acceptance"] == "requires_original_value_and_l3_comparison_review"
-    with pytest.raises(ValueError, match="requested fixed release"):
-        measure_samples(
-            path,
-            spec.model_copy(
-                update={
-                    "input_release": InputRelease(release_id="different", manifest_sha256="b" * 64),
-                }
-            ),
-            mirror=path.parent / "mirror",
-        )
-
-
 @pytest.mark.parametrize(
     ("correction_time", "h1_time", "expected", "reason"),
     [
@@ -751,6 +721,36 @@ def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
     assert amount(published.periods[0], "reported", "sales").value == 900
 
 
+def test_shared_population_and_individual_generation_use_the_same_fixed_documents(tmp_path):
+    from baibai_engine.machine_analysis.company_growth.generation import generate_company_growth
+    from baibai_engine.machine_analysis.company_growth.models import InputRelease
+    from baibai_engine.market.fixed_financial_reader import read_fixed_financial_population
+
+    path = market_store(
+        tmp_path,
+        [document(2024, 1, 100), document(2024, 1, 200, Code="56780", DiscNo="second-company")],
+    )
+    origin = read_lake_store_origin(path)
+    population = read_fixed_financial_population(
+        path.parent / "mirror", origin=origin, as_of=NOW.date()
+    )
+    assert set(population) == {"1234", "5678"}
+    release = InputRelease(
+        release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
+    )
+    for ticker, fixed in population.items():
+        shared = generate_company_growth(
+            fixed.documents,
+            ticker=ticker,
+            sector=fixed.sector,
+            as_of=NOW.date(),
+            input_release=release,
+        )
+        assert shared == company_growth(path, ticker=ticker, as_of=NOW.date())
+    assert population["1234"].documents[0].sales == 100
+    assert population["5678"].documents[0].sales == 200
+
+
 def test_missing_fixed_release_objects_are_local_unavailability(tmp_path):
     path = market_store(tmp_path, [document(2024, 1, 100)])
     result = public_company_growth(
@@ -774,155 +774,6 @@ def test_fixed_reader_os_failure_is_local_to_growth(tmp_path, monkeypatch):
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     assert result.reason == "fixed_release_inputs_unavailable"
     assert result.input_release is None
-
-
-def test_private_acceptance_uses_only_financial_master_and_never_overwrites_results(
-    tmp_path, monkeypatch
-):
-    from tests.helpers.lake_policy import narrow_release_policy
-    from tests.helpers.r2_store import MemoryR2Store
-    from tools.company_growth_acceptance import execute
-
-    from baibai_engine.storage.lake.keys import current_release_pointer_key
-    from baibai_engine.storage.lake.release import LakeReleasePointer
-    from baibai_engine.storage.observations.coverage import record_range_source_coverage
-    from baibai_jobs.storage.lake_publish import LakeCASConflict
-
-    records = [
-        document(y, q, q * 42424242, q * 11, q * 7) for y in (2022, 2023, 2024) for q in range(1, 5)
-    ]
-    path = market_store(tmp_path / "source", records, release=None)
-    with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                ("2026-10-23", "1234", "合成会社", "プライム", "情報・通信業", "011"),
-            ],
-        )
-        record_range_source_coverage(
-            connection,
-            source="jquants_fin_summaries",
-            operation="fixture",
-            table="jquants_fin_summaries",
-            date_column="disclosed_at",
-            requested_start=date(2022, 8, 14),
-            requested_end=date(2025, 5, 15),
-            status="ok",
-            error=None,
-        )
-    publish_market_fixture(path, "private-fixture", created_at=NOW)
-    origin = read_lake_store_origin(path)
-    store = MemoryR2Store()
-    for file in (path.parent / "mirror" / "lake").rglob("*"):
-        if file.is_file():
-            store.store_object(
-                file.relative_to(path.parent / "mirror").as_posix(), file.read_bytes()
-            )
-    pointer = LakeReleasePointer(
-        release_id=origin.release_id,
-        manifest_key=release_manifest_key(release_id=origin.release_id),
-        manifest_sha256=origin.release_manifest_sha256,
-    )
-    store.store_object(current_release_pointer_key(), canonical_lake_model_bytes(pointer))
-    narrow_release_policy(
-        monkeypatch, datasets=("jquants.fin_summaries", "jquants.master_snapshots")
-    )
-    before = {key: item.body for key, item in store.values.items()}
-    summary = execute(
-        store,
-        tmp_path / "private-runner",
-        run_id="100",
-        attempt="1",
-        head_sha="a" * 40,
-        tickers=("1234",),
-    )
-    assert summary["status"] == "measured"
-    assert summary["samples"][0]["sample_period_count"] == 12
-    assert summary["samples"][0]["window_invariance"] is True
-    assert "retained_histories" not in summary
-    assert "company_growth" not in summary["samples"][0]
-    assert "sales" not in summary["samples"][0]
-    key = summary["private_result_key"]
-    assert store.put_keys == [key]
-    assert key.startswith("validation/company-growth/pr-1592/100-1/")
-    private = store.values[key].body
-    assert b"42424242" in private
-    assert all(store.values[name].body == body for name, body in before.items())
-    assert all(name.startswith("lake/") or name == key for name in store.get_keys)
-    with pytest.raises(LakeCASConflict):
-        execute(
-            store,
-            tmp_path / "second-runner",
-            run_id="100",
-            attempt="1",
-            head_sha="a" * 40,
-            tickers=("1234",),
-        )
-    assert store.values[key].body == private
-    store.get_keys.clear()
-    projected = execute(
-        store,
-        tmp_path / "projection-runner",
-        run_id="101",
-        attempt="1",
-        head_sha="b" * 40,
-        saved_result_key=key,
-    )
-    new_key = projected["private_result_key"]
-    assert set(store.get_keys) == {key, new_key}
-    assert (
-        projected["samples"][0]["l3_projection_json_bytes"]
-        < summary["samples"][0]["history_json_bytes"]
-    )
-    assert "sales" not in projected["samples"][0]
-    assert store.values[key].body == private
-    result = json.loads(store.values[new_key].body)
-    assert result["l3_projections"]["1234"]["display_scope"]["period_count"] == 12
-    assert result["saved_result_key"] == key
-
-
-def test_acceptance_cli_keeps_private_result_keys_and_digest_out_of_public_logs(
-    tmp_path, monkeypatch, capsys
-):
-    from tools import company_growth_acceptance as acceptance
-
-    private_key = "private-result-object"
-    private_digest = "private-result-digest"
-    source_key = "private-input-object"
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "company-growth-acceptance",
-            "--directory",
-            str(tmp_path),
-            "--run-id",
-            "100",
-            "--attempt",
-            "1",
-            "--head-sha",
-            "a" * 40,
-        ],
-    )
-    monkeypatch.setattr(acceptance, "Boto3R2Store", lambda **_: object())
-    monkeypatch.setattr(
-        acceptance,
-        "execute",
-        lambda *_a, **_kw: {
-            "status": "measured",
-            "sample_count": 5,
-            "private_result_bytes": 73660,
-            "private_result_key": private_key,
-            "private_result_sha256": private_digest,
-            "saved_result_key": source_key,
-        },
-    )
-    assert acceptance.main() == 0
-    logged = capsys.readouterr().out
-    assert all(value not in logged for value in (private_key, private_digest, source_key))
-    public = json.loads(logged)
-    assert public["status"] == "measured"
-    assert public["sample_count"] == 5
-    assert public["private_result_bytes"] == 73660
 
 
 def test_compact_growth_keeps_quarter_and_annual_conflict_and_reported_cash_flow():

@@ -1,3 +1,5 @@
+"""現行のJ-Quants・EDINET・JPX取得/正規化契約。旧screening writerのテストではない。"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -62,7 +64,6 @@ from baibai_engine.market.jquants_decode import (
     normalize_adjustment_factor_event,
     normalize_daily_bar,
     normalize_market_calendar,
-    parse_jquants_code,
 )
 from baibai_engine.market.metric_quality import TTMQuality
 
@@ -197,12 +198,6 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertNotIn("\n", str(ctx.exception))
         self.assertIn("'7203?0'", str(ctx.exception))
-
-    def test_parse_jquants_code_supports_zero_suffix(self) -> None:
-        self.assertEqual(parse_jquants_code("130A0"), "130A")
-
-    def test_parse_jquants_code_truncates_non_zero_suffix(self) -> None:
-        self.assertEqual(parse_jquants_code("130A1"), "130A")
 
     def test_normalize_metric_record_parses_ttm_quality(self) -> None:
         record = normalize_metric_record(
@@ -1445,7 +1440,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNotNone(summary)
         assert summary is not None
-        self.assertEqual(summary.eps_ttm, 0.0)
+        self.assertEqual(summary.cumulative_eps, 0.0)
         self.assertEqual(summary.sales, 0.0)
         self.assertEqual(summary.operating_profit, 0.0)
 
@@ -1567,7 +1562,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.ticker, "8891")
         self.assertIsNone(summary.forecast_eps)
         self.assertIn('"FEPS": "377.75"', summary.document_payload or "")
-        self.assertEqual(summary.eps_ttm, 300.50)
+        self.assertEqual(summary.cumulative_eps, 300.50)
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
         self.assertEqual(summary.fiscal_period, "1Q")
@@ -1594,7 +1589,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNone(fy.forecast_eps)
         fy = project_financial_documents([fy], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(fy.forecast_eps, 360.26)
-        self.assertEqual(fy.eps_ttm, 349.18)
+        self.assertEqual(fy.cumulative_eps, 349.18)
 
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         summary = normalize_financial_summary(

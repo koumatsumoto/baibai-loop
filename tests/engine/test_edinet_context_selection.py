@@ -240,7 +240,7 @@ def test_1375_supported_assets_do_not_adopt_individual_cash_or_debt():
                 shares_outstanding=100_000_000.0,
                 total_assets=37_686_000_000.0,
                 sales=53_449_000_000.0,
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
                 forecast_eps=25.0,
             )
         ],

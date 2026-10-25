@@ -1,7 +1,3 @@
-import { Link } from 'react-router'
-import { ArrowLeft } from 'lucide-react'
-
-import { Button } from './ui/button'
 import { cn } from '../lib/utils'
 
 interface PageStateProps {
@@ -10,11 +6,9 @@ interface PageStateProps {
   title?: string
   // Render the title in a monospace face (used for tickers).
   mono?: boolean
-  // Offer a link back to the Stocks page (unknown-security state).
-  back?: boolean
 }
 
-export function PageState({ message, title, mono = false, back = false }: PageStateProps) {
+export function PageState({ message, title, mono = false }: PageStateProps) {
   return (
     <main className="mx-auto grid min-h-[60vh] max-w-5xl place-items-center px-6 text-center">
       <div>
@@ -22,11 +16,6 @@ export function PageState({ message, title, mono = false, back = false }: PageSt
           <p className={cn('text-sm font-medium text-muted-foreground', mono && 'font-mono')}>{title}</p>
         )}
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{message}</h1>
-        {back && (
-          <Button asChild className="mt-6" variant="outline">
-            <Link to="/stocks"><ArrowLeft />Stocks に戻る</Link>
-          </Button>
-        )}
       </div>
     </main>
   )

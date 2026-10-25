@@ -16,7 +16,9 @@ from baibai_engine.market.financial_documents import (
 )
 from baibai_engine.market.financial_periods import (
     ACTUAL_FIELDS,
+    annual_ttm_start,
     compose_ttm_amount,
+    is_annual_period,
     period_days,
     prior_year_period_matches,
 )
@@ -153,7 +155,7 @@ def _latest_complete_row(
 # 1 株当たりで開示される field。期をまたぐ和・差を作れないので TTM 合成へ渡さない。
 _PER_SHARE_FIELDS = frozenset(
     {
-        "eps_ttm",
+        "cumulative_eps",
         "forecast_eps",
         "bps",
         "dps_actual_annual",
@@ -239,6 +241,21 @@ def _ttm_value(
     の値は各項が自分の期の株数で割られているので満たさない。株数が動いた会社では黒字が
     赤字に見える。per-share の field を渡すのは呼び出し側の誤りなので受け付けない。
     """
+    components = _ttm_components(summaries, field, ttm_rules)
+    if not components:
+        return None, TTMQuality.UNAVAILABLE
+    values = [getattr(row, field) for row in components]
+    if len(values) == 1:
+        return values[0], TTMQuality.EXACT
+    return compose_ttm_amount(*values), TTMQuality.EXACT
+
+
+def _ttm_components(
+    summaries: Sequence[JQuantsFinancialSummary],
+    field: str,
+    ttm_rules: TTMRules,
+) -> tuple[JQuantsFinancialSummary, ...]:
+    """実際に用いた年間額、または直近累計・前期通期・前年同期の原典を返す。"""
     if field in _PER_SHARE_FIELDS:
         raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
     # 非実績開示は過去の実績を取り消さない。必要fieldの欠損は選択後に判定する。
@@ -257,17 +274,17 @@ def _ttm_value(
     )
     latest = _latest_actual_row(cohort, field_names=(field,))
     if latest is None or latest.period_start is None or latest.period_end is None:
-        return None, TTMQuality.UNAVAILABLE
+        return ()
     latest_value = getattr(latest, field)
     if latest_value is None:
-        return None, TTMQuality.UNAVAILABLE
+        return ()
     latest_days = period_days(latest)
     if latest_days is None:
-        return None, TTMQuality.UNAVAILABLE
+        return ()
     if ttm_rules.full_year_min_days <= latest_days <= ttm_rules.full_year_max_days:
-        return latest_value, TTMQuality.EXACT
+        return (latest,) if is_annual_period(latest.period_start, latest.period_end) else ()
     if latest.fiscal_year_end is None:
-        return None, TTMQuality.UNAVAILABLE
+        return ()
     prior_fy_end = add_months_clamped(latest.fiscal_year_end, -12)
     prior_fy = _latest_full_year_summary(actuals, prior_fy_end, ttm_rules, field_name=field)
     prior_same = _matched_prior_period_summary(
@@ -277,17 +294,19 @@ def _ttm_value(
         value_field=field,
     )
     if prior_fy is None or prior_same is None:
-        return None, TTMQuality.UNAVAILABLE
+        return ()
+    if annual_ttm_start(latest, prior_fy, prior_same) is None:
+        return ()
     # A fiscal-date match cannot make individual and consolidated amounts additive.
     # Keep each reported operand intact rather than searching older revisions for
     # a convenient basis. Matching labels alone do not prove unchanged group scope.
     if len({statement_basis(row) for row in (latest, prior_fy, prior_same)}) != 1:
-        return None, TTMQuality.UNAVAILABLE
+        return ()
     prior_fy_value = getattr(prior_fy, field)
     prior_same_value = getattr(prior_same, field)
     if prior_fy_value is None or prior_same_value is None:
-        return None, TTMQuality.UNAVAILABLE
-    return compose_ttm_amount(latest_value, prior_fy_value, prior_same_value), TTMQuality.EXACT
+        return ()
+    return latest, prior_fy, prior_same
 
 
 def _latest_full_year_summary(

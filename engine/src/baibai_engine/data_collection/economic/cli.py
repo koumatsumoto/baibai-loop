@@ -14,6 +14,7 @@ from pathlib import Path
 from baibai_engine.foundation.env import load_project_env
 
 from .acquisition import SourceRefreshFailure, SourceRefreshSuccess, refresh_sources
+from .receipt_policy import retain_rechecks
 from .refresh_policy import acquisition_groups, source_policy
 from .sources import load_sources
 from .store import DEFAULT_DB_PATH, EconomicSchemaError
@@ -67,13 +68,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_ids = source_ids or members
         if not source_ids:
             raise ValueError("select source IDs or an acquisition group")
-        outcomes = refresh_sources(
-            source_ids,
-            db_path=args.db,
-            start=args.start,
-            end=args.end,
-            recent=args.recent,
-        )
+        # A long local acquisition can overlap newer canonical publications.
+        # Do not discard a real receipt merely because this working copy has its value.
+        with retain_rechecks():
+            outcomes = refresh_sources(
+                source_ids,
+                db_path=args.db,
+                start=args.start,
+                end=args.end,
+                recent=args.recent,
+            )
     except (OSError, sqlite3.Error, ValueError, EconomicSchemaError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

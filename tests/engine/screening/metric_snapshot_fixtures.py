@@ -1,3 +1,5 @@
+"""旧較正リプレイのbuild_metricsを組み立てるfixture。新規モデル生成とは別。"""
+
 from __future__ import annotations
 
 import unittest
@@ -120,7 +122,7 @@ class SnapshotFixtures(unittest.TestCase):
                     _summary(
                         "130A",
                         date(2026, 5, 15),
-                        eps_ttm=10.0,
+                        cumulative_eps=10.0,
                         shares_outstanding=100_000_000.0,
                         treasury_shares=0.0,
                         total_assets=10_000_000_000.0,

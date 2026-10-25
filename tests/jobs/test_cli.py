@@ -7,7 +7,7 @@ from baibai_jobs.cli import main
 
 def test_job_help_is_delegated_to_the_selected_batch_command(capsys) -> None:
     with pytest.raises(SystemExit) as error:
-        main(["daily", "--help"])
+        main(["model-integration", "--help"])
 
     assert error.value.code == 0
     output = capsys.readouterr().out

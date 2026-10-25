@@ -12,12 +12,12 @@ from types import SimpleNamespace
 import pytest
 import requests
 from tests.engine.test_edinet_research_facts import source_zip
-from tests.engine.test_screening_cli import _edinet_csv_zip, _edinet_document
+from tests.engine.test_source_maintenance_cli import _edinet_csv_zip, _edinet_document
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.edinet.receipts import retain_list_response
-from baibai_engine.machine_analysis.screening.cli import app
+from baibai_engine.source_maintenance import cli as app
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
@@ -99,7 +99,7 @@ def test_raw_only_fixed_release_rebuilds_edinet_lists_metrics_and_facts(tmp_path
     monkeypatch.setattr(app, "load_project_env", lambda: None)
     monkeypatch.setattr(
         app,
-        "ScreeningConfig",
+        "SourceMaintenanceConfig",
         type(
             "OfflineConfig",
             (),

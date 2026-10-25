@@ -1,311 +1,123 @@
-"""contextは候補を読み、保存snapshotはselected行だけを保持する。"""
+"""生成済みcontextのcutoff・欠測・比較対象を、旧runへ戻らず保持する。"""
 
-import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta
 
 import pytest
-from tests.helpers.screening_run import screening_run_payload, stock_analysis
+from tests.helpers.generated_selection import seed_generated_selection
 
-from baibai_engine.investment_judgment.selection import InputGap, ResearchRequest
-from baibai_engine.investment_judgment.selection_query import (
-    ResearchInputsRequiredError,
-    load_analysis_snapshot,
-    load_selection_context,
-    verify_analysis_snapshot,
-)
-from baibai_engine.investment_judgment.workspace_cli import main as workspace_main
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+from baibai_engine.investment_judgment.selection import ResearchRequest
+from baibai_engine.investment_judgment.selection_query import load_generated_selection_context
+from baibai_engine.machine_analysis.model_generation import GeneratedModel
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
 
-def publish(path, *, rows=None):
-    raw = screening_run_payload(
-        as_of="2026-10-13",
-        stock_analyses=(
-            [stock_analysis("1234", name="合成会社"), stock_analysis("5678", name="合成会社")]
-            if rows is None
-            else rows
-        ),
-        filters={"diagnostic": True},
-    )
-    ScreeningRunStore(path).publish_run(
-        raw,
-        run_revision_id="fixed",
-        rules=load_screening_rules(),
-    )
-    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
-
-    saved = ScreeningRunReader(path).get_run("fixed")
-    return {**raw, "stock_analyses": list(saved.stock_analyses)}
-
-
-def context(path, scope="discover_new", tickers=(), revision=None, comparisons=()):
-    return load_selection_context(
+def context(path, *, selected=None, known_at=NOW, comparisons=(), scope="discover_new", tickers=()):
+    return load_generated_selection_context(
         request=ResearchRequest(text="request", scope=scope, requested_tickers=tickers),
         research_as_of=None,
-        run_revision_id=revision,
-        known_at=NOW,
+        generation_id=None if selected is None else selected.inputs.generation.generation_id,
+        screening_selection_id=None if selected is None else selected.inputs.screening_selection_id,
+        known_at=known_at,
         runs_path=path,
         db_path=path.parent / "absent-app",
         comparison_tickers=comparisons,
     )
 
 
-def test_context_and_selected_snapshot_preserve_original_missing_and_nulls(tmp_path):
+def test_missing_generation_and_empty_published_candidates_are_distinct(tmp_path):
     path = tmp_path / "runs"
-    raw = publish(
-        path,
-        rows=[
-            stock_analysis("1234", metrics=None),
-            stock_analysis("5678", avg_turnover_oku=None),
-        ],
-    )
-    before = path.read_bytes()
-    assert context(path)["status"] == "ready"
-    snap = load_analysis_snapshot(
-        run_revision_id="fixed",
-        research_as_of=NOW.date(),
-        tickers=("1234",),
-        gaps=(),
-        known_at=NOW,
-        runs_path=path,
-    )
-    assert snap.analysis_as_of.isoformat() == "2026-10-13"
-    assert snap.analyses == {"1234": raw["stock_analyses"][0]}
-    assert "metrics" not in snap.analyses["1234"]
-    assert "filters" not in snap.model_dump()
-    verify_analysis_snapshot(snap, tickers=("1234",), known_at=NOW, runs_path=path)
-    assert path.read_bytes() == before
-
-
-def test_missing_context_input_is_structured_candidate_zero_is_ready(tmp_path):
-    path = tmp_path / "runs"
-    assert context(path)["missing_inputs"][0]["code"] == "no_screening_run"
-    publish(path, rows=[stock_analysis("1234", market_cap_oku=0)])
-    result = context(path)
+    assert context(path)["missing_inputs"] == [{"code": "no_model_publication"}]
+    assert not path.exists()
+    selected = seed_generated_selection(runs=path, now=NOW, tickers=("1234",))
+    result = context(path, selected=selected, comparisons=("1234",))
     assert result["status"] == "ready"
-    assert result["candidates"] == []
+    assert result["candidate_tickers"] == []
+    assert result["model_inputs"]["securities"]["1234"]["not_generated"]
     assert not (tmp_path / "absent-app").exists()
 
 
-def test_specified_candidate_outside_and_input_gap(tmp_path):
+def test_comparisons_do_not_change_request_policy_or_saved_observations(tmp_path):
     path = tmp_path / "runs"
-    publish(path)
-    assert context(path, "specified_stocks", ("1234",))["status"] == "ready"
-    assert context(path)["status"] == "ready"
-    with pytest.raises(ResearchInputsRequiredError) as error:
-        load_analysis_snapshot(
-            run_revision_id="fixed",
-            research_as_of=NOW.date(),
-            tickers=("9999",),
-            gaps=(),
-            known_at=NOW,
-            runs_path=path,
-        )
-    assert error.value.code == "selected_analysis_missing"
-    assert error.value.tickers == ("9999",)
-    gap = InputGap(
-        ticker="9999",
-        reason="attempted unavailable",
-        attempted_sources=("synthetic primary source",),
+    models = (
+        GeneratedModel(
+            model_id="company_valuation",
+            subject="1234",
+            calculation_revision="v1",
+            payload={"earnings_price": {"earnings_yield": 0.1}},
+        ),
+        GeneratedModel(
+            model_id="company_valuation",
+            subject="5678",
+            calculation_revision="v1",
+            payload={"earnings_price": {"earnings_yield": None}, "observed_zero": 0},
+        ),
     )
-    snap = load_analysis_snapshot(
-        run_revision_id="fixed",
-        research_as_of=NOW.date(),
-        tickers=("9999",),
-        gaps=(gap,),
-        known_at=NOW,
-        runs_path=path,
-    )
-    assert snap.unavailable == {"9999": gap.reason}
-    with pytest.raises(ValueError, match="unknown"):
-        context(path, "specified_stocks", ("1234",), "missing")
-
-
-def test_future_run_and_missing_candidate_header_are_invalid(tmp_path):
-    path = tmp_path / "runs"
-    publish(path)
-    with closing(sqlite3.connect(path)) as db, db:
-        original = db.execute("SELECT payload FROM screening_run").fetchone()[0]
-        db.execute("UPDATE screening_run SET payload=json_remove(payload,'$.candidate_discovery')")
-    with pytest.raises(ValueError, match="CandidateDiscoverySummary"):
-        context(path)
-    with closing(sqlite3.connect(path)) as db, db:
-        db.execute("UPDATE screening_run SET payload=?", (original,))
-        future = (NOW + timedelta(seconds=1)).isoformat()
-        db.execute(
-            "UPDATE screening_run SET run_at=?, payload=json_set(payload,'$.run_at',?)",
-            (future, future),
-        )
-    with pytest.raises(ValueError, match="cutoff"):
-        context(path, "specified_stocks", ("1234",), "fixed")
-
-
-def test_research_rejects_a_run_with_mismatched_saved_identity(tmp_path):
-    path = tmp_path / "runs"
-    publish(path)
-    with closing(sqlite3.connect(path)) as db, db:
-        db.execute("UPDATE screening_run SET payload=json_set(payload,'$.asof_date','2026-10-12')")
+    selected = seed_generated_selection(runs=path, now=NOW, tickers=("1234", "5678"), models=models)
     before = path.read_bytes()
-
-    with pytest.raises(ValueError, match="canonical identity"):
-        context(path, "specified_stocks", ("1234",))
-
-    assert path.read_bytes() == before
-
-
-def test_gap_does_not_bypass_broken_source(tmp_path):
-    path = tmp_path / "runs"
-    publish(path)
-    with closing(sqlite3.connect(path)) as db, db:
-        db.execute("PRAGMA user_version=999")
-    with pytest.raises(RuntimeError, match="schema"):
-        load_analysis_snapshot(
-            run_revision_id="fixed",
-            research_as_of=NOW.date(),
-            tickers=("9999",),
-            gaps=(InputGap(ticker="9999", reason="missing", attempted_sources=("source",)),),
-            known_at=NOW,
-            runs_path=path,
-        )
-
-
-def test_timezone_equivalent_cutoffs_use_the_same_jst_research_date(tmp_path):
-    request = ResearchRequest(text="request", scope="discover_new")
-    arguments = dict(
-        request=request,
-        research_as_of=None,
-        run_revision_id=None,
-        runs_path=tmp_path / "absent",
-        db_path=tmp_path / "absent-app",
-    )
-    jst = datetime.fromisoformat("2026-10-14T00:30:00+09:00")
-    utc = datetime.fromisoformat("2026-10-13T15:30:00+00:00")
-    assert load_selection_context(known_at=jst, **arguments)["research_as_of"] == "2026-10-14"
-    assert load_selection_context(known_at=utc, **arguments)["research_as_of"] == "2026-10-14"
-
-
-def test_candidate_run_revision_mismatch_and_header_null_are_not_filled(tmp_path):
-    path = tmp_path / "runs"
-    publish(path)
-    with closing(sqlite3.connect(path)) as db, db:
-        raw = json.loads(db.execute("SELECT payload FROM screening_run").fetchone()[0])
-        raw.pop("er_model_version")
-        raw["screening_rules_hash"] = None
-        db.execute("UPDATE screening_run SET payload=?", (json.dumps(raw),))
-    snap = load_analysis_snapshot(
-        run_revision_id="fixed",
-        research_as_of=NOW.date(),
-        tickers=("1234",),
-        gaps=(),
-        known_at=NOW,
-        runs_path=path,
-    )
-    assert snap.er_model_version is None
-    assert snap.screening_rules_hash is None
-    assert context(path)["status"] == "ready"
-    with closing(sqlite3.connect(path)) as db, db:
-        db.execute(
-            "UPDATE screening_run SET payload=json_set(payload,'$.candidate_discovery.diagnostics.candidate_count',999)"
-        )
-    with pytest.raises(ValueError, match="diagnostics"):
-        context(path)
-
-
-def test_empty_published_analysis_is_not_replaced_by_fixture_defaults(tmp_path):
-    path = tmp_path / "runs"
-    raw = publish(path, rows=[])
-    assert raw["stock_analyses"] == []
-    assert context(path)["status"] == "ready"
-    assert context(path)["candidates"] == []
-
-
-def test_comparisons_preserve_scope_nomination_and_saved_values(tmp_path):
-    path = tmp_path / "runs"
-    saved = publish(
-        path,
-        rows=[
-            stock_analysis("1234", per_forward=10, metrics={"per_forward_sector_gap": -0.2}),
-            stock_analysis("5678", metrics={"sales_yoy": 0, "fcf_yield": None}),
-            stock_analysis("9012", market_cap_oku=0, metrics=None),
-        ],
-    )
-    before = path.read_bytes()
-    baseline = context(path, revision="fixed")
-    result = context(path, revision="fixed", comparisons=("5678", "9012", "9999", "5678"))
-    assert result["status"] == baseline["status"] == "ready"
+    baseline = context(path, selected=selected)
+    result = context(path, selected=selected, comparisons=("5678", "9999", "5678"))
     assert result["request"] == baseline["request"]
     assert result["request"]["requested_tickers"] == []
-    assert result["candidates"] == baseline["candidates"]
-    assert [row["ticker"] for row in result["candidates"]] == ["1234"]
+    assert result["screening"] == baseline["screening"]
+    assert result["candidate_tickers"] == ["1234"]
     assert result["capacity"] == baseline["capacity"]
-    assert result["run_revision_id"] == "fixed"
-    assert result["comparison_analyses"] == {
-        row["ticker"]: row for row in saved["stock_analyses"] if row["ticker"] != "1234"
-    }
-    assert result["comparison_analyses"]["5678"]["metrics"] == {
-        "sales_yoy": 0,
-        "fcf_yield": None,
-    }
-    assert "metrics" not in result["comparison_analyses"]["9012"]
-    assert result["missing_comparison_tickers"] == ["9999"]
-    assert result["missing_inputs"] == []
-    selected = load_analysis_snapshot(
-        run_revision_id="fixed",
-        research_as_of=NOW.date(),
-        tickers=("1234",),
-        gaps=(),
-        known_at=NOW,
-        runs_path=path,
-    )
-    assert set(selected.analyses) == {"1234"}
+    observed = result["model_inputs"]["securities"]["5678"]["company_valuation"]
+    assert observed == models[1].payload
+    assert result["model_inputs"]["securities"]["9999"]["not_generated"]
     assert path.read_bytes() == before
 
 
-def test_comparison_does_not_fill_missing_or_unknown_run(tmp_path):
-    path = tmp_path / "runs"
-    missing = context(path, comparisons=("5678",))
-    assert missing["status"] == "inputs_required"
-    assert missing["comparison_analyses"] == {}
-    assert missing["missing_comparison_tickers"] == ["5678"]
-    publish(path)
-    with pytest.raises(ValueError, match="unknown"):
-        context(path, revision="unknown", comparisons=("5678",))
+def test_timezone_equivalent_cutoffs_use_same_jst_research_date(tmp_path):
+    path = tmp_path / "absent"
+    for known_at in (
+        datetime.fromisoformat("2026-10-14T00:30:00+09:00"),
+        datetime.fromisoformat("2026-10-13T15:30:00+00:00"),
+    ):
+        assert context(path, known_at=known_at)["research_as_of"] == "2026-10-14"
 
 
-def test_comparison_cli_keeps_discovery_request_and_fixed_revision(tmp_path, capsys):
+@pytest.mark.parametrize("source", ["generation", "screening"])
+def test_unknown_explicit_source_does_not_fall_back_to_latest(tmp_path, source):
     path = tmp_path / "runs"
-    publish(path)
-    before = path.read_bytes()
-    code = workspace_main(
-        [
-            "selection-context",
-            "--request",
-            "合成比較",
-            "--scope",
-            "discover_new",
-            "--run-revision-id",
-            "fixed",
-            "--runs-path",
-            str(path),
-            "--db",
-            str(tmp_path / "absent-app"),
-            "--compare-ticker",
-            "5678",
-            "--compare-ticker",
-            "9999",
-        ],
-        now=NOW,
-    )
-    assert code == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["request"]["scope"] == "discover_new"
-    assert result["requested_analyses"] == {}
-    assert set(result["comparison_analyses"]) == {"5678"}
-    assert result["missing_comparison_tickers"] == ["9999"]
-    assert result["run_revision_id"] == "fixed"
-    assert path.read_bytes() == before
+    selected = seed_generated_selection(runs=path, now=NOW)
+    with pytest.raises(ValueError, match=r"differs|unknown|unavailable"):
+        load_generated_selection_context(
+            request=ResearchRequest(
+                text="request", scope="specified_stocks", requested_tickers=("1234",)
+            ),
+            research_as_of=None,
+            generation_id="missing"
+            if source == "generation"
+            else selected.inputs.generation.generation_id,
+            screening_selection_id="missing"
+            if source == "screening"
+            else selected.inputs.screening_selection_id,
+            known_at=NOW,
+            runs_path=path,
+            db_path=tmp_path / "absent-app",
+        )
+
+
+def test_future_publication_is_not_replaced_by_current_or_zero_candidates(tmp_path):
+    path = tmp_path / "runs"
+    selected = seed_generated_selection(runs=path, now=NOW)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE screening_selection SET published_at=?",
+            ((NOW + timedelta(seconds=1)).isoformat(),),
+        )
+    with pytest.raises(ValueError, match="not yet published"):
+        context(path, selected=selected)
+    assert context(path)["status"] == "inputs_required"
+
+
+def test_missing_model_never_hides_broken_source_schema(tmp_path):
+    path = tmp_path / "runs"
+    seed_generated_selection(runs=path, now=NOW)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("PRAGMA user_version=999")
+    with pytest.raises(RuntimeError, match="schema"):
+        context(path, comparisons=("9999",))

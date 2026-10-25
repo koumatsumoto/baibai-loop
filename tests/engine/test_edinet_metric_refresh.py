@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 import pytest
-from tests.engine.test_screening_cli import (
+from tests.engine.test_source_maintenance_cli import (
     FakeEDINETMetricReader,
     _edinet_csv_zip,
     _edinet_document,

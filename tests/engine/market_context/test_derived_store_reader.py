@@ -15,7 +15,6 @@ from baibai_engine.machine_analysis.market_context.indicators.definitions import
 from baibai_engine.machine_analysis.market_context.reading.reader import (
     build_store_observation_reader,
 )
-from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
 
 def test_read_only_derived_values_follow_source_corrections(tmp_path):
@@ -37,7 +36,6 @@ def test_read_only_derived_values_follow_source_corrections(tmp_path):
         assert [(row.observed_at, row.value) for row in first] == [(day, 3.0)]
         assert first[0].vintage_at == vintage
     assert path.read_bytes() == before
-    assert indicator_latest_observed_at(path) == day
     corrected_at = datetime(2026, 2, 2, tzinfo=UTC)
     with closing(sqlite3.connect(path)) as writer:
         writer.row_factory = sqlite3.Row
@@ -88,7 +86,6 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
             assert read(series_id, ASOF, ASOF)
         assert calls == [ASOF]
         assert path.read_bytes() == before
-        assert indicator_latest_observed_at(path) == ASOF  # only native source dates count
         with closing(sqlite3.connect(path)) as writer, writer:
             store_snapshot(
                 writer,
@@ -99,4 +96,3 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
             )
         assert read("jp.n225_iv_30d", ASOF, ASOF) == ()
         assert calls == [ASOF, ASOF]
-    assert indicator_latest_observed_at(path) is None

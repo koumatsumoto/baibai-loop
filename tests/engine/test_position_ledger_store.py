@@ -236,22 +236,20 @@ def test_shared_reader_rejects_damaged_canonical_state(tmp_path, damage, error):
         load_ledger_document(connection)
 
 
-def test_public_view_uses_shared_reader_validation(tmp_path):
-    from baibai_engine.read_api.position import portfolio_ledger_document
+def test_ledger_service_uses_shared_reader_validation(tmp_path):
 
     path = tmp_path / "app.sqlite"
     document = _store_fixture()
     seed_ledger(path, document)
-    assert portfolio_ledger_document(path) == document
+    assert LedgerStoreService(path).load() == document
     with closing(sqlite3.connect(path)) as writer, writer:
         writer.execute("DELETE FROM ledger_meta")
     with pytest.raises(LedgerConflictError, match="without metadata"):
-        portfolio_ledger_document(path)
+        LedgerStoreService(path).load()
 
 
 def test_reader_preserves_callers_snapshot_while_another_connection_appends(tmp_path):
     from baibai_engine.position.ledger_read import load_ledger_in_transaction
-    from baibai_engine.read_api.position import portfolio_ledger_document
     from baibai_engine.storage.application.read import connect_read_only
 
     path = tmp_path / "app.sqlite"
@@ -278,7 +276,7 @@ def test_reader_preserves_callers_snapshot_while_another_connection_appends(tmp_
         assert reader.in_transaction
         assert reader.execute("PRAGMA query_only").fetchone()[0] == 1
     assert LedgerStoreService(path).load_with_head() == (replacement, head + 1)
-    assert portfolio_ledger_document(path) == replacement
+    assert LedgerStoreService(path).load() == replacement
 
 
 def test_ledger_persists_capital_without_a_price_table(tmp_path):

@@ -3,9 +3,9 @@
 保存済み資料を基準日で絞る回顧的な再計算。取得時点の全 vintage を復元した
 厳密な point-in-time データセットではない。
 
-本番 run と同じ部品 (`build_metrics` / `stock_analysis_payload` /
-`build_candidate_contexts`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
-実装の単一性で担保する。相違点は入力の中立化だけ:
+旧run契約の部品 (`build_metrics` / `stock_analysis_payload` /
+`build_candidate_contexts`) を使う。新しい五モデル・二view政策の成績ではない。
+旧runとの相違点は入力の中立化:
 
 - 市場環境判断は候補順位の入力にしない
 - 過去の候補集合や判断を過去cohortの順位へ混入させない
@@ -45,16 +45,18 @@ from baibai_engine.machine_analysis.company_valuation.metrics.relative import (
 from baibai_engine.machine_analysis.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
 from baibai_engine.machine_analysis.screening.metric_builder import (
-    BARS_INPUT_WINDOW_DAYS,
-    FIN_INPUT_WINDOW_DAYS,
-    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-    SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
     build_metrics,
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.input_windows import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+    SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
+)
 from baibai_engine.market.jpx_reader import read_jpx_regulations
 from baibai_engine.market.jquants_reader import (
     fin_summaries_readable_from,

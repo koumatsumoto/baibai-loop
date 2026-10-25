@@ -15,7 +15,7 @@ const pages = readdirSync(pagesDir)
 
 describe('page skeleton', () => {
   it('finds every page', () => {
-    expect(pages.length).toBeGreaterThanOrEqual(7)
+    expect(pages.map(page => page.name).sort()).toEqual(['DashboardPage.tsx', 'TasksPage.tsx'])
   })
 
   it.each(pages)('$name renders through PageShell', ({ source }) => {

@@ -28,58 +28,21 @@ from pathlib import Path
 from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
-from baibai_web.readmodel.models import (
-    AssessmentPublicationView,
-    DailyDeltaView,
-    DashboardView,
-    IndicatorSeriesView,
-    InvestmentProposalPreviewView,
-    InvestmentProposalsView,
-    InvestmentProposalView,
-    MarketContextView,
-    MetaView,
-    OperationsView,
-    ScreeningHistoryRunView,
-    ScreeningHistoryView,
-    ScreeningView,
-    SecurityDetailView,
-    StockAssessmentDetailView,
-    StockAssessmentsView,
-    TasksView,
-)
+from baibai_web.readmodel.models import DashboardView, OutcomesView, TasksView
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
 TYPES_PATH = Path("web/frontend/src/api/types.ts")
-CONTRACT_SCHEMA_VERSION = 4
+CONTRACT_SCHEMA_VERSION = 5
 
 # Every artifact the UI reads through `/api`, and the model that writes it. The keys are
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins
 # the two against each other so a route added there without a model here is caught.
 ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
-    "history/candidate-views/{as_of}.json": ScreeningHistoryRunView,
-    "views/stock-assessment--{assessment_id}.json": StockAssessmentDetailView,
-    "views/investment-proposal--{proposal_id}.json": InvestmentProposalView,
-    "views/investment-proposal-preview--{proposal_id}.json": InvestmentProposalPreviewView,
-    "views/daily-delta.json": DailyDeltaView,
-    "views/stock-assessments.json": StockAssessmentsView,
-    "views/investment-proposals.json": InvestmentProposalsView,
-    "views/dashboard.json": DashboardView,
-    "views/market-context.json": MarketContextView,
-    "views/market-context-assessment--{context_id}.json": AssessmentPublicationView,
-    "views/indicator-series--{series_id}.json": IndicatorSeriesView,
-    "views/meta.json": MetaView,
-    "views/operations.json": OperationsView,
-    "views/screening_latest.json": ScreeningView,
-    "views/security--{ticker}.json": SecurityDetailView,
+    "views/portfolio-dashboard.json": DashboardView,
+    "views/outcomes.json": OutcomesView,
     "views/tasks.json": TasksView,
 }
-
-# Routes the Worker answers without a stored artifact. `web/contracts/routes.json`
-# calls them computed; they carry the same models and the UI reads them the same way.
-# `/api/health` is deliberately absent — it returns a plain dict, not a view model.
-COMPUTED_VIEWS: Mapping[str, type[BaseModel]] = {
-    "/api/screening/history": ScreeningHistoryView,
-}
+COMPUTED_VIEWS: Mapping[str, type[BaseModel]] = {}
 
 _GENERATED_HEADER = """\
 // Generated from web/backend/src/baibai_web/readmodel/models.py.
@@ -120,10 +83,9 @@ def _always_written(definition: object) -> object:
     the API answers through `response_model`, and neither omits a field. This schema
     describes the artifact, so a reader can rely on every key being present.
 
-    The one window where that is not true is between a code deploy and the materialize
-    that follows it, when the UI reads the previous export. The runbook orders those two
-    and the UI degrades on missing sections; a type that called every field optional
-    would spread that one window across every field forever.
+    Serving artifacts are published and read back before their UI is deployed. A
+    breaking dashboard shape uses a distinct object key so prepublication cannot
+    break the still-deployed reader; optional types would not protect that old UI.
     """
 
     if not isinstance(definition, dict):

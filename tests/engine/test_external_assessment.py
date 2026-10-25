@@ -16,9 +16,10 @@ from baibai_engine.machine_analysis.external_assessment.analysis import FORECAST
 from baibai_engine.machine_analysis.external_assessment.observations.models import (
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.query import (
-    external_assessment,
-    observed_tickers,
+from baibai_engine.machine_analysis.external_assessment.query import external_assessment
+from baibai_engine.machine_analysis.external_assessment.reader import (
+    read_observation_population,
+    read_observations,
 )
 from baibai_engine.machine_analysis.external_assessment.store import save_observations
 from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS, TABLE
@@ -78,6 +79,33 @@ def test_latest_two_are_selected_per_distributor_including_nulls(tmp_path):
     assert sources["other"].inputs.previous == other_first
     assert sources["other"].comparisons[0].state == "missing"
     assert sources["other"].comparisons[0].delta is None
+
+
+def test_population_read_keeps_each_company_history_separate_and_matches_single_reads(tmp_path):
+    path = tmp_path / "market.sqlite"
+    rows = [
+        valuation(RECEIVED, consensus_target=1000),
+        valuation(RECEIVED + timedelta(minutes=1), consensus_target=1100),
+        valuation(RECEIVED + timedelta(minutes=2), consensus_target=1200),
+        valuation(RECEIVED + timedelta(minutes=3), consensus_target=2100).model_copy(
+            update={"ticker": "5678"}
+        ),
+        valuation(RECEIVED + timedelta(minutes=4), consensus_target=2200).model_copy(
+            update={"ticker": "5678"}
+        ),
+    ]
+    save_observations(path, rows)
+    tv_row(path, RECEIVED, ticker="1234", price_target_average=1100)
+    tv_row(path, RECEIVED + timedelta(minutes=1), ticker="5678", price_target_average=2200)
+    cutoff = RECEIVED + timedelta(days=1)
+    population = read_observation_population(path, tickers=("1234", "5678", "9999"), cutoff=cutoff)
+    for ticker, history in population.items():
+        assert history == read_observations(path, ticker, cutoff)
+    assert population["1234"].model_valuations[0].latest.consensus_target == 1200
+    assert population["1234"].model_valuations[0].previous.consensus_target == 1100
+    assert population["5678"].model_valuations[0].previous.consensus_target == 2100
+    assert population["9999"].model_valuations == ()
+    assert population["9999"].tradingview.latest is None
 
 
 def test_original_origin_groups_do_not_merge_different_models_into_votes(tmp_path):
@@ -153,7 +181,6 @@ def test_exact_received_cutoff_does_not_include_later_same_day_microsecond(tmp_p
     tv_row(path, cutoff + timedelta(microseconds=1), ticker="5678", eps_forecast_next_fy=99)
     result = external_assessment(path, ticker="5678", cutoff=cutoff, evaluated_at=cutoff)
     assert result.tradingview.availability == "not_observed"
-    assert observed_tickers(path, cutoff=cutoff) == ["1234"]
     assert read(path, cutoff).tradingview.inputs.latest.eps_forecast_next_fy == 10
 
 
@@ -193,11 +220,9 @@ def test_query_and_public_show_have_no_network_or_writes(tmp_path, monkeypatch, 
         main(["show", "--db", str(path), "--ticker", "1234", "--cutoff", RECEIVED.isoformat()]) == 0
     )
     assert '"consensus_target"' in capsys.readouterr().out
-    assert observed_tickers(path, cutoff=RECEIVED) == ["1234"]
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
     missing = tmp_path / "absent.sqlite"
     assert read(missing).model_valuations == ()
-    assert observed_tickers(missing, cutoff=RECEIVED) == []
     assert not missing.exists()
 
 
@@ -245,7 +270,7 @@ def test_tradingview_row_year_metadata_does_not_establish_each_metric_period(tmp
 @pytest.mark.parametrize("stored_offset", [-7, 0, 9])
 @pytest.mark.parametrize("cutoff_offset", [-7, 0, 9])
 @pytest.mark.parametrize("fraction", [0, 123456])
-def test_tradingview_identity_and_value_reads_agree_at_subsecond_and_offset_boundaries(
+def test_tradingview_population_and_single_reads_agree_at_subsecond_and_offset_boundaries(
     tmp_path, stored_offset, cutoff_offset, fraction
 ):
     from datetime import timezone
@@ -258,13 +283,19 @@ def test_tradingview_identity_and_value_reads_agree_at_subsecond_and_offset_boun
     for ticker, shift in (("1001", -1), ("1002", 0), ("1003", 1)):
         received = (cutoff + timedelta(microseconds=shift)).astimezone(stored_zone)
         tv_row(path, received, ticker=ticker, eps_forecast_next_fy=1)
-    listed = observed_tickers(path, cutoff=requested_cutoff)
-    assert listed == ["1001", "1002"]
+    population = read_observation_population(
+        path, tickers=("1001", "1002", "1003"), cutoff=requested_cutoff
+    )
+    assert {ticker for ticker, row in population.items() if row.tradingview.latest is not None} == {
+        "1001",
+        "1002",
+    }
     for ticker in ("1001", "1002", "1003"):
         assessment = external_assessment(
             path, ticker=ticker, cutoff=requested_cutoff, evaluated_at=requested_cutoff
         )
-        assert (assessment.tradingview.inputs.latest is not None) == (ticker in listed)
+        assert assessment.tradingview.inputs == population[ticker].tradingview
+        assert (assessment.tradingview.inputs.latest is not None) == (ticker in {"1001", "1002"})
 
 
 def test_show_parser_does_not_import_acquisition_or_store_implementations():

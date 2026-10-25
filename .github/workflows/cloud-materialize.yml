@@ -53,15 +53,15 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          jobs/scripts/r2_transfer.sh pull-machine
+          jobs/scripts/r2_transfer.sh pull-market
           jobs/scripts/r2_transfer.sh pull-app
 
       # The market store arrives holding only what the lake does not own — the coverage
       # ledger and the operator-derived tables. Filling the rest from the current release
       # is what makes it the store every reader already expects. It fails closed on the
       # published row counts, so a fill that silently did nothing cannot reach the export
-      # as an empty market. Without it this workflow republishes every valuation, daily
-      # delta and security view with no price behind it.
+      # as an empty market. Without it this workflow would republish the portfolio
+      # without prices behind its holdings.
       - name: Hydrate market store from the L1 release
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -70,21 +70,14 @@ jobs:
         run: jobs/scripts/r2_transfer.sh hydrate-market
 
       - name: Materialize read models
-        run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" --batch manual
+        run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
 
       - name: Upload serving objects
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          # Not a credential. This workflow is the one to compare in-flight counts
-          # on, because nothing else runs beside the upload here.
-          R2_SERVING_UPLOAD_CONCURRENCY: ${{ vars.R2_SERVING_UPLOAD_CONCURRENCY }}
-        # Same two stages the common integration job publishes through, in the same order.
-        # Nothing runs alongside them here, so they are simply sequential.
-        run: |
-          jobs/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving"
-          jobs/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
+        run: jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
 
       - name: Release publication lease
         id: lease-release

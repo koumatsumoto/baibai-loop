@@ -3,10 +3,16 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
+from baibai_engine.data_collection.economic import acquisition, cli
+from baibai_engine.data_collection.economic.documents import (
+    SourceDocument,
+    read_documents,
+    store_document,
+)
 from baibai_engine.data_collection.economic.handoff import export_receipts
 from baibai_engine.data_collection.economic.receipt_policy import retain_rechecks
-from baibai_engine.data_collection.economic.records import store_snapshot
+from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.economic.sources import SourceDefinition
 from baibai_engine.data_collection.economic.store import initialize_database
 from baibai_jobs.storage.economic_receipts import accept_rechecks
 from baibai_jobs.storage.merge_economic_store import merge_stores, verify_stores
@@ -108,3 +114,84 @@ def test_unintegrated_old_receipt_requires_explicit_recovery(tmp_path):
     assert len(report["late_recovery_required"]) == 1
     assert report["accepted_receipts"] == 0
     assert canonical.read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", ["record", "document"])
+@pytest.mark.parametrize("cloud_changed", [False, True])
+def test_explicit_cli_recheck_survives_cloud_union_and_pending_older_stage(
+    tmp_path, monkeypatch, kind, cloud_changed
+):
+    local, canonical = tmp_path / "local.sqlite", tmp_path / "canonical.sqlite"
+    received(local, "A", STAMP, kind)
+    received(canonical, "A", STAMP, kind)
+    if cloud_changed:
+        received(canonical, "B", STAMP + timedelta(hours=1), kind)
+    actual = STAMP + timedelta(hours=2)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return actual.astimezone(tz)
+
+    definition = SourceDefinition(
+        "test",
+        "fred_csv" if kind == "record" else "tsr_bankruptcies",
+        "https://example.test/pmi.pdf",
+        "daily",
+    )
+    monkeypatch.setattr(acquisition, "datetime", Clock)
+    monkeypatch.setattr(acquisition, "load_sources", lambda: {"test": definition})
+    monkeypatch.setattr(cli, "load_project_env", lambda: None)
+    monkeypatch.setattr(
+        acquisition, "fetch_native_records", lambda *args, **kwargs: {DAY: [{"value": "A"}]}
+    )
+    monkeypatch.setattr(
+        acquisition,
+        "fetch_source_documents",
+        lambda *args, **kwargs: iter(
+            [
+                SourceDocument(
+                    "test", "document", definition.source_url, "application/pdf", actual, b"A", {}
+                )
+            ]
+        ),
+    )
+    assert (
+        cli.main(
+            [
+                "refresh",
+                "test",
+                "--start",
+                DAY.isoformat(),
+                "--end",
+                DAY.isoformat(),
+                "--db",
+                str(local),
+            ]
+        )
+        == 0
+    )
+    # The existing push-indicators direction: fresh cloud history joins local acquisition.
+    merge_stores(canonical, local)
+    verify_stores(canonical, local)
+    table = "economic_source_records" if kind == "record" else "economic_source_documents"
+    with closing(initialize_database(local)) as conn:
+        stamps = [
+            row[0] for row in conn.execute(f"SELECT fetched_at FROM {table} ORDER BY fetched_at")
+        ]
+        assert stamps[-1] == actual.isoformat(timespec="microseconds")
+        assert len(stamps) == (3 if cloud_changed else 2)
+        if kind == "record":
+            latest = next(read_snapshots(conn, DAY, DAY, source_id="test"))
+            assert latest.records == ({"value": "A"},)
+        else:
+            assert next(read_documents(conn, "test")).payload == b"A"
+    if not cloud_changed:
+        # A true no-change operator receipt still prevents a delayed older B from winning.
+        pending, accepted = tmp_path / "pending.sqlite", tmp_path / "accepted.sqlite"
+        received(pending, "B", STAMP + timedelta(hours=1), kind)
+        before = local.read_bytes()
+        report = accept_rechecks(pending, local, accepted)
+        assert len(report["late_recovery_required"]) == 1
+        assert report["accepted_receipts"] == 0
+        assert local.read_bytes() == before

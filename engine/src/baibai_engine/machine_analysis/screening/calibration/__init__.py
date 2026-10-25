@@ -1,8 +1,6 @@
-"""長期見積り較正 (estimate calibration) harness.
+"""旧ER/FV・四Approachの長期見積り較正を行う決定論的な再構成。
 
-過去 asof と保存データの利用可能性契約に従うリプレイで「見積り・ランキングの長期予測力
-(3m/6m/1y/3y/5y horizon)」を計測する L2 の決定論的機械処理。目的は見積り精度の
-較正であり、短期 horizon の screen 成績最適化・track record の提示ではない
-(docs/doctrine.md 柱 5 / §8 の計測経路)。全sourceの改定前情報を当時のまま
-復元できるという保証ではない。
+保存入力とforward outcomeを比較し、短期screen最適化やPortfolio成績を主張しない。
+意味と採否はdocs/reference/estimate-calibration.mdが所有する。新しいY/M政策を
+較正済みとせず、全sourceの改定前情報を当時のまま復元する保証もない。
 """

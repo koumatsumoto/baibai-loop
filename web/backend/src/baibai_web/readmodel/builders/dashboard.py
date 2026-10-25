@@ -1,17 +1,15 @@
-"""保有・投資判断・イベントからdashboardを組み立てる。"""
+"""資産・損益・保有からdashboardを組み立てる。"""
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta
 
-from baibai_engine.read_api import PortfolioLedgerError
+from baibai_engine.foundation.time import JST
 from baibai_web.readmodel.builders.presentation import (
-    _JST,
     holding_view,
-    latest_research_by_ticker,
     percentage,
     reservation_last_valid_day,
-    security_names_for_run,
 )
 from baibai_web.readmodel.models import (
     DashboardView,
@@ -20,51 +18,39 @@ from baibai_web.readmodel.models import (
 )
 from baibai_web.sources.protocols import (
     LedgerSource,
-    MarketPriceSource,
-    ResearchSource,
-    ScreeningSource,
+    MarketSource,
 )
 
 
 def build_dashboard(
     ledger: LedgerSource,
-    research: ResearchSource,
-    screening: ScreeningSource,
-    market: MarketPriceSource,
+    market: MarketSource,
 ) -> DashboardView:
     """Build the app's first view without performing storage I/O directly."""
 
-    now = datetime.now(_JST)
+    now = datetime.now(JST)
     today = now.date()
-    revisions = research.revisions()
-    latest_research = latest_research_by_ticker(revisions)
-    latest_run = screening.latest_run()
-    security_names = security_names_for_run(latest_run)
 
-    if not ledger.exists():
-        return _empty_dashboard(
-            generated_at=now,
-            ledger_exists=False,
-            ledger_error=None,
-        )
     try:
+        if not ledger.exists():
+            return _empty_dashboard(
+                generated_at=now,
+                ledger_exists=False,
+                ledger_error=None,
+            )
         snapshot = ledger.snapshot()
-    except PortfolioLedgerError as error:
+    except (ValueError, RuntimeError, sqlite3.Error) as error:
         return _empty_dashboard(
             generated_at=now,
             ledger_exists=True,
             ledger_error=str(error),
         )
 
-    holding_tickers = [holding.ticker for holding in snapshot.holdings]
-    earnings_dates = market.next_earnings_dates(holding_tickers, as_of=today)
+    security_names = market.security_names(as_of=today)
     holdings = [
         holding_view(
             holding,
-            market=market,
-            revision=latest_research.get(holding.ticker),
             security_name=security_names.get(holding.ticker),
-            next_earnings_date=earnings_dates.get(holding.ticker),
         )
         for holding in snapshot.holdings
     ]
@@ -114,7 +100,7 @@ def build_dashboard(
         if any(item.market_price_as_of is None for item in holdings)
         else min(
             (item.market_price_as_of for item in holdings if item.market_price_as_of is not None),
-            default=snapshot.as_of.astimezone(_JST).date(),
+            default=snapshot.as_of.astimezone(JST).date(),
         )
     )
     return DashboardView(
@@ -122,7 +108,7 @@ def build_dashboard(
         ledger_exists=True,
         ledger_error=None,
         ledger_as_of=snapshot.ledger_as_of,
-        ledger_stale=snapshot.ledger_as_of.astimezone(_JST).date() <= today - timedelta(days=7),
+        ledger_stale=snapshot.ledger_as_of.astimezone(JST).date() <= today - timedelta(days=7),
         valuation_as_of=valuation_as_of,
         valuation_stale=valuation_as_of is None or valuation_as_of <= today - timedelta(days=7),
         total_capital_yen=total,

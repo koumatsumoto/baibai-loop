@@ -11,7 +11,7 @@ from baibai_engine.job_api import (
     external_assessment_acquisition_main,
     reject_noncanonical_store_paths,
 )
-from baibai_jobs.jobs.daily import main as daily_main
+from baibai_jobs.jobs.model_integration import main as model_integration_main
 from baibai_jobs.jobs.tradingview import main as tradingview_main
 from baibai_jobs.validation.market_context_stores import (
     main as validate_market_context_stores_main,
@@ -20,7 +20,7 @@ from baibai_jobs.validation.market_context_stores import (
 Command = Callable[[list[str] | None], int]
 
 _COMMANDS: dict[str, Command] = {
-    "daily": daily_main,
+    "model-integration": model_integration_main,
     "external-assessment": external_assessment_acquisition_main,
     "tradingview": tradingview_main,
     "validate-market-context-stores": validate_market_context_stores_main,

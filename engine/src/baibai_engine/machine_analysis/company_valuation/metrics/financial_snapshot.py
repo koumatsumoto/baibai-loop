@@ -43,11 +43,11 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "normalized-fy-input-parity-v43"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v44"
 
 
 def build_financial_snapshot(
-    latest_price: float,
+    latest_price: float | None,
     summaries: Sequence[JQuantsFinancialSummary],
     edinet: EdinetMetricRecord | None,
     ttm_rules: TTMRules,
@@ -88,13 +88,13 @@ def build_financial_snapshot(
     # 合成は 1 株当たりでなく円で行う。1 株当たりの各項は自分の期の株数で割られており、
     # 株数が動いた会社では和・差が成立しない (新株発行で株数が倍になった期を跨ぐと、
     # 黒字の会社が赤字に見える)。1 株当たりへの換算は最後に 1 回だけ行う。
-    eps_row = _latest_actual_row(summaries, field_names=("eps_ttm",))
-    eps_prior = _prior_year_summary(summaries, ttm_rules, field_name="eps_ttm")
+    eps_row = _latest_actual_row(summaries, field_names=("cumulative_eps",))
+    eps_prior = _prior_year_summary(summaries, ttm_rules, field_name="cumulative_eps")
     sales_row = _latest_actual_row(summaries, field_names=("sales",))
     sales_prior = _prior_year_summary(summaries, ttm_rules, field_name="sales")
     cfo_row = _latest_actual_row(summaries, field_names=("cfo",))
     cfo_prior = _prior_year_summary(summaries, ttm_rules, field_name="cfo")
-    eps_cumulative = eps_row.eps_ttm if eps_row else None
+    eps_cumulative = eps_row.cumulative_eps if eps_row else None
     profit_ttm, profit_quality = _ttm_value(summaries, "profit", ttm_rules)
     # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
     # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
@@ -124,7 +124,11 @@ def build_financial_snapshot(
     dps_actual_annual = dividend.dps_actual_annual
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield
-    per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
+    per_forward = (
+        latest_price / forecast_eps
+        if latest_price is not None and forecast_eps is not None and forecast_eps > 0
+        else None
+    )
     operating_row = _latest_actual_row_by_field_priority(
         summaries,
         ("operating_profit", "ordinary_profit", "profit"),
@@ -179,7 +183,11 @@ def build_financial_snapshot(
     )
     if net_cash is None and cash is not None and debt is not None:
         net_cash = cash - debt
-    latest_market_cap = (latest_price * shares_ex_treasury) if shares_ex_treasury else None
+    latest_market_cap = (
+        latest_price * shares_ex_treasury
+        if latest_price is not None and shares_ex_treasury
+        else None
+    )
     latest_enterprise_value = (
         (latest_market_cap + debt - cash)
         if latest_market_cap is not None and debt is not None and cash is not None
@@ -259,6 +267,9 @@ def build_financial_snapshot(
     return FinancialSnapshot(
         latest_financial_disclosure_date=latest.disclosed_at if latest else None,
         per_forward=per_forward,
+        forecast_eps_yen=forecast_eps,
+        forecast_profit_yen=forecast_profit,
+        forecast_ordinary_profit_yen=forecast_ordinary_profit,
         earnings_forecast_source=forecast_source_trace(forecast),
         dividend_forecast_source=forecast_source_trace(
             latest_forecast_source(summaries, dividend=True), dividend=True
@@ -325,7 +336,7 @@ def build_financial_snapshot(
         operating_profit=operating_profit,
         operating_profit_ttm=operating_profit_ttm,
         operating_profit_source=operating_profit_source,
-        eps_yoy=_yoy_ratio(eps_cumulative, eps_prior.eps_ttm if eps_prior else None),
+        eps_yoy=_yoy_ratio(eps_cumulative, eps_prior.cumulative_eps if eps_prior else None),
         sales_yoy=_yoy_ratio(
             sales_row.sales if sales_row else None,
             sales_prior.sales if sales_prior else None,

@@ -1,4 +1,4 @@
-"""保存済み機械推計の対象集合・cutoff・副作用と、Valuation の依存境界。"""
+"""旧保存入力の機械推計投影・副作用と、Valuation の依存境界。"""
 
 import copy
 import hashlib
@@ -10,18 +10,13 @@ from datetime import date, datetime
 
 import pytest
 from tests.helpers.research_selection import selection
-from tests.helpers.screening_run import screening_run_payload, stock_analysis
+from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
-from baibai_engine.investment_judgment.inputs import (
-    collect_research_inputs,
-    project_research_inputs,
-)
-from baibai_engine.investment_judgment.selection import InputGap
-from baibai_engine.investment_judgment.selection_query import load_analysis_snapshot
+from baibai_engine.investment_judgment.inputs import project_research_inputs
+from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, InputGap
 from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
 from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 from baibai_engine.machine_analysis.company_valuation.query import (
-    anchor_gap_pct,
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
     forecast_sources_from_analysis,
@@ -30,14 +25,12 @@ from baibai_engine.machine_analysis.company_valuation.query import (
 )
 from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
 from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
     expected_return_inputs,
 )
-from baibai_engine.read_api import stored_machine_valuation
-from baibai_engine.read_api.ticker_profile import _load_stock_analysis_context
 
 CUTOFF = date(2026, 9, 19)
 
@@ -95,19 +88,18 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
         required_jpx_flags=rules.universe.required_jpx_flags,
     )
     path = tmp_path / "runs.sqlite"
-    store = ScreeningRunStore(path)
-    store.publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(as_of=CUTOFF.isoformat(), stock_analyses=[row]),
         run_revision_id="cf-fixed",
-        rules=load_screening_rules(),
     )
-    store.publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(
             as_of="2026-09-20",
             stock_analyses=[stock_analysis("1234", metrics={"fcf_ttm": 999.0})],
         ),
         run_revision_id="future",
-        rules=load_screening_rules(),
     )
     before = path.read_bytes()
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
@@ -358,13 +350,14 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         metrics=build_stock_analysis_metrics(financial, derived=derived, estimate=estimate),
     )
     path = tmp_path / "runs.sqlite"
-    ScreeningRunStore(path).publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(as_of=CUTOFF.isoformat(), stock_analyses=[row]),
         run_revision_id="carry-inputs",
-        rules=load_screening_rules(),
     )
     before = path.read_bytes()
-    valuation = stored_machine_valuation(path, ticker="1234", as_of=CUTOFF).valuation
+    stored = ScreeningRunReader(path).get_run("carry-inputs")
+    valuation = machine_valuation_from_analysis(stored.stock_analyses[0])
     assert valuation.dividend_yield == dividend
     assert valuation.net_share_change_yoy == share_change
     assert valuation.dividend_basis == basis
@@ -460,7 +453,8 @@ def test_saved_dps_reaches_research_without_changing_candidates_or_raw_values(
 
 
 def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
-    ScreeningRunStore(path).publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(
             as_of=day,
             run_at=run_at,
@@ -481,69 +475,42 @@ def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
             ],
         ),
         run_revision_id=revision,
-        rules=load_screening_rules(),
     )
 
 
-def test_saved_non_candidate_and_profile_use_latest_run_before_cutoff(tmp_path):
+def test_fixed_saved_non_candidate_preserves_valuation_without_latest_selection(tmp_path):
     path = tmp_path / "runs.sqlite"
-    publish(path, "2026-09-18", "old")
-    publish(path, "2026-09-19", "early", anchor=1400, run_at="2026-09-19T09:00:00+09:00")
-    publish(path, "2026-09-19", "last", anchor=1600)
-    publish(path, "2026-09-20", "future", anchor=2000)
-    # Candidate membership cannot authorize or suppress this saved-analysis read.
-    result = stored_machine_valuation(path, ticker="1234", as_of=CUTOFF)
-    assert result.run_revision_id == "last"
-    assert result.as_of == CUTOFF
-    assert result.valuation.sector_median_anchor_yen == 1600
-    assert result.valuation.er_annual == 0.075
-    assert anchor_gap_pct(result.valuation) == 60
-    context = _load_stock_analysis_context(path, "1234", CUTOFF, run_revision_id=None)
-    assert context["screening_run_revision_id"] == result.run_revision_id
-    assert context["stock_analysis"]["metrics"]["fv_sector_median_yen"] == 1600
-    assert stored_machine_valuation(path, ticker="1234", as_of=date(2026, 9, 17)) is None
+    publish(path, "2026-09-19", "fixed", anchor=1600)
+    publish(path, "2026-09-20", "newer", anchor=2000)
+    reader = ScreeningRunReader(path)
+    result = reader.get_run("fixed")
+    assert result is not None
+    assert result.run_revision_id == "fixed"
+    assert result.stock_analyses[0]["candidate"]["reasons"] == []
+    valuation = machine_valuation_from_analysis(result.stock_analyses[0])
+    assert valuation.sector_median_anchor_yen == 1600
+    assert valuation.er_annual == 0.075
+    assert reader.get_run("absent") is None
 
 
-@pytest.mark.parametrize("entry", [stored_machine_valuation, _load_stock_analysis_context])
-def test_fixed_run_checks_cutoff_and_identity(tmp_path, entry):
+def test_missing_scope_coordinates_and_broken_store_remain_distinct(tmp_path):
     path = tmp_path / "runs.sqlite"
-    publish(path, "2026-09-19", "fixed")
-    publish(path, "2026-09-20", "future")
-
-    def read(revision):
-        if entry is stored_machine_valuation:
-            return entry(path, ticker="1234", as_of=CUTOFF, run_revision_id=revision)
-        return entry(path, "1234", CUTOFF, run_revision_id=revision)
-
-    assert read("fixed") is not None
-    with pytest.raises(ValueError, match="after cutoff"):
-        read("future")
-    with pytest.raises(ValueError, match="unknown run_revision_id"):
-        read("absent")
-
-
-def test_missing_store_scope_and_coordinates_are_distinct(tmp_path):
-    path = tmp_path / "runs.sqlite"
-    assert stored_machine_valuation(path, ticker="1234", as_of=CUTOFF) is None
-    assert not path.exists()
-    sqlite3.connect(path).close()
-    assert stored_machine_valuation(path, ticker="1234", as_of=CUTOFF) is None
     publish(path, "2026-09-19", "run")
-    result = stored_machine_valuation(path, ticker="9999", as_of=CUTOFF)
-    assert result.run_revision_id == "run"
-    assert result.valuation is None
+    reader = ScreeningRunReader(path)
+    result = reader.get_run("run")
+    assert not any(row["ticker"] == "9999" for row in result.stock_analyses)
     publish(path, "2026-09-20", "missing-anchor", anchor=None)
-    result = stored_machine_valuation(path, ticker="1234", as_of=date(2026, 9, 20))
-    assert result.valuation.sector_median_anchor_yen is None
-    assert result.valuation.er_annual == 0.075
-    assert anchor_gap_pct(result.valuation) is None
+    result = reader.get_run("missing-anchor")
+    valuation = machine_valuation_from_analysis(result.stock_analyses[0])
+    assert valuation.sector_median_anchor_yen is None
+    assert valuation.er_annual == 0.075
     for raw in ({}, {"metrics": {}}, {"metrics": None}):
         assert machine_valuation_from_analysis(raw).sector_median_anchor_yen is None
     connection = sqlite3.connect(path)
     connection.execute("DROP TABLE stock_analysis")
     connection.close()
     with pytest.raises(sqlite3.OperationalError):
-        stored_machine_valuation(path, ticker="1234", as_of=CUTOFF)
+        reader.get_run("run")
 
 
 def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
@@ -577,7 +544,8 @@ def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sqlite3, "connect", connect)
     monkeypatch.setattr(socket, "socket", forbidden)
-    assert stored_machine_valuation(path, ticker="1234", as_of=CUTOFF).valuation.er_annual == 0.075
+    stored = ScreeningRunReader(path).get_run("run")
+    assert machine_valuation_from_analysis(stored.stock_analyses[0]).er_annual == 0.075
     assert connections
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
 
@@ -618,25 +586,20 @@ def _project_inputs(
         for t in tickers
         if t == "9999"
     )
-    snapshot = load_analysis_snapshot(
-        run_revision_id=revision,
-        research_as_of=as_of,
-        tickers=tickers,
-        gaps=gaps,
-        known_at=known_at,
-        runs_path=runs_path,
-    )
-    inputs = collect_research_inputs(
-        snapshot=snapshot,
-        input_gaps=gaps,
-        tickers=tickers,
-        research_as_of=as_of,
-        input_known_at=cutoff,
-        market_path=market_path,
-        indicators_path=indicators_path,
-        app_path=app_path,
+    run = ScreeningRunReader(runs_path).get_run(revision)
+    assert run is not None
+    saved_rows = {row["ticker"]: row for row in run.stock_analyses}
+    snapshot = AnalysisInputSnapshot(
+        run_revision_id=run.run_revision_id,
+        analysis_as_of=date.fromisoformat(run.as_of_date),
+        run_at=datetime.fromisoformat(run.run_at),
+        screening_rules_hash=run.payload.get("screening_rules_hash"),
+        er_model_version=run.payload.get("er_model_version"),
+        analyses={ticker: saved_rows[ticker] for ticker in tickers if ticker in saved_rows},
+        unavailable={gap.ticker: gap.reason for gap in gaps},
     )
     value = selection(now=known_at, tickers=tickers)
+    inputs = value.inputs.model_copy(update={"analysis": snapshot, "input_gaps": gaps})
     return project_research_inputs(value.model_copy(update={"inputs": inputs}))
 
 

@@ -104,7 +104,7 @@ class JQuantsFinancialSummary:
 
     実績の数値と、対象日・期間・basisを解決した会社予想を区別する。
 
-    `eps_ttm`は開示期間の累計EPSであり、TTM合成済みの値ではない。
+    `cumulative_eps`は開示期間の累計EPSであり、TTM合成済みの値ではない。
     このEPS自体を足し引きしてTTM合成しない。
     `shares_outstanding`は自己株式を含む発行済株式総数である。
     計算基準はdocs/reference/company-valuation.mdの
@@ -115,7 +115,7 @@ class JQuantsFinancialSummary:
     disclosed_at: date
     forecast_eps: float | None = None
     # 期中累計 EPS。TTM ではない (上の docstring)。
-    eps_ttm: float | None = None
+    cumulative_eps: float | None = None
     bps: float | None = None
     # 自己株式を含む発行済株式総数。市場が値付けする株数ではない (上の docstring)。
     shares_outstanding: float | None = None
@@ -179,7 +179,7 @@ class JQuantsFinancialSummary:
 
     @field_validator(
         "forecast_eps",
-        "eps_ttm",
+        "cumulative_eps",
         "bps",
         "shares_outstanding",
         "sales",

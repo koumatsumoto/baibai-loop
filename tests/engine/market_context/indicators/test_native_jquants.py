@@ -15,7 +15,6 @@ from baibai_engine.machine_analysis.market_context.indicators.definitions import
 from baibai_engine.machine_analysis.market_context.reading.reader import (
     build_store_observation_reader,
 )
-from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
 PERIOD = date(2024, 8, 23)
 FIRST = date(2024, 8, 29)
@@ -107,7 +106,6 @@ def test_flow_reader_selects_publication_before_value_and_keeps_period_freshness
         ).records
         assert records[0]["FrgnBuy"] == 999
         assert records[0]["FrgnBal"] is None
-    assert indicator_latest_observed_at(path) == PERIOD
 
 
 def test_index_reader_uses_only_native_close_and_empty_response_hides_old_payload(tmp_path):

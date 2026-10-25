@@ -7,15 +7,15 @@
 
 | 出力 | 比較対象 |
 | --- | --- |
-| Stock Analysisの業種relative strength | Screeningが渡す母集団で業種平均と市場平均を比較。個別対業種の差ではない |
+| 旧Stock Analysisの業種relative strength | 旧Screeningが渡す母集団で業種平均と市場平均を比較。個別対業種の差ではない |
 | market snapshot | benchmarkと同じ観測日の普通株breadth・業種中央値。過去の各時点以下のmasterを使う |
 | security context | 指定銘柄と同じ開始・終了日のbenchmark、自己を除いた同業peer。端点不足を補間しない |
 
-masterはcutoff以下の一つの最新snapshotを選び、その中にないtickerを古いsnapshotから復活させない。普通株とETF等を混ぜず、価格・benchmark・master・要求日の各基準日を示す。peer中央値、市場の業種中央値、Screeningの業種平均は別母集団である。
+masterはcutoff以下の一つの最新snapshotを選び、その中にないtickerを古いsnapshotから復活させない。普通株とETF等を混ぜず、価格・benchmark・master・要求日の各基準日を示す。peer中央値、市場の業種中央値、旧Screeningの業種平均は別母集団である。
 
 価格は[調整済み価格reader](../../engine/src/baibai_engine/market/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
 
-ticker-profileは要求日の市場・分類・runと、現在ledgerの独立したledger_as_ofを合成する。保有履歴を要求日へ再生せず、profile全体を完全な過去時点再現としない。Webの共有読取・バッチ処理は同じ領域計算を使い、表示用の別計算正本を作らない。
+旧ticker-profileは旧runと可変モデル・現在ledgerを混合するため撤去した。調査のモデル入力はselection-contextで固定generationから読み、取引事実はPosition、決算予定・規制等の原観測は各market readerから必要時に確認する。selection-contextへイベント一覧や現在ledgerの集中度が含まれるとは扱わない。五モデルの共通生成は全masterと共有価格から市場・業種の参照文脈を作り、個社だけを調査するときも参照母集団を候補集合へ縮めない。
 
 <a id="margin"></a>
 ## 信用需給
@@ -24,7 +24,7 @@ ticker-profileは要求日の市場・分類・runと、現在ledgerの独立し
 
 levelは公表済み直近残高で、cadenceが変わっても語義は変わらない。26wは**26 ISO週前との比較**で、日次側も各ISO週の最終残高日をsamplingする。26行前ではなく、欠測週を補間せず、固定半年差とも扱わない。
 
-残高日、PubDate、利用可能cutoffを区別する。週次は第2営業日、日次は翌営業日の公表を待ち、現行servingは公表日当日を含めない。この暦規約は実際のAPI配信時刻の証明ではない。
+残高日、PubDate、利用可能cutoffを区別する。週次は第2営業日、日次は翌営業日の公表を待ち、L2読取は公表日当日を含めない。この暦規約は実際のAPI配信時刻の証明ではない。
 
 残高・出来高の株式単位を判定日へ揃える時はExRTで分割/併合と確定した係数だけを使い、rights issueの価格factorを株数へ適用しない。換算不能が影響する比率・差だけを未評価にし、同一残高のlong/short構成比まで消さない。残高/平均出来高は規模比較で、実際の解消日数予測ではない。
 
@@ -35,6 +35,7 @@ Readingは保存L1とdated規則から記述統計・鮮度を計算する。reg
 
 ```bash
 uv run baibai-engine market-context reading --asof <YYYY-MM-DD> --format json
+uv run baibai-engine market-context snapshot --asof <YYYY-MM-DD> --format json
 uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 

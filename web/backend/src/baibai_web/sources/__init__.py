@@ -1,1 +1,1 @@
-"""Storage-independent source contracts for application reads."""
+"""表示に必要な所有domainの読取だけを合成する。"""

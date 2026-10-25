@@ -6,7 +6,7 @@ import ast
 import sys
 from pathlib import Path
 
-_RUNTIME_ROOTS = ("engine/src", "web/backend/src", "jobs/src")
+_RUNTIME_ROOTS = ("engine/src", "jobs/src")
 _CONTEXT_PATH = (
     "engine/src/baibai_engine/machine_analysis/company_valuation/"
     "calibration/published/er-level-calibration-latest.yaml"
@@ -25,7 +25,6 @@ _OWNERS = {
     "stores/screening/calibration": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
-    "web/config/market-context-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
     _CONTEXT_PATH: Path("engine/src/baibai_engine/foundation/repository_layout.py"),
 }
 

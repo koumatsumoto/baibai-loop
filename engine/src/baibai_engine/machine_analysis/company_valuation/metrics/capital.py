@@ -174,12 +174,13 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
 
     円の総額 (総資産・売上・利益) は基準に依存しないので残す。株数と per-share は
     どちらの基準か分からないまま価格と組むと時価総額が分割比だけずれるので答えない。
-    時価総額が出ない銘柄は母集団に入らない。実績 DPS は配当側が独立に判断するため残す。
+    時価総額依存の指標は欠測にするが、五モデルの対象から銘柄を消さない。
+    実績 DPS は配当側が独立に判断するため残す。
     """
 
     return replace(
         summary,
-        eps_ttm=None,
+        cumulative_eps=None,
         forecast_eps=None,
         bps=None,
         dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
@@ -243,7 +244,9 @@ def _normalize_summaries_with_status(
         normalized.append(
             replace(
                 summary,
-                eps_ttm=summary.eps_ttm * factor if summary.eps_ttm is not None else None,
+                cumulative_eps=summary.cumulative_eps * factor
+                if summary.cumulative_eps is not None
+                else None,
                 forecast_eps=None,
                 # 実績 DPS は原本のまま配当 resolver へ渡す。予想の明示 0 は残す。
                 dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
@@ -538,7 +541,7 @@ def _shares_excluding_treasury(
 
     自己株式数の欠損を 0 で埋めると「自己株ゼロ」を捏造し、どれだけ過大か分からない
     時価総額が現金比率・利回り・時価総額 gate へ入る。発行済を超える自己株式数も開示の破損
-    なので答えない。どちらも時価総額が null になり、その銘柄は母集団に入らない。
+    なので答えない。どちらも時価総額を null とし、時価総額依存の指標を欠測にする。
     """
 
     if shares_outstanding is None or shares_outstanding <= 0:

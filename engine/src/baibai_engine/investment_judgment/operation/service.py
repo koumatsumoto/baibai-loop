@@ -14,6 +14,7 @@ from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.foundation.time import JST
+from baibai_engine.investment_judgment.generated_inputs import verify_generated_inputs
 from baibai_engine.investment_judgment.operation.models import (
     OperationPayload,
     OperationSession,
@@ -35,12 +36,13 @@ from baibai_engine.investment_judgment.operation.validation import (
     validate_progress,
     validate_selection,
 )
+from baibai_engine.investment_judgment.selection import GeneratedResearchSelection
 from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.investment_judgment.selection_query import verify_analysis_snapshot
 from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
+from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
@@ -84,6 +86,10 @@ class OperationService:
             raise OperationConflictError(
                 "start with `investment-judgment prepare`; one research_selection is required"
             )
+        if not isinstance(selection, GeneratedResearchSelection):
+            raise OperationConflictError(
+                "new Research requires a saved model generation; legacy selections are resume-only"
+            )
         if selection.capacity != CURRENT_RESEARCH_CAPACITY:
             raise OperationConflictError("new Research requires the current capacity policy")
         if selection.input_known_at > started_at or selection.research_as_of != as_of:
@@ -100,12 +106,20 @@ class OperationService:
         )
         if session_kind != expected_kind or ticker != expected_ticker:
             raise OperationConflictError("Operation kind/ticker differs from Research scope")
-        verify_analysis_snapshot(
-            selection.inputs.analysis,
-            tickers=tuple(t.ticker for t in selection.targets),
-            known_at=selection.input_known_at,
-            runs_path=self._runs_path,
-        )
+        verify_generated_inputs(selection.inputs.generation, runs_path=self._runs_path)
+        selection_id = selection.inputs.screening_selection_id
+        if selection_id is not None:
+            publication = read_publication(
+                path=self._runs_path,
+                selection_id=selection_id,
+                known_at=selection.input_known_at,
+            )
+            if (
+                publication is None
+                or publication.selection != selection.inputs.screening_selection
+                or publication.published_at != selection.inputs.screening_published_at
+            ):
+                raise OperationConflictError("screening selection differs from chosen generation")
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"

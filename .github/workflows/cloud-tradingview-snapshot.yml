@@ -193,7 +193,7 @@ jobs:
         env:
           JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
-        run: uv run baibai-engine screening backfill-master --asof "$TARGET_DATE"
+        run: uv run baibai-engine data-collection market backfill-master --asof "$TARGET_DATE"
       - name: Refresh TradingView expectations
         id: tradingview
         if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')

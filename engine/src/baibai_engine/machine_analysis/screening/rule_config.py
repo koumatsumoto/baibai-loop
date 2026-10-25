@@ -25,10 +25,7 @@ class UniverseRules(BaseModel):
 
 
 class QualityRules(BaseModel):
-    """利用者へ入力不足を伝えるwarningであり、企業の経済的除外ではない。
-
-    理由と廃止gateとの区別: docs/reference/screening-runtime.md#data-quality-context
-    """
+    """旧rulesのhash・較正identityに残す品質設定。現行モデルのgateではない。"""
 
     model_config = ConfigDict(frozen=True, strict=True)
 
@@ -40,7 +37,7 @@ class QualityRules(BaseModel):
 class CommonEligibilityRules(BaseModel):
     """Analysis-layer scope parameters applied when ranking research candidates.
 
-    The screen evaluates every common stock with a usable price bar. This
+    The former Stock Analysis screen evaluates common stocks with usable prices. This
     predicate shares valid scope facts and configured exclusions between
     Candidate Discovery and its comparison population.
     """

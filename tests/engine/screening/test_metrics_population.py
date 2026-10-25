@@ -1,3 +1,5 @@
+"""旧較正リプレイの合成と共有計算の回帰。現行五モデルの候補gateではない。"""
+
 from __future__ import annotations
 
 import unittest
@@ -29,7 +31,7 @@ class MedianPopulationTests(unittest.TestCase):
             return JQuantsFinancialSummary(
                 ticker=code,
                 disclosed_at=date(2026, 2, 1),
-                eps_ttm=eps,
+                cumulative_eps=eps,
                 profit=eps * shares,
                 shares_outstanding=shares,
                 treasury_shares=0.0,
@@ -100,7 +102,7 @@ class MedianPopulationTests(unittest.TestCase):
             return JQuantsFinancialSummary(
                 ticker=code,
                 disclosed_at=date(2026, 2, 1),
-                eps_ttm=eps,
+                cumulative_eps=eps,
                 profit=eps * shares,
                 shares_outstanding=shares,
                 treasury_shares=0.0,

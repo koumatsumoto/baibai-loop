@@ -84,14 +84,6 @@ def published_market(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return store, mirror, origin
 
 
-def test_materialize_workflow_acquires_its_own_lease_and_merge_does_not_dispatch() -> None:
-    root = Path(__file__).resolve().parents[2]
-    workflow = (root / ".github/workflows/cloud-materialize.yml").read_text()
-    assert "--purpose materialize" in workflow
-    assert workflow.index("--purpose materialize") < workflow.index("hydrate-market")
-    assert "push:" not in workflow
-
-
 @pytest.mark.parametrize("failed_key", ["runs.sqlite", "machine-manifest.json"])
 def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
     published_market, tmp_path: Path, failed_key: str

@@ -3,8 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import type { DashboardView, HoldingView, MetaView, ReservationView } from '../src/api/types'
-import { FreshnessMeta } from '../src/components/FreshnessMeta'
+import type { DashboardView, HoldingView, ReservationView } from '../src/api/types'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { HoldingsTable, OutcomeCard, PendingOrdersCard, PortfolioAllocationCard } from '../src/pages/DashboardPage'
 
@@ -14,8 +13,6 @@ function holding(ticker: string): HoldingView {
     deployed_cost_yen: 100_000, market_price_yen: '1100',
     market_price_as_of: '2026-09-24', market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000, unrealized_pnl_pct: 10,
-    pmax_raw_yen: null, pmax_gap_pct: null, pmax_gap_unavailable_reason: null, latest_assessment_id: null,
-    stance: null, next_earnings_date: null,
   }
 }
 
@@ -154,31 +151,4 @@ describe('Dashboard valuation display', () => {
     expect(html).toMatch(/評価損益 合計<\/span><span[^>]*>未評価/)
   })
 
-  it('labels generated time separately from the internal ledger date marker', () => {
-    const meta: MetaView = {
-      generated_at: '2026-09-24T20:42:00+09:00',
-      data_updated_at: '2026-09-24T00:00:00+09:00',
-      screening_as_of: null, indicators_as_of: null, app_db_updated_at: null, batch: null,
-    }
-    const html = renderToStaticMarkup(createElement(FreshnessMeta, {
-      meta, deployedAt: '2026-09-24T19:00:00+09:00',
-    }))
-    expect(html).toContain('画面データ生成')
-    expect(html).toContain('09/24 20:42')
-    expect(html).not.toContain('00:00')
-    expect(html).not.toContain('データ更新')
-  })
-
-  it('keeps the original Pmax and explains why an unconfirmed price comparison has no gap', () => {
-    const html = renderToStaticMarkup(createElement(TooltipProvider, null,
-      createElement(MemoryRouter, null, createElement(HoldingsTable, {
-        holdings: [{ ...holding('1234'), market_price_yen: '1000', pmax_raw_yen: 2000,
-          pmax_gap_pct: null, pmax_gap_unavailable_reason: '原評価と現在株価を同じ価格基準で比較できません。' }],
-        warnings: [],
-      })),
-    ))
-    expect(html).toContain('￥2,000')
-    expect(html).toContain('原評価と現在株価を同じ価格基準で比較できません。')
-    expect(html).not.toContain('+100.0%')
-  })
 })

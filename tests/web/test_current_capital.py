@@ -14,13 +14,12 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_web.readmodel.builders import build_dashboard, dashboard
+from baibai_web.readmodel.builders import dashboard
+from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.sources import db_sources
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
-    DbMarketPriceSource,
-    DbResearchSource,
-    DbScreeningSource,
+    DbMarketSource,
 )
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
@@ -65,9 +64,7 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     before = db.read_bytes()
     view = build_dashboard(
         DbLedgerSource(db, market),
-        DbResearchSource(db),
-        DbScreeningSource(tmp_path / "missing.sqlite"),
-        DbMarketPriceSource(market),
+        DbMarketSource(market),
     )
     assert view.ledger_error is None
     assert view.ledger_as_of == ledger.as_of
@@ -110,9 +107,7 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
             )
     view = build_dashboard(
         DbLedgerSource(db, market),
-        DbResearchSource(db),
-        DbScreeningSource(tmp_path / "missing.sqlite"),
-        DbMarketPriceSource(market),
+        DbMarketSource(market),
     )
     assert view.realized_gross_pnl_yen == 6_000
     if missing:

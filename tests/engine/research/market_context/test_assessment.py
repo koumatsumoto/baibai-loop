@@ -25,7 +25,6 @@ from baibai_engine.investment_judgment.market_context.service import (
     AssessmentConflictError,
     AssessmentService,
 )
-from baibai_web.readmodel.assessment import build_assessment_publication
 
 
 def document(
@@ -229,16 +228,11 @@ def test_cli_new_writer_check_publish_and_history(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("version", [5, 6])
-def test_compact_meaning_survives_history_projection_and_web(version):
+def test_compact_meaning_survives_history_projection(version):
     payload = document().payload()
     if version == 5:
         payload.update(schema_version=5, context_id="macro-context-2026-07-17-saved")
     record = StoredAssessment.from_payload(payload)
-    view = build_assessment_publication(record.document, as_of=date(2026, 7, 19), series_names={})
-    assert view.assessment is not None
-    assert view.assessment.known_at == document().known_at
-    assert view.core == []
-    assert view.historical_payload is None
     projected = assessment_projection(record, as_of=date(2026, 7, 19))
     assert projected["status"] == "current"
     assert projected["uncertainties"] == payload["uncertainties"]

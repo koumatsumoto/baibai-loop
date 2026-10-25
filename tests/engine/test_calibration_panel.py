@@ -64,10 +64,10 @@ from baibai_engine.machine_analysis.screening.calibration.store import (
 from baibai_engine.machine_analysis.screening.discovery.candidates import (
     candidate_discovery_method_hash,
 )
-from baibai_engine.machine_analysis.screening.metric_builder import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.machine_analysis.screening.universe import UNIVERSE_SCOPE_REVISION
+from baibai_engine.market.input_windows import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import open_connection

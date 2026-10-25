@@ -7,9 +7,7 @@ import json
 import os
 import re
 import signal
-
-# fixed operational commands, never credential arguments
-import subprocess  # nosec B404
+import subprocess  # nosec B404 - fixed operational commands, never credential arguments
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -214,7 +212,8 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                             sys.executable,
                             "-m",
                             "baibai_engine.cli",
-                            "screening",
+                            "data-collection",
+                            "market",
                             "backfill-master",
                             "--asof",
                             day.isoformat(),

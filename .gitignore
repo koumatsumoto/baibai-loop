@@ -11,6 +11,9 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# Installed JavaScript dependencies
+node_modules/
+
 # Python build and quality-tool outputs
 .coverage
 .coverage.*
@@ -29,9 +32,6 @@ dist/
 
 # Local environment files
 .env
-/web/edge/.dev.vars*
-!/web/edge/.dev.vars.example
-/web/edge/node_modules/
 .wrangler/
 .r2-transfer.*
 .r2-staging/

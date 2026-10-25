@@ -10,7 +10,7 @@ import pytest
 from baibai_engine.machine_analysis.screening.calibration.forward import (
     _load_ticker_adjustment_events,
 )
-from baibai_engine.market.adjusted_prices import close_change_since, read_price_bars
+from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.market.jquants_decode import (
     JQuantsProviderError,
     normalize_adjustment_factor_event,
@@ -110,7 +110,7 @@ def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, fa
     with pytest.raises(JQuantsProviderError, match="positive"):
         read_adjustment_factor_bars(database, start, day)
     with pytest.raises(ValueError, match="positive"):
-        close_change_since(database, ["1301"], since=start)
+        read_price_bars(database, tickers=("1301",), start=start, end=day)
 
 
 @pytest.mark.parametrize("kind", ["1", "2", "3", "unknown"])
@@ -127,8 +127,6 @@ def test_adjusted_readers_reject_reported_action_without_factor(tmp_path, kind, 
     before = database.read_bytes()
     with pytest.raises(JQuantsProviderError, match="no usable adjustment factor"):
         read_price_bars(database, tickers=("1301",), start=start, end=end)
-    with pytest.raises(JQuantsProviderError, match="no usable adjustment factor"):
-        close_change_since(database, ["1301"], since=start)
     assert database.read_bytes() == before
 
 
@@ -148,4 +146,3 @@ def test_adjusted_readers_keep_ordinary_null_factor_and_zero_change(tmp_path):
         100.0,
         100.0,
     ]
-    assert close_change_since(database, ["1301"], since=start) == {"1301": 0.0}

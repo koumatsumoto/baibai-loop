@@ -5,10 +5,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from baibai_engine.read_api import PortfolioLedgerError
-from baibai_web.readmodel.builders import build_tasks
-from baibai_web.readmodel.builders.tasks import _upcoming_events
-from baibai_web.sources.types import TaskRecord
+from baibai_engine.position.ledger import PortfolioLedgerError
+from baibai_engine.tasks.models import Task
+from baibai_web.readmodel.builders.tasks import _upcoming_events, build_tasks
 
 
 @pytest.mark.parametrize(
@@ -37,8 +36,8 @@ def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -
     tasks = mocker.Mock()
     tasks.exists.return_value = True
     tasks.list_tasks.return_value = [
-        TaskRecord(
-            task_id="task-later",
+        Task(
+            task_id="task-20260831-later",
             title="Later task",
             kind="earnings-review",
             status="open",
@@ -51,8 +50,8 @@ def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -
             created_at=date(2026, 8, 31),
             closed_at=None,
         ),
-        TaskRecord(
-            task_id="task-next",
+        Task(
+            task_id="task-20260830-next",
             title="Next task",
             kind="follow-up",
             status="open",
@@ -69,19 +68,18 @@ def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -
     ledger = mocker.Mock()
     ledger.exists.return_value = True
     ledger.snapshot.side_effect = PortfolioLedgerError("invalid ledger")
-    research = mocker.Mock()
-    candidates = mocker.Mock()
     market = mocker.Mock()
 
-    view = build_tasks(tasks, ledger, research, candidates, market)
+    view = build_tasks(tasks, ledger, market)
 
-    assert [task.task_id for task in view.open_tasks] == ["task-next", "task-later"]
+    assert [task.task_id for task in view.open_tasks] == [
+        "task-20260830-next",
+        "task-20260831-later",
+    ]
     assert view.next_task is not None
-    assert view.next_task.task_id == "task-next"
+    assert view.next_task.task_id == "task-20260830-next"
     assert view.upcoming_events == []
     assert view.ledger_error == "invalid ledger"
-    research.revisions.assert_not_called()
-    candidates.latest_run.assert_not_called()
     market.next_earnings_dates.assert_not_called()
 
 
@@ -92,7 +90,7 @@ def test_tasks_treat_absent_ledger_as_normal(mocker) -> None:
     ledger = mocker.Mock()
     ledger.exists.return_value = False
 
-    view = build_tasks(tasks, ledger, mocker.Mock(), mocker.Mock(), mocker.Mock())
+    view = build_tasks(tasks, ledger, mocker.Mock())
 
     assert view.open_tasks == []
     assert view.upcoming_events == []
@@ -100,22 +98,21 @@ def test_tasks_treat_absent_ledger_as_normal(mocker) -> None:
 
 
 def test_task_events_need_dates_and_names_not_holding_valuation(mocker) -> None:
-    tasks, ledger, research, screening, market = [mocker.Mock() for _ in range(5)]
+    tasks, ledger, market = [mocker.Mock() for _ in range(3)]
     tasks.exists.return_value = True
     tasks.list_tasks.return_value = []
     ledger.exists.return_value = True
     holding = mocker.Mock(spec_set=["ticker"], ticker="2331")
     ledger.snapshot.return_value.holdings = [holding]
     ledger.snapshot.return_value.active_reservations = []
-    research.revisions.return_value = []
-    screening.latest_run.return_value = None
+    market.security_names.return_value = {}
     now = datetime(2026, 10, 14, 12, tzinfo=ZoneInfo("Asia/Tokyo"))
     mocker.patch("baibai_web.readmodel.builders.tasks.datetime").now.return_value = now
     today = now.date()
     market.next_earnings_dates.return_value = {"2331": today}
     market.price_comparison_basis_is_confirmed.side_effect = AssertionError("unneeded valuation")
 
-    view = build_tasks(tasks, ledger, research, screening, market)
+    view = build_tasks(tasks, ledger, market)
 
     assert [(event.kind, event.ticker) for event in view.upcoming_events] == [("earnings", "2331")]
     market.price_comparison_basis_is_confirmed.assert_not_called()
@@ -162,4 +159,26 @@ def test_calendar_collapses_same_ticker_expiries_without_collapsing_other_milest
         ("reservation_expiry", "2222", date(2026, 10, 16)),
         ("reservation_expiry", "3333", date(2026, 10, 16)),
         ("reservation_expiry", "2222", date(2026, 10, 17)),
+    ]
+
+
+@pytest.mark.parametrize("calendar", [None, {}])
+def test_unavailable_earnings_remains_distinct_from_confirmed_empty(mocker, calendar):
+    tasks, ledger, market = [mocker.Mock() for _ in range(3)]
+    tasks.exists.return_value = True
+    tasks.list_tasks.return_value = []
+    ledger.exists.return_value = True
+    ledger.snapshot.return_value.holdings = [mocker.Mock(ticker="2331")]
+    ledger.snapshot.return_value.active_reservations = [
+        mocker.Mock(ticker="2331", expires_at=datetime.fromisoformat("2026-10-17T00:00:00+09:00"))
+    ]
+    market.security_names.return_value = {}
+    market.next_earnings_dates.return_value = calendar
+    mocker.patch(
+        "baibai_web.readmodel.builders.tasks.datetime"
+    ).now.return_value = datetime.fromisoformat("2026-10-14T12:00:00+09:00")
+    view = build_tasks(tasks, ledger, market)
+    assert view.earnings_calendar_available is (calendar is not None)
+    assert [(event.kind, event.event_date) for event in view.upcoming_events] == [
+        ("reservation_expiry", date(2026, 10, 16))
     ]

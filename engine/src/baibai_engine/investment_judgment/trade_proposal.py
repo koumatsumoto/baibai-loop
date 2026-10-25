@@ -389,6 +389,25 @@ class LiquidityContext(_ProposalValue):
         return self
 
 
+class GeneratedLiquidityContext(_ProposalValue):
+    """モデル生成snapshotから固定したADV。旧run identityを捏造しない。"""
+
+    ticker: Ticker
+    generation_id: NonEmptyStr
+    analysis_as_of: ISODate
+    calculation_revision: NonEmptyStr | None
+    adv_yen: Money | None
+    unavailable_reason: NonEmptyStr | None
+
+    @model_validator(mode="after")
+    def _availability(self) -> Self:
+        if (self.adv_yen is None) != (self.unavailable_reason is not None):
+            raise ValueError("ADV value and unavailable_reason must be exclusive and exhaustive")
+        if self.adv_yen is not None and self.calculation_revision is None:
+            raise ValueError("available ADV requires its model calculation revision")
+        return self
+
+
 class ExposureRow(_ProposalValue):
     key: NonEmptyStr
     prospective_pct: Money
@@ -437,7 +456,7 @@ class TradeProposal(_ProposalValue):
     inputs: ProposalInputs
     items: Annotated[JsonTuple[ProposalItem], Field(min_length=1)]
     review: ProposalContentReview
-    liquidity_context: JsonTuple[LiquidityContext] = ()
+    liquidity_context: JsonTuple[LiquidityContext | GeneratedLiquidityContext] = ()
     warnings: JsonTuple[NonEmptyStr] = ()
     portfolio_exposure: PortfolioExposure
 

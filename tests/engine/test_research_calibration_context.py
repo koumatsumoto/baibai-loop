@@ -5,13 +5,14 @@ from datetime import datetime
 
 import pytest
 import yaml
+from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.er_calibration_context import context_artifact
-from tests.helpers.research_selection import draft_for, selection
+from tests.helpers.research_selection import historical_operation, selection
 from tests.helpers.screening_run import stock_analysis
 
 from baibai_engine.investment_judgment.calibration_context import research_calibration_context
 from baibai_engine.investment_judgment.selection import selection_sha256
-from baibai_engine.investment_judgment.workspace import prepare_selected_workspace
+from baibai_engine.investment_judgment.workspace import resume_selected_workspace
 from baibai_engine.investment_judgment.workspace_cli import main
 
 NOW = datetime.fromisoformat("2026-10-19T22:00:00+09:00")
@@ -133,13 +134,12 @@ def test_missing_fixed_identity_does_not_use_present_day_method(tmp_path):
 
 def test_cli_uses_saved_operation_and_returns_only_read_only_diagnostics(tmp_path, capsys):
     selected = _selection(tmp_path)
-    prepared = prepare_selected_workspace(
-        draft=draft_for(selected),
+    operation = historical_operation(selected)
+    seed_historical_operation(tmp_path / "app.sqlite", operation)
+    prepared = resume_selected_workspace(
+        operation_id=operation.operation_id,
         db_path=tmp_path / "app.sqlite",
         workspace=tmp_path / "workspace",
-        sqlite_path=tmp_path / "absent-market",
-        runs_path=tmp_path / "runs",
-        indicators_path=tmp_path / "absent-indicators",
         now=NOW,
     )
     path = tmp_path / "context.yaml"

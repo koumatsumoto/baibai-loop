@@ -1,21 +1,9 @@
-# Web
+# 保有・運用のWeb
 
-正本を読み取り専用で表示する。責務と依存は[architecture](../docs/architecture.md)、環境準備は[development](../docs/development.md)に従う。
+資産・損益・保有銘柄、運用成績、タスクを表示する。台帳と保存成績を正本とし、未評価をゼロへ置換しない。スクリーニング・マクロ・旧調査提案・前回差分は表示しない。最新売買提案レポートは[Issue #1615](https://github.com/koumatsumoto/baibai-loop/issues/1615)で別途設計する。
 
-`backend`はAPI・read model・materialization、`frontend`は画面、`edge`は認証付き配信、`config`は表示設定を所有する。domainの算術・保存条件はengineの`read_api`から使う。保存提案の評価参照と現在previewを区別し、後者で保存判断やbroker事実を変更しない。
+`baibai-web serve` は既存どおりloopbackだけで起動する。配信Workerの認証方式は変更しない。ローカル作業では `uv run baibai-web serve` とfrontendのViteを使う。品質確認は対象HEADのCIで行う。
 
-## 開発と生成
+Pythonの表示modelからcontracts/schemaとTypeScriptを生成する。変更時は `uv run python -m baibai_web.contracts_export` で更新する。表示はapplicationとmarketだけを読み、旧run・economic store・保存判断の全件走査を必要としない。
 
-local UIは`uv run baibai-web serve`で起動し、`http://127.0.0.1:8712/api/health`と画面を確認する。read modelの正本はbackend modelで、`contracts/read-model.schema.json`と`frontend/src/api/types.ts`を生成する。
-
-```bash
-uv run python -m baibai_web.contracts_export
-```
-
-modelを変えたら生成物を同じcommitへ含める。`contracts/routes.json`はmaterialized APIとserving keyの対応であり、全HTTP routeの台帳ではない。healthやlake gatewayは実装とedge testが所有する。deployとread model更新の順序は[運用](../jobs/OPERATIONS.md#workerをdeployする)に従う。
-
-## 共有read
-
-`https://<production-origin>/?share=<READ_ACCESS_TOKEN>`で通常UIを開く。tokenはsessionへ取り込んでURLから除き、owner passwordとは別に扱う。失効・再設定は[共有readの運用](../jobs/OPERATIONS.md#shared-read-setup)へ進む。
-
-market lakeは同じ認証の`GET /api/lake/current`と`GET /api/lake/object?key=<key>`から原bytesを読める。[固定releaseの読取](../jobs/OPERATIONS.md#fixed-release-read)に従い、一分析内でcurrentを乗り換えない。Workerの接続はcanonical bucketのObject Read onlyとし、materializerや正本へのwrite入口を追加しない。
+[運用手順](../jobs/OPERATIONS.md#web-serving)に従い、3 viewを先にR2へ公開・読戻ししてからUIを切り替える。新dashboardは別keyへ保存し、切替前の旧画面が読むobjectを上書きしない。旧R2 objectやcredentialの削除はこの変更に含めない。
