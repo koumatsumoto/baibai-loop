@@ -16,12 +16,12 @@ from typing import cast
 
 import yaml
 
+from baibai_engine.foundation.numbers import decimal_to_number
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     StoreLayoutError,
     reject_noncanonical_store_paths,
 )
-from baibai_engine.investment_judgment.decimal_number import decimal_to_number
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentError,
     StockAssessmentDocument,

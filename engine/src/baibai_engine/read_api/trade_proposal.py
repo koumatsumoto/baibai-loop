@@ -13,7 +13,7 @@ from baibai_engine.investment_judgment.trade_proposal_query import (
 )
 from baibai_engine.storage.application.read import connect_read_only
 
-from .research import reviewed_assessment_projection
+from .stock_assessment import reviewed_assessment_projection
 from .sqlite import read_application_rows as read_rows
 
 

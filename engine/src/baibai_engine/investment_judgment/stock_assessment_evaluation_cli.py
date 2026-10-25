@@ -1,4 +1,4 @@
-"""Researchの公開内容評価と原価格の成立条件を読み取り専用で見せるCLI。"""
+"""銘柄評価・独立検証の機械的な整合確認と原価格の成立条件を読むCLI。"""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from baibai_engine.investment_judgment.stock_assessment import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="baibai-engine investment-judgment stock-assessment-evaluate",
-        description="Evaluate Stock Assessment content and independent Review without writes.",
+        description="Check Stock Assessment and Independent Review consistency without writes.",
     )
     parser.add_argument("assessment", type=Path)
     parser.add_argument("--review", type=Path)

@@ -74,6 +74,7 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_run(tmp_path):
     prepared = prepare(tmp_path, value=value)
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
     assert prepared.status == "prepared"
+    assert prepared.next_step == "investment-judgment status"
     assert saved is not None
     assert saved.request.scope == "discover_new"
     assert saved.request.requested_tickers == ()

@@ -57,7 +57,7 @@ from baibai_engine.read_api.market_context import (
     prepare_market_context_inputs,
     reading_snapshot,
 )
-from baibai_engine.read_api.valuation import VALUATION_HISTORY_SESSIONS
+from baibai_engine.read_api.company_valuation import VALUATION_HISTORY_SESSIONS
 from baibai_web.sources.types import (
     IndicatorGroupConfig,
     IndicatorSeriesConfig,

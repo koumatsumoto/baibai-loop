@@ -1,4 +1,4 @@
-"""調査と独立Reviewの下書きを作る。"""
+"""銘柄評価と独立検証の下書きを作る。判断内容は生成しない。"""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ from baibai_engine.storage.application.read import connect_read_only
 _ASSESSMENT_DRAFT_HEADER = (
     "# 銘柄評価 draft。重要な支持・相反・不足をfindings、investment_case、"
     "conclusion.strongest_countercaseへつなぐ。\n"
-    "# 五領域の問い・basis・欠測: docs/reference/stock-assessment.md#analysis-domain-integration\n"
+    "# 五モデルの問い・basis・欠測: docs/reference/stock-assessment.md#analysis-domain-integration\n"
     "# model・期間・要求率・Base/Downside: "
     "docs/reference/stock-assessment.md#scenario-arithmetic\n"
     "# 原典の期間・単位を確認し、旧保存入力へ追補しない。\n"

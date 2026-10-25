@@ -410,8 +410,8 @@ type = "forbidden"
 # Exact pair readers receive query-only connections. Preview uses read-only
 # condition evaluation, not the publication service; its pair type is annotation-only.
 ignore_imports = [
-  "baibai_engine.read_api.research -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.read_api.proposals -> baibai_engine.investment_judgment.stock_assessment_store",
+  "baibai_engine.read_api.stock_assessment -> baibai_engine.investment_judgment.stock_assessment_store",
+  "baibai_engine.read_api.trade_proposal -> baibai_engine.investment_judgment.stock_assessment_store",
   "baibai_engine.investment_judgment.trade_proposal_query -> baibai_engine.investment_judgment.stock_assessment_store",
   "baibai_engine.investment_judgment.trade_proposal_inputs -> baibai_engine.investment_judgment.stock_assessment_store",
   "baibai_engine.investment_judgment.trade_proposal_conditions -> baibai_engine.investment_judgment.stock_assessment_store",

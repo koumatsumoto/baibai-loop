@@ -290,5 +290,5 @@ def _materialize(
         selected_tickers=tuple(t.ticker for t in selection.targets),
         selected_count=len(selection.targets),
         selection_sha256=digest,
-        next_step=None if status == "already_completed" else "research status",
+        next_step=None if status == "already_completed" else "investment-judgment status",
     )

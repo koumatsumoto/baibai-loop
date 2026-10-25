@@ -1,4 +1,4 @@
-"""Web/batchの指標・Reading・市場状態・判断履歴を公開する読取境界。"""
+"""Web・ジョブへ指標・Reading・市場状態・判断履歴を渡す読取境界。"""
 
 from __future__ import annotations
 

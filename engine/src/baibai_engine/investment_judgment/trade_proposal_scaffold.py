@@ -42,10 +42,11 @@ def scaffold_proposal(
         else:
             reference = outcome.assessment_ref
             rationale = (
-                "保存評価の各領域を踏まえ、今買う・待つ・見送る等の行動と比較理由を記述する。"
-                "重要なtechnical所見との関係を示し、technicalだけでPmax・gate・sell条件を変えない。"
+                "保存した銘柄評価を踏まえ、今買う・待つ・見送る等の行動と比較理由を記述する。"
+                "重要なテクニカル分析の所見との関係を示し、"
+                "価格局面だけでPmax・購入条件・売却条件を変えない。"
             )
-            message = "行動・具体条件・比較理由の執筆と独立Reviewが未了です。"
+            message = "行動・具体条件・比較理由の執筆と独立検証が未了です。"
             code = "proposal_content_requires_review"
         items.append(
             DeferItem(
@@ -54,9 +55,9 @@ def scaffold_proposal(
                 assessment_ref=reference,
                 rationale=rationale,
                 review_conditions=(
-                    "根拠・入力・見直し条件を今回の内容Reviewで確認する。",
+                    "根拠・入力・見直し条件を今回の独立検証で確認する。",
                     (
-                        "technicalを使う場合は再確認条件と時点・basis・期間の整合、"
+                        "テクニカル分析を使う場合は再確認条件と時点・basis・期間の整合、"
                         "価格局面と企業価値の混同、同じ価格情報の多重票を確認する。"
                     ),
                 ),
@@ -66,7 +67,7 @@ def scaffold_proposal(
                         message=message,
                     ),
                 ),
-                resume_conditions=("不足を確認して行動と理由を記述し、独立content Reviewを行う。",),
+                resume_conditions=("不足を確認して行動と理由を記述し、独立検証を行う。",),
             )
         )
     warnings = build_proposal_warnings(
@@ -86,7 +87,7 @@ def scaffold_proposal(
         comparison=(
             "完成した評価の価値・仮定・期間、環境伝達、外部予測との相違、重要な価格局面を踏まえ、"
             "今買う・待つ・見送る理由を現金維持等の代替案と比較する。"
-            "technical欠測で他領域を一律停止せず、未完成は経済的見送りへ混ぜない。"
+            "テクニカル分析の欠測で他モデルを一律停止せず、未完成は経済的見送りへ混ぜない。"
         ),
         forgone="採らない行動と理由を記述してください。",
         market_context_assessment_id=context.market_context_assessment_id,

@@ -29,10 +29,9 @@ from pydantic import (
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.foundation.numbers import finite_decimal
+from baibai_engine.foundation.numbers import decimal_to_number, finite_decimal
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.investment_judgment.decimal_number import decimal_to_number
 from baibai_engine.investment_judgment.scenario import project_return, valuation_conditions
 from baibai_engine.investment_judgment.valuation import Valuation
 from baibai_engine.market.sessions import latest_eligible_close_date
