@@ -48,6 +48,13 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
     [
         ("cloud-daily-batch.yml", "daily", "pull", "portfolio-views", "daily"),
         (
+            "cloud-model-store-migration.yml",
+            "migrate",
+            "migrate-readback",
+            "migrate-readback",
+            "operator",
+        ),
+        (
             "cloud-materialize.yml",
             "materialize",
             "Pull stores",
@@ -173,3 +180,69 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     assert daily.index(by_id["portfolio-views"]) > daily.index(by_id["source-seal"])
     assert "baibai_web" not in by_id["batch"]["run"]
     assert "baibai_web" not in by_id["source-seal"]["run"]
+
+
+def test_model_store_migration_is_manual_current_main_only_and_has_no_general_writer_inputs():
+    workflow = _workflow("cloud-model-store-migration.yml")
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["concurrency"] == {
+        "group": "cloud-publish",
+        "queue": "max",
+        "cancel-in-progress": "false",
+    }
+    job = workflow["jobs"]["migrate"]
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    assert "github.repository == 'koumatsumoto/baibai-loop'" in job["if"]
+    assert "env" not in job
+    steps = _steps(workflow, "migrate")
+    by_id = {step.get("id", step.get("name")): step for step in steps}
+    names = list(by_id)
+    assert (
+        names.index("Sync Python environment")
+        < names.index("Require current main")
+        < names.index("lease-acquire")
+    )
+    assert "uv sync --locked" == by_id["Sync Python environment"]["run"]
+    assert "git ls-remote origin refs/heads/main" in by_id["Require current main"]["run"]
+    assert '"$GITHUB_SHA"' in by_id["Require current main"]["run"]
+    command = by_id["migrate-readback"]["run"]
+    phases = [
+        "private_step pull ",
+        "private_step source-schema6 ",
+        "private_step backup ",
+        "private_step migrate-copy ",
+        "private_step replace-local ",
+        "private_step lease-before-push ",
+        "private_step conditional-push ",
+        "private_step readback ",
+        "private_step verify-readback ",
+    ]
+    assert [command.index(phase) for phase in phases] == sorted(
+        command.index(phase) for phase in phases
+    )
+    assert "--schema-version 6" in command
+    assert "verify_held(" in command
+    assert "push-runs" in command
+    assert command.count("pull-machine") == 2
+    assert "--verify-only" in command
+    assert '"$RUNNER_TEMP/source-runs.sqlite"' in command
+    assert '"$RUNNER_TEMP/model-store-migration.log" 2>&1' in command
+    assert 'if ! "$@"' in command
+    assert "return 1" in command
+    for step in steps:
+        if "env" in step:
+            assert step.get("id") in {"lease-acquire", "migrate-readback", "lease-release"}
+    all_commands = "\n".join(str(step.get("run", "")) for step in steps)
+    for forbidden in (
+        "push-app",
+        "push-machine",
+        "publish-lake",
+        "hydrate-market",
+        "model-integration",
+        "upload-portfolio-views",
+        "set -x",
+        "cat ",
+    ):
+        assert forbidden not in all_commands
+    assert not any("upload-artifact" in str(step.get("uses", "")) for step in steps)

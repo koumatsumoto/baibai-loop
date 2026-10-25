@@ -30,7 +30,7 @@ uv run baibai-engine investment-judgment selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
-低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。Approachの名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
+低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。候補抽出の名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
 
 企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。必要なら同じ固定入力から必要期間を再生成し、別generationとして明示する。prepare中に範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
 
@@ -90,6 +90,6 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --force
 ```
 
-再開は保存入力から投影を復元し、元runやmutable storeへ付け替えない。forceは生成投影を修復し、執筆済みdraftを保つ。commit後のfile失敗も返されたOperation IDから再開する。別activeを上書きせず、完了済みへ追記しない。同文の本当の再依頼は新workspaceと新Operationで扱う。
+再開は保存入力から投影を復元し、元generation・旧runやmutable storeへ付け替えない。forceは生成投影を修復し、執筆済みdraftを保つ。commit後のfile失敗も返されたOperation IDから再開する。別activeを上書きせず、完了済みへ追記しない。同文の本当の再依頼は新workspaceと新Operationで扱う。
 
 後続調査は現在の成果を確定して次Operationへ進む。実際に報告された注文・資金は[Ledger Record](../ledger-record/SKILL.md)、本番反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。monitoringは同じ問いの既存taskを確認して記録する。

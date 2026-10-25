@@ -1,8 +1,5 @@
-"""L2 Reading: machine-computed descriptive statistics over the L1 store.
+"""保存L1と規則から要求時点の水準・変化・分布位置・鮮度を計算するL2 Reading。
 
-Every registered series gets the same treatment every business day — level,
-direction, position in its own history, threshold notes and how old the reading is
-— so an L3 analysis starts from one measured frame instead of re-deciding what
-"high" means each time. Descriptive only: no classification, no composite score,
-no signal.
+系列ごとの頻度・利用可能期間を保ち、L3へ共通の記述的な比較材料を渡す。
+分類・合成score・売買signalを作らず、原本storeへL2系列を複製しない。
 """

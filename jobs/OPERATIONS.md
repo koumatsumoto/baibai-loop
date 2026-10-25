@@ -116,6 +116,13 @@ malformed leaseは自動修復しない。GitHubとlocalにactive/pending writer
 
 ## 五モデルstoreへの一回移行（schema 6 → 7）
 
+Actionsからは一回用の`cloud-model-store-migration.yml`をmainで手動実行する。対象mainのCI成功後、旧SHAの実行中・待機中machine writer（daily外側のqueueを含む）が残っていないことを確認する。workflowは現main SHA・source schema 6を要求し、既存R2接続で移行と読戻しだけを行う。私的DBやraw errorを公開artifact/logへ出さず、固定phaseだけを報告する。成功後の再実行や旧SHAのdaily再実行をせず、以後は新mainから開始する。PUT後の失敗は到達点を確認し、無条件再送やreceipt削除で回避しない。
+
+```bash
+gh workflow run cloud-model-store-migration.yml --ref main
+```
+
+
 旧screening runを保持したまま五モデルの保存tableだけを加える。対応codeのmain反映とstore移行を同じdeliveryで完了し、それまでは共通統合を開始しない。dailyの自動移行や旧runの再計算はしない。既存writerが動いていないことを確認し、上記operator lease内でreceipt検証付きfresh pull-machine・別コピー移行・条件付き反映を行う。作業中のmachine DBがある領域は使わない。pull-runsだけでは他storeを含む既存receiptの整合を確認できないため、この移行の開始には使わない。
 
 ```bash
