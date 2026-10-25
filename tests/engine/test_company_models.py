@@ -116,7 +116,10 @@ def test_owner_results_round_trip_into_selection_without_legacy_er(profit):
 
 def test_missing_price_does_not_erase_the_financial_history_or_invent_zero_yield():
     models = {model.model_id: model.payload for model in generate(documents=(document(),), bars=())}
-    assert models["company_valuation"]["financial"] is None
+    assert models["company_valuation"]["financial"]["market_price_yen"] is None
+    assert models["company_valuation"]["financial"]["market_cap"] is None
+    assert models["company_valuation"]["financial"]["sales"] == 1000.0
+    assert models["company_valuation"]["financial"]["eps"] == 1.25
     assert models["company_valuation"]["earnings_price"]["earnings_yield"] is None
     assert models["company_valuation"]["earnings_price"]["unavailable_reason"] == "missing_price"
     assert models["company_growth"]["status"] == "available"
@@ -230,7 +233,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[0].payload["earnings_price"] == missing[0].payload["earnings_price"]
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
-    assert present[0].calculation_revision.endswith("observations-v6")
+    assert present[0].calculation_revision.endswith("observations-v7")
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
 
@@ -249,3 +252,63 @@ def test_edinet_entity_mismatch_keeps_provenance_without_filling_financial_value
     assert financial["debt"] is None
     assert financial["edinet_source_doc_id"] == "S100MISMATCH"
     assert financial["edinet_failure_reasons"]
+
+
+@pytest.mark.parametrize("price", [None, 0.0, -1.0])
+@pytest.mark.parametrize("dividend", [0.0, 2.0])
+def test_missing_or_invalid_price_keeps_financial_observations_and_only_nulls_price_ratios(
+    price, dividend
+):
+    annual = replace(
+        document(),
+        dps_actual_annual=dividend,
+        cash_eq=100.0,
+        total_assets=1000.0,
+        forecast_status="confirmed",
+        forecast_eps=2.0,
+        forecast_profit=160.0,
+        dividend_forecast_status="confirmed",
+        dps_forecast_annual=dividend,
+    )
+    record = EdinetMetricRecord(
+        ticker="1001",
+        cash=100.0,
+        debt=40.0,
+        fcf_ttm=12.0,
+        consolidation_basis="consolidated",
+        source_doc_id="S100RETAINED",
+    )
+    bars = () if price is None else (PriceBar(ASOF, price, None),)
+    result = generate(documents=(annual,), bars=bars, edinet=record)[0].payload
+    financial = result["financial"]
+    assert financial["cash_eq"] == 100
+    assert financial["total_assets"] == 1000
+    assert financial["eps"] == 1.25
+    assert financial["dps_actual_annual"] == dividend
+    assert financial["dps_forecast_annual"] == dividend
+    assert financial["forecast_eps_yen"] == 2.0
+    assert financial["forecast_profit_yen"] == 160.0
+    assert financial["debt"] == 40
+    assert financial["cash"] == 100
+    assert financial["fcf_ttm"] == 12
+    assert financial["edinet_source_doc_id"] == "S100RETAINED"
+    for field in (
+        "market_price_yen",
+        "market_cap",
+        "per_forward",
+        "per_trailing",
+        "pbr",
+        "ev_ebitda",
+        "p_s",
+        "pcfr",
+        "dividend_yield",
+        "fcf_yield",
+        "net_cash_to_market_cap",
+        "asset_backed_ratio",
+    ):
+        assert financial[field] is None, field
+    assert result["earnings_price"]["earnings_yield"] is None
+    assert result["earnings_price"]["unavailable_reason"] == (
+        "missing_price" if price is None else "invalid_price"
+    )
+    assert result["earnings_price"]["price_yen"] == price

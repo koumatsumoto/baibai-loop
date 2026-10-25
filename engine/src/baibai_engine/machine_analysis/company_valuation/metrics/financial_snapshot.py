@@ -47,7 +47,7 @@ VALUATION_CALCULATION_REVISION = "continuous-annual-input-v44"
 
 
 def build_financial_snapshot(
-    latest_price: float,
+    latest_price: float | None,
     summaries: Sequence[JQuantsFinancialSummary],
     edinet: EdinetMetricRecord | None,
     ttm_rules: TTMRules,
@@ -124,7 +124,11 @@ def build_financial_snapshot(
     dps_actual_annual = dividend.dps_actual_annual
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield
-    per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
+    per_forward = (
+        latest_price / forecast_eps
+        if latest_price is not None and forecast_eps is not None and forecast_eps > 0
+        else None
+    )
     operating_row = _latest_actual_row_by_field_priority(
         summaries,
         ("operating_profit", "ordinary_profit", "profit"),
@@ -179,7 +183,11 @@ def build_financial_snapshot(
     )
     if net_cash is None and cash is not None and debt is not None:
         net_cash = cash - debt
-    latest_market_cap = (latest_price * shares_ex_treasury) if shares_ex_treasury else None
+    latest_market_cap = (
+        latest_price * shares_ex_treasury
+        if latest_price is not None and shares_ex_treasury
+        else None
+    )
     latest_enterprise_value = (
         (latest_market_cap + debt - cash)
         if latest_market_cap is not None and debt is not None and cash is not None

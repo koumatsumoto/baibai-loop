@@ -102,7 +102,7 @@ def _dividend_basis_requires_resolution(
 def _resolve_dividend_carry(
     summaries: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
-    latest_price: float,
+    latest_price: float | None,
     asof_date: date,
 ) -> _DividendCarry:
     """Resolve carry from applicable-period guidance and split-safe actual payouts.
@@ -155,7 +155,7 @@ def _resolve_dividend_carry(
         )
     )
 
-    if latest_price <= 0:
+    if latest_price is None or latest_price <= 0:
         basis = "unavailable"
     elif forecast_is_usable_for_carry and forecast is not None:
         return _DividendCarry(

@@ -78,21 +78,19 @@ def generate_financial_and_price_models(
             if expected_price_date is None
             else "stale_price",
         )
-    financial = None
-    if latest is not None and latest.price > 0:
-        financial = asdict(
-            build_financial_snapshot(
-                latest.price,
-                documents,
-                edinet,
-                ttm_rules,
-                adjustment_events=adjustment_events,
-                asof_date=as_of,
-            )
+    price = latest.price if latest is not None and latest.price > 0 else None
+    financial = asdict(
+        build_financial_snapshot(
+            price,
+            documents,
+            edinet,
+            ttm_rules,
+            adjustment_events=adjustment_events,
+            asof_date=as_of,
         )
-        # 変化の正準材料は企業成長の期間・basis・実数差・sign_change。
-        # 旧snapshotの負基準前年比を、成長モデルと競合する評価軸にしない。
-        financial = {key: value for key, value in financial.items() if key not in _GROWTH_FIELDS}
+    )
+    # 変化の正準材料は企業成長。価格欠測で独立した財務観測を消さない。
+    financial = {key: value for key, value in financial.items() if key not in _GROWTH_FIELDS}
     growth = generate_company_growth(
         documents,
         ticker=ticker,
@@ -110,7 +108,7 @@ def generate_financial_and_price_models(
         GeneratedModel(
             model_id="company_valuation",
             subject=ticker,
-            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v6",
+            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v7",
             payload=json.loads(
                 canonical_json(
                     {

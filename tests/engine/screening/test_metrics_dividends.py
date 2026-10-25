@@ -707,3 +707,16 @@ def test_future_unit_change_does_not_contaminate_requested_dividend_basis(annual
     assert _forward_asof_basis_dividend(observation, events, basis_date=after) == (
         0.0 if annual == 0 else None
     )
+
+
+@pytest.mark.parametrize("forecast", [0.0, 10.0])
+def test_missing_price_preserves_forecast_dps_but_never_invents_a_yield(forecast):
+    summaries = [_summary("130A", date(2025, 8, 10), dps_forecast_annual=forecast)]
+    priced = _resolve_dividend_carry(summaries, [], 1000.0, date(2025, 9, 1))
+    missing = _resolve_dividend_carry(summaries, [], None, date(2025, 9, 1))
+    assert priced.dividend_yield == forecast / 1000
+    assert missing.dps_forecast_annual == forecast
+    assert missing.dps_actual_annual == priced.dps_actual_annual
+    assert missing.split_factor == priced.split_factor
+    assert missing.dividend_yield is None
+    assert missing.basis == "unavailable"
