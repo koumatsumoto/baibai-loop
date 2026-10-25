@@ -147,6 +147,7 @@ from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics 
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
     FetchError as TradingViewFetchError,
 )
+from baibai_engine.machine_analysis.generation_reader import read_and_generate_models
 from baibai_engine.machine_analysis.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
 )
@@ -196,7 +197,11 @@ from baibai_engine.storage.lake.release import create_release as create_lake_rel
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
+    LakeExportReport,
+    SealedSQLiteSnapshot,
+    export_market_snapshot,
     export_market_store,
+    sealed_sqlite_snapshot,
 )
 from baibai_engine.storage.observations.equity_web_import import (
     import_responses as equity_web_import_responses,
@@ -244,6 +249,7 @@ __all__ = [
     "LakeBuildError",
     "LakeBuildReport",
     "LakeDatasetManifest",
+    "LakeExportReport",
     "LakeFixedRelease",
     "LakeObjectCache",
     "LakeReadError",
@@ -254,6 +260,7 @@ __all__ = [
     "LakeStoreOriginError",
     "LocalMirrorSource",
     "MarketSchemaError",
+    "SealedSQLiteSnapshot",
     "StoreLayoutError",
     "TradingViewFetchError",
     "TradingViewHandoff",
@@ -277,6 +284,7 @@ __all__ = [
     "export_edinet_handoff",
     "export_jpx_handoff",
     "export_jquants_handoff",
+    "export_market_snapshot",
     "export_market_source_input",
     "export_market_store",
     "export_master_calendar_dependencies",
@@ -306,12 +314,14 @@ __all__ = [
     "lake_verified_git_commit",
     "load_economic_sources",
     "load_lake_model_json",
+    "read_and_generate_models",
     "read_lake_store_origin",
     "refresh_economic_sources",
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "resolve_release",
     "retain_economic_rechecks",
+    "sealed_sqlite_snapshot",
     "tradingview_failure_line",
     "tradingview_preflight",
     "tradingview_safe_progress",

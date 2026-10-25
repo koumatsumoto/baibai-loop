@@ -268,40 +268,59 @@ def export_market_store(
 ) -> LakeExportReport:
     """Export every lake dataset from one sealed SQLite generation."""
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
-        with _open_immutable(snapshot.path) as probe:
-            try:
-                store_origin = read_lake_store_origin_from_connection(probe)
-            except LakeStoreOriginError as exc:
-                raise LakeBuildError(f"sealed SQLite store origin is invalid: {exc}") from exc
-            if store_origin != expected_store_origin:
-                raise LakeBuildError(
-                    "sealed SQLite store origin differs from the serving L1 release; "
-                    "hydrate from current before publishing"
-                )
-            # Empty source tables produce no partition. Omit them here without claiming
-            # why they are empty; release policy decides whether an omitted dataset is
-            # allowed, including required inputs and previously published history.
-            populated = tuple(
-                name for name in sorted(LAKE_DATASETS) if _has_rows(probe, LAKE_DATASETS[name])
-            )
-        if not populated:
-            raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
-        reports = {
-            dataset_name: export_dataset_snapshot(
-                dataset_name=dataset_name,
-                mirror_root=mirror_root,
-                producer_git_commit=producer_git_commit,
-                source_snapshot=snapshot,
-                created_at=created_at,
-            )
-            for dataset_name in populated
-        }
-        return LakeExportReport(
-            snapshot=snapshot.ref,
-            store_origin=store_origin,
-            datasets=MappingProxyType(reports),
-            empty_datasets=tuple(name for name in sorted(LAKE_DATASETS) if name not in reports),
+        return export_market_snapshot(
+            source_snapshot=snapshot,
+            mirror_root=mirror_root,
+            producer_git_commit=producer_git_commit,
+            expected_store_origin=expected_store_origin,
+            created_at=created_at,
         )
+
+
+def export_market_snapshot(
+    *,
+    source_snapshot: SealedSQLiteSnapshot,
+    mirror_root: Path,
+    producer_git_commit: str,
+    expected_store_origin: LakeStoreOrigin | None,
+    created_at: datetime | None = None,
+) -> LakeExportReport:
+    """同じsealをモデル生成にも渡せるよう、snapshotの寿命はcallerが所有する。"""
+    snapshot = source_snapshot
+    with _open_immutable(snapshot.path) as probe:
+        try:
+            store_origin = read_lake_store_origin_from_connection(probe)
+        except LakeStoreOriginError as exc:
+            raise LakeBuildError(f"sealed SQLite store origin is invalid: {exc}") from exc
+        if store_origin != expected_store_origin:
+            raise LakeBuildError(
+                "sealed SQLite store origin differs from the serving L1 release; "
+                "hydrate from current before publishing"
+            )
+        # Empty source tables produce no partition. Omit them here without claiming
+        # why they are empty; release policy decides whether an omitted dataset is
+        # allowed, including required inputs and previously published history.
+        populated = tuple(
+            name for name in sorted(LAKE_DATASETS) if _has_rows(probe, LAKE_DATASETS[name])
+        )
+    if not populated:
+        raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
+    reports = {
+        dataset_name: export_dataset_snapshot(
+            dataset_name=dataset_name,
+            mirror_root=mirror_root,
+            producer_git_commit=producer_git_commit,
+            source_snapshot=snapshot,
+            created_at=created_at,
+        )
+        for dataset_name in populated
+    }
+    return LakeExportReport(
+        snapshot=snapshot.ref,
+        store_origin=store_origin,
+        datasets=MappingProxyType(reports),
+        empty_datasets=tuple(name for name in sorted(LAKE_DATASETS) if name not in reports),
+    )
 
 
 def _has_rows(connection: sqlite3.Connection, dataset: LakeDataset) -> bool:

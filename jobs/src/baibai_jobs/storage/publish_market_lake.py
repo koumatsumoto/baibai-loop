@@ -28,6 +28,7 @@ from pathlib import Path
 from baibai_engine.job_api import (
     LakeBuildError,
     LakeBuildReport,
+    LakeExportReport,
     LakeFixedRelease,
     LakeReadError,
     LakeReleaseManifest,
@@ -35,15 +36,17 @@ from baibai_engine.job_api import (
     LakeStoreOrigin,
     LakeStoreOriginError,
     LocalMirrorSource,
+    SealedSQLiteSnapshot,
     advance_lake_store_origin,
     canonical_lake_model_bytes,
     create_lake_release,
-    export_market_store,
+    export_market_snapshot,
     lake_dataset_manifest_key,
     lake_mirror_path,
     lake_verified_git_commit,
     load_lake_model_json,
     resolve_release,
+    sealed_sqlite_snapshot,
 )
 
 from .lake_publish import (
@@ -84,6 +87,129 @@ class MarketLakePublishReport:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedMarketLake:
+    """生成と公開が共有する一回のseal。prepareのcontext内だけで使用する。"""
+
+    sqlite_path: Path
+    mirror_root: Path
+    source_snapshot: SealedSQLiteSnapshot
+    serving: PointerSnapshot
+    export: LakeExportReport
+    release_manifest_path: Path
+    release: LakeReleaseManifest
+    release_sha256: str
+    base_resolve_seconds: float
+    seal_export_seconds: float
+    release_create_seconds: float
+
+
+@contextmanager
+def prepare_market_lake(
+    *,
+    sqlite_path: Path,
+    mirror_root: Path,
+    store: ObjectStore,
+    release_id: str | None = None,
+) -> Iterator[PreparedMarketLake]:
+    """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
+    started = time.perf_counter()
+    serving = _serving_pointer(store)
+    previous = serving.pointer
+    published_coverage_start: Mapping[str, date] = {}
+    if previous is not None:
+        serving_release = _resolve_serving_release(store, mirror_root, previous)
+        published_coverage_start = {
+            name: manifest.coverage_start
+            for name, manifest in serving_release.dataset_manifests.items()
+        }
+    base_finished = time.perf_counter()
+    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
+        export = export_market_snapshot(
+            source_snapshot=snapshot,
+            mirror_root=mirror_root,
+            producer_git_commit=lake_verified_git_commit(),
+            expected_store_origin=_pointer_origin(previous),
+        )
+        export_finished = time.perf_counter()
+        with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
+            release_path, release = create_lake_release(
+                published_coverage_start=published_coverage_start,
+                dataset_manifest_paths=manifest_paths,
+                mirror_root=mirror_root,
+                release_id=release_id,
+            )
+            yield PreparedMarketLake(
+                sqlite_path=sqlite_path,
+                mirror_root=mirror_root,
+                source_snapshot=snapshot,
+                serving=serving,
+                export=export,
+                release_manifest_path=release_path,
+                release=release,
+                release_sha256=hashlib.sha256(canonical_lake_model_bytes(release)).hexdigest(),
+                base_resolve_seconds=base_finished - started,
+                seal_export_seconds=export_finished - base_finished,
+                release_create_seconds=time.perf_counter() - export_finished,
+            )
+
+
+def publish_prepared_market_lake(
+    prepared: PreparedMarketLake,
+    *,
+    store: ObjectStore,
+    before_pointer_switch: Callable[[], None] | None = None,
+    verified_readback_root: Path | None = None,
+) -> MarketLakePublishReport:
+    """生成に使用したreleaseをそのまま公開する。export/createをやり直さない。"""
+    published = publish_release(
+        mirror_root=prepared.mirror_root,
+        release_manifest_path=prepared.release_manifest_path,
+        expected_release_sha256=prepared.release_sha256,
+        store=store,
+        pointer_precondition=prepared.serving.precondition,
+        before_pointer_switch=before_pointer_switch,
+        verified_readback_root=verified_readback_root,
+    )
+    target_origin = LakeStoreOrigin(
+        release_id=published.release_id,
+        release_manifest_sha256=prepared.release_sha256,
+    )
+    try:
+        advance_lake_store_origin(
+            prepared.sqlite_path, expected=prepared.export.store_origin, target=target_origin
+        )
+    except LakeStoreOriginError as exc:
+        raise LakePublishError(
+            f"the L1 pointer advanced but the local market store origin did not: {exc}; "
+            "hydrate the store from current before publishing again"
+        ) from exc
+    print(
+        "lake publish phases: "
+        f"base_resolve={prepared.base_resolve_seconds:.3f}s "
+        f"seal_plan_export={prepared.seal_export_seconds:.3f}s "
+        f"release_create={prepared.release_create_seconds:.3f}s "
+        f"local_graph={published.local_graph_seconds:.3f}s "
+        f"remote_closure={published.remote_closure_seconds:.3f}s "
+        f"pointer={published.pointer_seconds:.3f}s",
+        file=sys.stderr,
+    )
+    transfers = published.transfers.as_dict()
+    previous = prepared.serving.pointer
+    return MarketLakePublishReport(
+        release_id=published.release_id,
+        release_manifest_sha256=prepared.release_sha256,
+        data_as_of=prepared.release.data_as_of.isoformat(),
+        previous_release_id=None if previous is None else previous.release_id,
+        changed_partitions={
+            name: item.new_objects for name, item in sorted(prepared.export.datasets.items())
+        },
+        uploaded_objects=int(transfers.get("uploaded_objects", 0)),
+        uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
+        transfers=published.transfers,
+    )
+
+
 def publish_market_lake(
     *,
     sqlite_path: Path,
@@ -93,87 +219,16 @@ def publish_market_lake(
     before_pointer_switch: Callable[[], None] | None = None,
     verified_readback_root: Path | None = None,
 ) -> MarketLakePublishReport:
-    """Derive every partition from the store, seal a release, and publish it.
-
-    The serving release is resolved for the origin the store must be bound to and for
-    the history floor the policy check applies — a publication must not quietly serve
-    less history than the release it replaces. None of its partitions are carried.
-    """
-
-    base_resolve_started = time.perf_counter()
-    serving = _serving_pointer(store)
-    previous = serving.pointer
-    expected_store_origin = _pointer_origin(previous)
-    if previous is None:
-        published_coverage_start: Mapping[str, date] = {}
-    else:
-        serving_release = _resolve_serving_release(store, mirror_root, previous)
-        published_coverage_start = {
-            name: manifest.coverage_start
-            for name, manifest in serving_release.dataset_manifests.items()
-        }
-
-    export_started = time.perf_counter()
-    export = export_market_store(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror_root,
-        producer_git_commit=lake_verified_git_commit(),
-        expected_store_origin=expected_store_origin,
-    )
-    export_finished = time.perf_counter()
-    with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
-        release_path, release = create_lake_release(
-            published_coverage_start=published_coverage_start,
-            dataset_manifest_paths=manifest_paths,
-            mirror_root=mirror_root,
-            release_id=release_id,
-        )
-        release_payload = canonical_lake_model_bytes(release)
-        release_sha256 = hashlib.sha256(release_payload).hexdigest()
-        release_finished = time.perf_counter()
-        published = publish_release(
-            mirror_root=mirror_root,
-            release_manifest_path=release_path,
-            expected_release_sha256=release_sha256,
+    """単独公開の入口。共通統合はprepareとpublishの間でモデルを生成する。"""
+    with prepare_market_lake(
+        sqlite_path=sqlite_path, mirror_root=mirror_root, store=store, release_id=release_id
+    ) as prepared:
+        return publish_prepared_market_lake(
+            prepared,
             store=store,
-            pointer_precondition=serving.precondition,
             before_pointer_switch=before_pointer_switch,
             verified_readback_root=verified_readback_root,
         )
-    target_origin = LakeStoreOrigin(
-        release_id=published.release_id,
-        release_manifest_sha256=release_sha256,
-    )
-    try:
-        advance_lake_store_origin(sqlite_path, expected=export.store_origin, target=target_origin)
-    except LakeStoreOriginError as exc:
-        raise LakePublishError(
-            f"the L1 pointer advanced but the local market store origin did not: {exc}; "
-            "hydrate the store from current before publishing again"
-        ) from exc
-    print(
-        "lake publish phases: "
-        f"base_resolve={export_started - base_resolve_started:.3f}s "
-        f"seal_plan_export={export_finished - export_started:.3f}s "
-        f"release_create={release_finished - export_finished:.3f}s "
-        f"local_graph={published.local_graph_seconds:.3f}s "
-        f"remote_closure={published.remote_closure_seconds:.3f}s "
-        f"pointer={published.pointer_seconds:.3f}s",
-        file=sys.stderr,
-    )
-    transfers = published.transfers.as_dict()
-    return MarketLakePublishReport(
-        release_id=published.release_id,
-        release_manifest_sha256=release_sha256,
-        data_as_of=release.data_as_of.isoformat(),
-        previous_release_id=None if previous is None else previous.release_id,
-        changed_partitions={
-            name: item.new_objects for name, item in sorted(export.datasets.items())
-        },
-        uploaded_objects=int(transfers.get("uploaded_objects", 0)),
-        uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
-        transfers=published.transfers,
-    )
 
 
 def _serving_pointer(store: ObjectStore) -> PointerSnapshot:

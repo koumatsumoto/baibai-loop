@@ -15,8 +15,10 @@ from baibai_engine.machine_analysis.market_context.security import (
 )
 from baibai_engine.machine_analysis.market_context.snapshot import (
     build_market_snapshot,
+    prepare_market_context_from_bars,
     prepare_market_context_inputs,
 )
+from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.market.jquants_reader import read_master_snapshot
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -223,3 +225,49 @@ def test_shared_unwritten_store_keeps_unknown_and_null(tmp_path: Path, create_em
     snapshot = build_market_snapshot(sqlite_path=path, asof_date=ASOF, prepared=prepared)
     assert snapshot["sectors"] == []
     assert all(point["benchmark_trend"] == "unknown" for point in snapshot["points"])
+
+
+def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_store, monkeypatch):
+    insert_daily_bars_from_closes(
+        context_store,
+        "OLD2",
+        [100 + index for index in range(80)],
+        end_date=ASOF - timedelta(days=500),
+    )
+    with closing(open_connection(context_store)) as connection:
+        insert_master_rows(
+            connection, [("2026-05-28", "OLD2", "old peer", "プライム", "機械", "011")]
+        )
+        connection.commit()
+    tickers = ("AAAA", "OLD1", "NEW1", "NONE")
+    expected = build_security_market_contexts(
+        sqlite_path=context_store, tickers=tickers, asof_date=ASOF, self_range_window_bars=750
+    )
+    assert expected["OLD1"]["relative"]["sector"]["peer_count"] == 1
+    bars = read_price_bars(context_store, start=date.min, end=ASOF)
+    master = read_master_snapshot(context_store, as_of=ASOF)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("generation must reuse its shared price input")
+
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.market_context.snapshot.read_price_bars", forbidden
+    )
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.market_context.security.read_price_bars", forbidden
+    )
+    prepared = prepare_market_context_from_bars(
+        sqlite_path=context_store,
+        asof_date=ASOF,
+        master=master,
+        bars_by_ticker=bars,
+        subjects=tickers,
+    )
+    assert build_security_market_contexts(
+        sqlite_path=context_store,
+        tickers=tickers,
+        asof_date=ASOF,
+        self_range_window_bars=750,
+        prepared=prepared,
+        price_bars_by_ticker=bars,
+    ) == expected
