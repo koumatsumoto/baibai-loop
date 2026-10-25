@@ -39,8 +39,8 @@ from baibai_web.readmodel.builders import build_meta
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
     DashboardView,
-    InvestmentProposalView,
     InvestmentProposalsView,
+    InvestmentProposalView,
     MarketContextView,
     MetaView,
     OperationsView,

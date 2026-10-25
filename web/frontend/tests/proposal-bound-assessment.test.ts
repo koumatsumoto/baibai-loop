@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import type { InvestmentProposalItemView, InvestmentProposalPreviewView } from '../src/api/types'
-import { CurrentPreviewContent, ProposalAssessmentDetails, ProposalItemContent } from '../src/pages/InvestmentProposalPage'
+import { CurrentPreviewContent, ProposalAssessmentDetails, ProposalItemContent } from '../src/pages/TradeProposalPage'
 
 const document = {
   input_snapshot: { as_of: '2026-10-14', sources: [{ ref: 'https://example.invalid/original-source' }] },
@@ -62,10 +62,10 @@ describe('保存した提案と評価', () => {
   it.each([
     { stance: 'uncertain', label: '未確定' },
     { stance: null, label: '未確認' },
-  ])('intactでも企業評価の結論 $label を別に示す', ({ stance, label }) => {
+  ])('intactでも銘柄評価の結論 $label を別に示す', ({ stance, label }) => {
     const saved = { ...item, action: 'defer' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, conclusion: { ...document.conclusion, stance } } } }
     const html = render(ProposalAssessmentDetails, saved)
-    expect(html).toMatch(new RegExp(`企業評価の結論</dt><dd[^>]*><p>${label}</p>`))
+    expect(html).toMatch(new RegExp(`銘柄評価の結論</dt><dd[^>]*><p>${label}</p>`))
     expect(html).toMatch(/投資仮説の成立性<\/dt><dd[^>]*><p>維持されている/)
     expect(document.investment_case.status).toBe('intact')
     expect(render(ProposalItemContent, saved)).toContain('判断保留')
@@ -96,7 +96,7 @@ describe('保存した提案と評価', () => {
     expect(html).toContain('href="/securities/1234"')
     expect(html).toContain('最新の銘柄情報・評価を見る（提案当時とは別）')
     expect(html.indexOf('この行動を提案した理由')).toBeLessThan(html.indexOf('保存した提案条件'))
-    expect(html.indexOf('保存した提案条件')).toBeLessThan(html.indexOf('この提案が参照した評価・独立Review'))
+    expect(html.indexOf('保存した提案条件')).toBeLessThan(html.indexOf('この提案が参照した評価・独立検証'))
   })
   it('完成した経済的見送りに架空の注文条件や未調査の表示を足さない', () => {
     const html = render(ProposalItemContent, { ...item, action: 'no_action', rationale: '要求する見返りに届かないため現金を維持する', terms: null, order_readiness: 'not_applicable' })
@@ -124,9 +124,9 @@ describe('保存した提案と評価', () => {
     const syntheticItem: InvestmentProposalItemView = { ...item, action: 'defer', rationale: '借換条件が未取得のため判断保留', terms: null, order_readiness: 'not_applicable', blockers: [{ code: 'material_unknown', message: '借換条件を確認する' }], resume_conditions: ['借換条件の一次資料を入手する'], assessment_projection: { ...item.assessment_projection, raw: syntheticDocument }, assessment_review: { ...item.assessment_review, strongest_countercase: '借換条件悪化でcashが残らない', review_scope: '満期の原典を独立確認し外部目標の対象期は未確認', checked_source_ids: ['issuer', 'external'] } }
     const before = JSON.stringify(syntheticItem)
     const html = render(ProposalAssessmentDetails, syntheticItem)
-    for (const phrase of ['価値を生む仮説', '観測と個社への伝達', '条件付き価値と時間', '反証と独立Review', '対象期と株式basisが未確認のため参考', '借換費用を控除したBase', '追加利払いと遅延を反映したDownside', '借換条件悪化でcashが残らない']) expect(html).toContain(phrase)
+    for (const phrase of ['価値を生む仮説', '観測と個社への伝達', '条件付き価値と時間', '反証と独立検証', '対象期と株式basisが未確認のため参考', '借換費用を控除したBase', '追加利払いと遅延を反映したDownside', '借換条件悪化でcashが残らない']) expect(html).toContain(phrase)
     expect(html.indexOf('観測と個社への伝達')).toBeLessThan(html.indexOf('条件付き価値と時間'))
-    expect(html.indexOf('条件付き価値と時間')).toBeLessThan(html.indexOf('反証と独立Review'))
+    expect(html.indexOf('条件付き価値と時間')).toBeLessThan(html.indexOf('反証と独立検証'))
     expect(html).toContain('href="https://example.invalid/estimate"')
     expect(html).toContain('external · 保存sourceのas_of 2026-10-13')
     expect(html).toContain('所見全体の参照:')
@@ -154,9 +154,9 @@ describe('保存した提案と評価', () => {
   })
   it('参照Review本文が欠けたときは反証節でも表示不足を明示する', () => {
     const html = render(ProposalAssessmentDetails, { ...item, assessment_review: null })
-    expect(html).toContain('独立Review本文を表示できません。保存した評価版のReviewを確認してください。')
-    expect(html.match(/独立Review本文を表示できません/g)).toHaveLength(1)
-    expect(html).not.toContain('独立Reviewの最も強い反対仮説')
+    expect(html).toContain('独立検証本文を表示できません。保存した評価版のReviewを確認してください。')
+    expect(html.match(/独立検証本文を表示できません/g)).toHaveLength(1)
+    expect(html).not.toContain('独立検証の最も強い反対仮説')
   })
   it('価値未解決をBase/Downsideの架空表示へ変換しない', () => {
     const unresolved = { ...item, action: 'defer' as const, terms: null, order_readiness: 'not_applicable' as const, assessment_projection: { ...item.assessment_projection, raw: { ...document, valuation: { status: 'unresolved', unresolved_reason: '借換条件が未取得', base: null, downside: null, horizon_months: null, required_annual_return_pct: null } }, projections: {} } }

@@ -304,7 +304,9 @@ def test_daily_batch_refreshes_sources_by_frequency_window(tmp_path: Path) -> No
 
     run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
-    refresh_calls = [argv for argv in runner.calls if _key(argv) == "data-collection economic refresh"]
+    refresh_calls = [
+        argv for argv in runner.calls if _key(argv) == "data-collection economic refresh"
+    ]
     assert [argv[4:] for argv in refresh_calls] == [
         ["fed-h15", "--start", (ASOF - timedelta(days=14)).isoformat(), "--end", "2026-07-21"],
         [

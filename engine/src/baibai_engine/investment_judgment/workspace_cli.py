@@ -86,7 +86,8 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     context_parser.add_argument("--out", type=Path)
     calibration_parser = subparsers.add_parser(
-        "calibration-context", help="read validated E[r] history for a fixed Investment Judgment run"
+        "calibration-context",
+        help="read validated E[r] history for a fixed Investment Judgment run",
     )
     calibration_parser.add_argument("--operation-id", required=True)
     calibration_parser.add_argument("--db", type=Path)
@@ -160,8 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--db", type=Path)
 
     for command, help_text in (
-        ("trade-proposal-context", "read fixed Investment Judgment scope and current proposal inputs"),
-        ("trade-proposal-scaffold", "scaffold an Trade Proposal with a fixed input snapshot"),
+        (
+            "trade-proposal-context",
+            "read fixed Investment Judgment scope and current proposal inputs",
+        ),
+        ("trade-proposal-scaffold", "scaffold a Trade Proposal with a fixed input snapshot"),
     ):
         child = subparsers.add_parser(command, help=help_text)
         child.add_argument("--operation-id", required=True)
@@ -171,7 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
             child.add_argument("--proposal-id", required=True)
             child.add_argument("--out", required=True, type=Path)
     for command in ("trade-proposal-check", "trade-proposal-publish"):
-        child = subparsers.add_parser(command, help="check/publish an Trade Proposal")
+        child = subparsers.add_parser(command, help="check/publish a Trade Proposal")
         child.add_argument("draft", type=Path)
         child.add_argument("--db", type=Path)
         child.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)

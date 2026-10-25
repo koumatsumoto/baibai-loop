@@ -41,4 +41,4 @@ mirrorの準備・指定は[Investment Judgment入力の準備](../../jobs/OPERA
 
 新しい実績指標の選択・算術はcompany_growthへ、新providerのデコード・文書identity・保存読取はmarket/Data Collectionへ置く。Investment Judgment/UIへ算式をコピーしない。共通marketの `financial_periods` は両領域で意味が同じ期間比較・実績矛盾処理・金額算術だけを持つ。Company Valuationの最新anchor・fallback・carry・TTMRulesは移さない。import-linterが兄弟領域、純粋計算、Web/Jobs入口の境界を検査する。
 
-一回限りの実データ受入は[Issue #1588](https://github.com/koumatsumoto/baibai-loop/issues/1588) / [draft PR #1592](https://github.com/koumatsumoto/baibai-loop/pull/1592)の未完了作業である。原本値・期間・単位の独立照合、既存入力と薄い表を残すL3対照比較、実際のprompt使用量の確認を残す。測定済みの有限範囲と手順は[固定時点の受入記録](https://github.com/koumatsumoto/baibai-loop/blob/4680cc0c3d33212e9e2779d0eaa38e8babdb8f7c/docs/reference/company-growth.md#実データ受入の前提とci)から辿り、合成CI成功を実データ受入の完了へ読み替えない。
+初期実装と有限の実データ受入の結果・限界は[Issue #1588](https://github.com/koumatsumoto/baibai-loop/issues/1588)に記録する。確認した企業・期間の結果を、全市場の原典照合・完全な履歴coverage・投資収益改善の証明へ一般化しない。

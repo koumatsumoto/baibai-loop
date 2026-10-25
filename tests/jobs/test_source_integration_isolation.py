@@ -3,9 +3,9 @@ from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
-from tests.jobs.test_source_receipts import Store, stage
 from tests.engine.test_jquants_handoff import calendar
 from tests.engine.test_jquants_projection import FIRST_AT, body, receive
+from tests.jobs.test_source_receipts import Store, stage
 
 from baibai_engine.data_collection.economic.records import read_snapshots
 from baibai_engine.data_collection.economic.store import initialize_database

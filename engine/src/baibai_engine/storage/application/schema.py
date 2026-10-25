@@ -83,7 +83,7 @@ ON investment_proposal(as_of, published_at, proposal_id);
 CREATE TRIGGER investment_proposal_immutable
 BEFORE UPDATE ON investment_proposal
 BEGIN
-    SELECT RAISE(ABORT, 'published Trade Proposal is immutable');
+    SELECT RAISE(ABORT, 'published Investment Proposal is immutable');
 END;
 
 CREATE TABLE investment_proposal_item (

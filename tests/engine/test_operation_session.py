@@ -56,7 +56,7 @@ def test_start_refuses_incomplete_research_binding_without_creating_db(
         if tickers is None
         else ({"kind": "research_triage", "ref": "triage", "research_set": tickers},),
     )
-    with pytest.raises(OperationConflictError, match="research prepare"):
+    with pytest.raises(OperationConflictError, match="investment-judgment prepare"):
         OperationService(db).start(
             session_kind="capital-allocation", as_of=NOW.date(), started_at=NOW, payload=payload
         )

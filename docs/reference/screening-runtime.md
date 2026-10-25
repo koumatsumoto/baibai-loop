@@ -3,7 +3,7 @@
 L2の財務・倍率・機械見積りと市場環境を全対象のStock Analysisへ固定し、同じrunから候補文脈を作る。結果の組立・候補抽出・較正は`machine_analysis/screening/`が所有する。指標自体は[企業価値](company-valuation.md)・[市場環境](market-context.md)へ置く。
 
 <a id="rule-purpose"></a>
-## 探索の意味
+## 候補抽出の意味
 
 入力scope、共通factの資格、Approach固有の推薦条件、有限容量、品質contextは異なる役割。いずれも企業の経済的rejectや購入採用を代行しない。完全なeligibility/order・値・method identityは[実装](../../engine/src/baibai_engine/machine_analysis/screening/discovery/candidates.py)と[dated rules](../../engine/src/baibai_engine/machine_analysis/screening/rules/)が正本である。
 
@@ -19,7 +19,7 @@ L2の財務・倍率・機械見積りと市場環境を全対象のStock Analys
 | Asset Value | 非金融企業の資産が誰へ、いつ、どの費用で実現するか |
 | Reinvestment Value | 売上成長が投資負担・利益率・資本収益を通して価値になるか |
 
-金融業のcash/debt/securitiesへ非金融の資産proxyを適用しない。Reinvestmentのcapital returnは同一実績行の自己資本とEDINET debt/cashを使うproxyで、BS日が一致した厳密ROICではない。営業利益TTMを作れなければ累計利益や他利益で補わない。既知の0・負FCFも探索対象になり、欠測を0へ変えない。負FCFは成長投資の証明ではなくInvestment Judgmentの問いである。
+金融業のcash/debt/securitiesへ非金融の資産proxyを適用しない。Reinvestmentのcapital returnは同一実績行の自己資本とEDINET debt/cashを使うproxyで、BS日が一致した厳密ROICではない。営業利益TTMを作れなければ累計利益や他利益で補わない。既知の0・負FCFも候補抽出対象になり、欠測を0へ変えない。負FCFは成長投資の証明ではなくInvestment Judgmentの問いである。
 
 各Approachのtop集合をexact unionにし、重複tickerは一行へ全理由を保持する。depthは有限資源の設定で、容量外を経済的棄却にしない。ticker順は非経済的なserialization順で、総合rank・Investment Judgment priorityではない。比較母集団・丸め・tie-breakはproductionと較正で同じ純関数を使う。
 

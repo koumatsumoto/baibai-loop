@@ -7,6 +7,9 @@ import uuid
 from contextlib import closing
 
 import pytest
+from tests.engine.test_external_assessment_sources import monex_html
+from tests.engine.test_minkabu import html as minkabu_html
+from tests.engine.test_minkabu import no_coverage_html
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     integrate_ready_plans,
@@ -19,9 +22,6 @@ from tests.jobs.external_assessment_publication_fixtures import _stage as _stage
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tests.jobs.test_external_assessment_raw import Session
 from tests.jobs.test_external_assessment_raw import connect as connect
-from tests.engine.test_external_assessment_sources import monex_html
-from tests.engine.test_minkabu import html as minkabu_html
-from tests.engine.test_minkabu import no_coverage_html
 
 from baibai_engine.data_collection.equity_web.receipts import read_responses
 from baibai_engine.job_api import (

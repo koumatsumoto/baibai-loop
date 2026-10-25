@@ -150,8 +150,8 @@ def test_bad_local_state_never_falls_back_to_cloud(tmp_path, monkeypatch, kind):
 
 
 def test_local_save_failure_does_not_adopt_tokens_or_leak_payload(tmp_path, monkeypatch, capsys):
-    from baibai_engine.data_collection.tradingview.auth import SecretPersistenceError
     from baibai_engine.data_collection.tradingview import cli
+    from baibai_engine.data_collection.tradingview.auth import SecretPersistenceError
 
     path = tmp_path / "oauth.json"
     write_local_state(path, state())

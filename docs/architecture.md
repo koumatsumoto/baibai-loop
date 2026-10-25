@@ -16,9 +16,9 @@ flowchart LR
     H -->|確認済み取引| P[Position / 台帳] --> J
 ```
 
-L1 **Data Collection**は原本またはsource契約で明示したprovider-native表現と受領事実を保持する。L2 **Machine Analysis**は入力を選択・正規化・計算する**Model Generation**と、規則に従う候補抽出**Screening**である。同じ入力・規則・計算実装・基準時点なら同じ結果を返す。L3 **Investment Judgment**は仮定を伴う解釈・評価・判断である。型付き行は原本の代わりにならず、仮定を決定的な式で計算してもL2の観測にはならない。
+L1 **情報収集 / Data Collection**は原本またはsource契約で明示したprovider-native表現と受領事実を保持する。L2 **機械分析 / Machine Analysis**は入力を選択・正規化・計算する**モデル生成 / Model Generation**と、規則に従う**候補抽出 / Screening**である。同じ入力・規則・計算実装・基準時点なら同じ結果を返す。L3 **投資判断 / Investment Judgment**は仮定を伴う解釈・評価・判断である。型付き行は原本の代わりにならず、仮定を決定的な式で計算してもL2の観測にはならない。
 
-L1〜L3は情報の性質、ジョブ・エンジン・AI・人間は実行主体の区分である。情報取得ジョブはsource別に独立して実行・再実行する。共通統合ジョブは全取得の完了を待たず、開始時に利用可能な受領と適格な保存入力からモデル生成と候補抽出を起動する。必要時も同じエンジンを使い、遅延と欠測を区別する。五モデルごとの新DBや事前計算tableは要求しない。
+L1〜L3は情報の性質、ジョブ・エンジン・AI・人間は実行主体の区分である。情報取得ジョブはsource別に独立して実行・再実行し、担当範囲の取得ロジックをData Collectionへ委ねる。共通統合ジョブは全取得の完了を待たず、開始時に利用可能な受領と適格な保存入力からモデル生成と候補抽出を起動する。必要時も同じエンジンを使い、遅延と欠測を区別する。
 
 ## 責務と配置
 
@@ -26,29 +26,29 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 | 配置 | 所有する責務 |
 | --- | --- |
-| `data_collection/` | Data Collection：sourceとの通信、原本・native record・受領の契約、取得の合成 |
-| `machine_analysis/company_valuation/` | Company Valuation：[財務指標と機械ER/FV](reference/company-valuation.md)、[較正文脈](reference/estimate-calibration.md) |
-| `machine_analysis/company_growth/` | Company Growth：[過去実績状態・変化](reference/company-growth.md)、会計四半期を整理軸とする振り返り |
-| `machine_analysis/market_context/` | Market Context：[経済Reading、市場・業種・個別の相対状態](reference/market-context.md) |
-| `machine_analysis/external_assessment/` | External Assessment：[外部提示値の出所・対象期・比較条件と欠測](reference/data-sources.md#external-assessment) |
-| `machine_analysis/technical_analysis/` | Technical Analysis：[保存価格の位置・勢い・変動幅](reference/technical-analysis.md) |
-| `machine_analysis/screening/` | Screening：現行のCompany Valuation・Market Contextから候補と理由を組み立て、歴史較正を行う |
+| `data_collection/` | 情報収集 / Data Collection：sourceとの通信、原本・native record・受領の契約、取得の合成 |
+| `machine_analysis/company_valuation/` | 企業価値 / Company Valuation：[財務指標と価値の機械見積り](reference/company-valuation.md)、[較正文脈](reference/estimate-calibration.md) |
+| `machine_analysis/company_growth/` | 企業成長 / Company Growth：[過去実績状態・変化](reference/company-growth.md)、会計四半期を整理軸とする振り返り |
+| `machine_analysis/market_context/` | 市場環境 / Market Context：[経済Reading、市場・業種・個別の相対状態](reference/market-context.md) |
+| `machine_analysis/external_assessment/` | 外部評価 / External Assessment：[外部提示値の出所・対象期・比較条件と欠測](reference/data-sources.md#external-assessment) |
+| `machine_analysis/technical_analysis/` | テクニカル分析 / Technical Analysis：[保存価格の位置・勢い・変動幅](reference/technical-analysis.md) |
+| `machine_analysis/screening/` | 候補抽出 / Screening：規則に基づく候補と抽出理由、歴史較正 |
 | `investment_judgment/` | Company Research・Stock Assessment・Independent Review・Trade Proposal、市場判断、Selection/Operationの進行、仮定付き評価算術 |
 | `market/` | 共通観測の読取・正規化・価格/財務算術と、source取得・handoff・投影の既存合成 |
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
 | `storage/`・`foundation/` | 接続、schema、transaction、lakeと汎用基盤 |
 
-五モデルはScreening専用の中間データではない。Investment Judgmentは公開読取入口から直接モデルと一次資料を統合し、候補外の企業も調査できる。現行Screeningの入力・順位・候補規則は名称整理では変えず、企業価値や買付採否を確定しない。現行のERや四つの候補抽出経路は現在の実装方式であり、正式用語・責務の確定は戦略の妥当性や将来の維持を確定するものではない。Company Valuationも真の企業価値や最終買付判断を確定するものではない。
+五モデルはScreening専用の中間データではない。Investment Judgmentは公開読取入口から直接モデルと一次資料を統合し、候補外の企業も調査できる。Screeningは企業価値や買付採否を確定しない。Company Valuationは評価材料・機械見積りであり、真の企業価値や最終買付判断の確定ではない。具体的な算式・入力・候補規則は各実装とreferenceが所有する。
 
-`market/`はsource独立取得、原受領のhandoff、最新正本への投影が同じmodule群で連携している。これを丸ごとL2へ置くと新規取得まで機械分析に見え、分割にはtransaction・再開・store依存の再設計が要るため現配置を保つ。共通価格は`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更を同じ契約へ潰さない。
+`market/`は共通観測の読取・正規化・価格/財務算術に加え、source取得・原受領handoff・最新正本への投影を合成する、L1/L2をまたぐ境界である。共通価格は`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更は異なる契約である。
 
-外部評価の取得は`data_collection/external_assessment/`、TradingView通信合成は`data_collection/tradingview/`に置く。取得と解析・保存を合成する既存CLI・collector・handoffはL1専用処理ではなく、原本保持とL2投影の境界を保った合成である。通信のない正規化・観測・読取はMachine Analysisが所有する。合成を分解して新しい保存・再開手順を導入することは今回行わない。
+外部評価の取得は`data_collection/external_assessment/`、TradingView通信合成は`data_collection/tradingview/`に置く。CLI・collector・handoffは取得と解析・保存を合成し、原本保持とL2投影を区別する。通信のない正規化・観測・読取はMachine Analysisが所有する。
 
 仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Positionも使う有限数の変換は`foundation/numbers.py`に置き、PositionからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Positionは人間の確認済み事実を保存する。
 
 `web/`はread-only表示、`jobs/`は情報取得・共通統合・表示反映等の実行の合成、`tools/`は開発・保守用の入口である。Webは`read_api`、Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
 
-ジョブは一つの目的を持つ実行・成功失敗・再実行の単位、ワークフローはその順序・並行実行・依存関係を定めるもの。GitHub Actionsのjobと業務ジョブは常に一対一ではない。バッチ処理は非対話でまとまったデータを処理する方式を指す。workflow filenameや保存済み実行IDは名前整理だけでは改名しない。
+ジョブは一つの目的を持つ実行・成功失敗・再実行の単位、ワークフローはその順序・並行実行・依存関係を定めるもの。GitHub Actionsのjobと業務ジョブは常に一対一ではない。バッチ処理は非対話でまとまったデータを処理する方式を指す。
 
 意味・採否は本書・doctrine・各reference、開始・操作・完了/再開はskills・OPERATIONSが所有する。生成scaffoldは編集欄と短い注意・参照先を持ち、一回限りの計画・実験はIssueと固定commitへ残す。
 
@@ -64,7 +64,7 @@ Company Research（企業調査）は一次資料から事業・財務・競争�
 
 | 作業の入口 | 操作先 |
 | --- | --- |
-| 新しい有限Investment Judgment | [Investment Judgmentの開始](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象) |
+| 企業調査から売買提案へ進む | [投資判断の開始](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象) |
 | 共通市場判断だけを作る | [市場環境判断（Market Context Assessment）](../.agents/skills/market-context-assessment/SKILL.md) |
 | 人間が確認した取引事実を記す | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
 | 既存Operationを続ける | [保存入力からの再開](../.agents/skills/investment-judgment/SKILL.md#完了と再開) |
@@ -82,7 +82,7 @@ Company Research（企業調査）は一次資料から事業・財務・競争�
 | market lake | L1原本とL2投影のimmutable object・manifest。readerは一つのreleaseを固定する |
 | market SQLite | lake対象tableの実行用コピーと、取得coverage等のstore-local情報 |
 | economic source SQLite | 経済原本・受領・取得記録。Readingは保存原本とmethodから読取時に計算する |
-| screening runs / calibration | 再生成可能な探索結果と較正snapshot |
+| screening runs / calibration | 再生成可能な候補抽出結果と較正snapshot |
 | serving JSON | 表示用の派生物。保存判断・台帳の第二正本にしない |
 
 source取得は担当範囲の再生成可能なread-only inputと原受領handoffだけを扱う。共通統合は開始時に存在するimmutable受領を固定し、取得全体の完了を待たず、最新正本へ各domainのprojection/rebuildを適用して一回のfull lake公開・L2・表示を行う。source-local SQLiteは全体releaseへboundな実行コピーではなく、full originを持たせない。経済の一時受領は実取得の同値も保持し、正本への変更時追記・同値no-opは最新正本との比較で決める。
@@ -93,6 +93,6 @@ source取得は担当範囲の再生成可能なread-only inputと原受領hando
 
 開発計測・移行の記録はIssue/PRと[固定Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports)へ委ねる。正式なInvestment Judgment成果は上記application DBへ保存し、過去の開発レポートを現在の判断として再発行しない。
 
-配置・Python名・CLI・表示名の変更では、保存済みJSONのkind/field、DB table、R2 key、ID・fingerprint・本文・履歴、規則hash/dated stem、model revisionを変えない。保存契約の`investment_proposal`・`research_selection`等はそのまま読み書きし、現在の工程名と区別する。原本bytes・受領日時・source identity・release/hash、候補集合と理由、null/0と既知不足の意味も保つ。
+保存identityとPython名・CLI・表示名は別の契約である。JSONのkind/field、DB table、R2 key、ID・fingerprint・参照・履歴は保存reader/writerが所有する。`investment_proposal`・`research_selection`等の保存名と、現在の工程名を区別する。原本bytes・受領日時・source identity・release/hash、null/0と既知不足の意味を保持する。
 
 運用上の取得・発行・復旧は[OPERATIONS](../jobs/OPERATIONS.md)、設計判断は[doctrine](doctrine.md)、開発環境は[development](development.md)に従う。

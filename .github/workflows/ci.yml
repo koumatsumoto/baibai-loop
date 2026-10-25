@@ -88,8 +88,7 @@ jobs:
 
       - name: Ruff lint
         if: ${{ !cancelled() }}
-        run: |
-          uv run ruff check . || { uv run ruff check --diff .; exit 1; }
+        run: uv run ruff check .
 
       - name: Type check
         if: ${{ !cancelled() }}

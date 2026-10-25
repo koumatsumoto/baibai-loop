@@ -15,17 +15,17 @@ describe('NAV_TABS active matching', () => {
 
   it('keeps Dashboard exact so it does not match sub-routes', () => {
     expect(activeLabels('/')).toEqual(['Dashboard'])
-    expect(activeLabels('/market-context')).toEqual(['調査・提案'])
+    expect(activeLabels('/market-context')).toEqual(['投資判断'])
   })
 
   it('keeps Market Context active on the report detail route', () => {
-    expect(activeLabels('/market-context/assessments/macro-context-2026-07-01')).toEqual(['調査・提案'])
+    expect(activeLabels('/market-context/assessments/macro-context-2026-07-01')).toEqual(['投資判断'])
   })
 
   it('keeps Stocks active on proposal, assessment and security detail routes', () => {
-    expect(activeLabels('/stocks/investment-proposals/investment-proposal-original')).toEqual(['調査・提案'])
-    expect(activeLabels('/stocks/stock-assessments/stock-assessment-original')).toEqual(['調査・提案'])
-    expect(activeLabels('/securities/2331')).toEqual(['調査・提案'])
+    expect(activeLabels('/stocks/investment-proposals/investment-proposal-original')).toEqual(['投資判断'])
+    expect(activeLabels('/stocks/stock-assessments/stock-assessment-original')).toEqual(['投資判断'])
+    expect(activeLabels('/securities/2331')).toEqual(['投資判断'])
   })
 
   it('keeps Tasks isolated from Dashboard', () => {

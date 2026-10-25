@@ -4,9 +4,9 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.jobs.test_external_assessment_daily import wire_success
 from tests.engine.test_external_assessment_daily_verification import build_master_lake
 from tests.engine.test_jquants_projection import body, receive
+from tests.jobs.test_external_assessment_daily import wire_success
 
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request

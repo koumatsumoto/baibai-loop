@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { StockAssessmentDetailView } from '../src/api/types'
 import { AssessmentReviewContent } from '../src/components/ReviewedAssessmentContent'
-import { ProposalReviewContent } from '../src/pages/InvestmentProposalPage'
+import { ProposalReviewContent } from '../src/pages/TradeProposalPage'
 import { researchYenValue } from '../src/lib/research'
 import { SavedStockAssessment } from '../src/pages/StockAssessmentPage'
 
@@ -42,7 +42,7 @@ describe('保存判断の読書表示', () => {
     expect(html).toContain('href="/stocks/investment-proposals/original#proposal-item-1234"')
     expect(html).toContain('最新の銘柄情報・評価を見る（この固定版とは別）')
     expect(html.indexOf('価値と価格の隔たり')).toBeLessThan(html.indexOf('事業の収益構造'))
-    expect(html.indexOf('事業の収益構造')).toBeLessThan(html.indexOf('独立Reviewの確認範囲'))
+    expect(html.indexOf('事業の収益構造')).toBeLessThan(html.indexOf('独立検証の確認範囲'))
     expect(html).toContain('借換条件は未確認')
     expect(html).not.toContain('Base</p>')
     expect(html).toContain('保存された再計算値はありません')
@@ -52,7 +52,7 @@ describe('保存判断の読書表示', () => {
   it('JSONは一か所へ畳み、確認範囲・資料状態・用途を通常の文章で読む', () => {
     const html = renderSaved(assessment('A'))
     expect(html.match(/<pre\b/g)).toHaveLength(1)
-    for (const phrase of ['独立Reviewの確認範囲', '一次資料の確認状態', '一部確認', '用途: 満期と借換条件', '受領時刻: 2026-10-14T09:00:00+09:00', '保存JSON']) expect(html).toContain(phrase)
+    for (const phrase of ['独立検証の確認範囲', '一次資料の確認状態', '一部確認', '用途: 満期と借換条件', '受領時刻: 2026-10-14T09:00:00+09:00', '保存JSON']) expect(html).toContain(phrase)
     expect(html).toContain('href="/stocks"')
     expect(html).not.toContain('元の提案・この銘柄の判断に戻る')
   })

@@ -14,6 +14,7 @@ import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
+from baibai_engine.data_collection.tradingview import cli
 from baibai_engine.data_collection.tradingview.collector import (
     CollectionFailure,
     SourceDataError,
@@ -25,7 +26,6 @@ from baibai_engine.data_collection.tradingview.rebuild import (
     rebuild_from_receipts,
 )
 from baibai_engine.data_collection.tradingview.receipts import read_tool_results, retain_tool_result
-from baibai_engine.data_collection.tradingview import cli
 from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
     failure_category,
 )

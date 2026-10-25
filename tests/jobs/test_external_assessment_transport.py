@@ -11,9 +11,9 @@ from collections import Counter
 import pytest
 import requests
 from botocore.exceptions import ClientError, ReadTimeoutError
+from tests.engine.test_external_assessment_sources import monex_html
 from tests.jobs.external_assessment_response_fixtures import response
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, observation, plan
-from tests.engine.test_external_assessment_sources import monex_html
 
 from baibai_engine.job_api import (
     ExternalAssessmentCollectionOutcome,

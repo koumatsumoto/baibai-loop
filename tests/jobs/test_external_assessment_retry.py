@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
 from tests.engine.test_external_assessment_sources import (
     monex_html,
     official_html,
@@ -12,6 +11,7 @@ from tests.engine.test_external_assessment_sources import (
     rakuten_no_estimates_html,
 )
 from tests.engine.test_kabumap import html as kabumap_html
+from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
 
 from baibai_engine.data_collection.equity_web import http as source_http
 from baibai_engine.job_api import (

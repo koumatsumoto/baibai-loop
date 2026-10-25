@@ -8,7 +8,6 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.jobs.external_assessment_response_fixtures import response
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 from tests.engine.test_kabumap import html as kabumap_html
 from tests.engine.test_minkabu import html as minkabu_html
@@ -16,6 +15,7 @@ from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master import insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
+from tests.jobs.external_assessment_response_fixtures import response
 
 from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Source
 from baibai_engine.job_api import (
