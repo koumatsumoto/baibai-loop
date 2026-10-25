@@ -50,6 +50,7 @@ _ASSESSMENT_DRAFT_HEADER = (
 
 _REVIEW_DRAFT_HEADER = (
     "# 独立検算の値を入力する。作者の値をコピーしない。\n"
+    "# 未知を非重要へ言い換えず、引き受ける理由と見返りを記す。\n"
     "# 原典・仮定・反証と利用限界: "
     "docs/reference/stock-assessment.md#independent-second-pass\n"
 )
@@ -272,7 +273,7 @@ def scaffold_review(
         if assessment.valuation.status == "resolved"
         else [],
         "strongest_countercase": None,
-        "nonmaterial_unknown_reason": None,
+        "uncertainty_acceptance_reason": None,
         "review_scope": None,
     }
     header = _REVIEW_DRAFT_HEADER + _enum_field_header(AssessmentReview)

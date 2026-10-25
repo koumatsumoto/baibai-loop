@@ -10,7 +10,7 @@ function render(assessment: ExternalAssessment | null) {
   return renderToStaticMarkup(createElement(ExternalAssessmentSection, { assessment }))
 }
 
-describe('外部参考評価の表示', () => {
+describe('外部評価の表示', () => {
   it('媒体の異なる提示値と尺度、取得日・基準日、未確認basisを分ける', () => {
     const html = render(fixture as ExternalAssessment)
     expect(html).toContain('外部モデル価格')

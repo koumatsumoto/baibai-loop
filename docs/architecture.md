@@ -8,7 +8,7 @@ Baibai Loopは、外部から受領した事実を保存し、機械分析から
 flowchart LR
     S[外部source] --> C[Collection / L1] --> D[共通market・五分析領域 / L2]
     D --> R[Research / L3]
-    D -->|Valuation・Market Context| F[Screening]
+    D -->|企業価値・市場環境| F[Screening]
     F -->|候補文脈| R
     I[一次資料・確認済み保有] --> R
     R --> P[提案] --> H[人間]
@@ -25,15 +25,24 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 | --- | --- |
 | `collection/` | sourceとの通信、原本・native record・受領の契約 |
 | `market/` | 保存された銘柄・財務・価格・公表日の共通読取と正規化、source固有の取得計画と取得・投影・保存の合成 |
-| [`company_growth/`](../engine/src/baibai_engine/company_growth/) | [過去実績状態・変化](reference/company-growth.md)、会計四半期を整理軸とする振り返り |
-| [`valuation/`](../engine/src/baibai_engine/valuation/) | [財務指標と機械ER/FV](reference/valuation-metrics.md)、[較正文脈](reference/estimate-calibration.md)、条件付きscenarioの算術 |
-| [`market_context/`](../engine/src/baibai_engine/market_context/) | [経済Reading、市場・業種・個別の相対状態](reference/market-context.md) |
-| [`external_assessment/`](../engine/src/baibai_engine/external_assessment/) | [外部提示値の出所・対象期・比較条件と欠測](reference/data-sources.md#external-assessment) |
-| [`technical_analysis/`](../engine/src/baibai_engine/technical_analysis/) | [保存価格の位置・勢い・変動幅](reference/technical-analysis.md) |
-| `screening/` | Valuation・Market Contextから候補を組立、価値仮説別の探索と候補文脈、歴史較正 |
+| `screening/` | 企業価値・市場環境から候補を組立、価値仮説別の探索と候補文脈、歴史較正 |
 | `research/` | 明示開始した有限調査、Stock Assessmentと独立Review、市場判断、Investment Proposal |
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
 | `storage/`・`foundation/` | 接続、schema、transaction、lakeと汎用基盤 |
+
+### L2の五モデル
+
+正式名称は次の五つに統一する。括弧内の英語はコードとの対応であり、別モデルや別名を増やすものではない。企業価値のL2値は評価材料で、仮定を伴う最終的な企業価値判断はL3が行う。
+
+| 正式名称・配置 | 観測・計算する材料 | L3で活用する問い |
+| --- | --- | --- |
+| [企業価値](reference/valuation-metrics.md)（Valuation）・`valuation/` | 財務比率、利益・資産に対する価格、機械ER/FVと[較正文脈](reference/estimate-calibration.md) | 事業・資本から株主へ帰属する価値に対し、何がどれだけ安いのか。正常収益・再投資・分配の仮定は価格に見合うか |
+| [企業成長](reference/company-growth.md)（Company Growth）・`company_growth/` | 過去実績の水準と変化。会計四半期を軸に、単独期・年間/TTM・残高を区別 | 利益水準は拡大・回復・一時的上振れのどれか。採算・資本・CFの変化は価値仮定を支持するか。過去系列であって将来予測ではない |
+| [市場環境](reference/market-context.md)（Market Context）・`market_context/` | 経済指標の水準・変化と、市場・業種・個別の相対状態 | 需要・費用・資金調達・要求収益へ何が伝わるか。個社固有の変化と共通環境をどう切り分けるか |
+| [外部評価](reference/data-sources.md#external-assessment)（External Assessment）・`external_assessment/` | 外部の評価・予想と出所、対象期、更新時点、比較条件 | 自分の利益・価値仮定は外部とどこが違い、その差を何が説明するか。一致も独立した正解保証にはしない |
+| [テクニカル分析](reference/technical-analysis.md)（Technical Analysis）・`technical_analysis/` | 保存価格の位置・勢い・変動幅。移動平均・BB・RSI | 価格はどの時間軸でどう反応しているか。事業仮説との不一致、購入条件や見直し時点へ何を示唆するか。価格から価値や将来を確定しない |
+
+五モデルは独立した賛成票ではなく、同じ企業を別の切り口で見る材料である。企業成長から企業価値の利益仮定を点検し、市場環境からその変化の背景を考え、外部評価との差を調べ、テクニカル分析で価格の反応を読む。順序を固定せず、採否を変える不一致を起点に[五領域の統合](reference/stock-assessment.md#analysis-domain-integration)へ進む。
 
 共通価格は、`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更は異なるため、同じ価格を扱う処理を一つの契約へ潰さない。
 
@@ -52,7 +61,7 @@ ResearchのSelectionは対象・問い・入力を開始時に固定する。Sto
 | 作業の入口 | 操作先 |
 | --- | --- |
 | 新しい有限Research | [Researchの開始](../.agents/skills/research/SKILL.md#開始と固定対象) |
-| 共通市場判断だけを作る | [Market Context Assessment](../.agents/skills/market-context-assessment/SKILL.md) |
+| 共通市場判断だけを作る | [市場環境判断（Market Context Assessment）](../.agents/skills/market-context-assessment/SKILL.md) |
 | 人間が確認した取引事実を記す | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
 | 既存Operationを続ける | [保存入力からの再開](../.agents/skills/research/SKILL.md#完了と再開) |
 

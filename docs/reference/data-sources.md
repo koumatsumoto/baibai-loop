@@ -18,7 +18,7 @@ J-Quantsはnative HTTP pageをL1として保存する。masterや財務summary�
 
 masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
 
-財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通marketが原本文書を読み、[Valuation](valuation-metrics.md)が現在評価の予想・実績を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
+財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通marketが原本文書を読み、[企業価値](valuation-metrics.md)が現在評価の予想・実績を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
 
 JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
 
@@ -32,7 +32,7 @@ JPXの規制・決算予定・資本政策・上場廃止は完了済みsource b
 
 margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日。後日訂正は公表・受領の文脈を保ち、公表前の当日残高を要求しない。subsetにないtickerを残高0にせず、全銘柄とunionして穴埋めしない。
 
-PubDateは正確なAPI利用可能時刻の証明ではない。現行servingは公表日より後のas-ofから使い、公表日当日は含めない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[Market Context](market-context.md#margin)に従う。
+PubDateは正確なAPI利用可能時刻の証明ではない。現行servingは公表日より後のas-ofから使い、公表日当日は含めない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[市場環境](market-context.md#margin)に従う。
 
 ## 経済原本
 
@@ -70,7 +70,7 @@ EDINET_METRIC_REVISIONは数値・文書選択・訂正/取下げ・期間/連�
 disclosed_onは提出JST日で、比較年度末へ遡及して利用可能にはならない。訂正は別docIDで保持し、同一releaseでも古い年次へfallbackしない。metricsと結ぶ時はtickerだけでなくas-of・原典期間・連結・通貨を揃える。借換え・将来FCF・維持投資はResearchの見積りであり、抽出factへ混ぜない。選択と照会は[固定release操作](../../batch/OPERATIONS.md#edinet-research-query)に従う。
 
 <a id="external-assessment"></a>
-## 外部参考評価
+## 外部評価
 
 媒体が提示した値、元評価者、尺度・対象期・basisと時点を読む。モデル価格、アナリスト予測/rating、Quants scoreは異なる結果。同じIFIS等の転載を独立票へ数えず、元評価者不明の独立性を推測しない。
 

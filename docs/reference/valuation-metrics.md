@@ -1,6 +1,6 @@
-# Valuation metrics
+# 企業価値
 
-`valuation/metrics`は財務・会計期間・株式basisを揃えて機械指標を作る。`screening/metric_builder.py`はその結果とMarket ContextをStock Analysisへ組み立てる。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
+`valuation/metrics`は財務・会計期間・株式basisを揃えて機械指標を作る。`screening/metric_builder.py`はその結果と市場環境をStock Analysisへ組み立てる。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
 
 <a id="machine-valuation"></a>
 ## 機械ER/FV

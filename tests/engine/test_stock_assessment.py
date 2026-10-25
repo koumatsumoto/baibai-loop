@@ -36,6 +36,8 @@ from baibai_engine.research.assessment_store import (
     publish_reviewed_assessment,
     require_assessment_ref,
 )
+from baibai_engine.research.entry_policy import evaluate_buy_terms
+from baibai_engine.research.proposal import QuoteInput
 from baibai_engine.storage.application.schema import SCHEMA_SQL
 
 
@@ -144,8 +146,12 @@ def test_material_risk_unknown_remains_unknown_and_requires_review_explanation(f
         "unknown" if fault == "unknown" else "partially_verified"
     )
     result = evaluation(document, review)
-    assert any("nonmaterial explanation" in error for error in result.errors)
-    review["nonmaterial_unknown_reason"] = "資料で主要借入全額の返済余力を確認、細目は非重要"
+    assert any("uncertainty acceptance reason" in error for error in result.errors)
+    review["uncertainty_acceptance_reason"] = (
+        "更新後の顧客別採算は重要だが未開示。確認した契約総額と費用を起点に、"
+        "継続と縮小の経路を比較した。縮小時の損失は残るが、価格に対する"
+        "継続収益の見返りと既存顧客の更新実績を理由に引き受ける。"
+    )
     result = evaluation(document, review)
     assert result.assessment_status == "ready_with_warnings"
     assert result.warnings
@@ -682,3 +688,110 @@ def test_invalid_same_day_publication_header_does_not_hide_behind_valid_revision
     )
     with pytest.raises(ResearchValidationError, match="invalid Assessment revision header"):
         latest_assessment_id(connection, "1234")
+
+
+def test_material_unknown_and_downside_loss_can_reach_buy_terms(connection):
+    document, review = pair_payload()
+    risk = document["permanent_loss_risks"][4]
+    risk.update(
+        assessment="unknown",
+        evidence_status="partially_verified",
+        summary="合成例。顧客別採算は非開示で、更新後の減益幅は重要な未知。",
+    )
+    document["findings"]["unresolved_questions"] = ["更新後の顧客別採算"]
+    review["uncertainty_acceptance_reason"] = (
+        "合成例。確認した契約総額と更新実績を中心に継続を評価する。"
+        "1000円でBase年率10%、顧客縮小時は30%損失の経路。"
+        "採算の未知は重要なままだが、継続実績と価格差を理由に引き受ける。"
+    )
+    update_review_hash(document, review)
+    pair = publish(connection, document, review)
+    result = evaluate_buy_terms(
+        pair.document,
+        reviewed=True,
+        latest=True,
+        as_of=date(2026, 10, 14),
+        quote=QuoteInput(
+            ticker="1234",
+            price_yen=Decimal(1100),
+            price_as_of=date(2026, 10, 14),
+            price_basis="last_close_unadjusted",
+            source_ref="fixture:daily_bars",
+        ),
+        proposed_limit_yen=Decimal(1000),
+        basis_confirmed=True,
+        market_price_max_age_days=7,
+        held_quantity=0,
+        active_reservation=False,
+        proposal_executed=False,
+        available_cash_yen=Decimal(100000),
+        budget_max_yen=Decimal(100000),
+        board_lot=100,
+    )
+    assert pair.evaluation.assessment_status == "ready_with_warnings"
+    assert pair.document.permanent_loss_risks[4].assessment == "unknown"
+    assert pair.document.permanent_loss_risks[4].evidence_status == "partially_verified"
+    assert result.hard_blockers == ()
+    assert result.quantity == 100
+    assert result.maximum_price_yen == Decimal(1000)
+    assert result.current_price_above_maximum is True
+    assert pair.document.valuation.downside.terminal_value_per_share_yen == Decimal(700)
+    # Acceptance prose cannot repair an unevaluated case or unverified primary observations.
+    document["investment_case"]["status"] = "uncertain"
+    assert "uncertain investment case cannot be supported" in evaluation(document, review).errors
+    document["investment_case"]["status"] = "intact"
+    review["primary_source_check"] = "partially_verified"
+    assert (
+        "supported requires verified material primary evidence"
+        in evaluation(document, review).errors
+    )
+
+
+def test_legacy_review_read_and_retry_preserve_stored_payload(connection):
+    document, review = pair_payload()
+    review["uncertainty_acceptance_reason"] = "細目は非重要とした当時の説明"
+    update_review_hash(document, review)
+    typed = StockAssessmentDocument.model_validate(document)
+    typed_review = AssessmentReview.model_validate(review)
+    legacy = typed_review.model_dump(mode="json")
+    legacy["nonmaterial_unknown_reason"] = legacy.pop("uncertainty_acceptance_reason")
+    legacy_json = canonical_json(legacy)
+    # Seed the historical representation directly; published rows remain immutable.
+    connection.execute(
+        "INSERT INTO stock_assessment VALUES(?,?,?,?,?,?,?,?)",
+        (
+            assessment_id(),
+            "1234",
+            "2026-10-14",
+            "supported",
+            NOW.isoformat(),
+            None,
+            canonical_json(typed.model_dump(mode="json")),
+            assessment_core_hash(typed),
+        ),
+    )
+    connection.execute(
+        "INSERT INTO stock_assessment_review VALUES(?,?,?,?)",
+        (
+            typed_review.review_id,
+            assessment_id(),
+            typed_review.reviewed_at.isoformat(),
+            legacy_json,
+        ),
+    )
+    pair = load_reviewed_assessment(connection, assessment_id())
+    assert pair.document == typed
+    assert pair.review == typed_review
+    assert publish(connection, document, legacy) == pair
+    assert publish(connection, document, review) == pair
+    assert (
+        connection.execute(
+            "SELECT payload FROM stock_assessment_review WHERE review_id = ?",
+            (pair.review.review_id,),
+        ).fetchone()[0]
+        == legacy_json
+    )
+    assert load_reviewed_assessment(connection, pair.assessment_id).core_sha256 == pair.core_sha256
+    changed = dict(review, uncertainty_acceptance_reason="後から異なるリスクを受容")
+    with pytest.raises(ResearchConflictError):
+        publish(connection, document, changed)

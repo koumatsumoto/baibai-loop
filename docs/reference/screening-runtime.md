@@ -1,6 +1,6 @@
 # Screening
 
-L2の財務・倍率・機械見積りとMarket Contextを全対象のStock Analysisへ固定し、同じrunから候補文脈を作る。結果の組立はscreening/metric_builder、探索はdiscovery、較正はcalibrationが所有する。指標自体は[Valuation](valuation-metrics.md)・[Market Context](market-context.md)へ置く。
+L2の財務・倍率・機械見積りと市場環境を全対象のStock Analysisへ固定し、同じrunから候補文脈を作る。結果の組立はscreening/metric_builder、探索はdiscovery、較正はcalibrationが所有する。指標自体は[企業価値](valuation-metrics.md)・[市場環境](market-context.md)へ置く。
 
 <a id="rule-purpose"></a>
 ## 探索の意味
