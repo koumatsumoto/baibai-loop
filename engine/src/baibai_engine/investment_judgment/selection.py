@@ -1,4 +1,4 @@
-"""Researchの依頼・選定と唯一の固定入力。store/clockを読まない。"""
+"""企業調査の依頼・対象選定・固定入力の契約。保存先や時計は読まない。"""
 
 from __future__ import annotations
 

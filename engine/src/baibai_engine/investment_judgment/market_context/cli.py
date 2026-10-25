@@ -1,4 +1,4 @@
-"""明示起動のassessment writerと、保存履歴/分析入力の異なる読取入口。"""
+"""AIが作成した市場全体の評価を発行し、保存履歴・時点別入力として読み出すCLI。"""
 
 from __future__ import annotations
 

@@ -30,7 +30,7 @@ gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。非営業日はScreeningをskipして旧runの値・ID・実計算時刻を保つ。原本の取得は独立scheduleのsource workflowが所有する。
+過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。手動asofも同じ営業日判定を使い、非営業日はScreeningをskipして旧runの値・ID・実計算時刻を保つ。原本の取得は独立scheduleのsource workflowが所有する。
 
 共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に、開始時点のready受領一覧を固定する。取得matrixや全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuild、EDINETのoffline抽出、保存入力だけのScreening、既存materializeを実行し、一つのfull lake releaseと表示へ反映する。`--saved-inputs`で外部取得を呼ばない。source失敗では前回の適格投影を保ち、正常sourceを進める。Screeningの鮮度・coverage不足は欠測や旧runとして残し、独立した表示生成は進める。exit 0はexport完了、exit 1は致命的失敗で公開停止、exit 3はexport完了だが一部工程が失敗した結果。R2公開は後段なので、export_readyやworkflow失敗だけで反映状態を断定しない。
 
@@ -42,7 +42,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 ```
 
-保存入力の共通統合は、手動dispatchで解決済みの `asof` を渡しても営業日判定を行う。非営業日は新しいScreeningを作らず、前回runの日付・ID・計算時刻を維持して統合・公開を続ける。過去の営業日を明示した再計算は可能だが、その日のmaster・価格・財務coverage要件を省略しない。
+過去の営業日を明示した再計算でも、その日のmaster・価格・財務coverage要件を省略しない。
 
 EDINETは取得日と抽出日を分ける。当日一覧・必要archiveの未到着は `applied.json` の `deferred_inputs` と通知の「入力延期」に残し、適格な保存値で統合を続ける。原本が届けば次回統合で再抽出する。別文書の未到着を理由に、保存済み原本の破損・解析失敗を隠さない。
 

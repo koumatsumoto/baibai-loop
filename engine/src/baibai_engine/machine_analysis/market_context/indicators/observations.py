@@ -22,7 +22,7 @@ class ObservationRecord:
 
     def __post_init__(self) -> None:
         # Vintage is an instant, not the spelling of a provider's timezone.
-        # SQLite revision keys and ordering use its canonical UTC representation.
+        # Comparison uses a canonical UTC instant, independent of source spelling.
         if self.vintage_at is not None:
             if self.vintage_at.tzinfo is None or self.vintage_at.utcoffset() is None:
                 raise ValueError("observation vintage_at must include a timezone")

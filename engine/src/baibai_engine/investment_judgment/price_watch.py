@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m baibai_engine.investment_judgment.price_watch",
         description=(
-            "Emit a read-only YAML watch for the latest published research assessment of every "
+            "Emit a read-only YAML watch for the latest published Stock Assessment of every "
             "ticker, with supported, uncertain, or unsupported stance. "
             "This command never "
             "proposes an order or updates canonical records."

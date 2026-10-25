@@ -82,7 +82,7 @@ class ReadingSnapshot:
 
     Recomputable from the L1 store and the rules revision, so it is not stored as
     a canonical artifact: consumers either recompute it or read the projection the
-    daily batch exports.
+    common integration job exports.
     """
 
     asof: date

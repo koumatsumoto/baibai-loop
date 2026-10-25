@@ -61,8 +61,6 @@ calibrationは再生成可能なローカルsnapshot。generation graph・remote
 
 pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用variant。別calibration directoryを必須とし、variantと窓をidentityへ含める。productionの750-sessionと違うためformal empirical evidenceへ使えない。実効観測本数も確認し、短い履歴をfull-windowとしない。この診断契約は維持する。
 
-操作例は[較正の運用](../../jobs/OPERATIONS.md#定期maintenance)に置く。
-
 ## 方法を変える判断
 
 計算の正誤修正は算術・期間・単位・株式basis、運用不具合は成功/失敗経路で検証する。文書や配置整理にStudy・本番再生成を要求しない。経済仮説の優劣を主張する変更は計測前に仮説・採否基準・対象をIssue/PRへ固定する。

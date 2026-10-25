@@ -1,4 +1,4 @@
-"""Pure Research calculation: one typed input file, JSON on stdout, no writes."""
+"""投資判断で明示した仮定の算術。入力ファイルからJSONを返し、判断や保存はしない。"""
 
 from __future__ import annotations
 
