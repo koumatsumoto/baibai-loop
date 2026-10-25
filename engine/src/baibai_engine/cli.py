@@ -41,8 +41,7 @@ class Domain:
         return cast(DomainModule, importlib.import_module(self.module))
 
 
-# 各 domain が「何を読んで何を書くか」。`--help` は AGENTS.md の停止条件なので、
-# domain の役割はここから 1 行で読める必要がある。
+# 各 domain の読取・書込責務を、実装のimportなしに一覧できる。
 DOMAINS: Mapping[str, Domain] = {
     "external-assessment": Domain(
         module="baibai_engine.external_assessment_cli",
@@ -66,7 +65,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "technical-analysis": Domain(
         module="baibai_engine.machine_analysis.technical_analysis.cli",
-        summary="read-only SMA20/50/200, BB20 and Wilder RSI14 from retained adjusted prices",
+        summary="read-only SMA, BB, Wilder RSI and common-calendar momentum from saved prices",
     ),
     "data-collection": Domain(
         module="baibai_engine.data_collection_cli",

@@ -23,9 +23,6 @@ function environment(
     ASSETS: { fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })) } as unknown as Fetcher,
     VIEW_PASSWORD: PASSWORD,
     READ_ACCESS_TOKEN: '',
-    L1_R2_BASE_URL: '',
-    L1_R2_ACCESS_KEY_ID: '',
-    L1_R2_SECRET_ACCESS_KEY: '',
   }
 }
 

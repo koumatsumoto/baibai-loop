@@ -6,12 +6,12 @@ run-name: "daily ${{ inputs.asof || '' }}"
 on:
   schedule:
     # 22:43 JST, independently of every acquisition workflow. Late receipts wait
-    # for the next integration; weekends still compose macro/Reading/Research.
+    # for the next integration; weekends still generate models from saved inputs.
     - cron: "43 13 * * *"
   workflow_dispatch:
     inputs:
       asof:
-        description: "Optional YYYY-MM-DD; Screening still applies the business-day gate"
+        description: "Optional YYYY-MM-DD model as-of; common calendar determines price dates"
         required: false
         type: string
 
