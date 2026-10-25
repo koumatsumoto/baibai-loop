@@ -49,6 +49,7 @@ def test_new_model_does_not_redefine_policy_or_universe():
     second = select_generation(extended, tickers=("1234", "5678"), policy=policy)
     assert first == second
     assert first.generation_id == original.generation_id
+    assert first.universe_tickers == ("1234", "5678")
     assert first.result.tickers == ("1234",)
     assert first.result.views[1].eligible_count == 0
 
@@ -99,3 +100,24 @@ def test_generated_observations_drive_the_two_views_without_rounding():
     assert result.views[0].companies[0].ranking_value == 0.100049
     assert result.views[1].companies[0].ticker == "5678"
     assert result.tickers == ("1234", "5678")
+
+
+def test_selection_retains_the_requested_universe_including_missing_models():
+    saved = generation(value("1234", 0.10))
+    policy = TwoViewPolicy(earnings_limit=1, combined_limit=1)
+    full = select_generation(saved, tickers=("5678", "1234"), policy=policy)
+    reordered = select_generation(saved, tickers=("1234", "5678"), policy=policy)
+    narrow = select_generation(saved, tickers=("1234",), policy=policy)
+    assert full == reordered
+    assert full.result == narrow.result
+    assert full != narrow
+    assert full.universe_tickers == ("1234", "5678")
+
+
+def test_duplicate_normalized_subjects_are_not_silently_deduplicated():
+    with pytest.raises(ValueError, match="one row per ticker"):
+        select_generation(
+            generation(value("1234", 0.10)),
+            tickers=("1234", " 1234 "),
+            policy=TwoViewPolicy(earnings_limit=1, combined_limit=1),
+        )

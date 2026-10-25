@@ -16,6 +16,7 @@ from .views import ScreeningCoordinates, TwoViewPolicy, ViewSelection, select_vi
 @dataclass(frozen=True, slots=True)
 class ScreeningSelection:
     generation_id: str
+    universe_tickers: tuple[str, ...]
     result: ViewSelection
 
 
@@ -23,7 +24,7 @@ def select_generation(
     generation: ModelGeneration, *, tickers: Sequence[str], policy: TwoViewPolicy
 ) -> ScreeningSelection:
     """企業集合と政策を明示し、生成済み観測の意味や保存値を変更せず選ぶ。"""
-    subjects = [normalize_ticker(ticker) for ticker in tickers]
+    subjects = sorted(normalize_ticker(ticker) for ticker in tickers)
     index = {(model.model_id, model.subject): model for model in generation.models}
     coordinates = [
         ScreeningCoordinates.model_validate(
@@ -39,7 +40,9 @@ def select_generation(
         )
         for ticker in subjects
     ]
-    return ScreeningSelection(generation.generation_id, select_views(coordinates, policy=policy))
+    return ScreeningSelection(
+        generation.generation_id, tuple(subjects), select_views(coordinates, policy=policy)
+    )
 
 
 def _value(model: GeneratedModel | None, component: str, field: str) -> JsonValue:
