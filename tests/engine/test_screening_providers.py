@@ -27,8 +27,8 @@ from tests.helpers.http_doubles import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.collection.edinet import http as edinet_http
-from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.data_collection.edinet import http as edinet_http
+from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market import edinet_refresh as edinet_refresh_module
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_document_events import parse_doc_id
@@ -384,7 +384,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 ),
             )
 
-            with patch("baibai_engine.collection.edinet.http.time.sleep"):
+            with patch("baibai_engine.data_collection.edinet.http.time.sleep"):
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
@@ -402,7 +402,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "key", sqlite_path=Path(tmp) / "market.sqlite", session=session
             )
 
-            with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
+            with patch("baibai_engine.data_collection.edinet.http.time.sleep") as sleep:
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
@@ -420,7 +420,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "key", session=session, sqlite_path=Path(tmp) / "market.sqlite"
             )
 
-            with patch("baibai_engine.collection.edinet.http.time.sleep") as sleep:
+            with patch("baibai_engine.data_collection.edinet.http.time.sleep") as sleep:
                 documents = provider.list_documents(date(2026, 7, 10))
 
             self.assertEqual(documents, [])
@@ -680,7 +680,7 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
             with (
-                patch("baibai_engine.collection.edinet.http.time.sleep") as sleep,
+                patch("baibai_engine.data_collection.edinet.http.time.sleep") as sleep,
                 self.assertRaises(EdinetAcquisitionError) as caught,
             ):
                 provider.download_csv_zip("S100TEST")
@@ -709,7 +709,7 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
             with (
-                patch("baibai_engine.collection.edinet.http.time.sleep"),
+                patch("baibai_engine.data_collection.edinet.http.time.sleep"),
                 self.assertRaisesRegex(EdinetRateLimitError, "rate limited"),
             ):
                 provider.download_csv_zip("S100TEST")

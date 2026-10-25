@@ -17,14 +17,14 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_selection import draft_for, selection
 
-from baibai_engine.research.assessment import AssessmentError, load_assessment
-from baibai_engine.research.assessment_store import (
+from baibai_engine.investment_judgment.operation.progress import progress_binding
+from baibai_engine.investment_judgment.operation.service import OperationService
+from baibai_engine.investment_judgment.stock_assessment import AssessmentError, load_assessment
+from baibai_engine.investment_judgment.stock_assessment_store import (
     AssessmentStoreService,
     load_reviewed_assessment,
 )
-from baibai_engine.research.operation.progress import progress_binding
-from baibai_engine.research.operation.service import OperationService
-from baibai_engine.research.workspace import (
+from baibai_engine.investment_judgment.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
     compute_status,
@@ -33,8 +33,8 @@ from baibai_engine.research.workspace import (
     scaffold_assessment,
     scaffold_review,
 )
-from baibai_engine.research.workspace import scaffold as scaffold_module
-from baibai_engine.research.workspace_cli import main
+from baibai_engine.investment_judgment.workspace import scaffold as scaffold_module
+from baibai_engine.investment_judgment.workspace_cli import main
 
 NOW = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
 
@@ -527,7 +527,7 @@ def test_new_public_cli_uses_scaffolded_identity_and_rejects_retired_commands(ca
     assert (
         main(
             [
-                "assessment-scaffold",
+                "stock-assessment-scaffold",
                 "--workspace",
                 str(workspace),
                 "--db",
@@ -548,7 +548,7 @@ def test_new_public_cli_uses_scaffolded_identity_and_rejects_retired_commands(ca
     assert (
         main(
             [
-                "assessment-promote",
+                "stock-assessment-promote",
                 "--workspace",
                 str(workspace),
                 "--db",

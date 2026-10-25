@@ -9,9 +9,9 @@ import pytest
 import requests
 from tests.helpers.http_doubles import FakeResponse, response
 
-from baibai_engine.collection.edinet import http
-from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded
+from baibai_engine.data_collection.edinet import http
+from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.data_collection.read_http import AcquisitionDeadlineExceeded
 from baibai_engine.market.edinet_refresh import EDINETRefresh
 
 KEY = "secret+/key"
@@ -303,7 +303,7 @@ def test_refresh_rebuilds_saved_list_without_creating_http_session(tmp_path, mon
 
     monkeypatch.setattr(http.requests, "Session", unexpected_session)
     sqlite_path = tmp_path / "market.sqlite"
-    from baibai_engine.collection.edinet.receipts import retain_list_response
+    from baibai_engine.data_collection.edinet.receipts import retain_list_response
     from baibai_engine.storage.observations.schema import open_connection
 
     connection = open_connection(sqlite_path)

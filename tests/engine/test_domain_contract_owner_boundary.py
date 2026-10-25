@@ -13,11 +13,11 @@ import yaml
 from tests.helpers.er_calibration_context import context_artifact
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.jpx_total_return import load_benchmark_observation
-from baibai_engine.valuation.calibration.query import (
+from baibai_engine.machine_analysis.company_valuation.calibration.query import (
     candidate_er_band_context,
     load_er_calibration_context,
 )
+from baibai_engine.market.jpx_total_return import load_benchmark_observation
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -25,8 +25,8 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(
     "module",
     [
-        "valuation.calibration.contracts",
-        "valuation.calibration.query",
+        "machine_analysis.company_valuation.calibration.contracts",
+        "machine_analysis.company_valuation.calibration.query",
         "market.benchmark_observation",
     ],
 )
@@ -46,8 +46,8 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
         check=True,
     )
     forbidden = (
-        "baibai_engine.screening",
-        "baibai_engine.research",
+        "baibai_engine.machine_analysis.screening",
+        "baibai_engine.investment_judgment",
         "baibai_engine.read_api",
         "baibai_engine.storage",
         "baibai_engine.market",

@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { OperationResearchTargetView, OperationSessionView } from '../src/api/types'
-import { ResearchOperationCard } from '../src/pages/research/ResearchOperationCard'
+import { InvestmentJudgmentOperationCard } from '../src/pages/investment-judgment/InvestmentJudgmentOperationCard'
 
 function target(ticker: string, purpose: 'new' | 'holding', extra: Partial<OperationResearchTargetView> = {}): OperationResearchTargetView {
   return { ticker, purpose, outcome_status: null, assessment_ref: null, unfinished_reason: null, references: extra.outcome_status === 'unfinished' ? ['synthetic-source'] : [], selection_rationale: null, research_question: null, key_risk: null, ...extra }
@@ -18,7 +18,7 @@ function session(targets: OperationResearchTargetView[], status: 'active' | 'com
   }
 }
 function render(operation: OperationSessionView) {
-  return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ResearchOperationCard, { operations: [operation] })))
+  return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(InvestmentJudgmentOperationCard, { operations: [operation] })))
 }
 
 describe('有限調査と提案の表示', () => {
@@ -28,13 +28,13 @@ describe('有限調査と提案の表示', () => {
     operation.research!.source_analysis_as_of = '2026-10-13'
     const html = render(operation)
     for (const text of ['保存した分析基準日', 'synthetic-explicit-run', 'synthetic explicit request', '2026-10-13']) expect(html).toContain(text)
-    expect(html).toContain('企業評価・Review完了 0件 · 調査未完了 0件 · 成果未記録 1件')
+    expect(html).toContain('銘柄評価・独立検証完了 0件 · 調査未完了 0件 · 成果未記録 1件')
     expect(html).not.toContain('/research-triage')
   })
   it('発行提案がある部分完了と調査未完了を別表示する', () => {
     const operation = session([target('1234', 'new', { outcome_status: 'reviewed', assessment_ref: { assessment_id: 'stock-assessment-original', core_sha256: 'a'.repeat(64), review_id: 'assessment-review-original' } }), target('5678', 'new', { outcome_status: 'unfinished', unfinished_reason: '一次資料の確認未完了' })], 'completed')
     const html = render(operation)
-    for (const text of ['>調査終了</p>', '固定対象 2件', '企業評価・Review完了 1件 · 調査未完了 1件 · 成果未記録 0件', '保存提案あり', '調査未完了: 一次資料の確認未完了', '/stocks/stock-assessments/stock-assessment-original', '/stocks/investment-proposals/investment-proposal-original']) expect(html).toContain(text)
+    for (const text of ['>調査終了</p>', '固定対象 2件', '銘柄評価・独立検証完了 1件 · 調査未完了 1件 · 成果未記録 0件', '保存提案あり', '調査未完了: 一次資料の確認未完了', '/stocks/stock-assessments/stock-assessment-original', '/stocks/investment-proposals/investment-proposal-original']) expect(html).toContain(text)
     expect(html).not.toContain('提案工程完了')
     expect(html).not.toContain('人間確認済み')
   })
@@ -48,7 +48,7 @@ describe('有限調査と提案の表示', () => {
     const operation = session([target('1234', 'new', { outcome_status: 'unfinished', unfinished_reason: '一次資料の確認待ち', references: ['synthetic-source'] })], 'completed')
     operation.payload.result = '全対象未完了。保存提案のdeferに再開条件を記録。'
     const html = render(operation)
-    for (const text of ['>調査終了</p>', '企業評価・Review完了 0件 · 調査未完了 1件 · 成果未記録 0件', '調査未完了: 一次資料の確認待ち', '保存提案あり', '保存提案のdefer', '次の確認: 次の明示依頼で再確認', '/stocks/investment-proposals/investment-proposal-original']) expect(html).toContain(text)
+    for (const text of ['>調査終了</p>', '銘柄評価・独立検証完了 0件 · 調査未完了 1件 · 成果未記録 0件', '調査未完了: 一次資料の確認待ち', '保存提案あり', '保存提案のdefer', '次の確認: 次の明示依頼で再確認', '/stocks/investment-proposals/investment-proposal-original']) expect(html).toContain(text)
     expect(html).not.toContain('提案工程完了')
     expect(html).not.toContain('提案なしで終了')
   })
@@ -56,14 +56,14 @@ describe('有限調査と提案の表示', () => {
     const operation = session([target('1234', 'new', { outcome_status: 'unfinished', unfinished_reason: '再開可能' })])
     operation.research!.proposal_id = 'investment-proposal-earlier'
     const html = render(operation)
-    for (const text of ['>調査進行中</p>', '保存提案あり', '企業評価・Review完了 0件 · 調査未完了 1件 · 成果未記録 0件', '/stocks/investment-proposals/investment-proposal-earlier']) expect(html).toContain(text)
+    for (const text of ['>調査進行中</p>', '保存提案あり', '銘柄評価・独立検証完了 0件 · 調査未完了 1件 · 成果未記録 0件', '/stocks/investment-proposals/investment-proposal-earlier']) expect(html).toContain(text)
     expect(html).not.toContain('>調査終了</p>')
     expect(html).not.toContain('提案工程完了')
   })
   it('完成評価だけでは提案やOperationを完了にしない', () => {
     const html = render(session([target('1234', 'new', { outcome_status: 'reviewed', assessment_ref: { assessment_id: 'stock-assessment-original', core_sha256: 'a'.repeat(64), review_id: 'assessment-review-original' } })]))
     expect(html).toContain('>調査進行中</p>')
-    expect(html).toContain('企業評価・Review完了 1件 · 調査未完了 0件 · 成果未記録 0件')
+    expect(html).toContain('銘柄評価・独立検証完了 1件 · 調査未完了 0件 · 成果未記録 0件')
     expect(html).toContain('保存提案の参照はありません')
     expect(html).not.toContain('提案工程完了')
     expect(html).toContain('提案・採否・約定は別に確認')

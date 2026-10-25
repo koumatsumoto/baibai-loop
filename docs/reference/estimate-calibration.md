@@ -1,6 +1,6 @@
 # 見積り較正
 
-保存入力から過去as-ofの機械見積り・候補を再構成し、forward outcomeと照合する。資産全体の運用成績やL3企業評価の正しさとは別の横断診断である。生成・評価はscreening/calibration、保存文脈の意味と利用可否はvaluation/calibrationが所有する。
+保存入力から過去as-ofの機械見積り・候補を再構成し、forward outcomeと照合する。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。生成・評価は`machine_analysis/screening/calibration`、保存文脈の意味と利用可否は`machine_analysis/company_valuation/calibration`が所有する。
 
 ## 何を測るか
 
@@ -37,13 +37,13 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 <a id="er-level-distribution-context"></a>
 ## 判断へ渡す歴史分布
 
-配布文脈は企業価値モデルに近接する[published YAML](../../engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
+配布文脈は企業価値モデルに近接する[published YAML](../../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
 
 結果が観測できた集合から予測帯を作らず、宣言した有限ER全対象から固定境界を求め、同じ境界で両horizon・basisと現在候補を分類する。未評価を0損益へ入れず、観測なしの分布はnull。ticker-asof等重みとcohort等重み、宣言/観測月数、各母数を区別する。固定8.5%帯は比較座標で、[L3の要求率](../doctrine.md#required-return-policy)に連動させない。
 
-候補への対応帯は、実際のoperative runのrules/model identityと一致した場合だけ読む。artifactは生成後45日の範囲と有効期限を持ち、未来・期限切れ・schema/basis/band不正・不一致は利用不能。Research全体の新hard gateにせず、順位・FV・保存入力・要求率を変更しない。分布は観測済みの歴史で、全母集団の実証済期待収益や個別予測ではない。
+候補への対応帯は、実際のoperative runのrules/model identityと一致した場合だけ読む。artifactは生成後45日の範囲と有効期限を持ち、未来・期限切れ・schema/basis/band不正・不一致は利用不能。Investment Judgment全体の新hard gateにせず、順位・FV・保存入力・要求率を変更しない。分布は観測済みの歴史で、全母集団の実証済期待収益や個別予測ではない。
 
-必要時だけresearch calibration-contextで固定Operationを指定する。古いrunへ現行artifactを付け替えず、不足・formal completenessと利用不能理由を合わせて読む。YAMLを手編集して生成日・hashだけ更新しない。
+必要時だけinvestment-judgment calibration-contextで固定Operationを指定する。古いrunへ現行artifactを付け替えず、不足・formal completenessと利用不能理由を合わせて読む。YAMLを手編集して生成日・hashだけ更新しない。
 
 固定v43標本には粗い順位の研究材料があるが、未解決対価・配当basis・過去入力/PITと実行可能価格の制約が残り、期待リターンの数値較正や買い閾値には採用しない。少数の公式原本を回復できても全面backfillの便益は未確認で、目的と必要入力を限定する。手計算感度でformal gateを上書きしない。[v43の採否](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-23-v43-evidence-decision/report.md)と[回復pilot](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-23-historical-recovery-pilot/report.md)に詳細を残す。
 
@@ -61,8 +61,6 @@ calibrationは再生成可能なローカルsnapshot。generation graph・remote
 
 pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用variant。別calibration directoryを必須とし、variantと窓をidentityへ含める。productionの750-sessionと違うためformal empirical evidenceへ使えない。実効観測本数も確認し、短い履歴をfull-windowとしない。この診断契約は維持する。
 
-操作例は[較正の運用](../../batch/OPERATIONS.md#定期maintenance)に置く。
-
 ## 方法を変える判断
 
 計算の正誤修正は算術・期間・単位・株式basis、運用不具合は成功/失敗経路で検証する。文書や配置整理にStudy・本番再生成を要求しない。経済仮説の優劣を主張する変更は計測前に仮説・採否基準・対象をIssue/PRへ固定する。
@@ -71,6 +69,6 @@ pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用
 
 窓ごとにnegative/insufficient/adoption_candidate/inconclusiveを判断してから統合し、他窓の不成立を一つの被覆不足で隠さない。insufficientは効果なしではない。一方、用途のないpanel列・評価枝・専用testを、成熟待ちだけで保持する義務はない。[開発原則](../doctrine.md#development-investment-policy)から維持費と価値を判断する。
 
-採用は計測した構成と一致させ、必要範囲を再buildする。個人の保有成果と機械replayを合算せず、機械手法の実証は3y/5y、判断手順は実運用と保存評価の事後照合から改める。企業評価と機械anchorの数値差を比べる時も、基準日・株式単位・期間・分配・評価方法を揃える。比較不能を数値の優劣へ変換しない。
+採用は計測した構成と一致させ、必要範囲を再buildする。個人の保有成果と機械replayを合算せず、機械手法の実証は3y/5y、判断手順は実運用と保存評価の事後照合から改める。銘柄評価と機械anchorの数値差を比べる時も、基準日・株式単位・期間・分配・評価方法を揃える。比較不能を数値の優劣へ変換しない。
 
-実行・月次更新は[OPERATIONS](../../batch/OPERATIONS.md#定期maintenance)へ進む。記述分布生成の成功を方法変更の根拠成立や運用利益の証明として掲げない。
+実行・月次更新は[OPERATIONS](../../jobs/OPERATIONS.md#定期maintenance)へ進む。記述分布生成の成功を方法変更の根拠成立や運用利益の証明として掲げない。

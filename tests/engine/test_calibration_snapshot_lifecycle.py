@@ -9,8 +9,8 @@ from datetime import date
 import pytest
 from tests.helpers.calibration_store import panel_diagnostics
 
-from baibai_engine.screening.calibration import store
-from baibai_engine.screening.calibration.forward import ForwardObservationPolicy
+from baibai_engine.machine_analysis.screening.calibration import store
+from baibai_engine.machine_analysis.screening.calibration.forward import ForwardObservationPolicy
 
 
 def _snapshot(root):

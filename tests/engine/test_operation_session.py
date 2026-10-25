@@ -12,14 +12,18 @@ from pydantic import ValidationError
 from tests.helpers.research_selection import selection
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.read_api.operations import list_operation_sessions
-from baibai_engine.research.operation.cli import main as operation_main
-from baibai_engine.research.operation.models import SESSION_KINDS, OperationPayload, SessionKind
-from baibai_engine.research.operation.service import (
+from baibai_engine.investment_judgment.operation.cli import main as operation_main
+from baibai_engine.investment_judgment.operation.models import (
+    SESSION_KINDS,
+    OperationPayload,
+    SessionKind,
+)
+from baibai_engine.investment_judgment.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,
 )
+from baibai_engine.read_api.operations import list_operation_sessions
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
@@ -52,7 +56,7 @@ def test_start_refuses_incomplete_research_binding_without_creating_db(
         if tickers is None
         else ({"kind": "research_triage", "ref": "triage", "research_set": tickers},),
     )
-    with pytest.raises(OperationConflictError, match="research prepare"):
+    with pytest.raises(OperationConflictError, match="investment-judgment prepare"):
         OperationService(db).start(
             session_kind="capital-allocation", as_of=NOW.date(), started_at=NOW, payload=payload
         )

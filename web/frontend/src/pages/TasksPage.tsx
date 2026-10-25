@@ -41,10 +41,10 @@ export function TasksPage() {
   }, [])
   if (error !== null) return <PageState message={error} title="Tasks read error" />
   if (data === null) return <LoadingPage label="Tasks を読み込んでいます" />
-  return <PageShell lead="期限付きの用件と、近い決算・予約期限を確認します。調査・提案は専用の入口から読めます。" meta={<span className="text-xs text-muted-foreground">表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>} title="Tasks">
+  return <PageShell lead="期限付きの用件と、近い決算・予約期限を確認します。投資判断は専用の入口から読めます。" meta={<span className="text-xs text-muted-foreground">表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>} title="Tasks">
     <NextTaskCard task={data.next_task} />
     <EventsCard events={data.upcoming_events} ledgerError={data.ledger_error} />
     <TaskList data={data} />
-    <Link className="w-fit text-sm underline" to="/stocks">調査・提案を見る →</Link>
+    <Link className="w-fit text-sm underline" to="/stocks">投資判断を見る →</Link>
   </PageShell>
 }

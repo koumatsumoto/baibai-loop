@@ -8,7 +8,7 @@ Two families are checked, because a skill's commands come from two places. Pytho
 points are asked of argparse: what the command needs, never what its values mean, so
 placeholders like `<ASOF>` survive and nothing is type-converted. Positional counting is
 deliberately absent — telling an option's value apart from a positional needs value
-semantics this gate does not have. `batch/scripts/r2_transfer.sh` has no argparse to
+semantics this gate does not have. `jobs/scripts/r2_transfer.sh` has no argparse to
 ask, so its subcommand is matched against the `case` the script dispatches in; a name
 that is not a branch there dies on the first line with `usage; exit 2`.
 """
@@ -29,12 +29,12 @@ from tools.quality.drift.check_cli_help import DELEGATED_GROUPS, build_parser
 
 _SCAN_DIRECTORIES = (".agents/skills",)
 # Active operations and skills own runnable command examples.
-_SCAN_FILES = ("batch/OPERATIONS.md",)
+_SCAN_FILES = ("jobs/OPERATIONS.md",)
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")
 _COMMENT = re.compile(r"\s+#\s.*$")
 
-_TRANSFER_SCRIPT = Path("batch/scripts/r2_transfer.sh")
+_TRANSFER_SCRIPT = Path("jobs/scripts/r2_transfer.sh")
 _TRANSFER_PREFIX = f"{_TRANSFER_SCRIPT.as_posix()} "
 _COMMAND_PREFIXES = ("uv run ", _TRANSFER_PREFIX)
 # The one `case` the script dispatches its argument in. Read from the branch that runs
@@ -167,15 +167,15 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
         return build_parser(module), f"baibai-engine {rest[1]}", rest[2:]
     if rest[:1] == ["baibai-web"]:
         return _tool_parser("baibai_web.cli", "baibai-web", rest[1:])
-    if rest[:1] == ["baibai-batch"]:
-        from baibai_batch.cli import _COMMANDS
+    if rest[:1] == ["baibai-jobs"]:
+        from baibai_jobs.cli import _COMMANDS
 
         if len(rest) < 2 or rest[1] not in _COMMANDS:
-            raise _Unresolvable(f"baibai-batch: unknown command {' '.join(rest[1:2])}")
-        return _tool_parser(_COMMANDS[rest[1]].__module__, f"baibai-batch {rest[1]}", rest[2:])
+            raise _Unresolvable(f"baibai-jobs: unknown command {' '.join(rest[1:2])}")
+        return _tool_parser(_COMMANDS[rest[1]].__module__, f"baibai-jobs {rest[1]}", rest[2:])
     if rest[:1] != ["python"] or len(rest) < 2:
         raise _Unresolvable(f"unrecognised entry point: {' '.join(rest[:3])}")
-    module_prefixes = ("baibai_batch.", "baibai_engine.", "baibai_web.", "tools.")
+    module_prefixes = ("baibai_jobs.", "baibai_engine.", "baibai_web.", "tools.")
     if rest[1] == "-m" and len(rest) > 2 and rest[2].startswith(module_prefixes):
         return _tool_parser(rest[2], f"python -m {rest[2]}", rest[3:])
     # `python tools/x.py` と `python -m tools.x` は同じ module を指す。tool ごとに

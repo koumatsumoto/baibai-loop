@@ -1,6 +1,6 @@
 import pytest
 
-from baibai_engine.screening.cli import app
+from baibai_engine.machine_analysis.screening.cli import app
 
 
 @pytest.mark.parametrize(

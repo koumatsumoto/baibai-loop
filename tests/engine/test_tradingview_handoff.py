@@ -7,13 +7,15 @@ from tests.engine.test_jquants_projection import body, receive
 from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 from tests.engine.test_tradingview_rebuild import _retain
 
-from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
-from baibai_engine.external_assessment.tradingview.handoff import (
+from baibai_engine.data_collection.tradingview.handoff import (
     TradingViewHandoff,
     export_handoff,
     import_handoff,
 )
-from baibai_engine.external_assessment.tradingview.rebuild import rebuild_from_receipts
+from baibai_engine.data_collection.tradingview.rebuild import rebuild_from_receipts
+from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+    SourceDataError,
+)
 from baibai_engine.storage.observations.schema import open_connection
 
 

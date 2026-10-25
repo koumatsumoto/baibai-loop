@@ -5,19 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.research.assessment import StockAssessmentDocument
-from baibai_engine.research.proposal import (
+from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
+from baibai_engine.investment_judgment.trade_proposal import (
     BuyItem,
     GateReason,
     HoldItem,
-    InvestmentProposal,
     LiquidityContext,
     PositionInput,
     QuoteInput,
     ReservationInput,
     SellItem,
+    TradeProposal,
 )
-from baibai_engine.research.proposal_warnings import build_proposal_warnings
+from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def case():
     fixture = json.loads(path.read_text())
     return (
         StockAssessmentDocument.model_validate(fixture["assessment_publication"]["document"]),
-        InvestmentProposal.model_validate(fixture["investment_proposal"]),
+        TradeProposal.model_validate(fixture["investment_proposal"]),
     )
 
 

@@ -10,8 +10,8 @@ import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.collection.jpx.models import JPXResponse
-from baibai_engine.collection.jpx.receipts import (
+from baibai_engine.data_collection.jpx.models import JPXResponse
+from baibai_engine.data_collection.jpx.receipts import (
     complete_bundle,
     create_bundle,
     declare_bundle_resources,

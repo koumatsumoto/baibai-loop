@@ -11,17 +11,19 @@ from tests.engine.screening.metric_fixtures import (
 )
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.screening.metric_builder import build_metrics
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.valuation.metrics.capital import (
+from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
     _resolve_capital_basis,
     _shares_excluding_treasury,
     build_shares_outstanding_index,
 )
-from baibai_engine.valuation.metrics.periods import _ttm_value
-from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
+from baibai_engine.machine_analysis.company_valuation.metrics.periods import _ttm_value
+from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+    build_normalized_profit_signals,
+)
+from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.market.price_models import JQuantsDailyBar
 
 
 class ScreeningMetricsTests(SnapshotFixtures):

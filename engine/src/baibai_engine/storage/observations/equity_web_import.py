@@ -8,8 +8,8 @@ from contextlib import closing
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.collection.equity_web.receipts import (
+from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
+from baibai_engine.data_collection.equity_web.receipts import (
     EquityWebReceiptError,
     insert_response,
     read_responses,

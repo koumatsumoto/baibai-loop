@@ -2,8 +2,8 @@ from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 
-from baibai_engine.screening.schema import ScreeningRunDocument, StockAnalysis
-from baibai_engine.screening.screening_run_serializer import (
+from baibai_engine.machine_analysis.screening.schema import ScreeningRunDocument, StockAnalysis
+from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     screening_run_payload,
     stock_analysis_payload,
 )

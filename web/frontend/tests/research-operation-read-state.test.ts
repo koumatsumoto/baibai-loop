@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { fetchJson } from '../src/api/client'
 import { fetchProposalHistory } from '../src/api/proposal-history'
 import type { InvestmentProposalsView, OperationsView } from '../src/api/types'
-import { ResearchPage } from '../src/pages/ResearchPage'
+import { InvestmentJudgmentPage } from '../src/pages/InvestmentJudgmentPage'
 
 const hooks = vi.hoisted(() => ({
   cursor: 0,
@@ -27,7 +27,7 @@ vi.mock('../src/components/LoadingIndicator', () => ({ LoadingPage: () => null }
 
 function render() {
   hooks.cursor = 0
-  return renderToStaticMarkup(createElement(MemoryRouter, null, ResearchPage()))
+  return renderToStaticMarkup(createElement(MemoryRouter, null, InvestmentJudgmentPage()))
 }
 afterEach(() => {
   vi.resetAllMocks()
@@ -59,7 +59,7 @@ it('全対象unfinishedで終了した調査と保存defer提案を同じResearc
   hooks.values.set(0, proposals)
   hooks.values.set(2, operations)
   const html = render()
-  for (const text of ['判断保留', '>調査終了</p>', '企業評価・Review完了 0件 · 調査未完了 1件', '保存提案あり', `/stocks/investment-proposals/${proposalId}`, '重要な一次資料の確認待ち']) expect(html).toContain(text)
+  for (const text of ['判断保留', '>調査終了</p>', '銘柄評価・独立検証完了 0件 · 調査未完了 1件', '保存提案あり', `/stocks/investment-proposals/${proposalId}`, '重要な一次資料の確認待ち']) expect(html).toContain(text)
   expect(html).not.toContain('提案工程完了')
   expect(html).not.toContain('人間確認済み')
 })

@@ -16,13 +16,13 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_engine.collection.jquants.http import (
+from baibai_engine.data_collection.jquants.http import (
     JQuantsAcquisitionError,
     JQuantsHTTP,
     page_records,
 )
-from baibai_engine.collection.jquants.receipts import read_complete_request, read_request_pages
-from baibai_engine.collection.read_http import AcquisitionDeadlineExceeded
+from baibai_engine.data_collection.jquants.receipts import read_complete_request, read_request_pages
+from baibai_engine.data_collection.read_http import AcquisitionDeadlineExceeded
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.schema import open_connection

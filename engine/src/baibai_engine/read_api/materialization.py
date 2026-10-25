@@ -6,8 +6,11 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.reading.rules import ReadingRulesError, load_reading_rules
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.reading.rules import (
+    ReadingRulesError,
+    load_reading_rules,
+)
 from baibai_engine.storage.application.read import (
     connect_read_only as connect_application_read_only,
 )
@@ -48,19 +51,11 @@ def validate_market_store_schema(path: Path) -> None:
 def validate_market_store_hydration(path: Path) -> None:
     """Require every lake-owned table to hold rows once its fetch ledger claims some.
 
-    The market store published to the object store is a copy whose lake-owned tables
-    were emptied: the rows live in the L1 release and a reader fills them back before
-    reading it. Emptying keeps the tables, so every query still answers — with nothing —
-    and `source_coverage`, which the lake does not own, travels with the copy still
-    claiming the fetches. Exporting that copy would mistake an unhydrated store for
-    genuine missing market observations. Stop before writing views; ledger prices are
-    not a substitute for the current market source.
-
-    The comparison is the merge's, one-directional (see `batch/OPERATIONS.md`,
-    "merge が検査するもの"): a claim is only ever raised to the rows a store holds and
-    never lowered, so an empty table under a positive claim is the unfilled state, while
-    a table holding more than its windows claim is ordinary. Totals are deliberately not
-    compared because coverage windows overlap and can count the same row repeatedly.
+    The transferred store retains local coverage but empties lake-owned tables.
+    Those rows must be hydrated from the market lake before export; otherwise an
+    unfilled working copy would look like genuine missing observations. This check
+    detects that empty state, not completeness. Coverage windows overlap, so summing
+    their counts does not establish the expected number of distinct stored rows.
     """
 
     if not path.is_file():
@@ -110,7 +105,7 @@ def validate_market_store_hydration(path: Path) -> None:
         raise MaterializationPreconditionError(
             "market store is not hydrated: " + "; ".join(unfilled) + f" ({path}). "
             "Fill it from the current L1 release before exporting "
-            "(batch/scripts/r2_transfer.sh hydrate-market)"
+            "(jobs/scripts/r2_transfer.sh hydrate-market)"
         )
 
 

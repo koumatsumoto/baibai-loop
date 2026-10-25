@@ -17,24 +17,29 @@ from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.research.assessment_store import publish_reviewed_assessment
-from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
-from baibai_engine.research.operation.models import OperationPayload
-from baibai_engine.research.operation.progress import (
+from baibai_engine.investment_judgment.inputs import (
+    collect_research_inputs,
+    project_research_inputs,
+)
+from baibai_engine.investment_judgment.operation.models import OperationPayload
+from baibai_engine.investment_judgment.operation.progress import (
     ResearchProgress,
     progress_binding,
     proposal_scope,
     selection_binding,
     with_progress,
 )
-from baibai_engine.research.operation.research_binding import require_proposal_research_scope
-from baibai_engine.research.operation.service import (
+from baibai_engine.investment_judgment.operation.research_binding import (
+    require_proposal_research_scope,
+)
+from baibai_engine.investment_judgment.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,
 )
-from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
-from baibai_engine.research.proposal_query import load_investment_proposal
+from baibai_engine.investment_judgment.stock_assessment_store import publish_reviewed_assessment
+from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
+from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
@@ -172,7 +177,7 @@ def proposal_for(operation, *, actions=None, number=1):
     raw["items"] = items
     raw["inputs"]["positions"] = positions
     raw["review"]["review_id"] = f"proposal-review-00000000-0000-4000-8000-{number:012x}"
-    value = InvestmentProposal.model_validate(raw)
+    value = TradeProposal.model_validate(raw)
     return value.model_copy(
         update={
             "review": value.review.model_copy(update={"draft_sha256": proposal_draft_sha256(value)})
@@ -281,7 +286,7 @@ def test_all_unfinished_requires_saved_defer_proposal_and_does_not_become_reject
         references=("synthetic-source",),
         now=NOW,
     )
-    with pytest.raises(OperationCompletionError, match="published Investment Proposal"):
+    with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
         service.complete(operation.operation_id, final_payload(operation), completed_at=PUBLISHED)
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
@@ -304,7 +309,7 @@ def test_holding_uses_common_assessment_reference_and_published_proposal_only(ca
     assert progress.outcomes[0].purpose == "holding"
     assert progress.outcomes[0].assessment_ref.assessment_id == reference
     assert "draft" not in progress.model_dump_json()
-    with pytest.raises(OperationCompletionError, match="published Investment Proposal"):
+    with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
         service.complete(operation.operation_id, final_payload(operation), completed_at=PUBLISHED)
     proposal = proposal_for(operation, actions={"2331": action})
     seed_proposal(db, proposal)
@@ -613,7 +618,7 @@ def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypa
     def no_recompute(*args, **kwargs):
         pytest.fail("projecting saved research inputs must not recalculate prices")
 
-    monkeypatch.setattr("baibai_engine.research.inputs.technical_analysis", no_recompute)
+    monkeypatch.setattr("baibai_engine.investment_judgment.inputs.technical_analysis", no_recompute)
     projected = project_research_inputs(saved)
     assert projected["securities"]["1234"]["technical_analysis"] == expected
     historical = saved.model_dump(mode="json")

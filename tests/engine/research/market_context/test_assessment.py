@@ -9,16 +9,19 @@ import pytest
 from tests.helpers.assessment_history import historical_context_payload as historical_payload
 from tests.helpers.assessment_history import seed_history
 
-from baibai_engine.research.market_context.cli import main
-from baibai_engine.research.market_context.models import MarketContextAssessment, StoredAssessment
-from baibai_engine.research.market_context.projection import assessment_projection
-from baibai_engine.research.market_context.query import (
+from baibai_engine.investment_judgment.market_context.cli import main
+from baibai_engine.investment_judgment.market_context.models import (
+    MarketContextAssessment,
+    StoredAssessment,
+)
+from baibai_engine.investment_judgment.market_context.projection import assessment_projection
+from baibai_engine.investment_judgment.market_context.query import (
     assessment_by_id,
     assessment_history,
     latest_assessment,
     select_assessment,
 )
-from baibai_engine.research.market_context.service import (
+from baibai_engine.investment_judgment.market_context.service import (
     AssessmentConflictError,
     AssessmentService,
 )

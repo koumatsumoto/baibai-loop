@@ -6,23 +6,23 @@ from datetime import date
 import pytest
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _split_bar, _summary
 
-from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.screening.calibration.forward import (
-    _asof_basis_dividend as _forward_asof_basis_dividend,
-)
-from baibai_engine.screening.calibration.forward import (
-    _FYDividendObservation,
-)
-from baibai_engine.screening.metric_builder import build_metrics
-from baibai_engine.valuation.metrics.capital import (
+from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
     _normalize_summaries_to_asof_basis,
     _normalize_summaries_with_status,
 )
-from baibai_engine.valuation.metrics.dividends import (
+from baibai_engine.machine_analysis.company_valuation.metrics.dividends import (
     _resolve_dividend_carry,
     build_shareholder_return_change_signals,
 )
-from baibai_engine.valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.screening.calibration.forward import (
+    _asof_basis_dividend as _forward_asof_basis_dividend,
+)
+from baibai_engine.machine_analysis.screening.calibration.forward import (
+    _FYDividendObservation,
+)
+from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
+from baibai_engine.market.price_models import JQuantsDailyBar
 
 
 class DividendCarryResolverTests(unittest.TestCase):
@@ -373,7 +373,7 @@ class TradableShareChangeTest(unittest.TestCase):
     日本の自社株買いは取得した株式を自己株式へ入れるだけで、発行済株式総数は消却するまで
     減らない。carry の株数項が発行済で測られている限り、還元が起きた年は 0 で、現金の動かない
     消却年に符号が付く。当時の比較結果は既存 carry の維持として記録済み
-    (docs/reference/valuation-metrics.md#carry-policy)。ここでは 2 軸が別物であることを
+    (docs/reference/company-valuation.md#carry-policy)。ここでは 2 軸が別物であることを
     固定する。
     """
 
@@ -643,9 +643,9 @@ def test_unrelated_payment_and_share_disagreements_do_not_veto_annual_dps(tmp_pa
     import sqlite3
     from contextlib import closing
 
+    from baibai_engine.machine_analysis.screening.calibration.forward import _load_fy_dividends
     from baibai_engine.market.jquants_reader import read_financial_documents
     from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
-    from baibai_engine.screening.calibration.forward import _load_fy_dividends
 
     day = date(2026, 5, 15)
     path = tmp_path / "market.sqlite"

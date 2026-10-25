@@ -10,7 +10,7 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github/workflows"
 _NPM_AUDIT = "npm audit --package-lock-only --audit-level=high"
 _BANDIT = (
     "uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine "
-    "web/backend/src/baibai_web batch/src/baibai_batch tools"
+    "web/backend/src/baibai_web jobs/src/baibai_jobs tools"
 )
 # A scanner is weakened by editing its command, not by deleting its step: a lowered
 # --audit-level, a narrowed Bandit root, an --ignore-vuln or a trailing `|| true`

@@ -12,19 +12,22 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
-from baibai_engine.research.assessment import StockAssessmentDocument, assessment_core_hash
-from baibai_engine.research.assessment_store import (
-    AssessmentStoreService,
-    ResearchValidationError,
-)
-from baibai_engine.storage.application.read import connect_read_only
-from baibai_engine.valuation.scenario import (
+from baibai_engine.investment_judgment.scenario import (
     Projection,
     maximum_entry_price,
     project_return,
     required_total_value,
     valuation_conditions,
 )
+from baibai_engine.investment_judgment.stock_assessment import (
+    StockAssessmentDocument,
+    assessment_core_hash,
+)
+from baibai_engine.investment_judgment.stock_assessment_store import (
+    AssessmentStoreService,
+    ResearchValidationError,
+)
+from baibai_engine.storage.application.read import connect_read_only
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
@@ -261,7 +264,7 @@ def test_conditions_keep_valuation_precision_for_small_surplus():
 def test_valuation_owner_has_typed_canonical_assessment_identity():
     import json
 
-    from baibai_engine.valuation.models import Valuation
+    from baibai_engine.investment_judgment.valuation import Valuation
 
     assessment, review = pair_payload()
     document = StockAssessmentDocument.model_validate(assessment)

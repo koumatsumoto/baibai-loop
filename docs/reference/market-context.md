@@ -1,6 +1,6 @@
 # 市場環境
 
-保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。企業価値は[企業価値](valuation-metrics.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はResearchが所有する。取得・原本はCollection、現在のL2定義はindicators、計算・統計はreadingに置く。
+保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。企業価値は[企業価値](company-valuation.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はInvestment Judgmentが所有する。取得・原本はData Collection、現在のL2定義はindicators、計算・統計はreadingに置く。
 
 <a id="market-context-reads"></a>
 ## 比較する母集団と時点
@@ -15,7 +15,7 @@ masterはcutoff以下の一つの最新snapshotを選び、その中にないtic
 
 価格は[調整済み価格reader](../../engine/src/baibai_engine/market/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
 
-ticker-profileは要求日の市場・分類・runと、現在ledgerの独立したledger_as_ofを合成する。保有履歴を要求日へ再生せず、profile全体を完全な過去時点再現としない。Webの共有読取・batch化は同じ領域計算を使い、表示用の別計算正本を作らない。
+ticker-profileは要求日の市場・分類・runと、現在ledgerの独立したledger_as_ofを合成する。保有履歴を要求日へ再生せず、profile全体を完全な過去時点再現としない。Webの共有読取・バッチ処理は同じ領域計算を使い、表示用の別計算正本を作らない。
 
 <a id="margin"></a>
 ## 信用需給
@@ -42,7 +42,7 @@ percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latest
 
 ネット流動性は入力の単位を揃えるが、WALCLの水曜残高、WTREGENの週平均、日次RRPを組み合わせる近似であり、同時点の厳密な残高や投資可能資金ではない。月次整列の代表日や採用入力vintageも実公表時刻ではない。
 
-Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
+Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
 
 <a id="option-iv"></a>
 ### オプションIVの読み方
@@ -51,20 +51,20 @@ iv30・skewは30日を挟む適格な限月を要し、skewの期間補間は逆
 
 ### 再計算とPITの限界
 
-read_semanticsがrecomputed_from_current_storeなら現在storeの後日取得・改定情報から再計算している。Researchのknown_atはReadingへ一律適用されず、ProviderSpecが公表vintage能力を持つと宣言したsourceだけを対象日でclampする。bulk履歴の受領時刻で一律clampすると、当時既知だった履歴まで消してしまう。
+read_semanticsがrecomputed_from_current_storeなら現在storeの後日取得・改定情報から再計算している。Investment Judgmentのknown_atはReadingへ一律適用されず、ProviderSpecが公表vintage能力を持つと宣言したsourceだけを対象日でclampする。bulk履歴の受領時刻で一律clampすると、当時既知だった履歴まで消してしまう。
 
 as-ofの固定やJST日末cutoffは**intraday PITの保証ではない**。公表日、受領時刻、改定vintageの能力を確認し、当時の判断品質や成績との照合へこの限界を残す。投資部門別PubDateも改定の正確なAPI利用可能時刻ではない。snapshot固定は再開時の同一入力を保つ。
 
 <a id="assessment"></a>
 ## 市場環境判断
 
-Researchの市場環境判断（Market Context Assessment）は、固定入力と基準時点、重要な水準・変化の根拠、反証/不確実性、調査・業種・riskへの含意を扱う。章数・確率格子・scenario件数を必須にせず、変化が小さいことや不足も表現する。単なる株価トレンドへ縮めず、個社への伝達と支払価格の比較につなぐ。
+Investment Judgmentの市場環境判断（Market Context Assessment）は、固定入力と基準時点、重要な水準・変化の根拠、反証/不確実性、調査・業種・riskへの含意を扱う。章数・確率格子・scenario件数を必須にせず、変化が小さいことや不足も表現する。単なる株価トレンドへ縮めず、個社への伝達と支払価格の比較につなぐ。
 
 共通条件を個社の耐性・仮定と価格比較へ接続する。独自の総合risk点、指数連動の要求率、自動配分・一律業種除外/売却は、実時間の増分価値と費用・誤除外を確認できず採用していない。[当時の方式比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-20-macro-risk-strategy/report.md)は、集約指数一般の無効や今日の市場状態を認定したものではない。
 
 as_ofは判断対象日、known_atは入力確定時刻。対象日以下でcutoffまでに発行された判断を実時刻で選ぶ。週末発行の前営業日評価も扱い、対象日末を一律のcutoffにしない。available_atを記す場合も元提供者の公表時刻を捏造しない。新判断を開始入力に使うなら実発行後のSelectionで固定する。
 
-作成・独立Review・CAS発行は[市場判断skill](../../.agents/skills/market-context-assessment/SKILL.md)へ進む。日次のL1/L2更新から自動起動せず、L2の値を別の数値正本へ保存しない。
+作成・独立検証・CAS発行は[市場判断skill](../../.agents/skills/market-context-assessment/SKILL.md)へ進む。日次のL1/L2更新から自動起動せず、L2の値を別の数値正本へ保存しない。
 
 ## 保存履歴
 

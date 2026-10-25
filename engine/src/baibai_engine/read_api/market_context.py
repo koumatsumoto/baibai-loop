@@ -1,4 +1,4 @@
-"""Web/batchの指標・Reading・市場状態・判断履歴を公開する読取境界。"""
+"""Web・ジョブへ指標・Reading・市場状態・判断履歴を渡す読取境界。"""
 
 from __future__ import annotations
 
@@ -9,26 +9,36 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.redaction import redact_credentials
-from baibai_engine.market.jquants_reader import MasterSnapshot
-from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.reading.observations import UnavailableObservationError
-from baibai_engine.market_context.reading.query import READING_RULES_PATH, reading_snapshot
-from baibai_engine.market_context.reading.reader import build_store_observation_reader
-from baibai_engine.market_context.security import (
-    build_security_market_context,
-    build_security_market_contexts,
-)
-from baibai_engine.market_context.snapshot import (
-    PreparedMarketContext,
-    build_market_snapshot,
-    prepare_market_context_inputs,
-)
-from baibai_engine.research.market_context.models import ASSESSMENT_STALE_DAYS
-from baibai_engine.research.market_context.query import (
+from baibai_engine.investment_judgment.market_context.models import ASSESSMENT_STALE_DAYS
+from baibai_engine.investment_judgment.market_context.query import (
     assessment_payload,
     latest_assessment_payload,
     list_assessment_payloads,
 )
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
+from baibai_engine.machine_analysis.market_context.reading.observations import (
+    UnavailableObservationError,
+)
+from baibai_engine.machine_analysis.market_context.reading.query import (
+    READING_RULES_PATH,
+    reading_snapshot,
+)
+from baibai_engine.machine_analysis.market_context.reading.reader import (
+    build_store_observation_reader,
+)
+from baibai_engine.machine_analysis.market_context.security import (
+    build_security_market_context,
+    build_security_market_contexts,
+)
+from baibai_engine.machine_analysis.market_context.snapshot import (
+    PreparedMarketContext,
+    build_market_snapshot,
+    prepare_market_context_inputs,
+)
+from baibai_engine.market.jquants_reader import MasterSnapshot
 
 from .sqlite import connect_read_only, is_unwritten_store, read_rows
 

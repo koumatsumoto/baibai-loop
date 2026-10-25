@@ -67,7 +67,7 @@ function FrozenAnalysis({ analysis }: { analysis: StockAnalysisRowView }) {
       <FrozenGroup fields={[
         ['PER forward', number(analysis.per_forward)], ['PER trailing', number(analysis.per_trailing)], ['PBR', number(analysis.pbr)],
         ['EV/EBITDA', number(analysis.ev_ebitda)], ['P/S', number(analysis.p_s)], ['PCFR', number(analysis.pcfr)],
-      ]} title="Valuation" />
+      ]} title="Company Valuation" />
       <FrozenGroup fields={[
         ['FCF yield', percent(analysis.fcf_yield)], ['OCF yield', percent(analysis.ocf_yield)],
         ['予想純利益＞予想経常利益', String(analysis.forecast_special_gain_flag ?? EMPTY)], ['full-year loss flag', String(analysis.forecast_full_year_loss_flag ?? EMPTY)],

@@ -9,24 +9,27 @@ from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from baibai_engine.collection.economic import acquisition as acquisition
-from baibai_engine.collection.economic.providers import jquants_options
-from baibai_engine.collection.economic.providers.base import (
+from baibai_engine.data_collection.economic import acquisition as acquisition
+from baibai_engine.data_collection.economic.providers import jquants_options
+from baibai_engine.data_collection.economic.providers.base import (
     FetchContext,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
 )
-from baibai_engine.collection.economic.providers.jquants_options import OptionChainSource
-from baibai_engine.collection.economic.records import (
+from baibai_engine.data_collection.economic.providers.jquants_options import OptionChainSource
+from baibai_engine.data_collection.economic.records import (
     read_snapshots,
     store_snapshot,
     stored_days,
 )
-from baibai_engine.collection.economic.sources import require_source
-from baibai_engine.collection.economic.store import initialize_database
-from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.reading.option_iv import (
+from baibai_engine.data_collection.economic.sources import require_source
+from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
+from baibai_engine.machine_analysis.market_context.reading.option_iv import (
     CALL,
     PUT,
     SETTLEMENT_SNAPSHOT,
@@ -37,7 +40,7 @@ from baibai_engine.market_context.reading.option_iv import (
     quotes_from_records,
     usable_expiries,
 )
-from baibai_engine.market_context.reading.options import OptionSeriesReader
+from baibai_engine.machine_analysis.market_context.reading.options import OptionSeriesReader
 
 ASOF = date(2026, 7, 29)
 NEAR = date(2026, 8, 14)  # 16 days out
@@ -1037,7 +1040,8 @@ class OptionAcquisitionTest(unittest.TestCase):
             connection.close()
         with (
             mock.patch(
-                "baibai_engine.market_context.indicator_service._today_jst", return_value=ASOF
+                "baibai_engine.machine_analysis.market_context.indicator_service._today_jst",
+                return_value=ASOF,
             ),
             mock.patch.object(OptionChainSource, "__init__", return_value=None),
             mock.patch.object(OptionChainSource, "close"),

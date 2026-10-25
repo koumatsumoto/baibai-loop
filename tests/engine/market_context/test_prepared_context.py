@@ -9,15 +9,15 @@ import pytest
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.market.jquants_reader import read_master_snapshot
-from baibai_engine.market_context.security import (
+from baibai_engine.machine_analysis.market_context.security import (
     build_security_market_context,
     build_security_market_contexts,
 )
-from baibai_engine.market_context.snapshot import (
+from baibai_engine.machine_analysis.market_context.snapshot import (
     build_market_snapshot,
     prepare_market_context_inputs,
 )
+from baibai_engine.market.jquants_reader import read_master_snapshot
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 5, 30)
@@ -110,7 +110,9 @@ def test_shared_security_reads_only_its_long_history(context_store: Path, mocker
     )
     assert securities.items.call_count == 1
     read = mocker.spy(
-        __import__("baibai_engine.market_context.security", fromlist=["read_price_bars"]),
+        __import__(
+            "baibai_engine.machine_analysis.market_context.security", fromlist=["read_price_bars"]
+        ),
         "read_price_bars",
     )
     for ticker in ("AAAA", "BBBB"):

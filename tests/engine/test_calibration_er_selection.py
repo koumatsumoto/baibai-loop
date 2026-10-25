@@ -1,8 +1,8 @@
 import pytest
 from tests.helpers.calibration_store import forward_row, panel_row
 
-from baibai_engine.screening.calibration.evaluation.cohorts import evaluate_cohorts
-from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.calibration.evaluation.cohorts import evaluate_cohorts
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 
 
 @pytest.mark.parametrize("missing_top", [True, False])

@@ -7,17 +7,17 @@ import sys
 def test_collection_http_and_mcp_adapters_do_not_load_analysis_domains():
     code = """
 import sys
-from baibai_engine.collection.equity_web import http as equity_http
-from baibai_engine.collection.tradingview import auth, authorize, client
+from baibai_engine.data_collection.equity_web import http as equity_http
+from baibai_engine.data_collection.tradingview import auth, authorize, client
 for prefix in (
-    'baibai_engine.external_assessment',
+    'baibai_engine.machine_analysis.external_assessment',
     'baibai_engine.market',
-    'baibai_engine.market_context',
-    'baibai_engine.technical_analysis',
-    'baibai_engine.valuation',
-    'baibai_engine.screening',
+    'baibai_engine.machine_analysis.market_context',
+    'baibai_engine.machine_analysis.technical_analysis',
+    'baibai_engine.machine_analysis.company_valuation',
+    'baibai_engine.machine_analysis.screening',
     'baibai_engine.position',
-    'baibai_engine.research',
+    'baibai_engine.investment_judgment',
     'baibai_engine.read_api',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
@@ -32,15 +32,15 @@ assert callable(authorize.authorize)
 def test_pure_observation_and_lake_contracts_do_not_load_io():
     code = """
 import sys
-from baibai_engine.external_assessment.observations import contract, models
-from baibai_engine.external_assessment.tradingview import contract as tv_contract, observations
+from baibai_engine.machine_analysis.external_assessment.observations import contract, models
+from baibai_engine.machine_analysis.external_assessment.tradingview import contract as tv_contract, observations
 from baibai_engine.storage.lake import models as lake_models
 for prefix in (
-    'baibai_engine.external_assessment.acquisition',
-    'baibai_engine.external_assessment.store',
-    'baibai_engine.external_assessment.tradingview.collector',
-    'baibai_engine.collection.tradingview.client',
-    'baibai_engine.collection.tradingview.auth',
+    'baibai_engine.data_collection.external_assessment',
+    'baibai_engine.machine_analysis.external_assessment.store',
+    'baibai_engine.data_collection.tradingview.collector',
+    'baibai_engine.data_collection.tradingview.client',
+    'baibai_engine.data_collection.tradingview.auth',
     'baibai_engine.storage.observations',
     'baibai_engine.storage.lake.writer',
 ):

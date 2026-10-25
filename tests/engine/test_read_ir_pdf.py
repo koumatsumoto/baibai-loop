@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from baibai_engine.research.pdf_reader import (
+from baibai_engine.investment_judgment.pdf_reader import (
     find_keyword_contexts,
     main,
     missing_keywords,
@@ -136,7 +136,7 @@ def test_cli_rejects_negative_context_before_reading_pdf(tmp_path, capsys) -> No
 def test_cli_extracts_only_requested_pages_or_all_pages_for_search(
     tmp_path, monkeypatch, capsys, arguments, expected
 ):
-    from baibai_engine.research import pdf_reader
+    from baibai_engine.investment_judgment import pdf_reader
 
     calls = []
 
@@ -162,7 +162,7 @@ def test_cli_extracts_only_requested_pages_or_all_pages_for_search(
 
 
 def _mock_pdf(tmp_path, monkeypatch, texts):
-    from baibai_engine.research import pdf_reader
+    from baibai_engine.investment_judgment import pdf_reader
 
     calls = []
 

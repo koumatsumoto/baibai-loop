@@ -11,13 +11,13 @@ import pytest
 from mcp.types import CallToolResult
 from tests.helpers.master import insert_master_rows
 
-from baibai_engine.external_assessment.tradingview.collector import (
+from baibai_engine.data_collection.tradingview.collector import (
     SourceDataError,
     collect,
     preflight_snapshot,
     universe,
 )
-from baibai_engine.external_assessment.tradingview.observations import (
+from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
     FetchError,
     normalize_batch,
 )
@@ -248,7 +248,9 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
         if failure == "malformed":
             return _sdk({"success": True})
         if failure == "429":
-            from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
+            from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+                ProviderHTTPError,
+            )
 
             raise ProviderHTTPError(429)
         raise RuntimeError(failure)
@@ -315,7 +317,7 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
 
 
 def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
-    from baibai_engine.external_assessment.tradingview.collector import CollectionFailure
+    from baibai_engine.data_collection.tradingview.collector import CollectionFailure
 
     path = store(tmp_path / "market.sqlite", 5)
     calls = []
@@ -331,8 +333,10 @@ def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
 
 
 def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) -> None:
-    from baibai_engine.external_assessment.tradingview.collector import CollectionFailure
-    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
+    from baibai_engine.data_collection.tradingview.collector import CollectionFailure
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderHTTPError,
+    )
 
     path = store(tmp_path / "market.sqlite", 2)
 
@@ -571,9 +575,11 @@ class Timer:
 def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
 
-    from baibai_engine.external_assessment.tradingview.cli import failure_category
-    from baibai_engine.external_assessment.tradingview.collector import CollectionFailure
-    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
+    from baibai_engine.data_collection.tradingview.cli import failure_category
+    from baibai_engine.data_collection.tradingview.collector import CollectionFailure
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderHTTPError,
+    )
 
     path = store(tmp_path / "market.sqlite")
     if failure == "store":
@@ -653,7 +659,9 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     ],
 )
 def test_payload_diagnostics_use_canonical_field(provider_field, field, value, reason):
-    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderPayloadError,
+    )
 
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"][provider_field] = value
@@ -663,7 +671,9 @@ def test_payload_diagnostics_use_canonical_field(provider_field, field, value, r
 
 
 def test_missing_fields_uses_first_requested_canonical_field():
-    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderPayloadError,
+    )
 
     data = payload(["TSE:1000"])
     del data["data"]["TSE:1000"]["earnings_per_share_forecast_next_fy"]
@@ -675,8 +685,10 @@ def test_missing_fields_uses_first_requested_canonical_field():
 
 @pytest.mark.parametrize("raw", [None, [], "private-body", 42])
 def test_non_dict_row_does_not_blame_a_field(raw):
-    from baibai_engine.external_assessment.tradingview.cli import failure_line
-    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
+    from baibai_engine.data_collection.tradingview.cli import failure_line
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderPayloadError,
+    )
 
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"] = raw

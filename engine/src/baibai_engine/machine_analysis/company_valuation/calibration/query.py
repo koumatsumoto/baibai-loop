@@ -1,0 +1,131 @@
+"""保存済み較正文脈の有効性を確認し、候補E[r]を既存の評価帯へ対応づける。"""
+
+from __future__ import annotations
+
+from bisect import bisect_left
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import date
+from math import isfinite
+from pathlib import Path
+from typing import Literal
+from zoneinfo import ZoneInfo
+
+import yaml
+from pydantic import ValidationError
+
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.machine_analysis.company_valuation.calibration.contracts import (
+    HURDLE_ER_ANNUAL,
+    ErCalibrationBand,
+    ErCalibrationContextArtifact,
+    ErCalibrationHorizon,
+)
+
+ErCalibrationUnavailableReason = Literal[
+    "missing_artifact",
+    "invalid_artifact",
+    "expired",
+    "rules_identity_mismatch",
+    "er_model_identity_mismatch",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ErCalibrationContextLoad:
+    artifact: ErCalibrationContextArtifact | None
+    unavailable_reason: ErCalibrationUnavailableReason | None
+
+
+def load_er_calibration_context(
+    path: Path,
+    *,
+    expected_rules_hash: str,
+    expected_er_model_version: str,
+    as_of: date,
+) -> ErCalibrationContextLoad:
+    """Load one context and preserve the exact reason it cannot be used."""
+
+    if not path.is_file():
+        return ErCalibrationContextLoad(None, "missing_artifact")
+    try:
+        artifact = ErCalibrationContextArtifact.model_validate(
+            safe_load(path.read_text(encoding="utf-8"))
+        )
+    except (OSError, UnicodeError, yaml.YAMLError, ValidationError):
+        return ErCalibrationContextLoad(None, "invalid_artifact")
+    reason = er_calibration_unavailable_reason(
+        artifact,
+        expected_rules_hash=expected_rules_hash,
+        expected_er_model_version=expected_er_model_version,
+        as_of=as_of,
+    )
+    return ErCalibrationContextLoad(artifact if reason is None else None, reason)
+
+
+def er_calibration_unavailable_reason(
+    artifact: ErCalibrationContextArtifact,
+    *,
+    expected_rules_hash: str,
+    expected_er_model_version: str,
+    as_of: date,
+) -> ErCalibrationUnavailableReason | None:
+    generated_on = artifact.generated_at.astimezone(ZoneInfo("Asia/Tokyo")).date()
+    if generated_on > as_of:
+        return "invalid_artifact"
+    if artifact.valid_through < as_of:
+        return "expired"
+    if artifact.screening_rules_hash != expected_rules_hash:
+        return "rules_identity_mismatch"
+    if artifact.er_model_version != expected_er_model_version:
+        return "er_model_identity_mismatch"
+    return None
+
+
+def er_quintile_for_bounds(er_annual: float, upper_bounds: Sequence[float]) -> int:
+    """Assign E[r] using four validated, inclusive upper bounds (#1493)."""
+
+    if not isfinite(er_annual):
+        raise ValueError("candidate E[r] must be finite")
+    return bisect_left(upper_bounds, er_annual) + 1
+
+
+def candidate_er_bands(
+    horizon: ErCalibrationHorizon, er_annual: float
+) -> tuple[ErCalibrationBand, ...]:
+    """Select the quintile and optional hurdle from one validated horizon."""
+
+    upper_bounds = [
+        float(band.upper_er_annual)
+        for band in horizon.bands[:4]
+        if band.upper_er_annual is not None
+    ]
+    quintile = horizon.bands[er_quintile_for_bounds(er_annual, upper_bounds) - 1]
+    return (quintile, horizon.bands[-1]) if er_annual >= HURDLE_ER_ANNUAL else (quintile,)
+
+
+def candidate_er_band_context(
+    artifact: ErCalibrationContextArtifact, er_annual: float
+) -> tuple[dict[str, object], ...]:
+    """Allocate one ratio-valued candidate E[r] to the artifact's validated bands."""
+
+    return tuple(
+        {
+            "horizon": horizon.horizon,
+            "cohort_count": horizon.cohort_count,
+            "bands": [_band_summary(band) for band in candidate_er_bands(horizon, er_annual)],
+        }
+        for horizon in artifact.horizons
+    )
+
+
+def _band_summary(band: ErCalibrationBand) -> dict[str, object]:
+    return {
+        "band_id": band.band_id,
+        "lower_er_annual": band.lower_er_annual,
+        "upper_er_annual": band.upper_er_annual,
+        "median_predicted_er_annual": band.median_predicted_er_annual,
+        "cohort_count": band.cohort_count,
+        "median_n": band.median_n,
+        "bases": [basis.model_dump(mode="json") for basis in band.bases],
+    }

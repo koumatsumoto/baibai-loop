@@ -13,23 +13,25 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
 
-from baibai_engine.collection.economic.providers import (
+from baibai_engine.data_collection.economic.providers import (
     parse_estat_json,
     provider_spec,
     registered_specs,
 )
-from baibai_engine.collection.economic.providers.estat_dashboard import (
+from baibai_engine.data_collection.economic.providers.estat_dashboard import (
     source_url_selectors as estat_dashboard_selectors,
 )
-from baibai_engine.collection.economic.sources import require_source
-from baibai_engine.market_context.indicator_cli import (
+from baibai_engine.data_collection.economic.sources import require_source
+from baibai_engine.machine_analysis.market_context.indicator_cli import (
     main,
 )
-from baibai_engine.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
-from baibai_engine.market_context.reading.formulas import FORMULAS
+from baibai_engine.machine_analysis.market_context.indicators.read_contracts import (
+    point_in_time_providers,
+)
+from baibai_engine.machine_analysis.market_context.reading.formulas import FORMULAS
 
 
 class IndicatorsRegistryTests(unittest.TestCase):
@@ -175,7 +177,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
     def test_tradingview_symbol_rejects_invalid_format(self) -> None:
         canonical = Path(
-            "engine/src/baibai_engine/market_context/indicators/registry/us.yaml"
+            "engine/src/baibai_engine/machine_analysis/market_context/indicators/registry/us.yaml"
         ).read_text(encoding="utf-8")
         for invalid in ("invalid symbol", ":", "TVC:", ":US10Y", "A:B:C"):
             with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:
@@ -321,7 +323,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     load_definitions(definitions)
 
     def test_only_external_series_have_acquisition_providers(self) -> None:
-        from baibai_engine.collection.economic.providers import (
+        from baibai_engine.data_collection.economic.providers import (
             IndicatorsProviderError,
             provider_spec,
         )

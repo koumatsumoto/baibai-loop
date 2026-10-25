@@ -992,7 +992,7 @@ class CandidateExpectedReturnDeltaView(BaseModel):
 
 
 class HoldingDeltaView(BaseModel):
-    """Observed holding price movement; holding decisions belong to Investment Proposal."""
+    """Observed holding price movement; holding decisions belong to Trade Proposal."""
 
     ticker: str
     company_name: str | None

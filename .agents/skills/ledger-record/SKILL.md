@@ -17,7 +17,7 @@ description: 人間が確認した注文・約定・資金の事実をdraftで�
 | 入出金・income・費用・確定税 | `position event-draft` |
 | 人間のwarning受容・税の見積り | `position override-draft`・`position meta-draft` |
 
-提案に対応する注文は公開したInvestment Proposal IDと、人間が確認した実注文条件を使う。
+提案に対応する注文は公開したTrade Proposal IDと、人間が確認した実注文条件を使う。
 
 ```bash
 uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
@@ -42,6 +42,6 @@ uv run baibai-engine position sell-execution-draft --db stores/application/baiba
 
 payloadとcash・予約・holdingの差分を人間に確認し、`position apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。staleなら新しい入力からdraftを作り直して再確認する。取引記録のためにOperationを開始せず、無関係なmarket不足で止めない。
 
-本番への反映は[application反映](../../../batch/OPERATIONS.md#application-db-を反映する)へ進む。作業コピーへの適用とクラウド正本の更新を区別する。
+本番への反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。作業コピーへの適用とクラウド正本の更新を区別する。
 
 Outcomeが依頼された場合は[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)の専用commandと比較basisに従う。

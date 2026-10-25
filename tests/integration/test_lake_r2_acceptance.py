@@ -16,13 +16,6 @@ import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_batch.storage.lake_publish import (
-    Boto3R2Store,
-    LakeCASConflict,
-    LakePublishError,
-    RemoteObject,
-    publish_release,
-)
 from baibai_engine.storage.lake import models as lake_models
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
@@ -41,6 +34,13 @@ from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
 from baibai_engine.storage.lake.reader import resolve_current_release
 from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
 from baibai_engine.storage.lake.writer import export_market_store
+from baibai_jobs.storage.lake_publish import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+    publish_release,
+)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("BAIBAI_R2_ACCEPTANCE") != "1",

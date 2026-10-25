@@ -11,12 +11,17 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
 
-from baibai_engine.external_assessment.analysis import FORECAST_METRICS
-from baibai_engine.external_assessment.cli import main
-from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
-from baibai_engine.external_assessment.query import external_assessment, observed_tickers
-from baibai_engine.external_assessment.store import save_observations
-from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABLE
+from baibai_engine.external_assessment_cli import main
+from baibai_engine.machine_analysis.external_assessment.analysis import FORECAST_METRICS
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    QuantsScoreObservation,
+)
+from baibai_engine.machine_analysis.external_assessment.query import (
+    external_assessment,
+    observed_tickers,
+)
+from baibai_engine.machine_analysis.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -202,10 +207,10 @@ def test_domain_import_does_not_start_composition_or_acquisition():
             sys.executable,
             "-c",
             """\nimport sys
-from baibai_engine.external_assessment.query import external_assessment
-assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.market_context")) for name in sys.modules)
-assert "baibai_engine.external_assessment.acquisition.collection" not in sys.modules
-assert "baibai_engine.external_assessment.tradingview.collector" not in sys.modules
+from baibai_engine.machine_analysis.external_assessment.query import external_assessment
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.company_valuation", "baibai_engine.machine_analysis.market_context")) for name in sys.modules)
+assert "baibai_engine.data_collection.external_assessment.collection" not in sys.modules
+assert "baibai_engine.data_collection.tradingview.collector" not in sys.modules
 """,
         ],
         check=True,
@@ -269,13 +274,13 @@ def test_show_parser_does_not_import_acquisition_or_store_implementations():
             "-c",
             """
 import sys
-from baibai_engine.external_assessment.cli import build_parser
+from baibai_engine.external_assessment_cli import build_parser
 args = build_parser().parse_args([
     "show", "--ticker", "1234", "--cutoff", "2026-10-15T12:00:00+09:00"
 ])
 assert args.command == "show"
-assert "baibai_engine.external_assessment.acquisition.collection" not in sys.modules
-assert "baibai_engine.external_assessment.store" not in sys.modules
+assert "baibai_engine.data_collection.external_assessment.collection" not in sys.modules
+assert "baibai_engine.machine_analysis.external_assessment.store" not in sys.modules
 """,
         ],
         check=True,

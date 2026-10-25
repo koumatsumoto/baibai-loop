@@ -6,13 +6,14 @@ import pytest
 from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.shared.exceptions import MCPError
 
-from baibai_engine.collection.tradingview.auth import (
+from baibai_engine.data_collection.tradingview import cli
+from baibai_engine.data_collection.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
-from baibai_engine.external_assessment.tradingview import cli, diagnostics
-from baibai_engine.external_assessment.tradingview.collector import SourceDataError, TimeGuardError
-from baibai_engine.external_assessment.tradingview.observations import FetchError
+from baibai_engine.data_collection.tradingview.collector import SourceDataError, TimeGuardError
+from baibai_engine.machine_analysis.external_assessment.tradingview import diagnostics
+from baibai_engine.machine_analysis.external_assessment.tradingview.observations import FetchError
 
 
 @pytest.mark.parametrize(
@@ -47,7 +48,7 @@ def test_safe_category_through_nested_sdk_groups(error, category):
     ],
 )
 def test_internal_diagnostics_identify_leaf_without_exposing_payload(error, detail):
-    from baibai_engine.external_assessment.tradingview.diagnostics import (
+    from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
         CollectionFailure,
         CollectionProgress,
     )
@@ -179,11 +180,13 @@ def test_unsaved_business_day_reaches_oauth_and_snapshot(monkeypatch, capsys):
     [(401, "auth"), (403, "auth"), (429, "provider_rate_limit"), (503, "provider_response")],
 )
 def test_provider_http_category_through_collection_and_groups(status, category):
-    from baibai_engine.external_assessment.tradingview.collector import (
+    from baibai_engine.data_collection.tradingview.collector import (
         CollectionFailure,
         CollectionProgress,
     )
-    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderHTTPError,
+    )
 
     error = ProviderHTTPError(status)
     error.__cause__ = RuntimeError("private-token private-body")
@@ -200,11 +203,13 @@ def test_provider_http_category_through_collection_and_groups(status, category):
 
 
 def test_cli_collection_error_prints_only_safe_diagnostics(monkeypatch, capsys):
-    from baibai_engine.external_assessment.tradingview.collector import (
+    from baibai_engine.data_collection.tradingview.collector import (
         CollectionFailure,
         CollectionProgress,
     )
-    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderPayloadError,
+    )
 
     def fail(*args, **kwargs):
         error = ProviderPayloadError("invalid_numeric", "quote_close")

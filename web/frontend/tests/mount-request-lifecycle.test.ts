@@ -4,7 +4,7 @@ import { fetchJson } from '../src/api/client'
 import { AppShell } from '../src/components/AppShell'
 import { CandidateExplorationPage } from '../src/pages/CandidateExplorationPage'
 import { DashboardPage } from '../src/pages/DashboardPage'
-import { ResearchPage } from '../src/pages/ResearchPage'
+import { InvestmentJudgmentPage } from '../src/pages/InvestmentJudgmentPage'
 import { TasksPage } from '../src/pages/TasksPage'
 
 const hooks = vi.hoisted(() => ({
@@ -68,7 +68,7 @@ const pages: {
   { name: '候補探索', render: CandidateExplorationPage, requests: [
     { path: '/api/screening/latest', setterIndex: 0 },
   ] },
-  { name: 'Research補助情報', render: ResearchPage, requests: [
+  { name: 'Research補助情報', render: InvestmentJudgmentPage, requests: [
     { path: '/api/dashboard', setterIndex: 1, expectedValue: marker => new Map([['1234', marker]]) },
     { path: '/api/operations', setterIndex: 2 },
   ] },

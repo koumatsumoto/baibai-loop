@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, localcontext
 
+from baibai_engine.foundation.numbers import finite_decimal
 from baibai_engine.market.universe import ELIGIBLE_MARKETS
-from baibai_engine.valuation.scenario import finite_decimal
 
 PRICE_GRID_RULE_ID = "tse-common-conservative-20261014"
 PRICE_GRID_SOURCE_URL = "https://www.jpx.co.jp/equities/trading/domestic/07.html"

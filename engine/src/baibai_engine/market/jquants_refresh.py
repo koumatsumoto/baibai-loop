@@ -12,8 +12,8 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from baibai_engine.collection.jquants.http import JQuantsHTTP, JQuantsSource
-from baibai_engine.collection.jquants.receipts import acquire_request
+from baibai_engine.data_collection.jquants.http import JQuantsHTTP, JQuantsSource
+from baibai_engine.data_collection.jquants.receipts import acquire_request
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,

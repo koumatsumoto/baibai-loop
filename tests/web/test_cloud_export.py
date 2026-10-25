@@ -17,18 +17,20 @@ from tests.helpers.screening_run import screening_run_payload
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
-from baibai_engine.collection.economic.documents import SourceDocument, store_document
-from baibai_engine.collection.economic.records import store_snapshot
-from baibai_engine.collection.economic.store import open_connection, record_source_run
+from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
+from baibai_engine.data_collection.economic.records import store_snapshot
+from baibai_engine.data_collection.economic.store import open_connection, record_source_run
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
+from baibai_engine.investment_judgment.market_context.models import StoredAssessment
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.reading.rules import (
+    DEFAULT_RULES_PATH as READING_RULES_PATH,
+)
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.market_context.models import StoredAssessment
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.storage.application import LATEST_VERSION
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app

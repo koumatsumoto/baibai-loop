@@ -8,11 +8,17 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import observations, series_definition, store_reader
 
-from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.reading.compute import MIN_WINDOW_OBSERVATIONS, compute_reading
-from baibai_engine.market_context.reading.models import SeriesReading
-from baibai_engine.market_context.reading.rules import (
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.reading.compute import (
+    MIN_WINDOW_OBSERVATIONS,
+    compute_reading,
+)
+from baibai_engine.machine_analysis.market_context.reading.models import SeriesReading
+from baibai_engine.machine_analysis.market_context.reading.rules import (
     DEFAULT_RULES_PATH,
     PUBLICATION_INTERVAL_DAYS,
     ReadingRules,
@@ -541,7 +547,7 @@ def test_reading_rules_reject_a_frequency_without_defaults() -> None:
 
 
 def test_rules_revision_is_the_dated_stem() -> None:
-    path = Path("engine/src/baibai_engine/market_context/reading/rules")
+    path = Path("engine/src/baibai_engine/machine_analysis/market_context/reading/rules")
     assert rules_revision(path / "2026-07-25T000000+0900.yaml") == "2026-07-25T000000+0900"
 
 

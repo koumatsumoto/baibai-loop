@@ -30,13 +30,13 @@ function SourceRefs({ ids, sources, label = '参照:' }: { ids: unknown; sources
 }
 
 export function AssessmentReviewContent({ review, sources = [] }: { review?: Record<string, unknown> | null; sources?: Record<string, unknown>[] }) {
-  if (!review) return <p className="text-sm text-muted-foreground">独立Review本文を表示できません。保存した評価版のReviewを確認してください。</p>
+  if (!review) return <p className="text-sm text-muted-foreground">独立検証本文を表示できません。保存した評価版のReviewを確認してください。</p>
   const acceptanceReason = review.uncertainty_acceptance_reason ?? review.nonmaterial_unknown_reason
   const recalculated = Array.isArray(review.recalculated_projections) ? review.recalculated_projections.map(record) : []
   return <div className="grid min-w-0 gap-4">
-    <Field label="独立Reviewの確認範囲"><p>{text(review.review_scope)}</p></Field>
+    <Field label="独立検証の確認範囲"><p>{text(review.review_scope)}</p></Field>
     <Field label="一次資料の確認状態"><p>{EVIDENCE_LABELS[text(review.primary_source_check)] ?? text(review.primary_source_check)}</p><SourceRefs ids={review.checked_source_ids} sources={sources} /></Field>
-    <Field label="独立Reviewの最も強い反対仮説"><p>{text(review.strongest_countercase)}</p></Field>
+    <Field label="独立検証の最も強い反対仮説"><p>{text(review.strongest_countercase)}</p></Field>
     {acceptanceReason != null && <Field label="残る不確実性を引き受ける理由"><p>{text(acceptanceReason)}</p></Field>}
     <Field label="独立再計算">
       {recalculated.length > 0 && <p className="text-xs text-muted-foreground">金額は表示のみ小数2桁まで。保存した正確な値は原文で確認できます。</p>}
@@ -67,7 +67,7 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
   return <div className="grid min-w-0 gap-6 wrap-anywhere leading-relaxed">
     <section className="grid gap-3" aria-label="価値を生む仮説">
       <h3 className="text-sm font-semibold">価値を生む仮説</h3>
-      <Field label="企業評価の結論"><p>{STANCE_LABELS[text(conclusion.stance)] ?? text(conclusion.stance)}</p></Field>
+      <Field label="銘柄評価の結論"><p>{STANCE_LABELS[text(conclusion.stance)] ?? text(conclusion.stance)}</p></Field>
       <Field label="価値と価格の隔たり"><p>{text(findings.value_gap_explanation)}</p></Field>
       <Field label="事業の収益構造"><p>{text(findings.business_understanding)}</p></Field>
       <Field label="投資仮説"><p>{text(investment.explanation)}</p><SourceRefs ids={investment.source_ids} sources={sources} /></Field>
@@ -110,8 +110,8 @@ export function ReviewedAssessmentContent({ document, projection, review }: { do
         <SourceRefs ids={risk.source_ids} sources={sources} />
       </li>)}</ul> : <p className="text-sm text-muted-foreground">リスク本文を表示できません。保存した評価版を確認してください。</p>}
     </section>
-    <section className="grid gap-3 border-t pt-4" aria-label="反証と独立Review">
-      <h3 className="text-sm font-semibold">反証と独立Review</h3>
+    <section className="grid gap-3 border-t pt-4" aria-label="反証と独立検証">
+      <h3 className="text-sm font-semibold">反証と独立検証</h3>
       <Field label="重大な不成立条件"><p>{Array.isArray(investment.invalidation_conditions) ? investment.invalidation_conditions.join(' / ') : '未確認'}</p></Field>
       <Field label="作者の最も強い反対仮説"><p>{text(conclusion.strongest_countercase)}</p></Field>
       <AssessmentReviewContent review={review} sources={sources} />

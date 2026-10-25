@@ -7,7 +7,7 @@ from datetime import date
 from pydantic import field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.collection.identifiers import normalize_ticker
+from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.market.price_models import MODEL_CONFIG, validate_finite
 
 
@@ -107,7 +107,7 @@ class JQuantsFinancialSummary:
     `eps_ttm`は開示期間の累計EPSであり、TTM合成済みの値ではない。
     このEPS自体を足し引きしてTTM合成しない。
     `shares_outstanding`は自己株式を含む発行済株式総数である。
-    計算基準はdocs/reference/valuation-metrics.mdの
+    計算基準はdocs/reference/company-valuation.mdの
     「会社予想と実績期間」「資本と株式単位」に従う。
     """
 

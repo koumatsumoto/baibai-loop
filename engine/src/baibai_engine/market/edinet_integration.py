@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.collection.edinet.receipts import read_list_responses
+from baibai_engine.data_collection.edinet.receipts import read_list_responses
 from baibai_engine.market.edinet_document_store import read_observed_documents
 from baibai_engine.market.edinet_facts.planning import plan_fact_item
 from baibai_engine.market.edinet_facts.selection import annual_documents

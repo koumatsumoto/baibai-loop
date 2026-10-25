@@ -3,13 +3,15 @@
 from contextlib import closing
 from datetime import date
 
-from baibai_engine.collection.economic import acquisition as acquisition
-from baibai_engine.collection.economic import store as db
-from baibai_engine.collection.economic.providers import fred
-from baibai_engine.collection.economic.records import read_snapshots
-from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.data_collection.economic import acquisition as acquisition
+from baibai_engine.data_collection.economic import store as db
+from baibai_engine.data_collection.economic.providers import fred
+from baibai_engine.data_collection.economic.records import read_snapshots
+from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.reading.reader import (
+    build_store_observation_reader,
+)
 
 
 def test_missing_cell_and_empty_replacement_do_not_restore_prior_values(tmp_path, monkeypatch):

@@ -7,7 +7,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from baibai_engine.collection.jpx.receipts import JPXBundleError, read_complete_bundle
+from baibai_engine.data_collection.jpx.receipts import JPXBundleError, read_complete_bundle
 from baibai_engine.market.delistings import DelistingSourceError
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot

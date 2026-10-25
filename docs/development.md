@@ -20,11 +20,11 @@ browser・DuckDB httpfsが必要な場合だけ追加する。
 bash tools/setup-dev.sh --with-browser --with-httpfs
 ```
 
-基本setupと追加downloadの成功を区別する。httpfsはDuckDBが使うextension cacheに導入する必要があり、任意pathへの配置だけでは使えない。remote拡張を使えない場合は[固定releaseのローカルhydrate](../batch/OPERATIONS.md#local-release-hydrate)を使える。403をproxy解除・TLS無効化で迂回しない。
+基本setupと追加downloadの成功を区別する。httpfsはDuckDBが使うextension cacheに導入する必要があり、任意pathへの配置だけでは使えない。remote拡張を使えない場合は[固定releaseのローカルhydrate](../jobs/OPERATIONS.md#local-release-hydrate)を使える。403をproxy解除・TLS無効化で迂回しない。
 
 ## 実行環境と接続
 
-通常開発はコード・文書・検証コピーの編集とCI確認を行う。本番の定期取得・公開は既存Actionsを優先する。個別に依頼されたapplication更新は認可された運用環境から正規CLIと条件付き反映を使う。操作の範囲・credentialの配置は[OPERATIONS](../batch/OPERATIONS.md#actions-write-boundary)が所有する。
+通常開発はコード・文書・検証コピーの編集とCI確認を行う。本番の定期取得・公開は既存Actionsを優先する。個別に依頼されたapplication更新は認可された運用環境から正規CLIと条件付き反映を使う。操作の範囲・credentialの配置は[OPERATIONS](../jobs/OPERATIONS.md#actions-write-boundary)が所有する。
 
 保存環境のInstall scriptは対象checkoutでsetupを実行し、起動時はcheckoutとAGENTSを確認してenv.shをsourceする。一時的な`/workspace`のfileを登録先にしない。`.env`・OAuth state・秘密をimage snapshotやStart skillへ埋め込まない。
 
@@ -36,9 +36,9 @@ bash tools/setup-dev.sh --with-browser --with-httpfs
 
 branchで変更し、PRの対象HEADのCIで確認する。push前の完全local gateは必須にしない。具体的な検査commandと対象は[workflows](../.github/workflows/)・`pyproject.toml`・各package設定を正本とし、ここへコピーしない。失敗を直したら新しいHEADで確認する。
 
-domainの契約はownerのtest、CLI・Batch・Webは入出力と接続を検証する。同じvalidationを内部計算や全層へ重ねず、fixture共通化は意味が同じ場合に行う。Ruffのformatter targetはPython runtimeと異なり、複数例外捕捉の括弧を保つため`py313`を使う。
+domainの契約はownerのtest、CLI・Jobs・Webは入出力と接続を検証する。同じvalidationを内部計算や全層へ重ねず、fixture共通化は意味が同じ場合に行う。Ruffのformatter targetはPython runtimeと異なり、複数例外捕捉の括弧を保つため`py313`を使う。
 
-必要な実store・provider確認は合成fixtureと分ける。指標・取得・Reading methodを変えた場合の観測store確認は[運用](../batch/OPERATIONS.md#指標観測とregistryの修正)へ進む。L2入力確認にL3全履歴の先行検査は要求しない。文書だけの変更でlive取得や本番再発行をしない。
+必要な実store・provider確認は合成fixtureと分ける。指標・取得・Reading methodを変えた場合の観測store確認は[運用](../jobs/OPERATIONS.md#指標観測とregistryの修正)へ進む。L2入力確認にL3全履歴の先行検査は要求しない。文書だけの変更でlive取得や本番再発行をしない。
 
 R2ストレージのintegration testは外部への書込・削除を伴うため、明示依頼された専用の空bucketとcredentialがある場合だけ実行する。既存本番データを読む有限の受入とは別で、そちらも対象・保存先・書込範囲を明示して実施する。通常CIのskipを本番受入成功と扱わない。
 

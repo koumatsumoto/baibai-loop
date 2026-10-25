@@ -3,15 +3,15 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { InvestmentProposalSummaryView } from '../src/api/types'
-import { ResearchNav } from '../src/components/ResearchNav'
-import { InvestmentProposals } from '../src/pages/ResearchPage'
+import { InvestmentJudgmentNav } from '../src/components/InvestmentJudgmentNav'
+import { InvestmentProposals } from '../src/pages/InvestmentJudgmentPage'
 
 function render(node: ReturnType<typeof createElement>, path = '/stocks') {
   return renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [path] }, node))
 }
-describe('調査・提案の入口', () => {
+describe('投資判断の入口', () => {
   it.each([['/stocks', '提案'], ['/stocks/explore', '候補探索'], ['/market-context', '市場環境']])('目的別の二次入口を選択する: %s', (path, label) => {
-    const html = render(createElement(ResearchNav), path)
+    const html = render(createElement(InvestmentJudgmentNav), path)
     expect(html.match(/aria-current="page"/g)).toHaveLength(1)
     expect(html).toMatch(new RegExp(`aria-current="page"[^>]*>${label}</a>`))
   })

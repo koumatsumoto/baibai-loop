@@ -14,9 +14,9 @@ from fastapi.testclient import TestClient
 from tests.helpers.assessment_history import historical_context_payload, seed_history
 
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.investment_judgment.market_context.models import StoredAssessment
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
 from baibai_engine.read_api import MaterializationPreconditionError
-from baibai_engine.research.market_context.models import StoredAssessment
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection

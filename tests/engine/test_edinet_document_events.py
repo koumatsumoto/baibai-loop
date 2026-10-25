@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.collection.edinet.receipts import retain_list_response
+from baibai_engine.data_collection.edinet.receipts import retain_list_response
 from baibai_engine.market import edinet_document_store
 from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 from baibai_engine.market.edinet_facts.store import document_inventory

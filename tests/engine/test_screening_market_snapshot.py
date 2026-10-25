@@ -11,9 +11,9 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market_context.snapshot import build_market_snapshot
-from baibai_engine.screening.cli.app import build_parser
-from baibai_engine.screening.cli.query import market_snapshot_command
+from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
+from baibai_engine.machine_analysis.screening.cli.app import build_parser
+from baibai_engine.machine_analysis.screening.cli.query import market_snapshot_command
 from baibai_engine.storage.observations.schema import open_connection
 
 _ASOF = date(2026, 5, 29)

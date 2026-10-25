@@ -14,7 +14,7 @@ from tests.engine.test_screening_cli import (
     _edinet_document,
 )
 
-from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.service import (
     extract_edinet_metrics_command,

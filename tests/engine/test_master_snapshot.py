@@ -15,8 +15,16 @@ import pytest
 import requests
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
-from baibai_engine.collection.jquants.http import JQuantsHTTP
+from baibai_engine.data_collection.jquants.http import JQuantsHTTP
 from baibai_engine.foundation.time import JST
+from baibai_engine.machine_analysis.screening.cli.cache import (
+    backfill_master_command,
+    bootstrap_cache_command,
+)
+from baibai_engine.machine_analysis.screening.cli.providers import ProviderBundle
+from baibai_engine.machine_analysis.screening.sqlite_coverage.jquants import (
+    _append_master_snapshot_issues,
+)
 from baibai_engine.market.jpx_reader import JPXReader
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_reader import (
@@ -27,9 +35,6 @@ from baibai_engine.market.jquants_reader import (
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.jquants_writer import store_jquants_master
 from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
-from baibai_engine.screening.cli.cache import backfill_master_command, bootstrap_cache_command
-from baibai_engine.screening.cli.providers import ProviderBundle
-from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
@@ -652,7 +657,9 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
 
 
 def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
-    from baibai_engine.external_assessment.tradingview.diagnostics import failure_category
+    from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+        failure_category,
+    )
 
     with pytest.raises(JQuantsProviderError) as caught:
         masters_from_payloads(["{broken"])

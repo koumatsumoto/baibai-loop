@@ -3,12 +3,12 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_reader import read_jpx_earnings_calendar_snapshot
-from baibai_engine.screening.sqlite_coverage.jpx import (
+from baibai_engine.machine_analysis.screening.sqlite_coverage.jpx import (
     _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
 )
+from baibai_engine.market.jpx_models import JPXProviderError
+from baibai_engine.market.jpx_reader import read_jpx_earnings_calendar_snapshot
 from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.schema import open_connection
 

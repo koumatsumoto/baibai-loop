@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { MarketSnapshotView, SecurityMarketContextView } from '../src/api/types'
-import { MarketSnapshotSection, SecurityMarketContextSection } from '../src/pages/research/MarketEvidence'
+import { MarketSnapshotSection, SecurityMarketContextSection } from '../src/pages/market-context/MarketEvidence'
 
 function render(node: ReturnType<typeof createElement>) { return renderToStaticMarkup(createElement(MemoryRouter, null, node)) }
 describe('市場根拠の表示', () => {

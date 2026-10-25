@@ -20,7 +20,7 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
-from baibai_engine.research.assessment_store import (
+from baibai_engine.investment_judgment.stock_assessment_store import (
     latest_assessment_id,
     publish_reviewed_assessment,
 )

@@ -225,7 +225,7 @@ def export_read_models(
             raise ValueError(f"proposal_id has an unexpected format: {proposal_id!r}")
         proposal = build_proposal_detail(stores.research, proposal_id=proposal_id)
         if proposal is None:
-            raise ValueError(f"indexed Investment Proposal is unavailable: {proposal_id}")
+            raise ValueError(f"indexed Trade Proposal is unavailable: {proposal_id}")
         written.append(
             _write_model(views_dir / f"investment-proposal--{proposal_id}.json", proposal)
         )
@@ -236,7 +236,7 @@ def export_read_models(
             now=known_at,
         )
         if preview is None:
-            raise ValueError(f"indexed Investment Proposal preview is unavailable: {proposal_id}")
+            raise ValueError(f"indexed Trade Proposal preview is unavailable: {proposal_id}")
         written.append(
             _write_model(views_dir / f"investment-proposal-preview--{proposal_id}.json", preview)
         )

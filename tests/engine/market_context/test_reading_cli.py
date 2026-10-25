@@ -14,14 +14,14 @@ from tests.helpers.indicator_store import (
     store_reader,
 )
 
-from baibai_engine.collection.economic import store as db
-from baibai_engine.collection.economic.records import read_snapshots
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.reading import cli
-from baibai_engine.market_context.reading.compute import compute_reading
-from baibai_engine.market_context.reading.models import ReadingSnapshot
-from baibai_engine.market_context.reading.rules import (
+from baibai_engine.data_collection.economic import store as db
+from baibai_engine.data_collection.economic.records import read_snapshots
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.reading import cli
+from baibai_engine.machine_analysis.market_context.reading.compute import compute_reading
+from baibai_engine.machine_analysis.market_context.reading.models import ReadingSnapshot
+from baibai_engine.machine_analysis.market_context.reading.rules import (
     DEFAULT_RULES_PATH,
     ReadingRules,
     SeriesOverride,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { LoadingPage } from '../src/components/LoadingIndicator'
 import { ApiError, fetchJson } from '../src/api/client'
-import { InvestmentProposalPage } from '../src/pages/InvestmentProposalPage'
+import { TradeProposalPage } from '../src/pages/TradeProposalPage'
 import { StockAssessmentPage } from '../src/pages/StockAssessmentPage'
 import { AssessmentPage } from '../src/pages/AssessmentPage'
 import { SecurityDetailPage } from '../src/pages/SecurityDetailPage'
@@ -59,7 +59,7 @@ afterEach(() => {
 const pages = [
   { name: 'security', render: SecurityDetailPage, param: 'ticker', path: '/api/securities/', states: [null, false, null] },
   { name: 'market-context', render: AssessmentPage, param: 'contextId', path: '/api/market-context/assessments/', states: [null, null] },
-  { name: 'proposal', render: InvestmentProposalPage, param: 'proposalId', path: '/api/investment-proposals/', states: [null, null] },
+  { name: 'proposal', render: TradeProposalPage, param: 'proposalId', path: '/api/investment-proposals/', states: [null, null] },
   { name: 'stock-assessment', render: StockAssessmentPage, param: 'assessmentId', path: '/api/stock-assessments/', states: [null, null] },
 ]
 

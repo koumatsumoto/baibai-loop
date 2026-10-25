@@ -481,7 +481,7 @@ export interface HistoricalSynthesisView {
 }
 
 /**
- * Observed holding price movement; holding decisions belong to Investment Proposal.
+ * Observed holding price movement; holding decisions belong to Trade Proposal.
  */
 export interface HoldingDeltaView {
   ticker: string

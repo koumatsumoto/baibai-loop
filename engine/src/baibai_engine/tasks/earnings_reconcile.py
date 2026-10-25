@@ -4,7 +4,7 @@ An earnings follow-up may be scheduled months before the next announcement.
 Its date may come from the published schedule or an estimate;
 either can diverge when the exchange revises the schedule. This comparison reports
 that difference without deciding whether the task still targets the same event.
-The task 規約 (batch/OPERATIONS.md) requires an explicit `task edit` for changes.
+The task 規約 (jobs/OPERATIONS.md) requires an explicit `task edit` for changes.
 """
 
 from __future__ import annotations

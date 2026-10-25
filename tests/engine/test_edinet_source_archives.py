@@ -15,8 +15,8 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import ExplodingSession, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.collection.edinet import http as edinet_http
-from baibai_engine.collection.edinet.archives import read_source_archive, retain_source_archive
+from baibai_engine.data_collection.edinet import http as edinet_http
+from baibai_engine.data_collection.edinet.archives import read_source_archive, retain_source_archive
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
@@ -160,7 +160,7 @@ def test_retention_rolls_back_insert_when_readback_fails(tmp_path):
     with closing(open_connection(path)) as connection:
         with (
             patch(
-                "baibai_engine.collection.edinet.archives.read_source_archive",
+                "baibai_engine.data_collection.edinet.archives.read_source_archive",
                 side_effect=RuntimeError("readback failed"),
             ),
             pytest.raises(RuntimeError, match="readback failed"),

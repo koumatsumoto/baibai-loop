@@ -6,9 +6,10 @@ import ast
 import sys
 from pathlib import Path
 
-_RUNTIME_ROOTS = ("engine/src", "web/backend/src", "batch/src")
+_RUNTIME_ROOTS = ("engine/src", "web/backend/src", "jobs/src")
 _CONTEXT_PATH = (
-    "engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
+    "engine/src/baibai_engine/machine_analysis/company_valuation/"
+    "calibration/published/er-level-calibration-latest.yaml"
 )
 _OWNERS = {
     "stores/application/baibai.sqlite": Path(
@@ -29,8 +30,8 @@ _OWNERS = {
 }
 
 _RULE_DIRECTORIES = (
-    "engine/src/baibai_engine/screening/rules/",
-    "engine/src/baibai_engine/market_context/reading/rules/",
+    "engine/src/baibai_engine/machine_analysis/screening/rules/",
+    "engine/src/baibai_engine/machine_analysis/market_context/reading/rules/",
 )
 _RULE_OWNER = Path("engine/src/baibai_engine/foundation/repository_layout.py")
 

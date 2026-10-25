@@ -1,4 +1,4 @@
-"""Query-only facade for read paths: :mod:`baibai_web`, the batch, and engine CLIs.
+"""Query-only facade for read paths: :mod:`baibai_web`, execution jobs, and engine CLIs.
 
 Writable connections, schema cutovers, providers, and CLI composition deliberately
 remain outside this package. The re-exports expose DB-backed queries and the
@@ -21,6 +21,12 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.jquants_reader import read_master_snapshot as market_master_snapshot
 from baibai_engine.position.ledger import HoldingSnapshot, PortfolioLedgerError, PortfolioSnapshot
 
+from .company_valuation import (
+    StoredMachineValuation,
+    anchor_gap_pct,
+    machine_valuation_from_analysis,
+    stored_machine_valuation,
+)
 from .freshness import (
     application_db_updated_at,
     indicator_latest_observed_at,
@@ -62,17 +68,6 @@ from .position import (
     portfolio_ledger_document,
     price_comparison_basis_is_confirmed,
 )
-from .proposals import (
-    investment_proposal_payload,
-    list_investment_proposal_payloads,
-    preview_current_proposal_terms,
-)
-from .research import (
-    list_assessment_review_publications,
-    list_stock_assessment_publications,
-    reviewed_assessment_projection,
-    stock_assessment_publication,
-)
 from .screening import (
     candidate_rows,
     interpreted_next_earnings_status,
@@ -82,12 +77,17 @@ from .screening import (
     screening_run_asof_dates,
     screening_run_payload,
 )
+from .stock_assessment import (
+    list_assessment_review_publications,
+    list_stock_assessment_publications,
+    reviewed_assessment_projection,
+    stock_assessment_publication,
+)
 from .tasks import list_task_payloads, task_store_exists
-from .valuation import (
-    StoredMachineValuation,
-    anchor_gap_pct,
-    machine_valuation_from_analysis,
-    stored_machine_valuation,
+from .trade_proposal import (
+    investment_proposal_payload,
+    list_investment_proposal_payloads,
+    preview_current_proposal_terms,
 )
 
 __all__ = [

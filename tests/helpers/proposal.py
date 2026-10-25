@@ -6,14 +6,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+from baibai_engine.investment_judgment.operation.models import OperationPayload
+from baibai_engine.investment_judgment.operation.service import OperationService
+from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
+from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
+from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
+from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings
 from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.research.assessment import StockAssessmentDocument
-from baibai_engine.research.assessment_store import AssessmentStoreService
-from baibai_engine.research.operation.models import OperationPayload
-from baibai_engine.research.operation.service import OperationService
-from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
-from baibai_engine.research.proposal_scaffold import scaffold_proposal
-from baibai_engine.research.proposal_warnings import build_proposal_warnings
 from baibai_engine.storage.application.write import initialize_database
 from tests.helpers.assessment_v1 import (
     assessment_id,
@@ -251,7 +251,7 @@ def reviewed_proposal(case, *, action="buy", proposal_id=PROPOSAL_ID):
 
 
 def bind_review(raw, assessments: dict[str, StockAssessmentDocument]):
-    proposal = InvestmentProposal.model_validate(raw)
+    proposal = TradeProposal.model_validate(raw)
     warnings = build_proposal_warnings(
         proposal.inputs, proposal.items, proposal.liquidity_context, assessments=assessments
     )
@@ -260,6 +260,6 @@ def bind_review(raw, assessments: dict[str, StockAssessmentDocument]):
     for item in raw["items"]:
         if item["action"] in {"buy", "sell"} and item["terms"] is not None:
             item["terms"]["warnings"] = list(warnings.terms_warnings.get(item["ticker"], ()))
-    proposal = InvestmentProposal.model_validate(raw)
+    proposal = TradeProposal.model_validate(raw)
     raw["review"]["draft_sha256"] = proposal_draft_sha256(proposal)
-    return InvestmentProposal.model_validate(raw)
+    return TradeProposal.model_validate(raw)

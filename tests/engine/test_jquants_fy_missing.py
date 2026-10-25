@@ -2,10 +2,12 @@
 
 from datetime import date
 
+from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+    build_normalized_profit_signals,
+)
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
 
 
 def test_fy_reader_retains_latest_year_without_eps(tmp_path):

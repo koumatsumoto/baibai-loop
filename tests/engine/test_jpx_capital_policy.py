@@ -15,13 +15,17 @@ from tests.helpers.http_doubles import FakeSession, response
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.collection.jpx.models import JPXResponse
-from baibai_engine.collection.jpx.receipts import (
+from baibai_engine.data_collection.jpx.models import JPXResponse
+from baibai_engine.data_collection.jpx.receipts import (
     complete_bundle,
     create_bundle,
     read_bundle,
     read_complete_bundle,
     retain_bundle_response,
+)
+from baibai_engine.machine_analysis.screening.cli import app
+from baibai_engine.machine_analysis.screening.cli.valuation_catalyst_cli import (
+    refresh_tse_capital_policy_command,
 )
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
@@ -33,8 +37,6 @@ from baibai_engine.market.valuation_catalysts import (
     read_valuation_catalyst_contexts,
     store_tse_capital_policy_rows,
 )
-from baibai_engine.screening.cli import app
-from baibai_engine.screening.cli.valuation_catalyst_cli import refresh_tse_capital_policy_command
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
@@ -319,7 +321,9 @@ def test_rebuild_cli_and_normal_reader_never_acquire(
 
 
 def test_explicit_refresh_cli_uses_jpx_refresh_and_closes_it(tmp_path: Path) -> None:
-    with patch("baibai_engine.screening.cli.valuation_catalyst_cli.JPXRefresh") as fake:
+    with patch(
+        "baibai_engine.machine_analysis.screening.cli.valuation_catalyst_cli.JPXRefresh"
+    ) as fake:
         instance = fake.return_value
         instance.refresh_capital_policy_snapshot.return_value.sheet_count = 2
         instance.refresh_capital_policy_snapshot.return_value.row_count = 3

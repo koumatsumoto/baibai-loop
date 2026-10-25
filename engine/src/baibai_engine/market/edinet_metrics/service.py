@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
-from baibai_engine.collection.edinet.models import EdinetAcquisitionError
+from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 from baibai_engine.market.edinet_metrics.planning import (
     MetricExtractionPlan,

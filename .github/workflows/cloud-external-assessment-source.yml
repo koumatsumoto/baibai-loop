@@ -59,7 +59,7 @@ jobs:
           args=(--source "$SOURCE" --run-id "$SOURCE_RUN_ID" --directory "$RUNNER_TEMP/source-plan")
           if [ -n "$OBSERVATION_DATE" ]; then args+=(--observation-date "$OBSERVATION_DATE");
           else args+=(--master-asof "$MASTER_ASOF"); fi
-          timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_batch.jobs.external_assessment_sources acquire "${args[@]}"
+          timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_jobs.jobs.external_assessment_sources acquire "${args[@]}"
 
   handoff:
     needs: acquire
@@ -88,7 +88,7 @@ jobs:
           args=(--selection-json "$SOURCE_RUNS" --report-output "$RUNNER_TEMP/source-ready.json")
           if [ -n "$MASTER_ASOF" ]; then args+=(--master-asof "$MASTER_ASOF"); fi
           if [ "$OPERATION" = stage_confirmed_partial ]; then args+=(--confirmed-partial); fi
-          uv run python -m baibai_batch.jobs.external_assessment_sources ready "${args[@]}"
+          uv run python -m baibai_jobs.jobs.external_assessment_sources ready "${args[@]}"
 
   notify:
     needs: [acquire, handoff]
@@ -100,10 +100,10 @@ jobs:
       - name: Report the independent source receipt outcome
         continue-on-error: true
         env:
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SOURCE_GROUP: external-${{ inputs.source }}
           ASOF: ${{ inputs.observation_date || inputs.master_asof }}
           ACQUIRE_RESULT: ${{ needs.acquire.result }}
           STAGE_RESULT: ${{ needs.handoff.result }}
-        run: python3 -m baibai_batch.observability.source_discord
+        run: python3 -m baibai_jobs.observability.source_discord
