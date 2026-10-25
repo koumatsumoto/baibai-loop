@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
@@ -37,6 +37,7 @@ def generate_financial_and_price_models(
     adjusted_bars: Sequence[PriceBar],
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent],
     trading_dates: Sequence[date],
+    expected_price_date: date | None,
     sector: str | None,
     as_of: date,
     input_release: InputRelease,
@@ -65,6 +66,14 @@ def generate_financial_and_price_models(
         as_of=as_of,
         ttm_rules=ttm_rules,
     )
+    if earnings.earnings_yield is not None and earnings.price_date != expected_price_date:
+        earnings = replace(
+            earnings,
+            earnings_yield=None,
+            unavailable_reason="insufficient_calendar"
+            if expected_price_date is None
+            else "stale_price",
+        )
     financial = None
     if latest is not None and latest.price > 0:
         financial = asdict(
@@ -92,18 +101,19 @@ def generate_financial_and_price_models(
     technical["price_momentum"] = asdict(
         price_momentum_12_1(bars, trading_dates=trading_dates, as_of=as_of)
     )
-    technical["price_momentum_revision"] = "common-calendar-252-21-v1"
+    technical["price_momentum_revision"] = "common-calendar-252-21-v2"
     return (
         GeneratedModel(
             model_id="company_valuation",
             subject=ticker,
-            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v2",
+            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v3",
             payload=json.loads(
                 canonical_json(
                     {
                         "as_of": as_of,
                         "read_semantics": "retained_disclosures_through_as_of_not_receipt_vintage",
                         "earnings_price": asdict(earnings),
+                        "expected_price_date": expected_price_date,
                         "financial": financial,
                         "ttm_rules": ttm_rules.model_dump(mode="json"),
                     }

@@ -40,15 +40,16 @@ def document(*, ticker="1001", profit=100.0):
     )
 
 
-def generate(*, documents, bars, growth_start=None):
+def generate(*, documents, bars, growth_start=None, expected_price_date=ASOF, as_of=ASOF):
     return generate_financial_and_price_models(
         ticker="1001",
         documents=documents,
         adjusted_bars=bars,
         adjustment_events=(),
         trading_dates=CALENDAR,
+        expected_price_date=expected_price_date,
         sector=None,
-        as_of=ASOF,
+        as_of=as_of,
         input_release=RELEASE,
         ttm_rules=RULES,
         growth_start=growth_start,
@@ -150,3 +151,34 @@ def test_forecast_ratios_keep_their_numeric_inputs_not_only_warning_flags():
     assert financial["per_forward"] == 5.0
     assert financial["forecast_special_gain_flag"] is True
     assert financial["forecast_full_year_loss_flag"] is True
+
+
+@pytest.mark.parametrize("profit", [0.0, 100.0])
+@pytest.mark.parametrize("expected", [ASOF, None])
+def test_unconfirmed_current_price_keeps_raw_facts_but_not_candidate_yield(profit, expected):
+    old_day = ASOF - timedelta(days=3)
+    valuation = generate(
+        documents=(document(profit=profit),),
+        bars=(PriceBar(old_day, 10.0, None),),
+        expected_price_date=expected,
+    )[0].payload
+    earnings = valuation["earnings_price"]
+    assert earnings["earnings_yield"] is None
+    assert earnings["unavailable_reason"] == (
+        "insufficient_calendar" if expected is None else "stale_price"
+    )
+    assert earnings["price_date"] == old_day.isoformat()
+    assert earnings["profit_ttm_yen"] == profit
+    assert earnings["market_cap_yen"] == 800
+    assert valuation["financial"]["market_cap"] == 800
+
+
+def test_latest_trading_close_remains_valid_on_a_later_nontrading_asof():
+    friday = ASOF - timedelta(days=3)
+    earnings = generate(
+        documents=(document(),),
+        bars=(PriceBar(friday, 10.0, None),),
+        expected_price_date=friday,
+        as_of=ASOF - timedelta(days=1),
+    )[0].payload["earnings_price"]
+    assert earnings["earnings_yield"] == 0.125

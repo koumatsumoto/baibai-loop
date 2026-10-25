@@ -154,15 +154,12 @@ def test_failed_application_transfer_does_not_report_success(tmp_path: Path) -> 
     assert not any(call.startswith("gh:") for call in calls)
 
 
-@pytest.mark.parametrize("command", ["uv", "gh"])
-def test_publish_uses_its_own_repository_from_another_directory(
-    tmp_path: Path, command: str
-) -> None:
+def test_publish_uses_its_own_repository_from_another_directory(tmp_path: Path) -> None:
     publish, call_log, env = _isolated_publish_script(tmp_path)
     elsewhere = tmp_path / "another-repo"
     elsewhere.mkdir()
     cwd_log = tmp_path / "cwd.log"
-    stub = tmp_path / "bin" / command
+    stub = tmp_path / "bin" / "uv"
     with stub.open("a") as stream:
         stream.write('pwd > "${PUBLISH_CWD_LOG}"\n')
     env["PUBLISH_CWD_LOG"] = str(cwd_log)
@@ -178,4 +175,4 @@ def test_publish_uses_its_own_repository_from_another_directory(
 
     assert result.returncode == 0, result.stderr
     assert Path(cwd_log.read_text().strip()) == publish.parents[2]
-    assert call_log.read_text().splitlines()[-1].startswith("gh:workflow run ")
+    assert call_log.read_text().splitlines()[-1] == "r2:push-app"

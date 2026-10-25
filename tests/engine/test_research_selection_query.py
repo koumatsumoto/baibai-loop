@@ -1,5 +1,6 @@
 """contextは候補を読み、保存snapshotはselected行だけを保持する。"""
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta

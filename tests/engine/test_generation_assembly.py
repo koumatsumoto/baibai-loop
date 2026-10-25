@@ -32,6 +32,7 @@ def generate(tickers=("1001", "1002"), **updates):
         "financial_release": RELEASE,
         "companies": tuple(CompanyModelInputs(t, (), (), (), None) for t in tickers),
         "trading_dates": (),
+        "expected_price_date": AS_OF,
         "ttm_rules": RULES,
         "external_observations": {t: ObservationHistory(ticker=t, cutoff=NOW) for t in tickers},
         "market_context": {"reading": None, "market": {"reference_population": "all-stocks"}},
