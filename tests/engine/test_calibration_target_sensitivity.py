@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 from tests.helpers.calibration_store import forward_row, panel_row
 
-from baibai_engine.screening.calibration.evaluation.cohorts import evaluate_cohorts
-from baibai_engine.screening.calibration.evaluation.sensitivity import _signs_for_returns
-from baibai_engine.screening.calibration.evidence import (
+from baibai_engine.machine_analysis.screening.calibration.evaluation.cohorts import evaluate_cohorts
+from baibai_engine.machine_analysis.screening.calibration.evaluation.sensitivity import _signs_for_returns
+from baibai_engine.machine_analysis.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     required_sensitivity_blockers,
 )
-from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 
 
 def _coverage(**stability: bool) -> dict[str, object]:

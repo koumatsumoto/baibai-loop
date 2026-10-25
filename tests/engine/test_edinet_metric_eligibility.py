@@ -16,7 +16,7 @@ from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_selection import select_document_candidates
-from baibai_engine.screening.sqlite_coverage.edinet import _append_edinet_metrics_coverage_issues
+from baibai_engine.machine_analysis.screening.sqlite_coverage.edinet import _append_edinet_metrics_coverage_issues
 from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.schema import open_connection
 

@@ -14,18 +14,18 @@ from tests.engine.test_external_assessment_collection import BytesSession, _orig
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 from tests.engine.test_kabumap import html as kabumap_html
 
-from baibai_engine.collection.equity_web import http as source_http
-from baibai_engine.collection.equity_web.capture import (
+from baibai_engine.data_collection.equity_web import http as source_http
+from baibai_engine.data_collection.equity_web.capture import (
     EquityWebCapture,
     LegacyCaptureError,
     load_capture,
     save_capture,
 )
-from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.collection.equity_web.receipts import read_responses
-from baibai_engine.external_assessment.acquisition import cli, collection
-from baibai_engine.external_assessment.normalization import rakuten
-from baibai_engine.external_assessment.observations.contract import (
+from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
+from baibai_engine.data_collection.equity_web.receipts import read_responses
+from baibai_engine.data_collection.external_assessment import cli, collection
+from baibai_engine.machine_analysis.external_assessment.normalization import rakuten
+from baibai_engine.machine_analysis.external_assessment.observations.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,

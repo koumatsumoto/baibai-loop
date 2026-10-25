@@ -16,7 +16,7 @@ import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_batch.storage.lake_publish import (
+from baibai_jobs.storage.lake_publish import (
     Boto3R2Store,
     LakeCASConflict,
     LakePublishError,

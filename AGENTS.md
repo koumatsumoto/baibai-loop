@@ -1,6 +1,6 @@
 # Repository Agent Instructions
 
-最初に[architecture](docs/architecture.md)で責務と配置を理解し、対象領域の実装と[doctrine](docs/doctrine.md#development-investment-policy)を読む。操作順は対象skillと[OPERATIONS](batch/OPERATIONS.md)、環境と検証は[development](docs/development.md)が所有する。
+最初に[architecture](docs/architecture.md)で責務と配置を理解し、対象領域の実装と[doctrine](docs/doctrine.md#development-investment-policy)を読む。操作順は対象skillと[OPERATIONS](jobs/OPERATIONS.md)、環境と検証は[development](docs/development.md)が所有する。
 
 現行仕様も必要性から見直す。ビジネス価値と単純さを優先し、不要な仕様・防御・監査・互換処理は関連コード・test・説明と一緒に削る。文書はコードから導けない意味・理由・必要な運用だけを一か所に残す。
 

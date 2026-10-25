@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.research.selection import (
+from baibai_engine.investment_judgment.selection import (
     AnalysisInputSnapshot,
     InputGap,
     ResearchInputsSnapshot,
@@ -13,9 +13,9 @@ from baibai_engine.research.selection import (
     ResearchSelectionDraft,
     SelectedTarget,
 )
-from baibai_engine.research.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
 

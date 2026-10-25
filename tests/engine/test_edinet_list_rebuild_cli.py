@@ -12,8 +12,8 @@ import pytest
 import requests
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.collection.edinet.receipts import retain_list_response
-from baibai_engine.screening.cli import app
+from baibai_engine.data_collection.edinet.receipts import retain_list_response
+from baibai_engine.machine_analysis.screening.cli import app
 from baibai_engine.storage.observations.schema import open_connection
 
 

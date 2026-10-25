@@ -6,10 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.conftest import _seed_screening_run
 
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
-from baibai_engine.valuation.query import CARRY_MISSING_ASSUMPTION
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+from baibai_engine.machine_analysis.company_valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
+from baibai_engine.machine_analysis.company_valuation.query import CARRY_MISSING_ASSUMPTION
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
 

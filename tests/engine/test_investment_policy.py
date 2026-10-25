@@ -6,10 +6,10 @@ from decimal import Decimal
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.research.assessment import StockAssessmentDocument, assessment_core_hash
-from baibai_engine.research.entry_policy import evaluate_buy_terms
-from baibai_engine.research.holding_policy import evaluate_holding_proposal
-from baibai_engine.research.proposal import PositionInput, QuoteInput, RemainingReward
+from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument, assessment_core_hash
+from baibai_engine.investment_judgment.entry_policy import evaluate_buy_terms
+from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
+from baibai_engine.investment_judgment.trade_proposal import PositionInput, QuoteInput, RemainingReward
 
 AS_OF = date(2026, 10, 14)
 

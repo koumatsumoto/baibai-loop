@@ -13,11 +13,11 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 import baibai_engine.read_api as read_api
 from baibai_engine.position.ledger import ExecutionEvent, ReservationEvent
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.assessment import AssessmentRef
-from baibai_engine.research.assessment_store import AssessmentStoreService
-from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
-from baibai_engine.research.proposal_inputs import build_proposal_context
-from baibai_engine.research.proposal_service import InvestmentProposalService
+from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
+from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
+from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 
 
 @pytest.mark.parametrize("part", ["assessment_id", "core_sha256", "review_id", "argument_id"])
@@ -59,7 +59,7 @@ def test_projection_resolves_an_exact_id_hash_review_pair(tmp_path, part):
 def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tmp_path, mutation):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     with closing(sqlite3.connect(case.app)) as connection, connection:
@@ -75,7 +75,7 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
                 raw = proposal.payload()
                 raw["items"][0]["assessment_ref"]["review_id"] = review_id(90)
                 raw["research_scope"]["outcomes"][0]["assessment_ref"]["review_id"] = review_id(90)
-                draft_hash = proposal_draft_sha256(InvestmentProposal.model_validate(raw))
+                draft_hash = proposal_draft_sha256(TradeProposal.model_validate(raw))
                 raw["review"]["draft_sha256"] = draft_hash
                 connection.execute(
                     "UPDATE investment_proposal SET payload=?,draft_sha256=?",
@@ -103,7 +103,7 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
 def test_invalid_latest_publication_is_not_hidden_by_a_valid_old_pair(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     document, review = pair_payload(review_number=90)
@@ -138,7 +138,7 @@ def test_invalid_latest_publication_is_not_hidden_by_a_valid_old_pair(tmp_path):
 def test_original_held_assessment_projection_keeps_original_price_and_pair(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     reservation = ReservationEvent.model_validate(

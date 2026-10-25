@@ -45,7 +45,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose materialize --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.storage.publication_lease acquire --purpose materialize --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
       - name: Pull stores
         env:
@@ -53,8 +53,8 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          batch/scripts/r2_transfer.sh pull-machine
-          batch/scripts/r2_transfer.sh pull-app
+          jobs/scripts/r2_transfer.sh pull-machine
+          jobs/scripts/r2_transfer.sh pull-app
 
       # The market store arrives holding only what the lake does not own — the coverage
       # ledger and the operator-derived tables. Filling the rest from the current release
@@ -67,7 +67,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh hydrate-market
+        run: jobs/scripts/r2_transfer.sh hydrate-market
 
       - name: Materialize read models
         run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" --batch manual
@@ -80,11 +80,11 @@ jobs:
           # Not a credential. This workflow is the one to compare in-flight counts
           # on, because nothing else runs beside the upload here.
           R2_SERVING_UPLOAD_CONCURRENCY: ${{ vars.R2_SERVING_UPLOAD_CONCURRENCY }}
-        # Same two stages the daily batch publishes through, in the same order.
+        # Same two stages the common integration job publishes through, in the same order.
         # Nothing runs alongside them here, so they are simply sequential.
         run: |
-          batch/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving"
-          batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
+          jobs/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving"
+          jobs/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
 
       - name: Release publication lease
         id: lease-release
@@ -93,4 +93,4 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"

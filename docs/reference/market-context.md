@@ -1,6 +1,6 @@
 # 市場環境
 
-保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。企業価値は[企業価値](valuation-metrics.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はResearchが所有する。取得・原本はCollection、現在のL2定義はindicators、計算・統計はreadingに置く。
+保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。企業価値は[企業価値](company-valuation.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はResearchが所有する。取得・原本はData Collection、現在のL2定義はindicators、計算・統計はreadingに置く。
 
 <a id="market-context-reads"></a>
 ## 比較する母集団と時点
@@ -15,7 +15,7 @@ masterはcutoff以下の一つの最新snapshotを選び、その中にないtic
 
 価格は[調整済み価格reader](../../engine/src/baibai_engine/market/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
 
-ticker-profileは要求日の市場・分類・runと、現在ledgerの独立したledger_as_ofを合成する。保有履歴を要求日へ再生せず、profile全体を完全な過去時点再現としない。Webの共有読取・batch化は同じ領域計算を使い、表示用の別計算正本を作らない。
+ticker-profileは要求日の市場・分類・runと、現在ledgerの独立したledger_as_ofを合成する。保有履歴を要求日へ再生せず、profile全体を完全な過去時点再現としない。Webの共有読取・バッチ処理は同じ領域計算を使い、表示用の別計算正本を作らない。
 
 <a id="margin"></a>
 ## 信用需給
@@ -42,7 +42,7 @@ percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latest
 
 ネット流動性は入力の単位を揃えるが、WALCLの水曜残高、WTREGENの週平均、日次RRPを組み合わせる近似であり、同時点の厳密な残高や投資可能資金ではない。月次整列の代表日や採用入力vintageも実公表時刻ではない。
 
-Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
+Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
 
 <a id="option-iv"></a>
 ### オプションIVの読み方

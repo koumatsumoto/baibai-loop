@@ -13,11 +13,11 @@ from tests.helpers.screening_run import stock_analysis
 from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.read_api import screening_calibration_method_identity
-from baibai_engine.research.calibration_context import research_calibration_context
-from baibai_engine.research.selection import selection_sha256
-from baibai_engine.research.workspace_cli import build_parser
-from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
-from baibai_engine.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.investment_judgment.calibration_context import research_calibration_context
+from baibai_engine.investment_judgment.selection import selection_sha256
+from baibai_engine.investment_judgment.workspace_cli import build_parser
+from baibai_engine.machine_analysis.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 
 _ROOT = Path(__file__).resolve().parents[2]

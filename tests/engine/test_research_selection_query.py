@@ -8,16 +8,16 @@ from datetime import datetime, timedelta
 import pytest
 from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
-from baibai_engine.research.selection import InputGap, ResearchRequest
-from baibai_engine.research.selection_query import (
+from baibai_engine.investment_judgment.selection import InputGap, ResearchRequest
+from baibai_engine.investment_judgment.selection_query import (
     ResearchInputsRequiredError,
     load_analysis_snapshot,
     load_selection_context,
     verify_analysis_snapshot,
 )
-from baibai_engine.research.workspace_cli import main as workspace_main
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.investment_judgment.workspace_cli import main as workspace_main
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
@@ -37,7 +37,7 @@ def publish(path, *, rows=None):
         run_revision_id="fixed",
         rules=load_screening_rules(),
     )
-    from baibai_engine.screening.run_store import ScreeningRunReader
+    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 
     saved = ScreeningRunReader(path).get_run("fixed")
     return {**raw, "stock_analyses": list(saved.stock_analyses)}

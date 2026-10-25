@@ -6,7 +6,7 @@ from datetime import date
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
 
 from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
-from baibai_engine.screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
 
 
 class FinancialSummaryPeriodResolutionTests(unittest.TestCase):

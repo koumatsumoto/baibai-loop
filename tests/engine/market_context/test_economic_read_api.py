@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.collection.economic.records import store_snapshot
-from baibai_engine.collection.economic.store import initialize_database
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.reading import reader as reading_reader
-from baibai_engine.market_context.reading.rules import ReadingRulesError
+from baibai_engine.data_collection.economic.records import store_snapshot
+from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.reading import reader as reading_reader
+from baibai_engine.machine_analysis.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 from baibai_engine.read_api.market_context import (
     IndicatorGranularity,
@@ -296,10 +296,10 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
 
     from tests.helpers.research_selection import selection
 
-    from baibai_engine.market_context.reading.models import snapshot_payload
-    from baibai_engine.market_context.reading.query import read_store_snapshot
-    from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH
-    from baibai_engine.research.inputs import collect_research_inputs
+    from baibai_engine.machine_analysis.market_context.reading.models import snapshot_payload
+    from baibai_engine.machine_analysis.market_context.reading.query import read_store_snapshot
+    from baibai_engine.machine_analysis.market_context.reading.rules import DEFAULT_RULES_PATH
+    from baibai_engine.investment_judgment.inputs import collect_research_inputs
     from baibai_web.readmodel.models import ReadingView
 
     selected = selection(now=datetime(2024, 8, 31, tzinfo=UTC))
@@ -422,8 +422,8 @@ def test_document_revision_changes_chart_and_freshness(tmp_path: Path) -> None:
     import json
     from dataclasses import replace
 
-    from baibai_engine.collection.economic.documents import SourceDocument, store_document
-    from baibai_engine.market_context.indicators.definitions import load_definitions
+    from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
 
     database = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["jp.bankruptcies"]

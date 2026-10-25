@@ -14,7 +14,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_batch.storage.lake_publish import (
+from baibai_jobs.storage.lake_publish import (
     LakeCASConflict,
     LakePublishError,
     RemoteObject,

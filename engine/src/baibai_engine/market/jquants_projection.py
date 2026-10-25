@@ -7,7 +7,7 @@ from contextlib import closing, nullcontext
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.collection.jquants.receipts import read_complete_request
+from baibai_engine.data_collection.jquants.receipts import read_complete_request
 from baibai_engine.market.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_daily_bars,

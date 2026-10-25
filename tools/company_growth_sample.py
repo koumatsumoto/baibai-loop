@@ -10,8 +10,8 @@ from time import perf_counter
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from baibai_engine.company_growth.models import CompanyGrowth, InputRelease
-from baibai_engine.company_growth.query import company_growth
+from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth, InputRelease
+from baibai_engine.machine_analysis.company_growth.query import company_growth
 from baibai_engine.foundation.json import canonical_json
 
 

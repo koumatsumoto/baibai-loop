@@ -14,15 +14,15 @@ import pytest
 import requests
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
-from baibai_engine.collection.equity_web.capture import (
+from baibai_engine.data_collection.equity_web.capture import (
     EquityWebCapture,
     load_capture,
     save_capture,
 )
-from baibai_engine.collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.external_assessment.acquisition import cli, collection
-from baibai_engine.external_assessment.normalization import ParseError, monex
-from baibai_engine.external_assessment.observations.models import ModelValuationObservation
+from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
+from baibai_engine.data_collection.external_assessment import cli, collection
+from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, monex
+from baibai_engine.machine_analysis.external_assessment.observations.models import ModelValuationObservation
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -325,7 +325,7 @@ def test_cli_import_reports_storage_failure_without_values_or_http(monkeypatch, 
     def fail(*args):
         raise ValueError("secret licensed numeric data")
 
-    from baibai_engine.collection.equity_web import capture
+    from baibai_engine.data_collection.equity_web import capture
 
     monkeypatch.setattr(capture, "load_capture", fail)
     monkeypatch.setattr(

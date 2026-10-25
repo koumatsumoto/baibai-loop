@@ -6,8 +6,8 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.reading.rules import ReadingRulesError, load_reading_rules
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.reading.rules import ReadingRulesError, load_reading_rules
 from baibai_engine.storage.application.read import (
     connect_read_only as connect_application_read_only,
 )
@@ -56,7 +56,7 @@ def validate_market_store_hydration(path: Path) -> None:
     genuine missing market observations. Stop before writing views; ledger prices are
     not a substitute for the current market source.
 
-    The comparison is the merge's, one-directional (see `batch/OPERATIONS.md`,
+    The comparison is the merge's, one-directional (see `jobs/OPERATIONS.md`,
     "merge が検査するもの"): a claim is only ever raised to the rows a store holds and
     never lowered, so an empty table under a positive claim is the unfilled state, while
     a table holding more than its windows claim is ordinary. Totals are deliberately not
@@ -110,7 +110,7 @@ def validate_market_store_hydration(path: Path) -> None:
         raise MaterializationPreconditionError(
             "market store is not hydrated: " + "; ".join(unfilled) + f" ({path}). "
             "Fill it from the current L1 release before exporting "
-            "(batch/scripts/r2_transfer.sh hydrate-market)"
+            "(jobs/scripts/r2_transfer.sh hydrate-market)"
         )
 
 

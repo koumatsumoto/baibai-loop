@@ -5,9 +5,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from baibai_engine.collection.economic import store as store
-from baibai_engine.collection.economic.records import store_snapshot
-from baibai_engine.market_context.reading.cli import main as reading_main
+from baibai_engine.data_collection.economic import store as store
+from baibai_engine.data_collection.economic.records import store_snapshot
+from baibai_engine.machine_analysis.market_context.reading.cli import main as reading_main
 
 
 def test_read_only_connection_encodes_uri_metacharacters_and_rejects_writes(tmp_path):
@@ -86,9 +86,9 @@ def test_native_withdrawal_removes_derived_reading_without_scalar_history(tmp_pa
         store_mof_observations,
     )
 
-    from baibai_engine.market_context.indicator_service import IndicatorsService
-    from baibai_engine.market_context.indicators.definitions import load_definitions
-    from baibai_engine.market_context.reading.reader import build_store_observation_reader
+    from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+    from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
 
     path = tmp_path / "sources.sqlite"
     definitions = load_definitions()
@@ -117,7 +117,7 @@ def test_native_withdrawal_removes_derived_reading_without_scalar_history(tmp_pa
 
 
 def test_native_receipt_identity_replay_and_conflict_leave_newer_revision_intact(tmp_path):
-    from baibai_engine.collection.economic.records import read_snapshots
+    from baibai_engine.data_collection.economic.records import read_snapshots
 
     day = date(2026, 10, 15)
     old_jst = datetime.fromisoformat("2026-10-16T09:00:00+09:00")

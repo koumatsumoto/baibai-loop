@@ -191,8 +191,8 @@ def test_the_renderer_emits_a_declaration_for_each_supported_definition(
 def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
     from datetime import date
 
-    from baibai_batch.jobs.daily import _delta_ticker_labels, _Notice
-    from baibai_batch.observability.discord import render_delta
+    from baibai_jobs.jobs.daily import _delta_ticker_labels, _Notice
+    from baibai_jobs.observability.discord import render_delta
     from baibai_web.readmodel.builders.daily_delta import _candidate_deltas
 
     current = {

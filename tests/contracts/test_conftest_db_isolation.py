@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from baibai_engine.screening.run_store import run_store_path
-from baibai_engine.screening.run_store.store import DEFAULT_RUN_STORE_PATH
+from baibai_engine.machine_analysis.screening.run_store import run_store_path
+from baibai_engine.machine_analysis.screening.run_store.store import DEFAULT_RUN_STORE_PATH
 from baibai_engine.storage.application.write import DEFAULT_DB_PATH, database_path
 
 

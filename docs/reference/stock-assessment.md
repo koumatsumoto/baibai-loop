@@ -1,6 +1,6 @@
 # Stock Assessment
 
-企業の事業理解・価値・反証を独立Reviewと一組で保存する。企業評価は現在cashや注文から独立し、行動と具体条件は[Investment Proposal](investment-proposal.md)、取引事実は[Portfolio Ledger](portfolio-ledger.md)が所有する。作業順は[Research skill](../../.agents/skills/research/SKILL.md)。型と保存条件は`research/assessment.py`・`assessment_store.py`が正本である。
+企業の事業理解・価値・反証を独立Reviewと一組で保存する。企業評価は現在cashや注文から独立し、行動と具体条件は[Trade Proposal](trade-proposal.md)、取引事実は[Portfolio Ledger](portfolio-ledger.md)が所有する。作業順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)。型と保存条件は`investment_judgment/stock_assessment.py`・`stock_assessment_store.py`が正本である。
 
 ## 観測と根拠
 
@@ -46,7 +46,7 @@ resolved valuationは原価格、比較期間、案件ごとの[要求年率](..
 
 terminalは分配後に残る価値、cashは比較期間の累積分配。同じ起点の未調整1株へ揃える。配当・資産売却・買戻しを二重算入せず、終期の権利落ち後価格と未入金配当権利を分ける。権利確定前の未公表配当は仮定とし、公表済みだけの条件と混ぜない。
 
-純粋算術は[valuation/scenario.py](../../engine/src/baibai_engine/valuation/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
+純粋算術は[valuation/scenario.py](../../engine/src/baibai_engine/investment_judgment/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
 
 <a id="valuation-model-choice"></a>
 ### modelと期間
@@ -82,7 +82,7 @@ terminalは分配後に残る価値、cashは比較期間の累積分配。同�
 <a id="valuation-context"></a>
 ### 原価格の成立条件
 
-assessment-evaluateのvaluation_contextは原価格・原期間・原要求率の読取資料。Pmaxの代数的な読み替えであり、独立した割安signalや市場予想ではない。Downsideの不足を追加購入gateにしない。
+stock-assessment-evaluateのvaluation_contextは原価格・原期間・原要求率の読取資料。Pmaxの代数的な読み替えであり、独立した割安signalや市場予想ではない。Downsideの不足を追加購入gateにしない。
 
 固定terminal/cashのh+12感応度は総価値・総returnを変えず、年率損失の絶対値が縮んでも損失は減らない。経済的遅延では利益・分配・返済・資金・希薄化が変わる。materialならcalculationとcountercaseで条件を組み直し、表示だけで遅延検証済みとしない。
 
@@ -98,7 +98,7 @@ assessment-evaluateのvaluation_contextは原価格・原期間・原要求率�
 
 supportedには、仮説が未破綻なだけでなく、確認した事実・仮定・反証から価値を評価する積極的な根拠が必要である。重要な不確実性は、何が不明か、利益・資金・希薄化・価値へどう影響するか、なぜ基準経路を採りその見返りで引き受けるかを既存の所見・計算・最強反証へ結び付ける。全リスクに確率や損失上限を要求せず、数値化できない経路も文章で残す。Base/Downsideは選んだ条件での年率で、期待値や最大損失の保証ではない。Downsideの損失は一律拒否理由でも、記しただけで受容の証明でもない。
 
-例えば顧客別採算が非開示でも、確認した総売上・費用と妥当な仮定から評価できれば、その未知を保持した提案が可能である。反対に借換成功だけが価値を支え、成功を採る根拠も代替経路も説明できなければ、高利回りだけで採用しない。観測価格・株式単位・対象期間を創作して年率を作らない。現在quote等の不足は、企業仮説の棄却と分けて[具体提案条件](investment-proposal.md#条件付き購入)へ残す。
+例えば顧客別採算が非開示でも、確認した総売上・費用と妥当な仮定から評価できれば、その未知を保持した提案が可能である。反対に借換成功だけが価値を支え、成功を採る根拠も代替経路も説明できなければ、高利回りだけで採用しない。観測価格・株式単位・対象期間を創作して年率を作らない。現在quote等の不足は、企業仮説の棄却と分けて[具体提案条件](trade-proposal.md#条件付き購入)へ残す。
 
 機械検証は構造・参照・算術と説明欄の有無を確認し、文章の経済的妥当性を認定しない。作者と独立Reviewが上の採否を判断する。旧 `nonmaterial_unknown_reason` は読取入力として受け付けるが、当時重要リスクの受容まで審査したと読み替えず、保存本文を書き換えない。
 

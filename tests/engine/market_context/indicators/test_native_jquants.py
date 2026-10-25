@@ -6,13 +6,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from baibai_engine.collection.economic import store as db
-from baibai_engine.collection.economic.providers import jquants_flows, jquants_indices
-from baibai_engine.collection.economic.providers.base import ProviderFetchStoppedError
-from baibai_engine.collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.collection.economic.sources import require_source
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.data_collection.economic import store as db
+from baibai_engine.data_collection.economic.providers import jquants_flows, jquants_indices
+from baibai_engine.data_collection.economic.providers.base import ProviderFetchStoppedError
+from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.economic.sources import require_source
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
 PERIOD = date(2024, 8, 23)

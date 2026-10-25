@@ -2,7 +2,7 @@
 
 数値・経済統計は原公表機関または出所を確認できる公式集約先、企業調査は一次開示、broker事実は人間の確認報告を使う。速報・地政学の補助はReuters・NHK・AP等の事実報道とし、意見記事と数値の一次確認を混同しない。有料媒体は現行運用では使わない。sourceのtierは用途であり、正確さや利用許諾の点数ではない。
 
-取得と原本はCollection、選択・単位変換・計算はL2が所有する。取得toolの障害を原資料の不存在にせず、同じ公表元のAPI・CSV・索引を調べる。異なる時刻・定義のsourceを無説明に接続しない。主な取得先と能力は既存source catalog・provider、L2の列と式は各領域の定義が正本である。
+取得と原本はData Collection、選択・単位変換・計算はL2が所有する。取得toolの障害を原資料の不存在にせず、同じ公表元のAPI・CSV・索引を調べる。異なる時刻・定義のsourceを無説明に接続しない。主な取得先と能力は既存source catalog・provider、L2の列と式は各領域の定義が正本である。
 
 ## 入手不能と利用条件
 
@@ -10,7 +10,7 @@
 
 Web Archiveのcapture時刻は元資料の公表時刻ではなく、closestもcutoff以前を保証しない。原URL、公表日、archive URLとcapture時刻を分け、改定前内容を確定できなければ未確認とする。
 
-取得資料は契約・利用条件の範囲で個人・非公開運用に用いる。この文書は利用許諾を拡張せず、原本全文・転載表を公開Issueへ再配布しない。保存場所は[architecture](../architecture.md#store-authority)、固定releaseの操作は[OPERATIONS](../../batch/OPERATIONS.md#fixed-release-read)に従う。
+取得資料は契約・利用条件の範囲で個人・非公開運用に用いる。この文書は利用許諾を拡張せず、原本全文・転載表を公開Issueへ再配布しない。保存場所は[architecture](../architecture.md#store-authority)、固定releaseの操作は[OPERATIONS](../../jobs/OPERATIONS.md#fixed-release-read)に従う。
 
 ## J-QuantsとJPX
 
@@ -18,7 +18,7 @@ J-Quantsはnative HTTP pageをL1として保存する。masterや財務summary�
 
 masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
 
-財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通marketが原本文書を読み、[企業価値](valuation-metrics.md)が現在評価の予想・実績を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
+財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通marketが原本文書を読み、[企業価値](company-valuation.md)が現在評価の予想・実績を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
 
 JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
 
@@ -53,21 +53,21 @@ PubDateは正確なAPI利用可能時刻の証明ではない。現行servingは
 
 ## EDINET
 
-一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。valuationのtype=5 CSV経路とResearch factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
+一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Valuationのtype=5 CSV経路とResearch factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
 
 <a id="edinet-metric-revision"></a>
 ### 抽出意味revision
 
-EDINET_METRIC_REVISIONは数値・文書選択・訂正/取下げ・期間/連結/単位・null/0・quality/failure等の意味変更時に明示更新する。配置・import・transport retryでは更新しない。保存済み値・日時・旧release/hashを付け替えず、反映は[運用](../../batch/OPERATIONS.md#edinet-metrics-revision)へ進む。releaseのproducer commitは各行の元抽出commitとは別である。
+EDINET_METRIC_REVISIONは数値・文書選択・訂正/取下げ・期間/連結/単位・null/0・quality/failure等の意味変更時に明示更新する。配置・import・transport retryでは更新しない。保存済み値・日時・旧release/hashを付け替えず、反映は[運用](../../jobs/OPERATIONS.md#edinet-metrics-revision)へ進む。releaseのproducer commitは各行の元抽出commitとは別である。
 
 <a id="edinet-research-facts"></a>
-### Research facts
+### Company Research facts
 
 セグメントと負債満期は直近年次・訂正とその比較年度から始まる任意datasetで、全提出履歴や全債務のcoverageではない。外部/内部売上、利益のbasis、連結範囲、当期/比較期、instant/durationと事業区分変更を揃える。企業独自conceptを名称の類似だけで標準指標へ割り当てない。
 
 負債はJP GAAP明細表の明示元本。社債括弧内額を年別償還へ重ねず、リース・金利・担保・covenant・IFRS注記・5年超残差を完全に含む表とはしない。「－」・nil・未開示・未対応・未取得は0ではない。抽出okで0行もあり、取得失敗で以前のfactを消さない。
 
-disclosed_onは提出JST日で、比較年度末へ遡及して利用可能にはならない。訂正は別docIDで保持し、同一releaseでも古い年次へfallbackしない。metricsと結ぶ時はtickerだけでなくas-of・原典期間・連結・通貨を揃える。借換え・将来FCF・維持投資はResearchの見積りであり、抽出factへ混ぜない。選択と照会は[固定release操作](../../batch/OPERATIONS.md#edinet-research-query)に従う。
+disclosed_onは提出JST日で、比較年度末へ遡及して利用可能にはならない。訂正は別docIDで保持し、同一releaseでも古い年次へfallbackしない。metricsと結ぶ時はtickerだけでなくas-of・原典期間・連結・通貨を揃える。借換え・将来FCF・維持投資はResearchの見積りであり、抽出factへ混ぜない。選択と照会は[固定release操作](../../jobs/OPERATIONS.md#edinet-research-query)に従う。
 
 <a id="external-assessment"></a>
 ## 外部評価
@@ -91,7 +91,7 @@ Investing.comは個別の評価変更日・変更主体・新旧目標を調べ�
 
 みんかぶの対象期と単位は明示表記だけを使い、年だけから期末日、年度表からEPSや更新日を生成しない。表間の対象期衝突は観測全体を不採用として原本を残す。原評価元・株数basis・metric別人数が不明なら未知に保ち、自動deltaや一致票を作らない。
 
-原本handoffは短期bundleであり、lakeへ公開して読戻すまで長期L1ではない。未保存の過去本文は復元できない。liveとreplayのparser選択は共通化しても、取得・receipt順序・失敗の意味は混ぜない。[取得・再開](../../batch/OPERATIONS.md#external-assessment-acquisition)を参照する。
+原本handoffは短期bundleであり、lakeへ公開して読戻すまで長期L1ではない。未保存の過去本文は復元できない。liveとreplayのparser選択は共通化しても、取得・receipt順序・失敗の意味は混ぜない。[取得・再開](../../jobs/OPERATIONS.md#external-assessment-acquisition)を参照する。
 
 <a id="tradingview"></a>
 ### TradingView
@@ -100,7 +100,7 @@ L1はMCP SDK CallToolResultの保存可能な表現で、HTTP wire bytesやSDK�
 
 各行を実受領cutoff以内へ限定し、観測後の次の取引機会より前へ遡及させない。休日の同値を独立sampleにしない。正常rowのnull、明示unresolved、行がない未取得と技術障害を分ける。部分公開は全市場の代表標本ではなく、L1 replayでも元の受領時刻を維持する。
 
-quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。取得・復旧は[TradingView運用](../../batch/OPERATIONS.md#tradingview-expectations)へ進む。
+quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。取得・復旧は[TradingView運用](../../jobs/OPERATIONS.md#tradingview-expectations)へ進む。
 
 <a id="public-research-reports"></a>
 ## 公開企業レポート

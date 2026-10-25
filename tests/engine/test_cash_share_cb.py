@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from baibai_engine.research import workspace_cli
-from baibai_engine.valuation.cash_share_cb import CashShareCBInput, calculate_cash_share_cb
+from baibai_engine.investment_judgment import workspace_cli
+from baibai_engine.investment_judgment.cash_share_cb import CashShareCBInput, calculate_cash_share_cb
 
 
 def _case(**overrides):

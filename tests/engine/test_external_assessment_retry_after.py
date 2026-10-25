@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import requests
 
-from baibai_engine.collection.equity_web import http as source_http
-from baibai_engine.external_assessment.acquisition import collection
+from baibai_engine.data_collection.equity_web import http as source_http
+from baibai_engine.data_collection.external_assessment import collection
 
 
 class Clock:

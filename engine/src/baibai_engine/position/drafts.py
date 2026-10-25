@@ -438,7 +438,7 @@ def build_sell_execution_draft(
     and any confirmed fee or tax that overdraws available cash. Broker fees and
     the confirmed capital-gain tax are recorded as their own cost / tax events so
     realized proceeds and cost stay separable in replay. ``decision_reference``
-    can retain the reported Investment Proposal reference. A matching
+    can retain the reported Trade Proposal reference. A matching
     ``execution_id`` and complete report returns None without a draft.
     """
 

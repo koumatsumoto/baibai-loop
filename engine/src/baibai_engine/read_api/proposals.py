@@ -6,8 +6,8 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.research.assessment_store import require_assessment_ref
-from baibai_engine.research.proposal_query import load_investment_proposal, preview_current_terms
+from baibai_engine.investment_judgment.stock_assessment_store import require_assessment_ref
+from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal, preview_current_terms
 from baibai_engine.storage.application.read import connect_read_only
 
 from .research import reviewed_assessment_projection

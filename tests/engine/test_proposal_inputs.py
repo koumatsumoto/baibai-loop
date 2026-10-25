@@ -15,12 +15,12 @@ from tests.helpers.proposal import (
     reviewed_proposal,
 )
 
-from baibai_engine.research.proposal import ProposalError
-from baibai_engine.research.proposal_fingerprint import proposal_inputs_fingerprint
-from baibai_engine.research.proposal_inputs import build_proposal_context, collect_proposal_inputs
-from baibai_engine.research.proposal_query import get_investment_proposal
-from baibai_engine.research.proposal_scaffold import scaffold_proposal
-from baibai_engine.research.proposal_service import InvestmentProposalService
+from baibai_engine.investment_judgment.trade_proposal import ProposalError
+from baibai_engine.investment_judgment.trade_proposal_fingerprint import proposal_inputs_fingerprint
+from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context, collect_proposal_inputs
+from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal
+from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 from baibai_engine.storage.application.read import connect_read_only
 
 
@@ -75,7 +75,7 @@ def test_null_sell_reference_all_active_and_no_unexecuted_sell_proceeds(tmp_path
     assert "現在評価では補完しない" in inputs.positions[0].original_reason_unavailable_reason
     proposal = reviewed_proposal(case, action="hold")
     assert (
-        InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
         .publish(proposal)
         .items[0]
         .action
@@ -96,7 +96,7 @@ def test_missing_quote_keeps_quantity_cost_and_unknown_nav(tmp_path):
     proposal = reviewed_proposal(case, action="sell")
     assert proposal.items[0].terms is None
     assert (
-        InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
         .publish(proposal)
         .items[0]
         .action
@@ -112,7 +112,7 @@ def test_hold_case_intact_can_use_old_valuation_without_same_day_return_claim(tm
     )
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert (
-        InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
         .publish(proposal)
         .items[0]
         .holding_basis
@@ -142,7 +142,7 @@ def test_intact_hold_with_sufficient_reward_still_requires_current_resolved_arit
         "reason": "合成の残存見返りは十分と判断した。",
     }
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     validation = service.check(proposal)
     assert not validation.valid
     assert blocker_code in {reason.code for reason in validation.blockers}
@@ -162,7 +162,7 @@ def test_same_day_sufficient_reward_is_verified_for_each_hold_basis(tmp_path, ho
         "reason": "同日起点の価値と現在quoteから残存見返りを確認した。",
     }
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     assert service.publish(proposal).items[0].holding_basis == holding_basis
 
@@ -210,7 +210,7 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
     raw["published_at"] = PUBLISHED.isoformat()
     raw["review"]["reviewer_identity"] = "synthetic-independent-reviewer"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     assert service.publish(proposal).items[0].proposed_limit_yen == Decimal(900)
     with closing(sqlite3.connect(case.app)) as connection, connection:
@@ -247,7 +247,7 @@ def test_original_reason_respects_reported_buy_time_precision(
     # The earlier-day negative case needs cash to exist before its reported fill.
     case = backend_case(tmp_path, opening_at="2026-10-13T09:00:00+09:00")
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     from baibai_engine.position.ledger import ExecutionEvent, ReservationEvent

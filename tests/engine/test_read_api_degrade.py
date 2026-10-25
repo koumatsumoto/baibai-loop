@@ -13,14 +13,14 @@ import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
 import baibai_engine.read_api as read_api
-from baibai_engine.collection.economic.store import (
+from baibai_engine.data_collection.economic.store import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.read_api.sqlite import read_rows
-from baibai_engine.research.proposal_service import InvestmentProposalService
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.run_store import initialize_run_store
-from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.run_store import initialize_run_store
+from baibai_engine.machine_analysis.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
@@ -160,7 +160,7 @@ def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
 ) -> None:
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     table = "stock_assessment" if kind == "assessment" else "investment_proposal"
@@ -273,7 +273,7 @@ def test_indicator_partial_store_is_not_unpublished(
 def test_run_payload_partial_store_is_not_an_absent_id(tmp_path: Path) -> None:
     from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
-    from baibai_engine.screening.run_store import ScreeningRunStore
+    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
 
     path = tmp_path / "runs.sqlite"
     ScreeningRunStore(path).publish_run(

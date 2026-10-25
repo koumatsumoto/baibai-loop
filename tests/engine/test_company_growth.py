@@ -15,17 +15,17 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import draft_for, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
-from baibai_engine.company_growth.calculations import build_changes, build_period_states
-from baibai_engine.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.company_growth.calculations import build_changes, build_period_states
+from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
 from baibai_engine.market.financial_documents import normalize_financial_summary
 from baibai_engine.market.financial_periods import prior_year_period_matches
 from baibai_engine.read_api.company_growth import company_growth as public_company_growth
-from baibai_engine.research.company_growth_projection import project_company_growth
-from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
-from baibai_engine.research.operation.progress import selection_binding
-from baibai_engine.research.operation.service import OperationService
-from baibai_engine.research.selection import ResearchSelection, parse_selection, selection_sha256
-from baibai_engine.research.workspace import (
+from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
+from baibai_engine.investment_judgment.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.investment_judgment.operation.progress import selection_binding
+from baibai_engine.investment_judgment.operation.service import OperationService
+from baibai_engine.investment_judgment.selection import ResearchSelection, parse_selection, selection_sha256
+from baibai_engine.investment_judgment.workspace import (
     ResearchWorkspaceConflictError,
     prepare_selected_workspace,
     resume_selected_workspace,
@@ -361,7 +361,7 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
             connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed")
         )
     monkeypatch.setattr(
-        "baibai_engine.research.inputs.company_growth",
+        "baibai_engine.investment_judgment.inputs.company_growth",
         lambda *_a, **_kw: pytest.fail("growth recomputed"),
     )
     projected = project_research_inputs(saved)["securities"]["1234"]["company_growth"]
@@ -412,11 +412,11 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
     output = workspace / "domain-inputs.yaml"
     output.write_text("damaged projection", encoding="utf-8")
     monkeypatch.setattr(
-        "baibai_engine.research.workspace.selected_prepare.collect_research_inputs",
+        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
         lambda **_kw: pytest.fail("inputs recollected"),
     )
     monkeypatch.setattr(
-        "baibai_engine.research.inputs.company_growth",
+        "baibai_engine.investment_judgment.inputs.company_growth",
         lambda *_a, **_kw: pytest.fail("current method used"),
     )
     resumed = resume_selected_workspace(operation_id=prepared.operation_id, force=True, **arguments)
@@ -478,8 +478,8 @@ def test_legacy_selection_hash_keeps_its_original_serialized_inputs():
 def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged(
     tmp_path, monkeypatch, capsys, start
 ):
-    from baibai_engine.research.workspace import compute_status
-    from baibai_engine.research.workspace_cli import main
+    from baibai_engine.investment_judgment.workspace import compute_status
+    from baibai_engine.investment_judgment.workspace_cli import main
 
     records = [
         document(year, quarter, quarter * 100, quarter * 20, quarter * 10)
@@ -530,7 +530,7 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
     assert compact["full_result_ref"] == "/inputs/securities_context/1234/company_growth"
 
     monkeypatch.setattr(
-        "baibai_engine.research.workspace.selected_prepare.collect_research_inputs",
+        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
         lambda **_kw: pytest.fail("inputs recollected"),
     )
     authored = arguments["workspace"] / "assessment-draft.yaml"
@@ -628,7 +628,7 @@ def test_metric_availability_cannot_change_the_shared_ttm_measurement_interval()
 def test_finite_ci_sample_reports_inputs_cost_and_thin_table_without_claiming_l3_success(tmp_path):
     from tools.company_growth_sample import Sample, SampleInput, measure_samples
 
-    from baibai_engine.company_growth.models import InputRelease
+    from baibai_engine.machine_analysis.company_growth.models import InputRelease
 
     path = market_store(tmp_path, [document(2024, 1, 100, 10, 5)])
     spec = SampleInput(
@@ -758,7 +758,7 @@ def test_fixed_reader_os_failure_is_local_to_growth(tmp_path, monkeypatch):
         raise PermissionError("injected existing object failure")
 
     monkeypatch.setattr(
-        "baibai_engine.company_growth.query.read_fixed_financial_documents", unreadable
+        "baibai_engine.machine_analysis.company_growth.query.read_fixed_financial_documents", unreadable
     )
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     assert result.reason == "fixed_release_inputs_unavailable"
@@ -772,7 +772,7 @@ def test_private_acceptance_uses_only_financial_master_and_never_overwrites_resu
     from tests.helpers.r2_store import MemoryR2Store
     from tools.company_growth_acceptance import execute
 
-    from baibai_batch.storage.lake_publish import LakeCASConflict
+    from baibai_jobs.storage.lake_publish import LakeCASConflict
     from baibai_engine.storage.lake.keys import current_release_pointer_key
     from baibai_engine.storage.lake.release import LakeReleasePointer
     from baibai_engine.storage.observations.coverage import record_range_source_coverage

@@ -24,14 +24,14 @@ from baibai_engine.market.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
 )
-from baibai_engine.screening.cli.cache import verify_cache_coverage_command
-from baibai_engine.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.screening.cli.cache import verify_cache_coverage_command
+from baibai_engine.machine_analysis.screening.sqlite_coverage import (
     core as coverage_core,
 )
-from baibai_engine.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.screening.sqlite_coverage import (
     jquants as jquants_coverage,
 )
-from baibai_engine.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
 from baibai_engine.storage.observations.schema import open_connection
@@ -259,8 +259,8 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
         self.assertNotIn("weekly_margin", stream.getvalue())
 
     def test_run_preflight_reaches_the_run(self) -> None:
-        from baibai_engine.screening.cli import app as app_module
-        from baibai_engine.screening.config import ScreeningConfig
+        from baibai_engine.machine_analysis.screening.cli import app as app_module
+        from baibai_engine.machine_analysis.screening.config import ScreeningConfig
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = self._store_with_a_stale_balance(tmp)

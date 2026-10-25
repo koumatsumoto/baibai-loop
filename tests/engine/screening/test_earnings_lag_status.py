@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.screening.earnings_lag import (
+from baibai_engine.machine_analysis.screening.earnings_lag import (
     build_earnings_lag,
     interpreted_next_earnings_status,
 )

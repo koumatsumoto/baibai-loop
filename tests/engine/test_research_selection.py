@@ -5,15 +5,15 @@ from datetime import datetime
 import pytest
 from tests.helpers.research_selection import draft_for, selected_target, selection
 
-from baibai_engine.research.operation.models import OperationPayload
-from baibai_engine.research.operation.service import OperationService
-from baibai_engine.research.selection import (
+from baibai_engine.investment_judgment.operation.models import OperationPayload
+from baibai_engine.investment_judgment.operation.service import OperationService
+from baibai_engine.investment_judgment.selection import (
     ResearchSelection,
     ResearchSelectionDraft,
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.research.selection_policy import ResearchCapacity, validate_capacity
+from baibai_engine.investment_judgment.selection_policy import ResearchCapacity, validate_capacity
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 

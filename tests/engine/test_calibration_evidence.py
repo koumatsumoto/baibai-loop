@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from baibai_engine.screening.calibration.evidence import (
+from baibai_engine.machine_analysis.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     CANDIDATE_DISCOVERY_UNION_SUBJECT,
@@ -13,7 +13,7 @@ from baibai_engine.screening.calibration.evidence import (
     effective_required_metrics,
     evaluate_evidence_readiness,
 )
-from baibai_engine.screening.calibration.horizons import require_horizon
+from baibai_engine.machine_analysis.screening.calibration.horizons import require_horizon
 
 
 def _scope(

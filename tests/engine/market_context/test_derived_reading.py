@@ -10,10 +10,10 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.reading.derived import derive_series
-from baibai_engine.market_context.reading.formulas import FORMULAS
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.reading.derived import derive_series
+from baibai_engine.machine_analysis.market_context.reading.formulas import FORMULAS
 
 
 class DerivedReadingTests(TestCase):

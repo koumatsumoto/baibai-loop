@@ -26,7 +26,7 @@ AIは人間の明示開始から有限対象を調べ、評価・独立Review・
 
 集中・ADV・cash20%等のwarningは人間へ示す。自動売却や数量縮小へ格上げせず、企業根拠の不足を小口購入やwarning受容で免除しない。未確認の保有時価や未約定売却代金で分母・cashを作らない。追加禁止には機会費用があるが、最適性を実証したとは扱わない。
 
-保有は重要な投資理由の不成立、または確認済みの残存見返り不足によりsellを検討する。仮説維持のholdと当日起点の十分な見返りを主張するholdを区別する。価格下落、期間経過、回復遅延、Target到達、新規購入条件未達、他候補・集中warning単独では売らない。次の候補がなくても現金を回収できる。詳細は[Investment Proposal](reference/investment-proposal.md#holding)。
+保有は重要な投資理由の不成立、または確認済みの残存見返り不足によりsellを検討する。仮説維持のholdと当日起点の十分な見返りを主張するholdを区別する。価格下落、期間経過、回復遅延、Target到達、新規購入条件未達、他候補・集中warning単独では売らない。次の候補がなくても現金を回収できる。詳細は[Trade Proposal](reference/trade-proposal.md#holding)。
 
 <a id="fact-analysis-separation"></a>
 ## 根拠と見積り

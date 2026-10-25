@@ -1,13 +1,13 @@
 # Screening
 
-L2の財務・倍率・機械見積りと市場環境を全対象のStock Analysisへ固定し、同じrunから候補文脈を作る。結果の組立はscreening/metric_builder、探索はdiscovery、較正はcalibrationが所有する。指標自体は[企業価値](valuation-metrics.md)・[市場環境](market-context.md)へ置く。
+L2の財務・倍率・機械見積りと市場環境を全対象のStock Analysisへ固定し、同じrunから候補文脈を作る。結果の組立はscreening/metric_builder、探索はdiscovery、較正はcalibrationが所有する。指標自体は[企業価値](company-valuation.md)・[市場環境](market-context.md)へ置く。
 
 <a id="rule-purpose"></a>
 ## 探索の意味
 
-入力scope、共通factの資格、Approach固有の推薦条件、有限容量、品質contextは異なる役割。いずれも企業の経済的rejectや購入採用を代行しない。完全なeligibility/order・値・method identityは[実装](../../engine/src/baibai_engine/screening/discovery/candidates.py)と[dated rules](../../engine/src/baibai_engine/screening/rules/)が正本である。
+入力scope、共通factの資格、Approach固有の推薦条件、有限容量、品質contextは異なる役割。いずれも企業の経済的rejectや購入採用を代行しない。完全なeligibility/order・値・method identityは[実装](../../engine/src/baibai_engine/machine_analysis/screening/discovery/candidates.py)と[dated rules](../../engine/src/baibai_engine/machine_analysis/screening/rules/)が正本である。
 
-機械E[r]/FV、保存市場判断、portfolioは候補membership・順位を決めない。候補理由はApproach内rankで、AIのResearch選定理由とは別である。候補外の分析も調べられ、機械候補が全投資機会を表すとは扱わない。Approach不適合、推薦unionの容量外、候補内での未選定は別である。どの入口で見つけたかと、その企業の価値獲得経路を一対一にせず、必要な少数の対照を[同じrunから比較](../../.agents/skills/research/SKILL.md#開始と固定対象)して深掘り対象を決める。
+機械E[r]/FV、保存市場判断、portfolioは候補membership・順位を決めない。候補理由はApproach内rankで、AIのResearch選定理由とは別である。候補外の分析も調べられ、機械候補が全投資機会を表すとは扱わない。Approach不適合、推薦unionの容量外、候補内での未選定は別である。どの入口で見つけたかと、その企業の価値獲得経路を一対一にせず、必要な少数の対照を[同じrunから比較](../../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)して深掘り対象を決める。
 
 <a id="candidate-discovery"></a>
 ## 四つの価値仮説
@@ -21,7 +21,7 @@ L2の財務・倍率・機械見積りと市場環境を全対象のStock Analys
 
 金融業のcash/debt/securitiesへ非金融の資産proxyを適用しない。Reinvestmentのcapital returnは同一実績行の自己資本とEDINET debt/cashを使うproxyで、BS日が一致した厳密ROICではない。営業利益TTMを作れなければ累計利益や他利益で補わない。既知の0・負FCFも探索対象になり、欠測を0へ変えない。負FCFは成長投資の証明ではなくResearchの問いである。
 
-各Approachのtop集合をexact unionにし、重複tickerは一行へ全理由を保持する。depthは有限資源の設定で、容量外を経済的棄却にしない。ticker順は非経済的なserialization順で、総合rank・Research priorityではない。比較母集団・丸め・tie-breakはproductionと較正で同じ純関数を使う。
+各Approachのtop集合をexact unionにし、重複tickerは一行へ全理由を保持する。depthは有限資源の設定で、容量外を経済的棄却にしない。ticker順は非経済的なserialization順で、総合rank・Investment Judgment priorityではない。比較母集団・丸め・tie-breakはproductionと較正で同じ純関数を使う。
 
 ## 入力不足と品質
 
@@ -47,4 +47,4 @@ Researchの分析用選択はResearch日以下のanalysisとknown_at以下のrun
 
 予定日到達は発表確認ではなく、個別Researchは会社IRを確認する。snapshot取得失敗は現行run全体を保存前に止めるが、個別tickerの予定なしとは別。この停止は入力・成果物の完全性の境界で、企業の除外理由や機会損失の実測ではない。
 
-通常runは保存済み入力だけを読む。取得・retry/deadline・成功chunkからの再開・発行順は[OPERATIONS](../../batch/OPERATIONS.md)に従う。意味を変えない配置変更でrules/model/calculation revisionを更新しない。
+通常runは保存済み入力だけを読む。取得・retry/deadline・成功chunkからの再開・発行順は[OPERATIONS](../../jobs/OPERATIONS.md)に従う。意味を変えない配置変更でrules/model/calculation revisionを更新しない。

@@ -13,11 +13,11 @@ from pathlib import Path
 from time import perf_counter
 from typing import cast
 
-from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.company_growth.models import CompanyGrowth, InputRelease
-from baibai_engine.company_growth.query import company_growth
+from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
+from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth, InputRelease
+from baibai_engine.machine_analysis.company_growth.query import company_growth
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.research.company_growth_projection import project_company_growth
+from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
 from baibai_engine.storage.lake.datasets import JQUANTS_FIN_SUMMARIES, JQUANTS_MASTER_SNAPSHOTS
 from baibai_engine.storage.lake.objects import LakeObjectCache
 from baibai_engine.storage.lake.reader import (

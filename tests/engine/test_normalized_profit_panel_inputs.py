@@ -12,10 +12,10 @@ from tests.helpers.screening_sqlite import (
 )
 
 from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.screening.calibration.panel import build_panel
-from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.calibration.panel import build_panel
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.storage.observations.schema import open_connection
-from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
+from baibai_engine.machine_analysis.company_valuation.metrics.profit import build_normalized_profit_signals
 
 
 @pytest.mark.parametrize("issuance", [False, True])

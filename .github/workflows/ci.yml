@@ -3,8 +3,8 @@ name: ci
 # The merge ref this workflow checks is the tree that lands on main while the base
 # holds still, so a second run after the merge would re-check bytes that already
 # passed here. What that leaves uncovered is a base that moved between this run and
-# the merge: the next pull request's own merge ref carries the result, and the daily
-# batch reports whether main still imports and runs. Neither re-runs these gates, so
+# the merge: the next pull request's own merge ref carries the result, and the common integration
+# job reports whether main still imports and runs. Neither re-runs these gates, so
 # a lint-, type- or test-only breakage on main waits for that next pull request.
 on:
   pull_request:
@@ -46,11 +46,11 @@ jobs:
       # while enforcing its stdlib-only import contract before merge.
       - name: Import notification script on the system python3
         env:
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
         run: |
           python3 --version
-          python3 -m py_compile batch/src/baibai_batch/observability/discord.py
-          python3 -c "import baibai_batch.observability.discord"
+          python3 -m py_compile jobs/src/baibai_jobs/observability/discord.py
+          python3 -c "import baibai_jobs.observability.discord"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -72,8 +72,8 @@ jobs:
           import zipfile
           from pathlib import Path
 
-          source = Path("engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml")
-          packaged = "baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
+          source = Path("engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml")
+          packaged = "baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml"
           dist = Path(os.environ["RUNNER_TEMP"]) / "baibai-dist"
           with zipfile.ZipFile(next(dist.glob("*.whl"))) as wheel:
               assert wheel.read(packaged) == source.read_bytes()
@@ -88,7 +88,8 @@ jobs:
 
       - name: Ruff lint
         if: ${{ !cancelled() }}
-        run: uv run ruff check .
+        run: |
+          uv run ruff check . || { uv run ruff check --diff .; exit 1; }
 
       - name: Type check
         if: ${{ !cancelled() }}
@@ -129,7 +130,7 @@ jobs:
         # its first commit instead of waiting for someone to remember this list.
         run: >-
           uv run bandit -c pyproject.toml -q -r
-          engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
+          engine/src/baibai_engine web/backend/src/baibai_web jobs/src/baibai_jobs tools
 
       - name: Dependency audit
         if: ${{ !cancelled() }}

@@ -11,8 +11,8 @@ from tests.engine.test_edinet_saved_integration import _next_listing
 from tests.engine.test_screening_cli import _edinet_csv_zip
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.collection.edinet.archives import retain_source_archive
-from baibai_engine.collection.edinet.receipts import retain_list_response
+from baibai_engine.data_collection.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.edinet.receipts import retain_list_response
 from baibai_engine.market.edinet_integration import extract_saved_edinet
 from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record

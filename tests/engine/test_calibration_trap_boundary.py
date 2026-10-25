@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from baibai_engine.screening.calibration.evaluation.axes import _evaluate_axis
-from baibai_engine.screening.calibration.evaluation.policy import MIN_AXIS_SAMPLE, AxisSpec
-from baibai_engine.screening.calibration.evaluation.statistics import _group_stats
+from baibai_engine.machine_analysis.screening.calibration.evaluation.axes import _evaluate_axis
+from baibai_engine.machine_analysis.screening.calibration.evaluation.policy import MIN_AXIS_SAMPLE, AxisSpec
+from baibai_engine.machine_analysis.screening.calibration.evaluation.statistics import _group_stats
 
 
 @pytest.mark.parametrize(("excess", "trap_rate"), [(-0.21, 1.0), (-0.20, 1.0), (-0.19, 0.0)])

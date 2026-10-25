@@ -36,8 +36,8 @@ jobs:
       - name: Smoke-check watchdog scripts
         id: smoke
         env:
-          PYTHONPATH: batch/src
-        run: python3 -c "import baibai_batch.jobs.watchdog; import baibai_batch.validation.workflow_inputs"
+          PYTHONPATH: jobs/src
+        run: python3 -c "import baibai_jobs.jobs.watchdog; import baibai_jobs.validation.workflow_inputs"
 
       # Validate the untrusted dispatch value before any credential-bearing step.
       # The scheduled event supplies an empty value, which is valid.
@@ -45,13 +45,13 @@ jobs:
         id: validate-input
         env:
           WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_batch.validation.workflow_inputs watchdog \
+          python3 -m baibai_jobs.validation.workflow_inputs watchdog \
             --check-date "$WATCHDOG_CHECK_DATE"
           echo "check_date=$WATCHDOG_CHECK_DATE" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch daily batch run history
+      - name: Fetch common integration workflow history
         id: history
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,17 +62,17 @@ jobs:
             -f per_page=100 -f branch=main \
             > "$RUNNER_TEMP/daily-batch-runs.json"
 
-      - name: "Alert Discord #batch-runs when the batch is missing"
+      - name: "Alert Discord #batch-runs when the integration job is missing"
         id: watchdog
         env:
           GH_TOKEN: ${{ github.token }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           WATCHDOG_CHECK_DATE: ${{ steps.validate-input.outputs.check_date }}
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
         run: |
           # $WATCHDOG_CHECK_DATE carries the dispatch input safely as a variable;
           # never interpolate inputs.* into this run block (script injection).
-          python3 -m baibai_batch.jobs.watchdog \
+          python3 -m baibai_jobs.jobs.watchdog \
             --read-run-results \
             --runs-json "$RUNNER_TEMP/daily-batch-runs.json" \
             --check-date "$WATCHDOG_CHECK_DATE"
@@ -95,10 +95,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_batch.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
-          python3 -m baibai_batch.jobs.watchdog --economic --read-run-results \
+          python3 -m baibai_jobs.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+          python3 -m baibai_jobs.jobs.watchdog --economic --read-run-results \
             --runs-json "$RUNNER_TEMP/economic-runs.json" --check-date "$WATCHDOG_CHECK_DATE"
 
   market:
@@ -117,7 +117,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_batch.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
-          python3 -m baibai_batch.jobs.watchdog --market --read-run-results --runs-json "$RUNNER_TEMP/market-runs.json" --check-date "$WATCHDOG_CHECK_DATE"
+          python3 -m baibai_jobs.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+          python3 -m baibai_jobs.jobs.watchdog --market --read-run-results --runs-json "$RUNNER_TEMP/market-runs.json" --check-date "$WATCHDOG_CHECK_DATE"

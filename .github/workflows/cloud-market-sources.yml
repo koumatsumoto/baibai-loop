@@ -95,8 +95,8 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
           SOURCE_GROUP: market-plan
           ACQUIRE_RESULT: ${{ needs.plan.result }}
           STAGE_RESULT: skipped
-        run: python3 -m baibai_batch.observability.source_discord
+        run: python3 -m baibai_jobs.observability.source_discord

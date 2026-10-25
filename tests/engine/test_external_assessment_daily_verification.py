@@ -13,26 +13,26 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master import TSE_33_SECTORS, insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.external_assessment.acquisition.universe import (
+from baibai_engine.data_collection.external_assessment.universe import (
     frozen_lake_universe,
     frozen_universe,
 )
-from baibai_engine.external_assessment.acquisition.verification import (
+from baibai_engine.data_collection.external_assessment.verification import (
     history_digests,
     verify_observations,
 )
-from baibai_engine.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.external_assessment.observations.contract import (
     ANALYST_FORECAST_TABLE,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.external_assessment.reader import read_observations
-from baibai_engine.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.external_assessment.reader import read_observations
+from baibai_engine.machine_analysis.external_assessment.store import save_observations
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.keys import current_release_pointer_key

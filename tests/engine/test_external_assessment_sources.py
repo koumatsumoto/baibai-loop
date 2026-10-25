@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from baibai_engine.external_assessment.normalization import ParseError, monex, rakuten
+from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, monex, rakuten
 
 RECEIVED = datetime(2026, 10, 10, 16, 30, tzinfo=UTC)
 

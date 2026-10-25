@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-from baibai_engine.screening.config import ScreeningConfig
+from baibai_engine.machine_analysis.screening.config import ScreeningConfig
 
 
 class ScreeningConfigTests(unittest.TestCase):
@@ -23,14 +23,14 @@ class ScreeningConfigTests(unittest.TestCase):
         self.assertIsNone(config.edinet_api_key)
 
     def test_jquants_network_boundary_requires_its_own_key(self) -> None:
-        from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
+        from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
 
         with self.assertRaisesRegex(JQuantsAcquisitionError, "JQUANTS_API_KEY"):
             JQuantsHTTP("")
 
 
 def test_cache_only_run_reaches_local_preflight_without_api_keys(tmp_path, monkeypatch, capsys):
-    from baibai_engine.screening.cli import app
+    from baibai_engine.machine_analysis.screening.cli import app
 
     # Do not let a developer or repository .env reintroduce credentials.
     monkeypatch.setattr(app, "load_project_env", lambda: None)

@@ -8,11 +8,11 @@ RUNS_DB_PATH = Path("stores/screening/runs.sqlite")
 INDICATORS_DB_PATH = Path("stores/market_context/indicators.sqlite")
 CALIBRATION_DIR = Path("stores/screening/calibration")
 ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path(
-    "engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
+    "engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml"
 )
-SCREENING_RULES_PATH = Path("engine/src/baibai_engine/screening/rules/2026-10-16T133000+0900.yaml")
+SCREENING_RULES_PATH = Path("engine/src/baibai_engine/machine_analysis/screening/rules/2026-10-16T133000+0900.yaml")
 READING_RULES_PATH = Path(
-    "engine/src/baibai_engine/market_context/reading/rules/2026-08-01T100000+0900.yaml"
+    "engine/src/baibai_engine/machine_analysis/market_context/reading/rules/2026-08-01T100000+0900.yaml"
 )
 
 

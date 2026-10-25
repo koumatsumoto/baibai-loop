@@ -11,7 +11,7 @@ from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from baibai_engine.collection.edinet.receipts import EdinetListReceipt
+from baibai_engine.data_collection.edinet.receipts import EdinetListReceipt
 from baibai_engine.market.edinet_document_events import _validate_document_statuses, parse_doc_id
 from baibai_engine.market.edinet_models import EDINETProviderError
 

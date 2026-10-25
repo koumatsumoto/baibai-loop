@@ -3,8 +3,8 @@
 from datetime import date
 
 from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.valuation.metrics.history import build_valuation_history, self_range_position
-from baibai_engine.valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.company_valuation.metrics.history import build_valuation_history, self_range_position
+from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 
 
 def _snapshot(price):

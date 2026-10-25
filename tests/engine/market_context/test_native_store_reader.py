@@ -10,20 +10,20 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse, _StaticSession
 
-from baibai_engine.collection.economic import acquisition as acquisition
-from baibai_engine.collection.economic.providers.base import FetchContext
-from baibai_engine.collection.economic.providers.cftc import CftcSource
-from baibai_engine.collection.economic.providers.ecb_fx import EcbFxSource
-from baibai_engine.collection.economic.providers.estat_dashboard import (
+from baibai_engine.data_collection.economic import acquisition as acquisition
+from baibai_engine.data_collection.economic.providers.base import FetchContext
+from baibai_engine.data_collection.economic.providers.cftc import CftcSource
+from baibai_engine.data_collection.economic.providers.ecb_fx import EcbFxSource
+from baibai_engine.data_collection.economic.providers.estat_dashboard import (
     EStatDashboardSource,
 )
-from baibai_engine.collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.collection.economic.sources import require_source
-from baibai_engine.collection.economic.store import initialize_database
-from baibai_engine.market_context import indicator_service
-from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.economic.sources import require_source
+from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.machine_analysis.market_context import indicator_service
+from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
 DAY = date(2026, 10, 13)

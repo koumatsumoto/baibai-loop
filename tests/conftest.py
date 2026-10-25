@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_engine.collection.economic.store import (
+from baibai_engine.data_collection.economic.store import (
     initialize_database as initialize_indicators_db,
 )
-from baibai_engine.market_context.reading.rules import (
+from baibai_engine.machine_analysis.market_context.reading.rules import (
     DEFAULT_RULES_PATH as READING_RULES_PATH,
 )
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.rules_identity import production_rules_contract_hash
-from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
 from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
 from tests.helpers.fixed_now import FIXED_NOW
@@ -94,7 +94,7 @@ def _seed_app_method_root(root: Path) -> None:
     db_path = root / "stores/application/baibai.sqlite"
     ledger = load_portfolio_ledger(FIXTURES / "portfolio-ledger/representative.yaml")
     seed_ledger(db_path, ledger)
-    from baibai_engine.research.assessment_store import AssessmentStoreService
+    from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
     document, review = pair_payload(ticker="2331", as_of="2026-07-03")

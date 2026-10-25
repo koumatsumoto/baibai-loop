@@ -8,7 +8,7 @@ from datetime import date, datetime
 from math import isfinite
 from typing import Any
 
-from baibai_engine.collection.identifiers import SecurityCodeError, parse_security_code_parts
+from baibai_engine.data_collection.identifiers import SecurityCodeError, parse_security_code_parts
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 

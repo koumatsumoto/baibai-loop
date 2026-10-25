@@ -45,11 +45,11 @@ class Domain:
 # domain の役割はここから 1 行で読める必要がある。
 DOMAINS: Mapping[str, Domain] = {
     "external-assessment": Domain(
-        module="baibai_engine.external_assessment.cli",
+        module="baibai_engine.external_assessment_cli",
         summary="saved external assessments, bounded acquisition and explicit local stage import",
     ),
     "tradingview": Domain(
-        module="baibai_engine.external_assessment.tradingview.cli",
+        module="baibai_engine.data_collection.tradingview.cli",
         summary="TradingView OAuth and analyst expectation snapshot acquisition",
     ),
     "lake": Domain(
@@ -57,33 +57,33 @@ DOMAINS: Mapping[str, Domain] = {
         summary="immutable market-data manifests, object keys, and read-only inventory",
     ),
     "screening": Domain(
-        module="baibai_engine.screening.cli.app",
-        summary="machine screening: publish Stock Analyses and candidate discovery",
+        module="baibai_engine.machine_analysis.screening.cli.app",
+        summary="Machine Analysis: model generation, Screening candidates and reasons",
     ),
     "market-context": Domain(
-        module="baibai_engine.market_context.cli",
+        module="baibai_engine.machine_analysis.market_context.cli",
         summary="economic observations and mechanical market readings",
     ),
     "technical-analysis": Domain(
-        module="baibai_engine.technical_analysis.cli",
+        module="baibai_engine.machine_analysis.technical_analysis.cli",
         summary="read-only SMA20/50/200, BB20 and Wilder RSI14 from retained adjusted prices",
     ),
-    "collection": Domain(
-        module="baibai_engine.collection.cli",
-        summary="external source collection",
+    "data-collection": Domain(
+        module="baibai_engine.data_collection.cli",
+        summary="Data Collection: external sources and original receipts",
     ),
     "operation": Domain(
-        module="baibai_engine.research.operation.cli",
+        module="baibai_engine.investment_judgment.operation.cli",
         summary="operation sessions: one active session per trigger, with completion gates",
     ),
     "position": Domain(
         module="baibai_engine.position.cli",
         summary="portfolio ledger, human-reported broker fact drafts, and portfolio outcomes",
     ),
-    "research": Domain(
-        module="baibai_engine.research.workspace_cli",
+    "investment-judgment": Domain(
+        module="baibai_engine.investment_judgment.workspace_cli",
         summary=(
-            "explicit market judgments and research: Stock Assessment, Review, Investment Proposal"
+            "Investment Judgment: Company Research, Stock Assessment, Independent Review, Trade Proposal"
         ),
     ),
     "task": Domain(

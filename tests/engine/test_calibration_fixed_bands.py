@@ -5,14 +5,14 @@ from math import ceil
 import pytest
 from tests.helpers.calibration_store import forward_row, panel_row
 
-from baibai_engine.screening.calibration.context import (
+from baibai_engine.machine_analysis.screening.calibration.context import (
     CalibrationContextError,
     _cohort_entries,
     _horizon_context,
     _prediction_boundaries,
 )
-from baibai_engine.valuation.calibration.contracts import ErCalibrationHorizon
-from baibai_engine.valuation.calibration.query import candidate_er_bands
+from baibai_engine.machine_analysis.company_valuation.calibration.contracts import ErCalibrationHorizon
+from baibai_engine.machine_analysis.company_valuation.calibration.query import candidate_er_bands
 
 
 def _cohorts(values_by_asof):

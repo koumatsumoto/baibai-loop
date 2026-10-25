@@ -4,12 +4,12 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.reading.compute import compute_reading
-from baibai_engine.market_context.reading.models import snapshot_payload
-from baibai_engine.market_context.reading.observations import UnavailableObservationError
-from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH, load_reading_rules
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.reading.compute import compute_reading
+from baibai_engine.machine_analysis.market_context.reading.models import snapshot_payload
+from baibai_engine.machine_analysis.market_context.reading.observations import UnavailableObservationError
+from baibai_engine.machine_analysis.market_context.reading.rules import DEFAULT_RULES_PATH, load_reading_rules
 
 
 @pytest.mark.parametrize("series_id", ["jp.n225_iv_term", "jp.n225_iv_skew"])

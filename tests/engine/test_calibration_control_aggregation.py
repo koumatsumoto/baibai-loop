@@ -1,6 +1,6 @@
 """Control aggregation counts only comparable median/trap observations."""
 
-from baibai_engine.screening.calibration.evaluation.aggregate import (
+from baibai_engine.machine_analysis.screening.calibration.evaluation.aggregate import (
     _control_summaries,
     _QualityControlAccumulator,
 )

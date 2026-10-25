@@ -8,16 +8,16 @@ from dataclasses import asdict, fields
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.market_context.margin import (
+from baibai_engine.machine_analysis.market_context.margin import (
     MarginBalance,
     MarginSupplyDemand,
     margin_supply_demand,
 )
-from baibai_engine.screening.calibration import store as calibration_store
-from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
-from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.stock_analysis_builder import build_stock_analysis_metrics
-from baibai_engine.valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.screening.calibration import store as calibration_store
+from baibai_engine.machine_analysis.screening.calibration.store import CalibrationCacheError, read_panel
+from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
+from baibai_engine.machine_analysis.screening.stock_analysis_builder import build_stock_analysis_metrics
+from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 
 WEEK = date(2026, 7, 24)
 
@@ -208,7 +208,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # would read back empty and every axis would be None for the whole cohort
         # even though every earlier week is intact.
         from baibai_engine.market.margin_reader import published_margin_week_ends
-        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
+        from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
         from baibai_engine.storage.observations.schema import open_connection
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -237,7 +237,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
             self.assertEqual(sorted(latest), ["7203"])
 
     def test_a_balance_date_too_old_to_describe_the_asof_is_refused(self) -> None:
-        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
+        from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -335,7 +335,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_daily_series_keeps_the_axes_current_after_the_weekly_freeze(self) -> None:
         """The published daily balance keeps the axes current after the weekly freeze."""
-        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
+        from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -370,7 +370,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_delta_uses_weekly_steps_across_the_cadence_change(self) -> None:
         """In this continuous fixture, 26 observed weekly steps span about half a year."""
-        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
+        from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

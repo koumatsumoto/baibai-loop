@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.collection.economic.store import initialize_database
-from baibai_engine.market_context.indicators.definitions import (
+from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
 from baibai_engine.read_api import READING_RULES_PATH
 from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
 from baibai_web.sources.db_sources import DbMarketContextSource, load_indicator_panel_config

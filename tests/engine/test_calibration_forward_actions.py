@@ -8,7 +8,7 @@ from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.price_reader import read_adjustment_factor_bars
-from baibai_engine.screening.calibration.forward import compute_forward_returns
+from baibai_engine.machine_analysis.screening.calibration.forward import compute_forward_returns
 from baibai_engine.storage.observations.schema import open_connection
 
 

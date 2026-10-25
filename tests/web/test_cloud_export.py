@@ -17,18 +17,18 @@ from tests.helpers.screening_run import screening_run_payload
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
-from baibai_engine.collection.economic.documents import SourceDocument, store_document
-from baibai_engine.collection.economic.records import store_snapshot
-from baibai_engine.collection.economic.store import open_connection, record_source_run
+from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
+from baibai_engine.data_collection.economic.records import store_snapshot
+from baibai_engine.data_collection.economic.store import open_connection, record_source_run
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.market_context.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.market_context.models import StoredAssessment
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from baibai_engine.investment_judgment.market_context.models import StoredAssessment
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.storage.application import LATEST_VERSION
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app
@@ -37,8 +37,8 @@ from baibai_web.readmodel.builders import build_meta
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
     DashboardView,
-    InvestmentProposalsView,
-    InvestmentProposalView,
+    TradeProposalsView,
+    TradeProposalView,
     MarketContextView,
     MetaView,
     OperationsView,
@@ -414,13 +414,13 @@ def test_export_keeps_saved_proposal_detail_independent_of_current_screening(
     )
     assert screening.investment_proposals[0].proposal_id == proposal_id
     detail_path = output_dir / "views" / f"investment-proposal--{proposal_id}.json"
-    detail = InvestmentProposalView.model_validate_json(detail_path.read_text(encoding="utf-8"))
+    detail = TradeProposalView.model_validate_json(detail_path.read_text(encoding="utf-8"))
     assert detail.proposal_id == proposal_id
     assert detail.research_scope == proposal.research_scope.model_dump(mode="json")
     index_path = output_dir / "views/investment-proposals.json"
-    index = InvestmentProposalsView.model_validate_json(index_path.read_text(encoding="utf-8"))
+    index = TradeProposalsView.model_validate_json(index_path.read_text(encoding="utf-8"))
     assert [item.proposal_id for item in index.proposals] == [proposal_id]
-    assert (output_dir / f"views/investment-proposal-preview--{proposal_id}.json").is_file()
+    assert (output_dir / f"views/investment-trade-proposal-preview--{proposal_id}.json").is_file()
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         api_detail = client.get(f"/api/investment-proposals/{proposal_id}")
         api_index = client.get("/api/investment-proposals")

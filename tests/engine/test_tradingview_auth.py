@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from baibai_engine.collection.tradingview.auth import (
+from baibai_engine.data_collection.tradingview.auth import (
     RUNTIME_ENVIRONMENT,
     SECRET_NAME,
     AuthenticationError,
@@ -102,7 +102,7 @@ def test_secret_writer_does_not_disclose_failure_response(capsys) -> None:
     "failure", [OSError("private-token"), subprocess.TimeoutExpired("private-token", 60)]
 )
 def test_secret_writer_process_failure_is_classified_without_payload(failure):
-    from baibai_engine.collection.tradingview.auth import SecretPersistenceError
+    from baibai_engine.data_collection.tradingview.auth import SecretPersistenceError
 
     with (
         patch("subprocess.run", side_effect=failure),
@@ -113,7 +113,7 @@ def test_secret_writer_process_failure_is_classified_without_payload(failure):
 
 
 def test_local_rotation_is_independent_and_reloaded(tmp_path, monkeypatch):
-    from baibai_engine.external_assessment.tradingview import cli
+    from baibai_engine.machine_analysis.external_assessment.tradingview import cli
 
     path = tmp_path / "oauth.json"
     write_local_state(path, state())
@@ -134,7 +134,7 @@ def test_local_rotation_is_independent_and_reloaded(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("kind", ["missing", "invalid", "unreadable"])
 def test_bad_local_state_never_falls_back_to_cloud(tmp_path, monkeypatch, kind):
-    from baibai_engine.external_assessment.tradingview import cli
+    from baibai_engine.machine_analysis.external_assessment.tradingview import cli
 
     path = tmp_path / "oauth.json"
     monkeypatch.setenv("TRADINGVIEW_OAUTH_STATE", state().model_dump_json())
@@ -150,8 +150,8 @@ def test_bad_local_state_never_falls_back_to_cloud(tmp_path, monkeypatch, kind):
 
 
 def test_local_save_failure_does_not_adopt_tokens_or_leak_payload(tmp_path, monkeypatch, capsys):
-    from baibai_engine.collection.tradingview.auth import SecretPersistenceError
-    from baibai_engine.external_assessment.tradingview import cli
+    from baibai_engine.data_collection.tradingview.auth import SecretPersistenceError
+    from baibai_engine.machine_analysis.external_assessment.tradingview import cli
 
     path = tmp_path / "oauth.json"
     write_local_state(path, state())
@@ -170,7 +170,7 @@ def test_local_save_failure_does_not_adopt_tokens_or_leak_payload(tmp_path, monk
 
 
 def test_implicit_cloud_storage_still_writes_environment_secret(monkeypatch):
-    from baibai_engine.external_assessment.tradingview import cli
+    from baibai_engine.machine_analysis.external_assessment.tradingview import cli
 
     monkeypatch.setenv("TRADINGVIEW_OAUTH_STATE", state().model_dump_json())
     monkeypatch.setenv("TRADINGVIEW_SECRET_WRITER_TOKEN", "cloud-writer")

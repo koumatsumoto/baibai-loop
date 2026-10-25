@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from baibai_engine.cli import main
-from baibai_engine.research.workspace_cli import build_parser as build_research_parser
-from baibai_engine.screening.cli.app import build_parser as build_screening_parser
+from baibai_engine.investment_judgment.workspace_cli import build_parser as build_research_parser
+from baibai_engine.machine_analysis.screening.cli.app import build_parser as build_screening_parser
 
 
 def _choices(parser) -> set[str]:
@@ -40,15 +40,15 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
         "market-context",
         "selection-context",
         "prepare",
-        "assessment-scaffold",
-        "assessment-review-scaffold",
-        "assessment-evaluate",
-        "assessment-promote",
-        "proposal-context",
-        "proposal-scaffold",
-        "proposal-check",
-        "proposal-publish",
-        "proposal-preview",
+        "stock-assessment-scaffold",
+        "independent-review-scaffold",
+        "stock-assessment-evaluate",
+        "stock-assessment-promote",
+        "trade-proposal-context",
+        "trade-proposal-scaffold",
+        "trade-proposal-check",
+        "trade-proposal-publish",
+        "trade-proposal-preview",
     } <= choices
     assert (
         not {
@@ -68,7 +68,7 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
 
 @pytest.mark.parametrize(
     "domain",
-    ["screening", "research", "position", "operation", "market-context", "technical-analysis"],
+    ["screening", "investment-judgment", "position", "operation", "market-context", "technical-analysis"],
 )
 def test_routed_domain_help_reaches_its_parser(domain: str) -> None:
     with pytest.raises(SystemExit) as exit_info:
@@ -88,7 +88,7 @@ def test_runtime_has_no_retired_triage_imports_or_prepare_flags():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    for directory in ("engine/src", "batch/src", "web/backend/src"):
+    for directory in ("engine/src", "jobs/src", "web/backend/src"):
         for path in (root / directory).rglob("*.py"):
             for node in ast.walk(ast.parse(path.read_text())):
                 names = (
@@ -101,9 +101,9 @@ def test_runtime_has_no_retired_triage_imports_or_prepare_flags():
                 assert not any(
                     name.startswith(
                         (
-                            "baibai_engine.research.triage",
-                            "baibai_batch.analysis",
-                            "baibai_engine.research.explicit_selection",
+                            "baibai_engine.investment_judgment.triage",
+                            "baibai_jobs.analysis",
+                            "baibai_engine.investment_judgment.explicit_selection",
                         )
                     )
                     for name in names
@@ -139,9 +139,9 @@ def test_screening_provider_protocols_do_not_import_command_implementations():
             "-c",
             """
 import sys
-from baibai_engine.screening.cli.providers import ProviderBundle
+from baibai_engine.machine_analysis.screening.cli.providers import ProviderBundle
 for module in ("app", "cache", "run", "query"):
-    assert f"baibai_engine.screening.cli.{module}" not in sys.modules
+    assert f"baibai_engine.machine_analysis.screening.cli.{module}" not in sys.modules
 """,
         ],
         check=True,
@@ -150,7 +150,7 @@ for module in ("app", "cache", "run", "query"):
 
 def test_market_judgment_is_owned_by_research_cli():
     with pytest.raises(SystemExit) as result:
-        main(["research", "market-context", "--help"])
+        main(["investment-judgment", "market-context", "--help"])
     assert result.value.code == 0
     with pytest.raises(SystemExit) as retired:
         main(["market-context", "assessment", "--help"])

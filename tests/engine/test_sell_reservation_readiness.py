@@ -17,10 +17,10 @@ from baibai_engine.position.drafts import (
 )
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.proposal import ProposalConflictError, ProposalError, order_readiness
-from baibai_engine.research.proposal_inputs import build_proposal_context
-from baibai_engine.research.proposal_query import get_investment_proposal, preview_current_terms
-from baibai_engine.research.proposal_service import InvestmentProposalService
+from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError, ProposalError, order_readiness
+from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
+from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal, preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 
 SELL_TERMS = {
     "side": "sell",
@@ -71,7 +71,7 @@ def test_same_ticker_order_blocks_new_sell_terms_but_preserves_economic_sell(tmp
     assert concrete.inputs.quotes[0].price_yen == Decimal(1100)
     assert concrete.inputs.active_reservations[0].reservation_id == "synthetic-working-order"
     assert concrete.inputs.available_cash_yen == (130000 if side == "buy" else 210000)
-    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     ledger_before = store.load_with_head()
     before = case.app.read_bytes()
     validation = service.check(concrete)
@@ -106,7 +106,7 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
     raw = reviewed_proposal(case, action="sell").payload()
     raw["items"][0].update(terms=dict(SELL_TERMS), terms_unavailable_reasons=[])
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     # A normal quote, confirmed units, classification and session permit the full sale.
     assert service.check(proposal).valid
     published = service.publish(proposal)
@@ -138,7 +138,7 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
         now=now,
     )
     assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
-    current_service = InvestmentProposalService(
+    current_service = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: now
     )
     assert current_service.publish(published) == published
@@ -234,7 +234,7 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     )
     concrete = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert concrete.items[0].position.quantity == 200
-    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert [reason.code for reason in service.check(concrete).blockers] == [
         "active_reservation_exists"
     ]
@@ -257,7 +257,7 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     )
     assert cancelled is not None
     apply_draft(store, cancelled, human_confirmed=True)
-    current_service = InvestmentProposalService(
+    current_service = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: now
     )
     with pytest.raises(ProposalConflictError, match="input facts changed"):

@@ -9,7 +9,7 @@ import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import FakeSession, json_response
 
-from baibai_engine.collection.edinet.receipts import read_list_responses
+from baibai_engine.data_collection.edinet.receipts import read_list_responses
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_refresh import EDINETRefresh

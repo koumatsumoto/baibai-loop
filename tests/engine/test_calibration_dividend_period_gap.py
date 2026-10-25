@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pytest
 
 from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.screening.calibration.forward import (
+from baibai_engine.machine_analysis.screening.calibration.forward import (
     HORIZONS,
     _FYDividendObservation,
     _ticker_forward_rows,

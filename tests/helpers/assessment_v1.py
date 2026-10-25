@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.research.assessment import StockAssessmentDocument, assessment_core_hash
+from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument, assessment_core_hash
 
 APPENDIX_ASSESSMENT_PUBLICATION = json.loads(
     (

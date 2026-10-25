@@ -5,8 +5,8 @@ import pytest
 import requests
 from tests.engine.test_jquants_projection import DAY, FIRST_AT, Session, body, receive
 
-from baibai_engine.collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.collection.jquants.receipts import acquire_request
+from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
+from baibai_engine.data_collection.jquants.receipts import acquire_request
 from baibai_engine.market.jquants_handoff import MARKET_SOURCES, export_handoff, import_handoff
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.storage.observations.coverage import range_covered

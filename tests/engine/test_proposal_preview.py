@@ -8,8 +8,8 @@ from decimal import Decimal
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
-from baibai_engine.research.proposal_query import get_investment_proposal, preview_current_terms
-from baibai_engine.research.proposal_service import InvestmentProposalService
+from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal, preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 
 
 def _snapshot(path):
@@ -29,7 +29,7 @@ def _snapshot(path):
 def test_preview_separates_actual_quote_and_saved_limit_without_writes(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     before = _snapshot(case.app)
@@ -50,7 +50,7 @@ def test_preview_separates_actual_quote_and_saved_limit_without_writes(tmp_path)
 def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     before = _snapshot(case.app)
@@ -77,7 +77,7 @@ def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_
 def test_changed_target_session_blocks_preview_without_mutating_saved_terms(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     before = _snapshot(case.app)
@@ -101,11 +101,11 @@ def test_changed_target_session_blocks_preview_without_mutating_saved_terms(tmp_
 
 
 def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp_path, monkeypatch):
-    from baibai_engine.research import proposal_inputs
+    from baibai_engine.investment_judgment import trade_proposal_inputs as proposal_inputs
 
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     before = _snapshot(case.app)
@@ -129,7 +129,7 @@ def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp
 def test_preview_does_not_require_active_operation_or_compare_current_progress(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case, action="no_action")
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     recorded = case.operations.record_proposal(
@@ -166,7 +166,7 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
             "reason": "同日起点で残存見返りが十分と確認した。",
         }
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
     before = _snapshot(case.app)
@@ -192,8 +192,8 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     tmp_path, horizon_months, expected_maximum
 ):
     from baibai_engine.read_api.research import reviewed_assessment_projection
-    from baibai_engine.research.assessment import assessment_core_hash
-    from baibai_engine.research.proposal_inputs import build_proposal_context
+    from baibai_engine.investment_judgment.stock_assessment import assessment_core_hash
+    from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
 
     # A synthetic fixed total value isolates period propagation, not business growth.
     case = backend_case(tmp_path, required_rate="3", horizon_months=horizon_months)
@@ -218,7 +218,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
         "calculation_at_maximum_price"
     ]["maximum_price_yen"]
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     service.publish(proposal)
     before = _snapshot(case.app)

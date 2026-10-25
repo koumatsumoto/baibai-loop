@@ -15,11 +15,11 @@ from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.assessment_store import AssessmentStoreService
-from baibai_engine.research.operation.models import OperationPayload
-from baibai_engine.research.proposal_query import get_investment_proposal, preview_current_terms
-from baibai_engine.research.proposal_scaffold import scaffold_proposal
-from baibai_engine.research.proposal_service import InvestmentProposalService
+from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+from baibai_engine.investment_judgment.operation.models import OperationPayload
+from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal, preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 
 
 @pytest.mark.parametrize("fill_first", [False, True])
@@ -111,7 +111,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
         proposal = bind_review(raw, documents)
         assert proposal.inputs.available_cash_yen == cash
         before = store.load()
-        published = InvestmentProposalService(
+        published = TradeProposalService(
             case.app, sqlite_path=case.market, clock=lambda instant=now: instant
         ).publish(proposal)
         assert store.load() == before

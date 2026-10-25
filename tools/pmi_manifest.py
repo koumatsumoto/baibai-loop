@@ -19,21 +19,21 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from baibai_engine.collection.economic.providers.base import (
+from baibai_engine.data_collection.economic.providers.base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
     SourceWithheldError,
     fetch_text,
 )
-from baibai_engine.collection.economic.providers.spglobal_pmi import (
+from baibai_engine.data_collection.economic.providers.spglobal_pmi import (
     MANIFEST_PATH,
     RELEASE_URL_RE,
     fetch_pdf_bytes,
     load_manifest,
 )
-from baibai_engine.market_context.reading.pmi import extract_pdf_text
-from baibai_engine.market_context.reading.pmi_extraction import (
+from baibai_engine.machine_analysis.market_context.reading.pmi import extract_pdf_text
+from baibai_engine.machine_analysis.market_context.reading.pmi_extraction import (
     PmiExtractionError,
     extract_pmi_value,
 )

@@ -13,12 +13,12 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _StaticSession,
 )
 
-from baibai_engine.collection.economic.providers import (
+from baibai_engine.data_collection.economic.providers import (
     IndicatorsProviderError,
     parse_ecb_reference_csv,
     provider_spec,
 )
-from baibai_engine.collection.economic.providers.base import (
+from baibai_engine.data_collection.economic.providers.base import (
     BrowserUnavailableError,
     FetchContext,
     HttpSession,
@@ -27,7 +27,7 @@ from baibai_engine.collection.economic.providers.base import (
     fetch_text,
     store_fetched_bytes,
 )
-from baibai_engine.collection.economic.providers.fred import FredSource
+from baibai_engine.data_collection.economic.providers.fred import FredSource
 
 
 class IndicatorsProviderParserTests(TestCase):
@@ -168,11 +168,11 @@ class IndicatorsProviderParserTests(TestCase):
         # the same reason the production launch is lazy.
         from playwright.sync_api import Error as PlaywrightError
 
-        from baibai_engine.collection.economic.providers.browser import BrowserFetcher
+        from baibai_engine.data_collection.economic.providers.browser import BrowserFetcher
 
         with (
             patch(
-                "baibai_engine.collection.economic.providers.browser.sync_playwright",
+                "baibai_engine.data_collection.economic.providers.browser.sync_playwright",
                 side_effect=PlaywrightError("no browser binary"),
             ),
             self.assertRaisesRegex(BrowserUnavailableError, r"failed to launch headless browser"),
@@ -180,11 +180,11 @@ class IndicatorsProviderParserTests(TestCase):
             BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
 
     def test_browser_launch_failure_on_a_full_disk_is_still_a_provider_failure(self) -> None:
-        from baibai_engine.collection.economic.providers.browser import BrowserFetcher
+        from baibai_engine.data_collection.economic.providers.browser import BrowserFetcher
 
         with (
             patch(
-                "baibai_engine.collection.economic.providers.browser.tempfile.TemporaryDirectory",
+                "baibai_engine.data_collection.economic.providers.browser.tempfile.TemporaryDirectory",
                 side_effect=OSError("No space left on device"),
             ),
             # A bare OSError would escape every handler that knows what a provider
@@ -194,7 +194,7 @@ class IndicatorsProviderParserTests(TestCase):
             BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
 
     def test_browser_launch_receives_only_allowlisted_runtime_environment(self) -> None:
-        from baibai_engine.collection.economic.providers.browser import BrowserFetcher
+        from baibai_engine.data_collection.economic.providers.browser import BrowserFetcher
 
         context = MagicMock()
         playwright = MagicMock()
@@ -215,7 +215,7 @@ class IndicatorsProviderParserTests(TestCase):
 
         with (
             patch(
-                "baibai_engine.collection.economic.providers.browser.sync_playwright",
+                "baibai_engine.data_collection.economic.providers.browser.sync_playwright",
                 return_value=starter,
             ),
             patch.dict("os.environ", inherited, clear=True),
@@ -235,7 +235,7 @@ class IndicatorsProviderParserTests(TestCase):
         }
 
     def test_pdf_uses_the_shared_download_with_the_callers_limit(self) -> None:
-        from baibai_engine.collection.economic.providers.browser import BrowserFetcher
+        from baibai_engine.data_collection.economic.providers.browser import BrowserFetcher
 
         fetcher = BrowserFetcher()
         with patch.object(fetcher, "fetch_download", return_value=b"%PDF-test") as download:
@@ -246,7 +246,7 @@ class IndicatorsProviderParserTests(TestCase):
         download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
 
     def test_pdf_does_not_repeat_a_non_pdf_download_inside_the_provider_retry(self) -> None:
-        from baibai_engine.collection.economic.providers.browser import BrowserFetcher
+        from baibai_engine.data_collection.economic.providers.browser import BrowserFetcher
 
         fetcher = BrowserFetcher()
         with (
@@ -259,7 +259,7 @@ class IndicatorsProviderParserTests(TestCase):
         download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
 
     def test_pdf_preserves_the_shared_download_failure_without_retrying(self) -> None:
-        from baibai_engine.collection.economic.providers.browser import BrowserFetcher
+        from baibai_engine.data_collection.economic.providers.browser import BrowserFetcher
 
         fetcher = BrowserFetcher()
         failure = BrowserUnavailableError("browser closed")

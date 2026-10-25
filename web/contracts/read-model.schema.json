@@ -2725,7 +2725,7 @@
       "type": "object"
     },
     "HoldingDeltaView": {
-      "description": "Observed holding price movement; holding decisions belong to Investment Proposal.",
+      "description": "Observed holding price movement; holding decisions belong to Trade Proposal.",
       "properties": {
         "ticker": {
           "title": "Ticker",

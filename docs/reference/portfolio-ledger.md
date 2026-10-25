@@ -31,7 +31,7 @@ quote不足・古さ・権利未解決は対象holdingの時価を未評価に�
 
 draftは正本を変更せず、確認した入力状態と差分を持つ。人間確認後にapplyし、staleや矛盾では書かない。取引保存に現在の購入適格性や無関係なmarket更新を要求せず、cash・数量・参照・報告の整合を検証する。
 
-台帳読取は未作成/未登録と破損を区別し、table欠損・不正payload・metadataなし取引を空保有へ変換しない。現在の判断・注文条件から過去取引を改変しない。復旧・本番反映は[OPERATIONS](../../batch/OPERATIONS.md#application-db-を復元する)に従う。
+台帳読取は未作成/未登録と破損を区別し、table欠損・不正payload・metadataなし取引を空保有へ変換しない。現在の判断・注文条件から過去取引を改変しない。復旧・本番反映は[OPERATIONS](../../jobs/OPERATIONS.md#application-db-を復元する)に従う。
 
 <a id="historical-outcome"></a>
 ## Historical Outcome

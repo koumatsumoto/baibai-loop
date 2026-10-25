@@ -1,7 +1,7 @@
 from contextlib import closing
 from datetime import date
 
-from baibai_engine.collection.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.edinet.archives import retain_source_archive
 from baibai_engine.market.source_inputs import export_source_input
 from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.schema import open_connection

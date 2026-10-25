@@ -10,9 +10,9 @@ import pytest
 import yaml
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.research import assessment as assessment_module
-from baibai_engine.research import assessment_evaluation_cli as cli
-from baibai_engine.research.assessment import (
+from baibai_engine.investment_judgment import stock_assessment as assessment_module
+from baibai_engine.investment_judgment import stock_assessment_evaluation_cli as cli
+from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     StockAssessmentDocument,
     UnpublishedAssessment,

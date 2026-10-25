@@ -15,16 +15,16 @@ from tests.helpers.indicator_store import (
     store_mof_observations,
 )
 
-from baibai_engine.collection.economic import acquisition as acquisition
-from baibai_engine.collection.economic.cli import main as economic_main
-from baibai_engine.collection.economic.providers import IndicatorsProviderError
-from baibai_engine.collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.collection.economic.store import initialize_database, open_connection
-from baibai_engine.market_context.indicator_cli import (
+from baibai_engine.data_collection.economic import acquisition as acquisition
+from baibai_engine.data_collection.economic.cli import main as economic_main
+from baibai_engine.data_collection.economic.providers import IndicatorsProviderError
+from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.economic.store import initialize_database, open_connection
+from baibai_engine.machine_analysis.market_context.indicator_cli import (
     main,
 )
-from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
     load_definitions,
 )
 
@@ -186,7 +186,7 @@ def test_derived_read_uses_native_inputs_without_fetch_or_store_mutation(tmp_pat
     before = database.read_bytes()
     with (
         patch(
-            "baibai_engine.collection.economic.acquisition.fetch_native_records",
+            "baibai_engine.data_collection.economic.acquisition.fetch_native_records",
             side_effect=AssertionError("derived read must not acquire native data"),
         ),
     ):
@@ -194,7 +194,7 @@ def test_derived_read_uses_native_inputs_without_fetch_or_store_mutation(tmp_pat
         ordinary = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
         repeated = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
         with patch(
-            "baibai_engine.market_context.indicator_service._today_jst",
+            "baibai_engine.machine_analysis.market_context.indicator_service._today_jst",
             return_value=date(2026, 1, 31),
         ):
             latest = service.get_latest("us.erp")
@@ -228,7 +228,7 @@ def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
         connection.commit()
     with (
         patch(
-            "baibai_engine.collection.economic.acquisition.fetch_native_records",
+            "baibai_engine.data_collection.economic.acquisition.fetch_native_records",
             side_effect=AssertionError("derived CLI must not acquire native data"),
         ),
     ):
@@ -337,7 +337,7 @@ def test_refresh_continues_other_sources_and_shares_transport_context(tmp_path, 
 
 
 def test_native_revisions_are_idempotent_and_survive_a_later_source_failure(tmp_path, monkeypatch):
-    from baibai_engine.collection.economic.providers.base import ProviderFetchStoppedError
+    from baibai_engine.data_collection.economic.providers.base import ProviderFetchStoppedError
 
     database = tmp_path / "indicators.sqlite"
     day = date(2026, 7, 20)
@@ -374,7 +374,7 @@ def test_latest_read_does_not_reacquire_stale_inputs(tmp_path, monkeypatch):
         calls.append(kwargs)
         return next(replies)
 
-    from baibai_engine.market_context import indicator_service as service_module
+    from baibai_engine.machine_analysis.market_context import indicator_service as service_module
 
     monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
     monkeypatch.setattr(service_module, "_today_jst", lambda: today)
@@ -410,7 +410,7 @@ def test_unknown_refresh_does_not_open_or_modify_the_store(tmp_path):
 
 
 def test_native_refresh_cli_reports_each_source_failure(tmp_path, monkeypatch, capsys):
-    from baibai_engine.collection.economic.providers.base import ProviderFetchStoppedError
+    from baibai_engine.data_collection.economic.providers.base import ProviderFetchStoppedError
 
     def fail(source, **kwargs):
         raise ProviderFetchStoppedError(f"{source.source_id} unavailable")
@@ -439,7 +439,7 @@ def test_native_refresh_cli_reports_each_source_failure(tmp_path, monkeypatch, c
 
 
 def test_tsr_all_history_collects_original_json_from_provider_floor(tmp_path, monkeypatch):
-    from baibai_engine.collection.economic.documents import SourceDocument, read_documents
+    from baibai_engine.data_collection.economic.documents import SourceDocument, read_documents
 
     series = load_definitions().by_id()["jp.bankruptcies"]
     payload = '[{"period_division":"月次","title":"2003年1月 全国企業倒産 1,462件"}]'.encode()
@@ -490,7 +490,7 @@ def test_invalid_l2_value_does_not_destroy_received_native_input(tmp_path, monke
 def test_l2_accepts_the_declared_plausible_boundaries(value):
     from dataclasses import replace
 
-    from baibai_engine.market_context.reading.observations import reading_observation
+    from baibai_engine.machine_analysis.market_context.reading.observations import reading_observation
 
     series = replace(load_definitions().by_id()["us.10y"], plausible_min=-2.0, plausible_max=20.0)
     result = reading_observation(

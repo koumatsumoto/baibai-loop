@@ -13,9 +13,9 @@ from tests.helpers.research_selection import selection
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.read_api.operations import list_operation_sessions
-from baibai_engine.research.operation.cli import main as operation_main
-from baibai_engine.research.operation.models import SESSION_KINDS, OperationPayload, SessionKind
-from baibai_engine.research.operation.service import (
+from baibai_engine.investment_judgment.operation.cli import main as operation_main
+from baibai_engine.investment_judgment.operation.models import SESSION_KINDS, OperationPayload, SessionKind
+from baibai_engine.investment_judgment.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,

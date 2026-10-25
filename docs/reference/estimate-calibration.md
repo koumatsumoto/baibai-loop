@@ -37,7 +37,7 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 <a id="er-level-distribution-context"></a>
 ## 判断へ渡す歴史分布
 
-配布文脈は企業価値モデルに近接する[published YAML](../../engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
+配布文脈は企業価値モデルに近接する[published YAML](../../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
 
 結果が観測できた集合から予測帯を作らず、宣言した有限ER全対象から固定境界を求め、同じ境界で両horizon・basisと現在候補を分類する。未評価を0損益へ入れず、観測なしの分布はnull。ticker-asof等重みとcohort等重み、宣言/観測月数、各母数を区別する。固定8.5%帯は比較座標で、[L3の要求率](../doctrine.md#required-return-policy)に連動させない。
 
@@ -61,7 +61,7 @@ calibrationは再生成可能なローカルsnapshot。generation graph・remote
 
 pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用variant。別calibration directoryを必須とし、variantと窓をidentityへ含める。productionの750-sessionと違うためformal empirical evidenceへ使えない。実効観測本数も確認し、短い履歴をfull-windowとしない。この診断契約は維持する。
 
-操作例は[較正の運用](../../batch/OPERATIONS.md#定期maintenance)に置く。
+操作例は[較正の運用](../../jobs/OPERATIONS.md#定期maintenance)に置く。
 
 ## 方法を変える判断
 
@@ -73,4 +73,4 @@ pre2019_self_range_375は375-session self-rangeと600暦日bar窓の診断専用
 
 採用は計測した構成と一致させ、必要範囲を再buildする。個人の保有成果と機械replayを合算せず、機械手法の実証は3y/5y、判断手順は実運用と保存評価の事後照合から改める。企業評価と機械anchorの数値差を比べる時も、基準日・株式単位・期間・分配・評価方法を揃える。比較不能を数値の優劣へ変換しない。
 
-実行・月次更新は[OPERATIONS](../../batch/OPERATIONS.md#定期maintenance)へ進む。記述分布生成の成功を方法変更の根拠成立や運用利益の証明として掲げない。
+実行・月次更新は[OPERATIONS](../../jobs/OPERATIONS.md#定期maintenance)へ進む。記述分布生成の成功を方法変更の根拠成立や運用利益の証明として掲げない。

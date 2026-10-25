@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from baibai_engine.research.proposal import ProposalInputs
-from baibai_engine.research.proposal_fingerprint import proposal_inputs_fingerprint
+from baibai_engine.investment_judgment.trade_proposal import ProposalInputs
+from baibai_engine.investment_judgment.trade_proposal_fingerprint import proposal_inputs_fingerprint
 
 
 @pytest.fixture

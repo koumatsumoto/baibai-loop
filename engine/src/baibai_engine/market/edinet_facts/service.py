@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 from zipfile import BadZipFile
 
-from baibai_engine.collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_decode import parse_sec_code
 from baibai_engine.market.edinet_facts.extract import extract_facts
 from baibai_engine.market.edinet_facts.planning import FactExtractionItem, plan_fact_item

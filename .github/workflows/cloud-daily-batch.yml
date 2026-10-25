@@ -45,8 +45,8 @@ jobs:
       - name: Smoke-check notification script
         id: smoke
         env:
-          PYTHONPATH: batch/src
-        run: python3 -c "import baibai_batch.observability.discord"
+          PYTHONPATH: jobs/src
+        run: python3 -c "import baibai_jobs.observability.discord"
 
       # Validate the untrusted dispatch value before any credential-bearing step.
       # The scheduled event supplies an empty value, which is valid.
@@ -54,9 +54,9 @@ jobs:
         id: validate-input
         env:
           MANUAL_ASOF: ${{ inputs.asof }}
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_batch.validation.workflow_inputs daily --asof "$MANUAL_ASOF"
+          python3 -m baibai_jobs.validation.workflow_inputs daily --asof "$MANUAL_ASOF"
           echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -101,9 +101,9 @@ jobs:
           RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
         run: |
           asof="$MANUAL_ASOF"
-          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_batch.jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
+          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_jobs.jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
           echo "asof=$asof" >> "$GITHUB_OUTPUT"
-          uv run python -m baibai_batch.jobs.source_integration plan --directory "$RUNNER_TEMP/integration"
+          uv run python -m baibai_jobs.jobs.source_integration plan --directory "$RUNNER_TEMP/integration"
 
       - name: Acquire publication lease
         id: lease-acquire
@@ -111,7 +111,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.storage.publication_lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
       # failure policy: 1 — the batch cannot compute without the canonical stores.
       - name: Pull stores
@@ -121,8 +121,8 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          batch/scripts/r2_transfer.sh pull-machine
-          batch/scripts/r2_transfer.sh pull-app
+          jobs/scripts/r2_transfer.sh pull-machine
+          jobs/scripts/r2_transfer.sh pull-app
 
       # The market store arrives holding only what the lake does not own — the coverage
       # ledger and the operator-derived tables. Filling the rest from the current release
@@ -136,7 +136,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh hydrate-market
+        run: jobs/scripts/r2_transfer.sh hydrate-market
 
       - name: Apply fixed original receipts and common offline extraction
         id: source-integration
@@ -145,10 +145,10 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ASOF: ${{ steps.source-plan.outputs.asof }}
-        run: uv run python -m baibai_batch.jobs.source_integration apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+        run: uv run python -m baibai_jobs.jobs.source_integration apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
 
       # failure policy: 1 — an unsafe store or failed full export cannot be published.
-      - name: Run daily batch
+      - name: Run common integration job
         id: batch
         shell: bash
         env:
@@ -159,7 +159,7 @@ jobs:
             args+=(--scheduled)
           fi
           set +e
-          uv run baibai-batch daily "${args[@]}"
+          uv run baibai-jobs daily "${args[@]}"
           code=$?
           set -e
           # Finalize the outputs BEFORE any fatal exit so the notification step
@@ -217,7 +217,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -o pipefail
-          batch/scripts/r2_transfer.sh publish-lake \
+          jobs/scripts/r2_transfer.sh publish-lake \
             | tee "$RUNNER_TEMP/lake-publish-report.json"
 
       # The store push runs first and the views mirror only after it succeeded. The two
@@ -253,12 +253,12 @@ jobs:
           machine_log="$RUNNER_TEMP/upload-machine.log"
           views_log="$RUNNER_TEMP/upload-views.log"
           machine_code=0
-          batch/scripts/r2_transfer.sh push-machine >"$machine_log" 2>&1 || machine_code=$?
+          jobs/scripts/r2_transfer.sh push-machine >"$machine_log" 2>&1 || machine_code=$?
           views_code=0
           views_ran=0
           if [[ $machine_code -eq 0 ]]; then
             views_ran=1
-            batch/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving" \
+            jobs/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving" \
               >"$views_log" 2>&1 || views_code=$?
           fi
           # A side that succeeded is folded away; a side that failed is printed
@@ -315,7 +315,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
+        run: jobs/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
 
       - name: Verify economic accepted receipts and seal canonical handoffs
         id: source-seal
@@ -325,9 +325,9 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          batch/scripts/r2_transfer.sh pull-indicators
-          uv run python -m baibai_batch.jobs.source_integration verify --directory "$RUNNER_TEMP/integration"
-          uv run python -m baibai_batch.jobs.source_integration seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+          jobs/scripts/r2_transfer.sh pull-indicators
+          uv run python -m baibai_jobs.jobs.source_integration verify --directory "$RUNNER_TEMP/integration"
+          uv run python -m baibai_jobs.jobs.source_integration seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Refresh source-scoped inputs from this canonical generation
         id: source-inputs
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
@@ -337,11 +337,11 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ASOF: ${{ steps.source-plan.outputs.asof }}
           IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: uv run python -m baibai_batch.jobs.source_integration inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.jobs.source_integration inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Report integration failures and deferred source inputs
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
-        run: uv run python -m baibai_batch.jobs.source_integration check --directory "$RUNNER_TEMP/integration"
+        run: uv run python -m baibai_jobs.jobs.source_integration check --directory "$RUNNER_TEMP/integration"
 
       - name: Release publication lease
         id: lease-release
@@ -350,7 +350,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
       # `cancelled()` is a status-check function: it is only evaluated in an `if`
       # conditional, and interpolating it into a `run:` block makes the whole
@@ -377,9 +377,9 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SOURCE_INPUTS_OUTCOME: ${{ steps.source-inputs.outcome }}
-          PYTHONPATH: batch/src
+          PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_batch.observability.discord \
+          python3 -m baibai_jobs.observability.discord \
             --notice-path "$RUNNER_TEMP/batch-notice.json" \
             --integration-report-path "$RUNNER_TEMP/integration/applied.json" \
             --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \

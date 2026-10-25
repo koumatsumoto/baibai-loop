@@ -3,8 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 
 from tests.engine.test_jpx_refresh import FILE_A, FIXTURES, SOURCE_FILES, _workbook
 
-from baibai_engine.collection.jpx.models import JPXResponse
-from baibai_engine.collection.jpx.receipts import (
+from baibai_engine.data_collection.jpx.models import JPXResponse
+from baibai_engine.data_collection.jpx.receipts import (
     complete_bundle,
     create_bundle,
     retain_bundle_response,

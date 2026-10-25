@@ -21,52 +21,52 @@ from tests.helpers.calibration_store import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.screening.calibration.cli import (
+from baibai_engine.machine_analysis.screening.calibration.cli import (
     _required_metric_statuses,
 )
-from baibai_engine.screening.calibration.cli import (
+from baibai_engine.machine_analysis.screening.calibration.cli import (
     calibration_evaluate_command as _calibration_evaluate_command,
 )
-from baibai_engine.screening.calibration.context import (
+from baibai_engine.machine_analysis.screening.calibration.context import (
     CalibrationContextError,
     build_er_distribution_context,
 )
-from baibai_engine.screening.calibration.evaluation import MIN_AXIS_SAMPLE
-from baibai_engine.screening.calibration.evaluation import (
+from baibai_engine.machine_analysis.screening.calibration.evaluation import MIN_AXIS_SAMPLE
+from baibai_engine.machine_analysis.screening.calibration.evaluation import (
     evaluate_cohorts as _evaluate_cohorts,
 )
-from baibai_engine.screening.calibration.evaluation.axes import (
+from baibai_engine.machine_analysis.screening.calibration.evaluation.axes import (
     _half_split_effect,
     _stratified_quality_control,
 )
-from baibai_engine.screening.calibration.evaluation.discovery import (
+from baibai_engine.machine_analysis.screening.calibration.evaluation.discovery import (
     _evaluate_candidate_discovery,
     _observation_dependence,
 )
-from baibai_engine.screening.calibration.evaluation.sensitivity import (
+from baibai_engine.machine_analysis.screening.calibration.evaluation.sensitivity import (
     _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
 )
-from baibai_engine.screening.calibration.evaluation.statistics import _spearman
-from baibai_engine.screening.calibration.evidence import (
+from baibai_engine.machine_analysis.screening.calibration.evaluation.statistics import _spearman
+from baibai_engine.machine_analysis.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     ESTIMATOR_POLICY_MANDATORY_METRICS,
     KNOWN_METRICS,
     candidate_discovery_approach_fidelity_metric,
 )
-from baibai_engine.screening.calibration.forward import ForwardReturnRow
-from baibai_engine.screening.calibration.horizons import require_horizon
-from baibai_engine.screening.calibration.panel import (
+from baibai_engine.machine_analysis.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.machine_analysis.screening.calibration.horizons import require_horizon
+from baibai_engine.machine_analysis.screening.calibration.panel import (
     PRODUCTION_PANEL_POLICY,
     PanelDiagnostics,
     PanelRow,
     rules_content_hash,
 )
-from baibai_engine.screening.calibration.store import write_forward, write_panel
-from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
-from baibai_engine.screening.rules_identity import production_rules_contract_hash
-from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
+from baibai_engine.machine_analysis.screening.calibration.store import write_forward, write_panel
+from baibai_engine.machine_analysis.screening.rule_config import ScreeningRules, load_screening_rules
+from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.machine_analysis.company_valuation.calibration.contracts import ErCalibrationContextArtifact
 
 _ASOF = "2025-06-30"
 _RULES = load_screening_rules()
@@ -626,7 +626,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         self,
     ) -> None:
         with patch(
-            "baibai_engine.screening.calibration.panel.VALUATION_CALCULATION_REVISION",
+            "baibai_engine.machine_analysis.screening.calibration.panel.VALUATION_CALCULATION_REVISION",
             "same-profit-basis-yoy-v25",
         ):
             old_hash = rules_content_hash(_RULES, PRODUCTION_PANEL_POLICY)

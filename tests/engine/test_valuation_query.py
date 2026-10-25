@@ -14,20 +14,20 @@ from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
 from baibai_engine.read_api import stored_machine_valuation
 from baibai_engine.read_api.ticker_profile import _load_stock_analysis_context
-from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
-from baibai_engine.research.selection import InputGap
-from baibai_engine.research.selection_query import load_analysis_snapshot
-from baibai_engine.screening.discovery.candidates import build_candidate_contexts
-from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.stock_analysis_builder import (
+from baibai_engine.investment_judgment.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.investment_judgment.selection import InputGap
+from baibai_engine.investment_judgment.selection_query import load_analysis_snapshot
+from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
+from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
+from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
     expected_return_inputs,
 )
-from baibai_engine.valuation.estimates import estimate_expected_return
-from baibai_engine.valuation.metrics.models import FinancialSnapshot
-from baibai_engine.valuation.query import (
+from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.company_valuation.query import (
     anchor_gap_pct,
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
@@ -586,10 +586,10 @@ def test_valuation_import_does_not_start_research_or_aggregate_read_api():
             "-c",
             """
 import sys
-from baibai_engine.valuation.models import Valuation
-from baibai_engine.valuation.estimates import estimate_expected_return
-from baibai_engine.valuation.query import machine_valuation_from_analysis
-assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening")) for name in sys.modules)
+from baibai_engine.investment_judgment.valuation import Valuation
+from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.company_valuation.query import machine_valuation_from_analysis
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
 """,
         ],
         check=True,

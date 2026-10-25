@@ -4,7 +4,7 @@ name: web
 # three-dot or the push range, so a filtered run already means the web tree moved,
 # and no job has to re-derive that from git. The filter is exact here because it
 # only goes silent on diffs past 3,000 files, which a tree this size cannot reach
-# — tests/batch/test_cloud_workflow_contracts.py holds that budget.
+# — tests/jobs/test_cloud_workflow_contracts.py holds that budget.
 #
 # This file is filtered on pull requests so its own edits are gated, and left out
 # of the push filter. Production deploy is explicitly dispatched after any

@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.collection.edinet.archives import read_source_archive
+from baibai_engine.data_collection.edinet.archives import read_source_archive
 from baibai_engine.market.edinet_document_events import parse_doc_id
 from baibai_engine.market.edinet_metrics.eligibility import read_eligible_edinet_metrics
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents

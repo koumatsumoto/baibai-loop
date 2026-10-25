@@ -20,7 +20,7 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
-from baibai_engine.research.assessment_store import (
+from baibai_engine.investment_judgment.stock_assessment_store import (
     latest_assessment_id,
     publish_reviewed_assessment,
 )
@@ -121,7 +121,7 @@ def test_partial_proposal_preserves_scope_exact_pair_and_saved_terms_in_api_and_
     output = tmp_path / "export"
     export_read_models(app_method_root, output)
     assert json.loads((output / f"views/investment-proposal--{identity}.json").read_text()) == view
-    assert (output / f"views/investment-proposal-preview--{identity}.json").is_file()
+    assert (output / f"views/investment-trade-proposal-preview--{identity}.json").is_file()
     assert db.read_bytes() == before
 
 

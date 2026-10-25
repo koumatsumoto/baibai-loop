@@ -17,12 +17,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_repository_path_gate_rejects_runtime_literal_outside_owner(tmp_path: Path) -> None:
-    path = tmp_path / "batch/src/baibai_batch/job.py"
+    path = tmp_path / "jobs/src/baibai_jobs/job.py"
     path.parent.mkdir(parents=True)
     path.write_text('DB = "stores/application/baibai.sqlite"\n', encoding="utf-8")
     assert check_repository_paths.check(tmp_path) == [
         (
-            "batch/src/baibai_batch/job.py:1: repository path "
+            "jobs/src/baibai_jobs/job.py:1: repository path "
             "'stores/application/baibai.sqlite' belongs in "
             "engine/src/baibai_engine/foundation/repository_layout.py"
         )
@@ -165,11 +165,11 @@ def test_documented_command_gate_rejects_an_absent_transfer_subcommand(tmp_path:
     """
 
     _transfer_script(tmp_path, "upload-serving-views")
-    _skill(tmp_path, "```bash\nbatch/scripts/r2_transfer.sh upload-serving <dir>\n```\n")
+    _skill(tmp_path, "```bash\njobs/scripts/r2_transfer.sh upload-serving <dir>\n```\n")
 
     assert check_documented_commands.check(tmp_path) == [
         (
-            ".agents/skills/demo/SKILL.md: `batch/scripts/r2_transfer.sh upload-serving <dir>` "
+            ".agents/skills/demo/SKILL.md: `jobs/scripts/r2_transfer.sh upload-serving <dir>` "
             "names no r2_transfer subcommand (upload-serving)"
         )
     ]
@@ -181,8 +181,8 @@ def test_documented_command_gate_accepts_a_transfer_subcommand_the_script_dispat
     _transfer_script(tmp_path, "pull-machine", "upload-serving-views")
     _skill(
         tmp_path,
-        "```bash\nbatch/scripts/r2_transfer.sh pull-machine\n```\n"
-        "`batch/scripts/r2_transfer.sh upload-serving-views <dir>` で出す。\n",
+        "```bash\njobs/scripts/r2_transfer.sh pull-machine\n```\n"
+        "`jobs/scripts/r2_transfer.sh upload-serving-views <dir>` で出す。\n",
     )
 
     assert check_documented_commands.check(tmp_path) == []
@@ -206,7 +206,7 @@ def test_documented_command_gate_reads_the_dispatch_the_repository_script_runs()
 def test_documented_command_gate_resolves_batch_modules(tmp_path: Path) -> None:
     """A batch module with no required option is a complete documented command."""
 
-    _skill(tmp_path, "```bash\nuv run python -m baibai_batch.observability.discord\n```\n")
+    _skill(tmp_path, "```bash\nuv run python -m baibai_jobs.observability.discord\n```\n")
 
     assert check_documented_commands.check(tmp_path) == []
 
@@ -216,12 +216,12 @@ def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None
 
     _skill(
         tmp_path,
-        "差分は `uv run python -m baibai_engine.research.price_watch --asof <A>` で確認する。\n",
+        "差分は `uv run python -m baibai_engine.investment_judgment.price_watch --asof <A>` で確認する。\n",
     )
     assert check_documented_commands.check(tmp_path) == [
         (
             ".agents/skills/demo/SKILL.md: "
-            "`uv run python -m baibai_engine.research.price_watch --asof <A>` omits required --sqlite-path"
+            "`uv run python -m baibai_engine.investment_judgment.price_watch --asof <A>` omits required --sqlite-path"
         )
     ]
 
@@ -241,18 +241,18 @@ def test_documented_command_gate_rejects_the_removed_proposal_domain(
 def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -> None:
     _skill(
         tmp_path,
-        "```bash\nuv run python -m baibai_engine.research.price_watch \\\n"
+        "```bash\nuv run python -m baibai_engine.investment_judgment.price_watch \\\n"
         "  --sqlite-path stores/market/market.sqlite --asof <A>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == []
 
 
 def test_markdown_link_gate_scans_colocated_domain_documents(tmp_path: Path) -> None:
-    domain = tmp_path / "engine/src/baibai_engine/screening"
+    domain = tmp_path / "engine/src/baibai_engine/machine_analysis/screening"
     domain.mkdir(parents=True)
     (domain / "README.md").write_text("[src](gone.py)\n", encoding="utf-8")
     assert check_markdown_links.check(tmp_path) == [
-        "engine/src/baibai_engine/screening/README.md: missing Markdown link target gone.py"
+        "engine/src/baibai_engine/machine_analysis/screening/README.md: missing Markdown link target gone.py"
     ]
 
 
@@ -263,7 +263,7 @@ def test_markdown_link_gate_scans_colocated_domain_documents(tmp_path: Path) -> 
 def test_operations_inventory_rejects_unknown_leaf_options(
     tmp_path: Path, options: str, valid: bool
 ) -> None:
-    path = tmp_path / "batch/OPERATIONS.md"
+    path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir(parents=True)
     path.write_text(f"```bash\nuv run baibai-engine lake inventory {options}\n```\n")
     errors = check_documented_commands.check(tmp_path)
@@ -301,7 +301,7 @@ def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_valu
 def test_documented_batch_commands_use_the_delegated_parser(
     tmp_path: Path, command: str, valid: bool
 ) -> None:
-    _skill(tmp_path, f"```bash\nuv run baibai-batch {command}\n```\n")
+    _skill(tmp_path, f"```bash\nuv run baibai-jobs {command}\n```\n")
     assert (not check_documented_commands.check(tmp_path)) is valid
 
 
@@ -317,7 +317,7 @@ def test_documented_batch_commands_use_the_delegated_parser(
 def test_active_runbook_checks_web_and_lake_write_parser(
     tmp_path: Path, command: str, valid: bool
 ) -> None:
-    path = tmp_path / "batch/OPERATIONS.md"
+    path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir()
     path.write_text(f"```bash\nuv run {command}\n```\n")
     assert (not check_documented_commands.check(tmp_path)) is valid
@@ -325,7 +325,7 @@ def test_active_runbook_checks_web_and_lake_write_parser(
 
 @pytest.mark.parametrize("shell", ["|python -c 'pass'", " > /tmp/output", " && false", " $(false)"])
 def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: str) -> None:
-    path = tmp_path / "batch/OPERATIONS.md"
+    path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir()
     path.write_text(f"```bash\nuv run baibai-engine lake inventory{shell}\n```\n")
     assert check_documented_commands.check(tmp_path) == []
@@ -334,9 +334,9 @@ def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: 
 @pytest.mark.parametrize(
     "method_path",
     [
-        "engine/src/baibai_engine/screening/rules/2026-10-16T133000+0900.yaml",
-        "engine/src/baibai_engine/screening/rules/2099-01-01T000000+0900.yaml",
-        "engine/src/baibai_engine/market_context/reading/rules/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/machine_analysis/screening/rules/2026-10-16T133000+0900.yaml",
+        "engine/src/baibai_engine/machine_analysis/screening/rules/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/machine_analysis/market_context/reading/rules/2099-01-01T000000+0900.yaml",
     ],
 )
 def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path, method_path):
@@ -344,7 +344,7 @@ def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path,
     owner.parent.mkdir(parents=True)
     owner.write_text(f"METHOD = {method_path!r}\n", encoding="utf-8")
     assert check_repository_paths.check(tmp_path) == []
-    consumer = tmp_path / "batch/src/baibai_batch/job.py"
+    consumer = tmp_path / "jobs/src/baibai_jobs/job.py"
     consumer.parent.mkdir(parents=True)
     consumer.write_text(f"METHOD = {method_path!r}\n", encoding="utf-8")
     errors = check_repository_paths.check(tmp_path)
