@@ -122,7 +122,7 @@ def load_selection_context(
     comparison_tickers: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     comparison_tickers = tuple(
-        dict.fromkeys(normalize_ticker(t) for t in comparison_tickers)
+        dict.fromkeys(normalize_ticker(t) for t in comparison_tickers),
     )
     as_of = research_as_of or known_at.astimezone(JST).date()
     run = _run(
