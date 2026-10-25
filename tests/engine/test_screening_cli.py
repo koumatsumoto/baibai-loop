@@ -15,8 +15,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
 from baibai_engine.foundation.time import JST
 from baibai_engine.machine_analysis.screening.cli import app as screening_app
 from baibai_engine.machine_analysis.screening.cli.cache import (
