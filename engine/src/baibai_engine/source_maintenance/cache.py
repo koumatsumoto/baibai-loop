@@ -50,11 +50,10 @@ def _maintenance(providers: ProviderBundle) -> JQuantsMaintenance:
     return providers.jquants_refresh
 
 
-# Market calendar bootstrap window. The unattended daily batch reads the current
-# day's calendar row to gate on business days, so bootstrap fetches a forward
-# window that always contains the run date and the next several weeks. Future
-# rows are harmless to every calendar reader (all use point/range queries) and
-# coverage verification only requires the as-of row itself.
+# Incremental calendar acquisition extends through the next several weeks.
+# Full historical calendar coverage is prepared separately; this window does not
+# establish the long history needed by momentum or bootstrap a missing baseline.
+# Readers apply their own date ranges; non-business days do not stop model generation.
 _CALENDAR_BOOTSTRAP_BACKWARD_DAYS = 7
 _CALENDAR_BOOTSTRAP_FORWARD_DAYS = 45
 

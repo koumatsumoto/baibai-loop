@@ -1,4 +1,4 @@
-"""Compute candidate contexts once from rounded Stock Analyses."""
+"""Reconstruct historical calibration candidates from rounded Stock Analyses."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from baibai_engine.machine_analysis.screening.universe import UNIVERSE_SCOPE_REV
 from .projection import reinvestment_coordinates
 
 # 金融の資産・調達を非金融の残余資産proxyへ投入しない (#1153)。
-# docs/reference/screening-runtime.md#approach-applicability
+# docs/reference/screening-runtime.md
 _ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
     {
         "銀行業",
@@ -208,7 +208,7 @@ def _candidate_reasons(
     for approach in APPROACH_IDS:
         method_id = rules.approaches[approach].method_id
         # 有限の調査入力枠であり、枠外を経済的rejectへ変換しない (#1481)。
-        # docs/reference/screening-runtime.md#nomination-capacity
+        # docs/reference/screening-runtime.md
         for rank, row in enumerate(ordered[approach][: rules.nomination_depth], start=1):
             nominations_by_ticker[_ticker(row)].append(
                 CandidateReason(
@@ -332,7 +332,7 @@ def _reinvestment_quality_floors(
     """低収益性の成長を再投資価値と誤認しない相対quality境界 (#1153)。
 
     安いP/Sの順位だけではこの問いを守れない。収益優位を実証したfloorではない。
-    docs/reference/screening-runtime.md#approach-applicability
+    docs/reference/screening-runtime.md
     """
     observed: list[tuple[Mapping[str, object], _ReinvestmentValues]] = []
     by_sector: dict[str, list[_ReinvestmentValues]] = defaultdict(list)

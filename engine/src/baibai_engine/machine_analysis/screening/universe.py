@@ -1,7 +1,7 @@
-"""Screening scope: every common stock with a usable price observation.
+"""Historical calibration scope: common stocks with a usable price observation.
 
-The data platform keeps facts for the whole market, so the screen evaluates
-all common stocks in the eligible market segments. Size and liquidity are not
+This retained algorithm reconstructs the former Stock Analysis population; it does
+not define the current five-model generation universe. Size and liquidity are not
 scope conditions: market cap, average turnover, price-history span, and JPX
 regulation flags are recorded as facts on each snapshot and applied as
 analysis-layer context or parameters by Candidate Discovery. The only structural exclusions are
@@ -30,7 +30,7 @@ from baibai_engine.market.universe import ELIGIBLE_MARKETS as ELIGIBLE_MARKETS
 from .rule_config import ScreeningRules
 
 # 財務評価には有効な価格1本が必要。平均売買代金は別の20本窓 (#1518)。
-# docs/reference/screening-runtime.md#input-scope
+# docs/reference/screening-runtime.md
 MIN_BAR_HISTORY = 1
 AVG_TURNOVER_WINDOW_BARS = 20
 # Scope changes must give saved runs, candidate contexts and calibration a new identity.
@@ -143,9 +143,8 @@ def candidate_comparison_population(
     """Tickers whose facts satisfy Candidate Discovery common eligibility.
 
     Sector / market medians and sector relative strength compare against this
-    population while every common stock is evaluated. Average turnover remains
-    context and does not affect membership. Production and calibration callers
-    pass the same rules instance so their populations remain identical.
+    historical population. Average turnover remains context and does not affect
+    membership. Calibration preserves the rules of the former Stock Analysis model.
     """
     eligibility = rules.candidate_discovery.common_eligibility
     required_jpx = frozenset(rules.universe.required_jpx_flags)
