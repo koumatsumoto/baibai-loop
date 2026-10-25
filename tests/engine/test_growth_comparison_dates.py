@@ -24,7 +24,7 @@ def period(start, end, value):
     )
 
 
-@pytest.mark.parametrize("shift,comparable", [(0, True), (7, True), (8, False), (31, False)])
+@pytest.mark.parametrize(("shift", "comparable"), [(0, True), (7, True), (8, False), (31, False)])
 def test_yoy_does_not_treat_a_shifted_fiscal_quarter_as_the_same_season(shift, comparable):
     prior = period(
         date(2025, 6, 1) + timedelta(days=shift),
