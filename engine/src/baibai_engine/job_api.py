@@ -156,7 +156,7 @@ from baibai_engine.machine_analysis.model_generation import InputSnapshot as Mod
 from baibai_engine.machine_analysis.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
 )
-from baibai_engine.machine_analysis.screening.model_projection import select_generation
+from baibai_engine.machine_analysis.screening.saved_selection import select_saved_generation
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
 from baibai_engine.market.edinet_acquisition import acquire_archives as acquire_edinet_archives
@@ -338,7 +338,7 @@ __all__ = [
     "resolve_release",
     "retain_economic_rechecks",
     "sealed_sqlite_snapshot",
-    "select_generation",
+    "select_saved_generation",
     "sha256_file",
     "tradingview_failure_line",
     "tradingview_preflight",

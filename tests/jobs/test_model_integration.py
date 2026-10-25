@@ -7,8 +7,9 @@ import pytest
 from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
 from baibai_engine.machine_analysis.model_generation import (
     GeneratedModel,
+    GenerationMetadata,
     InputSnapshot,
-    ModelGeneration,
+    ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
@@ -42,29 +43,34 @@ def integration(tmp_path, monkeypatch):
         assert kwargs["market_snapshot"] is prepared.source_snapshot
         assert kwargs["market_release"].release_id == "new-release"
         assert kwargs["economic_path"].read_bytes() == b"fixed-economic"
-        return ModelGeneration(
-            generation_id=kwargs["generation_id"],
-            as_of=kwargs["as_of"],
-            evaluation_time=datetime(2026, 10, 25, tzinfo=UTC),
-            inputs={
-                "market": InputSnapshot(
-                    kind="lake_release", reference="new-release", sha256="a" * 64
-                ),
-                "economic": kwargs["economic_identity"],
-            },
-            models=(
-                GeneratedModel(
-                    model_id="company_valuation",
-                    subject="1234",
-                    calculation_revision="v1",
-                    payload={"earnings_price": {"earnings_yield": 0.1}},
-                ),
-                GeneratedModel(
-                    model_id="technical_analysis",
-                    subject="1234",
-                    calculation_revision="v1",
-                    payload={"price_momentum": {"value": None}},
-                ),
+        return ModelGenerationStream(
+            metadata=GenerationMetadata(
+                generation_id=kwargs["generation_id"],
+                as_of=kwargs["as_of"],
+                evaluation_time=datetime(2026, 10, 25, tzinfo=UTC),
+                inputs={
+                    "market": InputSnapshot(
+                        kind="lake_release", reference="new-release", sha256="a" * 64
+                    ),
+                    "economic": kwargs["economic_identity"],
+                },
+            ),
+            subjects=("1234", "5678"),
+            models=iter(
+                (
+                    GeneratedModel(
+                        model_id="company_valuation",
+                        subject="1234",
+                        calculation_revision="v1",
+                        payload={"earnings_price": {"earnings_yield": 0.1}},
+                    ),
+                    GeneratedModel(
+                        model_id="technical_analysis",
+                        subject="1234",
+                        calculation_revision="v1",
+                        payload={"price_momentum": {"value": None}},
+                    ),
+                )
             ),
         )
 
@@ -102,6 +108,8 @@ def test_models_policy_and_l1_share_the_same_fixed_inputs_without_web(integratio
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     assert result["candidate_count"] == 1
+    assert result["company_count"] == 2
+    assert result["model_count"] == 2
     assert result["growth_start"] == (None if growth_start is None else growth_start.isoformat())
     assert events == ["lease", "prepare", "generate", "lease", "publish", "release-snapshot"]
     stored = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
@@ -160,3 +168,28 @@ def test_cli_does_not_implicitly_truncate_growth_history(tmp_path, monkeypatch, 
         arguments += ["--growth-start", start]
     assert job.main(arguments) == 0
     assert received == [None if start is None else date.fromisoformat(start)]
+
+
+def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, monkeypatch):
+    arguments, events = integration
+    generate = job.read_and_generate_models
+
+    def late_failure(**kwargs):
+        original = generate(**kwargs)
+
+        def rows():
+            yield next(original.models)
+            raise ValueError("late calculation failure")
+
+        return ModelGenerationStream(original.metadata, original.subjects, rows())
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("must not continue after failed generation")
+
+    monkeypatch.setattr(job, "read_and_generate_models", late_failure)
+    monkeypatch.setattr(job, "select_saved_generation", forbidden)
+    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    with pytest.raises(ValueError, match="late calculation failure"):
+        job.integrate_models(**arguments)
+    assert "publish" not in events
+    assert ModelGenerationStore(arguments["runs"]).read("models-new-release") is None

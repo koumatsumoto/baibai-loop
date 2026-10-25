@@ -21,7 +21,7 @@ from baibai_engine.job_api import (
     ScreeningSelectionStore,
     TwoViewPolicy,
     read_and_generate_models,
-    select_generation,
+    select_saved_generation,
     sha256_file,
 )
 from baibai_jobs.observability.discord import write_json_atomic
@@ -74,27 +74,27 @@ def integrate_models(
             growth_start=growth_start,
         )
         generations = ModelGenerationStore(runs)
-        generations.publish(generation)
-        subjects = sorted(
-            {model.subject for model in generation.models if model.subject != "market"}
+        saved = generations.publish_stream(generation)
+        subjects = generation.subjects
+        selection = select_saved_generation(
+            generation.metadata.generation_id, tickers=subjects, policy=policy, path=runs
         )
-        selection = select_generation(generation, tickers=subjects, policy=policy)
         selection_id = f"selection-{prepared.release.release_id}"
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         publication = publish_prepared_market_lake(
             prepared, store=store, before_pointer_switch=lambda: verify_held(store, handle)
         )
-    pruned = generations.prune(keep=3, preserve=(generation.generation_id,))
+    pruned = generations.prune(keep=3, preserve=(generation.metadata.generation_id,))
     return {
         "pruned_generation_count": len(pruned),
         "asof": as_of.isoformat(),
         "models_ready": True,
         "screening_status": "published",
         "market_updated": True,
-        "generation_id": generation.generation_id,
+        "generation_id": generation.metadata.generation_id,
         "selection_id": selection_id,
         "company_count": len(subjects),
-        "model_count": len(generation.models),
+        "model_count": saved.model_count,
         "candidate_count": len(selection.result.tickers),
         "growth_start": None if growth_start is None else growth_start.isoformat(),
         "economic_snapshot_sha256": digest,

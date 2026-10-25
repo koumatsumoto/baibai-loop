@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import date
 from typing import Annotated, Literal, Self
 
@@ -95,3 +97,16 @@ class ModelInputSlice(_ModelCollection):
         if any(model.subject not in self.subjects for model in self.models):
             raise ValueError("model is outside the input slice subjects")
         return self
+
+
+@dataclass(frozen=True, slots=True)
+class ModelGenerationStream:
+    """共有入力を読み終えた一回消費の生成列。保存形式ではない。"""
+
+    metadata: GenerationMetadata
+    subjects: tuple[str, ...]
+    models: Iterator[GeneratedModel]
+
+    def materialize(self) -> ModelGeneration:
+        """有限の読取・比較用。全社公開はpublish_streamで逐次消費する。"""
+        return ModelGeneration(**self.metadata.model_dump(), models=tuple(self.models))

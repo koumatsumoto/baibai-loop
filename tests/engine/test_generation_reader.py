@@ -39,6 +39,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
             ),
             tickers=("1234", "5678"),
         )
+    result = result.materialize()
     assert len(result.models) == 11
     assert result.inputs["market"].reference == "new-release"
     assert (

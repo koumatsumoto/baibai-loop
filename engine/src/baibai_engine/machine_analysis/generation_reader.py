@@ -27,7 +27,7 @@ from .generation import CompanyModelInputs, generate_models
 from .market_context.reading.query import reading_snapshot
 from .market_context.security import build_security_market_contexts
 from .market_context.snapshot import build_market_snapshot, prepare_market_context_from_bars
-from .model_generation import InputSnapshot, ModelGeneration
+from .model_generation import InputSnapshot, ModelGenerationStream
 
 
 def read_and_generate_models(
@@ -42,7 +42,7 @@ def read_and_generate_models(
     ttm_rules: TTMRules,
     tickers: Sequence[str] | None = None,
     growth_start: date | None = None,
-) -> ModelGeneration:
+) -> ModelGenerationStream:
     """callerは同じmarket sealからreleaseを作り、economic copyも固定する。
 
     seal内に残る旧originでなく、今回exportしたreleaseを入力identityとする。

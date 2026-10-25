@@ -39,7 +39,7 @@ def generate(tickers=("1001", "1002"), **updates):
         "securities_context": {t: {"peer_count": 12} for t in tickers},
         "market_context_revision": "synthetic-v1",
     }
-    return generate_models(**(values | updates))
+    return generate_models(**(values | updates)).materialize()
 
 
 def test_five_models_are_generated_once_per_subject_and_common_market_once():
