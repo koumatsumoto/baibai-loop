@@ -247,14 +247,12 @@ def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -
     assert check_documented_commands.check(tmp_path) == []
 
 
-def test_markdown_link_gate_scans_dated_reports(tmp_path: Path) -> None:
-    """reports は改善サイクルの一次資料なので、実装へ降りる link が切れたら止める。"""
-
-    reports = tmp_path / "reports"
-    reports.mkdir()
-    (reports / "2026-01-01-demo.md").write_text("[src](../src/gone.py)\n", encoding="utf-8")
+def test_markdown_link_gate_scans_colocated_domain_documents(tmp_path: Path) -> None:
+    domain = tmp_path / "engine/src/baibai_engine/screening"
+    domain.mkdir(parents=True)
+    (domain / "README.md").write_text("[src](gone.py)\n", encoding="utf-8")
     assert check_markdown_links.check(tmp_path) == [
-        "reports/2026-01-01-demo.md: missing Markdown link target ../src/gone.py"
+        "engine/src/baibai_engine/screening/README.md: missing Markdown link target gone.py"
     ]
 
 
