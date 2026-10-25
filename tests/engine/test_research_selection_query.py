@@ -1,5 +1,6 @@
 """contextは候補を読み、保存snapshotはselected行だけを保持する。"""
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta
@@ -14,6 +15,7 @@ from baibai_engine.research.selection_query import (
     load_selection_context,
     verify_analysis_snapshot,
 )
+from baibai_engine.research.workspace_cli import main as workspace_main
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 
@@ -41,7 +43,7 @@ def publish(path, *, rows=None):
     return {**raw, "stock_analyses": list(saved.stock_analyses)}
 
 
-def context(path, scope="discover_new", tickers=(), revision=None):
+def context(path, scope="discover_new", tickers=(), revision=None, comparisons=()):
     return load_selection_context(
         request=ResearchRequest(text="request", scope=scope, requested_tickers=tickers),
         research_as_of=None,
@@ -49,6 +51,7 @@ def context(path, scope="discover_new", tickers=(), revision=None):
         known_at=NOW,
         runs_path=path,
         db_path=path.parent / "absent-app",
+        comparison_tickers=comparisons,
     )
 
 
@@ -189,8 +192,6 @@ def test_timezone_equivalent_cutoffs_use_the_same_jst_research_date(tmp_path):
 def test_candidate_run_revision_mismatch_and_header_null_are_not_filled(tmp_path):
     path = tmp_path / "runs"
     publish(path)
-    import json
-
     with closing(sqlite3.connect(path)) as db, db:
         raw = json.loads(db.execute("SELECT payload FROM screening_run").fetchone()[0])
         raw.pop("er_model_version")
@@ -221,3 +222,90 @@ def test_empty_published_analysis_is_not_replaced_by_fixture_defaults(tmp_path):
     assert raw["stock_analyses"] == []
     assert context(path)["status"] == "ready"
     assert context(path)["candidates"] == []
+
+
+def test_comparisons_preserve_scope_nomination_and_saved_values(tmp_path):
+    path = tmp_path / "runs"
+    saved = publish(
+        path,
+        rows=[
+            stock_analysis("1234", per_forward=10, metrics={"per_forward_sector_gap": -0.2}),
+            stock_analysis("5678", metrics={"sales_yoy": 0, "fcf_yield": None}),
+            stock_analysis("9012", market_cap_oku=0, metrics=None),
+        ],
+    )
+    before = path.read_bytes()
+    baseline = context(path, revision="fixed")
+    result = context(path, revision="fixed", comparisons=("5678", "9012", "9999", "5678"))
+    assert result["status"] == baseline["status"] == "ready"
+    assert result["request"] == baseline["request"]
+    assert result["request"]["requested_tickers"] == []
+    assert result["candidates"] == baseline["candidates"]
+    assert [row["ticker"] for row in result["candidates"]] == ["1234"]
+    assert result["capacity"] == baseline["capacity"]
+    assert result["run_revision_id"] == "fixed"
+    assert result["comparison_analyses"] == {
+        row["ticker"]: row for row in saved["stock_analyses"] if row["ticker"] != "1234"
+    }
+    assert result["comparison_analyses"]["5678"]["metrics"] == {
+        "sales_yoy": 0,
+        "fcf_yield": None,
+    }
+    assert "metrics" not in result["comparison_analyses"]["9012"]
+    assert result["missing_comparison_tickers"] == ["9999"]
+    assert result["missing_inputs"] == []
+    selected = load_analysis_snapshot(
+        run_revision_id="fixed",
+        research_as_of=NOW.date(),
+        tickers=("1234",),
+        gaps=(),
+        known_at=NOW,
+        runs_path=path,
+    )
+    assert set(selected.analyses) == {"1234"}
+    assert path.read_bytes() == before
+
+
+def test_comparison_does_not_fill_missing_or_unknown_run(tmp_path):
+    path = tmp_path / "runs"
+    missing = context(path, comparisons=("5678",))
+    assert missing["status"] == "inputs_required"
+    assert missing["comparison_analyses"] == {}
+    assert missing["missing_comparison_tickers"] == ["5678"]
+    publish(path)
+    with pytest.raises(ValueError, match="unknown"):
+        context(path, revision="unknown", comparisons=("5678",))
+
+
+def test_comparison_cli_keeps_discovery_request_and_fixed_revision(tmp_path, capsys):
+    path = tmp_path / "runs"
+    publish(path)
+    before = path.read_bytes()
+    code = workspace_main(
+        [
+            "selection-context",
+            "--request",
+            "合成比較",
+            "--scope",
+            "discover_new",
+            "--run-revision-id",
+            "fixed",
+            "--runs-path",
+            str(path),
+            "--db",
+            str(tmp_path / "absent-app"),
+            "--compare-ticker",
+            "5678",
+            "--compare-ticker",
+            "9999",
+        ],
+        now=NOW,
+    )
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["request"]["scope"] == "discover_new"
+    assert result["requested_analyses"] == {}
+    assert set(result["comparison_analyses"]) == {"5678"}
+    assert result["missing_comparison_tickers"] == ["9999"]
+    assert result["run_revision_id"] == "fixed"
+    assert path.read_bytes() == before

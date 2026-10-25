@@ -7,7 +7,7 @@ L2の財務・倍率・機械見積りと市場環境を全対象のStock Analys
 
 入力scope、共通factの資格、Approach固有の推薦条件、有限容量、品質contextは異なる役割。いずれも企業の経済的rejectや購入採用を代行しない。完全なeligibility/order・値・method identityは[実装](../../engine/src/baibai_engine/screening/discovery/candidates.py)と[dated rules](../../method/screening/rules/)が正本である。
 
-機械E[r]/FV、保存市場判断、portfolioは候補membership・順位を決めない。候補理由はApproach内rankで、AIのResearch選定理由とは別である。候補外の分析も調べられ、機械候補が全投資機会を表すとは扱わない。
+機械E[r]/FV、保存市場判断、portfolioは候補membership・順位を決めない。候補理由はApproach内rankで、AIのResearch選定理由とは別である。候補外の分析も調べられ、機械候補が全投資機会を表すとは扱わない。Approach不適合、推薦unionの容量外、候補内での未選定は別である。どの入口で見つけたかと、その企業の価値獲得経路を一対一にせず、必要な少数の対照を[同じrunから比較](../../.agents/skills/research/SKILL.md#開始と固定対象)して深掘り対象を決める。
 
 <a id="candidate-discovery"></a>
 ## 四つの価値仮説

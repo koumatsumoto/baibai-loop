@@ -74,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--scope", required=True, choices=("discover_new", "specified_stocks", "review_positions")
     )
     context_parser.add_argument("--ticker", action="append", default=[])
+    context_parser.add_argument(
+        "--compare-ticker",
+        action="append",
+        default=[],
+        help="read comparison rows from the same run without requesting or selecting them",
+    )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
     context_parser.add_argument("--run-revision-id")
     context_parser.add_argument("--db", type=Path)
@@ -213,6 +219,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     known_at=resolved_now,
                     runs_path=args.runs_path,
                     db_path=args.db,
+                    comparison_tickers=tuple(args.compare_ticker),
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:

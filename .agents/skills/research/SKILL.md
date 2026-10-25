@@ -17,7 +17,18 @@ uv run baibai-engine research selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
-指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、五領域・保有・既存調査を比較する。必要な候補外の対照も同じ固定runから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。
+指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、五領域・保有・既存調査を比較する。必要な候補外の対照も同じ固定runから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。選定は購入順位でなく、次に調べる価値の比較である。価値差と損失経路、答えによって採否・価格条件が変わる大きさ、調査で答えが得られる見込みを既存のselection_summary・rationale・research_questionへ記す。開示が豊富なだけで優先せず、同じ未解決の問いを繰り返すだけなら他の対象と比較する。
+
+候補外や別Approachの少数の対照は、返された `run_revision_id` を固定して同じcontextへ読める。`--compare-ticker` は `--ticker` と異なり、ユーザー指定銘柄・推薦集合・深掘り対象を変更しない。比較不能な銘柄は `missing_comparison_tickers` に残る。実際の対象は比較後にdraftへ選び、候補外を毎回入れるノルマにはしない。
+
+```bash
+uv run baibai-engine research selection-context \
+  --request '<USER_START_REQUEST>' --scope discover_new \
+  --run-revision-id <REVISION> --compare-ticker <TICKER> \
+  --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
+```
+
+低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。Approachの名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
 
 企業成長の会計期末範囲は問いに応じてdraftの `company_growth_start` / `company_growth_end` へ指定する。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)を読み、mirrorは[入力準備](../../../batch/OPERATIONS.md#research-input-preparation)に従う。
 
