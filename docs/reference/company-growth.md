@@ -31,6 +31,8 @@ store-localのsource coverageはreleaseへ固定されていないため、現�
 
 PERとpeerはこの版では **未提供**。PERは価格・期末自己株式控除後株数・正の年間/TTM親会社利益との単位対応を未検証。報告EPS型や別倍率へ切り替えない。peerは基準日・根拠・銘柄集合を固定した比較群が未選定で、比較ペアごとの両期母数と率母数を検証していない。現在の相対評価や市場全体を代用品にしない。今後のPER/peer追加でも実績状態・採用原本・Changesを変えない。追加時は入力対応を確認する。
 
+前年比の比較期間は前年の対応する開始・終了日からそれぞれ7日以内を許容する。52/53週暦の差と決算月変更を分け、1か月ずれた四半期に成長率を付けない。元の実額・期間は保持する。日付条件の合格は連結範囲や事業構成の経済的同一性を保証しない。
+
 ## Investment Judgmentへの接続
 
 mirrorの準備・指定は[Investment Judgment入力の準備](../../jobs/OPERATIONS.md#research-input-preparation)に従う。Selection draftの任意 `company_growth_start` / `company_growth_end` で問いに合う会計期末範囲を選ぶ。省略時は保持済み全範囲を選ぶ。範囲外も含む観測可能範囲を結果内で区別する。固定入力の `securities_context[ticker].company_growth` に計算済み状態・変化・release・方法・要求範囲・不足を完全保存する。再開ではこの結果を投影し、最新原本・新しい計算法へ付け替えない。旧Selectionは保存された入力のまま成長なしで再開できる。InputGapは引き続き `analysis.unavailable` と厳密に一致し、成長欠測は加えない。

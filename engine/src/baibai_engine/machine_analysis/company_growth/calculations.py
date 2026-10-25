@@ -345,6 +345,7 @@ def build_period_states(
 
 
 def _observation_matches(prior: Observation, current: Observation) -> bool:
+    # 52/53週暦の最大1週差は許すが、決算月変更を同季節の前年比にしない。
     return (
         prior.measurement == current.measurement
         and prior.statement_basis == current.statement_basis
@@ -355,7 +356,7 @@ def _observation_matches(prior: Observation, current: Observation) -> bool:
             current.period_start,
             current.period_end,
             length_tolerance_ratio=0.1,
-            end_tolerance_days=45,
+            end_tolerance_days=7,
         )
     )
 
