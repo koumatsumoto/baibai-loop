@@ -59,11 +59,11 @@ export function SecuritySearchItem({ row }: { row: SecuritySearchRow }) {
         ['PBR', number(analysis.pbr)], ['配当利回り', ratio(analysis.dividend_yield)],
         ['機械E[r]（%/年）', ratio(analysis.er_annual)], ['FCF利回り', ratio(analysis.fcf_yield)], ['Net cash / 時価総額', ratio(analysis.net_cash_to_market_cap)],
       ].map(([label, value]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="mt-1 font-mono tabular-nums">{value}</dd></div>)}
-    </dl> : <p className="text-sm text-muted-foreground">保存済み外部参考評価 · 機械分析なし</p>}
+    </dl> : <p className="text-sm text-muted-foreground">保存済み外部評価 · 機械分析なし</p>}
     <div className="grid gap-1.5 text-xs text-muted-foreground">
       {analysis?.next_earnings_date && <p>次の決算 {analysis.next_earnings_date}</p>}
       {analysis && analysis.data_quality_flags.length > 0 && <p className="break-words">入力の注意 {analysis.data_quality_flags.length}件（詳細で確認）</p>}
-      <Link className="text-foreground underline underline-offset-4" state={origin} to={`/securities/${row.ticker}`}>評価・市場指標・外部参考を読む →</Link>
+      <Link className="text-foreground underline underline-offset-4" state={origin} to={`/securities/${row.ticker}`}>評価・市場指標・外部評価を読む →</Link>
     </div>
   </li>
 }

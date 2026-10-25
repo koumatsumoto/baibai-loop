@@ -26,7 +26,7 @@ describe('保存済み外部観測の既存銘柄検索', () => {
   })
   it('run未発行でも詳細linkを出し、名称不明と機械分析なしを明示する', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(StockAnalysisSection, { rows: identities, runAsOf: null, externalCutoff: '2026-10-13T00:00:00Z' })))
-    for (const text of ['href="/securities/9999"', 'href="/securities/123A"', '合成検索企業', '名称未確認', '機械分析なし', '保存済み外部参考評価', '機械分析の基準 未発行', 'JST']) expect(html).toContain(text)
+    for (const text of ['href="/securities/9999"', 'href="/securities/123A"', '合成検索企業', '名称未確認', '機械分析なし', '保存済み外部評価', '機械分析の基準 未発行', 'JST']) expect(html).toContain(text)
     expect(html).not.toContain('0.0%')
   })
 })

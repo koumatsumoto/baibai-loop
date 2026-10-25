@@ -122,7 +122,7 @@ export function SecurityDetailPage() {
       title={data.company_name ?? data.ticker}
       width="reading"
     >
-      <nav aria-label="銘柄の根拠" className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><a className="underline" href="#research">企業評価</a>{data.stock_analysis && <a className="underline" href="#valuation">価値の指標</a>}<a className="underline" href="#market-context">市場の指標</a><a className="underline" href="#external-assessment">外部参考評価</a></nav>
+      <nav aria-label="銘柄の根拠" className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><a className="underline" href="#research">企業評価</a>{data.stock_analysis && <a className="underline" href="#valuation">価値の指標</a>}<a className="underline" href="#market-context">市場の指標</a><a className="underline" href="#external-assessment">外部評価</a></nav>
       <div className="scroll-mt-24" id="research">
       <SectionCard
         description="latest research"

@@ -67,10 +67,10 @@ function MinkabuForecast({ history }: { history: AnalystForecastHistory }) {
 }
 
 export function ExternalAssessmentSection({ assessment }: { assessment: ExternalAssessment | null | undefined }) {
-  if (!assessment) return <SectionCard title="外部参考評価" padded><p className="text-sm text-muted-foreground">保存済み外部観測なし</p></SectionCard>
+  if (!assessment) return <SectionCard title="外部評価" padded><p className="text-sm text-muted-foreground">保存済み外部観測なし</p></SectionCard>
   const observed = [...assessment.model_valuations, ...assessment.analyst_ratings, ...assessment.quants_scores].some(source => source.inputs.latest !== null) || assessment.tradingview.inputs.latest !== null || assessment.minkabu.latest !== null
   const tv = assessment.tradingview.inputs.latest
-  return <SectionCard title="外部参考評価" description="媒体が提示した値です。独自の企業価値評価とは分け、異なる尺度を多数決点へまとめません。" meta={<span className="text-xs">読取対象時点(UTC) {assessment.cutoff}</span>} padded>
+  return <SectionCard title="外部評価" description="媒体が提示した値です。独自の企業価値評価とは分け、異なる尺度を多数決点へまとめません。" meta={<span className="text-xs">読取対象時点(UTC) {assessment.cutoff}</span>} padded>
     {!observed && <p className="text-sm text-muted-foreground">この対象時点以前の保存済み外部評価はありません。</p>}
     <div className="grid gap-6">
       <MinkabuForecast history={assessment.minkabu} />
