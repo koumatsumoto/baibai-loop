@@ -167,9 +167,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
             (
                 date(2024, 1, 31),
                 date(2025, 1, 31),
-                date(2023, 2, 28),
                 date(2023, 2, 1),
-                date(2024, 2, 29),
+                date(2023, 2, 1),
+                date(2024, 2, 1),
                 date(2023, 7, 31),
                 date(2024, 7, 31),
             ),
@@ -222,6 +222,40 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 ]
                 for field in ("sales", "cfo", "operating_profit", "profit"):
                     self.assertEqual(_ttm_value(rows, field, rules.ttm), (110.0, TTMQuality.EXACT))
+
+    def test_nearby_dates_do_not_hide_a_gap_and_unsubtracted_old_period(self) -> None:
+        rows = [
+            _summary(
+                "130A",
+                date(2023, 8, 30),
+                fiscal_year_end=date(2024, 1, 31),
+                period_start=date(2023, 2, 28),
+                period_end=date(2023, 7, 31),
+                profit=20.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 3, 11),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 1, 31),
+                period_start=date(2023, 2, 1),
+                period_end=date(2024, 1, 31),
+                profit=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 8, 30),
+                fiscal_year_end=date(2025, 1, 31),
+                period_start=date(2024, 2, 29),
+                period_end=date(2024, 7, 31),
+                profit=30.0,
+            ),
+        ]
+        # The old February days survive subtraction while current February is absent.
+        # Similar total durations cannot make this a continuous trailing year.
+        self.assertEqual(
+            _ttm_value(rows, "profit", load_screening_rules().ttm), (None, TTMQuality.UNAVAILABLE)
+        )
 
     def test_prior_year_actual_period_matches_february_month_end(self) -> None:
         rows = [

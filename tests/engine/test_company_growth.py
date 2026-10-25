@@ -132,9 +132,7 @@ def test_seasonality_and_one_time_gain_remain_one_quarter_observation():
 
 
 def test_eleven_month_year_remains_reported_but_not_annualized():
-    result = states(
-        [document(2025, 4, 1100, 110, 55, CurPerEn="2026-02-28", CurFYEn="2026-02-28")]
-    )
+    result = states([document(2025, 4, 1100, 110, 55, CurPerEn="2026-02-28", CurFYEn="2026-02-28")])
     assert amount(result[0], "reported", "sales").value == 1100
     assert amount(result[0], "annual_ttm", "sales").value is None
 
