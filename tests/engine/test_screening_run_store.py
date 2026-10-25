@@ -156,10 +156,14 @@ def test_writer_rejects_source_rule_mismatch_and_caller_candidate_context(
 def test_read_export_preserves_saved_raw_values_candidate_and_nulls(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
     raw = _run()
+    retired_rules = tmp_path / "retired-rules.yaml"
+    assert not retired_rules.exists()
+    raw["rules_ref"] = str(retired_rules)
     raw["stock_analyses"][0]["metrics"].update(custom_known_value=0.123456789, missing=None)
     result = _publish(path, raw)
     run = ScreeningRunReader(path).get_run(result.publication_id)
     exported = published_run_payload(run)
+    assert run.rules_ref == exported["rules_ref"] == str(retired_rules)
     assert yaml.safe_load(serialize_published_run_yaml(run)) == exported
     assert exported["run_revision_id"] == result.publication_id
     assert exported["stock_analyses"][0]["metrics"]["custom_known_value"] == 0.123456789

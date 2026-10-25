@@ -13,19 +13,15 @@ _HEADING = re.compile(r"^#{1,6}\s+(?P<text>.+?)\s*$", re.MULTILINE)
 _HEADING_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _EXPLICIT_ANCHOR = re.compile(r'<a\s+id="(?P<id>[^"]+)"')
 _ROOT_FILES = ("README.md", "AGENTS.md")
-# Responsibility roots carry their own ownership and operations documents; reports also
-# carry reproducible historical evidence. A broken link in either loses part of the
-# repository contract even when the runtime code still imports.
+# Responsibility roots carry current ownership and operations documents.
+# Historical studies remain in fixed Git commits, not a second documentation tree.
 _SCAN_DIRECTORIES = (
     "docs",
     "engine",
     "web",
     "batch",
     "tools",
-    "method",
     "stores",
-    "reports",
-    "studies",
     ".agents/skills",
 )
 _IGNORED_DIRECTORY_NAMES = frozenset({"node_modules", "dist", ".venv", "__pycache__"})

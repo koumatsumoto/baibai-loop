@@ -85,6 +85,8 @@ source取得は担当範囲の再生成可能なread-only inputと原受領hando
 
 クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/foundation/repository_layout.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
 
-Gitの[method](../method/README.md)は既定の規則と歴史revisionのdated規則を保持し、選択先はloaderが所有する。較正の配布artifactは[`valuation/calibration/published/`](../engine/src/baibai_engine/valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)、表示設定は`web/config/`に置く。[reports](../reports/README.md)には運用責務の確認・移管が残る記録だけを保持し、完了した実験の詳細は固定commitへ委ねる。再取得可能であることは改訂前の情報を復元できることを意味せず、汎用DB・registryや保存判断の第二正本は作らない。
+現行のdated規則だけを[`screening/rules/`](../engine/src/baibai_engine/screening/rules/)と[`market_context/reading/rules/`](../engine/src/baibai_engine/market_context/reading/rules/)へ配置し、既定revisionは各loaderが読む。旧版は[Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/method)で保持し、保存結果の閲覧に再配置しない。過去計算の再現には当時の規則だけでなくコードと入力も要る。規則の意味を変える場合は新revisionとし、配置変更だけで内容・識別子・保存判断を変えない。較正の配布artifactは[`valuation/calibration/published/`](../engine/src/baibai_engine/valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)、表示設定は`web/config/`に置く。
+
+開発計測・移行の記録はIssue/PRと[固定Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports)へ委ねる。正式なResearch成果は上記application DBへ保存し、過去の開発レポートを現在の判断として再発行しない。
 
 運用上の取得・発行・復旧は[OPERATIONS](../batch/OPERATIONS.md)、設計判断は[doctrine](doctrine.md)、開発環境は[development](development.md)に従う。

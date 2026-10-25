@@ -247,14 +247,12 @@ def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -
     assert check_documented_commands.check(tmp_path) == []
 
 
-def test_markdown_link_gate_scans_dated_reports(tmp_path: Path) -> None:
-    """reports は改善サイクルの一次資料なので、実装へ降りる link が切れたら止める。"""
-
-    reports = tmp_path / "reports"
-    reports.mkdir()
-    (reports / "2026-01-01-demo.md").write_text("[src](../src/gone.py)\n", encoding="utf-8")
+def test_markdown_link_gate_scans_colocated_domain_documents(tmp_path: Path) -> None:
+    domain = tmp_path / "engine/src/baibai_engine/screening"
+    domain.mkdir(parents=True)
+    (domain / "README.md").write_text("[src](gone.py)\n", encoding="utf-8")
     assert check_markdown_links.check(tmp_path) == [
-        "reports/2026-01-01-demo.md: missing Markdown link target ../src/gone.py"
+        "engine/src/baibai_engine/screening/README.md: missing Markdown link target gone.py"
     ]
 
 
@@ -336,9 +334,9 @@ def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: 
 @pytest.mark.parametrize(
     "method_path",
     [
-        "method/screening/rules/2026-10-16T133000+0900.yaml",
-        "method/screening/rules/2099-01-01T000000+0900.yaml",
-        "method/macro/reading/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/screening/rules/2026-10-16T133000+0900.yaml",
+        "engine/src/baibai_engine/screening/rules/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/market_context/reading/rules/2099-01-01T000000+0900.yaml",
     ],
 )
 def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path, method_path):
@@ -380,8 +378,8 @@ def test_markdown_link_gate_keeps_external_links_out_of_filesystem_checks(tmp_pa
     assert check_markdown_links.check(tmp_path) == []
 
 
-def test_markdown_link_gate_checks_study_links_and_bare_path_anchors(tmp_path):
-    study = tmp_path / "studies" / "example"
+def test_markdown_link_gate_checks_colocated_links_and_bare_path_anchors(tmp_path):
+    study = tmp_path / "docs" / "reference" / "example"
     study.mkdir(parents=True)
     (study / "plan.md").write_text("# Plan\n\n## Scope\n")
     report = study / "report.md"
@@ -389,5 +387,5 @@ def test_markdown_link_gate_checks_study_links_and_bare_path_anchors(tmp_path):
     assert check_markdown_links.check(tmp_path) == []
     report.write_text("[plan](plan.md#gone)\n")
     assert check_markdown_links.check(tmp_path) == [
-        "studies/example/report.md: missing Markdown anchor plan.md#gone"
+        "docs/reference/example/report.md: missing Markdown anchor plan.md#gone"
     ]

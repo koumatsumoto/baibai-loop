@@ -541,9 +541,8 @@ def test_reading_rules_reject_a_frequency_without_defaults() -> None:
 
 
 def test_rules_revision_is_the_dated_stem() -> None:
-    assert rules_revision(Path("method/macro/reading/2026-07-25T000000+0900.yaml")) == (
-        "2026-07-25T000000+0900"
-    )
+    path = Path("engine/src/baibai_engine/market_context/reading/rules")
+    assert rules_revision(path / "2026-07-25T000000+0900.yaml") == "2026-07-25T000000+0900"
 
 
 def test_threshold_flag_comparisons_bound_their_edges() -> None:

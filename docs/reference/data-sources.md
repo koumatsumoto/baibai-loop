@@ -81,6 +81,8 @@ latest/previousの差は同じorigin・単位・対象期・株式basis/尺度�
 
 相違が利益・倍率・資本・期間の何を変えるかを先に問い、重要なものだけ原典で比較する。比較不能な外部値を使わずに調査を完成でき、銀行のEBITDA/FCF等を一律の不足要件にしない。ratingで順位加点せず、coverageのある企業だけの新laneを作らない。固定8社の比較では同basisの専門予想の増分価値と維持費を確認できず、原典の参照用途を採った。追加自動化は具体的な判断寄与と手作業の費用から選ぶ。[当時の採否](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は全将来効果の否定ではない。
 
+Investing.comは個別の評価変更日・変更主体・新旧目標を調べる補助参照先で、日次の第二consensusには採用しない。同じ予想の転載を増やすより差分の判断寄与を優先した[選定記録](https://github.com/koumatsumoto/baibai-loop/blob/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports/studies/2026-10-22-public-external-sources/report.md)を残す。
+
 ### 公開HTMLの意味
 
 マネックスはモデル価格と目標consensus、楽天は公開IFIS iframeのrating、株マップはQuants Researchの定量score、みんかぶはアナリスト欄のrating・目標・会社/外部予想を読む。投稿・総合目標・機械診断をアナリスト予想へ混ぜず、rating人数を利益予想の寄与者数へ流用しない。表示更新日・受領JST日・UTC時刻を分ける。過去比較列を過去日に受領した履歴へ変換しない。
