@@ -552,5 +552,6 @@ def test_portfolio_view_failure_does_not_report_core_success_as_full_success():
     )
     assert "[DEGRADED]" in message
     assert "portfolio-views" in message
-    assert "Lake公開" in message and "Store反映" in message
+    assert "Lake公開" in message
+    assert "Store反映" in message
     assert "保有・運用画面更新" in message

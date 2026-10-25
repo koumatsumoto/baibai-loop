@@ -109,8 +109,9 @@ def test_no_argument_validates_ledger_before_upload(tmp_path: Path) -> None:
             f"--db {publish.parents[2]}/stores/application/baibai.sqlite"
         ),
         "r2:push-app",
+        "gh:workflow run cloud-materialize.yml --ref main",
     ]
-    assert result.stdout == "application DB uploaded\n"
+    assert result.stdout == "application DB uploaded; cloud-materialize dispatch requested\n"
     assert result.stderr == ""
 
 
@@ -175,4 +176,7 @@ def test_publish_uses_its_own_repository_from_another_directory(tmp_path: Path) 
 
     assert result.returncode == 0, result.stderr
     assert Path(cwd_log.read_text().strip()) == publish.parents[2]
-    assert call_log.read_text().splitlines()[-1] == "r2:push-app"
+    assert call_log.read_text().splitlines()[-2:] == [
+        "r2:push-app",
+        "gh:workflow run cloud-materialize.yml --ref main",
+    ]

@@ -160,9 +160,11 @@ def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> Non
 def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
     commands = "\n".join(str(step.get("run", "")) for step in steps)
-    assert "pull-market" in commands and "pull-app" in commands
+    assert "pull-market" in commands
+    assert "pull-app" in commands
     assert "hydrate-market" in commands
-    assert "pull-machine" not in commands and "pull-runs" not in commands
+    assert "pull-machine" not in commands
+    assert "pull-runs" not in commands
     assert "upload-portfolio-views" in commands
     assert "publish-serving-tail" not in commands
     daily = _steps(_workflow("cloud-daily-batch.yml"), "daily")

@@ -8,7 +8,8 @@ import yaml
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github/workflows"
 
 _BANDIT = (
-    "uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine jobs/src/baibai_jobs tools"
+    "uv run bandit -c pyproject.toml -q -r "
+    "engine/src/baibai_engine web/backend/src/baibai_web jobs/src/baibai_jobs tools"
 )
 # A scanner is weakened by editing its command, not by deleting its step: a lowered
 # --audit-level, a narrowed Bandit root, an --ignore-vuln or a trailing `|| true`

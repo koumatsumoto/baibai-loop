@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta
 
+from baibai_engine.foundation.time import JST
 from baibai_web.readmodel.builders.presentation import (
-    _JST,
     holding_view,
     percentage,
     reservation_last_valid_day,
@@ -28,7 +28,7 @@ def build_dashboard(
 ) -> DashboardView:
     """Build the app's first view without performing storage I/O directly."""
 
-    now = datetime.now(_JST)
+    now = datetime.now(JST)
     today = now.date()
 
     try:
@@ -100,7 +100,7 @@ def build_dashboard(
         if any(item.market_price_as_of is None for item in holdings)
         else min(
             (item.market_price_as_of for item in holdings if item.market_price_as_of is not None),
-            default=snapshot.as_of.astimezone(_JST).date(),
+            default=snapshot.as_of.astimezone(JST).date(),
         )
     )
     return DashboardView(
@@ -108,7 +108,7 @@ def build_dashboard(
         ledger_exists=True,
         ledger_error=None,
         ledger_as_of=snapshot.ledger_as_of,
-        ledger_stale=snapshot.ledger_as_of.astimezone(_JST).date() <= today - timedelta(days=7),
+        ledger_stale=snapshot.ledger_as_of.astimezone(JST).date() <= today - timedelta(days=7),
         valuation_as_of=valuation_as_of,
         valuation_stale=valuation_as_of is None or valuation_as_of <= today - timedelta(days=7),
         total_capital_yen=total,

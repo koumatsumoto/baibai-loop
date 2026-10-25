@@ -6,11 +6,9 @@ import sqlite3
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.tasks.models import Task
-from baibai_web.readmodel.builders.presentation import (
-    _JST,
-    reservation_last_valid_day,
-)
+from baibai_web.readmodel.builders.presentation import reservation_last_valid_day
 from baibai_web.readmodel.models import (
     TasksView,
     TaskView,
@@ -33,7 +31,7 @@ def build_tasks(
 ) -> TasksView:
     """Build task workflow independently from Dashboard portfolio presentation."""
 
-    now = datetime.now(_JST)
+    now = datetime.now(JST)
     today = now.date()
     open_tasks, next_task = _task_views(tasks.list_tasks(), today=today)
     tasks_exist = tasks.exists()
