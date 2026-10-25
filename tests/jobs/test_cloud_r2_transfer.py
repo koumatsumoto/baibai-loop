@@ -1699,3 +1699,45 @@ def test_initial_seed_refuses_a_race_after_the_absence_check(tmp_path: Path) -> 
     assert not any(command.startswith(("s3 cp ", "s3api copy-object ")) for command in commands)
     assert remote.read_bytes() == b"created by another writer after preflight"
     assert not list(root.glob(".r2-transfer.*"))
+
+
+def test_runs_only_push_uses_pulled_generation_and_does_not_reupload_other_stores(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-runs"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    uploads = [
+        command for command in _transfer_commands(log) if command.startswith("s3api put-object ")
+    ]
+    assert len(uploads) == 2
+    assert "--key runs.sqlite " in uploads[0]
+    assert '--if-match "etag-stable"' in uploads[0]
+    assert "--key machine-manifest.json " in uploads[1]
+    assert not any(
+        "--key market.sqlite " in command or "--key indicators.sqlite " in command
+        for command in uploads
+    )
+
+
+def test_runs_only_push_refuses_changed_cloud_generation_without_writing(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_CHANGED_KEY"] = "runs.sqlite"
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-runs"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode != 0
+    assert "runs.sqlite changed on R2" in completed.stderr
+    assert not any(command.startswith("s3api put-object ") for command in _transfer_commands(log))

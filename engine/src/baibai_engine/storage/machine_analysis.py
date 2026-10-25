@@ -110,7 +110,7 @@ def initialize_run_store(path: Path | None = None) -> int:
         ).fetchone()
         if current != 0 or tables is not None:
             raise RuntimeError(
-                "screening run cache uses an obsolete schema; rebuild it "
+                "machine-analysis store uses an obsolete schema; explicit migration is required "
                 f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION})"
             )
         try:
@@ -145,7 +145,7 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
         if version != RUN_STORE_SCHEMA_VERSION:
             raise RuntimeError(
                 "screening run store schema is not current "
-                f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); rebuild it"
+                f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); use explicit migration"
             )
         return connection
     except BaseException:
@@ -155,6 +155,8 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
 
 def migrate_run_store_v6(path: Path) -> int:
     """明示的な移行専用。通常の初期化・dailyから既存storeを移行しない。"""
+    if not path.is_file():
+        raise FileNotFoundError(f"machine-analysis store does not exist: {path}")
     with closing(connect_rw(path)) as connection:
         version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         if version == RUN_STORE_SCHEMA_VERSION:

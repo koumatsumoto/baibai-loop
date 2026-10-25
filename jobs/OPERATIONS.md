@@ -114,6 +114,33 @@ merge・origin・schema・取得ETag/CASの失敗では公開を止める。lake
 
 malformed leaseは自動修復しない。GitHubとlocalにactive/pending writerがないと確認した場合だけexact coordination/publication-lease.jsonを調べ、対象1keyの削除後に通常acquireで再作成する。prefix削除や手書きJSON上書きを通常運用へ入れない。
 
+## 五モデルstoreへの一回移行（schema 6 → 7）
+
+旧screening runを保持したまま五モデルの保存tableだけを加える。対応codeのmain反映とstore移行を同じdeliveryで完了し、それまでは共通統合を開始しない。dailyの自動移行や旧runの再計算はしない。既存writerが動いていないことを確認し、上記operator lease内でreceipt検証付きfresh pull-machine・別コピー移行・条件付き反映を行う。作業中のmachine DBがある領域は使わない。pull-runsだけでは他storeを含む既存receiptの整合を確認できないため、この移行の開始には使わない。
+
+```bash
+with_publication_lease bash -ec '
+  jobs/scripts/r2_transfer.sh pull-machine
+  backup_dir=$(mktemp -d stores/model-store-migration.XXXXXX)
+  uv run python -m baibai_jobs.storage.sqlite_snapshot create \
+    --source stores/screening/runs.sqlite --output "$backup_dir/source.sqlite"
+  uv run python -m tools.migrate_model_store \
+    --source "$backup_dir/source.sqlite" --output "$backup_dir/migrated.sqlite"
+  uv run python -m baibai_jobs.storage.sqlite_snapshot check \
+    --path "$backup_dir/migrated.sqlite" --schema-version 7
+  uv run python -m baibai_jobs.storage.sqlite_snapshot create \
+    --source "$backup_dir/migrated.sqlite" --output stores/screening/runs.sqlite
+  jobs/scripts/r2_transfer.sh push-runs
+  jobs/scripts/r2_transfer.sh pull-machine
+  uv run python -m tools.migrate_model_store --verify-only \
+    --source "$backup_dir/source.sqlite" --output stores/screening/runs.sqlite
+'
+```
+
+toolはWAL込みの別コピーだけを移行し、元DBを変更しない。出力pathが既存なら拒否し、失敗コピーは調査用に残す。source schema・旧run/個社行数が一致し、新tableが読めることを確認する。push-runsは取得ETagへの条件付きPUTとmachine receipt更新だけを行い、market・economic・lake・applicationを再発行しない。
+
+反映後も同じlease内でpull-machineし、schema 7、旧行の全field一致、receipt整合を読戻してからleaseを解放する。その後に共通統合を実施する。PUTとreceiptの片方だけが成功した場合は再送せず到達点を確認する。移行前コピーは保全し、新しい世代を旧コピーで巻き戻さない。このdeliveryの完了後に一回用toolを撤去する。
+
 ## application DB を反映する
 
 作業開始前に、空の作業領域へpull-appしてDBとstores/.r2-generations/baibai.sqlite.etagを一組で取得する。そのDBを正規CLIで更新し、取得ETagを保持する。
@@ -339,7 +366,7 @@ machine前世代を復元する場合はwriterを止め、対象bucketとexact k
 
 ### 部分 push からの復旧
 
-先行keyだけPUT成功すると旧receiptと不整合になりpullが停止する。同じpush/dailyを再送せず、到達点をlogで確認する。local成果を残す必要があり現行origin/merge条件を満たすならpush-market/push-indicatorsで反映してreceiptを更新する。runs成果は元bundleの世代条件を満たすpush-machineを使う。
+先行keyだけPUT成功すると旧receiptと不整合になりpullが停止する。同じpush/dailyを再送せず、到達点をlogで確認する。local成果を残す必要があり現行origin/merge条件を満たすならpush-market/push-indicatorsで反映してreceiptを更新する。runsだけの成果は取得世代条件を満たすpush-runsを使う。全storeの成果を反映する場合は元bundleの世代条件を満たすpush-machineを使う。
 
 receipt再生成で復旧する場合だけ、対象がbucket直下のmutable machine-manifest.json一件であることを確認する。
 

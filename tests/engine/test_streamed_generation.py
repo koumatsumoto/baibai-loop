@@ -53,14 +53,16 @@ def test_stream_consumed_once_and_encoded_before_next_row_without_partial_visibi
             yield model
 
     result = store.publish_stream(stream(original, rows()))
-    assert result.created and result.model_count == len(original.models)
+    assert result.created
+    assert result.model_count == len(original.models)
     assert store.read(original.generation_id) == original
     with closing(sqlite3.connect(path)) as reader:
         assert reader.execute("SELECT header FROM model_generation").fetchone()[
             0
         ] == canonical_json(original.model_dump(mode="json", exclude={"models"}))
     retry = store.publish_stream(stream(original, reversed(original.models)))
-    assert not retry.created and retry.model_count == len(original.models)
+    assert not retry.created
+    assert retry.model_count == len(original.models)
 
 
 def test_late_generator_failure_rolls_back_all_rows_and_preserves_previous_generation(tmp_path):

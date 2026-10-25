@@ -639,7 +639,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-runs|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -677,6 +677,11 @@ case "${1:-}" in
     ;;
   push-machine)
     push_pulled_keys "${machine_bundle_keys[@]}"
+    ;;
+  push-runs)
+    # Explicit model-store maintenance; never re-upload unrelated machine stores.
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    push_pulled_keys runs.sqlite
     ;;
   push-market)
     # Deep history is fetched where there is time for it — hours of provider calls for a
