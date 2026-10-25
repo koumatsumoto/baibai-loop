@@ -7,6 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.collection.identifiers import normalize_ticker
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.ledger_read import load_ledger_document
@@ -118,7 +119,11 @@ def load_selection_context(
     known_at: datetime,
     runs_path: Path,
     db_path: Path | None,
+    comparison_tickers: tuple[str, ...] = (),
 ) -> dict[str, Any]:
+    comparison_tickers = tuple(
+        dict.fromkeys(normalize_ticker(t) for t in comparison_tickers),
+    )
     as_of = research_as_of or known_at.astimezone(JST).date()
     run = _run(
         runs_path=runs_path,
@@ -172,6 +177,8 @@ def load_selection_context(
         if run is None
         else run.payload["candidate_discovery"]["method"],
         "requested_analyses": {t: rows[t] for t in requested if t in rows},
+        "comparison_analyses": {t: rows[t] for t in comparison_tickers if t in rows},
+        "missing_comparison_tickers": [t for t in comparison_tickers if t not in rows],
         "held_tickers": list(held),
         "missing_inputs": missing,
         "saved_market_context_assessment": None
