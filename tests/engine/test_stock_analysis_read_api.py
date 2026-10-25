@@ -10,8 +10,8 @@ from datetime import date
 import pytest
 from tests.engine.test_screening_run_store import _publish, _run
 
-from baibai_engine.read_api.ticker_profile import _load_stock_analysis_context
 from baibai_engine.read_api.company_valuation import stored_machine_valuation
+from baibai_engine.read_api.ticker_profile import _load_stock_analysis_context
 
 ASOF = date(2026, 10, 14)
 

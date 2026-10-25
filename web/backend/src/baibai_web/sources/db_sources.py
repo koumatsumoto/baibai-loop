@@ -40,6 +40,7 @@ from baibai_engine.read_api import (
     stock_assessment_publication,
     task_store_exists,
 )
+from baibai_engine.read_api.company_valuation import VALUATION_HISTORY_SESSIONS
 from baibai_engine.read_api.external_assessment import (
     ExternalAssessment,
     external_assessment,
@@ -57,7 +58,6 @@ from baibai_engine.read_api.market_context import (
     prepare_market_context_inputs,
     reading_snapshot,
 )
-from baibai_engine.read_api.company_valuation import VALUATION_HISTORY_SESSIONS
 from baibai_web.sources.types import (
     IndicatorGroupConfig,
     IndicatorSeriesConfig,

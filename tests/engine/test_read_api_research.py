@@ -218,19 +218,19 @@ def test_original_held_assessment_projection_keeps_original_price_and_pair(tmp_p
 
 
 def test_projection_loads_and_validates_its_saved_pair_once(tmp_path, monkeypatch):
-    from baibai_engine.read_api import research as research_read
+    from baibai_engine.read_api import stock_assessment as assessment_read
 
     case = backend_case(tmp_path)
-    original = research_read.load_reviewed_assessment
+    original = assessment_read.load_reviewed_assessment
     loaded = []
 
     def load(connection, identifier):
         loaded.append(identifier)
         return original(connection, identifier)
 
-    monkeypatch.setattr(research_read, "load_reviewed_assessment", load)
+    monkeypatch.setattr(assessment_read, "load_reviewed_assessment", load)
     before = case.app.read_bytes()
-    projection = research_read.reviewed_assessment_projection(
+    projection = assessment_read.reviewed_assessment_projection(
         case.app, assessment_id=case.pair.assessment_id
     )
     assert loaded == [case.pair.assessment_id]

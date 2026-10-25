@@ -13,8 +13,8 @@ from baibai_engine.investment_judgment.trade_proposal_query import (
 )
 from baibai_engine.storage.application.read import connect_read_only
 
-from .stock_assessment import reviewed_assessment_projection
 from .sqlite import read_application_rows as read_rows
+from .stock_assessment import reviewed_assessment_projection
 
 
 def list_investment_proposal_payloads(path: Path) -> list[dict[str, object]]:

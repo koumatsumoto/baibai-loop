@@ -15,11 +15,11 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 from baibai_engine.machine_analysis.market_context import security as security_context
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+from baibai_engine.read_api.company_valuation import VALUATION_HISTORY_SESSIONS
 from baibai_engine.read_api.market_context import (
     build_market_snapshot,
     build_security_market_context,
 )
-from baibai_engine.read_api.company_valuation import VALUATION_HISTORY_SESSIONS
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
