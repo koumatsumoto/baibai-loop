@@ -30,7 +30,6 @@ from baibai_engine.market.valuation_catalysts import (
     TSE_CAPITAL_POLICY_URL,
     ValuationCatalystError,
     parse_tse_capital_policy_workbook,
-    read_valuation_catalyst_contexts,
     store_tse_capital_policy_rows,
 )
 from baibai_engine.source_maintenance import cli as app
@@ -294,9 +293,7 @@ def test_duplicate_and_sql_insert_failure_roll_back_whole_replacement(tmp_path: 
     assert _rows(path) == before
 
 
-def test_rebuild_cli_and_normal_reader_never_acquire(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_rebuild_cli_never_acquires(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path = tmp_path / "market.sqlite"
     JPXRefresh(
         sqlite_path=path, session=_session(_corrected_workbook())
@@ -316,8 +313,6 @@ def test_rebuild_cli_and_normal_reader_never_acquire(
         )
         assert "collection=capital_policy" in capsys.readouterr().out
         assert _rows(clean) == _rows(path)
-        context = read_valuation_catalyst_contexts(clean, as_of=date(2026, 7, 31), tickers=["1301"])
-        assert context["1301"].tse_capital_policy_status == "disclosed"
 
 
 def test_explicit_refresh_cli_uses_jpx_refresh_and_closes_it(tmp_path: Path) -> None:

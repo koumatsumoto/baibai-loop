@@ -1,17 +1,13 @@
-"""Produce snapshot-dated TSE policy and EDINET filing context for Stock Analysis.
-
-The context is a fact-layer annotation and never affects ranking, E[r], or a gate.
-Filing absence is reported only when identity coverage proves the whole lookback window.
-"""
+"""TSE capital-policy workbook facts and EDINET identities for tender-offer readers."""
 
 from __future__ import annotations
 
 import re
 import sqlite3
 from calendar import monthrange
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -19,23 +15,13 @@ from typing import Literal
 import openpyxl
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
-from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
-from baibai_engine.market.edinet_document_store import read_current_filing_documents
+from baibai_engine.market.edinet_decode import parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.storage.observations.schema import connect_current, open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"
 
-# Six months of filings. A large-holding position or a tender offer older than that is
-# no longer the "recent" context the Stock Analysis reader is asking about, and the window
-# has to be short enough that the identity coverage behind it is provable.
-FILING_LOOKBACK_DAYS = 183
-
-# EDINET form codes, from the document-type table in
-# docs/reference/screening-runtime.md. Large-holding filings name their target in
-# `issuerEdinetCode`; tender-offer filings name theirs in `subjectEdinetCode`.
-LARGE_HOLDING_DOC_TYPES: tuple[str, ...] = ("350", "360")
-TENDER_OFFER_DOC_TYPES: tuple[str, ...] = ("240", "250", "260", "270", "280")
+# EDINET tender-offer document type codes used by the calibration exit reader.
 TENDER_OFFER_REGISTRATION_DOC_TYPE = "240"
 TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE = "250"
 TENDER_OFFER_WITHDRAWAL_DOC_TYPE = "260"
@@ -45,7 +31,6 @@ TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE = "280"
 _MONTH_SHEET_RE = re.compile(r"(?:【過去分】)?開示企業一覧（(\d{4})年(\d{1,2})月末時点）")
 
 type CapitalPolicyStatus = Literal["disclosed", "considering"]
-type ControlFilingKind = Literal["large_holding", "tender_offer"]
 
 
 class ValuationCatalystError(RuntimeError):
@@ -71,41 +56,6 @@ class TSECapitalPolicyRefreshSummary:
     row_count: int
     disclosed_count: int
     considering_count: int
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ValuationCatalystContext:
-    """What the sources say about one ticker, with "not observed" kept distinct.
-
-    `None` on a field means the source could not answer for this as-of date, which is a
-    different statement from "the source answered and there was nothing".
-    """
-
-    tse_capital_policy_status: Literal["disclosed", "considering", "none"] | None
-    tse_capital_policy_updated_on: date | None
-    large_holding_filing_within_lookback: bool | None
-    latest_large_holding_filing_date: date | None
-    tender_offer_filing_within_lookback: bool | None
-    latest_tender_offer_filing_date: date | None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ControlFilingIndex:
-    """The filings observed over one window, with the limits of that observation.
-
-    Two things stop an absence from being provable. A ticker whose EDINET code the
-    filing history never revealed cannot be looked up at all, so no filing could have
-    been attributed to it. And a filing that named no target company could have been
-    about anyone, which makes every absence of that filing kind unprovable for the whole
-    window while leaving the other type answerable.
-    """
-
-    latest_by_target: Mapping[tuple[str, ControlFilingKind], date]
-    identified_tickers: frozenset[str]
-    anonymous_filing_kinds: frozenset[ControlFilingKind]
-
-    def can_answer(self, ticker: str, filing_kind: ControlFilingKind) -> bool:
-        return ticker in self.identified_tickers and filing_kind not in self.anonymous_filing_kinds
 
 
 def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyRow, ...]:
@@ -217,145 +167,6 @@ def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPo
         connection.close()
 
 
-def read_valuation_catalyst_contexts(
-    sqlite_path: Path, *, as_of: date, tickers: Iterable[str]
-) -> dict[str, ValuationCatalystContext]:
-    """Read policy snapshots dated at/before as-of and recent target-company filings.
-
-    Never affects rank: the caller copies these into the Stock Analysis payload only.
-    """
-    requested = sorted({normalize_ticker(ticker) for ticker in tickers})
-    if not requested:
-        return {}
-    connection = connect_current(sqlite_path)
-    if connection is None:
-        return {}
-    try:
-        connection.execute("BEGIN")
-        policy_month = connection.execute(
-            "SELECT MAX(snapshot_month_end) FROM tse_capital_policy_snapshots "
-            "WHERE snapshot_month_end <= ?",
-            (as_of.isoformat(),),
-        ).fetchone()[0]
-        filing_floor = as_of - timedelta(days=FILING_LOOKBACK_DAYS)
-        filing_index = read_control_filing_index(connection, start=filing_floor, end=as_of)
-        policy_by_ticker = _policy_by_ticker(connection, policy_month, requested)
-    finally:
-        connection.close()
-    result: dict[str, ValuationCatalystContext] = {}
-    for ticker in requested:
-        policy = policy_by_ticker.get(ticker)
-        large_recent, large_on = _filing_answer(filing_index, ticker, "large_holding")
-        tender_recent, tender_on = _filing_answer(filing_index, ticker, "tender_offer")
-        result[ticker] = ValuationCatalystContext(
-            tse_capital_policy_status=(
-                None if policy_month is None else (policy[0] if policy is not None else "none")
-            ),
-            tse_capital_policy_updated_on=None if policy is None else policy[1],
-            large_holding_filing_within_lookback=large_recent,
-            latest_large_holding_filing_date=large_on,
-            tender_offer_filing_within_lookback=tender_recent,
-            latest_tender_offer_filing_date=tender_on,
-        )
-    return result
-
-
-def _filing_answer(
-    index: ControlFilingIndex | None, ticker: str, filing_kind: ControlFilingKind
-) -> tuple[bool | None, date | None]:
-    """Answer only when absence is provable for this ticker and filing kind."""
-    if index is None or not index.can_answer(ticker, filing_kind):
-        return None, None
-    latest = index.latest_by_target.get((ticker, filing_kind))
-    return latest is not None, latest
-
-
-def read_control_filing_index(
-    connection: sqlite3.Connection, *, start: date, end: date
-) -> ControlFilingIndex | None:
-    """Latest large-holding / tender-offer filing per target ticker in the window.
-
-    Returns ``None`` when the window is not fully identity-covered, so that the caller
-    reports "not observed" rather than "no filings".
-    """
-    if not edinet_identity_covered(connection, start=start, end=end):
-        return None
-    ticker_by_edinet_code = edinet_code_to_ticker(connection, through=end)
-    index: dict[tuple[str, ControlFilingKind], date] = {}
-    anonymous: set[ControlFilingKind] = set()
-    for doc in read_current_filing_documents(connection, through=end):
-        doc_type = str(doc.get("docTypeCode"))
-        if doc_type not in LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES:
-            continue
-        doc_date = date.fromisoformat(str(doc["doc_date"]))
-        if doc_date < start:
-            continue
-        legal = doc.get("legalStatus")
-        disclosure = doc.get("disclosureStatus")
-        withdrawal = doc.get("withdrawalStatus")
-        issuer = doc.get("issuerEdinetCode")
-        subject = doc.get("subjectEdinetCode")
-        if not is_usable_filing_status(legal, disclosure, withdrawal):
-            continue
-        filing_kind: ControlFilingKind = (
-            "large_holding" if str(doc_type) in LARGE_HOLDING_DOC_TYPES else "tender_offer"
-        )
-        target = issuer if filing_kind == "large_holding" else subject
-        if target in (None, ""):
-            # The filing named no target company at all, so it could have been about any
-            # ticker. That makes an absence unprovable for this filing kind over this
-            # window, while the other type stays answerable.
-            anonymous.add(filing_kind)
-            continue
-        ticker = ticker_by_edinet_code.get(str(target))
-        if ticker is None:
-            # The target is named but its listing cannot be resolved. That is a gap for
-            # the company behind that code, which `identified_tickers` already excludes.
-            continue
-        observed = doc_date
-        key = (ticker, filing_kind)
-        if observed > index.get(key, date.min):
-            index[key] = observed
-    return ControlFilingIndex(
-        latest_by_target=index,
-        identified_tickers=frozenset(ticker_by_edinet_code.values()),
-        anonymous_filing_kinds=frozenset(anonymous),
-    )
-
-
-def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end: date) -> bool:
-    """Whether every day in the window was listed and carries submitter identity.
-
-    Two things can leave a hole. A day the store never listed has no rows at all, and
-    counting filings over it would silently read zero. A day listed before the identity
-    columns existed has typed, currently inspectable rows whose `edinetCode` is null;
-    the API supplies that field for every such document, so a null one is a stale row
-    rather than a filing without a submitter. Expired rows cannot regain identity on a
-    later list and are unusable as events. The list also carries untyped operation rows
-    that legitimately have neither a document type nor a submitter, and those are not
-    evidence either way.
-    """
-    listed_days = int(
-        connection.execute(
-            "SELECT COUNT(*) FROM edinet_document_lists WHERE doc_date BETWEEN ? AND ?",
-            (start.isoformat(), end.isoformat()),
-        ).fetchone()[0]
-        or 0
-    )
-    if listed_days != (end - start).days + 1:
-        return False
-    stale_rows = int(
-        connection.execute(
-            "SELECT COUNT(*) FROM edinet_documents WHERE doc_date BETWEEN ? AND ? "
-            "AND doc_type_code IS NOT NULL AND edinet_code IS NULL "
-            "AND legal_status IN ('1', '2')",
-            (start.isoformat(), end.isoformat()),
-        ).fetchone()[0]
-        or 0
-    )
-    return stale_rows == 0
-
-
 def edinet_code_to_ticker(connection: sqlite3.Connection, *, through: date) -> dict[str, str]:
     """Resolve EDINET codes through the (edinetCode, secCode) pairs the list observed.
 
@@ -375,22 +186,6 @@ def edinet_code_to_ticker(connection: sqlite3.Connection, *, through: date) -> d
             continue
         observed.setdefault(str(edinet_code), set()).add(ticker)
     return {code: next(iter(values)) for code, values in observed.items() if len(values) == 1}
-
-
-def _policy_by_ticker(
-    connection: sqlite3.Connection, policy_month: object, requested: Sequence[str]
-) -> dict[str, tuple[CapitalPolicyStatus, date | None]]:
-    if policy_month is None:
-        return {}
-    rows = connection.execute(
-        "SELECT ticker, status, updated_on FROM tse_capital_policy_snapshots "
-        f"WHERE snapshot_month_end = ? AND ticker IN ({_placeholders(requested)})",  # nosec B608
-        (str(policy_month), *requested),
-    ).fetchall()
-    return {
-        str(ticker): (_capital_policy_status_from_store(status), _optional_iso_date(updated_on))
-        for ticker, status, updated_on in rows
-    }
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -485,15 +280,6 @@ def _capital_policy_status(value: str) -> CapitalPolicyStatus:
     raise ValuationCatalystError(f"unknown TSE capital-policy status: {value!r}")
 
 
-def _capital_policy_status_from_store(value: object) -> CapitalPolicyStatus:
-    raw = str(value)
-    if raw == "disclosed":
-        return "disclosed"
-    if raw == "considering":
-        return "considering"
-    raise ValuationCatalystError(f"invalid stored TSE capital-policy status: {raw!r}")
-
-
 def _ticker_from_excel(value: object) -> str:
     if isinstance(value, bool):
         raise ValuationCatalystError(f"invalid TSE ticker: {value!r}")
@@ -540,38 +326,21 @@ def _text(value: object) -> str:
     return re.sub(r"\s+", "", str(value or "")).strip()
 
 
-def _placeholders(values: Sequence[object]) -> str:
-    return ",".join("?" for _ in values)
-
-
 def _date_iso(value: date | None) -> str | None:
     return None if value is None else value.isoformat()
 
 
-def _optional_iso_date(value: object) -> date | None:
-    return None if value in (None, "") else date.fromisoformat(str(value))
-
-
 __all__ = (
-    "FILING_LOOKBACK_DAYS",
-    "LARGE_HOLDING_DOC_TYPES",
-    "TENDER_OFFER_DOC_TYPES",
     "TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE",
     "TENDER_OFFER_REGISTRATION_DOC_TYPE",
     "TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE",
     "TENDER_OFFER_RESULT_DOC_TYPE",
     "TENDER_OFFER_WITHDRAWAL_DOC_TYPE",
     "CapitalPolicyStatus",
-    "ControlFilingIndex",
-    "ControlFilingKind",
     "TSECapitalPolicyRefreshSummary",
     "TSECapitalPolicyRow",
-    "ValuationCatalystContext",
     "ValuationCatalystError",
     "edinet_code_to_ticker",
-    "edinet_identity_covered",
     "parse_tse_capital_policy_workbook",
-    "read_control_filing_index",
-    "read_valuation_catalyst_contexts",
     "store_tse_capital_policy_rows",
 )

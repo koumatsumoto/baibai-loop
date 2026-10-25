@@ -12,13 +12,9 @@ import openpyxl
 from baibai_engine.market.valuation_catalysts import (
     ValuationCatalystError,
     edinet_code_to_ticker,
-    edinet_identity_covered,
     parse_tse_capital_policy_workbook,
-    read_control_filing_index,
-    read_valuation_catalyst_contexts,
-    store_tse_capital_policy_rows,
 )
-from baibai_engine.storage.observations.schema import connect_current, open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 
 # The two real layouts. The 2025 sheets put the contact application next to the update
@@ -315,28 +311,8 @@ def _store_documents(sqlite_path: Path, rows: list[tuple[object, ...]]) -> None:
     connection.close()
 
 
-class ControlFilingIndexTest(unittest.TestCase):
+class EdinetCodeMappingTest(unittest.TestCase):
     ASOF = date(2026, 8, 10)
-
-    def _listed_window(self, sqlite_path: Path, *, rows: list[tuple[object, ...]]) -> None:
-        """Fill every day of the annotation window so coverage is provable."""
-        connection = open_connection(sqlite_path)
-        cursor = date(2026, 1, 1)
-        days = []
-        while cursor <= self.ASOF:
-            days.append((cursor.isoformat(),))
-            cursor = date.fromordinal(cursor.toordinal() + 1)
-        connection.executemany(
-            "INSERT OR REPLACE INTO edinet_document_lists("
-            "doc_date, process_datetime, result_count, selected_received_at_utc, "
-            "latest_received_at_utc, rechecked_asof"
-            ") VALUES (?, NULL, 0, '2026-08-11T00:00:00+00:00', "
-            "'2026-08-11T00:00:00+00:00', '2026-08-11')",
-            days,
-        )
-        connection.commit()
-        connection.close()
-        _store_documents(sqlite_path, rows)
 
     def test_identity_mapping_does_not_truncate_nonordinary_or_malformed_codes(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -356,12 +332,12 @@ class ControlFilingIndexTest(unittest.TestCase):
                     {"E1": "1301", "E4": "130A"},
                 )
 
-    def test_future_identity_and_conflict_do_not_change_historical_filing_context(self) -> None:
+    def test_future_identity_and_conflict_do_not_change_historical_mapping(self) -> None:
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "market.sqlite"
-            self._listed_window(
+            _store_documents(
                 path,
-                rows=[
+                [
                     ("2026-06-01", 1, "S0001", "13010", "120", "1", "0", "0", "E1", None, None),
                     ("2026-08-03", 1, "S0002", None, "350", "1", "0", "0", "E9", "E1", None),
                     ("2026-08-11", 1, "S0003", "13020", "120", "1", "0", "0", "E1", None, None),
@@ -371,249 +347,8 @@ class ControlFilingIndexTest(unittest.TestCase):
             with closing(open_connection(path)) as connection:
                 before = edinet_code_to_ticker(connection, through=self.ASOF)
                 after = edinet_code_to_ticker(connection, through=date(2026, 8, 11))
-                index = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
             self.assertEqual(before, {"E1": "1301"})
             self.assertEqual(after, {"E3": "1303"})
-            assert index is not None
-            self.assertEqual(index.latest_by_target[("1301", "large_holding")], date(2026, 8, 3))
-            self.assertFalse(index.can_answer("1303", "large_holding"))
-
-    def test_a_day_that_was_never_listed_makes_the_window_unobserved(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _store_documents(
-                sqlite_path,
-                [("2026-08-03", 1, "S0001", "13010", "350", "1", "0", "0", "E1", "E2", None)],
-            )
-            connection = connect_current(sqlite_path)
-            assert connection is not None
-            try:
-                covered = edinet_identity_covered(
-                    connection, start=date(2026, 8, 1), end=date(2026, 8, 10)
-                )
-            finally:
-                connection.close()
-
-            self.assertFalse(covered)
-
-    def test_a_typed_row_without_an_edinet_code_makes_the_window_unobserved(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[("2026-08-03", 1, "S0001", "13010", "350", "1", "0", "0", None, "E2", None)],
-            )
-            connection = connect_current(sqlite_path)
-            assert connection is not None
-            try:
-                covered = edinet_identity_covered(connection, start=date(2026, 1, 1), end=self.ASOF)
-            finally:
-                connection.close()
-
-            self.assertFalse(covered)
-
-    def test_an_expired_typed_row_without_an_edinet_code_keeps_the_window_observed(
-        self,
-    ) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[("2026-08-03", 1, "S0001", "13010", "350", "0", "0", "0", None, "E2", None)],
-            )
-            connection = connect_current(sqlite_path)
-            assert connection is not None
-            try:
-                covered = edinet_identity_covered(connection, start=date(2026, 1, 1), end=self.ASOF)
-            finally:
-                connection.close()
-
-            self.assertTrue(covered)
-
-    def test_the_index_reads_the_target_company_not_the_filer(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[
-                    # The filer is 9999; the holding is in 1301.
-                    ("2026-07-01", 1, "S0001", "99990", "350", "1", "0", "0", "E9", "E1", None),
-                    # The offeror is 9999; the target is 1332.
-                    ("2026-07-02", 1, "S0002", None, "240", "1", "0", "0", "E9", None, "E2"),
-                    # 1301 and 1332 identify themselves through their own filings.
-                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
-                    ("2026-06-02", 1, "S0004", "13320", "120", "1", "0", "0", "E2", None, None),
-                ],
-            )
-            connection = connect_current(sqlite_path)
-            assert connection is not None
-            try:
-                index = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
-            finally:
-                connection.close()
-
-            assert index is not None
-            self.assertEqual(index.latest_by_target[("1301", "large_holding")], date(2026, 7, 1))
-            self.assertEqual(index.latest_by_target[("1332", "tender_offer")], date(2026, 7, 2))
-            self.assertNotIn(("9999", "large_holding"), index.latest_by_target)
-
-    def test_later_non_disclosure_operation_is_applied_before_filing_context(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[
-                    ("2026-07-01", 1, "S0001", "99990", "350", "1", "0", "0", "E9", "E1", None),
-                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
-                ],
-            )
-            with closing(open_connection(sqlite_path)) as connection:
-                connection.execute(
-                    "INSERT INTO edinet_documents("
-                    "doc_date, sequence_number, doc_id, disclosure_status, operation_datetime) "
-                    "VALUES ('2026-07-02', 1, 'S0001', '1', '2026-07-02T10:00')"
-                )
-                connection.commit()
-                before = read_control_filing_index(
-                    connection, start=date(2026, 1, 1), end=date(2026, 7, 1)
-                )
-                after = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
-            assert before is not None
-            assert after is not None
-            self.assertEqual(before.latest_by_target[("1301", "large_holding")], date(2026, 7, 1))
-            self.assertEqual(after.latest_by_target, {})
-
-    def test_a_withdrawn_filing_is_not_an_event(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[
-                    ("2026-07-01", 1, "S0001", "99990", "350", "1", "0", "1", "E9", "E1", None),
-                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
-                ],
-            )
-            connection = connect_current(sqlite_path)
-            assert connection is not None
-            try:
-                index = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
-            finally:
-                connection.close()
-
-            assert index is not None
-            self.assertEqual(index.latest_by_target, {})
-
-    def test_an_unobserved_window_reports_unknown_rather_than_no_events(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _store_documents(
-                sqlite_path,
-                [("2026-08-03", 1, "S0001", "13010", "120", "1", "0", "0", "E1", None, None)],
-            )
-
-            annotations = read_valuation_catalyst_contexts(
-                sqlite_path, as_of=self.ASOF, tickers=["1301"]
-            )
-
-            annotation = annotations["1301"]
-            self.assertIsNone(annotation.large_holding_filing_within_lookback)
-            self.assertIsNone(annotation.tender_offer_filing_within_lookback)
-            self.assertIsNone(annotation.tse_capital_policy_status)
-
-    def test_an_observed_window_without_filings_reports_no_events(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None)],
-            )
-
-            annotations = read_valuation_catalyst_contexts(
-                sqlite_path, as_of=self.ASOF, tickers=["1301"]
-            )
-
-            annotation = annotations["1301"]
-            self.assertIs(annotation.large_holding_filing_within_lookback, False)
-            self.assertIsNone(annotation.latest_large_holding_filing_date)
-
-    def test_a_ticker_whose_edinet_identity_is_unknown_reports_unknown(self) -> None:
-        """Coverage of the index does not prove a company could have been looked up."""
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[
-                    # 7777 never filed anything carrying its own securities code, so the
-                    # holding filed against it cannot be attributed to a listing.
-                    ("2026-07-01", 1, "S0001", None, "350", "1", "0", "0", "E9", "E7", None),
-                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
-                ],
-            )
-
-            annotations = read_valuation_catalyst_contexts(
-                sqlite_path, as_of=self.ASOF, tickers=["1301", "7777"]
-            )
-
-            self.assertIs(annotations["1301"].large_holding_filing_within_lookback, False)
-            self.assertIsNone(annotations["7777"].large_holding_filing_within_lookback)
-
-    def test_a_filing_naming_no_target_makes_that_filing_kind_unknown(self) -> None:
-        """An absence is unprovable when a filing could have been about anyone."""
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[
-                    ("2026-07-02", 1, "S0002", None, "280", "1", "0", "0", "E9", None, None),
-                    ("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None),
-                ],
-            )
-
-            annotation = read_valuation_catalyst_contexts(
-                sqlite_path, as_of=self.ASOF, tickers=["1301"]
-            )["1301"]
-
-            self.assertIsNone(annotation.tender_offer_filing_within_lookback)
-            # The other filing kind is still answerable from the same window.
-            self.assertIs(annotation.large_holding_filing_within_lookback, False)
-
-    def test_policy_status_reads_the_latest_snapshot_at_or_before_the_asof(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            self._listed_window(
-                sqlite_path,
-                rows=[("2026-06-01", 1, "S0003", "13010", "120", "1", "0", "0", "E1", None, None)],
-            )
-            content = _workbook(
-                [
-                    (
-                        "開示企業一覧（2026年6月末時点）",
-                        _GROUP_2026,
-                        _DETAIL_2026,
-                        [_row_2026(1301, "検討中", updated=_naive_datetime(2026, 6, 23))],
-                    ),
-                    (
-                        "【過去分】開示企業一覧（2025年5月末時点）",
-                        _GROUP_2025,
-                        _DETAIL_2025,
-                        [_row_2025(1301, "開示済"), _row_2025(9999, "開示済")],
-                    ),
-                ]
-            )
-            store_tse_capital_policy_rows(sqlite_path, parse_tse_capital_policy_workbook(content))
-
-            current = read_valuation_catalyst_contexts(
-                sqlite_path, as_of=self.ASOF, tickers=["1301", "9999"]
-            )
-            historic = read_valuation_catalyst_contexts(
-                sqlite_path, as_of=date(2025, 12, 31), tickers=["1301"]
-            )
-
-            self.assertEqual(current["1301"].tse_capital_policy_status, "considering")
-            self.assertEqual(current["1301"].tse_capital_policy_updated_on, date(2026, 6, 23))
-            # Absent from the June sheet, so the snapshot answered "not listed".
-            self.assertEqual(current["9999"].tse_capital_policy_status, "none")
-            self.assertEqual(historic["1301"].tse_capital_policy_status, "disclosed")
 
 
 if __name__ == "__main__":
