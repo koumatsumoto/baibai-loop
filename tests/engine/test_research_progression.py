@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers.assessment_v1 import NOW, assessment_id, pair_payload
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
@@ -70,8 +71,9 @@ def seed_assessment(db, ticker="1234", *, number=1, now=NOW):
 
 def start(case, tickers=(), *, scope="discover_new"):
     db, _market = case
-    value = make_selection(now=NOW, tickers=tickers, scope=scope)
-    service = OperationService(db)
+    runs = db.with_name("runs.sqlite")
+    value = seed_generated_selection(runs=runs, now=NOW, tickers=tickers, scope=scope)
+    service = OperationService(db, runs_path=runs)
     operation = service.start(
         session_kind="position-review" if scope == "review_positions" else "capital-allocation",
         as_of=NOW.date(),

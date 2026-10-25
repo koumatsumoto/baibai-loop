@@ -128,9 +128,10 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = tmp_path / "app.sqlite"
-    from tests.helpers.research_selection import selection
+    from tests.helpers.generated_selection import seed_generated_selection
 
-    binding = selection(now=OPERATION_NOW).model_dump(mode="json")
+    runs = tmp_path / "runs.sqlite"
+    binding = seed_generated_selection(runs=runs, now=OPERATION_NOW).model_dump(mode="json")
     start = tmp_path / "start.yaml"
     start.write_text(yaml.safe_dump({"checkpoint": "start", "artifacts": [binding]}))
     assert (
@@ -138,6 +139,8 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
             [
                 "--db",
                 str(db),
+                "--runs-path",
+                str(runs),
                 "start",
                 "--kind",
                 "capital-allocation",

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.investment_judgment.operation.models import SESSION_KINDS, OperationPayload
@@ -19,6 +20,7 @@ from baibai_engine.investment_judgment.operation.service import OperationService
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine operation")
     parser.add_argument("--db", type=Path)
+    parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -88,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
-    service = OperationService(args.db)
+    service = OperationService(args.db, runs_path=args.runs_path)
     current_time = now or datetime.now(JST)
     try:
         if args.command == "start":

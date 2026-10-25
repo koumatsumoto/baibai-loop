@@ -8,8 +8,8 @@ from functools import partial
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
+from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review
-from tests.helpers.research_selection import selection
 
 from baibai_engine.investment_judgment.operation.models import OperationPayload
 from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
@@ -55,7 +55,9 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
         if index:
             # A new explicit request follows the first proposal's completion and
             # human report. The already held/reserved ticker is not selected again.
-            selected = selection(now=now, tickers=(ticker,), scope="specified_stocks")
+            selected = seed_generated_selection(
+                runs=case.runs, now=now, tickers=(ticker,), scope="specified_stocks"
+            )
             operation = case.operations.start(
                 session_kind="capital-allocation",
                 as_of=selected.research_as_of,

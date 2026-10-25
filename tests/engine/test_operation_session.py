@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 from pydantic import ValidationError
+from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.research_selection import selection
 
 from baibai_engine.foundation.time import JST
@@ -85,15 +86,19 @@ def test_operation_payload_help_names_a_file_path(
 def test_operation_json_format_emits_one_machine_object(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    runs = tmp_path / "runs.sqlite"
+    selected = seed_generated_selection(runs=runs, now=NOW)
     db = tmp_path / "app.sqlite"
     draft = tmp_path / "start.yaml"
-    draft.write_text(yaml.safe_dump(_active_payload().model_dump(mode="json")))
+    draft.write_text(yaml.safe_dump(_active_payload(selected=selected).model_dump(mode="json")))
 
     assert (
         operation_main(
             [
                 "--db",
                 str(db),
+                "--runs-path",
+                str(runs),
                 "--format",
                 "json",
                 "start",
@@ -113,22 +118,26 @@ def test_operation_json_format_emits_one_machine_object(
     assert payload["session_kind"] == "capital-allocation"
 
 
-def _active_payload(checkpoint: str = "source review") -> OperationPayload:
+def _active_payload(checkpoint: str = "source review", *, selected=None) -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,
-        artifacts=(selection(now=NOW).model_dump(mode="json"),),
+        artifacts=(
+            (selected if selected is not None else selection(now=NOW)).model_dump(mode="json"),
+        ),
         next="continue the reviewed research",
     )
 
 
 def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Path) -> None:
+    runs = tmp_path / "runs.sqlite"
+    selected = seed_generated_selection(runs=runs, now=NOW)
     db = tmp_path / "app.sqlite"
-    service = OperationService(db)
+    service = OperationService(db, runs_path=runs)
     operation = service.start(
         session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
-        payload=_active_payload("one"),
+        payload=_active_payload("one", selected=selected),
     )
 
     with pytest.raises(OperationConflictError, match="active operation already exists"):
@@ -137,10 +146,10 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
             ticker=None,
             as_of=date(2026, 7, 19),
             started_at=NOW,
-            payload=_active_payload(),
+            payload=_active_payload(selected=selected),
         )
 
-    service.checkpoint(operation.operation_id, _active_payload("two"))
+    service.checkpoint(operation.operation_id, _active_payload("two", selected=selected))
     with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT count(*), json_extract(payload, '$.checkpoint') FROM operation_session"
@@ -160,13 +169,15 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     tmp_path: Path,
     kind: SessionKind,
 ) -> None:
-    service = OperationService(tmp_path / "app.sqlite")
+    runs = tmp_path / "runs.sqlite"
+    selected = seed_generated_selection(runs=runs, now=NOW)
+    service = OperationService(tmp_path / "app.sqlite", runs_path=runs)
     operation = service.start(
         session_kind=kind,
         ticker=None,
         as_of=date(2026, 7, 19),
         started_at=NOW,
-        payload=_active_payload(),
+        payload=_active_payload(selected=selected),
     )
 
     with pytest.raises(OperationCompletionError):
@@ -187,14 +198,16 @@ def test_operation_payload_rejects_retired_workflow_fields(field: str) -> None:
 
 
 def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None:
+    runs = tmp_path / "runs.sqlite"
+    selected = seed_generated_selection(runs=runs, now=NOW)
     db = tmp_path / "app.sqlite"
     initialize_database(db)
-    service = OperationService(db)
+    service = OperationService(db, runs_path=runs)
     operation = service.start(
         session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
-        payload=_active_payload(),
+        payload=_active_payload(selected=selected),
     )
     connection = connect_rw(db)
     try:

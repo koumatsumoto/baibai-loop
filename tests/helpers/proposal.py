@@ -21,8 +21,8 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.master import insert_master_rows
-from tests.helpers.research_selection import selection
 from tests.helpers.screening_sqlite import seed_daily_bars
 
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
@@ -161,12 +161,14 @@ def backend_case(
     pair = AssessmentStoreService(
         app, clock=lambda: datetime.fromisoformat(f"{assessment_as_of}T16:06:00+09:00")
     ).publish_reviewed_assessment(assessment_id(), document, review)
-    selected = selection(
+    runs = tmp_path / "runs.sqlite"
+    selected = seed_generated_selection(
+        runs=runs,
         now=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
         tickers=tickers,
         scope="review_positions" if holding else "specified_stocks",
     )
-    operations = OperationService(app)
+    operations = OperationService(app, runs_path=runs)
     operation = operations.start(
         session_kind="position-review" if holding else "capital-allocation",
         as_of=selected.research_as_of,
@@ -182,6 +184,7 @@ def backend_case(
     return SimpleNamespace(
         app=app,
         market=market,
+        runs=runs,
         ledger=ledger,
         pair=pair,
         selected=selected,
