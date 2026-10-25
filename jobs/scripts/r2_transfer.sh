@@ -632,11 +632,32 @@ upload_portfolio_views() {
       return 2
     }
   done
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   for name in portfolio-dashboard tasks outcomes; do
-    aws_s3 cp "${directory}/views/${name}.json" \
+    if ! aws_s3 cp "${directory}/views/${name}.json" \
       "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
-      --content-type application/json --cache-control no-store
+      --content-type application/json --cache-control no-store \
+      >> "${transfer_staging}/transfer.log" 2>&1; then
+      printf 'portfolio view upload failed: %s\n' "${name}" >&2
+      return 1
+    fi
   done
+  # Verify the actual serving bytes while the caller still holds its publication
+  # lease. Never print the payload or a diff: these views contain private assets.
+  for name in portfolio-dashboard tasks outcomes; do
+    if ! aws_s3 cp "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
+      "${transfer_staging}/${name}.json" >> "${transfer_staging}/transfer.log" 2>&1; then
+      printf 'portfolio view readback failed: %s\n' "${name}" >&2
+      return 1
+    fi
+    if ! cmp -s "${directory}/views/${name}.json" "${transfer_staging}/${name}.json"; then
+      printf 'portfolio view readback mismatch: %s\n' "${name}" >&2
+      return 1
+    fi
+  done
+  cleanup_staging
+  transfer_staging=""
+  printf 'portfolio views verified from remote readback: 3\n'
 }
 
 usage() {
