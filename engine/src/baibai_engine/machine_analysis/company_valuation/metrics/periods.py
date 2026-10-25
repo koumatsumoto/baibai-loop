@@ -16,7 +16,9 @@ from baibai_engine.market.financial_documents import (
 )
 from baibai_engine.market.financial_periods import (
     ACTUAL_FIELDS,
+    annual_ttm_start,
     compose_ttm_amount,
+    is_annual_period,
     period_days,
     prior_year_period_matches,
 )
@@ -280,7 +282,7 @@ def _ttm_components(
     if latest_days is None:
         return ()
     if ttm_rules.full_year_min_days <= latest_days <= ttm_rules.full_year_max_days:
-        return (latest,)
+        return (latest,) if is_annual_period(latest.period_start, latest.period_end) else ()
     if latest.fiscal_year_end is None:
         return ()
     prior_fy_end = add_months_clamped(latest.fiscal_year_end, -12)
@@ -292,6 +294,8 @@ def _ttm_components(
         value_field=field,
     )
     if prior_fy is None or prior_same is None:
+        return ()
+    if annual_ttm_start(latest, prior_fy, prior_same) is None:
         return ()
     # A fiscal-date match cannot make individual and consolidated amounts additive.
     # Keep each reported operand intact rather than searching older revisions for

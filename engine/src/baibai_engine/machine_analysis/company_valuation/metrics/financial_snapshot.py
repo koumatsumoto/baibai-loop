@@ -43,7 +43,7 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "normalized-fy-input-parity-v43"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v44"
 
 
 def build_financial_snapshot(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
@@ -124,3 +124,36 @@ def prior_year_dates_match(
 def compose_ttm_amount(current: float, prior_year: float, prior_same: float) -> float:
     """Inputs are compatible amounts, never reported EPS or share counts."""
     return current + prior_year - prior_same
+
+
+def is_annual_period(start: date, end: date) -> bool:
+    """約一年の会計期間。週次決算暦のずれは許すが、11か月決算は年率としない。"""
+    if start > end or end.year <= 1:
+        return False
+    expected_start = add_months_clamped(end, -12) + timedelta(days=1)
+    return abs((start - expected_start).days) <= 7
+
+
+def annual_ttm_start(
+    current: JQuantsFinancialSummary,
+    prior_year: JQuantsFinancialSummary,
+    prior_same: JQuantsFinancialSummary,
+) -> date | None:
+    """加減算後に残る連続した一年の始点。会計期間のgapや重複を推定で埋めない。"""
+    if (
+        current.period_start is None
+        or current.period_end is None
+        or prior_year.period_start is None
+        or prior_year.period_end is None
+        or prior_same.period_start is None
+        or prior_same.period_end is None
+    ):
+        return None
+    if (
+        prior_same.period_start != prior_year.period_start
+        or prior_same.period_end >= prior_year.period_end
+        or current.period_start != prior_year.period_end + timedelta(days=1)
+    ):
+        return None
+    start = prior_same.period_end + timedelta(days=1)
+    return start if is_annual_period(start, current.period_end) else None

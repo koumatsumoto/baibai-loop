@@ -149,3 +149,39 @@ def test_missing_treasury_shares_is_not_assumed_zero():
 def test_future_disclosure_does_not_enter_fixed_asof():
     future = replace(annual(900.0), disclosed_at=date(2026, 9, 1))
     assert observation([annual(), future]) == observation([annual()])
+
+
+def test_eleven_month_fiscal_year_is_not_an_annual_profit_observation():
+    short_year = replace(annual(), period_end=date(2026, 2, 28), fiscal_year_end=date(2026, 2, 28))
+    result = observation([short_year])
+    assert result.profit_ttm_yen is None
+    assert result.earnings_yield is None
+
+
+def test_fiscal_year_change_cannot_make_eleven_months_into_ttm():
+    prior_half = replace(
+        annual(),
+        period_end=date(2025, 9, 30),
+        disclosed_at=date(2025, 11, 15),
+        fiscal_period="2Q",
+        profit=20.0,
+    )
+    short_year = replace(annual(), period_end=date(2026, 2, 28), fiscal_year_end=date(2026, 2, 28))
+    current_half = replace(
+        annual(),
+        period_start=date(2026, 3, 1),
+        period_end=date(2026, 8, 31),
+        fiscal_year_end=date(2027, 2, 28),
+        disclosed_at=date(2026, 10, 15),
+        fiscal_period="2Q",
+        profit=40.0,
+    )
+    result = earnings_price(
+        [prior_half, short_year, current_half],
+        adjusted_price=PriceBar(date(2026, 10, 23), 10.0, None),
+        adjustment_events=(),
+        as_of=date(2026, 10, 23),
+        ttm_rules=RULES,
+    )
+    assert result.profit_ttm_yen is None
+    assert result.earnings_yield is None

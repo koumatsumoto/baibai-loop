@@ -131,6 +131,37 @@ def test_seasonality_and_one_time_gain_remain_one_quarter_observation():
     assert "sustained_growth" not in result[4].model_dump_json()
 
 
+def test_eleven_month_year_remains_reported_but_not_annualized():
+    result = states(
+        [document(2025, 4, 1100, 110, 55, CurPerEn="2026-02-28", CurFYEn="2026-02-28")]
+    )
+    assert amount(result[0], "reported", "sales").value == 1100
+    assert amount(result[0], "annual_ttm", "sales").value is None
+
+
+def test_fiscal_year_change_does_not_combine_eleven_months_as_ttm():
+    result = states(
+        [
+            document(2025, 2, 600, 60, 30),
+            document(2025, 4, 1100, 110, 55, CurPerEn="2026-02-28", CurFYEn="2026-02-28"),
+            document(
+                2026,
+                2,
+                700,
+                70,
+                35,
+                CurPerSt="2026-03-01",
+                CurPerEn="2026-08-31",
+                CurFYEn="2027-02-28",
+            ),
+        ]
+    )
+    assert amount(result[-1], "reported", "sales").value == 700
+    annual = amount(result[-1], "annual_ttm", "sales")
+    assert annual.value is None
+    assert annual.reason == "accounting_periods_incomparable"
+
+
 def test_cumulative_difference_and_reported_eps_never_share_arithmetic():
     result = states(
         [

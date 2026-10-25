@@ -15,7 +15,9 @@ from baibai_engine.market.financial_documents import (
 )
 from baibai_engine.market.financial_periods import (
     ACTUAL_FIELDS,
+    annual_ttm_start,
     compose_ttm_amount,
+    is_annual_period,
     period_days,
     prior_year_dates_match,
     prior_year_period_matches,
@@ -178,7 +180,11 @@ def _derived(
     assert anchor.period_start is not None
     assert anchor.period_end is not None
     days = period_days(anchor)
-    if days is not None and (330 <= days <= 370 if ttm else 70 <= days <= 110):
+    if days is not None and (
+        330 <= days <= 370 and is_annual_period(anchor.period_start, anchor.period_end)
+        if ttm
+        else 70 <= days <= 110
+    ):
         return anchor.period_start, {m: _value(current, m, f) for m, f in _AMOUNT_FIELDS}
     start = (
         add_months_clamped(anchor.period_end, -12) + timedelta(days=1)
@@ -230,15 +236,15 @@ def _derived(
     else:
         previous_end = selected_groups[-1][0].period_end
         assert previous_end is not None
-        start = previous_end + timedelta(days=1)
         if ttm:
             annual, prior_cumulative = selected_groups[0][0], selected_groups[-1][0]
-            assert annual.period_end is not None
-            if (
-                annual.period_start != prior_cumulative.period_start
-                or abs((anchor.period_start - annual.period_end).days - 1) > 45
-            ):
+            annual_start = annual_ttm_start(anchor, annual, prior_cumulative)
+            if annual_start is None:
                 period_reason = "accounting_periods_incomparable"
+            else:
+                start = annual_start
+        else:
+            start = previous_end + timedelta(days=1)
     metrics: dict[Metric, Value] = {}
     for metric, field in _AMOUNT_FIELDS:
         current_value = _value(current, metric, field)
