@@ -772,7 +772,12 @@ def test_legacy_review_read_and_retry_preserve_stored_payload(connection):
     )
     connection.execute(
         "INSERT INTO stock_assessment_review VALUES(?,?,?,?)",
-        (typed_review.review_id, assessment_id(), typed_review.reviewed_at.isoformat(), legacy_json),
+        (
+            typed_review.review_id,
+            assessment_id(),
+            typed_review.reviewed_at.isoformat(),
+            legacy_json,
+        ),
     )
     pair = load_reviewed_assessment(connection, assessment_id())
     assert pair.document == typed
