@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from datetime import date
 from math import isfinite
 
-from baibai_engine.market.financial_documents import project_financial_documents, statement_basis
+from baibai_engine.market.financial_documents import (
+    accounting_period_identity,
+    latest_disclosure_candidates,
+    project_financial_documents,
+    statement_basis,
+)
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_models import (
     JQuantsAdjustmentFactorEvent,
@@ -58,9 +63,11 @@ def earnings_price(
     adjusted_priceはas_of基準へ調整済みの価格。開示EPSの足し算やPERの逆数は使わない。
     連結/単体が不明なら原額は保持するが選定用利回りを確定しない。
     """
-    normalized = _normalize_summaries_with_status(
-        project_financial_documents(summaries, as_of), adjustment_events, as_of
+    projected = sorted(
+        project_financial_documents(summaries, as_of),
+        key=lambda row: (row.disclosed_at, row.disclosed_time or "", row.disclosure_number or ""),
     )
+    normalized = _normalize_summaries_with_status(projected, adjustment_events, as_of)
     capital = _resolve_capital_basis(
         normalized.summaries, capital_basis_barrier=normalized.capital_basis_barrier
     )
@@ -80,6 +87,20 @@ def earnings_price(
     )
     profit = sum(part.coefficient * part.amount_yen for part in components) if components else None
     basis = statement_basis(rows[0]) if rows else None
+    basis_conflict = any(
+        {
+            statement_basis(candidate)
+            for candidate in latest_disclosure_candidates(
+                [
+                    candidate
+                    for candidate in normalized.summaries
+                    if accounting_period_identity(candidate) == accounting_period_identity(row)
+                ]
+            )
+        }
+        != {statement_basis(row)}
+        for row in rows
+    )
     price = adjusted_price.price if adjusted_price is not None else None
     price_date = adjusted_price.traded_at if adjusted_price is not None else None
     shares = capital.shares_ex_treasury
@@ -98,6 +119,8 @@ def earnings_price(
             reason = "invalid_market_cap"
     if reason is None and profit is None:
         reason = "unavailable_annual_profit"
+    if reason is None and basis_conflict:
+        reason = "conflicting_statement_basis"
     if reason is None and basis not in ("consolidated", "nonconsolidated"):
         reason = "unknown_statement_basis"
     value = profit / market_cap if reason is None and profit is not None and market_cap else None
@@ -111,7 +134,7 @@ def earnings_price(
         shares_ex_treasury=shares,
         market_cap_yen=market_cap,
         profit_ttm_yen=profit,
-        statement_basis=basis,
+        statement_basis=None if basis_conflict else basis,
         profit_components=components,
         earnings_yield=value,
         unavailable_reason=reason,

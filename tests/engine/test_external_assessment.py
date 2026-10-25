@@ -101,9 +101,7 @@ def test_population_read_keeps_each_company_history_separate_and_matches_single_
     tv_row(path, RECEIVED, ticker="1234", price_target_average=1100)
     tv_row(path, RECEIVED + timedelta(minutes=1), ticker="5678", price_target_average=2200)
     cutoff = RECEIVED + timedelta(days=1)
-    population = read_observation_population(
-        path, tickers=("1234", "5678", "9999"), cutoff=cutoff
-    )
+    population = read_observation_population(path, tickers=("1234", "5678", "9999"), cutoff=cutoff)
     for ticker, history in population.items():
         assert history == read_observations(path, ticker, cutoff)
     assert population["1234"].model_valuations[0].latest.consensus_target == 1200
