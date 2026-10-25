@@ -38,7 +38,7 @@ CONTRACT_SCHEMA_VERSION = 5
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins
 # the two against each other so a route added there without a model here is caught.
 ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
-    "views/dashboard.json": DashboardView,
+    "views/portfolio-dashboard.json": DashboardView,
     "views/outcomes.json": OutcomesView,
     "views/tasks.json": TasksView,
 }
@@ -83,10 +83,9 @@ def _always_written(definition: object) -> object:
     the API answers through `response_model`, and neither omits a field. This schema
     describes the artifact, so a reader can rely on every key being present.
 
-    The one window where that is not true is between a code deploy and the materialize
-    that follows it, when the UI reads the previous export. The runbook orders those two
-    and the UI degrades on missing sections; a type that called every field optional
-    would spread that one window across every field forever.
+    Serving artifacts are published and read back before their UI is deployed. A
+    breaking dashboard shape uses a distinct object key so prepublication cannot
+    break the still-deployed reader; optional types would not protect that old UI.
     """
 
     if not isinstance(definition, dict):

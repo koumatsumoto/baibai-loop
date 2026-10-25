@@ -3,8 +3,8 @@
   "title": "Baibai Loop read model",
   "schemaVersion": 5,
   "roots": {
-    "views/dashboard.json": "#/$defs/DashboardView",
     "views/outcomes.json": "#/$defs/OutcomesView",
+    "views/portfolio-dashboard.json": "#/$defs/DashboardView",
     "views/tasks.json": "#/$defs/TasksView"
   },
   "$defs": {

@@ -6,4 +6,4 @@
 
 Pythonの表示modelからcontracts/schemaとTypeScriptを生成する。変更時は `uv run python -m baibai_web.contracts_export` で更新する。表示はapplicationとmarketだけを読み、旧run・economic store・保存判断の全件走査を必要としない。
 
-[運用手順](../jobs/OPERATIONS.md#web-serving)に従い、3 viewを先に公開・読戻ししてからUIを切り替える。旧R2 objectやcredentialの削除はこの変更に含めない。
+[運用手順](../jobs/OPERATIONS.md#web-serving)に従い、3 viewを先にR2へ公開・読戻ししてからUIを切り替える。新dashboardは別keyへ保存し、切替前の旧画面が読むobjectを上書きしない。旧R2 objectやcredentialの削除はこの変更に含めない。

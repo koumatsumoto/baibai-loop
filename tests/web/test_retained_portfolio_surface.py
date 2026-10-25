@@ -34,9 +34,17 @@ def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tm
     PortfolioOutcomeStore(app).publish(_publication())
     before = app.read_bytes()
     output = tmp_path / "export"
+    old_dashboard = output / "views/dashboard.json"
+    old_dashboard.parent.mkdir(parents=True)
+    old_dashboard.write_text('{"legacy": true}\n')
     paths = export_read_models(tmp_path, output)
-    assert {path.name for path in paths} == {"dashboard.json", "tasks.json", "outcomes.json"}
-    dashboard = json.loads((output / "views/dashboard.json").read_text())
+    assert old_dashboard.read_text() == '{"legacy": true}\n'
+    assert {path.name for path in paths} == {
+        "portfolio-dashboard.json",
+        "tasks.json",
+        "outcomes.json",
+    }
+    dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_exists"] is True
     assert dashboard["holdings"][0]["quantity"] == 200
     assert dashboard["holdings"][0]["market_value_yen"] is None

@@ -622,16 +622,17 @@ pull_app() {
   pull_keys baibai.sqlite
 }
 
-# Only the three retained views are published; old objects are not purged here.
+# The new dashboard has its own serving key: publishing before the UI cutover
+# must not remove fields still read by the old deployed dashboard. Old keys stay untouched.
 upload_portfolio_views() {
   local directory="$1" name
-  for name in dashboard tasks outcomes; do
+  for name in portfolio-dashboard tasks outcomes; do
     [[ -s "${directory}/views/${name}.json" ]] || {
       printf 'missing portfolio view: %s\n' "${name}" >&2
       return 2
     }
   done
-  for name in dashboard tasks outcomes; do
+  for name in portfolio-dashboard tasks outcomes; do
     aws_s3 cp "${directory}/views/${name}.json" \
       "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
       --content-type application/json --cache-control no-store

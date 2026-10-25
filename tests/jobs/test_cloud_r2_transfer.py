@@ -1741,3 +1741,39 @@ def test_runs_only_push_refuses_changed_cloud_generation_without_writing(tmp_pat
     assert completed.returncode != 0
     assert "runs.sqlite changed on R2" in completed.stderr
     assert not any(command.startswith("s3api put-object ") for command in _transfer_commands(log))
+
+
+@pytest.mark.parametrize("missing", [None, "portfolio-dashboard", "tasks", "outcomes"])
+def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(tmp_path, missing):
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    export = tmp_path / "export"
+    views = export / "views"
+    views.mkdir(parents=True)
+    # Even a stale artifact in a reused export directory must not reach the old key.
+    for name in ("dashboard", "portfolio-dashboard", "tasks", "outcomes"):
+        if name != missing:
+            (views / f"{name}.json").write_text('{"synthetic": true}\n')
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", str(export)],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    commands = _transfer_commands(log)
+    uploads = [command for command in commands if command.startswith("s3 cp ")]
+    if missing is not None:
+        assert completed.returncode == 2
+        assert uploads == []
+        assert f"missing portfolio view: {missing}" in completed.stderr
+        return
+    assert completed.returncode == 0, completed.stderr
+    assert [command.split()[3] for command in uploads] == [
+        f"s3://baibai-serving/views/{name}.json"
+        for name in ("portfolio-dashboard", "tasks", "outcomes")
+    ]
+    assert not any("views/dashboard.json" in command for command in commands)
+    assert not any("delete-object" in command or "s3 rm" in command for command in commands)

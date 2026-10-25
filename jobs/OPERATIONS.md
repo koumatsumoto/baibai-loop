@@ -578,7 +578,7 @@ PMIは公表翌週、TSE資本政策とJPX廃止は翌月15日以降に既存ref
 
 表示はdashboard・outcomes・tasksの3 viewだけ。旧候補・macro・調査一覧・L1公開取得APIを復活させない。coreの日次統合が保存した後に同じローカルmarketとapplicationから生成・配信する。表示失敗で生成モデルやsource封印を巻き戻さない。台帳・taskの明示更新後は既存のpublish.shがapplication条件付き反映後にcloud-materializeを起動する。
 
-手動再生成はmain上のcloud-materializeを実行する。marketだけをpullし、固定releaseからhydrate、applicationをpullして3 viewを生成する。旧run・economic storeは不要。Web切替前に3 viewの保存・認証付き読戻しとUIの対象HEADを確認し、web workflowをmainで明示dispatchする。PRのCI成功は本番更新ではない。旧object・Worker secretは削除しない。
+手動再生成はmain上のcloud-materializeを実行する。marketだけをpullし、固定releaseからhydrate、applicationをpullして3 viewを生成する。旧run・economic storeは不要。新dashboardは`views/portfolio-dashboard.json`へ保存し、旧UIが読む`views/dashboard.json`を上書きしない。Web切替前に3 viewをR2の認可済み読取で照合し（旧Workerでは新dashboard/outcomesを読めない）、UIの対象HEADを確認し、web workflowをmainで明示dispatchする。切替後に認証付きAPIと画面を確認する。PRのCI成功は本番更新ではない。旧object・Worker secretは削除しない。
 
 ```bash
 uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving

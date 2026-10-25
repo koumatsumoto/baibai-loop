@@ -1,6 +1,6 @@
 {
   "routes": {
-    "/api/dashboard": "views/dashboard.json",
+    "/api/dashboard": "views/portfolio-dashboard.json",
     "/api/tasks": "views/tasks.json",
     "/api/outcomes": "views/outcomes.json"
   },

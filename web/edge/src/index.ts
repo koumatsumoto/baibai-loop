@@ -59,7 +59,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === '/api/health') return jsonResponse({ status: 'ok' }, 200)
   const keys: Record<string, string> = {
-    '/api/dashboard': 'views/dashboard.json',
+    '/api/dashboard': 'views/portfolio-dashboard.json',
     '/api/tasks': 'views/tasks.json',
     '/api/outcomes': 'views/outcomes.json',
   }
