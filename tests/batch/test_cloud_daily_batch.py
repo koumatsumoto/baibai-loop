@@ -688,13 +688,13 @@ def test_main_rejects_a_root_without_project_markers(tmp_path: Path, capsys) -> 
     assert "pyproject.toml" in capsys.readouterr().err
 
 
-def test_main_requires_method_directory_in_repo_root(tmp_path: Path, capsys) -> None:
+def test_main_requires_engine_package_in_repo_root(tmp_path: Path, capsys) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
 
     exit_code = main(["--repo-root", str(tmp_path), "--output-dir", str(tmp_path / "serving")])
 
     assert exit_code == 1
-    assert "does not contain method/" in capsys.readouterr().err
+    assert "does not contain engine/src/baibai_engine/" in capsys.readouterr().err
 
 
 # --- notice for the Discord notifier ---------------------------------------
@@ -975,7 +975,7 @@ def test_daily_batch_names_missing_calendar_and_still_exports_economic_sources(
 
 def test_main_rejects_an_invalid_asof_before_writing_a_notice(tmp_path: Path, capsys) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    (tmp_path / "method").mkdir()
+    (tmp_path / "engine/src/baibai_engine").mkdir(parents=True)
     notice_path = tmp_path / "notice.json"
 
     exit_code = main(

@@ -1,7 +1,7 @@
 """Reading rules: frequency defaults plus per-series overrides.
 
-The rules are a dated revision under ``method/macro/reading/`` so a change to how
-values are read is a reviewable revision rather than an edit in code. Resolution
+Rules are dated revisions in the sibling ``rules/`` directory, so changes to
+reading policy are reviewable without duplicating configuration in code. Resolution
 is defaults-by-frequency first, then the series override, so registering a series
 never requires touching this file — only a series whose provider makes a default
 untrue needs an entry.

@@ -336,9 +336,9 @@ def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: 
 @pytest.mark.parametrize(
     "method_path",
     [
-        "method/screening/rules/2026-10-16T133000+0900.yaml",
-        "method/screening/rules/2099-01-01T000000+0900.yaml",
-        "method/macro/reading/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/screening/rules/2026-10-16T133000+0900.yaml",
+        "engine/src/baibai_engine/screening/rules/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/market_context/reading/rules/2099-01-01T000000+0900.yaml",
     ],
 )
 def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path, method_path):

@@ -42,7 +42,7 @@ percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latest
 
 ネット流動性は入力の単位を揃えるが、WALCLの水曜残高、WTREGENの週平均、日次RRPを組み合わせる近似であり、同時点の厳密な残高や投資可能資金ではない。月次整列の代表日や採用入力vintageも実公表時刻ではない。
 
-Readingの規則はmethod/macro/readingのdated revisionと出力のrules_revisionで識別する。保存判断が引用したpath・数値・意味を名前整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
+Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
 
 <a id="option-iv"></a>
 ### オプションIVの読み方

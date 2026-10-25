@@ -28,8 +28,11 @@ _OWNERS = {
     _CONTEXT_PATH: Path("engine/src/baibai_engine/foundation/repository_layout.py"),
 }
 
-_METHOD_DIRECTORIES = ("method/screening/rules/", "method/macro/reading/")
-_METHOD_OWNER = Path("engine/src/baibai_engine/foundation/repository_layout.py")
+_RULE_DIRECTORIES = (
+    "engine/src/baibai_engine/screening/rules/",
+    "engine/src/baibai_engine/market_context/reading/rules/",
+)
+_RULE_OWNER = Path("engine/src/baibai_engine/foundation/repository_layout.py")
 
 
 def check(root: Path) -> list[str]:
@@ -45,8 +48,8 @@ def check(root: Path) -> list[str]:
                 if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
                     continue
                 owner = _OWNERS.get(node.value)
-                if node.value.startswith(_METHOD_DIRECTORIES) and node.value.endswith(".yaml"):
-                    owner = _METHOD_OWNER
+                if node.value.startswith(_RULE_DIRECTORIES) and node.value.endswith(".yaml"):
+                    owner = _RULE_OWNER
                 if owner is not None and relative != owner:
                     errors.append(
                         f"{relative}:{node.lineno}: repository path {node.value!r} "

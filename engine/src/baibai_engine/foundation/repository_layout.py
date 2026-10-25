@@ -10,8 +10,10 @@ CALIBRATION_DIR = Path("stores/screening/calibration")
 ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path(
     "engine/src/baibai_engine/valuation/calibration/published/er-level-calibration-latest.yaml"
 )
-SCREENING_RULES_PATH = Path("method/screening/rules/2026-10-16T133000+0900.yaml")
-READING_RULES_PATH = Path("method/macro/reading/2026-08-01T100000+0900.yaml")
+SCREENING_RULES_PATH = Path("engine/src/baibai_engine/screening/rules/2026-10-16T133000+0900.yaml")
+READING_RULES_PATH = Path(
+    "engine/src/baibai_engine/market_context/reading/rules/2026-08-01T100000+0900.yaml"
+)
 
 
 class StoreLayoutError(RuntimeError):
@@ -27,7 +29,7 @@ def repository_root_error(root: Path, *, label: str) -> str | None:
 
     for marker, present in (
         ("pyproject.toml", (root / "pyproject.toml").is_file()),
-        ("method/", (root / "method").is_dir()),
+        ("engine/src/baibai_engine/", (root / "engine/src/baibai_engine").is_dir()),
     ):
         if not present:
             return f"{label} does not contain {marker}: {root}"

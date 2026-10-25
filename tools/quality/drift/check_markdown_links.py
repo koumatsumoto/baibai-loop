@@ -22,7 +22,6 @@ _SCAN_DIRECTORIES = (
     "web",
     "batch",
     "tools",
-    "method",
     "stores",
     "reports",
     "studies",
