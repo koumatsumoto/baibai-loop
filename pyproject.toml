@@ -340,6 +340,11 @@ ignore_imports = [
   "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.run_store",
   "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.run_store.read",
   "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.discovery.projection",
+  # New saved policy results and pure view contracts; not the writer.
+  "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.selection_query",
+  "baibai_engine.investment_judgment.selection_query -> baibai_engine.machine_analysis.screening.views",
+  "baibai_engine.investment_judgment.operation.service -> baibai_engine.machine_analysis.screening.selection_query",
+  "baibai_engine.investment_judgment.workspace.selected_prepare -> baibai_engine.machine_analysis.screening.selection_query",
   # Pure cash-equity cutoff only; research still cannot import market acquisition.
   "baibai_engine.investment_judgment.stock_assessment -> baibai_engine.market.sessions",
   "baibai_engine.investment_judgment.trade_proposal_service -> baibai_engine.market.sessions",

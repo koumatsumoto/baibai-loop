@@ -207,7 +207,7 @@ def load_generated_selection_context(
 
     from baibai_engine.investment_judgment.generated_inputs import project_generated_inputs
     from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-    from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+    from baibai_engine.machine_analysis.screening.selection_query import read_selection
     from baibai_engine.machine_analysis.screening.views import ViewSelection
 
     if known_at.utcoffset() is None:
@@ -219,7 +219,7 @@ def load_generated_selection_context(
         raise ValueError("discovery requires an explicit saved screening selection")
     screening = None
     if screening_selection_id is not None:
-        screening = ScreeningSelectionStore(runs_path).read(screening_selection_id)
+        screening = read_selection(screening_selection_id, path=runs_path)
         if screening is None:
             raise ValueError("unknown screening selection")
         if generation_id is not None and generation_id != screening.generation_id:
@@ -234,14 +234,23 @@ def load_generated_selection_context(
             ledger = load_ledger_document(connection)
             if ledger is not None:
                 state = replay_events_through(ledger.events, known_at)
-                held = tuple(sorted(t for t, lots in state.lots.items() if any(
-                    lot.quantity > 0 for lot in lots
-                )))
+                held = tuple(
+                    sorted(
+                        t for t, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots)
+                    )
+                )
     requested = request.requested_tickers or (held if request.scope == "review_positions" else ())
     candidates = () if screening is None else screening.result.tickers
-    subjects = tuple(sorted({"market", *requested, *candidates, *(
-        normalize_ticker(ticker) for ticker in comparison_tickers
-    )}))
+    subjects = tuple(
+        sorted(
+            {
+                "market",
+                *requested,
+                *candidates,
+                *(normalize_ticker(ticker) for ticker in comparison_tickers),
+            }
+        )
+    )
     models = ModelGenerationStore(runs_path).read_subjects(generation_id, subjects=subjects)
     if models is None:
         raise ValueError("chosen model generation is unavailable")
@@ -257,15 +266,15 @@ def load_generated_selection_context(
         "generation_id": generation_id,
         "screening_selection_id": screening_selection_id,
         "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
-        "screening": None if screening is None else TypeAdapter(ViewSelection).dump_python(
-            screening.result, mode="json"
-        ),
+        "screening": None
+        if screening is None
+        else TypeAdapter(ViewSelection).dump_python(screening.result, mode="json"),
         "candidate_tickers": list(candidates),
         "candidate_order_semantics": "per_view_rank_not_a_union_investment_ranking",
         "requested_tickers": requested,
         "held_tickers": held,
         "model_inputs": project_generated_inputs(models),
-        "saved_market_context_assessment": None if context is None else assessment_projection(
-            context, as_of=as_of
-        ),
+        "saved_market_context_assessment": None
+        if context is None
+        else assessment_projection(context, as_of=as_of),
     }

@@ -12,6 +12,7 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
 from baibai_engine.investment_judgment.trade_proposal import (
     ExposureRow,
+    GeneratedLiquidityContext,
     LiquidityContext,
     PortfolioExposure,
     ProposalError,
@@ -32,7 +33,7 @@ class ProposalWarnings:
 def build_proposal_warnings(
     inputs: ProposalInputs,
     items: tuple[ProposalItem, ...],
-    liquidity_context: tuple[LiquidityContext, ...],
+    liquidity_context: tuple[LiquidityContext | GeneratedLiquidityContext, ...],
     *,
     assessments: Mapping[str, StockAssessmentDocument],
 ) -> ProposalWarnings:

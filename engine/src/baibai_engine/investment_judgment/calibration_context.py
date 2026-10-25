@@ -11,7 +11,8 @@ from baibai_engine.machine_analysis.company_valuation.calibration.query import (
     load_er_calibration_context,
 )
 
-from .selection import GeneratedResearchSelection, ResearchSelectionRecord as ResearchSelection, selection_sha256
+from .selection import GeneratedResearchSelection, selection_sha256
+from .selection import ResearchSelectionRecord as ResearchSelection
 
 
 def research_calibration_context(

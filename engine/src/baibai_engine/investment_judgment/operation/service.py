@@ -14,6 +14,7 @@ from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.foundation.time import JST
+from baibai_engine.investment_judgment.generated_inputs import verify_generated_inputs
 from baibai_engine.investment_judgment.operation.models import (
     OperationPayload,
     OperationSession,
@@ -35,15 +36,14 @@ from baibai_engine.investment_judgment.operation.validation import (
     validate_progress,
     validate_selection,
 )
-from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.investment_judgment.selection import GeneratedResearchSelection
-from baibai_engine.investment_judgment.generated_inputs import verify_generated_inputs
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.investment_judgment.selection_query import verify_analysis_snapshot
 from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
+from baibai_engine.machine_analysis.screening.selection_query import read_selection
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
@@ -107,9 +107,14 @@ class OperationService:
             verify_generated_inputs(selection.inputs.generation, runs_path=self._runs_path)
             selection_id = selection.inputs.screening_selection_id
             if selection_id is not None:
-                screening = ScreeningSelectionStore(self._runs_path).read(selection_id)
-                if screening is None or screening.generation_id != selection.inputs.generation.generation_id:
-                    raise OperationConflictError("screening selection differs from chosen generation")
+                screening = read_selection(selection_id, path=self._runs_path)
+                if (
+                    screening is None
+                    or screening.generation_id != selection.inputs.generation.generation_id
+                ):
+                    raise OperationConflictError(
+                        "screening selection differs from chosen generation"
+                    )
         else:
             verify_analysis_snapshot(
                 selection.inputs.analysis,

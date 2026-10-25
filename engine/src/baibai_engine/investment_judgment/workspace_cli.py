@@ -30,7 +30,7 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError
 
 from .operation.service import OperationConflictError
-from .selection import ResearchRequest, ResearchSelectionDraft, GeneratedResearchSelectionDraft
+from .selection import GeneratedResearchSelectionDraft, ResearchRequest, ResearchSelectionDraft
 from .selection_query import ResearchInputsRequiredError, load_selection_context
 from .workspace import (
     ResearchWorkspaceConflictError,
@@ -280,7 +280,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     prepared = prepare_selected_workspace(
                         draft=(
                             GeneratedResearchSelectionDraft
-                            if json.loads(args.selection_file.read_text()).get("schema_version") == 2
+                            if json.loads(args.selection_file.read_text()).get("schema_version")
+                            == 2
                             else ResearchSelectionDraft
                         ).model_validate_json(args.selection_file.read_text()),
                         db_path=args.db,

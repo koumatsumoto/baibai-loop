@@ -21,8 +21,8 @@ from pydantic import (
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.time import JST
-from baibai_engine.machine_analysis.model_generation import ModelInputSlice
 from baibai_engine.investment_judgment.selection_policy import ResearchCapacity, validate_capacity
+from baibai_engine.machine_analysis.model_generation import ModelInputSlice
 
 
 def _ticker(value: object) -> str:
@@ -181,7 +181,6 @@ class ResearchSelection(_Contract):
         if analysis.run_at is not None and analysis.run_at > self.input_known_at:
             raise ValueError("run_at is after input_known_at")
         return self
-
 
 
 class GeneratedResearchInputs(_Contract):

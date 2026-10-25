@@ -12,18 +12,20 @@ from baibai_engine.investment_judgment.inputs import (
     collect_research_inputs,
     project_research_inputs,
 )
+from baibai_engine.investment_judgment.market_context.projection import assessment_projection
+from baibai_engine.investment_judgment.market_context.query import latest_assessment
 from baibai_engine.investment_judgment.operation.models import OperationPayload, OperationSession
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.operation.validation import validate_target_purposes
 from baibai_engine.investment_judgment.selection import (
-    ResearchScope,
-    ResearchSelection,
-    ResearchSelectionRecord,
+    GeneratedResearchInputs,
     GeneratedResearchSelection,
     GeneratedResearchSelectionDraft,
-    GeneratedResearchInputs,
+    ResearchScope,
+    ResearchSelection,
     ResearchSelectionDraft,
+    ResearchSelectionRecord,
     ResearchTarget,
     selection_sha256,
 )
@@ -32,16 +34,14 @@ from baibai_engine.investment_judgment.selection_policy import (
     validate_capacity,
 )
 from baibai_engine.investment_judgment.selection_query import load_analysis_snapshot
-from baibai_engine.investment_judgment.market_context.query import latest_assessment
-from baibai_engine.investment_judgment.market_context.projection import assessment_projection
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.investment_judgment.workspace.admission import workspace_selection
 from baibai_engine.investment_judgment.workspace.files import (
     ResearchWorkspaceConflictError,
     _load_mapping,
     _write_workspace_file,
 )
+from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
+from baibai_engine.machine_analysis.screening.selection_query import read_selection
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 
@@ -105,7 +105,7 @@ def _generated_selection(
     if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
     if draft.screening_selection_id is not None:
-        screening = ScreeningSelectionStore(runs_path).read(draft.screening_selection_id)
+        screening = read_selection(draft.screening_selection_id, path=runs_path)
         if screening is None or screening.generation_id != draft.generation_id:
             raise ValueError("screening selection differs from the chosen generation")
     models = ModelGenerationStore(runs_path).read_subjects(
@@ -113,9 +113,7 @@ def _generated_selection(
     )
     if models is None:
         raise ValueError("chosen model generation is unavailable")
-    context = latest_assessment(
-        app_path, as_of=draft.research_as_of, known_at=draft.input_known_at
-    )
+    context = latest_assessment(app_path, as_of=draft.research_as_of, known_at=draft.input_known_at)
     return GeneratedResearchSelection(
         request=draft.request,
         research_as_of=draft.research_as_of,
@@ -126,9 +124,9 @@ def _generated_selection(
         inputs=GeneratedResearchInputs(
             generation=models,
             screening_selection_id=draft.screening_selection_id,
-            saved_market_context_assessment=None if context is None else assessment_projection(
-                context, as_of=draft.research_as_of
-            ),
+            saved_market_context_assessment=None
+            if context is None
+            else assessment_projection(context, as_of=draft.research_as_of),
         ),
     )
 
@@ -196,8 +194,11 @@ def prepare_selected_workspace(
             except ValueError as error:
                 raise ResearchWorkspaceConflictError(str(error)) from error
     selection: ResearchSelectionRecord
+    canonical_refs: tuple[str, ...]
     if isinstance(draft, GeneratedResearchSelectionDraft):
-        selection = _generated_selection(draft, runs_path=runs_path, app_path=database_path(db_path))
+        selection = _generated_selection(
+            draft, runs_path=runs_path, app_path=database_path(db_path)
+        )
         canonical_refs = (draft.generation_id,)
     else:
         snapshot = load_analysis_snapshot(

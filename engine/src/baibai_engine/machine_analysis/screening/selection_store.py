@@ -9,13 +9,10 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.storage.machine_analysis import (
-    connect_read_only,
-    connect_rw,
-    initialize_run_store,
-)
+from baibai_engine.storage.machine_analysis import connect_rw, initialize_run_store
 
 from .model_projection import ScreeningSelection
+from .selection_query import read_selection
 
 _CODEC = TypeAdapter(ScreeningSelection)
 
@@ -54,8 +51,4 @@ class ScreeningSelectionStore:
                 raise
 
     def read(self, selection_id: str) -> ScreeningSelection | None:
-        with closing(connect_read_only(self._path)) as connection:
-            row = connection.execute(
-                "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (selection_id,)
-            ).fetchone()
-            return None if row is None else _CODEC.validate_json(gzip.decompress(row[0]))
+        return read_selection(selection_id, path=self._path)

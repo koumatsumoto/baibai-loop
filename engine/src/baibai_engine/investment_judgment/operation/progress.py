@@ -8,12 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.investment_judgment.operation.models import OperationPayload
 from baibai_engine.investment_judgment.selection import (
-    ResearchSelectionRecord as ResearchSelection,
     ResearchTarget,
     parse_selection,
     selection_sha256,
     selection_targets,
 )
+from baibai_engine.investment_judgment.selection import ResearchSelectionRecord as ResearchSelection
 from baibai_engine.investment_judgment.trade_proposal import (
     ProposalResearchScope,
     ReviewedOutcome,

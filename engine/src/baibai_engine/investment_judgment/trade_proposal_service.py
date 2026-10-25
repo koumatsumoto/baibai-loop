@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from baibai_engine.investment_judgment.selection import saved_market_assessment
-
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
@@ -19,6 +17,7 @@ from baibai_engine.investment_judgment.holding_policy import evaluate_holding_pr
 from baibai_engine.investment_judgment.operation.research_binding import (
     require_proposal_research_scope,
 )
+from baibai_engine.investment_judgment.selection import saved_market_assessment
 from baibai_engine.investment_judgment.stock_assessment_store import (
     ReviewedAssessment,
     latest_assessment_id,

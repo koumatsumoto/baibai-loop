@@ -15,10 +15,10 @@ from baibai_engine.investment_judgment.market_context.projection import assessme
 from baibai_engine.investment_judgment.market_context.query import latest_assessment
 from baibai_engine.investment_judgment.selection import (
     AnalysisInputSnapshot,
+    GeneratedResearchSelection,
     InputGap,
     ResearchInputsSnapshot,
     ResearchSelectionRecord,
-    GeneratedResearchSelection,
     selection_targets,
 )
 from baibai_engine.machine_analysis.company_growth.query import company_growth

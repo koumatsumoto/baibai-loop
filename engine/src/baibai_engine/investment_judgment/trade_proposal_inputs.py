@@ -16,8 +16,10 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.investment_judgment.operation.models import OperationSession
 from baibai_engine.investment_judgment.operation.progress import proposal_scope, selection_binding
 from baibai_engine.investment_judgment.selection import (
-    GeneratedResearchSelection, ResearchSelectionRecord as ResearchSelection, saved_market_assessment,
+    GeneratedResearchSelection,
+    saved_market_assessment,
 )
+from baibai_engine.investment_judgment.selection import ResearchSelectionRecord as ResearchSelection
 from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment_store import (
     ReviewedAssessment,
@@ -25,8 +27,8 @@ from baibai_engine.investment_judgment.stock_assessment_store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal import (
-    LiquidityContext,
     GeneratedLiquidityContext,
+    LiquidityContext,
     PositionInput,
     ProposalError,
     ProposalInputs,
@@ -255,7 +257,9 @@ def collect_proposal_inputs(
     )
 
 
-def proposal_liquidity_context(selection: ResearchSelection) -> tuple[LiquidityContext | GeneratedLiquidityContext, ...]:
+def proposal_liquidity_context(
+    selection: ResearchSelection,
+) -> tuple[LiquidityContext | GeneratedLiquidityContext, ...]:
     if isinstance(selection, GeneratedResearchSelection):
         generation = selection.inputs.generation
         generated: list[LiquidityContext | GeneratedLiquidityContext] = []
@@ -263,19 +267,24 @@ def proposal_liquidity_context(selection: ResearchSelection) -> tuple[LiquidityC
             model = generation.result("market_context", target.ticker)
             price = None if model is None else model.payload.get("price")
             try:
-                adv = finite_decimal(
-                    price.get("avg_turnover_20d_oku") if isinstance(price, dict) else None
-                ) * 100_000_000
+                adv = (
+                    finite_decimal(
+                        price.get("avg_turnover_20d_oku") if isinstance(price, dict) else None
+                    )
+                    * 100_000_000
+                )
             except ValueError:
                 adv = None
-            generated.append(GeneratedLiquidityContext(
-                ticker=target.ticker,
-                generation_id=generation.generation_id,
-                analysis_as_of=generation.as_of,
-                calculation_revision=None if model is None else model.calculation_revision,
-                adv_yen=adv,
-                unavailable_reason=None if adv is not None else "保存モデルにADV値が無い",
-            ))
+            generated.append(
+                GeneratedLiquidityContext(
+                    ticker=target.ticker,
+                    generation_id=generation.generation_id,
+                    analysis_as_of=generation.as_of,
+                    calculation_revision=None if model is None else model.calculation_revision,
+                    adv_yen=adv,
+                    unavailable_reason=None if adv is not None else "保存モデルにADV値が無い",
+                )
+            )
         return tuple(generated)
     snapshot = selection.inputs.analysis
     result: list[LiquidityContext | GeneratedLiquidityContext] = []
