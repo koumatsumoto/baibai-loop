@@ -22,7 +22,6 @@ from baibai_engine.machine_analysis.screening.run_store import (
     initialize_run_store,
 )
 from baibai_engine.machine_analysis.screening.run_store import store as run_store
-from baibai_engine.machine_analysis.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.machine_analysis.screening.schema import ScreeningRunDocument, StockAnalysis
 from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     published_run_payload,
@@ -31,6 +30,7 @@ from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     stock_analysis_payload,
 )
 from baibai_engine.read_api.screening import previous_run_revision_id
+from baibai_engine.storage.machine_analysis import RUN_STORE_SCHEMA_VERSION
 
 RULES = load_screening_rules()
 RULES_HASH = production_rules_contract_hash(RULES.model_dump_json())
@@ -57,10 +57,10 @@ def _publish(path, payload=None, *, revision=None):
     )
 
 
-def test_schema6_contains_single_header_and_stock_rows(tmp_path: Path) -> None:
+def test_schema7_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
-    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 6
-    assert initialize_run_store(path) == 6
+    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 7
+    assert initialize_run_store(path) == 7
     result = _publish(path)
     assert result.inserted
     assert result.publication_id.startswith("run-revision-")
@@ -69,7 +69,13 @@ def test_schema6_contains_single_header_and_stock_rows(tmp_path: Path) -> None:
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
-        assert tables == {"screening_run", "stock_analysis"}
+        assert tables == {
+            "screening_run",
+            "stock_analysis",
+            "model_generation",
+            "generated_model",
+            "screening_selection",
+        }
         header = json.loads(connection.execute("SELECT payload FROM screening_run").fetchone()[0])
         assert "stock_analyses" not in header
         assert "candidate_discovery" in header

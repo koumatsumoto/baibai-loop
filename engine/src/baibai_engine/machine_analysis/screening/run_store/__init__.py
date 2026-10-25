@@ -1,6 +1,8 @@
 """Screening run-store public interfaces."""
 
-from .read import RunPublication, ScreeningRunReader, connect_read_only
+from baibai_engine.storage.machine_analysis import connect_read_only
+
+from .read import RunPublication, ScreeningRunReader
 from .store import (
     DEFAULT_RUN_STORE_PATH,
     PruneResult,

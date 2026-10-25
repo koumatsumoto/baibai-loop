@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import sqlite3
 import uuid
@@ -15,15 +14,16 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
 from baibai_engine.machine_analysis.screening.discovery.contracts import validate_candidate_run
 from baibai_engine.machine_analysis.screening.rule_config import ScreeningRules
 from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
-
-from .schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
-
-DEFAULT_RUN_STORE_PATH = RUNS_DB_PATH
+from baibai_engine.storage.machine_analysis import (
+    DEFAULT_RUN_STORE_PATH,
+    connect_rw,
+    initialize_run_store,
+    run_store_path,
+)
 
 
 class RunStoreConflictError(ValueError):
@@ -43,55 +43,6 @@ class PruneResult:
     deleted_stock_analyses: int
     bytes_before: int
     bytes_after: int
-
-
-def run_store_path(path: Path | None = None) -> Path:
-    if path is not None:
-        return path.expanduser()
-    configured = os.environ.get("BAIBAI_RUNS_DB")
-    return Path(configured).expanduser() if configured else DEFAULT_RUN_STORE_PATH
-
-
-def connect_rw(path: Path | None = None) -> sqlite3.Connection:
-    resolved = run_store_path(path)
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(resolved, isolation_level=None)
-    connection.row_factory = sqlite3.Row
-    register_run_clock(connection)
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
-
-
-def run_clock(value: str) -> str:
-    """Compare saved aware clocks as fixed-width UTC text at full microsecond precision."""
-    return datetime.fromisoformat(value).astimezone(UTC).isoformat(timespec="microseconds")
-
-
-def register_run_clock(connection: sqlite3.Connection) -> None:
-    connection.create_function("run_clock", 1, run_clock, deterministic=True)
-
-
-def initialize_run_store(path: Path | None = None) -> int:
-    with closing(connect_rw(path)) as connection:
-        current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if current == RUN_STORE_SCHEMA_VERSION:
-            return current
-        tables = connection.execute(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-        ).fetchone()
-        if current != 0 or tables is not None:
-            raise RuntimeError(
-                "screening run cache uses an obsolete schema; rebuild it "
-                f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION})"
-            )
-        try:
-            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA_SQL)
-            connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
-            connection.commit()
-        except BaseException:
-            connection.rollback()
-            raise
-        return RUN_STORE_SCHEMA_VERSION
 
 
 class ScreeningRunStore:

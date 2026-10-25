@@ -19,10 +19,10 @@ from baibai_engine.data_collection.economic.store import (
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.run_store import initialize_run_store
-from baibai_engine.machine_analysis.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.read_api.sqlite import read_rows
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.machine_analysis import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 

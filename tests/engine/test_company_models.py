@@ -84,6 +84,13 @@ def test_owner_results_round_trip_into_selection_without_legacy_er(profit):
     )
     assert valuation["financial"]["market_cap"] == 800
     assert "er_annual" not in valuation["financial"]
+    assert not {
+        "eps_yoy",
+        "sales_yoy",
+        "operating_profit_yoy",
+        "cfo_yoy",
+        "operating_profit_loss_narrowing",
+    }.intersection(valuation["financial"])
     growth = saved.result("company_growth", "1001").payload
     assert growth["status"] == "available"
     assert growth["input_release"]["release_id"] == RELEASE.release_id

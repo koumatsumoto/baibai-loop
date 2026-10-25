@@ -5,7 +5,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 type Identifier = Annotated[str, Field(min_length=1)]
 type Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -43,6 +51,11 @@ class ModelGeneration(BaseModel):
     evaluation_time: AwareDatetime
     inputs: dict[Identifier, InputSnapshot] = Field(min_length=1)
     models: tuple[GeneratedModel, ...]
+
+    @field_validator("models")
+    @classmethod
+    def canonical_model_order(cls, models: tuple[GeneratedModel, ...]) -> tuple[GeneratedModel, ...]:
+        return tuple(sorted(models, key=lambda model: (model.model_id, model.subject)))
 
     @model_validator(mode="after")
     def unique_model_subjects(self) -> Self:

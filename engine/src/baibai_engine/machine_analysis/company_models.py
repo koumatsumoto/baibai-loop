@@ -25,6 +25,10 @@ from .technical_analysis.calculations import TECHNICAL_CALCULATION_REVISION
 from .technical_analysis.generation import generate_technical_analysis
 from .technical_analysis.momentum import price_momentum_12_1
 
+_GROWTH_FIELDS = frozenset(
+    {"eps_yoy", "sales_yoy", "operating_profit_yoy", "cfo_yoy", "operating_profit_loss_narrowing"}
+)
+
 
 def generate_financial_and_price_models(
     *,
@@ -73,6 +77,9 @@ def generate_financial_and_price_models(
                 asof_date=as_of,
             )
         )
+        # 変化の正準材料は企業成長の期間・basis・実数差・sign_change。
+        # 旧snapshotの負基準前年比を、成長モデルと競合する評価軸にしない。
+        financial = {key: value for key, value in financial.items() if key not in _GROWTH_FIELDS}
     growth = generate_company_growth(
         documents,
         ticker=ticker,
@@ -90,7 +97,7 @@ def generate_financial_and_price_models(
         GeneratedModel(
             model_id="company_valuation",
             subject=ticker,
-            calculation_revision=VALUATION_CALCULATION_REVISION,
+            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v1",
             payload=json.loads(
                 canonical_json(
                     {

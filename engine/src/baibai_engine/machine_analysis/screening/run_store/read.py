@@ -10,14 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.machine_analysis.screening.discovery.contracts import validate_candidate_run
+from baibai_engine.storage.machine_analysis import connect_read_only, run_clock
 
-from .schema import RUN_STORE_SCHEMA_VERSION
-from .store import (
-    decode_payload,
-    register_run_clock,
-    run_clock,
-    run_store_path,
-)
+from .store import decode_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,36 +26,6 @@ class RunPublication:
     rules_ref: str | None
     payload: dict[str, Any]
     stock_analyses: tuple[dict[str, Any], ...]
-
-
-def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
-    """Open the run store read-only and require its current schema."""
-
-    resolved = run_store_path(path).resolve()
-    connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
-    register_run_clock(connection)
-    connection.execute("PRAGMA query_only = ON")
-    connection.execute("PRAGMA foreign_keys = ON")
-    try:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        has_tables = connection.execute(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-        ).fetchone()
-        if version == 0 and has_tables is None:
-            # An untouched file is the same no-store state as an absent path. The
-            # first domain query raises OperationalError, which read_api degrades to
-            # no publication; it is not an obsolete store accepted as current.
-            return connection
-        if version != RUN_STORE_SCHEMA_VERSION:
-            raise RuntimeError(
-                "screening run store schema is not current "
-                f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); rebuild it"
-            )
-        return connection
-    except BaseException:
-        connection.close()
-        raise
 
 
 class ScreeningRunReader:
