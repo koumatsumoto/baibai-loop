@@ -33,6 +33,7 @@ from baibai_engine.valuation.query import (
     cash_flow_from_analysis,
     forecast_sources_from_analysis,
     machine_valuation_from_analysis,
+    valuation_metrics_from_analysis,
 )
 
 CUTOFF = date(2026, 9, 19)
@@ -120,6 +121,10 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     )
     security = inputs["securities"]["1234"]
     assert security["machine_valuation"]["run_revision_id"] == "cf-fixed"
+    assert "not company-specific value" in security["machine_valuation"]["role"]
+    assert security["valuation_metrics"]["ratios"]["per_forward"] == 10
+    assert security["valuation_metrics"]["normalized_per_3fy"] == 12
+    assert inputs["securities"]["9999"]["valuation_metrics"] is None
     assert security["cash_flow"] == {
         "jquants": {
             "ocf_ttm": jq_ocf,
@@ -631,3 +636,30 @@ def _project_inputs(
     )
     value = selection(now=known_at, tickers=tickers)
     return project_research_inputs(value.model_copy(update={"inputs": inputs}))
+
+
+def test_valuation_metrics_project_saved_coordinates_without_reconstructing_earnings():
+    saved = {
+        "per_forward": 10,
+        "per_trailing": 0,
+        "pbr": 0.8,
+        "ev_ebitda": -2,
+        "p_s": None,
+        "pcfr": True,
+        "metrics": {"normalized_per_3fy": 12, "market_price_yen": 1000},
+        "ttm_quality": {"per_trailing": "exact", "ev_ebitda": "approximated"},
+    }
+    original = copy.deepcopy(saved)
+    projected = valuation_metrics_from_analysis(saved)
+    assert projected["ratios"] == {
+        "per_forward": 10,
+        "per_trailing": 0,
+        "pbr": 0.8,
+        "ev_ebitda": -2,
+        "p_s": None,
+        "pcfr": None,
+    }
+    assert projected["normalized_per_3fy"] == 12
+    assert projected["ttm_quality"]["per_trailing"] == "exact"
+    assert "forecast_eps" not in projected
+    assert saved == original

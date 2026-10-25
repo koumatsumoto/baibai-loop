@@ -65,6 +65,27 @@ def machine_valuation_from_analysis(analysis: Mapping[str, object]) -> MachineVa
     )
 
 
+def valuation_metrics_from_analysis(analysis: Mapping[str, object]) -> dict[str, object]:
+    """Expose saved valuation coordinates without inventing earnings or fair value."""
+    raw = analysis.get("metrics")
+    metrics = raw if isinstance(raw, Mapping) else {}
+    raw_quality = analysis.get("ttm_quality")
+    quality = raw_quality if isinstance(raw_quality, Mapping) else {}
+    ratios = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s", "pcfr")
+    return {
+        "ratios": {name: _number(analysis.get(name)) for name in ratios},
+        "normalized_per_3fy": _number(metrics.get("normalized_per_3fy")),
+        "ttm_quality": {
+            name: _text(quality.get(name)) for name in ("per_trailing", "ev_ebitda", "p_s", "pcfr")
+        },
+        "interpretation": (
+            "Saved pricing ratios, not intrinsic values. Forward PER uses company forecasts; "
+            "normalized_per_3fy uses arithmetic historical earnings, not economically "
+            "normalized profit. Forecast provenance is in forecast_sources."
+        ),
+    }
+
+
 def anchor_gap_pct(valuation: MachineValuation) -> float | None:
     anchor, price = valuation.sector_median_anchor_yen, valuation.market_price_yen
     if anchor is None or price is None or price == 0:

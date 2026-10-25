@@ -31,6 +31,7 @@ from baibai_engine.valuation.query import (
     cash_flow_from_analysis,
     forecast_sources_from_analysis,
     machine_valuation_from_analysis,
+    valuation_metrics_from_analysis,
 )
 
 
@@ -102,9 +103,16 @@ def project_research_inputs(
             )
         securities[ticker] = {
             **context,
+            "valuation_metrics": None
+            if analysis is None
+            else valuation_metrics_from_analysis(analysis),
             "machine_valuation": None
             if analysis is None
             else {
+                "role": (
+                    "Statistical secondary prior, not company-specific value or future cash "
+                    "distribution. Gross share-count changes include treasury cancellations."
+                ),
                 "run_revision_id": snapshot.run_revision_id,
                 "as_of": None
                 if snapshot.analysis_as_of is None
