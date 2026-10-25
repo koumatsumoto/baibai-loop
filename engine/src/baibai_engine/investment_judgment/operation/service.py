@@ -43,7 +43,7 @@ from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
-from baibai_engine.machine_analysis.screening.selection_query import read_selection
+from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
@@ -107,8 +107,16 @@ class OperationService:
             verify_generated_inputs(selection.inputs.generation, runs_path=self._runs_path)
             selection_id = selection.inputs.screening_selection_id
             if selection_id is not None:
-                screening = read_selection(selection_id, path=self._runs_path)
-                if screening is None or screening != selection.inputs.screening_selection:
+                publication = read_publication(
+                    path=self._runs_path,
+                    selection_id=selection_id,
+                    known_at=selection.input_known_at,
+                )
+                if (
+                    publication is None
+                    or publication.selection != selection.inputs.screening_selection
+                    or publication.published_at != selection.inputs.screening_published_at
+                ):
                     raise OperationConflictError(
                         "screening selection differs from chosen generation"
                     )

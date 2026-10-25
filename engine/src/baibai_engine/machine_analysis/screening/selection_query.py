@@ -51,7 +51,8 @@ def read_publication(
             "FROM screening_selection s JOIN model_generation g USING(generation_id) "
             "WHERE (? IS NULL OR s.selection_id=?) AND (? IS NULL OR g.as_of<?) "
             "AND (? IS NULL OR g.as_of<=?) "
-            "AND (? IS NULL OR run_clock(g.evaluation_time)<=run_clock(?)) "
+            "AND (? IS NULL OR (run_clock(g.evaluation_time)<=run_clock(?) "
+            "AND run_clock(s.published_at)<=run_clock(?))) "
             "ORDER BY g.as_of DESC,run_clock(s.published_at) DESC,s.selection_id DESC LIMIT 1",
             (
                 selection_id,
@@ -60,6 +61,7 @@ def read_publication(
                 None if before_as_of is None else before_as_of.isoformat(),
                 None if as_of is None else as_of.isoformat(),
                 None if as_of is None else as_of.isoformat(),
+                None if known_at is None else known_at.isoformat(),
                 None if known_at is None else known_at.isoformat(),
                 None if known_at is None else known_at.isoformat(),
             ),

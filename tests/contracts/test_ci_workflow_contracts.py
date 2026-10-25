@@ -7,20 +7,14 @@ import yaml
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github/workflows"
 
-_NPM_AUDIT = "npm audit --package-lock-only --audit-level=high"
 _BANDIT = (
-    "uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine "
-    "web/backend/src/baibai_web jobs/src/baibai_jobs tools"
+    "uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine jobs/src/baibai_jobs tools"
 )
 # A scanner is weakened by editing its command, not by deleting its step: a lowered
 # --audit-level, a narrowed Bandit root, an --ignore-vuln or a trailing `|| true`
 # all leave a green step whose name still reads like the gate it used to be.
 _SCANNER_COMMANDS = {
     ("ci.yml", "quality", "Bandit"): _BANDIT,
-    ("node-audit.yml", "audit", "UI dependency audit"): _NPM_AUDIT,
-    ("node-audit.yml", "audit", "Worker dependency audit"): _NPM_AUDIT,
-    ("security.yml", "audit", "UI dependency audit"): _NPM_AUDIT,
-    ("security.yml", "audit", "Worker dependency audit"): _NPM_AUDIT,
 }
 
 
@@ -132,7 +126,7 @@ def test_scanners_are_asked_even_after_an_earlier_gate_fails() -> None:
         assert by_name[scanner]["if"] == "${{ !cancelled() }}"
 
 
-@pytest.mark.parametrize("workflow_name", ["ci.yml", "web.yml", "security.yml", "node-audit.yml"])
+@pytest.mark.parametrize("workflow_name", ["ci.yml", "security.yml"])
 def test_jobs_have_bounded_timeouts(workflow_name: str) -> None:
     jobs = _workflow(workflow_name)["jobs"]
     assert isinstance(jobs, dict)
@@ -140,34 +134,6 @@ def test_jobs_have_bounded_timeouts(workflow_name: str) -> None:
     for job in jobs.values():
         assert isinstance(job, dict)
         assert int(str(job["timeout-minutes"])) <= 20
-
-
-def test_node_audit_is_triggered_by_the_lockfiles_it_reads() -> None:
-    """Scoping by trigger keeps an advisory from blocking unrelated web work.
-
-    A published advisory turns this red on any run, so the run has to happen only
-    when a resolution or the audit runtime changed. Advisories against a lockfile standing
-    still are the weekly sweep's finding, not a merge gate's.
-    """
-    workflow = _workflow("node-audit.yml")
-    triggers = workflow["on"]
-    assert isinstance(triggers, dict)
-    jobs = workflow["jobs"]
-    assert isinstance(jobs, dict)
-    pull_request = triggers["pull_request"]
-    assert isinstance(pull_request, dict)
-    patterns = pull_request["paths"]
-    assert isinstance(patterns, list)
-
-    lockfiles = ["web/frontend/package-lock.json", "web/edge/package-lock.json"]
-
-    assert set(triggers) == {"pull_request"}
-    assert set(jobs) == {"audit"}
-    # Named exactly, not merely covered: `web/frontend/**` would also satisfy a containment
-    # check while handing every UI change to a scanner that answers from outside.
-    assert patterns == [*lockfiles, ".github/workflows/node-audit.yml", ".node-version"]
-    for ecosystem in ("UI dependency audit", "Worker dependency audit"):
-        assert _by_name("node-audit.yml", "audit")[ecosystem]["if"] == "${{ !cancelled() }}"
 
 
 def test_weekly_sweep_asks_only_what_a_pull_request_cannot() -> None:
@@ -191,23 +157,7 @@ def test_weekly_sweep_asks_only_what_a_pull_request_cannot() -> None:
         "Workflow trust boundary",
         "Dependency audit",
         "Build dependency audit",
-        "UI dependency audit",
-        "Worker dependency audit",
     }
-
-
-def test_weekly_sweep_asks_every_ecosystem_even_after_a_finding() -> None:
-    steps = _steps("security.yml", "audit")
-    by_name = _by_name("security.yml", "audit")
-    setup_node = next(
-        step for step in steps if str(step.get("uses", "")).startswith("actions/setup-node@")
-    )
-    order = [str(step.get("name", step.get("uses", ""))) for step in steps]
-
-    assert setup_node["if"] == "${{ !cancelled() }}"
-    for ecosystem in ("UI dependency audit", "Worker dependency audit"):
-        assert by_name[ecosystem]["if"] == "${{ !cancelled() }}"
-    assert order.index("Dependency audit") < order.index("UI dependency audit")
 
 
 def test_growth_acceptance_is_manual_private_and_separate_from_public_quality() -> None:
@@ -228,3 +178,9 @@ def test_growth_acceptance_is_manual_private_and_separate_from_public_quality() 
     assert "pull-app" not in str(steps)
     assert "publish-lake" not in str(steps)
     assert steps[-1]["if"] == "${{ always() }}"
+
+
+def test_weekly_dependency_audits_run_after_an_earlier_finding() -> None:
+    by_name = _by_name("security.yml", "audit")
+    for name in ("Dependency audit", "Build dependency audit"):
+        assert by_name[name]["if"] == "${{ !cancelled() }}"

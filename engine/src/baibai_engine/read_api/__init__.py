@@ -1,4 +1,4 @@
-"""Query-only facade for read paths: :mod:`baibai_web`, execution jobs, and engine CLIs.
+"""Internal query-only Python boundary for execution jobs and engine CLIs.
 
 Writable connections, schema cutovers, providers, and CLI composition deliberately
 remain outside this package. The re-exports expose DB-backed queries and the
@@ -54,13 +54,6 @@ from .market_context import (
     reading_snapshot,
     registered_indicator,
 )
-from .materialization import (
-    MaterializationPreconditionError,
-    validate_application_store_schema,
-    validate_market_store_hydration,
-    validate_market_store_schema,
-    validate_reading_rules,
-)
 from .operations import list_operation_sessions
 from .position import (
     current_portfolio,
@@ -100,7 +93,6 @@ __all__ = [
     "RUNS_DB_PATH",
     "HoldingSnapshot",
     "IndicatorGranularity",
-    "MaterializationPreconditionError",
     "PortfolioLedgerError",
     "PortfolioSnapshot",
     "StoreLayoutError",
@@ -151,8 +143,4 @@ __all__ = [
     "stock_assessment_publication",
     "stored_machine_valuation",
     "task_store_exists",
-    "validate_application_store_schema",
-    "validate_market_store_hydration",
-    "validate_market_store_schema",
-    "validate_reading_rules",
 ]

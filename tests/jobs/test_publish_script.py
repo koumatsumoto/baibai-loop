@@ -91,7 +91,7 @@ def test_invalid_arguments_are_rejected_before_publish(
     assert not call_log.exists()
 
 
-def test_no_argument_keeps_upload_and_dispatch_order(tmp_path: Path) -> None:
+def test_no_argument_validates_ledger_before_upload(tmp_path: Path) -> None:
     publish, call_log, env = _isolated_publish_script(tmp_path)
 
     result = subprocess.run(
@@ -109,9 +109,8 @@ def test_no_argument_keeps_upload_and_dispatch_order(tmp_path: Path) -> None:
             f"--db {publish.parents[2]}/stores/application/baibai.sqlite"
         ),
         "r2:push-app",
-        "gh:workflow run cloud-materialize.yml --ref main",
     ]
-    assert result.stdout == "application DB uploaded; cloud-materialize dispatch requested\n"
+    assert result.stdout == "application DB uploaded\n"
     assert result.stderr == ""
 
 
@@ -137,7 +136,7 @@ def test_failed_ledger_preflight_stops_before_publish(tmp_path: Path) -> None:
     assert result.stdout == ""
 
 
-def test_failed_application_transfer_does_not_dispatch(tmp_path: Path) -> None:
+def test_failed_application_transfer_does_not_report_success(tmp_path: Path) -> None:
     publish, call_log, env = _isolated_publish_script(tmp_path)
     transfer = publish.parent / "r2_transfer.sh"
     with transfer.open("a") as stream:

@@ -171,7 +171,7 @@ def test_derive_failed_step_names_the_first_step_that_did_not_succeed_in_order()
 
 def test_derive_failed_step_treats_a_cancelled_step_as_where_to_look() -> None:
     assert derive_failed_step({"upload-stores": "cancelled"}) == "upload-stores"
-    assert derive_failed_step({"upload-stores": "skipped", "publish-serving": "skipped"}) == ""
+    assert derive_failed_step({"upload-stores": "skipped"}) == ""
 
 
 @pytest.mark.parametrize(
@@ -181,7 +181,7 @@ def test_derive_failed_step_treats_a_cancelled_step_as_where_to_look() -> None:
         ("3", "", False, "degraded"),
         ("1", "screening-run", False, "failed"),
         ("0", "upload-stores", False, "failed"),
-        ("3", "publish-serving", False, "failed"),
+        ("3", "source-seal", False, "failed"),
         ("", "pre-batch", False, "failed"),
         ("0", "", True, "cancelled"),
     ],
@@ -370,7 +370,7 @@ def test_main_delivers_the_ok_message_with_the_delta(
     message = _sent(transport)
     assert message.startswith("**[OK] 共通統合（cloud-daily-batch）**")
     assert "対象日: 2026-08-26" in message
-    assert "- 工程結果: Lake公開 成功 / Store反映 成功 / 表示公開 成功" in message
+    assert "- 工程結果: Lake公開 成功 / Store反映 成功" in message
     assert "- 🆕 新規 候補入り: 1001 Alpha" in message
     assert message.endswith(f"Run: <{RUN_URL}>")
     # The message is also printed so the run log carries it.
@@ -510,13 +510,12 @@ def test_failed_after_publication_keeps_successful_publication_steps() -> None:
         step_outcomes={
             "publish-lake": "success",
             "upload-stores": "success",
-            "publish-serving": "success",
             "lease-release": "failure",
         },
     )
     assert "[FAILED]" in message
     assert "要確認工程: lease-release" in message
-    assert "工程結果: Lake公開 成功 / Store反映 成功 / 表示公開 成功" in message
+    assert "工程結果: Lake公開 成功 / Store反映 成功" in message
 
 
 def test_long_details_keep_a_complete_preview_suppressed_run_link() -> None:

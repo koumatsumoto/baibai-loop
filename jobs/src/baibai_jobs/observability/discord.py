@@ -71,7 +71,6 @@ STEP_ORDER = (
     "source-integration",
     "publish-lake",
     "upload-stores",
-    "publish-serving",
     "lease-release",
     "source-seal",
     "source-inputs",
@@ -367,7 +366,6 @@ def render_message(
                 for step, name in (
                     ("publish-lake", "Lake公開"),
                     ("upload-stores", "Store反映"),
-                    ("publish-serving", "表示公開"),
                 )
             )
         )

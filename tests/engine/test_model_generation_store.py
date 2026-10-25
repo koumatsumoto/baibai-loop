@@ -225,6 +225,9 @@ def test_publication_order_prefers_asof_then_real_publication_and_preserves_retr
         )
     latest = read_publication(path=path)
     assert latest.selection_id == "a-second"
+    cutoff = datetime(2026, 10, 25, 9, tzinfo=UTC)
+    assert read_publication(path=path, known_at=cutoff).selection_id == "z-first"
+    assert read_publication(path=path, selection_id="a-second", known_at=cutoff) is None
     assert latest.selection.result.policy.earnings_limit == 2
     assert read_publication(path=path, before_as_of=current.as_of).selection_id == "late-backfill"
     first = read_publication(path=path, selection_id="z-first")

@@ -1,22 +1,19 @@
 # 運用手順
 
-machine処理、store反映、lake・表示の公開と復旧を扱う。repository rootのBashから、依頼された対象だけを操作する。全optionと内部判定は各CLIのhelp・実装が正本。責務とデータ正本は[architecture](../docs/architecture.md#store-authority)、開発準備は[development](../docs/development.md)にある。
+machine処理、store反映、lakeの公開と復旧を扱う。repository rootのBashから、依頼された対象だけを操作する。全optionと内部判定は各CLIのhelp・実装が正本。責務とデータ正本は[architecture](../docs/architecture.md#store-authority)、開発準備は[development](../docs/development.md)にある。
 
 <a id="actions-write-boundary"></a>
 ## 実行環境と接続
 
 通常の取得・公開は既存Actionsを優先する。個別に依頼されたapplication更新は、認可された運用環境で取得済み作業コピーを正規CLIで更新し、条件付き反映する。物理的なPCだけに限定せず、対応OS・依存・接続を確認する。開発変更を本番操作・新課金・権限拡大の許可へ読み替えない。
 
-baibai-storesは正本、baibai-servingは表示用。serving writeはActionsだけが行い、ローカルから直接uploadしない。両bucketのPublic Development URLとcustom domainは無効にする。serving lifecycleはhistory/candidate-views/だけに設定し、views/meta.jsonを含むbucket全体へ期限を掛けない。
+baibai-storesは非公開の正本。既存Web/APIのコード撤去は、配備済みWorker・domain・credential・旧表示objectの停止や削除を実施するものではない。それらの実環境変更は対象と権限を確認した別操作とし、原本・application DB・台帳を巻き込まない。
 
 | 実行主体 | 設定の所在と範囲 |
 | --- | --- |
 | 取得・公開Actions | R2_ACCOUNT_ID、R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY、JQUANTS_API_KEY/ESTAT_APP_ID/EDINET_API_KEY。必要stepだけへ渡す |
 | 通知 | repository secret DISCORD_WEBHOOK_URL。通知stepだけが使う |
-| Worker deploy | 対象accountのWorkers Scripts Writeに絞ったCLOUDFLARE_API_TOKEN |
 | 認可されたlocal運用 | repo外で扱う秘密と.env。stores用writerを通常開発へ流用しない |
-| Worker閲覧 | VIEW_PASSWORDとREAD_ACCESS_TOKENを分離 |
-| Worker lake読取 | baibai-storesだけのObject Read only専用credential |
 
 秘密値・endpoint・私的なDB/原稿をGit・Issue・log・公開artifactへ置かない。認証失敗を別経路や権限拡大で迂回せず、設定の有無と対象接続を確認する。運用内容の許可はbroker操作や未報告取引の入力を含まない。
 
@@ -30,19 +27,19 @@ gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。手動asofも同じ営業日判定を使い、非営業日はScreeningをskipして旧runの値・ID・実計算時刻を保つ。原本の取得は独立scheduleのsource workflowが所有する。
+過去日を明示する場合だけdispatchへasofを渡す。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。非営業日も新しい経済・外部評価を統合できる。生成as_ofと価格観測日は別で、休場日に価格日を繰り上げない。原本の取得は独立scheduleのsource workflowが所有する。
 
-共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に、開始時点のready受領一覧を固定する。取得matrixや全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuild、EDINETのoffline抽出、保存入力だけのScreening、既存materializeを実行し、一つのfull lake releaseと表示へ反映する。`--saved-inputs`で外部取得を呼ばない。source失敗では前回の適格投影を保ち、正常sourceを進める。Screeningの鮮度・coverage不足は欠測や旧runとして残し、独立した表示生成は進める。exit 0はexport完了、exit 1は致命的失敗で公開停止、exit 3はexport完了だが一部工程が失敗した結果。R2公開は後段なので、export_readyやworkflow失敗だけで反映状態を断定しない。
+共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に開始時点のready受領一覧を固定する。全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して五モデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
 
 取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。日次に移行・全期間backfill・較正再構築を代行させない。
 
-取得／private受領の通知と、共通統合の正本反映／読戻し／表示／lease解放を区別し、run log、store push、release、views/meta.jsonを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。watchdogは取得を12:00 UTC、共通統合を16:00 UTCに別々のschedule/asofで監視する。限定sourceの成功を全体成功へ数えず、経済は取得jobの受領markerを読む。MISSINGは対象日の成功run不足で、過去日確認は次を使う。
+取得／private受領の通知と、共通統合の正本反映／読戻し／lease解放を区別し、run log、store push、release、generation/selection IDを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。watchdogは取得を12:00 UTC、共通統合を16:00 UTCに別々のschedule/asofで監視する。限定sourceの成功を全体成功へ数えず、経済は取得jobの受領markerを読む。MISSINGは対象日の成功run不足で、過去日確認は次を使う。
 
 ```bash
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 ```
 
-過去の営業日を明示した再計算でも、その日のmaster・価格・財務coverage要件を省略しない。
+過去日再計算でも、その日のmaster・価格・財務の対象日と欠測を保持する。現在の受領からの再計算を完全な当時point-in-time再現とは扱わない。
 
 EDINETは取得日と抽出日を分ける。当日一覧・必要archiveの未到着は `applied.json` の `deferred_inputs` と通知の「入力延期」に残し、適格な保存値で統合を続ける。原本が届けば次回統合で再抽出する。別文書の未到着を理由に、保存済み原本の破損・解析失敗を隠さない。
 
@@ -61,7 +58,7 @@ uv run baibai-engine data-collection economic groups
 gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
 ```
 
-限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。経済の取得開始は07:43 UTCで、土日も実行する。45分の取得期限と60分のjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値からL2の読取材料と表示を更新する。保存済みのL3判断を書き換えたり、新しい投資判断を自動作成したりしない。遅着は次回統合へ入り、取得成功ごとのmaterializeは行わない。
+限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。経済の取得開始は07:43 UTCで、土日も実行する。45分の取得期限と60分のjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値からL2の読取材料を更新する。保存済みのL3判断を書き換えたり、新しい投資判断を自動作成したりしない。遅着は次回統合へ入る。
 
 ### source入力・市場原本の引渡し
 
@@ -79,7 +76,7 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 ## クラウド正本をローカルへ取得する
 
-分析用pull前にdailyのqueued/in_progressを確認し、通常は完了後に取得する。ローカルpublisherとも重ねない。TradingViewの未統合stageは共通統合後にreleaseへ入る。materialize単独はmachine/L1を書かない。
+分析用pull前にdailyのqueued/in_progressを確認し、通常は完了後に取得する。ローカルpublisherとも重ねない。TradingViewの未統合stageは共通統合後にreleaseへ入る。
 
 ```bash
 jobs/scripts/pull.sh
@@ -113,7 +110,7 @@ with_publication_lease bash -c 'jobs/scripts/r2_transfer.sh publish-lake && jobs
 with_publication_lease jobs/scripts/r2_transfer.sh push-indicators
 ```
 
-merge・origin・schema・取得ETag/CASの失敗では公開を止める。成功後、表示更新も必要ならcloud-materializeをmainへdispatchし、対象runと公開物を確認する。lake→machine store→serving→metaの順を保ち、coverageだけが先に進む状態を作らない。
+merge・origin・schema・取得ETag/CASの失敗では公開を止める。lake→machine store→受領sealの順を保ち、coverageだけが先に進む状態を作らない。
 
 malformed leaseは自動修復しない。GitHubとlocalにactive/pending writerがないと確認した場合だけexact coordination/publication-lease.jsonを調べ、対象1keyの削除後に通常acquireで再作成する。prefix削除や手書きJSON上書きを通常運用へ入れない。
 
@@ -131,11 +128,11 @@ jobs/scripts/r2_transfer.sh pull-app
 jobs/scripts/publish.sh
 ```
 
-publish.shは引数なしで使う。台帳preflight、取得世代への条件付きbackup/PUT、次更新用ETag記録、materialize dispatchを行う。保有quote/basis不足による時価未評価は実取引保存の障害と区別する。未知世代を現在HEADで補わない。
+publish.shは引数なしで使う。台帳preflight、取得世代への条件付きbackup/PUT、次更新用ETag記録を行う。保有quote/basis不足による時価未評価は実取引保存の障害と区別する。未知世代を現在HEADで補わない。
 
 application backupは実行時JST日付の日別keyで、同日keyを置換する。古い世代の整理を行わない依頼ではR2_APP_BACKUP_PRUNE=skipを指定できるが、同日置換は変わらない。元世代の保全や置換が依頼範囲に含まれるか確認する。
 
-保存、R2反映、serving生成、表示を別々に確認する。対象Proposalのimmutable IDと参照評価を読み戻し、最新候補へ固定Selectionを付け替えない。競合なら未公開変更を退避し、最新正本へ必要差分を正規serviceで再適用する。PUT後の記録/dispatch失敗を未反映と決めて旧DBを再送しない。
+保存、R2反映、読戻しを別々に確認する。対象Proposalのimmutable IDと参照評価を読み戻し、最新候補へ固定Selectionを付け替えない。競合なら未公開変更を退避し、最新正本へ必要差分を正規serviceで再適用する。PUT後の記録失敗を未反映と決めて旧DBを再送しない。
 
 current schemaだけを開く。schema変更はsource versionを限定した一回移行を別コピーで検証し、対応codeとstoreの反映を同じdeliveryで終えたらtoolを撤去する。旧DB/keyや完了済みcutoverを現行正本へ再適用しない。
 
@@ -220,7 +217,7 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
 )
 ```
 
-ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。照合成功後は取得世代を保ったまま再pullせず、前節の`publish.sh`で反映してから判断業務を再開する。公開途中の失敗では検証済みlocalを戻さず、upload・dispatch・materializeの到達点を確認して反映側を復旧する。ledgerを`head`へpipeしない。
+ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。照合成功後は取得世代を保ったまま再pullせず、前節の`publish.sh`で反映してから判断業務を再開する。公開途中の失敗では検証済みlocalを戻さず、upload・読戻しの到達点を確認して反映側を復旧する。ledgerを`head`へpipeしない。
 
 **5. ローカル復元の検証失敗時。** 復元前backupがある場合だけ、次で戻す。backupがない場合は判断を再開せず、別候補の取得・検査へ戻る。
 
@@ -448,14 +445,14 @@ gh workflow run cloud-external-assessment.yml --ref main \
   -f operation=stage_confirmed_partial
 ```
 
-固定pair、正常null、失敗・未試行、完全/部分公開、release/hash・readback・lease解放を確認する。lake反映とWeb更新は別で、通常daily/materializeを使う。通知・CI緑・stage保存だけで取得成功や画面反映を認定しない。
+固定pair、正常null、失敗・未試行、完全/部分公開、release/hash・readback・lease解放を確認する。lake反映は共通統合が担当する。通知・CI緑・stage保存だけで正本反映成功を認定しない。
 
 <a id="tradingview-expectations"></a>
 ## TradingView観測
 
 slotは既存workflowを正本とする。営業日は15:30以降の当日master、休場日は09:00以降の直近営業日の保存済みexact-date masterを使う。calendar/master不足や引け前は取得せず、時間guardをmaster指定で解除しない。targetは実開始時のJST当日、fetched_atは実受領でprovider公表日ではない。
 
-同日最初の正常row・null・unresolvedを保持し、後続は未保存銘柄だけ取得する。全件account済みは全metric利用可能の意味ではない。新rowを含むpartial受領をprivate stageへ保存し、日跨ぎresponseを前日へ保存しない。過去日の穴を現在値で補わない。TV取得jobはreleaseやservingを直接公開せず、共通統合が既存の正常選択を狭めずに反映する。
+同日最初の正常row・null・unresolvedを保持し、後続は未保存銘柄だけ取得する。全件account済みは全metric利用可能の意味ではない。新rowを含むpartial受領をprivate stageへ保存し、日跨ぎresponseを前日へ保存しない。過去日の穴を現在値で補わない。TV取得jobはreleaseを直接公開せず、共通統合が既存の正常選択を狭めずに反映する。
 
 ### 当日の手動観測
 
@@ -514,49 +511,6 @@ uv run baibai-engine tradingview rebuild --sqlite /tmp/market-rebuild.sqlite \
 ## Storeをseedする
 
 初回だけ、4 keyすべて不存在を確認してseed.shを使う。既存keyが一件でもあれば停止し、通常更新/復旧へ戻る。1〜3 keyの部分seedは、供用前・writerなし・対象exact keyを確認できた場合だけ初回復旧として扱い、通常pull/pushや無条件上書きで直さない。seed後のapplication更新はpull-appで正本と世代を取り直す。
-
-## Workerをdeployする
-
-read model変更時は旧daily/materializeの完了後、対象mainでmaterializeして全views/metaと対象JSONを読戻してからWebを配信する。純粋UI変更にmaterializeを必須にしない。field削除/renameの一時不整合は、この順序だけで無停止とは保証しない。
-
-```bash
-gh workflow run cloud-materialize.yml --ref main
-gh workflow run web.yml --ref main
-```
-
-二つを続けて発行せず、先の成功確認後に次へ進む。Webのdeploy stepの成功と配信対象のcommitを照合し、古いtreeのdeploy skipを配信成功としない。認証後の画面確認やユーザーによる手動確認は必要時の補助とし、完了条件に含めない。local生成はpython -m baibai_web.materializeを使い、store/schema失敗の生成物を公開しない。
-
-## Password rotation
-
-password manager等で生成したCSPRNG値をpromptへ入力する。
-
-```bash
-(cd web/edge && npx wrangler secret put VIEW_PASSWORD)
-```
-
-旧値401と新値成功を確認する。secret設定に再deployは不要。初回Worker作成後はsecret→materialize→verify-deployment.shの順で、認証と存在/不存在keyを確認する。TTYなしの未検証を成功へ読み替えない。
-
-<a id="shared-read-setup"></a>
-## 共有readとlake接続
-
-production stores bucketだけのObject Read only credentialを作り、publisher用を流用しない。この権限はbucket全体を読め、外部へのnamespace制限はWorker allowlistが担う。canonical R2へのwrite bindingは追加しない。READ_ACCESS_TOKENはowner passwordと別の32 random bytes以上とし、実値・共有URLは非公開経路で扱う。
-
-```bash
-(
-  set -e
-  cd web/edge
-  npx wrangler secret put READ_ACCESS_TOKEN
-  npx wrangler secret put L1_R2_BASE_URL
-  npx wrangler secret put L1_R2_ACCESS_KEY_ID
-  npx wrangler secret put L1_R2_SECRET_ACCESS_KEY
-)
-```
-
-base URLはbucketのjurisdictionに合うaccount-endpoint/bucketで、query・credential・object keyを入れない。observability/logs/traces・Logpush・tail consumerを無効にし、query redactionを設定する。共有request中にwrangler tail/Live Logsへ接続しない。
-
-owner/共有Bearerと共有queryで具体JSONと時点を確認する。未認証・旧/誤値は401、複数shareは400、UIでは最初のAPI前にURLからshareが消えowner保存値を保つ。lakeは[固定release](#fixed-release-read)の実Parquetまでdecode/照合する。HTTP 200だけで受入完了としない。
-
-token rotationは同じsecret put後に旧値拒否・新値成功を確認し、撤回はsecret delete READ_ACCESS_TOKEN。R2 credentialは新read-onlyを設定してGET確認後に旧tokenを失効する。lake共有停止はL1_R2_ACCESS_KEY_IDを削除し専用tokenも失効する。設定失敗時はowner・canonical data・dailyを変更せず接続設定を直す。
 
 ## 定期maintenance
 

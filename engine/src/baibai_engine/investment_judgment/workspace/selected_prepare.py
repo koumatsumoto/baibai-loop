@@ -41,7 +41,7 @@ from baibai_engine.investment_judgment.workspace.files import (
     _write_workspace_file,
 )
 from baibai_engine.machine_analysis.generation_query import read_model_inputs
-from baibai_engine.machine_analysis.screening.selection_query import read_selection
+from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 
@@ -104,10 +104,10 @@ def _generated_selection(
 ) -> GeneratedResearchSelection:
     if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
-    screening = None
+    publication = None
     if draft.screening_selection_id is not None:
-        screening = read_selection(draft.screening_selection_id, path=runs_path)
-        if screening is None or screening.generation_id != draft.generation_id:
+        publication = read_publication(path=runs_path, selection_id=draft.screening_selection_id)
+        if publication is None or publication.generation.generation_id != draft.generation_id:
             raise ValueError("screening selection differs from the chosen generation")
     models = read_model_inputs(
         draft.generation_id, subjects=("market", *(t.ticker for t in draft.targets)), path=runs_path
@@ -125,7 +125,8 @@ def _generated_selection(
         inputs=GeneratedResearchInputs(
             generation=models,
             screening_selection_id=draft.screening_selection_id,
-            screening_selection=screening,
+            screening_selection=None if publication is None else publication.selection,
+            screening_published_at=None if publication is None else publication.published_at,
             saved_market_context_assessment=None
             if context is None
             else assessment_projection(context, as_of=draft.research_as_of),

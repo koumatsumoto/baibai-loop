@@ -107,6 +107,9 @@ def project_research_inputs(
             if selection.inputs.screening_selection is None
             else {
                 "selection_id": selection.inputs.screening_selection_id,
+                "published_at": selection.inputs.screening_published_at.isoformat()
+                if selection.inputs.screening_published_at is not None
+                else None,
                 "generation_id": selection.inputs.generation.generation_id,
                 "universe_count": len(selection.inputs.screening_selection.universe_tickers),
                 "result": selection.inputs.model_dump(mode="json", include={"screening_selection"})[

@@ -264,7 +264,6 @@ jobs:
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --publish-lake-outcome "${{ steps.batch.outcome }}" \
             --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
-            --publish-serving-outcome "skipped" \
             --source-integration-outcome "${{ steps.source-integration.outcome }}" \
             --source-seal-outcome "${{ steps.source-seal.outcome }}" \
             --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \

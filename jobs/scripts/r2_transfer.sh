@@ -4,7 +4,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 (cd "${repo_root}" && uv run python -m baibai_jobs.validation.repository_layout)
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
-serving_bucket="${R2_SERVING_BUCKET:-baibai-serving}"
 generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # The lake mirror is a fetch-through cache of immutable objects, so it is named next to
 # the stores rather than inside one: every key it holds begins with `lake/`, which is why
@@ -29,11 +28,6 @@ app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite indicators.sqlite)
 transfer_staging=""
-transfer_config=""
-# The serving prefix contains many small objects. Allow transfer concurrency to be
-# tuned without changing the caller's AWS configuration; measure its effect from
-# the per-stage counts and elapsed time rather than assuming a fixed throughput.
-serving_upload_concurrency_default=32
 
 cleanup_staging() {
   if [[ -n "${transfer_staging}" && -d "${transfer_staging}" ]]; then
@@ -42,12 +36,7 @@ cleanup_staging() {
       *) printf 'refusing to remove unexpected staging path: %s\n' "${transfer_staging}" >&2 ;;
     esac
   fi
-  if [[ -n "${transfer_config}" && -f "${transfer_config}" ]]; then
-    rm -f -- "${transfer_config}"
-    transfer_config=""
-  fi
 }
-
 trap cleanup_staging EXIT
 
 load_credentials() {
@@ -71,42 +60,6 @@ load_credentials() {
 
 aws_s3() {
   aws s3 "$@" --endpoint-url "${endpoint}" --only-show-errors --no-progress
-}
-
-use_serving_transfer_settings() {
-  # `max_concurrent_requests` has no command-line flag, and `aws configure set`
-  # would write it into the caller's own `~/.aws/config`. This script also runs on
-  # a developer machine, so the setting is confined to a throwaway config this
-  # process points at. Credentials keep coming from the environment, which takes
-  # precedence, so the file carries transfer settings and nothing else. Two of
-  # these can run at once, so each gets its own file.
-  #
-  # The value is read here rather than at load time so `.env` (sourced by
-  # `load_credentials`, which runs first) can set it as well as the step env.
-  local concurrency
-  concurrency="${R2_SERVING_UPLOAD_CONCURRENCY:-${serving_upload_concurrency_default}}"
-  transfer_config="$(mktemp "${TMPDIR:-/tmp}/baibai-r2-transfer.XXXXXX")"
-  printf '[default]\ns3 =\n  max_concurrent_requests = %s\n' \
-    "${concurrency}" > "${transfer_config}"
-  export AWS_CONFIG_FILE="${transfer_config}"
-  # The version and the value the CLI actually resolves are printed because the
-  # setting has no flag to echo back: a runner whose CLI reads the config
-  # differently would otherwise transfer at the default and look identical.
-  printf 'serving transfer: max_concurrent_requests=%s aws=%s resolved=%s\n' \
-    "${concurrency}" \
-    "$(aws --version 2>&1)" \
-    "$(aws configure get s3.max_concurrent_requests 2>/dev/null || printf 'unset')"
-}
-
-# How many objects a stage is about to move. Reported next to the elapsed seconds
-# so a run's log answers whether raising the in-flight count changed anything.
-count_files() {
-  local directory="$1"
-  if [[ ! -d "${directory}" ]]; then
-    printf '0\n'
-    return 0
-  fi
-  find "${directory}" -type f | wc -l | tr -d ' \n'
 }
 
 remote_object_exists() {
@@ -655,52 +608,6 @@ seed_keys() {
   _push_keys "" "$@"
 }
 
-require_complete_export() {
-  local output_dir="$1"
-  if [[ ! -f "${output_dir}/views/meta.json" ]]; then
-    printf 'serving export is incomplete: %s/views/meta.json is missing\n' "${output_dir}" >&2
-    return 2
-  fi
-}
-
-upload_serving_views() {
-  # The mutable image of the current run: every view except the freshness claim,
-  # which is nearly all of what a run publishes. All of it is rewritten each
-  # business day. The workflow uploads it only after the machine-store push succeeds.
-  local output_dir="$1"
-  require_complete_export "${output_dir}"
-  use_serving_transfer_settings
-  local started objects
-  started="${SECONDS}"
-  # `meta.json` is excluded from this mirror and published by the tail stage, so it
-  # is not one of the objects this stage moves. `require_complete_export` has
-  # already established that it is there to subtract.
-  objects="$(( $(count_files "${output_dir}/views") - 1 ))"
-  aws_s3 sync "${output_dir}/views/" "s3://${serving_bucket}/views/" \
-    --delete --exclude meta.json
-  printf 'serving views: objects=%s elapsed=%ss\n' "${objects}" "$((SECONDS - started))"
-}
-
-publish_serving_tail() {
-  # The parts that outlive the run: `history/` is append-only and never deleted,
-  # and `meta.json` is the freshness claim the UI reads. Both are published only
-  # once the store holding this run has been persisted, so a run whose store push
-  # failed leaves no permanent record of a run the store does not contain.
-  local output_dir="$1"
-  require_complete_export "${output_dir}"
-  use_serving_transfer_settings
-  local started objects
-  started="${SECONDS}"
-  objects="$(count_files "${output_dir}/history")"
-  if [[ -d "${output_dir}/history/candidate-views" ]]; then
-    aws_s3 sync "${output_dir}/history/candidate-views/" \
-      "s3://${serving_bucket}/history/candidate-views/"
-  fi
-  # Freshness is published only after every view and history upload succeeds.
-  aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
-  printf 'serving tail: objects=%s elapsed=%ss\n' "$((objects + 1))" "$((SECONDS - started))"
-}
-
 pull_app() {
   # application DB の正本はR2にある (判断は取得した作業copyで publish し、`push-app` で
   # cloud へ反映する)。未公開変更を失わないよう、既存の作業copyは置換しない。
@@ -716,7 +623,7 @@ pull_app() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app}\n' "$0" >&2
 }
 
 load_credentials
@@ -800,29 +707,6 @@ case "${1:-}" in
     else
       prune_app_backups
     fi
-    ;;
-  # The serving bucket has one writer: the batch that produces a complete export.
-  # The views mirror runs with `--delete`, so a partial local export would remove
-  # production views, and the local credential carries write permission because R2
-  # grants it per token rather than per bucket. The boundary lives here instead.
-  #
-  # The publish is two stages so freshness advances only after all view uploads
-  # succeed; both stages follow the successful store push.
-  upload-serving-views)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
-    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-      printf 'refusing serving upload outside GitHub Actions\n' >&2
-      exit 2
-    fi
-    upload_serving_views "$2"
-    ;;
-  publish-serving-tail)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
-    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-      printf 'refusing serving upload outside GitHub Actions\n' >&2
-      exit 2
-    fi
-    publish_serving_tail "$2"
     ;;
   *)
     usage

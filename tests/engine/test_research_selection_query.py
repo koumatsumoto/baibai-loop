@@ -1,6 +1,5 @@
 """contextは候補を読み、保存snapshotはselected行だけを保持する。"""
 
-import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta
@@ -15,7 +14,6 @@ from baibai_engine.investment_judgment.selection_query import (
     load_selection_context,
     verify_analysis_snapshot,
 )
-from baibai_engine.investment_judgment.workspace_cli import main as workspace_main
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
 
@@ -275,37 +273,3 @@ def test_comparison_does_not_fill_missing_or_unknown_run(tmp_path):
     publish(path)
     with pytest.raises(ValueError, match="unknown"):
         context(path, revision="unknown", comparisons=("5678",))
-
-
-def test_comparison_cli_keeps_discovery_request_and_fixed_revision(tmp_path, capsys):
-    path = tmp_path / "runs"
-    publish(path)
-    before = path.read_bytes()
-    code = workspace_main(
-        [
-            "selection-context",
-            "--request",
-            "合成比較",
-            "--scope",
-            "discover_new",
-            "--run-revision-id",
-            "fixed",
-            "--runs-path",
-            str(path),
-            "--db",
-            str(tmp_path / "absent-app"),
-            "--compare-ticker",
-            "5678",
-            "--compare-ticker",
-            "9999",
-        ],
-        now=NOW,
-    )
-    assert code == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["request"]["scope"] == "discover_new"
-    assert result["requested_analyses"] == {}
-    assert set(result["comparison_analyses"]) == {"5678"}
-    assert result["missing_comparison_tickers"] == ["9999"]
-    assert result["run_revision_id"] == "fixed"
-    assert path.read_bytes() == before

@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parents[2]
     ("workflow", "job", "pull", "first_reader"),
     [
         ("cloud-daily-batch.yml", "daily", "pull-machine", "source_integration apply"),
-        ("cloud-materialize.yml", "materialize", "pull-machine", "baibai_web.materialize"),
     ],
 )
 def test_machine_pull_and_full_hydrate_precede_first_market_reader(

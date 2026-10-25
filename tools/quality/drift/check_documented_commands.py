@@ -165,8 +165,6 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
             if len(rest) > 2 and rest[2] in WRITE_COMMANDS:
                 module = "baibai_engine.storage.lake.write_cli"
         return build_parser(module), f"baibai-engine {rest[1]}", rest[2:]
-    if rest[:1] == ["baibai-web"]:
-        return _tool_parser("baibai_web.cli", "baibai-web", rest[1:])
     if rest[:1] == ["baibai-jobs"]:
         from baibai_jobs.cli import _COMMANDS
 
@@ -175,7 +173,7 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
         return _tool_parser(_COMMANDS[rest[1]].__module__, f"baibai-jobs {rest[1]}", rest[2:])
     if rest[:1] != ["python"] or len(rest) < 2:
         raise _Unresolvable(f"unrecognised entry point: {' '.join(rest[:3])}")
-    module_prefixes = ("baibai_jobs.", "baibai_engine.", "baibai_web.", "tools.")
+    module_prefixes = ("baibai_jobs.", "baibai_engine.", "tools.")
     if rest[1] == "-m" and len(rest) > 2 and rest[2].startswith(module_prefixes):
         return _tool_parser(rest[2], f"python -m {rest[2]}", rest[3:])
     # `python tools/x.py` と `python -m tools.x` は同じ module を指す。tool ごとに

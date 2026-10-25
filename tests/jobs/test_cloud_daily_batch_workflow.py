@@ -60,7 +60,7 @@ def test_notifications_and_credentials_remain_scoped(steps, by_id):
     notify = by_id["notify"]
     assert notify["if"] == "${{ always() }}"
     assert notify["continue-on-error"] == "true"
-    assert '--publish-serving-outcome "skipped"' in notify["run"]
+    assert "--publish-serving-outcome" not in notify["run"]
     assert '--publish-lake-outcome "${{ steps.batch.outcome }}"' in notify["run"]
     assert "${{ inputs." not in notify["run"]
     for step in steps:

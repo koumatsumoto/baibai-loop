@@ -300,7 +300,6 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     from baibai_engine.machine_analysis.market_context.reading.models import snapshot_payload
     from baibai_engine.machine_analysis.market_context.reading.query import read_store_snapshot
     from baibai_engine.machine_analysis.market_context.reading.rules import DEFAULT_RULES_PATH
-    from baibai_web.readmodel.models import ReadingView
 
     selected = selection(now=datetime(2024, 8, 31, tzinfo=UTC))
     inputs = collect_research_inputs(
@@ -314,9 +313,6 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
         app_path=tmp_path / "missing-app.sqlite",
     )
     assert inputs.market_context["reading"] == payload
-    web = ReadingView.model_validate({**payload, "as_of": payload["asof"], "fetch_health": []})
-    assert web.read_semantics.limitation == semantics["limitation"]
-    assert web.series[0].read_semantics.limitation == semantics["limitation"]
     with closing(sqlite3.connect(database)) as con:
         con.row_factory = sqlite3.Row
         pure = snapshot_payload(

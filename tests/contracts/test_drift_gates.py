@@ -198,7 +198,7 @@ def test_documented_command_gate_reads_the_dispatch_the_repository_script_runs()
 
     names = check_documented_commands.transfer_subcommands(ROOT)
 
-    assert {"pull-machine", "push-machine", "upload-serving-views"} <= names
+    assert {"pull-machine", "push-machine", "publish-lake"} <= names
     assert "upload-serving" not in names
     assert "*" not in names
 
@@ -308,15 +308,11 @@ def test_documented_batch_commands_use_the_delegated_parser(
 @pytest.mark.parametrize(
     ("command", "valid"),
     [
-        ("baibai-web serve --port 8000", True),
-        ("baibai-web serve --not-an-option", False),
         ("baibai-engine lake hydrate --mirror <MIRROR> --store <STORE>", True),
         ("baibai-engine lake hydrate --store <STORE>", False),
     ],
 )
-def test_active_runbook_checks_web_and_lake_write_parser(
-    tmp_path: Path, command: str, valid: bool
-) -> None:
+def test_active_runbook_checks_lake_write_parser(tmp_path: Path, command: str, valid: bool) -> None:
     path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir()
     path.write_text(f"```bash\nuv run {command}\n```\n")
@@ -354,7 +350,7 @@ def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path,
 
 
 def test_repository_path_gate_tracks_published_context_in_domain_package(tmp_path):
-    path = tmp_path / "web/backend/src/baibai_web/source.py"
+    path = tmp_path / "jobs/src/baibai_jobs/source.py"
     path.parent.mkdir(parents=True)
     path.write_text(f"CONTEXT = {ER_LEVEL_CALIBRATION_CONTEXT_PATH.as_posix()!r}\n")
     errors = check_repository_paths.check(tmp_path)

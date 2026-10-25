@@ -1,5 +1,7 @@
 """保存モデル→Selection→再開・提案入力の経路。投資成績やAI判断の証明ではない。"""
 
+import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -82,6 +84,11 @@ def seed_generation(path):
             policy=TwoViewPolicy(earnings_limit=20, combined_limit=20),
         ),
     )
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE screening_selection SET published_at=?",
+            ((NOW - timedelta(seconds=30)).isoformat(),),
+        )
     return generation
 
 
@@ -204,3 +211,62 @@ def test_generation_after_cutoff_is_rejected(tmp_path):
             runs_path=path,
             db_path=tmp_path / "missing",
         )
+
+
+def test_context_cli_uses_fixed_generation_and_keeps_comparison_subjects(tmp_path, capsys):
+    import json
+
+    from baibai_engine.investment_judgment.workspace_cli import main
+
+    runs = tmp_path / "runs.sqlite"
+    seed_generation(runs)
+    before = runs.read_bytes()
+    assert (
+        main(
+            [
+                "selection-context",
+                "--request",
+                "合成比較",
+                "--scope",
+                "discover_new",
+                "--generation-id",
+                "fixed-synthetic",
+                "--screening-selection-id",
+                "policy-1",
+                "--runs-path",
+                str(runs),
+                "--db",
+                str(tmp_path / "absent-app"),
+                "--compare-ticker",
+                "5678",
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["request"]["scope"] == "discover_new"
+    assert result["generation_id"] == "fixed-synthetic"
+    assert result["candidate_tickers"] == ["1234"]
+    assert result["model_inputs"]["securities"]["5678"]["not_generated"]
+    assert runs.read_bytes() == before
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_policy_published_after_cutoff_is_not_admitted(tmp_path, explicit):
+    runs = tmp_path / "runs.sqlite"
+    seed_generation(runs)
+    kwargs = dict(
+        request=ResearchRequest(text="調査", scope="discover_new"),
+        generation_id=None,
+        screening_selection_id="policy-1" if explicit else None,
+        research_as_of=AS_OF,
+        known_at=NOW - timedelta(seconds=45),
+        runs_path=runs,
+        db_path=tmp_path / "absent",
+    )
+    if explicit:
+        with pytest.raises(ValueError, match="not yet published"):
+            load_generated_selection_context(**kwargs)
+    else:
+        assert load_generated_selection_context(**kwargs)["status"] == "inputs_required"

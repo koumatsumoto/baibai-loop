@@ -98,6 +98,7 @@ from baibai_engine.data_collection.tradingview.handoff import (
 from baibai_engine.data_collection.tradingview.handoff import (
     import_handoff as import_tradingview_handoff,
 )
+from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.foundation.repository_layout import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
@@ -105,11 +106,11 @@ from baibai_engine.foundation.repository_layout import (
     reject_noncanonical_store_paths,
     repository_root_error,
 )
+from baibai_engine.machine_analysis.company_growth.models import InputRelease as ModelInputRelease
+from baibai_engine.machine_analysis.company_valuation.metrics.models import DEFAULT_TTM_RULES
 from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
     decode_attempt as external_assessment_decode_attempt,
 )
-from baibai_engine.machine_analysis.company_growth.models import InputRelease as ModelInputRelease
-from baibai_engine.machine_analysis.company_valuation.metrics.models import DEFAULT_TTM_RULES
 from baibai_engine.machine_analysis.external_assessment.observations.identity import (
     ANALYST_FORECAST_DATASET as EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET,
 )
@@ -165,7 +166,6 @@ from baibai_engine.market.edinet_handoff import import_handoff as import_edinet_
 from baibai_engine.market.edinet_integration import extract_saved_edinet
 from baibai_engine.market.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_engine.market.jpx_handoff import import_handoff as import_jpx_handoff
-from baibai_engine.market.financial_periods import add_months_clamped
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_handoff import FINANCIAL_SOURCES as JQUANTS_FINANCIAL_SOURCES
 from baibai_engine.market.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES

@@ -29,9 +29,6 @@ dist/
 
 # Local environment files
 .env
-/web/edge/.dev.vars*
-!/web/edge/.dev.vars.example
-/web/edge/node_modules/
 .wrangler/
 .r2-transfer.*
 .r2-staging/

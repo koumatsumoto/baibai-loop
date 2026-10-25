@@ -1,50 +1,29 @@
 # Screening
 
-L2の財務・倍率・機械見積りと市場環境を全対象のStock Analysisへ固定し、同じrunから候補文脈を作る。結果の組立・候補抽出・較正は`machine_analysis/screening/`が所有する。指標自体は[企業価値](company-valuation.md)・[市場環境](market-context.md)へ置く。
+保存済みの五モデルから調査候補を抽出する。モデル生成は候補選定より先に完了し、候補外の企業もInvestment Judgmentから読める。候補政策は企業の経済的reject・価値評価・購入判断を代行しない。
 
 <a id="rule-purpose"></a>
 ## 候補抽出の意味
 
-入力scope、共通factの資格、Approach固有の推薦条件、有限容量、品質contextは異なる役割。いずれも企業の経済的rejectや購入採用を代行しない。完全なeligibility/order・値・method identityは[実装](../../engine/src/baibai_engine/machine_analysis/screening/discovery/candidates.py)と[dated rules](../../engine/src/baibai_engine/machine_analysis/screening/rules/)が正本である。
+初期政策は二つのviewを使う。Yは符号付きの実績年間利益／時価総額、Mは共通取引日を端点とする12–1か月価格変化。Y降順と、S = 0.6 × Y/(0.10+|Y|) + 0.4 × M/(0.50+|M|) の降順をそれぞれ20件取り、重複を補充せずunionする。これは調査入口の有限容量であり、投資枠や採用件数ではない。式・tie-break・保存政策の正本は[views.py](../../engine/src/baibai_engine/machine_analysis/screening/views.py)。
 
-機械E[r]/FV、保存市場判断、portfolioは候補membership・順位を決めない。候補理由はApproach内rankで、AIのInvestment Judgment選定理由とは別である。候補外の分析も調べられ、機械候補が全投資機会を表すとは扱わない。Approach不適合、推薦unionの容量外、候補内での未選定は別である。どの入口で見つけたかと、その企業の価値獲得経路を一対一にせず、必要な少数の対照を[同じrunから比較](../../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)して深掘り対象を決める。
+候補理由はview別rankとして保持し、union全体の投資順位を作らない。Yは期待収益率ではなく、Mは配当込みreturnではない。同じ価格を含む二つの座標を独立した証拠票にしない。未知を0へ置換せず、Yのみ既知ならY viewだけへ参加できる。負利益を一律排除せず、極端な利益利回りを持続する現金創出の証拠にしない。
 
 <a id="candidate-discovery"></a>
-## 四つの価値仮説
+## 調査への引渡し
 
-| Approach | 調査へ渡す問い |
-| --- | --- |
-| Current Earnings Power | 現在利益の反復性と業種割安の理由 |
-| Normalized Earnings Power | 3FY平均が一期間の異常を離れた利益力を表すか |
-| Asset Value | 非金融企業の資産が誰へ、いつ、どの費用で実現するか |
-| Reinvestment Value | 売上成長が投資負担・利益率・資本収益を通して価値になるか |
-
-金融業のcash/debt/securitiesへ非金融の資産proxyを適用しない。Reinvestmentのcapital returnは同一実績行の自己資本とEDINET debt/cashを使うproxyで、BS日が一致した厳密ROICではない。営業利益TTMを作れなければ累計利益や他利益で補わない。既知の0・負FCFも候補抽出対象になり、欠測を0へ変えない。負FCFは成長投資の証明ではなくInvestment Judgmentの問いである。
-
-各Approachのtop集合をexact unionにし、重複tickerは一行へ全理由を保持する。depthは有限資源の設定で、容量外を経済的棄却にしない。ticker順は非経済的なserialization順で、総合rank・Investment Judgment priorityではない。比較母集団・丸め・tie-breakはproductionと較正で同じ純関数を使う。
+機械E[r]/FV、四Approachの旧membership、保存市場判断、portfolioは新しい候補membership・順位を決めない。Investment Judgmentは五モデル・一次資料・必要な少数の候補外対照を比較し、価値獲得経路と反証を自ら評価する。旧run・旧Selectionは保存済みidentityと内容のまま読めるが、新しい標準経路へ混ぜない。
 
 ## 入力不足と品質
 
-普通株masterと価格を計算対象に使う。価格bar期間は利用可能な履歴proxyで正式上場日ではなく、短い履歴を長期財務・自己レンジの証拠にしない。現行の規模/期間floorとADVは低い値・欠損だけで共通資格を落とさず、各指標の必要履歴とJPX条件を別に維持する。
+普通株masterから対象集合を固定する。価格日、財務対象期間・公表日、計算基準日、外部評価の取得時点を区別し、欠測・既知0・負値を保つ。取得coverageは成功した要求範囲で、全銘柄の入力充足ではない。各モデルの不足はその材料の不足として示し、候補数を満たすために別値で埋めない。
 
-取得coverageは成功した要求範囲で、全銘柄の入力充足ではない。密度の分母から価格・財務欠測の普通株を消さず、計算不能を原本未取得とみなして再取得しない。nullと既知0、raw field欠落を保持する。TTM非exact・YoY欠測のpartial warningはrunの品質で、会社を一律除外するgateではない。
-
-EDINETの取得・抽出失敗は、その実行結果として報告する。Screeningは最新の検証済みsnapshot（原本未到着doc IDと値のない欠測行が一致するpartialも含む）から現行extractor・文書revisionと訂正／取下げ状態が適合する保存値だけを採用し、coverage検査も同じ選択を使う。当日抽出の成功は必須にしない。任意のEDINET値が未取得・不適格なら欠測として他項目を進めるが、破損した成功baseline／保存原本を古い成功で回避しない。元snapshot日・記録時刻はStock AnalysisとInvestment JudgmentのCF／BS入力へ保持し、提出日・対象期間やfactの測定日へ読み替えない。
-
-保存入力の共通統合は、明示したasofも営業日判定し、非営業日は新しいScreeningを作らず既存runの日付・ID・計算時刻を保って統合・公開を進める。営業日のexact master・価格／財務coverageは引き続き必要。
+共通統合は非営業日も経済・外部評価を更新できる。as_ofが新しくても株価観測日を当日へ書き換えず、保存原本からの再計算を完全な当時point-in-time再現とは扱わない。EDINETの原本取得・offline抽出・訂正状態はsource統合で扱い、L3が必要な一次資料とCF/BSを追加確認する。
 
 ## 保存と読取
 
-一回のrunがheader・全Stock Analysis・候補文脈を同じtransactionで確定する。独立した候補table・ID・後付け発行を持たない。保存revisionはその値・methodのまま読み、現在rulesで再計算しない。過去rulesを指定した新計算も、過去算式・当時値の再現とは限らない。
+ModelGenerationは入力identity・計算revision・モデルを一組として保存する。ScreeningSelectionは別identityで、元generation・対象母集団・政策・結果を保存する。既存identityへの別内容の上書きは拒否し、再送で初回の公開時刻を変更しない。候補0件も正常な公開結果であり、過去の非空候補へ戻さない。
 
-runのexit 2は保存済みpartial warning。DB成功後のfile export失敗では返されたrevisionから回収する。候補0件は正常で、古い候補runへfallbackしない。前runなしの日次差分は未測定とし、method/rulesが比較可能なrun間で差分を読む。
+既定読取はresearch日以下の基準日を優先し、同日は公開時刻で選ぶ。generation評価時刻と候補公開時刻の両方がknown_at以下でなければならない。explicitの未知・未来identityをlatestへ差し替えない。Selectionは必要なモデル断面と政策結果をapplication DBへ複写し、再開は保存入力だけを読む。モデルcacheの保持と保存済み評価・提案・台帳の保持は別である。
 
-Investment Judgmentの分析用選択はInvestment Judgment日以下のanalysisとknown_at以下のrunを選ぶ。explicitの未知/未来revisionをlatestへ差し替えない。保存Investment Judgment入力は元runのpruneから独立し、run pruneで評価・提案・固定snapshotを消さない。
-
-## JPX決算予定と取得境界
-
-[公式index](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html)の日次資料と月別資料は対象が異なる。日次資料は予定なしでリンクがない場合もある。未定は不正値ではなく、同順位の矛盾をURL順で決めず、上位資料の未解決を下位の古い値で埋めない。優先順位はproviderの解決方針で公式規則とは称さない。
-
-予定日到達は発表確認ではなく、個別Investment Judgmentは会社IRを確認する。snapshot取得失敗は現行run全体を保存前に止めるが、個別tickerの予定なしとは別。この停止は入力・成果物の完全性の境界で、企業の除外理由や機会損失の実測ではない。
-
-通常runは保存済み入力だけを読む。取得・retry/deadline・成功chunkからの再開・発行順は[OPERATIONS](../../jobs/OPERATIONS.md)に従う。意味を変えない配置変更でrules/model/calculation revisionを更新しない。
+取得・retry・受領反映・発行順は[OPERATIONS](../../jobs/OPERATIONS.md)が所有する。意味を変えない配置変更だけで計算revisionを更新しない。

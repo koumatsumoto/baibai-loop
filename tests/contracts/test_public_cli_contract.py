@@ -95,7 +95,7 @@ def test_runtime_has_no_retired_triage_imports_or_prepare_flags():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    for directory in ("engine/src", "jobs/src", "web/backend/src"):
+    for directory in ("engine/src", "jobs/src"):
         for path in (root / directory).rglob("*.py"):
             for node in ast.walk(ast.parse(path.read_text())):
                 names = (

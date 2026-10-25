@@ -190,12 +190,18 @@ class GeneratedResearchInputs(_Contract):
     generation: ModelInputSlice
     screening_selection_id: Text | None = None
     screening_selection: ScreeningSelection | None = None
+    screening_published_at: AwareDatetime | None = None
     saved_market_context_assessment: dict[str, JsonValue] | None = None
 
     @model_validator(mode="after")
     def fixed_policy(self) -> Self:
-        if (self.screening_selection_id is None) != (self.screening_selection is None):
-            raise ValueError("screening selection identity and saved result must be paired")
+        present = (
+            self.screening_selection_id is not None,
+            self.screening_selection is not None,
+            self.screening_published_at is not None,
+        )
+        if any(present) and not all(present):
+            raise ValueError("screening identity, result and publication time must be paired")
         if (
             self.screening_selection is not None
             and self.screening_selection.generation_id != self.generation.generation_id
@@ -248,6 +254,11 @@ class GeneratedResearchSelection(_Contract):
             raise ValueError("generation as_of is after research_as_of")
         if generation.evaluation_time > self.input_known_at:
             raise ValueError("generation evaluation_time is after input_known_at")
+        if (
+            self.inputs.screening_published_at is not None
+            and self.inputs.screening_published_at > self.input_known_at
+        ):
+            raise ValueError("screening publication is after input_known_at")
         return self
 
 

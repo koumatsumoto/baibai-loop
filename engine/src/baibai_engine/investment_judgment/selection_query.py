@@ -209,7 +209,6 @@ def load_generated_selection_context(
     from baibai_engine.machine_analysis.generation_query import read_model_inputs
     from baibai_engine.machine_analysis.screening.selection_query import (
         read_publication,
-        read_selection,
     )
     from baibai_engine.machine_analysis.screening.views import ViewSelection
 
@@ -235,9 +234,12 @@ def load_generated_selection_context(
         raise ValueError("discovery requires an explicit saved screening selection")
     screening = None
     if screening_selection_id is not None:
-        screening = read_selection(screening_selection_id, path=runs_path)
-        if screening is None:
-            raise ValueError("unknown screening selection")
+        publication = read_publication(
+            path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
+        )
+        if publication is None:
+            raise ValueError("unknown or not yet published screening selection")
+        screening = publication.selection
         if generation_id is not None and generation_id != screening.generation_id:
             raise ValueError("screening selection differs from the chosen generation")
         generation_id = screening.generation_id
