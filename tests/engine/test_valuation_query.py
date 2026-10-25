@@ -10,7 +10,7 @@ from datetime import date, datetime
 
 import pytest
 from tests.helpers.research_selection import selection
-from tests.helpers.screening_run import screening_run_payload, stock_analysis
+from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
 from baibai_engine.investment_judgment.inputs import project_research_inputs
 from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, InputGap
@@ -26,7 +26,7 @@ from baibai_engine.machine_analysis.company_valuation.query import (
 )
 from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
 from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
@@ -89,19 +89,18 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
         required_jpx_flags=rules.universe.required_jpx_flags,
     )
     path = tmp_path / "runs.sqlite"
-    store = ScreeningRunStore(path)
-    store.publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(as_of=CUTOFF.isoformat(), stock_analyses=[row]),
         run_revision_id="cf-fixed",
-        rules=load_screening_rules(),
     )
-    store.publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(
             as_of="2026-09-20",
             stock_analyses=[stock_analysis("1234", metrics={"fcf_ttm": 999.0})],
         ),
         run_revision_id="future",
-        rules=load_screening_rules(),
     )
     before = path.read_bytes()
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
@@ -352,10 +351,10 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         metrics=build_stock_analysis_metrics(financial, derived=derived, estimate=estimate),
     )
     path = tmp_path / "runs.sqlite"
-    ScreeningRunStore(path).publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(as_of=CUTOFF.isoformat(), stock_analyses=[row]),
         run_revision_id="carry-inputs",
-        rules=load_screening_rules(),
     )
     before = path.read_bytes()
     stored = ScreeningRunReader(path).valuation_run(as_of=CUTOFF)
@@ -455,7 +454,8 @@ def test_saved_dps_reaches_research_without_changing_candidates_or_raw_values(
 
 
 def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
-    ScreeningRunStore(path).publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(
             as_of=day,
             run_at=run_at,
@@ -476,7 +476,6 @@ def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
             ],
         ),
         run_revision_id=revision,
-        rules=load_screening_rules(),
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -11,8 +12,6 @@ from typing import Any
 
 from baibai_engine.machine_analysis.screening.discovery.contracts import validate_candidate_run
 from baibai_engine.storage.machine_analysis import connect_read_only, run_clock
-
-from .store import decode_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +131,7 @@ class ScreeningRunReader:
 
 
 def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublication:
-    header = dict(decode_payload(row["payload"]))
+    header = dict(_decode_payload(row["payload"]))
     as_of_date = str(row["asof_date"])
     run_at = str(row["run_at"])
     date.fromisoformat(as_of_date)
@@ -147,7 +146,7 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
         """,
         (row["run_revision_id"],),
     ).fetchall()
-    analyses = tuple(dict(decode_payload(item[0])) for item in stock_analyses)
+    analyses = tuple(dict(_decode_payload(item[0])) for item in stock_analyses)
     validate_candidate_run(header, analyses)
     return RunPublication(
         run_revision_id=str(row["run_revision_id"]),
@@ -160,6 +159,13 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
         payload=header,
         stock_analyses=analyses,
     )
+
+
+def _decode_payload(value: object) -> dict[str, Any]:
+    decoded = json.loads(str(value))
+    if not isinstance(decoded, dict):
+        raise sqlite3.DatabaseError("run store payload is not an object")
+    return decoded
 
 
 __all__ = ["RunPublication", "ScreeningRunReader"]

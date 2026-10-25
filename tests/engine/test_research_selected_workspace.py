@@ -93,7 +93,7 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_generation(tmp_
     [{}, {"earnings_forecast_source": None, "dividend_forecast_source": None}],
 )
 def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monkeypatch, unrecorded):
-    from tests.helpers.screening_run import screening_run_payload, stock_analysis
+    from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.inputs import project_research_inputs
     from baibai_engine.machine_analysis.company_valuation.query import (
@@ -102,10 +102,7 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     from baibai_engine.machine_analysis.screening.discovery.candidates import (
         build_candidate_contexts,
     )
-    from baibai_engine.machine_analysis.screening.run_store import (
-        ScreeningRunReader,
-        ScreeningRunStore,
-    )
+    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
     # Saved JSON is the input; expectations below are independent of the projection helper.
@@ -231,7 +228,8 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
         projection_only.setattr(sqlite3, "connect", forbidden)
         assert project_research_inputs(saved) == inputs
     monkeypatch.setattr(selected_prepare, "read_model_inputs", forbidden)
-    ScreeningRunStore(runs).publish_run(
+    seed_saved_run(
+        runs,
         screening_run_payload(
             as_of="2026-09-08",
             stock_analyses=[
@@ -242,7 +240,6 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
             ],
         ),
         run_revision_id="replacement",
-        rules=rules,
     )
     for remove_run in (False, True):
         if remove_run:
@@ -651,14 +648,11 @@ def test_malformed_yaml_is_a_cli_data_error_without_writes(tmp_path, capsys, com
 
 
 def test_previous_analysis_day_current_research_and_formal_assessment_are_separate(tmp_path):
-    from tests.helpers.screening_run import screening_run_payload, stock_analysis
+    from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.inputs import project_research_inputs
     from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot
-    from baibai_engine.machine_analysis.screening.run_store import (
-        ScreeningRunReader,
-        ScreeningRunStore,
-    )
+    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 
     runs = tmp_path / "runs"
     row = stock_analysis("1234", name="合成会社", metrics={"er_annual": 0.13})
@@ -666,9 +660,7 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
         as_of="2026-09-06", run_at="2026-09-06T18:00:00+09:00", stock_analyses=[row]
     )
     payload.pop("er_model_version")
-    ScreeningRunStore(runs).publish_run(
-        payload, run_revision_id="run-revision-" + "a" * 32, rules=load_screening_rules()
-    )
+    seed_saved_run(runs, payload, run_revision_id="run-revision-" + "a" * 32)
     run = ScreeningRunReader(runs).get_run("run-revision-" + "a" * 32)
     analysis = AnalysisInputSnapshot(
         run_revision_id=run.run_revision_id,

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.screening_run import seed_saved_run
 
 from baibai_engine.data_collection.economic.store import (
     initialize_database as initialize_indicator_database,
@@ -23,7 +24,6 @@ from baibai_engine.investment_judgment.trade_proposal_query import (
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
 from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.run_store import (
     ScreeningRunReader,
     initialize_run_store,
@@ -230,13 +230,11 @@ def test_indicator_partial_store_is_not_unpublished(
 def test_run_payload_partial_store_is_not_an_absent_id(tmp_path: Path) -> None:
     from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
-    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
-
     path = tmp_path / "runs.sqlite"
-    ScreeningRunStore(path).publish_run(
+    seed_saved_run(
+        path,
         screening_run_payload(stock_analyses=(stock_analysis(),)),
         run_revision_id="run-test",
-        rules=load_screening_rules(),
     )
     assert ScreeningRunReader(path).get_run("run-test") is not None
     assert ScreeningRunReader(path).get_run("absent") is None

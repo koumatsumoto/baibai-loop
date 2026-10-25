@@ -1,4 +1,4 @@
-"""Screening run-store public interfaces."""
+"""保存済み旧runの読取と明示cache整理。新規公開はしない。"""
 
 from baibai_engine.storage.machine_analysis import connect_read_only
 
@@ -6,8 +6,6 @@ from .read import RunPublication, ScreeningRunReader
 from .store import (
     DEFAULT_RUN_STORE_PATH,
     PruneResult,
-    PublicationResult,
-    RunStoreConflictError,
     ScreeningRunStore,
     initialize_run_store,
     run_store_path,
@@ -16,9 +14,7 @@ from .store import (
 __all__ = [
     "DEFAULT_RUN_STORE_PATH",
     "PruneResult",
-    "PublicationResult",
     "RunPublication",
-    "RunStoreConflictError",
     "ScreeningRunReader",
     "ScreeningRunStore",
     "connect_read_only",

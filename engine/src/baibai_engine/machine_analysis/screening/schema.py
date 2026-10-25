@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date
 from math import isfinite
 from typing import Annotated, Any
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.data_collection.identifiers import normalize_ticker as normalize_ticker
@@ -25,7 +25,6 @@ type StringMap = Mapping[str, str]
 type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
 type NonEmptyString = Annotated[str, Field(min_length=1)]
-type NonNegativeInt = Annotated[int, Field(ge=0)]
 
 
 def _validate_finite(value: float | None) -> float | None:
@@ -196,46 +195,3 @@ class StockAnalysis:
     @classmethod
     def _finite_optional_float(cls, value: float | None) -> float | None:
         return _validate_finite(value)
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class ScreeningRunDocument:
-    run_date: date
-    asof_date: date
-    universe_size: NonNegativeInt
-    filters: Mapping[str, Any]
-    stock_analyses: tuple[StockAnalysis, ...]
-    run_at: datetime
-    run_id: NonEmptyString
-    screening_rules_hash: NonEmptyString
-    er_model_version: NonEmptyString
-    generated_by: str = "screening-cli-v1"
-    data_sources: tuple[str, ...] = (
-        "j-quants-light",
-        "jpx-public-earnings-calendar",
-        "jpx-public-regulation",
-    )
-    provider_status_lines: tuple[str, ...] = ()
-    universe_exclusion_lines: tuple[str, ...] = ()
-    ttm_quality_counts: Mapping[str, int] = Field(default_factory=dict)
-    fallback_lines: tuple[str, ...] = ()
-
-    @field_validator(
-        "stock_analyses",
-        "data_sources",
-        "provider_status_lines",
-        "universe_exclusion_lines",
-        "fallback_lines",
-        mode="before",
-    )
-    @classmethod
-    def _tuple_sequence(cls, value: Sequence[Any]) -> tuple[Any, ...]:
-        return tuple(value)
-
-    @model_validator(mode="after")
-    def _consistent_dates(self) -> ScreeningRunDocument:
-        if self.run_date != self.asof_date:
-            raise ValueError("run_date must equal asof_date")
-        if self.run_at.tzinfo is None:
-            raise ValueError("run_at must be timezone-aware")
-        return self

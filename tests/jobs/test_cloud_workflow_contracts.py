@@ -203,7 +203,7 @@ def test_model_store_migration_is_manual_current_main_only_and_has_no_general_wr
         < names.index("Require current main")
         < names.index("lease-acquire")
     )
-    assert "uv sync --locked" == by_id["Sync Python environment"]["run"]
+    assert by_id["Sync Python environment"]["run"] == "uv sync --locked"
     assert "git ls-remote origin refs/heads/main" in by_id["Require current main"]["run"]
     assert '"$GITHUB_SHA"' in by_id["Require current main"]["run"]
     command = by_id["migrate-readback"]["run"]

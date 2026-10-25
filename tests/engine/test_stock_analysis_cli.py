@@ -86,3 +86,19 @@ def test_public_cli_subprocess_reads_zero_candidates_and_unknown_revision(tmp_pa
 def test_removed_review_set_public_cli_is_rejected() -> None:
     with pytest.raises(SystemExit, match="2"):
         screening_main(["review-set", "publish"])
+
+
+def test_historical_reader_does_not_load_current_candidate_calculation_or_rules():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader; "
+            "assert 'baibai_engine.machine_analysis.screening.discovery.candidates' not in sys.modules; "
+            "assert 'baibai_engine.machine_analysis.screening.rule_config' not in sys.modules",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr

@@ -15,9 +15,8 @@ from baibai_engine.investment_judgment.selection import (
     SelectedTarget,
 )
 from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader, ScreeningRunStore
-from tests.helpers.screening_run import screening_run_payload, stock_analysis
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
+from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
 
 def selected_target(ticker="1234", purpose="new"):
@@ -50,9 +49,7 @@ def selection(
         payload = screening_run_payload(
             as_of=as_of.isoformat(), run_at=now.isoformat(), stock_analyses=rows
         )
-        ScreeningRunStore(runs).publish_run(
-            payload, run_revision_id="run-synthetic", rules=load_screening_rules()
-        )
+        seed_saved_run(runs, payload, run_revision_id="run-synthetic")
         saved = ScreeningRunReader(runs).get_run("run-synthetic")
         assert saved is not None
         snapshot = AnalysisInputSnapshot(
