@@ -1,6 +1,5 @@
 """r6の有限反例と、公開読取からResearchの固定保存・再開まで。実providerを使わない。"""
 
-import json
 import socket
 import sqlite3
 from contextlib import closing
@@ -37,7 +36,7 @@ from baibai_engine.machine_analysis.company_growth.query import (
 from baibai_engine.market.financial_documents import normalize_financial_summary
 from baibai_engine.market.financial_periods import prior_year_period_matches
 from baibai_engine.storage.lake.keys import release_manifest_key
-from baibai_engine.storage.lake.models import ReleaseManifest, canonical_lake_model_bytes
+from baibai_engine.storage.lake.models import ReleaseManifest
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
@@ -639,39 +638,6 @@ def test_metric_availability_cannot_change_the_shared_ttm_measurement_interval()
     assert amount(states(records)[1], "reported", "operating_profit").value == 10
 
 
-def test_finite_ci_sample_reports_inputs_cost_and_thin_table_without_claiming_l3_success(tmp_path):
-    from tools.company_growth_sample import Sample, SampleInput, measure_samples
-
-    from baibai_engine.machine_analysis.company_growth.models import InputRelease
-
-    path = market_store(tmp_path, [document(2024, 1, 100, 10, 5)])
-    spec = SampleInput(
-        input_release=InputRelease(
-            release_id="synthetic-release-1",
-            manifest_sha256=read_lake_store_origin(path).release_manifest_sha256,
-        ),
-        as_of=NOW.date(),
-        samples=(Sample(ticker="1234", start=date(2024, 4, 1), end=date(2024, 6, 30)),),
-    )
-    report = measure_samples(path, spec, mirror=path.parent / "mirror")
-    sample = report["samples"][0]
-    assert sample["company_growth"]["periods"][0]["period_end"] == "2024-06-30"
-    assert sample["thin_reported_table"][0]["reported"]["sales"] == 100
-    assert sample["query_seconds"] >= 0
-    assert sample["company_growth_json_bytes"] > sample["thin_reported_table_json_bytes"]
-    assert report["acceptance"] == "requires_original_value_and_l3_comparison_review"
-    with pytest.raises(ValueError, match="requested fixed release"):
-        measure_samples(
-            path,
-            spec.model_copy(
-                update={
-                    "input_release": InputRelease(release_id="different", manifest_sha256="b" * 64),
-                }
-            ),
-            mirror=path.parent / "mirror",
-        )
-
-
 @pytest.mark.parametrize(
     ("correction_time", "h1_time", "expected", "reason"),
     [
@@ -808,155 +774,6 @@ def test_fixed_reader_os_failure_is_local_to_growth(tmp_path, monkeypatch):
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     assert result.reason == "fixed_release_inputs_unavailable"
     assert result.input_release is None
-
-
-def test_private_acceptance_uses_only_financial_master_and_never_overwrites_results(
-    tmp_path, monkeypatch
-):
-    from tests.helpers.lake_policy import narrow_release_policy
-    from tests.helpers.r2_store import MemoryR2Store
-    from tools.company_growth_acceptance import execute
-
-    from baibai_engine.storage.lake.keys import current_release_pointer_key
-    from baibai_engine.storage.lake.release import LakeReleasePointer
-    from baibai_engine.storage.observations.coverage import record_range_source_coverage
-    from baibai_jobs.storage.lake_publish import LakeCASConflict
-
-    records = [
-        document(y, q, q * 42424242, q * 11, q * 7) for y in (2022, 2023, 2024) for q in range(1, 5)
-    ]
-    path = market_store(tmp_path / "source", records, release=None)
-    with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                ("2026-10-23", "1234", "合成会社", "プライム", "情報・通信業", "011"),
-            ],
-        )
-        record_range_source_coverage(
-            connection,
-            source="jquants_fin_summaries",
-            operation="fixture",
-            table="jquants_fin_summaries",
-            date_column="disclosed_at",
-            requested_start=date(2022, 8, 14),
-            requested_end=date(2025, 5, 15),
-            status="ok",
-            error=None,
-        )
-    publish_market_fixture(path, "private-fixture", created_at=NOW)
-    origin = read_lake_store_origin(path)
-    store = MemoryR2Store()
-    for file in (path.parent / "mirror" / "lake").rglob("*"):
-        if file.is_file():
-            store.store_object(
-                file.relative_to(path.parent / "mirror").as_posix(), file.read_bytes()
-            )
-    pointer = LakeReleasePointer(
-        release_id=origin.release_id,
-        manifest_key=release_manifest_key(release_id=origin.release_id),
-        manifest_sha256=origin.release_manifest_sha256,
-    )
-    store.store_object(current_release_pointer_key(), canonical_lake_model_bytes(pointer))
-    narrow_release_policy(
-        monkeypatch, datasets=("jquants.fin_summaries", "jquants.master_snapshots")
-    )
-    before = {key: item.body for key, item in store.values.items()}
-    summary = execute(
-        store,
-        tmp_path / "private-runner",
-        run_id="100",
-        attempt="1",
-        head_sha="a" * 40,
-        tickers=("1234",),
-    )
-    assert summary["status"] == "measured"
-    assert summary["samples"][0]["sample_period_count"] == 12
-    assert summary["samples"][0]["window_invariance"] is True
-    assert "retained_histories" not in summary
-    assert "company_growth" not in summary["samples"][0]
-    assert "sales" not in summary["samples"][0]
-    key = summary["private_result_key"]
-    assert store.put_keys == [key]
-    assert key.startswith("validation/company-growth/pr-1592/100-1/")
-    private = store.values[key].body
-    assert b"42424242" in private
-    assert all(store.values[name].body == body for name, body in before.items())
-    assert all(name.startswith("lake/") or name == key for name in store.get_keys)
-    with pytest.raises(LakeCASConflict):
-        execute(
-            store,
-            tmp_path / "second-runner",
-            run_id="100",
-            attempt="1",
-            head_sha="a" * 40,
-            tickers=("1234",),
-        )
-    assert store.values[key].body == private
-    store.get_keys.clear()
-    projected = execute(
-        store,
-        tmp_path / "projection-runner",
-        run_id="101",
-        attempt="1",
-        head_sha="b" * 40,
-        saved_result_key=key,
-    )
-    new_key = projected["private_result_key"]
-    assert set(store.get_keys) == {key, new_key}
-    assert (
-        projected["samples"][0]["l3_projection_json_bytes"]
-        < summary["samples"][0]["history_json_bytes"]
-    )
-    assert "sales" not in projected["samples"][0]
-    assert store.values[key].body == private
-    result = json.loads(store.values[new_key].body)
-    assert result["l3_projections"]["1234"]["display_scope"]["period_count"] == 12
-    assert result["saved_result_key"] == key
-
-
-def test_acceptance_cli_keeps_private_result_keys_and_digest_out_of_public_logs(
-    tmp_path, monkeypatch, capsys
-):
-    from tools import company_growth_acceptance as acceptance
-
-    private_key = "private-result-object"
-    private_digest = "private-result-digest"
-    source_key = "private-input-object"
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "company-growth-acceptance",
-            "--directory",
-            str(tmp_path),
-            "--run-id",
-            "100",
-            "--attempt",
-            "1",
-            "--head-sha",
-            "a" * 40,
-        ],
-    )
-    monkeypatch.setattr(acceptance, "Boto3R2Store", lambda **_: object())
-    monkeypatch.setattr(
-        acceptance,
-        "execute",
-        lambda *_a, **_kw: {
-            "status": "measured",
-            "sample_count": 5,
-            "private_result_bytes": 73660,
-            "private_result_key": private_key,
-            "private_result_sha256": private_digest,
-            "saved_result_key": source_key,
-        },
-    )
-    assert acceptance.main() == 0
-    logged = capsys.readouterr().out
-    assert all(value not in logged for value in (private_key, private_digest, source_key))
-    public = json.loads(logged)
-    assert public["status"] == "measured"
-    assert public["sample_count"] == 5
-    assert public["private_result_bytes"] == 73660
 
 
 def test_compact_growth_keeps_quarter_and_annual_conflict_and_reported_cash_flow():

@@ -61,7 +61,7 @@ def test_python_quality_gates_share_one_runner() -> None:
     assert isinstance(jobs, dict)
     names = set(_by_name("ci.yml", "quality"))
 
-    assert set(jobs) == {"quality", "tradingview_oauth_smoke", "company_growth_acceptance"}
+    assert set(jobs) == {"quality", "tradingview_oauth_smoke"}
     assert {
         "Ruff format",
         "Ruff lint",
@@ -74,7 +74,6 @@ def test_python_quality_gates_share_one_runner() -> None:
         "Build dependency audit",
     } <= names
     assert not names.intersection(_by_name("ci.yml", "tradingview_oauth_smoke"))
-    assert not names.intersection(_by_name("ci.yml", "company_growth_acceptance"))
 
 
 def test_ci_pins_an_explicit_worker_count() -> None:
@@ -159,26 +158,6 @@ def test_weekly_sweep_asks_only_what_a_pull_request_cannot() -> None:
         "Dependency audit",
         "Build dependency audit",
     }
-
-
-def test_growth_acceptance_is_manual_private_and_separate_from_public_quality() -> None:
-    jobs = _workflow("ci.yml")["jobs"]
-    job = jobs["company_growth_acceptance"]
-    assert job["needs"] == "quality"
-    assert "github.event_name == 'workflow_dispatch'" in job["if"]
-    assert "inputs.company_growth_acceptance" in job["if"]
-    assert "needs.quality.result == 'success'" in job["if"]
-    assert "refs/heads/feat/1588-company-growth" in job["if"]
-    assert "env" not in job
-    steps = _steps("ci.yml", "company_growth_acceptance")
-    private = [step for step in steps if "R2_SECRET_ACCESS_KEY" in str(step)]
-    assert len(private) == 1
-    assert private[0]["name"] == "Measure finite sample and save private result"
-    assert "upload-artifact" not in str(steps)
-    assert "push-market" not in str(steps)
-    assert "pull-app" not in str(steps)
-    assert "publish-lake" not in str(steps)
-    assert steps[-1]["if"] == "${{ always() }}"
 
 
 def test_weekly_dependency_audits_run_after_an_earlier_finding() -> None:

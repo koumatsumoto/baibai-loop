@@ -11,14 +11,6 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      company_growth_acceptance:
-        description: "Private R2 company-growth sample; summary only in public logs"
-        type: boolean
-        default: false
-      company_growth_saved_run:
-        description: "Optional validation Actions run: <run>-<attempt>/<head>, for saved-input projection"
-        type: string
-        default: ""
       tradingview_oauth_smoke:
         description: "TradingView OAuth rotation and Secret persistence smoke"
         type: boolean
@@ -192,45 +184,3 @@ jobs:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
         run: uv run baibai-engine tradingview smoke
-
-
-  company_growth_acceptance:
-    needs: quality
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch'
-        && inputs.company_growth_acceptance
-        && github.repository == 'koumatsumoto/baibai-loop'
-        && (github.ref == 'refs/heads/feat/1588-company-growth' || github.ref == 'refs/heads/main')
-        && needs.quality.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    concurrency:
-      group: company-growth-acceptance
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - name: Sync Python environment
-        run: uv sync --locked
-      - name: Measure finite sample and save private result
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          SAVED_RESULT_RUN: ${{ inputs.company_growth_saved_run }}
-        run: |
-          umask 077
-          uv run python -m tools.company_growth_acceptance \
-            --directory "$RUNNER_TEMP/company-growth-acceptance" \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$GITHUB_SHA" \
-            --saved-result-run "$SAVED_RESULT_RUN"
-      - name: Remove private runner copies
-        if: ${{ always() }}
-        run: rm -rf -- "$RUNNER_TEMP/company-growth-acceptance"
