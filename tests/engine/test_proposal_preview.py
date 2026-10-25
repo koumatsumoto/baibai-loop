@@ -194,16 +194,16 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
 def test_rate_and_horizon_flow_through_context_publication_and_preview(
     tmp_path, horizon_months, expected_maximum
 ):
+    from baibai_engine.investment_judgment.scenario import maximum_entry_price
     from baibai_engine.investment_judgment.stock_assessment import assessment_core_hash
+    from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
     from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
-    from baibai_engine.read_api.stock_assessment import reviewed_assessment_projection
+    from baibai_engine.storage.application.read import connect_read_only
 
-    # A synthetic fixed total value isolates period propagation, not business growth.
     case = backend_case(tmp_path, required_rate="3", horizon_months=horizon_months)
     original_hash = assessment_core_hash(case.pair.document)
-    original_projection = reviewed_assessment_projection(
-        case.app, assessment_id=case.pair.assessment_id
-    )
+    with closing(connect_read_only(case.app)) as connection:
+        original_pair = load_reviewed_assessment(connection, case.pair.assessment_id)
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
         db_path=case.app,
@@ -211,8 +211,13 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
         now=PUBLISHED,
     )
     calculation = context.payload()["calculations"]["1234"]
-    maximum = original_projection["pmax_original_yen"]
-    assert original_projection["horizon_months"] == horizon_months
+    valuation = original_pair.document.valuation
+    maximum = maximum_entry_price(
+        valuation.base,
+        horizon_months=valuation.horizon_months,
+        required_annual_return_pct=valuation.required_annual_return_pct,
+    )
+    assert valuation.horizon_months == horizon_months
     assert Decimal(str(maximum)).quantize(Decimal("0.0001")) == Decimal(expected_maximum)
     assert calculation["calculation_at_maximum_price"]["hard_blockers"] == []
     assert calculation["buy_at_actual_quote"]["hard_blockers"][0]["code"] == "limit_above_pmax"
@@ -245,10 +250,8 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
         assert current["current_price_projection"]["horizon_months"] == horizon_months
     assert _snapshot(case.app) == before
     assert assessment_core_hash(case.pair.document) == original_hash
-    assert (
-        reviewed_assessment_projection(case.app, assessment_id=case.pair.assessment_id)
-        == original_projection
-    )
+    with closing(connect_read_only(case.app)) as connection:
+        assert load_reviewed_assessment(connection, case.pair.assessment_id) == original_pair
     # Only the current observation changes. Saved rate, exact pair and proposal stay fixed.
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=1000")
@@ -269,11 +272,10 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
         )
         assert current["current_price_projection"]["horizon_months"] == horizon_months
     assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
-    after_projection = reviewed_assessment_projection(
-        case.app, assessment_id=case.pair.assessment_id
-    )
-    assert after_projection == original_projection
-    assert after_projection["core_sha256"] == original_hash
-    assert after_projection["required_annual_return_pct"] == 3
-    assert after_projection["horizon_months"] == horizon_months
+    with closing(connect_read_only(case.app)) as connection:
+        after_pair = load_reviewed_assessment(connection, case.pair.assessment_id)
+    assert after_pair == original_pair
+    assert after_pair.core_sha256 == original_hash
+    assert after_pair.document.valuation.required_annual_return_pct == 3
+    assert after_pair.document.valuation.horizon_months == horizon_months
     assert _snapshot(case.app) == before

@@ -26,8 +26,8 @@ from baibai_engine.market.tender_offer import (
     read_tender_offer_outcome,
     store_tender_offer_exit_values,
 )
-from baibai_engine.source_maintenance import delisting_cli
 from baibai_engine.source_maintenance import cli as app
+from baibai_engine.source_maintenance import delisting_cli
 from baibai_engine.storage.observations.schema import open_connection
 
 _PRICE = "jptoo-ton_cor:PriceOfPurchaseEtcTextBlock"

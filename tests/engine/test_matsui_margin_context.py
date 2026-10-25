@@ -27,7 +27,6 @@ from baibai_engine.machine_analysis.market_context.reading.observations import (
 )
 from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
 from baibai_engine.machine_analysis.market_context.reading.rules import load_reading_rules
-from baibai_engine.read_api.market_context import indicator_series
 
 SERIES_ID = "jp.matsui_margin_long_evaluation_pnl"
 SOURCE_ID = "matsui-margin"
@@ -202,7 +201,6 @@ def test_latest_unreadable_source_withholds_only_this_series(tmp_path, body):
     assert rows[SERIES_ID]["flags"] == ["source_unreadable"]
     assert rows[SERIES_ID]["notes"]
     assert rows["jp.10y"]["flags"] == []  # unrelated readings still materialize
-    assert indicator_series(path, series_id=SERIES_ID)["points"] == []
     assert path.read_bytes() == before
 
 
@@ -230,13 +228,9 @@ def test_latest_per_request_then_per_observation_and_weekend_freshness(tmp_path,
     assert row["flags"] == ["year_inferred"]
     assert row["read_semantics"]["known_at_applied"] is False
     assert row["read_semantics"]["point_in_time_guaranteed"] is False
-    chart = indicator_series(path, series_id=SERIES_ID)
-    assert chart["points"][0]["quality_flags"] == ["year_inferred"]
-    assert row["notes"] == [
-        f"Series definition: {series.notes}",
-        *chart["points"][0]["notes"],
-    ]
-    assert chart["points"][0]["vintage_at"] == row["vintage_at"]
+    assert list(values[0].quality_flags) == ["year_inferred"]
+    assert row["notes"] == [f"Series definition: {series.notes}", *values[0].notes]
+    assert values[0].vintage_at.isoformat() == row["vintage_at"]
     assert row["percentile"] is None
     assert row["insufficient_history"]
     assert (

@@ -1,4 +1,4 @@
-"""保存済み旧run・較正と横断読取のCLI。source取得は別入口。"""
+"""保存済み旧run・較正のCLI。新しい候補政策とsource取得は別入口。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from typing import cast
 
 from baibai_engine.foundation.date_utils import parse_iso_date as _parse_iso_date
 from baibai_engine.foundation.env import load_project_env
-from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.machine_analysis.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -28,12 +27,7 @@ from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 
 from .cache import verify_cache_coverage_command
 from .prune import prune_command
-from .query import (
-    candidates_show_command,
-    market_snapshot_command,
-    run_show_command,
-    ticker_profile_command,
-)
+from .query import candidates_show_command, run_show_command
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,36 +78,6 @@ def build_parser() -> argparse.ArgumentParser:
         show.add_argument("--output-path", help="also write the same output to this path")
         show.add_argument("--force", action="store_true", help="overwrite an existing output file")
         show.add_argument("--format", choices=("yaml", "json"), default="yaml")
-
-    profile_parser = subparsers.add_parser(
-        "ticker-profile",
-        help=(
-            "emit the single-ticker deterministic fact profile "
-            "(price, relative, benchmark trend, filings, screening)"
-        ),
-    )
-    profile_parser.add_argument("--ticker", required=True, help="4-character ticker code")
-    profile_parser.add_argument(
-        "--asof",
-        help="evaluation date (YYYY-MM-DD; default: latest cached trading day)",
-    )
-    profile_parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
-    profile_parser.add_argument(
-        "--runs-db",
-        help="screening run store path",
-    )
-    profile_parser.add_argument(
-        "--app-db",
-        help="application DB path",
-    )
-    profile_parser.add_argument(
-        "--run-revision-id",
-        help="explicit screening run revision (default: latest stored run)",
-    )
 
     calibration_build_parser = subparsers.add_parser(
         "calibration-build",
@@ -228,32 +192,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="evaluate only cohorts on/before this date (YYYY-MM-DD)",
     )
 
-    snapshot_parser = subparsers.add_parser(
-        "market-snapshot",
-        help="emit the market snapshot (weekly benchmark trend and sector aggregates)",
-    )
-    snapshot_parser.add_argument(
-        "--asof",
-        help="evaluation date (YYYY-MM-DD; default: latest cached trading day)",
-    )
-    snapshot_parser.add_argument(
-        "--weeks",
-        type=int,
-        default=12,
-        help="number of weekly history points (default: 12)",
-    )
-    snapshot_parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
-    snapshot_parser.add_argument(
-        "--format",
-        choices=("yaml", "json"),
-        default="yaml",
-        help="output format (default: yaml)",
-    )
-
     return parser
 
 
@@ -277,26 +215,6 @@ def main(argv: list[str] | None = None) -> int:
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
-            output_format=args.format,
-        )
-
-    if args.command == "ticker-profile":
-        # ticker-profile reads the SQLite stores only; no provider credentials are needed.
-        return ticker_profile_command(
-            ticker=args.ticker,
-            asof=args.asof,
-            sqlite_path=Path(args.sqlite_path),
-            runs_db_path=(Path(args.runs_db) if args.runs_db else RUNS_DB_PATH),
-            app_db_path=(Path(args.app_db) if args.app_db else APPLICATION_DB_PATH),
-            run_revision_id=args.run_revision_id,
-        )
-
-    if args.command == "market-snapshot":
-        # market-snapshot reads the SQLite store only; no provider credentials needed.
-        return market_snapshot_command(
-            asof=args.asof,
-            weeks=args.weeks,
-            sqlite_path=Path(args.sqlite_path),
             output_format=args.format,
         )
 

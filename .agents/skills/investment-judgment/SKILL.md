@@ -36,7 +36,7 @@ uv run baibai-engine investment-judgment selection-context \
 
 新規draftはschema_version=2とし、contextのgeneration_id・screening_selection_id・Investment Judgment日・cutoff・requestを引き継ぐ。対象と問い、選定理由、比較した代替と未確認の範囲を記し、全社モデルをLLMへ一括投入しない。指定/保有は候補外でも調べられ、候補内membershipを購入資格にしない。
 
-機械入力の不足は経済的棄却と分ける。既存のticker-profile・coverage確認と必要な通常取得で補い、得られないモデルや値は未生成・欠測のまま判断へ残す。単一対象の不足を全期間backfillで埋めない。新たな共通市場判断を今回作る場合は[市場判断skill](../market-context-assessment/SKILL.md)を先に完了する。
+機械入力の不足は経済的棄却と分ける。固定generationの未生成・欠測理由と該当sourceの受領状況を確認し、必要な通常取得で補い、得られないモデルや値は未生成・欠測のまま判断へ残す。単一対象の不足を全期間backfillで埋めない。新たな共通市場判断を今回作る場合は[市場判断skill](../market-context-assessment/SKILL.md)を先に完了する。
 
 ```bash
 uv run baibai-engine investment-judgment prepare \

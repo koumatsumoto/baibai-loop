@@ -15,8 +15,8 @@ from baibai_engine.machine_analysis.technical_analysis.calculations import (
 )
 from baibai_engine.machine_analysis.technical_analysis.cli import main
 from baibai_engine.machine_analysis.technical_analysis.generation import generate_technical_analysis
+from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
 from baibai_engine.market.price_models import PriceBar
-from baibai_engine.read_api.technical_analysis import technical_analysis
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 10, 16)

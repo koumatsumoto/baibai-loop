@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -12,38 +11,33 @@ from pathlib import Path
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
-import baibai_engine.read_api as read_api
 from baibai_engine.data_collection.economic.store import (
     initialize_database as initialize_indicator_database,
 )
+from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
+from baibai_engine.investment_judgment.trade_proposal_query import (
+    get_investment_proposal,
+    preview_current_terms,
+)
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
+from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
+from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import initialize_run_store
-from baibai_engine.read_api.sqlite import read_rows
+from baibai_engine.machine_analysis.screening.run_store import (
+    ScreeningRunReader,
+    initialize_run_store,
+)
+from baibai_engine.market.calendar_context import market_calendar_business_day
+from baibai_engine.market.jpx_reader import read_next_earnings_dates
+from baibai_engine.storage.application.read import (
+    connect_read_only as connect_application_read_only,
+)
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.storage.machine_analysis import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
-
-
-def _research_reads(path: Path):
-    assessment_id = "stock-assessment-00000000-0000-4000-8000-000000000001"
-    proposal_id = "investment-proposal-00000000-0000-4000-8000-000000000001"
-    return (
-        (lambda: read_api.list_stock_assessment_publications(path), []),
-        (lambda: read_api.stock_assessment_publication(path, assessment_id=assessment_id), None),
-        (lambda: read_api.list_assessment_review_publications(path), []),
-        (lambda: read_api.reviewed_assessment_projection(path, assessment_id=assessment_id), {}),
-        (lambda: read_api.list_investment_proposal_payloads(path), []),
-        (lambda: read_api.investment_proposal_payload(path, proposal_id=proposal_id), None),
-        (
-            lambda: read_api.preview_current_proposal_terms(
-                path, proposal_id=proposal_id, sqlite_path=path, now=PUBLISHED
-            ),
-            None,
-        ),
-    )
 
 
 @pytest.mark.parametrize("store", ["absent-file", "empty-file"])
@@ -53,14 +47,8 @@ def test_unwritten_stores_return_absence_without_initializing(tmp_path: Path, st
         sqlite3.connect(path).close()
     original = path.read_bytes() if path.exists() else None
     assert read_rows(path, "SELECT payload FROM example_payload") == []
-    assert read_api.list_operation_sessions(path) == []
-    assert read_api.screening_run_asof_dates(path) == []
-    assert read_api.screening_run_payload(path) is None
-    assert read_api.reading_snapshot(path, asof=date(2026, 7, 29)) is None
-    assert read_api.indicator_series(path, series_id="jp.cpi.headline") is None
-    assert read_api.next_earnings_dates(path, ["2331"], asof=date(2026, 7, 29)) == {}
-    for reader, expected in _research_reads(path):
-        assert reader() == expected
+    assert reading_snapshot(path, asof=date(2026, 7, 29)) is None
+    assert read_next_earnings_dates(path, date(2026, 7, 29)) is None
     assert (path.read_bytes() if path.exists() else None) == original
 
 
@@ -73,29 +61,17 @@ def test_the_daily_batch_gates_report_an_unwritten_store_instead_of_degrading(
     sqlite3.connect(empty).close()
 
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        read_api.market_calendar_business_day(empty, date(2026, 7, 29))
-    with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        read_api.previous_run_revision_id(empty, date(2026, 7, 29))
+        market_calendar_business_day(empty, date(2026, 7, 29))
 
 
 def test_screening_read_helpers_accept_the_current_run_store(tmp_path: Path) -> None:
     current = tmp_path / "runs.sqlite"
     initialize_run_store(current)
 
-    assert read_api.screening_run_asof_dates(current) == []
-    assert read_api.previous_run_revision_id(current, date(2026, 7, 29)) is None
+    assert ScreeningRunReader(current).latest_run() is None
 
 
-@pytest.mark.parametrize(
-    "reader",
-    [
-        lambda path: read_api.screening_run_asof_dates(path),
-        lambda path: read_api.previous_run_revision_id(path, date(2026, 7, 29)),
-    ],
-)
-def test_screening_read_helpers_reject_an_obsolete_run_store(
-    tmp_path: Path, reader: Callable[[Path], object]
-) -> None:
+def test_screening_reader_rejects_an_obsolete_run_store(tmp_path: Path) -> None:
     obsolete = tmp_path / "runs.sqlite"
     initialize_run_store(obsolete)
     with closing(sqlite3.connect(obsolete)) as connection, connection:
@@ -105,7 +81,7 @@ def test_screening_read_helpers_reject_an_obsolete_run_store(
         RuntimeError,
         match=rf"found {RUN_STORE_SCHEMA_VERSION - 1}, expected {RUN_STORE_SCHEMA_VERSION}",
     ):
-        reader(obsolete)
+        ScreeningRunReader(obsolete).latest_run()
 
 
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
@@ -127,20 +103,11 @@ def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: 
     with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
 
-    with pytest.raises(RuntimeError, match="obsolete application database schema"):
-        read_api.list_operation_sessions(store)
-
-
-def test_all_research_readers_reject_an_obsolete_application_store(tmp_path: Path) -> None:
-    store = tmp_path / "obsolete.sqlite"
-    initialize_database(store)
-    with closing(sqlite3.connect(store)) as connection, connection:
-        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
-    original = store.read_bytes()
-    for reader, _ in _research_reads(store):
-        with pytest.raises(RuntimeError, match="obsolete application database schema"):
-            reader()
-    assert store.read_bytes() == original
+    with (
+        pytest.raises(RuntimeError, match="obsolete application database schema"),
+        closing(connect_application_read_only(store)),
+    ):
+        pass
 
 
 def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: Path) -> None:
@@ -150,7 +117,7 @@ def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: 
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(RuntimeError, match="obsolete market SQLite schema"):
-        read_api.next_earnings_dates(store, ["2331"], asof=date(2026, 8, 30))
+        read_next_earnings_dates(store, date(2026, 8, 30))
 
 
 @pytest.mark.parametrize("kind", ["assessment", "proposal"])
@@ -170,28 +137,24 @@ def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
         connection.execute(f"DROP TRIGGER {table}_immutable")
         connection.execute(f"UPDATE {table} SET payload=?", (json.dumps(raw),))
     original = case.app.read_bytes()
-    readers = (
-        (
-            lambda: read_api.list_stock_assessment_publications(case.app),
-            lambda: read_api.stock_assessment_publication(
-                case.app, assessment_id=case.pair.assessment_id
+    if kind == "assessment":
+        with (
+            closing(connect_application_read_only(case.app)) as connection,
+            pytest.raises(ValueError, match="schema_version"),
+        ):
+            load_reviewed_assessment(connection, case.pair.assessment_id)
+    else:
+        for reader in (
+            lambda: get_investment_proposal(db_path=case.app, proposal_id=proposal.proposal_id),
+            lambda: preview_current_terms(
+                db_path=case.app,
+                proposal_id=proposal.proposal_id,
+                sqlite_path=case.market,
+                now=PUBLISHED,
             ),
-            lambda: read_api.list_assessment_review_publications(case.app),
-        )
-        if kind == "assessment"
-        else (
-            lambda: read_api.list_investment_proposal_payloads(case.app),
-            lambda: read_api.investment_proposal_payload(
-                case.app, proposal_id=proposal.proposal_id
-            ),
-            lambda: read_api.preview_current_proposal_terms(
-                case.app, proposal_id=proposal.proposal_id, sqlite_path=case.market, now=PUBLISHED
-            ),
-        )
-    )
-    for reader in readers:
-        with pytest.raises(ValueError, match="schema_version"):
-            reader()
+        ):
+            with pytest.raises(ValueError, match="schema_version"):
+                reader()
     assert case.app.read_bytes() == original
 
 
@@ -217,17 +180,11 @@ def test_assessment_publications_never_degrade_a_corrupt_saved_pair(
             else:
                 connection.execute("UPDATE stock_assessment SET core_sha256=?", ("0" * 64,))
     original = case.app.read_bytes()
-    for reader in (
-        lambda: read_api.list_stock_assessment_publications(case.app),
-        lambda: read_api.stock_assessment_publication(
-            case.app, assessment_id=case.pair.assessment_id
-        ),
-        lambda: read_api.reviewed_assessment_projection(
-            case.app, assessment_id=case.pair.assessment_id
-        ),
+    with (
+        closing(connect_application_read_only(case.app)) as connection,
+        pytest.raises(ValueError, match="要再評価"),
     ):
-        with pytest.raises(ValueError, match="要再評価"):
-            reader()
+        load_reviewed_assessment(connection, case.pair.assessment_id)
     assert case.app.read_bytes() == original
 
 
@@ -243,11 +200,11 @@ def test_indicator_partial_store_is_not_unpublished(
     table = "economic_source_documents" if storage == "document" else "economic_source_records"
     series_id = "jp.bankruptcies" if storage == "document" else "jp.cpi.headline"
     readers = [
-        lambda: read_api.reading_snapshot(path, asof=date(2026, 7, 29)),
-        lambda: read_api.indicator_series(path, series_id=series_id),
+        lambda: reading_snapshot(path, asof=date(2026, 7, 29)),
+        lambda: IndicatorsService(path).get_range(series_id, start=date.min, end=date(2026, 7, 29)),
     ]
-    assert all(isinstance(reader(), dict) for reader in readers)
-    assert read_api.indicator_series(path, series_id="unknown") is None
+    assert isinstance(readers[0](), dict)
+    assert readers[1]().observations == ()
     with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if storage == "document":
@@ -281,14 +238,14 @@ def test_run_payload_partial_store_is_not_an_absent_id(tmp_path: Path) -> None:
         run_revision_id="run-test",
         rules=load_screening_rules(),
     )
-    assert isinstance(read_api.screening_run_payload(path, run_revision_id="run-test"), dict)
-    assert read_api.screening_run_payload(path, run_revision_id="absent") is None
+    assert ScreeningRunReader(path).get_run("run-test") is not None
+    assert ScreeningRunReader(path).get_run("absent") is None
     with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         connection.execute("DROP TABLE stock_analysis")
     original = path.read_bytes()
     with pytest.raises(sqlite3.OperationalError, match="no such table: stock_analysis"):
-        read_api.screening_run_payload(path, run_revision_id="run-test")
+        ScreeningRunReader(path).get_run("run-test")
     assert path.read_bytes() == original
     with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == version

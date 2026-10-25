@@ -28,7 +28,6 @@ from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     serialize_published_run_yaml,
     stock_analysis_payload,
 )
-from baibai_engine.read_api.screening import previous_run_revision_id
 from baibai_engine.storage import machine_analysis as machine_store
 from baibai_engine.storage.machine_analysis import RUN_STORE_SCHEMA_VERSION
 
@@ -497,13 +496,6 @@ def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_
     with closing(sqlite3.connect(path)) as connection, connection:
         retained = dict(connection.execute("SELECT run_revision_id, run_at FROM screening_run"))
     assert retained == dict(zip(revisions[1:], clocks[1:], strict=True))
-
-
-def test_previous_run_facade_preserves_exact_instant_order(precise_clock_runs):
-    path, revisions, _ = precise_clock_runs
-    before = path.read_bytes()
-    assert previous_run_revision_id(path, date(2026, 10, 15)) == revisions[-1]
-    assert path.read_bytes() == before
 
 
 def test_initialization_failure_rolls_back_run_schema_and_can_retry(tmp_path, monkeypatch):

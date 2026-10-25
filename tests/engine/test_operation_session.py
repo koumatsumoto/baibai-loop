@@ -23,7 +23,6 @@ from baibai_engine.investment_judgment.operation.service import (
     OperationConflictError,
     OperationService,
 )
-from baibai_engine.read_api.operations import list_operation_sessions
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
@@ -220,11 +219,9 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
 def test_operation_list_does_not_create_an_unwritten_database(tmp_path: Path) -> None:
     db = tmp_path / "unwritten.sqlite"
     assert OperationService(db).list() == []
-    assert list_operation_sessions(db) == []
     assert not db.exists()
     db.touch()
     assert OperationService(db).list() == []
-    assert list_operation_sessions(db) == []
     assert db.stat().st_size == 0
 
 
@@ -249,9 +246,7 @@ def test_operation_lists_sort_by_instant_not_offset_text(tmp_path: Path) -> None
         )
     expected = [identifier for identifier, _ in reversed(records)]
     assert [item.operation_id for item in OperationService(db).list()] == expected
-    assert [item["operation_id"] for item in list_operation_sessions(db)] == expected
     assert OperationService(db).list(status="active") == []
-    assert list_operation_sessions(db, status="active") == []
 
 
 def test_operation_start_requires_the_explicit_payload_at_the_cli_boundary(

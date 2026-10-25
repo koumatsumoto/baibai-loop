@@ -293,11 +293,6 @@ name = "screening does not import position (one-way market<-{screening,position}
 type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.screening"]
 forbidden_modules = ["baibai_engine.position"]
-# Only the public CLI composes the cross-domain ticker profile.
-# Direct screening -> position imports remain forbidden.
-ignore_imports = [
-  "baibai_engine.machine_analysis.screening.cli.query -> baibai_engine.read_api.ticker_profile",
-]
 
 [[tool.importlinter.contracts]]
 name = "investment judgment is the top-level domain engine (lower layers do not import it)"
@@ -377,15 +372,6 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "read_api cannot reach writer or CLI modules"
 type = "forbidden"
-# Exact pair readers receive query-only connections. Preview uses read-only
-# condition evaluation, not the publication service; its pair type is annotation-only.
-ignore_imports = [
-  "baibai_engine.read_api.stock_assessment -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.read_api.trade_proposal -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.investment_judgment.trade_proposal_query -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.investment_judgment.trade_proposal_inputs -> baibai_engine.investment_judgment.stock_assessment_store",
-  "baibai_engine.investment_judgment.trade_proposal_conditions -> baibai_engine.investment_judgment.stock_assessment_store",
-]
 source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.market.jquants_writer", "baibai_engine.market.jpx_rebuild",
@@ -447,17 +433,6 @@ forbidden_modules = [
   "baibai_engine.data_collection.tradingview.client",
   "baibai_engine.data_collection.tradingview.collector",
   "baibai_engine.data_collection.tradingview.auth",
-]
-
-[[tool.importlinter.contracts]]
-name = "external assessment read facade cannot acquire or write"
-type = "forbidden"
-source_modules = ["baibai_engine.read_api.external_assessment"]
-forbidden_modules = [
-  "baibai_engine.machine_analysis.external_assessment.normalization",
-  "baibai_engine.data_collection.external_assessment.collection",
-  "baibai_engine.machine_analysis.external_assessment.store",
-  "baibai_engine.data_collection.external_assessment.cli",
 ]
 
 [[tool.importlinter.contracts]]

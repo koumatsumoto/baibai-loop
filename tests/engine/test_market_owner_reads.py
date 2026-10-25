@@ -6,28 +6,22 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.machine_analysis.screening.calibration.forward import latest_market_data_date
 from baibai_engine.machine_analysis.screening.sqlite_coverage.core import _connect_readonly
 from baibai_engine.market import jquants_reader
+from baibai_engine.market.adjusted_prices import close_change_since
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
 )
+from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market.jpx_rebuild import store_jpx_earnings_calendar_snapshot
 from baibai_engine.position.market_source import (
     market_basis_is_confirmed,
     next_order_session,
     read_unadjusted_close,
-)
-from baibai_engine.read_api.market import (
-    close_change_since,
-    latest_disclosure_dates_after,
-    latest_unadjusted_closes,
-    next_earnings_dates,
-    previous_business_day,
 )
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -42,35 +36,6 @@ def _seed_bars(path: Path, rows: list[tuple[str, str, float | None]]) -> None:
         connection.commit()
     finally:
         connection.close()
-
-
-def test_latest_unadjusted_closes_returns_newest_non_null_close_per_ticker(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_bars(
-        database,
-        [
-            ("2331", "2026-07-14", 1000.0),
-            ("2331", "2026-07-17", 1055.0),
-            ("2331", "2026-07-18", None),  # NULL close never wins over an earlier real close
-            ("4432", "2026-07-16", 2500.5),
-            ("9999", "2026-07-10", 300.0),  # not requested, stays out of the result
-        ],
-    )
-
-    result = latest_unadjusted_closes(database, ["2331", "4432", "0000"])
-
-    assert result == {
-        "2331": (1055.0, date(2026, 7, 17)),
-        "4432": (2500.5, date(2026, 7, 16)),
-    }
-
-
-def test_latest_unadjusted_closes_is_empty_without_file_or_tickers(tmp_path: Path) -> None:
-    missing = tmp_path / "missing.sqlite"
-    assert latest_unadjusted_closes(missing, ["2331"]) == {}
-    assert latest_unadjusted_closes(missing, []) == {}
 
 
 def _seed_earnings(path: Path, rows: list[tuple[str, str]]) -> None:
@@ -90,7 +55,7 @@ def _seed_earnings(path: Path, rows: list[tuple[str, str]]) -> None:
     )
 
 
-def test_next_earnings_dates_returns_requested_current_dates_on_or_after_asof(
+def test_next_earnings_dates_returns_current_dates_on_or_after_asof(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "market.sqlite"
@@ -100,28 +65,28 @@ def test_next_earnings_dates_returns_requested_current_dates_on_or_after_asof(
             ("2331", "2026-07-30"),
             ("4432", "2026-08-13"),
             ("5555", "2026-07-15"),  # before asof, ignored
-            ("9999", "2026-07-31"),  # not requested, stays out of the result
+            ("9999", "2026-07-31"),  # owner returns the complete current schedule
         ],
     )
 
-    result = next_earnings_dates(database, ["2331", "4432", "5555", "0000"], asof=date(2026, 7, 21))
+    result = read_next_earnings_dates(database, date(2026, 7, 21))
 
     assert result == {
         "2331": date(2026, 7, 30),
         "4432": date(2026, 8, 13),
+        "9999": date(2026, 7, 31),
     }
 
 
-def test_next_earnings_dates_is_empty_without_file_tickers_or_future_dates(
+def test_next_earnings_dates_marks_missing_or_expired_schedule_unavailable(
     tmp_path: Path,
 ) -> None:
     missing = tmp_path / "missing.sqlite"
-    assert next_earnings_dates(missing, ["2331"], asof=date(2026, 7, 21)) == {}
-    assert next_earnings_dates(missing, [], asof=date(2026, 7, 21)) == {}
+    assert read_next_earnings_dates(missing, date(2026, 7, 21)) is None
 
     database = tmp_path / "market.sqlite"
     _seed_earnings(database, [("2331", "2026-07-15")])
-    assert next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21)) == {}
+    assert read_next_earnings_dates(database, date(2026, 7, 21)) is None
 
 
 def test_optional_earnings_dates_do_not_require_coverage_for_unrelated_market_reads(
@@ -129,23 +94,17 @@ def test_optional_earnings_dates_do_not_require_coverage_for_unrelated_market_re
 ) -> None:
     database = tmp_path / "market.sqlite"
     _seed_bars(database, [("2331", "2026-07-21", 1000.0)])
-    assert next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21)) == {}
-    assert latest_unadjusted_closes(database, ["2331"]) == {"2331": (1000.0, date(2026, 7, 21))}
-
-
-def test_current_schedule_with_no_requested_ticker_is_a_normal_empty_view(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_earnings(database, [("4432", "2026-07-21")])
-    assert next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21)) == {}
-    assert next_earnings_dates(database, ["4432"], asof=date(2026, 7, 21)) == {
-        "4432": date(2026, 7, 21)
-    }
+    assert read_next_earnings_dates(database, date(2026, 7, 21)) is None
+    quote = read_unadjusted_close(
+        sqlite_path=database, ticker="2331", at=datetime.fromisoformat("2026-07-21T16:00:00+09:00")
+    )
+    assert quote.close_yen == 1000.0
 
 
 def test_optional_earnings_view_does_not_publish_a_stale_schedule(tmp_path: Path) -> None:
     database = tmp_path / "market.sqlite"
     _seed_earnings(database, [("2331", "2026-08-13")])
-    assert next_earnings_dates(database, ["2331"], asof=date(2026, 8, 3)) == {}
+    assert read_next_earnings_dates(database, date(2026, 8, 3)) is None
 
 
 def test_earnings_view_propagates_corrupt_successful_snapshot(tmp_path: Path) -> None:
@@ -155,7 +114,7 @@ def test_earnings_view_propagates_corrupt_successful_snapshot(tmp_path: Path) ->
         connection.execute("UPDATE source_coverage SET record_count = 2")
     before = database.read_bytes()
     with pytest.raises(JPXProviderError, match="row count mismatch"):
-        next_earnings_dates(database, ["2331"], asof=date(2026, 7, 21))
+        read_next_earnings_dates(database, date(2026, 7, 21))
     assert database.read_bytes() == before
 
 
@@ -249,50 +208,6 @@ def test_close_change_since_skips_a_ticker_with_no_close_by_the_day(tmp_path: Pa
 
 def test_close_change_since_is_empty_without_file_or_tickers(tmp_path: Path) -> None:
     assert close_change_since(tmp_path / "absent.sqlite", ["2331"], since=date(2026, 7, 28)) == {}
-
-
-def test_latest_disclosure_dates_after_excludes_the_boundary_day(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    connection = open_connection(database)
-    try:
-        for ticker, day in (
-            ("2331", "2026-07-28"),
-            ("2331", "2026-07-29"),
-            ("4432", "2026-07-28"),
-        ):
-            insert_financial_record(
-                connection,
-                {"Code": f"{ticker}0", "DiscDate": day, "DiscNo": f"{ticker}-{day}"},
-            )
-        connection.commit()
-    finally:
-        connection.close()
-
-    # The comparison excludes the earlier date and includes the later date.
-    result = latest_disclosure_dates_after(
-        database, ["2331", "4432"], after=date(2026, 7, 28), through_date=date(2026, 7, 29)
-    )
-
-    assert result == {"2331": date(2026, 7, 29)}
-
-
-def test_previous_business_day_skips_the_days_the_calendar_marks_closed(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_calendar(
-        database,
-        [("2026-07-24", 1), ("2026-07-25", 0), ("2026-07-26", 0), ("2026-07-27", 1)],
-    )
-
-    assert previous_business_day(database, date(2026, 7, 27)) == date(2026, 7, 24)
-
-
-def test_previous_business_day_is_unknown_when_the_calendar_stops_short(tmp_path: Path) -> None:
-    # An uncovered day is not "closed": answering would draw the comparison against a
-    # day nothing is known about.
-    database = tmp_path / "market.sqlite"
-    _seed_calendar(database, [("2026-07-27", 1)])
-
-    assert previous_business_day(database, date(2026, 7, 27)) is None
 
 
 @pytest.mark.parametrize("name", ["market #1.sqlite", "market?mode=rw.sqlite", "市場%20.sqlite"])

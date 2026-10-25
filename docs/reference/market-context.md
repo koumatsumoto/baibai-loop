@@ -15,7 +15,7 @@ masterはcutoff以下の一つの最新snapshotを選び、その中にないtic
 
 価格は[調整済み価格reader](../../engine/src/baibai_engine/market/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
 
-ticker-profileは要求日の市場・分類・runと、現在ledgerの独立したledger_as_ofを合成する。保有履歴を要求日へ再生せず、profile全体を完全な過去時点再現としない。五モデルの共通生成は全masterと共有価格から市場・業種の参照文脈を作り、個社だけを調査するときも参照母集団を候補集合へ縮めない。
+旧ticker-profileは旧runと可変モデル・現在ledgerを混合するため撤去した。調査のモデル入力はselection-contextで固定generationから読み、取引事実はPosition、決算予定・規制等の原観測は各market readerから必要時に確認する。selection-contextへイベント一覧や現在ledgerの集中度が含まれるとは扱わない。五モデルの共通生成は全masterと共有価格から市場・業種の参照文脈を作り、個社だけを調査するときも参照母集団を候補集合へ縮めない。
 
 <a id="margin"></a>
 ## 信用需給
@@ -35,6 +35,7 @@ Readingは保存L1とdated規則から記述統計・鮮度を計算する。reg
 
 ```bash
 uv run baibai-engine market-context reading --asof <YYYY-MM-DD> --format json
+uv run baibai-engine market-context snapshot --asof <YYYY-MM-DD> --format json
 uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 

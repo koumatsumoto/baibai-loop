@@ -8,8 +8,8 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
 import pandas as pd
+import pytest
 from tests.helpers.http_doubles import FakeSession, html_response, response
 
 from baibai_engine.data_collection.jpx.models import JPXResponse

@@ -58,7 +58,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "screening": Domain(
         module="baibai_engine.machine_analysis.screening.cli.app",
-        summary="saved legacy runs, calibration diagnostics and cross-domain cached profiles",
+        summary="saved legacy runs and calibration diagnostics",
     ),
     "market-context": Domain(
         module="baibai_engine.machine_analysis.market_context.cli",

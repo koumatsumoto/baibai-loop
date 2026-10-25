@@ -91,11 +91,16 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
     from baibai_engine.investment_judgment.inputs import project_research_inputs
+    from baibai_engine.machine_analysis.company_valuation.query import (
+        machine_valuation_from_analysis,
+    )
     from baibai_engine.machine_analysis.screening.discovery.candidates import (
         build_candidate_contexts,
     )
-    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
-    from baibai_engine.read_api import stored_machine_valuation
+    from baibai_engine.machine_analysis.screening.run_store import (
+        ScreeningRunReader,
+        ScreeningRunStore,
+    )
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
     # Saved JSON is the input; expectations below are independent of the projection helper.
@@ -152,7 +157,10 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
         runs=runs,
         rows=[row, stock_analysis("5678", metrics=unrecorded)],
     )
-    machine = stored_machine_valuation(runs, ticker="1234", as_of=NOW.date()).valuation
+    stored = ScreeningRunReader(runs).valuation_run(as_of=NOW.date())
+    machine = machine_valuation_from_analysis(
+        next(row for row in stored.stock_analyses if row["ticker"] == "1234")
+    )
     assert machine is not None
     original_run = runs.read_bytes()
     prepared = prepare(tmp_path, value=value)

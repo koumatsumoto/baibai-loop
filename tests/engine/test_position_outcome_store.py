@@ -12,7 +12,6 @@ from baibai_engine.position.outcome_store import (
     PortfolioOutcomePublication,
     PortfolioOutcomeStore,
 )
-from baibai_engine.read_api.position import list_portfolio_outcome_payloads
 from baibai_engine.storage.application.write import initialize_database
 
 
@@ -231,7 +230,6 @@ def test_historical_schema_one_outcome_reads_without_rewrite_or_republication(tm
     expected = {"outcome_id": current.outcome_id, **legacy}
 
     assert PortfolioOutcomeStore(database).list() == (expected,)
-    assert list_portfolio_outcome_payloads(database) == [expected]
     assert database.read_bytes() == before
     # A schema change does not authorize replacing the immutable saved result.
     with pytest.raises(PortfolioOutcomeConflictError):

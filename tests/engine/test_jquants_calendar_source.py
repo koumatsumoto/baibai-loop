@@ -6,10 +6,10 @@ from datetime import date, timedelta
 
 import pyarrow.parquet as pq
 
+from baibai_engine.market.calendar_context import market_calendar_business_day
 from baibai_engine.market.jquants_decode import normalize_market_calendar
 from baibai_engine.market.jquants_reader import read_market_calendar
 from baibai_engine.market.jquants_writer import store_jquants_market_calendar
-from baibai_engine.read_api.market import market_calendar_business_day, previous_business_day
 from baibai_engine.storage.lake.datasets import JQUANTS_MARKET_CALENDAR
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 
@@ -41,7 +41,6 @@ def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(t
     assert [
         market_calendar_business_day(database, start + timedelta(days=i)) for i in range(4)
     ] == [False, True, True, False]
-    assert previous_business_day(database, end + timedelta(days=1)) == start + timedelta(days=2)
 
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:

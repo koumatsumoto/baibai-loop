@@ -179,3 +179,29 @@ def test_source_maintenance_is_owned_by_collection_not_legacy_screening():
     assert help_result.value.code == 0
     with pytest.raises(SystemExit):
         build_screening_parser().parse_args(["bootstrap-cache", "--asof", "2026-10-23"])
+
+
+def test_legacy_profile_is_retired_and_market_snapshot_has_its_domain_owner():
+    choices = _choices(build_screening_parser())
+    assert "ticker-profile" not in choices
+    assert "market-snapshot" not in choices
+    with pytest.raises(SystemExit) as result:
+        main(["market-context", "snapshot", "--help"])
+    assert result.value.code == 0
+
+
+def test_minimal_job_read_boundary_does_not_load_judgment_or_legacy_views():
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import baibai_engine.read_api as api; "
+            "assert api.__all__ == ['market_calendar_business_day']; "
+            "assert not any(name.startswith('baibai_engine.investment_judgment') "
+            "or name.startswith('baibai_engine.machine_analysis.screening') for name in sys.modules)",
+        ],
+        check=True,
+    )

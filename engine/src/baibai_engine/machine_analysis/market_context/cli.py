@@ -9,6 +9,10 @@ from collections.abc import Callable
 from typing import cast
 
 _COMMANDS = {
+    "snapshot": (
+        "baibai_engine.machine_analysis.market_context.snapshot_cli",
+        "market and sector snapshot from retained prices",
+    ),
     "indicators": (
         "baibai_engine.machine_analysis.market_context.indicator_cli",
         "saved economic indicator observations",

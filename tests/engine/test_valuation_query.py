@@ -30,14 +30,12 @@ from baibai_engine.machine_analysis.company_valuation.query import (
 )
 from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
 from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
     expected_return_inputs,
 )
-from baibai_engine.read_api import stored_machine_valuation
-from baibai_engine.read_api.ticker_profile import _load_stock_analysis_context
 
 CUTOFF = date(2026, 9, 19)
 
@@ -364,7 +362,8 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         rules=load_screening_rules(),
     )
     before = path.read_bytes()
-    valuation = stored_machine_valuation(path, ticker="1234", as_of=CUTOFF).valuation
+    stored = ScreeningRunReader(path).valuation_run(as_of=CUTOFF)
+    valuation = machine_valuation_from_analysis(stored.stock_analyses[0])
     assert valuation.dividend_yield == dividend
     assert valuation.net_share_change_yoy == share_change
     assert valuation.dividend_basis == basis
@@ -485,65 +484,55 @@ def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
     )
 
 
-def test_saved_non_candidate_and_profile_use_latest_run_before_cutoff(tmp_path):
+def test_saved_non_candidate_uses_latest_run_before_cutoff(tmp_path):
     path = tmp_path / "runs.sqlite"
     publish(path, "2026-09-18", "old")
     publish(path, "2026-09-19", "early", anchor=1400, run_at="2026-09-19T09:00:00+09:00")
     publish(path, "2026-09-19", "last", anchor=1600)
     publish(path, "2026-09-20", "future", anchor=2000)
-    # Candidate membership cannot authorize or suppress this saved-analysis read.
-    result = stored_machine_valuation(path, ticker="1234", as_of=CUTOFF)
+    reader = ScreeningRunReader(path)
+    result = reader.valuation_run(as_of=CUTOFF)
     assert result.run_revision_id == "last"
-    assert result.as_of == CUTOFF
-    assert result.valuation.sector_median_anchor_yen == 1600
-    assert result.valuation.er_annual == 0.075
-    assert anchor_gap_pct(result.valuation) == 60
-    context = _load_stock_analysis_context(path, "1234", CUTOFF, run_revision_id=None)
-    assert context["screening_run_revision_id"] == result.run_revision_id
-    assert context["stock_analysis"]["metrics"]["fv_sector_median_yen"] == 1600
-    assert stored_machine_valuation(path, ticker="1234", as_of=date(2026, 9, 17)) is None
+    assert result.as_of_date == CUTOFF.isoformat()
+    assert result.stock_analyses[0]["candidate"]["reasons"] == []
+    valuation = machine_valuation_from_analysis(result.stock_analyses[0])
+    assert valuation.sector_median_anchor_yen == 1600
+    assert valuation.er_annual == 0.075
+    assert anchor_gap_pct(valuation) == 60
+    assert reader.valuation_run(as_of=date(2026, 9, 17)) is None
 
 
-@pytest.mark.parametrize("entry", [stored_machine_valuation, _load_stock_analysis_context])
-def test_fixed_run_checks_cutoff_and_identity(tmp_path, entry):
+def test_fixed_run_checks_cutoff_and_identity(tmp_path):
     path = tmp_path / "runs.sqlite"
     publish(path, "2026-09-19", "fixed")
     publish(path, "2026-09-20", "future")
-
-    def read(revision):
-        if entry is stored_machine_valuation:
-            return entry(path, ticker="1234", as_of=CUTOFF, run_revision_id=revision)
-        return entry(path, "1234", CUTOFF, run_revision_id=revision)
-
-    assert read("fixed") is not None
+    reader = ScreeningRunReader(path)
+    assert reader.valuation_run(as_of=CUTOFF, run_revision_id="fixed") is not None
     with pytest.raises(ValueError, match="after cutoff"):
-        read("future")
+        reader.valuation_run(as_of=CUTOFF, run_revision_id="future")
     with pytest.raises(ValueError, match="unknown run_revision_id"):
-        read("absent")
+        reader.valuation_run(as_of=CUTOFF, run_revision_id="absent")
 
 
-def test_missing_store_scope_and_coordinates_are_distinct(tmp_path):
+def test_missing_scope_coordinates_and_broken_store_remain_distinct(tmp_path):
     path = tmp_path / "runs.sqlite"
-    assert stored_machine_valuation(path, ticker="1234", as_of=CUTOFF) is None
-    assert not path.exists()
-    sqlite3.connect(path).close()
-    assert stored_machine_valuation(path, ticker="1234", as_of=CUTOFF) is None
     publish(path, "2026-09-19", "run")
-    result = stored_machine_valuation(path, ticker="9999", as_of=CUTOFF)
-    assert result.run_revision_id == "run"
-    assert result.valuation is None
+    reader = ScreeningRunReader(path)
+    result = reader.valuation_run(as_of=CUTOFF)
+    assert not any(row["ticker"] == "9999" for row in result.stock_analyses)
     publish(path, "2026-09-20", "missing-anchor", anchor=None)
-    result = stored_machine_valuation(path, ticker="1234", as_of=date(2026, 9, 20))
-    assert result.valuation.sector_median_anchor_yen is None
-    assert result.valuation.er_annual == 0.075
-    assert anchor_gap_pct(result.valuation) is None
+    result = reader.valuation_run(as_of=date(2026, 9, 20))
+    valuation = machine_valuation_from_analysis(result.stock_analyses[0])
+    assert valuation.sector_median_anchor_yen is None
+    assert valuation.er_annual == 0.075
+    assert anchor_gap_pct(valuation) is None
     for raw in ({}, {"metrics": {}}, {"metrics": None}):
         assert machine_valuation_from_analysis(raw).sector_median_anchor_yen is None
     connection = sqlite3.connect(path)
     connection.execute("DROP TABLE stock_analysis")
     connection.close()
     with pytest.raises(sqlite3.OperationalError):
-        stored_machine_valuation(path, ticker="1234", as_of=CUTOFF)
+        reader.valuation_run(as_of=CUTOFF)
 
 
 def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
@@ -577,7 +566,8 @@ def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sqlite3, "connect", connect)
     monkeypatch.setattr(socket, "socket", forbidden)
-    assert stored_machine_valuation(path, ticker="1234", as_of=CUTOFF).valuation.er_annual == 0.075
+    stored = ScreeningRunReader(path).valuation_run(as_of=CUTOFF)
+    assert machine_valuation_from_analysis(stored.stock_analyses[0]).er_annual == 0.075
     assert connections
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
 

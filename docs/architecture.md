@@ -48,7 +48,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 `jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。`read_api`は内部Python境界でありHTTP公開APIではない。既存Web画面・認証付き公開API・表示配信処理は撤去し、コアの成功条件に含めない。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
 
-`data-collection market`の実装は`source_maintenance/`が所有し、原本取得・保存原本の投影・保守を合成する。公開dispatcherは`data_collection_cli.py`に置き、純粋なsource通信・受領packageへL2や判断の依存を入れない。Screeningの旧生成入口とsource保守入口は撤去し、旧run読取・較正・既存の横断profileだけを残す。取得窓の共有定数は`market/input_windows.py`に置くが、新五モデルの保存履歴読取を制限しない。
+`data-collection market`の実装は`source_maintenance/`が所有し、原本取得・保存原本の投影・保守を合成する。公開dispatcherは`data_collection_cli.py`に置き、純粋なsource通信・受領packageへL2や判断の依存を入れない。Screeningの旧生成入口とsource保守入口は撤去し、旧run読取・較正だけを残す。旧ticker-profileは撤去し、市場snapshotはMarket ContextのCLIへ置く。取得窓の共有定数は`market/input_windows.py`に置くが、新五モデルの保存履歴読取を制限しない。
 
 ジョブは一つの目的を持つ実行・成功失敗・再実行の単位、ワークフローはその順序・並行実行・依存関係を定めるもの。GitHub Actionsのjobと業務ジョブは常に一対一ではない。バッチ処理は非対話でまとまったデータを処理する方式を指す。
 

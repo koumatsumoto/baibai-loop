@@ -12,8 +12,10 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
-from baibai_engine.machine_analysis.screening.cli.app import build_parser
-from baibai_engine.machine_analysis.screening.cli.query import market_snapshot_command
+from baibai_engine.machine_analysis.market_context.snapshot_cli import (
+    build_parser,
+    market_snapshot_command,
+)
 from baibai_engine.storage.observations.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
@@ -151,9 +153,7 @@ class BuildMarketSnapshotTests(unittest.TestCase):
 
 class MarketSnapshotCliTests(unittest.TestCase):
     def test_parser_accepts_market_snapshot_arguments(self) -> None:
-        args = build_parser().parse_args(
-            ["market-snapshot", "--asof", "2026-05-29", "--weeks", "8"]
-        )
+        args = build_parser().parse_args(["--asof", "2026-05-29", "--weeks", "8"])
         self.assertEqual(args.weeks, 8)
 
     def test_command_emits_yaml(self) -> None:

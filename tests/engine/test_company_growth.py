@@ -37,14 +37,13 @@ from baibai_engine.machine_analysis.company_growth.calculations import (
     build_period_states,
 )
 from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.company_growth.query import (
+    company_growth as public_company_growth,
+)
 from baibai_engine.market.financial_documents import normalize_financial_summary
 from baibai_engine.market.financial_periods import prior_year_period_matches
-from baibai_engine.read_api.company_growth import company_growth as public_company_growth
 from baibai_engine.storage.lake.keys import release_manifest_key
-from baibai_engine.storage.lake.models import (
-    ReleaseManifest,
-    canonical_lake_model_bytes,
-)
+from baibai_engine.storage.lake.models import ReleaseManifest, canonical_lake_model_bytes
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,

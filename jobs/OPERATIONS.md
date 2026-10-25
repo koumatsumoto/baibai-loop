@@ -84,7 +84,7 @@ jobs/scripts/pull.sh
 
 machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者を同一transactionでは固定しないため、競合・検査失敗後のlocal stateを分析へ使わずfreshに取得し直す。applicationはbulk pullせずpull-appを使う。
 
-Screening入力の補修が必要な時だけverify-cache-coverageと対象ticker-profileを使い、取得欠落を同じas-ofのbootstrap-cacheで補う。提供元のnullやL2計算不能を取得失敗とせず、値が埋まるまで全期間を再取得しない。
+新しいモデル入力の補修は固定generationの未生成・欠測理由と該当source受領から対象を限定し、取得欠落を同じas-ofのsource取得で補う。verify-cache-coverageは旧較正入力の保守診断で、新候補の共通資格gateにしない。提供元のnullやL2計算不能を取得失敗とせず、値が埋まるまで全期間を再取得しない。
 
 ## ローカルからクラウドを更新する
 
