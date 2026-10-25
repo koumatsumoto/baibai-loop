@@ -1,4 +1,4 @@
-"""Supply engine-owned facts and writes that let batch produce and stop loop outputs."""
+"""Expose engine-owned acquisition, calculation, and persistence to execution jobs."""
 
 from __future__ import annotations
 

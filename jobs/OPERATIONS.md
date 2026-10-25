@@ -61,7 +61,7 @@ uv run baibai-engine data-collection economic groups
 gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
 ```
 
-限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。経済の取得開始は従来dailyと同じ07:43 UTCで、土日も実行する。45分の取得期限と60分のjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値でReading/Investment Judgment/表示を更新する。遅着は次回統合へ入り、取得成功ごとのmaterializeは行わない。土日も共通統合する。
+限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。経済の取得開始は07:43 UTCで、土日も実行する。45分の取得期限と60分のjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値からL2の読取材料と表示を更新する。保存済みのL3判断を書き換えたり、新しい投資判断を自動作成したりしない。遅着は次回統合へ入り、取得成功ごとのmaterializeは行わない。
 
 ### source入力・市場原本の引渡し
 
@@ -412,7 +412,7 @@ dailyは未初期化をskipし、初期化後の新規年次/訂正を独立処�
 <a id="external-assessment-acquisition"></a>
 ## 外部評価の取得・再開
 
-限定collectは明示した少数銘柄の公開HTTPを直列で読み、private captureへ保存する。通常TLS/proxyを使い、403/429でそのsourceを止める。取得先を別名にし、部分captureを再取得で上書きしない。既存のcurrent-schema隔離marketへimportする。
+限定collectは明示した少数銘柄の公開HTTPを直列で読み、private captureへ保存する。通常TLS/proxyを使い、403/429でそのsourceを止める。captureの保存先は試行ごとに別名にし、部分captureを再取得で上書きしない。既存のcurrent-schema隔離marketへimportする。
 
 ```bash
 uv run baibai-engine external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/responses.json

@@ -1,4 +1,4 @@
-"""Stock Assessment が内包する企業固有の評価前提。統合成果物や Review は Research が所有する。"""
+"""銘柄評価に含まれる企業固有の評価前提。L2 の企業価値モデルとは区別する。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""保存・公開query・Researchが同じ形で使う企業成長の入力契約。"""
+"""保存・公開query・投資判断が同じ形で使う企業成長の入力契約。"""
 
 from __future__ import annotations
 

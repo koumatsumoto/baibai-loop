@@ -82,7 +82,7 @@ class OperationService:
         selection = selection_binding(payload)
         if selection is None:
             raise OperationConflictError(
-                "start Research with `investment-judgment prepare`; one research_selection is required"
+                "start with `investment-judgment prepare`; one research_selection is required"
             )
         if selection.capacity != CURRENT_RESEARCH_CAPACITY:
             raise OperationConflictError("new Research requires the current capacity policy")

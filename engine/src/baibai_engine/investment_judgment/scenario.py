@@ -1,7 +1,7 @@
 """個別評価・資本配分・保有判断へ同じ権利単位の価値換算を産む純粋算術。
 
 換算は条件付き、税費用控除前、分配再投資なし。期待値や IRR ではない。
-企業財務の推定と分配後の残余価値の妥当性は Company Research と Independent Review が確認する。
+企業調査の根拠に基づく仮定は Stock Assessment で評価し、Independent Review で検証する。
 """
 
 from __future__ import annotations
