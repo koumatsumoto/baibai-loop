@@ -129,7 +129,7 @@ jobs:
         # its first commit instead of waiting for someone to remember this list.
         run: >-
           uv run bandit -c pyproject.toml -q -r
-          engine/src/baibai_engine jobs/src/baibai_jobs tools
+          engine/src/baibai_engine web/backend/src/baibai_web jobs/src/baibai_jobs tools
 
       - name: Dependency audit
         if: ${{ !cancelled() }}

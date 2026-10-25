@@ -1,0 +1,706 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Baibai Loop read model",
+  "schemaVersion": 5,
+  "roots": {
+    "views/dashboard.json": "#/$defs/DashboardView",
+    "views/outcomes.json": "#/$defs/OutcomesView",
+    "views/tasks.json": "#/$defs/TasksView"
+  },
+  "$defs": {
+    "DashboardView": {
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "ledger_exists": {
+          "title": "Ledger Exists",
+          "type": "boolean"
+        },
+        "ledger_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ledger Error"
+        },
+        "ledger_as_of": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ledger As Of"
+        },
+        "ledger_stale": {
+          "title": "Ledger Stale",
+          "type": "boolean"
+        },
+        "valuation_as_of": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Valuation As Of"
+        },
+        "valuation_stale": {
+          "title": "Valuation Stale",
+          "type": "boolean"
+        },
+        "total_capital_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Capital Yen"
+        },
+        "available_cash_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "台帳上の未予約現金。売却代金は約定時にgrossで計上し、受渡済み資金や証券会社の発注可能額は表さない。",
+          "title": "Available Cash Yen"
+        },
+        "reserved_cash_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reserved Cash Yen"
+        },
+        "holdings_market_value_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Holdings Market Value Yen"
+        },
+        "deployed_cost_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deployed Cost Yen"
+        },
+        "realized_gross_pnl_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Realized Gross Pnl Yen"
+        },
+        "cash_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cash Pct"
+        },
+        "reserved_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reserved Pct"
+        },
+        "deployed_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deployed Pct"
+        },
+        "holdings": {
+          "items": {
+            "$ref": "#/$defs/HoldingView"
+          },
+          "title": "Holdings",
+          "type": "array"
+        },
+        "reservations": {
+          "items": {
+            "$ref": "#/$defs/ReservationView"
+          },
+          "title": "Reservations",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/WarningView"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generated_at",
+        "ledger_exists",
+        "ledger_error",
+        "ledger_as_of",
+        "ledger_stale",
+        "valuation_as_of",
+        "valuation_stale",
+        "total_capital_yen",
+        "available_cash_yen",
+        "reserved_cash_yen",
+        "holdings_market_value_yen",
+        "deployed_cost_yen",
+        "realized_gross_pnl_yen",
+        "cash_pct",
+        "reserved_pct",
+        "deployed_pct",
+        "holdings",
+        "reservations",
+        "warnings"
+      ],
+      "title": "DashboardView",
+      "type": "object"
+    },
+    "HoldingView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Company Name"
+        },
+        "sector": {
+          "title": "Sector",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "deployed_cost_yen": {
+          "title": "Deployed Cost Yen",
+          "type": "integer"
+        },
+        "market_price_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Price Yen"
+        },
+        "market_price_as_of": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Price As Of"
+        },
+        "market_value_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Value Yen"
+        },
+        "unrealized_pnl_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl Yen"
+        },
+        "unrealized_pnl_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl Pct"
+        }
+      },
+      "required": [
+        "ticker",
+        "company_name",
+        "sector",
+        "quantity",
+        "deployed_cost_yen",
+        "market_price_yen",
+        "market_price_as_of",
+        "market_value_yen",
+        "unrealized_pnl_yen",
+        "unrealized_pnl_pct"
+      ],
+      "title": "HoldingView",
+      "type": "object"
+    },
+    "OutcomesView": {
+      "properties": {
+        "outcomes": {
+          "items": {
+            "$ref": "#/$defs/PortfolioOutcomeView"
+          },
+          "title": "Outcomes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "outcomes"
+      ],
+      "title": "OutcomesView",
+      "type": "object"
+    },
+    "PortfolioOutcomeView": {
+      "properties": {
+        "outcome_id": {
+          "title": "Outcome Id",
+          "type": "string"
+        },
+        "horizon": {
+          "title": "Horizon",
+          "type": "string"
+        },
+        "period_start_date": {
+          "format": "date",
+          "title": "Period Start Date",
+          "type": "string"
+        },
+        "period_end_date": {
+          "format": "date",
+          "title": "Period End Date",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "portfolio_twr_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "記録済みの税・費用を反映した期間return。未報告の税・費用をゼロ確定とみなさない。",
+          "title": "Portfolio Twr Pct"
+        },
+        "benchmark_cumulative_return_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Benchmark Cumulative Return Pct"
+        }
+      },
+      "required": [
+        "outcome_id",
+        "horizon",
+        "period_start_date",
+        "period_end_date",
+        "status",
+        "reason",
+        "portfolio_twr_pct",
+        "benchmark_cumulative_return_pct"
+      ],
+      "title": "PortfolioOutcomeView",
+      "type": "object"
+    },
+    "ReservationView": {
+      "properties": {
+        "reservation_id": {
+          "title": "Reservation Id",
+          "type": "string"
+        },
+        "side": {
+          "enum": [
+            "buy",
+            "sell"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "sector": {
+          "title": "Sector",
+          "type": "string"
+        },
+        "remaining_quantity": {
+          "title": "Remaining Quantity",
+          "type": "integer"
+        },
+        "price_guard_yen": {
+          "title": "Price Guard Yen",
+          "type": "string"
+        },
+        "reserved_yen": {
+          "title": "Reserved Yen",
+          "type": "integer"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "expiry_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expiry Label"
+        },
+        "route_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Route Label"
+        }
+      },
+      "required": [
+        "reservation_id",
+        "side",
+        "ticker",
+        "sector",
+        "remaining_quantity",
+        "price_guard_yen",
+        "reserved_yen",
+        "expires_at",
+        "expiry_label",
+        "route_label"
+      ],
+      "title": "ReservationView",
+      "type": "object"
+    },
+    "TaskView": {
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "ticker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ticker"
+        },
+        "due_date": {
+          "format": "date",
+          "title": "Due Date",
+          "type": "string"
+        },
+        "event_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Event Label"
+        },
+        "event_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Event Date"
+        },
+        "overdue": {
+          "title": "Overdue",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "task_id",
+        "title",
+        "kind",
+        "status",
+        "ticker",
+        "due_date",
+        "event_label",
+        "event_date",
+        "overdue"
+      ],
+      "title": "TaskView",
+      "type": "object"
+    },
+    "TasksView": {
+      "description": "Task/event workflow projection, separate from portfolio presentation.",
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "tasks_exist": {
+          "title": "Tasks Exist",
+          "type": "boolean"
+        },
+        "open_tasks": {
+          "items": {
+            "$ref": "#/$defs/TaskView"
+          },
+          "title": "Open Tasks",
+          "type": "array"
+        },
+        "next_task": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "upcoming_events": {
+          "items": {
+            "$ref": "#/$defs/UpcomingEventView"
+          },
+          "title": "Upcoming Events",
+          "type": "array"
+        },
+        "ledger_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ledger Error"
+        }
+      },
+      "required": [
+        "generated_at",
+        "tasks_exist",
+        "open_tasks",
+        "next_task",
+        "upcoming_events",
+        "ledger_error"
+      ],
+      "title": "TasksView",
+      "type": "object"
+    },
+    "UpcomingEventView": {
+      "properties": {
+        "event_date": {
+          "format": "date",
+          "title": "Event Date",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "earnings",
+            "reservation_expiry"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ticker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ticker"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "days_until": {
+          "title": "Days Until",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_date",
+        "kind",
+        "ticker",
+        "label",
+        "days_until"
+      ],
+      "title": "UpcomingEventView",
+      "type": "object"
+    },
+    "WarningView": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "actual_pct": {
+          "title": "Actual Pct",
+          "type": "number"
+        },
+        "warning_pct": {
+          "title": "Warning Pct",
+          "type": "number"
+        },
+        "overridden": {
+          "title": "Overridden",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "scope",
+        "key",
+        "actual_pct",
+        "warning_pct",
+        "overridden"
+      ],
+      "title": "WarningView",
+      "type": "object"
+    }
+  }
+}

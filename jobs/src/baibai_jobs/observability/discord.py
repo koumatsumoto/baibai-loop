@@ -71,10 +71,11 @@ STEP_ORDER = (
     "source-integration",
     "publish-lake",
     "upload-stores",
-    "lease-release",
     "source-seal",
     "source-inputs",
     "source-check",
+    "portfolio-views",
+    "lease-release",
 )
 
 _ENTERED_PREFIX = "🆕 新規 候補入り: "
@@ -243,6 +244,8 @@ def decide_outcome(
 
     if cancelled:
         return OUTCOME_CANCELLED
+    if failed_step == "portfolio-views" and batch_exit_code == "0":
+        return OUTCOME_DEGRADED
     if failed_step:
         return OUTCOME_FAILED
     if batch_exit_code == "0":
@@ -366,6 +369,7 @@ def render_message(
                 for step, name in (
                     ("publish-lake", "Lake公開"),
                     ("upload-stores", "Store反映"),
+                    ("portfolio-views", "保有・運用画面更新"),
                 )
             )
         )

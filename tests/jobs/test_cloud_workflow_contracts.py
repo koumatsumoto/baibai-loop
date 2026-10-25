@@ -46,7 +46,14 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
 @pytest.mark.parametrize(
     ("workflow_name", "job", "first_read", "last_write", "purpose"),
     [
-        ("cloud-daily-batch.yml", "daily", "pull", "source-inputs", "daily"),
+        ("cloud-daily-batch.yml", "daily", "pull", "portfolio-views", "daily"),
+        (
+            "cloud-materialize.yml",
+            "materialize",
+            "Pull stores",
+            "Upload serving objects",
+            "materialize",
+        ),
     ],
 )
 def test_publication_lease_surrounds_every_cloud_writer(
@@ -148,3 +155,19 @@ def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> Non
     for job in (quality, smoke):
         assert "TRADINGVIEW_OAUTH_STATE" not in str(job.get("env", {}))
         assert "TRADINGVIEW_SECRET_WRITER_TOKEN" not in str(job.get("env", {}))
+
+
+def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
+    steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
+    commands = "\n".join(str(step.get("run", "")) for step in steps)
+    assert "pull-market" in commands and "pull-app" in commands
+    assert "hydrate-market" in commands
+    assert "pull-machine" not in commands and "pull-runs" not in commands
+    assert "upload-portfolio-views" in commands
+    assert "publish-serving-tail" not in commands
+    daily = _steps(_workflow("cloud-daily-batch.yml"), "daily")
+    by_id = {step.get("id"): step for step in daily}
+    assert "upload-stores.outputs.machine == 'success'" in by_id["portfolio-views"]["if"]
+    assert daily.index(by_id["portfolio-views"]) > daily.index(by_id["source-seal"])
+    assert "baibai_web" not in by_id["batch"]["run"]
+    assert "baibai_web" not in by_id["source-seal"]["run"]

@@ -534,3 +534,23 @@ def test_local_execution_without_run_identity_does_not_invent_a_github_url() -> 
     )
     assert "Run: なし" in message
     assert "local/local" not in message
+
+
+def test_portfolio_view_failure_does_not_report_core_success_as_full_success():
+    outcomes = {"publish-lake": "success", "upload-stores": "success", "portfolio-views": "failure"}
+    failed = derive_failed_step(outcomes)
+    assert failed == "portfolio-views"
+    outcome = decide_outcome(batch_exit_code="0", failed_step=failed, cancelled=False)
+    assert outcome == "degraded"
+    message = render_message(
+        outcome=outcome,
+        asof="2026-10-25",
+        failed_step=failed,
+        notice={},
+        url=RUN_URL,
+        step_outcomes=outcomes,
+    )
+    assert "[DEGRADED]" in message
+    assert "portfolio-views" in message
+    assert "Lake公開" in message and "Store反映" in message
+    assert "保有・運用画面更新" in message

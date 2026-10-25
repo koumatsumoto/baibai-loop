@@ -26,6 +26,8 @@ dependencies = [
   "xlrd>=2.0.0",
   "duckdb>=1.5.5",
   "boto3>=1.43.78",
+  "fastapi>=0.141.1",
+  "uvicorn>=0.51.0",
 ]
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
@@ -35,6 +37,7 @@ classifiers = [
 
 [project.scripts]
 baibai-engine = "baibai_engine.cli:main"
+baibai-web = "baibai_web.cli:main"
 baibai-jobs = "baibai_jobs.cli:main"
 
 [dependency-groups]
@@ -72,6 +75,7 @@ security = [
 [tool.hatch.build.targets.wheel]
 packages = [
   "engine/src/baibai_engine",
+  "web/backend/src/baibai_web",
   "jobs/src/baibai_jobs",
 ]
 
@@ -85,6 +89,7 @@ packages = [
 "engine/src/baibai_engine/machine_analysis/market_context/indicators/registry/global.yaml" = "baibai_engine/machine_analysis/market_context/indicators/registry/global.yaml"
 "engine/src/baibai_engine/machine_analysis/market_context/indicators/registry/derived.yaml" = "baibai_engine/machine_analysis/market_context/indicators/registry/derived.yaml"
 "engine/src/baibai_engine/data_collection/economic/providers/pmi_release_urls.yaml" = "baibai_engine/data_collection/economic/providers/pmi_release_urls.yaml"
+"web/backend/src/baibai_web/py.typed" = "baibai_web/py.typed"
 "jobs/src/baibai_jobs/py.typed" = "baibai_jobs/py.typed"
 
 [tool.uv]
@@ -98,6 +103,7 @@ required-version = "==0.12.17"
 [tool.hatch.build.targets.sdist]
 only-include = [
   "engine/src/baibai_engine",
+  "web/backend/src/baibai_web",
   "jobs/src/baibai_jobs",
 ]
 
@@ -108,7 +114,7 @@ only-include = [
 # parenthesized and reviewer-visible.
 target-version = "py313"
 line-length = 100
-src = ["engine/src", "jobs/src", "tools", "tests"]
+src = ["engine/src", "web/backend/src", "jobs/src", "tools", "tests"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -150,7 +156,7 @@ show_error_codes = true
 pretty = true
 disallow_any_unimported = true
 no_implicit_optional = true
-packages = ["baibai_engine", "baibai_jobs", "tools"]
+packages = ["baibai_engine", "baibai_web", "baibai_jobs", "tools"]
 plugins = ["pydantic.mypy"]
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 
@@ -186,6 +192,7 @@ markers = [
 branch = true
 source = [
   "engine/src/baibai_engine",
+  "web/backend/src/baibai_web",
   "jobs/src/baibai_jobs",
 ]
 
@@ -210,7 +217,7 @@ skips = ["B101"]
 # (five analysis domains / Screening / Position / Research / shared) so a structural edit that
 # reintroduces a cross-subsystem edge fails CI rather than passing every other gate.
 [tool.importlinter]
-root_packages = ["baibai_engine", "baibai_jobs", "tools"]
+root_packages = ["baibai_engine", "baibai_web", "baibai_jobs", "tools"]
 
 [[tool.importlinter.contracts]]
 name = "shared primitives are an import sink"
@@ -346,7 +353,7 @@ ignore_imports = [
 name = "engine does not depend on delivery or developer systems"
 type = "forbidden"
 source_modules = ["baibai_engine"]
-forbidden_modules = ["baibai_jobs", "tools"]
+forbidden_modules = ["baibai_web", "baibai_jobs", "tools"]
 
 [[tool.importlinter.contracts]]
 name = "jobs use only explicit engine orchestration boundaries"
@@ -723,3 +730,9 @@ type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.position", "baibai_engine.read_api"]
 forbidden_modules = ["baibai_engine.source_maintenance", "baibai_engine.data_collection_cli"]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "retained Web is independent of Screening and investment authoring"
+type = "forbidden"
+source_modules = ["baibai_web"]
+forbidden_modules = ["baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_jobs", "tools"]

@@ -538,3 +538,16 @@ required-asofは事前に選んだ全対象月分を繰り返す。配布前にo
 PMIは公表翌週、TSE資本政策とJPX廃止は翌月15日以降に既存refresh/buildを行い、必要なlake/store公開へ進む。全履歴監査を定例に増やさない。注文結果の計測が依頼された場合は既存measure_limit_outcomesの対象と限界を確認し、価格差を逸失利益や指値規律の因果効果にしない。
 
 通知webhookのrotationはDiscordで新規/再生成→repository secret DISCORD_WEBHOOK_URL更新→通常runの通知確認。旧webhookはDiscord側で消すまで有効。rotationだけで過去Screeningを再実行しない。
+
+<a id="web-serving"></a>
+## 保有・運用Webの表示更新
+
+表示はdashboard・outcomes・tasksの3 viewだけ。旧候補・macro・調査一覧・L1公開取得APIを復活させない。coreの日次統合が保存した後に同じローカルmarketとapplicationから生成・配信する。表示失敗で生成モデルやsource封印を巻き戻さない。台帳・taskの明示更新後は既存のpublish.shがapplication条件付き反映後にcloud-materializeを起動する。
+
+手動再生成はmain上のcloud-materializeを実行する。marketだけをpullし、固定releaseからhydrate、applicationをpullして3 viewを生成する。旧run・economic storeは不要。Web切替前に3 viewの保存・認証付き読戻しとUIの対象HEADを確認し、web workflowをmainで明示dispatchする。PRのCI成功は本番更新ではない。旧object・Worker secretは削除しない。
+
+```bash
+uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
+```
+
+これはローカル生成だけであり公開しない。cloud workflow内だけが `jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving` で3 viewを公開する。資本・損益・保有の欠測とエラー、タスク、運用成績を読戻しで照合する。

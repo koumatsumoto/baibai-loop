@@ -622,8 +622,24 @@ pull_app() {
   pull_keys baibai.sqlite
 }
 
+# Only the three retained views are published; old objects are not purged here.
+upload_portfolio_views() {
+  local directory="$1" name
+  for name in dashboard tasks outcomes; do
+    [[ -s "${directory}/views/${name}.json" ]] || {
+      printf 'missing portfolio view: %s\n' "${name}" >&2
+      return 2
+    }
+  done
+  for name in dashboard tasks outcomes; do
+    aws_s3 cp "${directory}/views/${name}.json" \
+      "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
+      --content-type application/json --cache-control no-store
+  done
+}
+
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -707,6 +723,14 @@ case "${1:-}" in
     else
       prune_app_backups
     fi
+    ;;
+  upload-portfolio-views)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    [[ "${GITHUB_ACTIONS:-}" == "true" ]] || {
+      printf 'refusing serving upload outside GitHub Actions\n' >&2
+      exit 2
+    }
+    upload_portfolio_views "$2"
     ;;
   *)
     usage

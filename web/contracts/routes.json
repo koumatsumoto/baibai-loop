@@ -1,0 +1,12 @@
+{
+  "routes": {
+    "/api/dashboard": "views/dashboard.json",
+    "/api/tasks": "views/tasks.json",
+    "/api/outcomes": "views/outcomes.json"
+  },
+  "edge_routes": {},
+  "patterns": {},
+  "computed": [
+    "/api/health"
+  ]
+}

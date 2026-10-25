@@ -46,7 +46,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Positionも使う有限数の変換は`foundation/numbers.py`に置き、PositionからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Positionは人間の確認済み事実を保存する。
 
-`jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。`read_api`は内部Python境界でありHTTP公開APIではない。既存Web画面・認証付き公開API・表示配信処理は撤去し、コアの成功条件に含めない。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
+`jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。`read_api`は内部Python境界でありHTTP公開APIではない。Webは資産・損益・保有銘柄、運用成績、タスクだけを保持する。旧調査提案・候補一覧・マクロ一覧・前回差分と外部データ取得APIは撤去し、コアの成功条件に含めない。Webは所有domainの読取を合成し、旧screening互換に依存しない。最新売買提案レポートの再設計はIssue #1615で扱う。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
 
 `data-collection market`の実装は`source_maintenance/`が所有し、原本取得・保存原本の投影・保守を合成する。公開dispatcherは`data_collection_cli.py`に置き、純粋なsource通信・受領packageへL2や判断の依存を入れない。Screeningの旧生成入口とsource保守入口は撤去し、旧run読取・較正だけを残す。旧ticker-profileは撤去し、市場snapshotはMarket ContextのCLIへ置く。取得窓の共有定数は`market/input_windows.py`に置くが、新五モデルの保存履歴読取を制限しない。
 

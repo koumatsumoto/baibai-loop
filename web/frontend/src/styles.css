@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/noto-sans-jp";
+
+/* Radix state variants keep the source-owned shadcn components independent of the scaffolding CLI. */
+@custom-variant data-open {
+  &:where([data-state="open"], [data-open]:not([data-open="false"])) { @slot; }
+}
+@custom-variant data-closed {
+  &:where([data-state="closed"], [data-closed]:not([data-closed="false"])) { @slot; }
+}
+@custom-variant data-disabled {
+  &:where([data-disabled="true"], [data-disabled]:not([data-disabled="false"])) { @slot; }
+}
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
+    --font-mono: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
+    --color-primary-action: var(--primary-action);
+    --color-primary-hover: var(--primary-hover);
+    --color-primary-soft: var(--primary-soft);
+    --color-surface: var(--surface);
+    --color-surface-subtle: var(--surface-subtle);
+    --color-border-strong: var(--border-strong);
+    --color-text-primary: var(--text-primary);
+    --color-text-secondary: var(--text-secondary);
+    --color-text-tertiary: var(--text-tertiary);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-destructive-ink: var(--destructive-ink);
+    --color-destructive-surface: var(--destructive-surface);
+    --color-positive: var(--positive);
+    --color-positive-ink: var(--positive-ink);
+    --color-positive-surface: var(--positive-surface);
+    --color-profit: var(--profit);
+    --color-loss: var(--loss);
+    --color-warning: var(--warning);
+    --color-warning-ink: var(--warning-ink);
+    --color-warning-surface: var(--warning-surface);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    /* Logo measurements stay separate from readable interaction colors. Use primary-action / primary-hover for controls, not brand-green or brand-lime. */
+    --brand-green: #09ab65;
+    --brand-lime: #c7de24;
+    --primary-action: #008755;
+    --primary-hover: #006b43;
+    --primary-soft: #e8faf0;
+
+    /* Neutral palette carries the layout; the action greens carry interaction. */
+    --canvas: #f8faf9;
+    --surface: #ffffff;
+    --surface-subtle: #f2f5f3;
+    --border: #e2e8e5;
+    --border-strong: #d4ddd8;
+    --text-primary: #111815;
+    --text-secondary: #56625c;
+    --text-tertiary: #75817b;
+
+    --background: var(--canvas);
+    --foreground: var(--text-primary);
+    --card: var(--surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--primary-action);
+    --primary-foreground: var(--surface);
+    --secondary: var(--surface-subtle);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--surface-subtle);
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--primary-soft);
+    --accent-foreground: var(--text-primary);
+    /* Directional changes use green/red; monetary profit/loss uses gold/blue. Permanent-loss risk remains a business-risk judgment, not portfolio P&L. Labels and signs carry meaning independently of color. */
+    --positive: oklch(0.527 0.154 150.069);
+    --destructive: oklch(0.577 0.245 27.325);
+    --profit: oklch(0.56 0.115 80);
+    --loss: oklch(0.52 0.14 250);
+    --warning: oklch(0.55 0.135 58);
+    /* Status badges pair opaque bg-<status>-surface with text-<status>-ink. The token-level contrast tests do not replace rendered accessibility checks. */
+    --positive-surface: oklch(0.95 0.03 150.069);
+    --positive-ink: oklch(0.4 0.1 150.069);
+    --warning-surface: oklch(0.95 0.045 95.277);
+    --warning-ink: oklch(0.4 0.09 58);
+    --destructive-surface: oklch(0.95 0.022 27.325);
+    --destructive-ink: oklch(0.4 0.14 27.325);
+    --input: var(--border-strong);
+    /* Focus is drawn as an opaque border plus a translucent halo; the border carries
+       the contrast, so the ring is the action green. */
+    --ring: var(--primary-action);
+    /* Allocation charts use green tones and reserved-cash gray, distinct from profit/loss colors. */
+    --chart-1: var(--primary-action);
+    --chart-2: #8fbb18;
+    --chart-3: var(--text-tertiary);
+    --radius: 0.625rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply min-w-[320px] bg-background text-foreground antialiased;
+    font-feature-settings: "palt" 1;
+    }
+  ::selection {
+    @apply bg-primary-soft text-text-primary;
+    }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+    }
+  html {
+    @apply font-sans;
+    }
+  #root {
+    @apply min-h-screen;
+    }
+}

@@ -216,6 +216,18 @@ jobs:
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
         run: uv run python -m baibai_jobs.jobs.source_integration check --directory "$RUNNER_TEMP/integration"
 
+      # Presentation follows core persistence; it never gates model generation or sealing.
+      - name: Publish retained portfolio and task views
+        id: portfolio-views
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+          jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
+
       - name: Release publication lease
         id: lease-release
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
@@ -268,5 +280,6 @@ jobs:
             --source-seal-outcome "${{ steps.source-seal.outcome }}" \
             --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \
             --source-check-outcome "${{ steps.source-check.outcome }}" \
+            --portfolio-views-outcome "${{ steps.portfolio-views.outcome }}" \
             --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   printf 'Usage: jobs/scripts/publish.sh\n'
-  printf 'Upload the application DB after ledger validation.\n'
+  printf 'Upload the application DB and dispatch cloud-materialize.\n'
 }
 
 if [[ $# -ne 0 ]]; then
@@ -20,4 +20,5 @@ cd "${repo_root}"
 uv run baibai-engine position ledger \
   --db "${repo_root}/stores/application/baibai.sqlite" >/dev/null
 "${repo_root}/jobs/scripts/r2_transfer.sh" push-app
-printf 'application DB uploaded\n'
+gh workflow run cloud-materialize.yml --ref main
+printf 'application DB uploaded; cloud-materialize dispatch requested\n'
