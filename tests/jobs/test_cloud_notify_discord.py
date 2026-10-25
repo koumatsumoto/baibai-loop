@@ -44,10 +44,10 @@ def _notice(path: Path, **overrides: object) -> Path:
     payload: dict[str, object] = {
         "asof": "2026-08-26",
         "failed_stage": None,
-        "delta_measured": True,
-        "delta_unmeasured_reason": "",
-        "entered": ["1001 Alpha E[r]+8.0%"],
-        "exited": [],
+        "models_ready": True,
+        "company_count": 3686,
+        "model_count": 18431,
+        "candidate_count": 35,
     }
     payload.update(overrides)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -178,8 +178,8 @@ def test_derive_failed_step_treats_a_cancelled_step_as_where_to_look() -> None:
     ("exit_code", "failed_step", "cancelled", "expected"),
     [
         ("0", "", False, "ok"),
-        ("3", "", False, "degraded"),
-        ("1", "screening-run", False, "failed"),
+        ("3", "", False, "failed"),
+        ("1", "model-integration", False, "failed"),
         ("0", "upload-stores", False, "failed"),
         ("3", "source-seal", False, "failed"),
         ("", "pre-batch", False, "failed"),
@@ -198,8 +198,8 @@ def test_decide_outcome_table(
 # --- message --------------------------------------------------------------
 
 
-def test_render_message_is_one_headline_the_delta_and_the_run(tmp_path: Path) -> None:
-    notice = load_notice(_notice(tmp_path / "n.json", exited=["9001 Zulu E[r]+6.0%"]))
+def test_render_message_is_one_headline_generation_counts_and_the_run(tmp_path: Path) -> None:
+    notice = load_notice(_notice(tmp_path / "n.json"))
 
     message = render_message(
         outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
@@ -210,8 +210,7 @@ def test_render_message_is_one_headline_the_delta_and_the_run(tmp_path: Path) ->
         "対象日: 2026-08-26",
         "Executor: Local",
         "",
-        "- 🆕 新規 候補入り: 1001 Alpha E[r]+8.0%",
-        "- 👋 候補退出: 9001 Zulu E[r]+6.0%",
+        "- モデル生成: 3686社 / 18431件 / 候補35社",
         "",
         f"Run: <{RUN_URL}>",
     ]
@@ -248,66 +247,13 @@ def test_render_message_executor_comes_from_runner(monkeypatch, github_actions, 
     assert message.count("Executor:") == 1
 
 
-def test_render_message_separates_an_unmeasured_delta_from_an_empty_one(tmp_path: Path) -> None:
-    empty = load_notice(_notice(tmp_path / "empty.json", entered=[], exited=[]))
-    unmeasured = load_notice(
-        _notice(
-            tmp_path / "unmeasured.json",
-            delta_measured=False,
-            delta_unmeasured_reason="view_unreadable",
-        )
-    )
-
-    assert "🆕 新規 候補入り: なし" in render_message(
-        outcome="ok", asof="2026-08-26", failed_step="", notice=empty, url=RUN_URL
-    )
-    assert "🆕 新規 候補入り: 計測なし（view_unreadable）" in render_message(
-        outcome="ok", asof="2026-08-26", failed_step="", notice=unmeasured, url=RUN_URL
-    )
-
-
-def test_render_message_has_no_delta_lines_without_a_notice() -> None:
+def test_render_message_does_not_invent_generation_or_delta_without_a_notice() -> None:
     message = render_message(
         outcome="failed", asof="", failed_step="pre-batch", notice={}, url=RUN_URL
     )
     assert "候補入り" not in message
     assert "候補退出" not in message
-
-
-def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_path: Path) -> None:
-    entered = [f"{1000 + i} Name{i} E[r]+{9 - i}.0%" for i in range(7)]
-    notice = load_notice(_notice(tmp_path / "n.json", entered=entered))
-
-    line = render_message(
-        outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
-    ).splitlines()[4]
-
-    assert "全7件・銘柄コード順で5件表示" in line
-    assert line.endswith("（他2件）")
-    assert line.count(" / ") == 4
-
-
-def test_render_message_keeps_a_multiline_entry_from_splitting_the_message(
-    tmp_path: Path,
-) -> None:
-    notice = load_notice(_notice(tmp_path / "n.json", entered=["1001 Evil\nname {x}"]))
-
-    message = render_message(
-        outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
-    )
-
-    assert len(message.splitlines()) == 8
-    assert "1001 Evil name x" in message
-
-
-def test_render_message_is_bounded_for_huge_output(tmp_path: Path) -> None:
-    notice = load_notice(_notice(tmp_path / "n.json", entered=["x" * 4000] * 50))
-
-    message = render_message(
-        outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
-    )
-
-    assert len(message) <= discord.MESSAGE_MAX_CHARS
+    assert "モデル生成" not in message
 
 
 def test_load_notice_reads_anything_unreadable_as_absent(tmp_path: Path) -> None:
@@ -356,7 +302,7 @@ def _sent(transport: FakeTransport) -> str:
     return str(json.loads(transport.calls[0][1].decode("utf-8"))["content"])
 
 
-def test_main_delivers_the_ok_message_with_the_delta(
+def test_main_delivers_the_ok_message_with_generation_counts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     notice = _notice(tmp_path / "notice.json")
@@ -371,34 +317,23 @@ def test_main_delivers_the_ok_message_with_the_delta(
     assert message.startswith("**[OK] 共通統合（cloud-daily-batch）**")
     assert "対象日: 2026-08-26" in message
     assert "- 工程結果: Lake公開 成功 / Store反映 成功" in message
-    assert "- 🆕 新規 候補入り: 1001 Alpha" in message
+    assert "- モデル生成: 3686社 / 18431件 / 候補35社" in message
     assert message.endswith(f"Run: <{RUN_URL}>")
     # The message is also printed so the run log carries it.
     assert message in capsys.readouterr().out
 
 
-def test_main_reports_degraded_for_exit_3(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    notice = _notice(tmp_path / "notice.json", failed_stage="indicator-refresh-30d")
-
-    _exit_code, transport = _run_main(
-        tmp_path, monkeypatch, "--batch-exit-code", "3", notice=notice
-    )
-
-    assert _sent(transport).startswith("**[DEGRADED]")
-    assert "要確認工程: indicator-refresh-30d" in _sent(transport)
-
-
 def test_main_names_the_batch_stage_when_the_batch_itself_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    notice = _notice(tmp_path / "notice.json", failed_stage="screening-run")
+    notice = _notice(tmp_path / "notice.json", failed_stage="model-integration")
 
     _exit_code, transport = _run_main(
         tmp_path, monkeypatch, "--batch-exit-code", "1", notice=notice
     )
 
     assert _sent(transport).startswith("**[FAILED]")
-    assert "要確認工程: screening-run" in _sent(transport)
+    assert "要確認工程: model-integration" in _sent(transport)
 
 
 def test_main_names_the_workflow_step_that_failed_before_the_batch(
@@ -449,25 +384,6 @@ def test_main_exits_0_without_a_webhook_and_never_calls_the_transport(
     assert "not configured" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("status", ["failed", "skipped_non_business_day"])
-def test_notice_does_not_repeat_previous_candidate_delta_when_screening_did_not_update(
-    status: str,
-) -> None:
-    from baibai_jobs.observability.discord import render_delta
-
-    lines = render_delta(
-        {
-            "screening_status": status,
-            "delta_measured": True,
-            "entered": ["old-entry"],
-            "exited": [],
-        }
-    )
-    assert len(lines) == 1
-    assert "Screening更新なし" in lines[0]
-    assert "old-entry" not in lines[0]
-
-
 @pytest.mark.parametrize(
     "url",
     ["https://[private-token/api/webhooks/1/a", "https://private-token／host/api/webhooks/1/a"],
@@ -483,7 +399,7 @@ def test_successful_integration_notice_keeps_deferred_input_and_real_source_day(
         outcome=discord.OUTCOME_OK,
         asof="2026-10-24",
         failed_step="",
-        notice={"screening_status": "skipped_non_business_day"},
+        notice={"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0},
         url=RUN_URL,
         integration_report={
             "extractions": {
@@ -497,7 +413,7 @@ def test_successful_integration_notice_keeps_deferred_input_and_real_source_day(
     assert "[OK]" in message
     assert "入力延期: edinet-metrics" in message
     assert "保存一覧日=2026-10-23" in message
-    assert "Screening更新なし（非営業日）" in message
+    assert "モデル生成: 2社 / 11件 / 候補0社" in message
 
 
 def test_failed_after_publication_keeps_successful_publication_steps() -> None:
@@ -555,3 +471,105 @@ def test_portfolio_view_failure_does_not_report_core_success_as_full_success():
     assert "Lake公開" in message
     assert "Store反映" in message
     assert "保有・運用画面更新" in message
+
+
+@pytest.mark.parametrize("field", ["company_count", "model_count", "candidate_count"])
+@pytest.mark.parametrize("value", [None, True, -1, "35", 35.0, [], {}])
+def test_invalid_generation_count_is_unknown_not_zero(field, value):
+    notice = {
+        "models_ready": True,
+        "company_count": 3686,
+        "model_count": 18431,
+        "candidate_count": 35,
+    }
+    notice[field] = value
+    assert discord.render_generation(notice) == ["モデル生成: 完了 / 件数未確認"]
+
+
+def test_generation_readiness_does_not_reuse_stale_counts_or_legacy_delta():
+    notice = {"models_ready": False, "company_count": 2, "model_count": 11, "candidate_count": 1}
+    assert discord.render_generation(notice) == ["モデル統合: 未完了"]
+    assert (
+        discord.render_generation({"delta_measured": True, "entered": ["old"], "exited": []}) == []
+    )
+    assert discord.render_generation({"models_ready": "true"}) == []
+
+
+def test_successful_generation_does_not_hide_a_failed_store_upload():
+    notice = {"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0}
+    outcomes = {"publish-lake": "success", "upload-stores": "failure"}
+    failed = derive_failed_step(outcomes)
+    message = render_message(
+        outcome=decide_outcome(batch_exit_code="0", failed_step=failed, cancelled=False),
+        asof="2026-10-25",
+        failed_step=failed,
+        notice=notice,
+        url=RUN_URL,
+        step_outcomes=outcomes,
+    )
+    assert "[FAILED]" in message
+    assert "Store反映 失敗" in message
+    assert "モデル生成: 2社 / 11件 / 候補0社" in message
+
+
+def test_unrecognized_nonzero_batch_exit_is_failure_not_legacy_degraded(tmp_path, monkeypatch):
+    notice = _notice(tmp_path / "notice.json", models_ready=False, failed_stage="model-integration")
+    _, transport = _run_main(tmp_path, monkeypatch, "--batch-exit-code", "3", notice=notice)
+    assert "[FAILED]" in _sent(transport)
+    assert "モデル統合: 未完了" in _sent(transport)
+
+
+@pytest.mark.parametrize("exit_code", ["", "1", "2", "3"])
+def test_failed_or_unstarted_batch_does_not_replay_a_successful_notice(
+    tmp_path, monkeypatch, exit_code
+):
+    notice = _notice(tmp_path / "stale.json")
+    _, transport = _run_main(tmp_path, monkeypatch, "--batch-exit-code", exit_code, notice=notice)
+    message = _sent(transport)
+    assert "18431" not in message
+    assert "モデル統合: 未完了" in message
+
+
+def test_cancelled_batch_does_not_claim_success_from_stale_notice(tmp_path, monkeypatch):
+    notice = _notice(tmp_path / "stale.json")
+    _, transport = _run_main(
+        tmp_path, monkeypatch, "--batch-exit-code", "0", "--cancelled", "true", notice=notice
+    )
+    assert "モデル生成" not in _sent(transport)
+    assert "モデル統合" not in _sent(transport)
+
+
+def test_failed_lake_stage_suppresses_stale_success_count():
+    message = render_message(
+        outcome="failed",
+        asof="2026-10-25",
+        failed_step="publish-lake",
+        url=RUN_URL,
+        notice={"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0},
+        step_outcomes={"publish-lake": "failure"},
+    )
+    assert "モデル統合: 未完了" in message
+    assert "11件" not in message
+
+
+def test_deferred_input_text_is_single_line_and_keeps_the_run_link():
+    message = render_message(
+        outcome="ok",
+        asof="2026-10-25",
+        failed_step="",
+        notice={},
+        url=RUN_URL,
+        integration_report={
+            "extractions": {
+                "edinet\n{extra}": {
+                    "deferred_inputs": ["x" * 4000],
+                    "input_asof": "2026-10-23\n{date}",
+                }
+            }
+        },
+    )
+    assert len(message) <= discord.MESSAGE_MAX_CHARS
+    assert message.count("入力延期:") == 1
+    assert "edinet extra" in message
+    assert "2026-10-23 date" in message
+    assert message.endswith(f"Run: <{RUN_URL}>")

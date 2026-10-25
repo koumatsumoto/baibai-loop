@@ -14,6 +14,7 @@ from baibai_engine.machine_analysis.model_generation import (
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
 from baibai_jobs.jobs import model_integration as job
+from baibai_jobs.observability.discord import render_generation
 
 
 @pytest.fixture
@@ -107,9 +108,14 @@ def test_models_policy_and_l1_share_the_same_fixed_inputs_without_web(integratio
     arguments["growth_start"] = growth_start
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
+    assert (
+        not {"screening_status", "market_updated", "delta_measured", "entered", "exited"}
+        & result.keys()
+    )
     assert result["candidate_count"] == 1
     assert result["company_count"] == 2
     assert result["model_count"] == 2
+    assert render_generation(result) == ["モデル生成: 2社 / 2件 / 候補1社"]
     assert result["growth_start"] == (None if growth_start is None else growth_start.isoformat())
     assert events == ["lease", "prepare", "generate", "lease", "publish", "release-snapshot"]
     stored = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])

@@ -89,8 +89,6 @@ def integrate_models(
         "pruned_generation_count": len(pruned),
         "asof": as_of.isoformat(),
         "models_ready": True,
-        "screening_status": "published",
-        "market_updated": True,
         "generation_id": generation.metadata.generation_id,
         "selection_id": selection_id,
         "company_count": len(subjects),
@@ -99,10 +97,6 @@ def integrate_models(
         "growth_start": None if growth_start is None else growth_start.isoformat(),
         "economic_snapshot_sha256": digest,
         "lake": publication.as_dict(),
-        "delta_measured": False,
-        "delta_unmeasured_reason": "prior_generation_delta_not_measured",
-        "entered": [],
-        "exited": [],
     }
 
 
@@ -143,7 +137,6 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "asof": args.asof.isoformat(),
                 "models_ready": False,
-                "screening_status": "failed",
                 "failed_stage": "model-integration",
                 "error_type": type(error).__name__,
             },
