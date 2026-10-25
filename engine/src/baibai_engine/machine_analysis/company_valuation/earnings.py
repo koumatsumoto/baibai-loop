@@ -32,6 +32,7 @@ class ProfitComponent:
     period_start: date | None
     period_end: date | None
     disclosed_at: date
+    disclosed_time: str | None
     disclosure_number: str | None
     document_type: str | None
 
@@ -79,6 +80,7 @@ def earnings_price(
             period_start=row.period_start,
             period_end=row.period_end,
             disclosed_at=row.disclosed_at,
+            disclosed_time=row.disclosed_time,
             disclosure_number=row.disclosure_number,
             document_type=row.document_type,
         )

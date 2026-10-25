@@ -38,6 +38,7 @@ def integration(tmp_path, monkeypatch):
 
     def generate(**kwargs):
         events.append("generate")
+        assert kwargs["growth_start"] == arguments["growth_start"]
         assert kwargs["market_snapshot"] is prepared.source_snapshot
         assert kwargs["market_release"].release_id == "new-release"
         assert kwargs["economic_path"].read_bytes() == b"fixed-economic"
@@ -94,11 +95,14 @@ def integration(tmp_path, monkeypatch):
     return arguments, events
 
 
-def test_models_policy_and_l1_share_the_same_fixed_inputs_without_web(integration):
+@pytest.mark.parametrize("growth_start", [None, date(2023, 10, 23)])
+def test_models_policy_and_l1_share_the_same_fixed_inputs_without_web(integration, growth_start):
     arguments, events = integration
+    arguments["growth_start"] = growth_start
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     assert result["candidate_count"] == 1
+    assert result["growth_start"] == (None if growth_start is None else growth_start.isoformat())
     assert events == ["lease", "prepare", "generate", "lease", "publish", "release-snapshot"]
     stored = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
     assert stored.inputs["market"].reference == result["lake"]["release_id"]
@@ -132,3 +136,27 @@ def test_failed_lake_publication_does_not_prune_existing_generations(integration
     with pytest.raises(ValueError, match="publication failed"):
         job.integrate_models(**arguments)
     assert "publish" not in events
+
+
+@pytest.mark.parametrize("start", [None, "2020-01-01"])
+def test_cli_does_not_implicitly_truncate_growth_history(tmp_path, monkeypatch, start):
+    received = []
+    monkeypatch.setattr(job, "Boto3R2Store", lambda **kwargs: object())
+
+    def integrate(**kwargs):
+        received.append(kwargs["growth_start"])
+        return {"models_ready": True}
+
+    monkeypatch.setattr(job, "integrate_models", integrate)
+    arguments = [
+        "--asof",
+        "2026-10-23",
+        "--lease-handle",
+        str(tmp_path / "lease"),
+        "--notice-output",
+        str(tmp_path / "notice.json"),
+    ]
+    if start is not None:
+        arguments += ["--growth-start", start]
+    assert job.main(arguments) == 0
+    assert received == [None if start is None else date.fromisoformat(start)]

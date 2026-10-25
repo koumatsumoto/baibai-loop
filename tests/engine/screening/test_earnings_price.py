@@ -21,6 +21,7 @@ def annual(profit=100.0, basis="Consolidated"):
     return JQuantsFinancialSummary(
         ticker="1001",
         disclosed_at=date(2026, 5, 15),
+        disclosed_time="15:30:00",
         fiscal_period="FY",
         fiscal_year_end=date(2026, 3, 31),
         period_start=date(2025, 4, 1),
@@ -54,6 +55,7 @@ def test_signed_profit_and_standalone_companies_remain_representable(profit, bas
     assert result.unavailable_reason is None
     assert result.statement_basis == basis.lower()
     assert result.profit_components[0].disclosure_number == "fy-2026"
+    assert result.profit_components[0].disclosed_time == "15:30:00"
 
 
 def test_unknown_statement_basis_keeps_amount_without_claiming_comparable_yield():
@@ -185,3 +187,9 @@ def test_fiscal_year_change_cannot_make_eleven_months_into_ttm():
     )
     assert result.profit_ttm_yen is None
     assert result.earnings_yield is None
+
+
+def test_unknown_disclosure_time_is_preserved():
+    result = observation([replace(annual(), disclosed_time=None)])
+    assert result.profit_components[0].disclosed_time is None
+    assert result.earnings_yield == 0.125

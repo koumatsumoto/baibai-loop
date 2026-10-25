@@ -20,7 +20,6 @@ from baibai_engine.job_api import (
     ModelInputSnapshot,
     ScreeningSelectionStore,
     TwoViewPolicy,
-    add_months_clamped,
     read_and_generate_models,
     select_generation,
     sha256_file,
@@ -44,7 +43,7 @@ def integrate_models(
     mirror: Path,
     as_of: date,
     lease_handle: Path,
-    growth_start: date,
+    growth_start: date | None,
     policy: TwoViewPolicy,
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
@@ -97,11 +96,11 @@ def integrate_models(
         "company_count": len(subjects),
         "model_count": len(generation.models),
         "candidate_count": len(selection.result.tickers),
-        "growth_start": growth_start.isoformat(),
+        "growth_start": None if growth_start is None else growth_start.isoformat(),
         "economic_snapshot_sha256": digest,
         "lake": publication.as_dict(),
         "delta_measured": False,
-        "delta_unmeasured_reason": "core_generation_without_web",
+        "delta_unmeasured_reason": "prior_generation_delta_not_measured",
         "entered": [],
         "exited": [],
     }
@@ -116,7 +115,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mirror", type=Path, default=Path("stores"))
     parser.add_argument("--lease-handle", type=Path, required=True)
     parser.add_argument("--notice-output", type=Path, required=True)
-    parser.add_argument("--growth-start", type=date.fromisoformat)
+    parser.add_argument(
+        "--growth-start",
+        type=date.fromisoformat,
+        help="optional accounting-period start; omitted retains all available periods",
+    )
     parser.add_argument("--earnings-limit", type=int, default=20)
     parser.add_argument("--combined-limit", type=int, default=20)
     args = parser.parse_args(argv)
@@ -129,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             mirror=args.mirror,
             as_of=args.asof,
             lease_handle=args.lease_handle,
-            growth_start=args.growth_start or add_months_clamped(args.asof, -36),
+            growth_start=args.growth_start,
             policy=TwoViewPolicy(
                 earnings_limit=args.earnings_limit, combined_limit=args.combined_limit
             ),

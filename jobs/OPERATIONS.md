@@ -242,7 +242,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 <a id="research-input-preparation"></a>
 ## Investment Judgment入力の準備
 
-新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。企業成長は固定releaseの財務・masterとmanifestを配置したローカルmirrorを読む。通常は既存`hydrate-market`を使い、別配置なら`investment-judgment prepare --company-growth-mirror <LOCAL_MIRROR>`を指定する。query自体はネットワーク取得をせず、mirror不足を更新中のSQLite行で代替しない。[固定release](#fixed-release-read)の手順で準備し、取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
+新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。新規は保存済みgenerationと、候補探索では候補政策を固定し、prepareで必要なモデル断面をapplicationへ複写する。prepare中に企業成長を再計算せず、固定入力からの再開にもmarket mirrorを要求しない。企業成長を別途再生成する場合は[固定release](#fixed-release-read)の財務・masterを用意し、更新中のSQLite行で代替しない。取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
 
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
@@ -257,7 +257,7 @@ uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores \
 
 resolveはmanifestの解決で、data objectの検証や任意SQL実行ではない。
 
-objectのdigest・bytes・row数・schemaを通常readerで照合する。共有gatewayは/api/lake/current→release manifest→dataset manifest→列挙Parquetの順にraw GETする。gatewayのHTTP 200はdecode・整合の証明ではなく、照合は利用側が行う。固定objectが404なら分析を止め、再開は新しい分析としてcurrentから始める。
+objectのdigest・bytes・row数・schemaを通常のlake readerで照合する。Webの旧L1 gatewayは廃止したため、認可済みR2読取か完全なローカルmirrorを使う。固定objectを取得できなければ別releaseの値で埋めず、再開時に同じ固定releaseを復元できるか確認する。新しいcurrentを採る場合は別の分析入力として固定し直す。
 
 <a id="local-release-hydrate"></a>
 ### remote拡張なしのhydrate
