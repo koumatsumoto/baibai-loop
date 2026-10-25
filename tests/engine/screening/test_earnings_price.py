@@ -65,14 +65,30 @@ def test_unknown_statement_basis_keeps_amount_without_claiming_comparable_yield(
 
 def test_equal_profit_does_not_resolve_conflicting_statement_bases():
     group = annual()
-    standalone = replace(
-        annual(basis="NonConsolidated"), disclosure_number="standalone-same-time"
-    )
+    standalone = replace(annual(basis="NonConsolidated"), disclosure_number="standalone-same-time")
     first = observation([group, standalone])
     second = observation([standalone, group])
     assert first == second
     assert first.earnings_yield is second.earnings_yield is None
     assert first.unavailable_reason == second.unavailable_reason == "conflicting_statement_basis"
+
+
+def test_forecast_only_document_does_not_invalidate_actual_statement_basis():
+    forecast = replace(
+        annual(),
+        disclosed_at=date(2026, 8, 1),
+        document_type="EarnForecastRevision",
+        disclosure_number="forecast-only",
+        profit=None,
+        sales=None,
+        shares_outstanding=None,
+        treasury_shares=None,
+        forecast_profit=900.0,
+    )
+    result = observation([annual(), forecast])
+    assert result.profit_ttm_yen == 100.0
+    assert result.earnings_yield == 0.125
+    assert result.unavailable_reason is None
 
 
 def test_latest_quarter_missing_profit_does_not_revive_old_full_year():

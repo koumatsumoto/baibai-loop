@@ -22,7 +22,7 @@ from baibai_engine.market.price_models import (
 
 from .metrics.capital import _normalize_summaries_with_status, _resolve_capital_basis
 from .metrics.models import TTMRules
-from .metrics.periods import _ttm_components
+from .metrics.periods import _actual_rows, _ttm_components
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +93,7 @@ def earnings_price(
             for candidate in latest_disclosure_candidates(
                 [
                     candidate
-                    for candidate in normalized.summaries
+                    for candidate in _actual_rows(normalized.summaries)
                     if accounting_period_identity(candidate) == accounting_period_identity(row)
                 ]
             )
