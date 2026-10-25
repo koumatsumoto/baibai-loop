@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
+from dataclasses import asdict
 from datetime import date
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.foundation.json import canonical_json
 from baibai_engine.market.price_models import PriceBar
 
 from .calculations import (
@@ -14,10 +17,11 @@ from .calculations import (
     rsi_14bar,
     simple_moving_average,
 )
+from .momentum import price_momentum_12_1
 
 
 def generate_technical_analysis(
-    bars: Sequence[PriceBar], *, ticker: str, as_of: date
+    bars: Sequence[PriceBar], *, ticker: str, as_of: date, trading_dates: Sequence[date]
 ) -> dict[str, object]:
     """同一調整基準の時系列を受け取り、個別読取と全社生成で同じ算術を使う。"""
     ticker = normalize_ticker(ticker)
@@ -37,4 +41,10 @@ def generate_technical_analysis(
         },
         "bollinger_20bar": bollinger_20bar(bars),
         "rsi_14bar": rsi_14bar(bars),
+        "price_momentum": json.loads(
+            canonical_json(
+                asdict(price_momentum_12_1(bars, trading_dates=trading_dates, as_of=as_of))
+            )
+        ),
+        "price_momentum_revision": "common-calendar-252-21-v2",
     }

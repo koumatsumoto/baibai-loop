@@ -10,6 +10,7 @@ from pathlib import Path
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.market.adjusted_prices import read_price_bars
+from baibai_engine.market.calendar_context import read_price_calendar_basis
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents, read_master_snapshot
@@ -82,15 +83,7 @@ def read_and_generate_models(
         connection.execute("BEGIN")
         for row in read_financial_documents(connection, start=date.min, end=date.max):
             documents[row.ticker].append(row)
-        calendar = {
-            date.fromisoformat(row[0]): bool(row[1])
-            for row in connection.execute(
-                "SELECT day, holiday_division IN ('1','2') FROM jquants_market_calendar "
-                "WHERE day<=? ORDER BY day",
-                (as_of.isoformat(),),
-            )
-        }
-        expected_price_date, trading_dates = _calendar_basis(calendar, as_of=as_of)
+        expected_price_date, trading_dates = read_price_calendar_basis(connection, as_of=as_of)
         action_rows = connection.execute(
             "SELECT ticker,traded_at,adjustment_factor,ex_right_type FROM jquants_daily_bars "
             "WHERE traded_at<=? AND (adjustment_factor!=1.0 OR ex_right_type IS NOT NULL) "
@@ -166,20 +159,3 @@ def read_and_generate_models(
 def _sector(security: dict[str, object] | None) -> str | None:
     value = None if security is None else security.get("sector_33")
     return value if isinstance(value, str) else None
-
-
-def _calendar_basis(
-    calendar: dict[date, bool], *, as_of: date
-) -> tuple[date | None, tuple[date, ...]]:
-    """Yの最新日とMの253営業日を別々に確認し、穴を営業日短縮へ変えない。"""
-    dates = tuple(sorted(day for day, business in calendar.items() if business and day <= as_of))
-    if as_of not in calendar or not dates:
-        return None, ()
-    latest = dates[-1]
-    if sum(latest <= day <= as_of for day in calendar) != (as_of - latest).days + 1:
-        return None, ()
-    if len(dates) >= 253:
-        start = dates[-253]
-        if sum(start <= day <= as_of for day in calendar) != (as_of - start).days + 1:
-            return latest, ()
-    return latest, dates

@@ -93,9 +93,11 @@ def test_historical_reader_does_not_load_current_candidate_calculation_or_rules(
         [
             sys.executable,
             "-c",
-            "import sys; from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader; "
-            "assert 'baibai_engine.machine_analysis.screening.discovery.candidates' not in sys.modules; "
-            "assert 'baibai_engine.machine_analysis.screening.rule_config' not in sys.modules",
+            (
+                "import sys; from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader; "
+                "assert 'baibai_engine.machine_analysis.screening.discovery.candidates' not in sys.modules; "
+                "assert 'baibai_engine.machine_analysis.screening.rule_config' not in sys.modules"
+            ),
         ],
         capture_output=True,
         text=True,

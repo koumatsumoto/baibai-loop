@@ -9,6 +9,7 @@ from tests.helpers.l1_release import market_store
 from baibai_engine.machine_analysis import generation_reader
 from baibai_engine.machine_analysis.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.company_valuation.metrics.models import TTMRules
+from baibai_engine.market.calendar_context import price_calendar_basis
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
 from baibai_engine.storage.lake.writer import sealed_sqlite_snapshot
 
@@ -63,27 +64,28 @@ def test_calendar_requires_contiguous_dates_without_coupling_y_to_m_history():
         sunday - timedelta(days=n): (sunday - timedelta(days=n)).weekday() < 5 for n in range(400)
     }
     friday = date(2026, 10, 23)
-    expected, dates = generation_reader._calendar_basis(calendar, as_of=sunday)
+    expected, dates = price_calendar_basis(calendar, as_of=sunday)
     assert expected == friday
     assert len(dates) >= 253
     del calendar[sunday - timedelta(days=100)]
-    expected, dates = generation_reader._calendar_basis(calendar, as_of=sunday)
+    expected, dates = price_calendar_basis(calendar, as_of=sunday)
     assert expected == friday
     assert dates == ()
     del calendar[sunday]
-    assert generation_reader._calendar_basis(calendar, as_of=sunday) == (None, ())
+    assert price_calendar_basis(calendar, as_of=sunday) == (None, ())
 
 
 def test_calendar_short_history_and_current_holiday_gap_are_distinct():
     friday, saturday, sunday = date(2026, 10, 23), date(2026, 10, 24), date(2026, 10, 25)
-    assert generation_reader._calendar_basis({friday: True}, as_of=friday) == (friday, (friday,))
-    assert generation_reader._calendar_basis({friday: True, sunday: False}, as_of=sunday) == (
+    assert price_calendar_basis({friday: True}, as_of=friday) == (friday, (friday,))
+    assert price_calendar_basis({friday: True, sunday: False}, as_of=sunday) == (
         None,
         (),
     )
-    assert generation_reader._calendar_basis(
-        {friday: True, saturday: False, sunday: False}, as_of=sunday
-    ) == (friday, (friday,))
+    assert price_calendar_basis({friday: True, saturday: False, sunday: False}, as_of=sunday) == (
+        friday,
+        (friday,),
+    )
 
 
 @pytest.mark.parametrize("corrupt", [False, True])

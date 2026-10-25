@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine technical-analysis")
     commands = parser.add_subparsers(dest="command", required=True)
     show = commands.add_parser(
-        "show", help="calculate SMA20/50/200, BB20 and RSI14 without acquisition"
+        "show", help="calculate SMA20/50/200, BB20, RSI14 and 12-1 momentum without acquisition"
     )
     show.add_argument("--ticker", required=True)
     show.add_argument("--asof", type=date.fromisoformat, required=True)

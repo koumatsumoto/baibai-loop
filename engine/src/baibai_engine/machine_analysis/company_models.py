@@ -24,7 +24,6 @@ from .company_valuation.metrics.models import TTMRules
 from .model_generation import GeneratedModel
 from .technical_analysis.calculations import TECHNICAL_CALCULATION_REVISION
 from .technical_analysis.generation import generate_technical_analysis
-from .technical_analysis.momentum import price_momentum_12_1
 
 _GROWTH_FIELDS = frozenset(
     {"eps_yoy", "sales_yoy", "operating_profit_yoy", "cfo_yoy", "operating_profit_loss_narrowing"}
@@ -99,11 +98,9 @@ def generate_financial_and_price_models(
         input_release=input_release,
         start=growth_start,
     )
-    technical = generate_technical_analysis(bars, ticker=ticker, as_of=as_of)
-    technical["price_momentum"] = asdict(
-        price_momentum_12_1(bars, trading_dates=trading_dates, as_of=as_of)
+    technical = generate_technical_analysis(
+        bars, ticker=ticker, as_of=as_of, trading_dates=trading_dates
     )
-    technical["price_momentum_revision"] = "common-calendar-252-21-v2"
     return (
         GeneratedModel(
             model_id="company_valuation",
