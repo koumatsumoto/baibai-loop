@@ -39,7 +39,7 @@ def document(*, ticker="1001", profit=100.0):
     )
 
 
-def generate(*, documents, bars):
+def generate(*, documents, bars, growth_start=None):
     return generate_financial_and_price_models(
         ticker="1001",
         documents=documents,
@@ -50,6 +50,7 @@ def generate(*, documents, bars):
         as_of=ASOF,
         input_release=RELEASE,
         ttm_rules=RULES,
+        growth_start=growth_start,
     )
 
 
@@ -108,3 +109,18 @@ def test_missing_price_does_not_erase_the_financial_history_or_invent_zero_yield
 def test_shared_input_cannot_mix_another_company_into_the_generated_models():
     with pytest.raises(ValueError, match="different ticker"):
         generate(documents=(document(ticker="1002"),), bars=())
+
+
+def test_growth_display_range_does_not_truncate_valuation_inputs_or_retained_coverage():
+    full = generate(documents=(document(),), bars=(PriceBar(ASOF, 10.0, None),))
+    bounded = generate(
+        documents=(document(),),
+        bars=(PriceBar(ASOF, 10.0, None),),
+        growth_start=date(2026, 4, 1),
+    )
+    assert full[0] == bounded[0]
+    assert full[2] == bounded[2]
+    assert full[1].payload["periods"]
+    assert bounded[1].payload["periods"] == []
+    assert full[1].payload["coverage"] == bounded[1].payload["coverage"]
+    assert bounded[1].payload["requested_start"] == "2026-04-01"

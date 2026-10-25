@@ -37,6 +37,7 @@ def generate_financial_and_price_models(
     as_of: date,
     input_release: InputRelease,
     ttm_rules: TTMRules,
+    growth_start: date | None = None,
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業価値・企業成長・テクニカル分析を生成する。
 
@@ -45,7 +46,9 @@ def generate_financial_and_price_models(
     市場環境・外部評価はそれぞれの共有読取から別途同じgenerationへ組み込む。
     """
     ticker = normalize_ticker(ticker)
-    if any(row.ticker != ticker for row in (*documents, *adjustment_events)):
+    if any(row.ticker != ticker for row in documents) or any(
+        event.ticker != ticker for event in adjustment_events
+    ):
         raise ValueError("company model inputs contain a different ticker")
     bars = sorted(
         (bar for bar in adjusted_bars if bar.traded_at <= as_of), key=lambda bar: bar.traded_at
@@ -76,6 +79,7 @@ def generate_financial_and_price_models(
         sector=sector,
         as_of=as_of,
         input_release=input_release,
+        start=growth_start,
     )
     technical = generate_technical_analysis(bars, ticker=ticker, as_of=as_of)
     technical["price_momentum"] = asdict(
@@ -91,6 +95,7 @@ def generate_financial_and_price_models(
                 canonical_json(
                     {
                         "as_of": as_of,
+                        "read_semantics": "retained_disclosures_through_as_of_not_receipt_vintage",
                         "earnings_price": asdict(earnings),
                         "financial": financial,
                         "ttm_rules": ttm_rules.model_dump(mode="json"),
