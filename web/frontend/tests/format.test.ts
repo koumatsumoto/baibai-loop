@@ -1,15 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import {
   EMPTY,
   formatJstDate,
   formatJstDateShort,
   formatJstDateTime,
-  formatJstStamp,
-  formatNumber,
   formatPct,
   formatYen,
-  isOlderThanDays,
 } from '../src/lib/format'
 
 describe('formatJstDateTime', () => {
@@ -31,21 +28,6 @@ describe('formatJstDateTime', () => {
 
   it('keeps the same instant across a non-JST offset', () => {
     expect(formatJstDateTime('2026-07-18T23:00:00-04:00')).toBe('2026-07-19 12:00')
-  })
-})
-
-describe('formatJstStamp', () => {
-  it('renders a compact MM/DD HH:mm in JST', () => {
-    expect(formatJstStamp('2026-07-19T03:00:00Z')).toBe('07/19 12:00')
-  })
-
-  // A value with no time of day has no 00:00 to state.
-  it('drops the time for a calendar date', () => {
-    expect(formatJstStamp('2026-07-19')).toBe('07/19')
-  })
-
-  it('reads a bare date as JST midnight rather than failing to parse', () => {
-    expect(formatJstStamp('2026-01-01')).toBe('01/01')
   })
 })
 
@@ -74,33 +56,6 @@ describe('formatJstDateShort', () => {
   })
 })
 
-describe('isOlderThanDays', () => {
-  // Fix the instant just after JST midnight, still the previous UTC date.
-  beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-07-19T15:01:00Z'))
-  })
-  afterEach(() => vi.useRealTimers())
-  const today = '2026-07-20'
-  const daysAgo = (days: number) =>
-    new Date(Date.parse(`${today}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10)
-
-  it('is false inside the window', () => {
-    expect(isOlderThanDays(daysAgo(6), 7)).toBe(false)
-  })
-
-  it('is true on and past the boundary', () => {
-    expect(isOlderThanDays(daysAgo(7), 7)).toBe(true)
-    expect(isOlderThanDays(daysAgo(30), 7)).toBe(true)
-  })
-
-  // The bare date must not be read in the viewer's timezone, which would shift the
-  // boundary by a day for anyone outside JST.
-  it('accepts a stamp with no offset', () => {
-    expect(isOlderThanDays(`${daysAgo(6)}T09:00:00`, 7)).toBe(false)
-  })
-})
-
 describe('formatYen', () => {
   it('formats whole yen with the ¥ symbol and grouping', () => {
     expect(formatYen(1234567)).toBe('￥1,234,567')
@@ -108,16 +63,6 @@ describe('formatYen', () => {
 
   it('rounds to whole yen', () => {
     expect(formatYen(1234.6)).toBe('￥1,235')
-  })
-})
-
-describe('formatNumber', () => {
-  it('groups thousands and rounds to the requested fraction digits', () => {
-    expect(formatNumber(1234.567, 2)).toBe('1,234.57')
-  })
-
-  it('defaults to zero fraction digits', () => {
-    expect(formatNumber(1234.9)).toBe('1,235')
   })
 })
 

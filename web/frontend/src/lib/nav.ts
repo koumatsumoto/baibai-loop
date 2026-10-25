@@ -2,7 +2,7 @@
 export const ACTIONS_URL =
   'https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-daily-batch.yml'
 
-// The navigation follows the reader's work; analysis domains are evidence within Research.
+// Only the retained portfolio and task screens belong in this navigation.
 export interface NavTab {
   readonly to: string
   readonly label: string
