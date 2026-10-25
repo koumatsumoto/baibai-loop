@@ -31,12 +31,13 @@ function SourceRefs({ ids, sources, label = '参照:' }: { ids: unknown; sources
 
 export function AssessmentReviewContent({ review, sources = [] }: { review?: Record<string, unknown> | null; sources?: Record<string, unknown>[] }) {
   if (!review) return <p className="text-sm text-muted-foreground">独立Review本文を表示できません。保存した評価版のReviewを確認してください。</p>
+  const acceptanceReason = review.uncertainty_acceptance_reason ?? review.nonmaterial_unknown_reason
   const recalculated = Array.isArray(review.recalculated_projections) ? review.recalculated_projections.map(record) : []
   return <div className="grid min-w-0 gap-4">
     <Field label="独立Reviewの確認範囲"><p>{text(review.review_scope)}</p></Field>
     <Field label="一次資料の確認状態"><p>{EVIDENCE_LABELS[text(review.primary_source_check)] ?? text(review.primary_source_check)}</p><SourceRefs ids={review.checked_source_ids} sources={sources} /></Field>
     <Field label="独立Reviewの最も強い反対仮説"><p>{text(review.strongest_countercase)}</p></Field>
-    {review.nonmaterial_unknown_reason != null && <Field label="残る不明点を非重要とした理由"><p>{text(review.nonmaterial_unknown_reason)}</p></Field>}
+    {acceptanceReason != null && <Field label="残る不確実性を引き受ける理由"><p>{text(acceptanceReason)}</p></Field>}
     <Field label="独立再計算">
       {recalculated.length > 0 && <p className="text-xs text-muted-foreground">金額は表示のみ小数2桁まで。保存した正確な値は原文で確認できます。</p>}
       {recalculated.length > 0 ? <div className="grid gap-3 sm:grid-cols-2">{recalculated.map((row, index) => <div className="rounded border p-3" key={index}>

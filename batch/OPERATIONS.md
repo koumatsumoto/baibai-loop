@@ -410,7 +410,7 @@ dailyは未初期化をskipし、初期化後の新規年次/訂正を独立処�
 
 
 <a id="external-assessment-acquisition"></a>
-## 外部参考評価の取得・再開
+## 外部評価の取得・再開
 
 限定collectは明示した少数銘柄の公開HTTPを直列で読み、private captureへ保存する。通常TLS/proxyを使い、403/429でそのsourceを止める。取得先を別名にし、部分captureを再取得で上書きしない。既存のcurrent-schema隔離marketへimportする。
 

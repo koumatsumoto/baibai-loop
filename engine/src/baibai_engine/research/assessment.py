@@ -15,6 +15,7 @@ from typing import Annotated, Literal
 
 import yaml
 from pydantic import (
+    AliasChoices,
     AwareDatetime,
     BaseModel,
     BeforeValidator,
@@ -427,7 +428,10 @@ class AssessmentReview(BaseModel):
     checked_source_ids: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
     recalculated_projections: tuple[ReviewedProjection, ...]
     strongest_countercase: NonEmptyStr
-    nonmaterial_unknown_reason: NonEmptyStr | None = None
+    uncertainty_acceptance_reason: NonEmptyStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("uncertainty_acceptance_reason", "nonmaterial_unknown_reason"),
+    )
     review_scope: NonEmptyStr
 
     @field_validator("reviewed_at", mode="before")
@@ -813,8 +817,12 @@ def evaluate_assessment(
             errors.append("verified review must check a primary source")
         if stance == "supported" and review.primary_source_check != "verified":
             errors.append("supported requires verified material primary evidence")
-        if stance == "supported" and gaps and not (review.nonmaterial_unknown_reason or "").strip():
-            errors.append("supported with unknowns requires Review's nonmaterial explanation")
+        if (
+            stance == "supported"
+            and gaps
+            and not (review.uncertainty_acceptance_reason or "").strip()
+        ):
+            errors.append("supported with unknowns requires Review's uncertainty acceptance reason")
         checked: dict[str, ReviewedProjection] = {
             item.name: item for item in review.recalculated_projections
         }

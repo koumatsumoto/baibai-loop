@@ -21,7 +21,7 @@ function assessment(version: 'A' | 'B'): StockAssessmentDetailView {
       conclusion: { stance: 'uncertain', strongest_countercase: `作者の反証${version}` },
     },
     projection: { original_price_yen: 950, original_price_as_of: '2026-10-14', original_price_basis: 'last_close_unadjusted' },
-    review: { review_id: `assessment-review-${version}`, reviewer_identity: `独立確認者${version}`, reviewed_at: '2026-10-14T17:00:00+09:00', review_scope: '満期原典を確認、借換条件は未確認', primary_source_check: 'partially_verified', checked_source_ids: ['issuer'], strongest_countercase: `独立反証${version}`, recalculated_projections: [], nonmaterial_unknown_reason: null },
+    review: { review_id: `assessment-review-${version}`, reviewer_identity: `独立確認者${version}`, reviewed_at: '2026-10-14T17:00:00+09:00', review_scope: '満期原典を確認、借換条件は未確認', primary_source_check: 'partially_verified', checked_source_ids: ['issuer'], strongest_countercase: `独立反証${version}`, recalculated_projections: [], uncertainty_acceptance_reason: null },
   }
 }
 
@@ -64,6 +64,16 @@ describe('保存判断の読書表示', () => {
     expect(html).toContain('今後の累積分配 0 円')
     expect(html).toContain('少額債権の回収時期は価値差を左右しない')
     expect(html).not.toContain('Downside')
+  })
+
+  it('重要な未知の受容理由を非重要というラベルへ変えない', () => {
+    const review = { ...assessment('A').review, uncertainty_acceptance_reason: '顧客別採算は重要な未知。継続実績と条件付き見返りから引き受ける。' }
+    const before = JSON.stringify(review)
+    const html = renderToStaticMarkup(createElement(AssessmentReviewContent, { review }))
+    expect(html).toContain('残る不確実性を引き受ける理由')
+    expect(html).toContain('顧客別採算は重要な未知')
+    expect(html).not.toContain('非重要とした理由')
+    expect(JSON.stringify(review)).toBe(before)
   })
 
   it('提案内容Reviewのpassを人間の採用や注文成立にしない', () => {

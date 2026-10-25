@@ -1,4 +1,4 @@
-# Technical Analysis
+# テクニカル分析
 
 保存価格から位置・勢い・変動幅を読む独立L2領域。`technical_analysis/`が計算・query・CLIを所有し、[共有価格basis](../../engine/src/baibai_engine/market/price_basis.py)を使う。企業価値・候補順位・合成score・自動売買を作らず、新しいsourceやstoreを持たない。
 

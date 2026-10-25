@@ -184,7 +184,7 @@ def test_unresolved_needs_no_invented_price_or_projections(tmp_path, capsys, sta
 def test_warnings_do_not_remove_resolved_context(tmp_path, capsys):
     assessment, review = diagnostic_pair()
     assessment["permanent_loss_risks"][0]["assessment"] = "unknown"
-    review["nonmaterial_unknown_reason"] = "架空例: 開示済み資金と全返済予定から当該細目は非重要"
+    review["uncertainty_acceptance_reason"] = "架空例: 開示済み資金と全返済予定から当該細目は非重要"
     review["reviewed_assessment_sha256"] = assessment_core_hash(
         StockAssessmentDocument.model_validate(assessment)
     )

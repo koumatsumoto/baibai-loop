@@ -217,7 +217,10 @@ def publish_reviewed_assessment(
             str(existing[0]) != assessment_json
             or existing[1] != supersedes_id
             or len(reviews) != 1
-            or str(reviews[0][0]) != review_json
+            or canonical_json(
+                AssessmentReview.model_validate_json(str(reviews[0][0])).model_dump(mode="json")
+            )
+            != review_json
         ):
             raise ResearchConflictError(f"immutable Reviewed Assessment differs: {assessment_id}")
         return load_reviewed_assessment(connection, assessment_id)

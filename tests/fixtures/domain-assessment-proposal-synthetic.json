@@ -221,7 +221,7 @@
         }
       ],
       "strongest_countercase": "需要縮小で恒常利益が失われる。",
-      "nonmaterial_unknown_reason": null,
+      "uncertainty_acceptance_reason": null,
       "review_scope": "全て合成fixture。保存資料と計算を独立検証した想定。"
     }
   },
