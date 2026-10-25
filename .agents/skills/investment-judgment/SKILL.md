@@ -21,7 +21,7 @@ uv run baibai-engine investment-judgment selection-context \
 
 selection-contextは発行済みの候補政策と、そのgenerationのモデルを返す。未生成とpayload内の欠測を区別し、欠測を正常値へ補わない。prepareは選定した対象のモデルと政策本文を固定保存し、可変storeから再計算しない。
 
-候補外や別Approachの少数の対照は、返された `screening_selection_id` を固定して同じcontextへ読める。`--compare-ticker` は `--ticker` と異なり、ユーザー指定銘柄・推薦集合・深掘り対象を変更しない。未生成のモデルは各社の `not_generated` に残る。実際の対象は比較後にdraftへ選び、候補外を毎回入れるノルマにはしない。
+候補外や異なる価値獲得経路の少数の対照は、返された `screening_selection_id` を固定して同じcontextへ読める。`--compare-ticker` は `--ticker` と異なり、ユーザー指定銘柄・推薦集合・深掘り対象を変更しない。未生成のモデルは各社の `not_generated` に残る。実際の対象は比較後にdraftへ選び、候補外を毎回入れるノルマにはしない。
 
 ```bash
 uv run baibai-engine investment-judgment selection-context \

@@ -24,6 +24,6 @@
 
 ModelGenerationは入力identity・計算revision・モデルを一組として保存する。ScreeningSelectionは別identityで、元generation・対象母集団・政策・結果を保存する。既存identityへの別内容の上書きは拒否し、再送で初回の公開時刻を変更しない。候補0件も正常な公開結果であり、過去の非空候補へ戻さない。
 
-既定読取はresearch日以下の基準日を優先し、同日は公開時刻で選ぶ。generation評価時刻と候補公開時刻の両方がknown_at以下でなければならない。explicitの未知・未来identityをlatestへ差し替えない。Selectionは必要なモデル断面と政策結果をapplication DBへ複写し、再開は保存入力だけを読む。モデルcacheの保持と保存済み評価・提案・台帳の保持は別である。
+既定読取はresearch日以下の基準日を優先し、同日は公開時刻で選ぶ。generation評価時刻と候補公開時刻の両方がknown_at以下でなければならない。explicitの未知・未来identityをlatestへ差し替えない。Selectionは必要なモデル断面と政策結果をapplication DBへ複写し、再開は保存入力だけを読む。日次の再生成cacheは政策公開順の異なる3世代を優先し、今回の明示生成も保持する。過去日手動生成では最大4世代となり、政策のない生成は後順位で期限切れになり得る。削除は同じreleaseの公開成功後に限り、保存済み評価・提案・台帳・原本・較正とは別である。
 
 取得・retry・受領反映・発行順は[OPERATIONS](../../jobs/OPERATIONS.md)が所有する。意味を変えない配置変更だけで計算revisionを更新しない。

@@ -74,7 +74,8 @@ def integrate_models(
             ttm_rules=DEFAULT_TTM_RULES,
             growth_start=growth_start,
         )
-        ModelGenerationStore(runs).publish(generation)
+        generations = ModelGenerationStore(runs)
+        generations.publish(generation)
         subjects = sorted(
             {model.subject for model in generation.models if model.subject != "market"}
         )
@@ -84,7 +85,9 @@ def integrate_models(
         publication = publish_prepared_market_lake(
             prepared, store=store, before_pointer_switch=lambda: verify_held(store, handle)
         )
+    pruned = generations.prune(keep=3, preserve=(generation.generation_id,))
     return {
+        "pruned_generation_count": len(pruned),
         "asof": as_of.isoformat(),
         "models_ready": True,
         "screening_status": "published",

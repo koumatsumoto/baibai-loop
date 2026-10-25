@@ -1,11 +1,11 @@
 # 企業価値
 
-`machine_analysis/company_valuation/metrics`は財務・会計期間・株式basisを揃えて機械指標を作る。`machine_analysis/screening/metric_builder.py`はその結果と市場環境をStock Analysisへ組み立てる。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
+`machine_analysis/company_valuation/metrics`は財務・会計期間・株式basisを揃えて機械指標を作る。新しい五モデル生成は`machine_analysis/company_models.py`で実績利益・価格と財務観測を保存する。候補抽出は保存モデルを読むだけで、機械ER/FVを生成しない。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
 
 <a id="machine-valuation"></a>
-## 機械ER/FV
+## 保存済みの旧機械ER/FV
 
-機械E[r]は倍率収束とcarryによるsecondary prior。四Approachの候補membership・順位、AI調査の優先度、企業固有の価値を所有しない。年率ratio、成分、入力basis、anchor・係数・clipの前提と一緒に読む。機械の5年priorは銘柄評価の期間を固定しない。
+旧runの機械E[r]は倍率収束とcarryによるsecondary prior。以下は保存済み結果と旧較正を読むための意味であり、新しい候補抽出・L3入力には含めない。AI調査の優先度や企業固有の価値を所有しない。年率ratio、成分、入力basis、anchor・係数・clipの前提と一緒に読む。機械の5年priorは銘柄評価の期間を固定しない。
 
 carryの配当・グロス株数変化が欠測なら計算上の寄与は0になるが、無配・株数不変を観測した意味ではない。元のnullable入力と欠測仮定を示す。予想DPS spike guardは一回性の分配を反復carryへ入れる影響を限定するため採用したが、当時の長期比較は盲検の閾値検証ではなく、5y top5 trap悪化の受容を含む。[採用時の制約](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-30-dividend-carry-spike-guard/report.md)は将来成績の保証ではない。株数減少は消却・発行等を含む過去の変化で、自己株取得の実行cash・未消化枠・将来還元ではない。
 
@@ -22,7 +22,7 @@ carryはグロス株数変化を維持する。自己株控除後の変化は別
 
 機械Forward PERは会社予想EPSを使い、外部consensusとは分ける。数値の有無より先に適用する会計期間と連結/単体basisを決め、当期・翌期、利益と配当のsourceを識別する。新しい期の欠測を古い期で埋めず、過年度訂正で現在区分を巻き戻さない。連結会社の単体補足を連結予想へ混ぜない。
 
-文書番号の大小や投入順はrevision順ではない。開示時刻不明も同日の既知時刻より古いとは決めず、順序を確定できない矛盾はfield単位で未解決にする。EPS等が一致する他項目まで落とさない。空欄は非掲載であり撤回の確認とは限らない。原典の対象期・basis・statusは固定Stock Analysisのforecast_sourcesから辿る。
+文書番号の大小や投入順はrevision順ではない。開示時刻不明も同日の既知時刻より古いとは決めず、順序を確定できない矛盾はfield単位で未解決にする。EPS等が一致する他項目まで落とさない。空欄は非掲載であり撤回の確認とは限らない。原典の対象期・basis・statusは保存モデルのfinancial.forecast_sources（旧runではStock Analysis）から辿る。
 
 予想純利益が経常利益を上回る注記は大小関係で、特別利益の発生・原因・持続性を確定しない。赤字予想注記も一時損失と構造的衰退を判別せず、単独の除外や減衰にしない。赤字のEPSや実際に使うanchorは個別入力から読む。
 
@@ -30,9 +30,9 @@ carryはグロス株数変化を維持する。自己株控除後の変化は別
 
 合成は円総額で行い、1株換算は最後に一度だけ行う。各期EPSは異なる平均株数で割られており、EPSの和差では株式数が変わった企業を誤る。FinancialSnapshotのEPSは時価総額と同じ自己株控除後分母で組み直した値で、会社開示の期中平均株数EPSとは別である。
 
-3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。Normalized Earningsの候補抽出に使うが機械ER/FV anchorへ投入しない。後者は長期比較で増分効果を支持せず、[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。必要年度の不正・欠測を古い年度で埋めない。
+3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。旧Normalized Earningsの候補抽出で使っていたが、新しい二viewのmembershipや順位へは使わない。旧機械ER/FV anchorへも投入しない。後者は長期比較で増分効果を支持せず、[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。必要年度の不正・欠測を古い年度で埋めない。
 
-YoYは同じ会計期間・利益field・連結区分を比較し、直前開示とのQoQを読み替えない。比較不能のnullは改善なしではない。負の前年利益の比率符号だけで改善を読まず、赤字縮小を別に扱う。表示用の選択利益に経常/純利益fallbackがあっても、ReinvestmentのTTM営業利益を代替しない。後者のcapital-return proxyは厳密な税引後ROICではない。
+YoYは同じ会計期間・利益field・連結区分を比較し、直前開示とのQoQを読み替えない。比較不能のnullは改善なしではない。負の前年利益の比率符号だけで改善を読まず、赤字縮小を別に扱う。旧指標の選択利益に経常/純利益fallbackがあっても、営業利益を代替しない。新しい五モデルの成長変化はcompany_growthが所有し、負基準の旧前年比を併記しない。
 
 ## 資本と株式単位
 
@@ -54,7 +54,7 @@ EBITDAは同じ書類の営業利益と対応する償却。異なるCF加算子
 
 OCFとcapexは同じcontext・scopeを使い、合算と内訳を二重計上せず、取得支出の符号を一度だけ正規化する。J-Quants OCF TTMとEDINET OCF/capexは別系列で、sourceを跨いでFCFを合成しない。内訳を0にした感応度を「正常FCF」や維持投資の認定としない。
 
-短信とEDINETの規模照合は範囲ずれを検出する検査で、通過しても同一時点・連結範囲の証明ではない。除外はEDINET値とそれを要するApproachへ限り、他sourceの指標や銘柄全体を消さない。source/basisと不足理由を残して原典へ戻る。
+短信とEDINETの規模照合は範囲ずれを検出する検査で、通過しても同一時点・連結範囲の証明ではない。不適格は該当するEDINET値へ限り、他sourceの指標や銘柄全体を消さない。source/basisと不足理由を残して原典へ戻る。
 
 exact/approximated/unavailableは取得フローと期間の品質。年次metadataの12か月確認と、半期等を完全TTMへ合成できることは別で、半期CFを機械年率化しない。net cashは時点残高で12か月フローではない。品質は経済的持続性・株主回収可能性・倍率全体の正しさの認定ではない。
 
@@ -62,7 +62,7 @@ Investment JudgmentのBS文脈で測定日やdebt scopeが未保存なら、最�
 
 ## 配当と還元
 
-DPSの会社予想と実績を対象期・basisごとに分ける。5年反復するcarryでは、正のsplit-safe実績に対して予想が2倍超なら、特別配当と恒常転換を識別できないため実績を使う。実績0や未観測では初配当等を消さないため予想を使える。これは予想の不可能性や持続性の判定でなく、L3の期間内分配は原典と仮定から別に評価する。
+DPSの会社予想と実績を対象期・basisごとに分ける。旧機械priorの5年反復するcarryでは、正のsplit-safe実績に対して予想が2倍超なら、特別配当と恒常転換を識別できないため実績を使う。実績0や未観測では初配当等を消さないため予想を使える。これは予想の不可能性や持続性の判定でなく、L3の期間内分配は原典と仮定から別に評価する。
 
 正の実績DPSは会社が分割後へ先行換算した値と原基準値が混在し得る。会計期間から比較日まで単位変更・未分類actionがあれば、四半期末を配当基準日にしたり配当総額÷期末株数で換算したりしない。正の実績の期間不明・逆転・未来終了も未解決で、明示0は株式basisに依存しない観測として保持する。
 
@@ -70,7 +70,7 @@ basis未解決と無配・未観測を分け、独立して使える予想まで
 
 ## 相対比較と自己レンジ
 
-業種中央値はScreeningの共通資格母集団で作る。母数下限は少数の中央値へ依存しすぎないための慣例で、経済的最適値ではない。軸ごとの欠測が異なるので業種/市場fallbackも軸ごとに異なる。market fallbackのgapを「同業より割安」と読まず、構成の違いとbasisを併記する。
+旧runの倍率業種中央値は当時のScreeningの共通資格母集団で作る。新しい五モデルの市場・同業文脈とは区別する。母数下限は少数の中央値へ依存しすぎないための慣例で、経済的最適値ではない。軸ごとの欠測が異なるので業種/市場fallbackも軸ごとに異なる。market fallbackのgapを「同業より割安」と読まず、構成の違いとbasisを併記する。
 
 自己レンジは**現在fundamentalsを固定し、過去価格だけを動かした倍率比較**。各日の当時利益・資本から再現した倍率履歴ではない。min/max内の位置は観測順位のpercentileではなく、短い履歴の位置0も長期割安の証拠ではない。bar本数、履歴期間proxy、scope内の相対密度を合わせて読む。密度は取引calendarの完全性を証明しない。
 

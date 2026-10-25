@@ -79,6 +79,44 @@ class ModelGenerationStore:
     ) -> ModelInputSlice | None:
         return read_model_inputs(generation_id, subjects=subjects, path=self._path)
 
+    def prune(self, *, keep: int = 3, preserve: Sequence[str] = ()) -> tuple[str, ...]:
+        """政策付き世代を公開順で優先し、再生成cacheだけを有限に保つ。
+
+        bare生成は政策付き世代の後に置く。保存済みL3入力はapplication側の複写であり、
+        本操作は原本・application・旧run・較正へ触れない。
+        """
+        if keep < 1:
+            raise ValueError("keep must be positive")
+        initialize_run_store(self._path)
+        with closing(connect_rw(self._path)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                rows = connection.execute(
+                    "SELECT g.generation_id FROM model_generation g "
+                    "LEFT JOIN screening_selection s USING(generation_id) "
+                    "ORDER BY (s.selection_id IS NULL),g.as_of DESC,"
+                    "run_clock(COALESCE(s.published_at,g.evaluation_time)) DESC,"
+                    "s.selection_id DESC,g.generation_id DESC"
+                ).fetchall()
+                ordered = list(dict.fromkeys(str(row[0]) for row in rows))
+                retained = set(ordered[:keep]) | set(preserve)
+                deleted = tuple(identity for identity in ordered if identity not in retained)
+                for identity in deleted:
+                    connection.execute(
+                        "DELETE FROM screening_selection WHERE generation_id=?", (identity,)
+                    )
+                    connection.execute(
+                        "DELETE FROM generated_model WHERE generation_id=?", (identity,)
+                    )
+                    connection.execute(
+                        "DELETE FROM model_generation WHERE generation_id=?", (identity,)
+                    )
+                connection.commit()
+                return deleted
+            except BaseException:
+                connection.rollback()
+                raise
+
     @staticmethod
     def _require_identical(
         connection: sqlite3.Connection,

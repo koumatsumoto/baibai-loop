@@ -41,6 +41,6 @@ mirrorの準備・指定は[Investment Judgment入力の準備](../../jobs/OPERA
 
 表示の切替は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)に従い、同じ保存結果から投影する。表示期数はworkspace manifestだけの設定で、保存入力・selection hash・draftのstart/end・同一draft判定を変えない。`full_result_ref` はOperation内のResearchSelectionを起点としたJSON pointerであり、全状態/Changes・BS/CF・比較元/採用文書を完全結果で確認できる。原本の再取得や財務再計算は行わない。
 
-新しい実績指標の選択・算術はcompany_growthへ、新providerのデコード・文書identity・保存読取はmarket/Data Collectionへ置く。Investment Judgment/UIへ算式をコピーしない。共通marketの `financial_periods` は両領域で意味が同じ期間比較・実績矛盾処理・金額算術だけを持つ。Company Valuationの最新anchor・fallback・carry・TTMRulesは移さない。import-linterが兄弟領域、純粋計算、Web/Jobs入口の境界を検査する。
+新しい実績指標の選択・算術はcompany_growthへ、新providerのデコード・文書identity・保存読取はmarket/Data Collectionへ置く。Investment Judgment/UIへ算式をコピーしない。共通marketの `financial_periods` は両領域で意味が同じ期間比較・実績矛盾処理・金額算術だけを持つ。Company Valuationの最新anchor・fallback・carry・TTMRulesは移さない。import-linterが兄弟領域、純粋計算、Jobs入口の境界を検査する。
 
 初期実装と有限の実データ受入の結果・限界は[Issue #1588](https://github.com/koumatsumoto/baibai-loop/issues/1588)に記録する。確認した企業・期間の結果を、全市場の原典照合・完全な履歴coverage・投資収益改善の証明へ一般化しない。

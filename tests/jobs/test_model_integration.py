@@ -116,3 +116,19 @@ def test_generation_failure_does_not_publish_or_save_a_partial_run(integration, 
         job.integrate_models(**arguments)
     assert "publish" not in events
     assert not arguments["runs"].exists()
+
+
+def test_failed_lake_publication_does_not_prune_existing_generations(integration, monkeypatch):
+    arguments, events = integration
+
+    def fail(*args, **kwargs):
+        raise ValueError("publication failed")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("must not prune before publication succeeds")
+
+    monkeypatch.setattr(job, "publish_prepared_market_lake", fail)
+    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    with pytest.raises(ValueError, match="publication failed"):
+        job.integrate_models(**arguments)
+    assert "publish" not in events
