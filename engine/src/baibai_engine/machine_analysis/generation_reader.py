@@ -10,6 +10,7 @@ from pathlib import Path
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.market.adjusted_prices import read_price_bars
+from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents, read_master_snapshot
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
@@ -115,6 +116,7 @@ def read_and_generate_models(
         price_bars_by_ticker=prices,
     )
     histories = read_observation_population(path, tickers=subjects, cutoff=evaluation_time)
+    edinet = EDINETReader(path).load_metric_records(as_of)
     companies = [
         CompanyModelInputs(
             ticker=ticker,
@@ -122,6 +124,7 @@ def read_and_generate_models(
             adjusted_bars=prices.get(ticker, ()),
             adjustment_events=events.get(ticker, ()),
             sector=None if master is None else _sector(master.securities.get(ticker)),
+            edinet=edinet.get(ticker),
         )
         for ticker in subjects
     ]
@@ -130,6 +133,11 @@ def read_and_generate_models(
         as_of=as_of,
         evaluation_time=evaluation_time,
         inputs={
+            "market_snapshot": InputSnapshot(
+                kind="sqlite_snapshot",
+                reference=market_snapshot.ref.source_id,
+                sha256=market_snapshot.ref.sha256,
+            ),
             "market": InputSnapshot(
                 kind="lake_release",
                 reference=market_release.release_id,

@@ -9,6 +9,7 @@ from datetime import date
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, PriceBar
 
@@ -43,6 +44,7 @@ def generate_financial_and_price_models(
     input_release: InputRelease,
     ttm_rules: TTMRules,
     growth_start: date | None = None,
+    edinet: EdinetMetricRecord | None = None,
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業価値・企業成長・テクニカル分析を生成する。
 
@@ -54,6 +56,8 @@ def generate_financial_and_price_models(
     if any(row.ticker != ticker for row in documents) or any(
         event.ticker != ticker for event in adjustment_events
     ):
+        raise ValueError("company model inputs contain a different ticker")
+    if edinet is not None and edinet.ticker != ticker:
         raise ValueError("company model inputs contain a different ticker")
     bars = sorted(
         (bar for bar in adjusted_bars if bar.traded_at <= as_of), key=lambda bar: bar.traded_at
@@ -80,7 +84,7 @@ def generate_financial_and_price_models(
             build_financial_snapshot(
                 latest.price,
                 documents,
-                None,
+                edinet,
                 ttm_rules,
                 adjustment_events=adjustment_events,
                 asof_date=as_of,
@@ -106,7 +110,7 @@ def generate_financial_and_price_models(
         GeneratedModel(
             model_id="company_valuation",
             subject=ticker,
-            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v5",
+            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v6",
             payload=json.loads(
                 canonical_json(
                     {

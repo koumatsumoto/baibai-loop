@@ -1,6 +1,6 @@
 # 企業価値
 
-`machine_analysis/company_valuation/metrics`は財務・会計期間・株式basisを揃えて機械指標を作る。新しい五モデル生成は`machine_analysis/company_models.py`で実績利益・価格と財務観測を保存する。候補抽出は保存モデルを読むだけで、機械ER/FVを生成しない。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
+`machine_analysis/company_valuation/metrics`は財務・会計期間・株式basisを揃えて機械指標を作る。新しい五モデル生成は`machine_analysis/company_models.py`で実績利益・価格と財務観測を保存する。同じmarket sealに適格なEDINET metricsがあれば、既存の文書・訂正・抽出revisionの適格性を保って財務観測へ任意入力として渡す。未取得を補完せず、取得・抽出の成功を全社候補の前提にはしない。候補抽出は保存モデルを読むだけで、機械ER/FVを生成しない。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
 
 ## 利益価格の観測
 

@@ -9,6 +9,7 @@ from datetime import date, datetime
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, PriceBar
 
@@ -32,6 +33,7 @@ class CompanyModelInputs:
     adjusted_bars: Sequence[PriceBar]
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent]
     sector: str | None
+    edinet: EdinetMetricRecord | None = None
 
 
 def generate_models(
@@ -87,6 +89,7 @@ def generate_models(
                 input_release=financial_release,
                 ttm_rules=ttm_rules,
                 growth_start=growth_start,
+                edinet=company.edinet,
             )
             history = external_observations.get(ticker)
             if history is not None:

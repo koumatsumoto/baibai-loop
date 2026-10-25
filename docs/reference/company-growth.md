@@ -6,11 +6,13 @@
 
 初期の全社四半期実績はJ-Quants `fins/summary` を使い、会社予想を実績へ混ぜない。L3でEBITDAの構成・減価償却等を詳しく調べるときはEDINET原典を参照する。EDINET詳細抽出を成長L2の実行条件にせず、既存Company ValuationのEDINET利用は維持する。EDINETの現行metrics/factsはこの四半期全社履歴の代用品とせず、CF・投資・segment等の次の問いや同一期照合に応じてmarket側の小さなadapterを検討する。JQ `fins/details` も追加項目の候補であり、JQ優先を全項目の永久ルールにしない。EDINET docIDをJQ DiscNoへ偽装せず、差異は期間・連結・科目・訂正を確認するまで並存させる。採否の根拠は[Issue #1588の入力元比較](https://github.com/koumatsumoto/baibai-loop/issues/1588)に残す。
 
-公開入口は `machine_analysis.company_growth.query.company_growth(path, ticker=..., as_of=..., start=..., end=..., mirror=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。release全体の `data_as_of` は他datasetを含む最古watermarkなので、財務開示日終端へ流用しない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
+個別照会入口は `machine_analysis.company_growth.query.company_growth(path, ticker=..., as_of=..., start=..., end=..., mirror=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。release全体の `data_as_of` は他datasetを含む最古watermarkなので、財務開示日終端へ流用しない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
 
-読取は既存の `read_financial_documents(..., ticker=...)` を使い、全保持文書から状態・比較を計算して出力だけを切る。窓より前のTTM/前年比入力と、窓より後に開示された過年度訂正を残す。同一release・方法・比較ペアで共通する期の結果は窓の両端に依存しない。読取時に外部取得は起動しない。
+個別照会は既存の `read_financial_documents(..., ticker=...)` を使い、全保持文書から状態・比較を計算して出力だけを切る。窓より前のTTM/前年比入力と、窓より後に開示された過年度訂正を残す。同一release・方法・比較ペアで共通する期の結果は窓の両端に依存しない。読取時に外部取得は起動しない。
 
-実行用market SQLiteの `lake_store_origin` は更新基底のrelease ID/digestを選ぶ参照で、作業行がそのreleaseに一致する証拠にはならない。読取はローカルlake mirror（既定 `stores`）で既存release readerがmanifest・dataset・Parquetのdigest/schemaを照合した不変objectだけを使う。財務・masterの作業SQLite行を使わず、同releaseの財務ParquetをDuckDBのメモリ内viewから既存 `read_financial_documents` へ渡す。新しいDBは作らない。更新済みSQLiteが旧originを保持していても、新しい未公開行を旧releaseの事実として返さない。mirror未配置・digest不一致等では成長だけを利用不可とし、外部へ自動接続しない。`collection_boundary=fixed_release_membership` は当該manifestへの収録境界を指す。ローカルの取得時刻cutoffを証明しないため `receipt_cutoff` は未提供。Investment Judgmentの `input_known_at` は選択時の別の時刻で、開示日やreleaseの収録境界へ読み替えない。過去のas_ofを指定しても、当時の受領状態は復元しない。固定releaseがなければ成長を未取得とし、現在評価は妨げない。
+以下は個別照会の境界である。実行用market SQLiteの `lake_store_origin` は更新基底のrelease ID/digestを選ぶ参照で、作業行がそのreleaseに一致する証拠にはならない。読取はローカルlake mirror（既定 `stores`）で既存release readerがmanifest・dataset・Parquetのdigest/schemaを照合した不変objectだけを使う。財務・masterの作業SQLite行を使わず、同releaseの財務ParquetをDuckDBのメモリ内viewから既存 `read_financial_documents` へ渡す。新しいDBは作らない。更新済みSQLiteが旧originを保持していても、新しい未公開行を旧releaseの事実として返さない。mirror未配置・digest不一致等では成長だけを利用不可とし、外部へ自動接続しない。`collection_boundary=fixed_release_membership` は当該manifestへの収録境界を指す。ローカルの取得時刻cutoffを証明しないため `receipt_cutoff` は未提供。Investment Judgmentの `input_known_at` は選択時の別の時刻で、開示日やreleaseの収録境界へ読み替えない。過去のas_ofを指定しても、当時の受領状態は復元しない。固定releaseがなければ成長を未取得とし、現在評価は妨げない。
+
+共通モデル生成では、同じreleaseを出力するsealed market SQLiteの共有読取結果を成長の純粋計算へ渡す。個別照会の旧originを新しい入力identityへ流用しない。生成metadataはreleaseとsealのdigestを保持するが、一時sealの恒久保存や過去状態の再構築保証ではない。
 
 store-localのsource coverageはreleaseへ固定されていないため、現段階では取得coverageを常に `unverified` とする。観測された最古/最新会計期・観測期末一覧・観測間の穴は別に返し、文書の存在から連続取得済みとは推定しない。厳格な既存readerのcoverage条件は変更しない。
 

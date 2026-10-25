@@ -9,6 +9,7 @@ from baibai_engine.machine_analysis.company_valuation.metrics.models import TTMR
 from baibai_engine.machine_analysis.model_generation import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.screening.model_projection import select_generation
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_models import PriceBar
 
@@ -40,7 +41,9 @@ def document(*, ticker="1001", profit=100.0):
     )
 
 
-def generate(*, documents, bars, growth_start=None, expected_price_date=ASOF, as_of=ASOF):
+def generate(
+    *, documents, bars, growth_start=None, expected_price_date=ASOF, as_of=ASOF, edinet=None
+):
     return generate_financial_and_price_models(
         ticker="1001",
         documents=documents,
@@ -53,6 +56,7 @@ def generate(*, documents, bars, growth_start=None, expected_price_date=ASOF, as
         input_release=RELEASE,
         ttm_rules=RULES,
         growth_start=growth_start,
+        edinet=edinet,
     )
 
 
@@ -186,3 +190,62 @@ def test_latest_trading_close_remains_valid_on_a_later_nontrading_asof():
         as_of=ASOF - timedelta(days=1),
     )[0].payload["earnings_price"]
     assert earnings["earnings_yield"] == 0.125
+
+
+def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_or_momentum():
+    record = EdinetMetricRecord(
+        ticker="1001",
+        cash=100.0,
+        debt=40.0,
+        investment_securities=10.0,
+        ocf_ttm=20.0,
+        ebitda_ttm=30.0,
+        fcf_ttm=12.0,
+        capex_ttm=8.0,
+        depreciation_and_amortization_ttm=5.0,
+        consolidation_basis="consolidated",
+        snapshot_asof=date(2026, 7, 1),
+        snapshot_recorded_at_utc="2026-07-01T12:00:00Z",
+        source_doc_id="S100TEST",
+        document_type="120",
+        source_period_start=date(2025, 4, 1),
+        source_period_end=date(2026, 3, 31),
+    )
+    arguments = dict(documents=(document(),), bars=(PriceBar(ASOF, 10.0, None),))
+    missing = generate(**arguments)
+    present = generate(**arguments, edinet=record)
+    financial = present[0].payload["financial"]
+    assert financial["cash"] == 100
+    assert financial["debt"] == 40
+    assert financial["net_cash"] == 60
+    assert financial["investment_securities"] == 10
+    assert financial["asset_backed_ratio"] == pytest.approx(70 / 800)
+    assert financial["fcf_ttm"] == 12
+    assert financial["capex_ttm"] == 8
+    assert financial["depreciation_and_amortization_ttm"] == 5
+    assert financial["edinet_source_doc_id"] == "S100TEST"
+    assert financial["edinet_snapshot_asof"] == "2026-07-01"
+    assert financial["edinet_source_period_end"] == "2026-03-31"
+    assert missing[0].payload["financial"]["debt"] is None
+    assert present[0].payload["earnings_price"] == missing[0].payload["earnings_price"]
+    assert present[1:] == missing[1:]
+    assert "er_annual" not in financial
+    assert present[0].calculation_revision.endswith("observations-v6")
+    with pytest.raises(ValueError, match="different ticker"):
+        generate(**arguments, edinet=replace(record, ticker="1002"))
+
+
+def test_edinet_entity_mismatch_keeps_provenance_without_filling_financial_values():
+    record = EdinetMetricRecord(
+        ticker="1001",
+        cash=100.0,
+        debt=40.0,
+        consolidation_basis="non_consolidated",
+        source_doc_id="S100MISMATCH",
+    )
+    result = generate(documents=(document(),), bars=(PriceBar(ASOF, 10.0, None),), edinet=record)[0]
+    financial = result.payload["financial"]
+    assert financial["cash"] is None
+    assert financial["debt"] is None
+    assert financial["edinet_source_doc_id"] == "S100MISMATCH"
+    assert financial["edinet_failure_reasons"]
