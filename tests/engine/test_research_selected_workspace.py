@@ -10,10 +10,16 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
+from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import draft_for, selected_target, selection
 
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
+from baibai_engine.investment_judgment.selection import (
+    GeneratedResearchSelectionDraft,
+    ResearchRequest,
+    selection_sha256,
+)
 from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.workspace import (
     ResearchWorkspaceConflictError,
@@ -21,6 +27,8 @@ from baibai_engine.investment_judgment.workspace import (
     prepare_selected_workspace,
     promote,
     resume_selected_workspace,
+    scaffold_assessment,
+    scaffold_review,
     selected_prepare,
 )
 from baibai_engine.investment_judgment.workspace_cli import main
@@ -391,8 +399,9 @@ def test_completed_retry_and_real_same_text_request_have_different_identities(tm
 
 
 @pytest.mark.parametrize("scope", ["discover_new", "specified_stocks"])
+@pytest.mark.parametrize("generated", [False, True], ids=["legacy", "five_models"])
 def test_selected_promote_proposal_and_completion_use_current_scope(
-    tmp_path, scope, monkeypatch, capsys
+    tmp_path, scope, generated, monkeypatch, capsys
 ):
     from tests.helpers.db_seed import seed_ledger
 
@@ -418,14 +427,54 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
             }
         ),
     )
-    value = selection(now=NOW, tickers=("1234",), scope=scope, runs=tmp_path / "runs")
-    prepared = prepare(tmp_path, value=value)
+    if generated:
+        generation = seed_generation(tmp_path / "runs", now=NOW, as_of=NOW.date())
+        prepared = prepare_selected_workspace(
+            draft=GeneratedResearchSelectionDraft(
+                schema_version=2,
+                request=ResearchRequest(
+                    text="合成例：投資提案して",
+                    scope=scope,
+                    requested_tickers=("1234",) if scope == "specified_stocks" else (),
+                ),
+                research_as_of=NOW.date(),
+                input_known_at=NOW,
+                generation_id=generation.generation_id,
+                screening_selection_id="policy-1",
+                selection_summary="合成五モデルから判断経路を検証する",
+                targets=(selected_target(),),
+            ),
+            db_path=tmp_path / "app",
+            workspace=tmp_path / "workspace",
+            runs_path=tmp_path / "runs",
+            sqlite_path=tmp_path / "absent-market",
+            indicators_path=tmp_path / "absent-indicators",
+            now=NOW,
+        )
+        # The entire judgment path must work after the rebuildable cache disappears.
+        (tmp_path / "runs").unlink()
+    else:
+        value = selection(now=NOW, tickers=("1234",), scope=scope, runs=tmp_path / "runs")
+        prepared = prepare(tmp_path, value=value)
+    saved_selection = selection_binding(
+        OperationService(tmp_path / "app").get(prepared.operation_id).payload
+    )
+    assert saved_selection.schema_version == (3 if generated else 2)
+    fixed_hash = selection_sha256(saved_selection)
     workspace = prepared.workspace
     assert not (workspace / "research-workspace.yaml").exists()
+    scaffold_assessment(
+        workspace=workspace,
+        ticker="1234",
+        sqlite_path=tmp_path / "absent-market",
+        as_of=NOW.date(),
+        retrieved_at=NOW,
+        db_path=tmp_path / "app",
+    )
     directory = workspace / "1234"
-    directory.mkdir()
     assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")
     (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(assessment))
+    scaffold_review(workspace=workspace, ticker="1234", db_path=tmp_path / "app")
     (directory / "assessment-review.yaml").write_text(yaml.safe_dump(review))
     (directory / "assessment-publication.yaml").write_text(
         yaml.safe_dump(
@@ -545,6 +594,8 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         ),
         completed_at=NOW,
     )
+    assert complete.status == "completed"
+    assert service.get(prepared.operation_id) == complete
     assert "human_confirmation" not in complete.payload.model_dump()
     assert (
         main(["trade-proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
@@ -554,6 +605,10 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     assert preview["status"] == "unchanged"
     assert preview["items"][0]["saved_terms"] is None
     assert before == (workspace / "domain-inputs.yaml").read_bytes()
+    assert selection_sha256(selection_binding(complete.payload)) == fixed_hash
+    if generated:
+        assert proposal.liquidity_context[0].generation_id == "fixed-synthetic"
+        assert proposal.liquidity_context[0].adv_yen == 125000000
 
 
 def test_cli_inputs_required_and_old_flags_are_removed(tmp_path, capsys):

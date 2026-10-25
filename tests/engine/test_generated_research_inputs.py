@@ -1,12 +1,11 @@
 """保存モデル→Selection→再開・提案入力の経路。投資成績やAI判断の証明ではない。"""
 
-import sqlite3
-from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 import yaml
+from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import selected_target, selection
 
 from baibai_engine.investment_judgment.calibration_context import research_calibration_context
@@ -27,74 +26,15 @@ from baibai_engine.investment_judgment.workspace.selected_prepare import (
     prepare_selected_workspace,
     resume_selected_workspace,
 )
-from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.machine_analysis.model_generation import (
-    GeneratedModel,
-    InputSnapshot,
-    ModelGeneration,
-)
-from baibai_engine.machine_analysis.screening.model_projection import select_generation
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
 
 NOW = datetime(2026, 10, 25, 9, tzinfo=UTC)
 AS_OF = date(2026, 10, 23)
 
 
-def seed_generation(path):
-    payloads = {
-        "company_valuation": {"earnings_price": {"earnings_yield": 0.12}, "financial": None},
-        "technical_analysis": {"price_momentum": {"value": None, "reason": "missing_endpoint"}},
-        "company_growth": CompanyGrowth(
-            ticker="1234", status="unavailable", requested_start=None, requested_end=AS_OF
-        ).model_dump(mode="json"),
-        "external_assessment": {"forecast": None, "reason": "not_covered"},
-        "market_context": {"price": {"avg_turnover_20d_oku": 1.25}},
-    }
-    models = [
-        GeneratedModel(
-            model_id=name, subject="1234", calculation_revision="synthetic-v1", payload=payload
-        )
-        for name, payload in payloads.items()
-    ]
-    models.append(
-        GeneratedModel(
-            model_id="market_context",
-            subject="market",
-            calculation_revision="synthetic-v1",
-            payload={"reading": {"rates": 0.02}},
-        )
-    )
-    generation = ModelGeneration(
-        generation_id="fixed-synthetic",
-        as_of=AS_OF,
-        evaluation_time=NOW - timedelta(minutes=1),
-        inputs={
-            "market": InputSnapshot(kind="lake_release", reference="synthetic", sha256="a" * 64)
-        },
-        models=tuple(models),
-    )
-    ModelGenerationStore(path).publish(generation)
-    ScreeningSelectionStore(path).publish(
-        "policy-1",
-        select_generation(
-            generation,
-            tickers=("1234", "5678"),
-            policy=TwoViewPolicy(earnings_limit=20, combined_limit=20),
-        ),
-    )
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "UPDATE screening_selection SET published_at=?",
-            ((NOW - timedelta(seconds=30)).isoformat(),),
-        )
-    return generation
-
-
 def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, monkeypatch):
     path = tmp_path / "runs.sqlite"
-    seed_generation(path)
+    seed_generation(path, now=NOW, as_of=AS_OF)
     request = ResearchRequest(text="比較する", scope="discover_new")
 
     def forbidden(*args, **kwargs):
@@ -121,7 +61,7 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
 
 def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp_path, monkeypatch):
     runs = tmp_path / "runs.sqlite"
-    generation = seed_generation(runs)
+    generation = seed_generation(runs, now=NOW, as_of=AS_OF)
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(
@@ -183,7 +123,7 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp
 
 def test_projection_is_detached_and_old_selection_hash_is_unchanged(tmp_path):
     runs = tmp_path / "runs"
-    seed_generation(runs)
+    seed_generation(runs, now=NOW, as_of=AS_OF)
     saved = ModelGenerationStore(runs).read_subjects("fixed-synthetic", subjects=("1234", "market"))
     before = saved.model_dump_json()
     projection = project_generated_inputs(saved)
@@ -198,7 +138,7 @@ def test_projection_is_detached_and_old_selection_hash_is_unchanged(tmp_path):
 
 def test_generation_after_cutoff_is_rejected(tmp_path):
     path = tmp_path / "runs"
-    seed_generation(path)
+    seed_generation(path, now=NOW, as_of=AS_OF)
     with pytest.raises(ValueError, match="after the research cutoff"):
         load_generated_selection_context(
             request=ResearchRequest(
@@ -219,7 +159,7 @@ def test_context_cli_uses_fixed_generation_and_keeps_comparison_subjects(tmp_pat
     from baibai_engine.investment_judgment.workspace_cli import main
 
     runs = tmp_path / "runs.sqlite"
-    seed_generation(runs)
+    seed_generation(runs, now=NOW, as_of=AS_OF)
     before = runs.read_bytes()
     assert (
         main(
@@ -255,7 +195,7 @@ def test_context_cli_uses_fixed_generation_and_keeps_comparison_subjects(tmp_pat
 @pytest.mark.parametrize("explicit", [False, True])
 def test_policy_published_after_cutoff_is_not_admitted(tmp_path, explicit):
     runs = tmp_path / "runs.sqlite"
-    seed_generation(runs)
+    seed_generation(runs, now=NOW, as_of=AS_OF)
     kwargs = dict(
         request=ResearchRequest(text="調査", scope="discover_new"),
         generation_id=None,
