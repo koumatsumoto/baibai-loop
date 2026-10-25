@@ -1,4 +1,4 @@
-"""CLI-seam tests for the screening cache maintenance commands.
+"""CLI-seam tests for the current source-maintenance commands.
 
 Every test enters through ``main()`` with the argv a human types. The string that
 argparse hands over for ``--asof`` / ``--start`` / ``--end`` / ``--lookback-days``

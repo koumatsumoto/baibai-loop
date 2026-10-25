@@ -1,4 +1,4 @@
-"""Test helpers for the screening market.sqlite cache.
+"""Shared market.sqlite fixtures for source readers, model generation and calibration.
 
 Common fixture builders that previously appeared verbatim across multiple
 test modules. Keep these strictly minimal — only the duplications that exist

@@ -1,3 +1,5 @@
+"""現行のJ-Quants・EDINET・JPX取得/正規化契約。旧screening writerのテストではない。"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -62,7 +64,6 @@ from baibai_engine.market.jquants_decode import (
     normalize_adjustment_factor_event,
     normalize_daily_bar,
     normalize_market_calendar,
-    parse_jquants_code,
 )
 from baibai_engine.market.metric_quality import TTMQuality
 
@@ -197,12 +198,6 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertNotIn("\n", str(ctx.exception))
         self.assertIn("'7203?0'", str(ctx.exception))
-
-    def test_parse_jquants_code_supports_zero_suffix(self) -> None:
-        self.assertEqual(parse_jquants_code("130A0"), "130A")
-
-    def test_parse_jquants_code_truncates_non_zero_suffix(self) -> None:
-        self.assertEqual(parse_jquants_code("130A1"), "130A")
 
     def test_normalize_metric_record_parses_ttm_quality(self) -> None:
         record = normalize_metric_record(
