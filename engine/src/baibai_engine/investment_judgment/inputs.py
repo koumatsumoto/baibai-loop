@@ -3,27 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date, datetime
-from pathlib import Path
 from typing import cast
 
 from pydantic import JsonValue
 
 from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
 from baibai_engine.investment_judgment.generated_inputs import project_generated_inputs
-from baibai_engine.investment_judgment.market_context.projection import assessment_projection
-from baibai_engine.investment_judgment.market_context.query import latest_assessment
 from baibai_engine.investment_judgment.selection import (
-    AnalysisInputSnapshot,
     GeneratedResearchSelection,
-    InputGap,
-    ResearchInputsSnapshot,
     ResearchSelectionRecord,
     selection_targets,
-)
-from baibai_engine.machine_analysis.company_growth.query import company_growth
-from baibai_engine.machine_analysis.company_valuation.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
 )
 from baibai_engine.machine_analysis.company_valuation.query import (
     balance_sheet_from_analysis,
@@ -32,64 +21,6 @@ from baibai_engine.machine_analysis.company_valuation.query import (
     machine_valuation_from_analysis,
     valuation_metrics_from_analysis,
 )
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
-from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
-from baibai_engine.machine_analysis.market_context.security import build_security_market_context
-from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
-from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
-
-
-def collect_research_inputs(
-    *,
-    snapshot: AnalysisInputSnapshot,
-    input_gaps: tuple[InputGap, ...],
-    tickers: tuple[str, ...],
-    research_as_of: date,
-    input_known_at: datetime,
-    market_path: Path,
-    indicators_path: Path,
-    app_path: Path,
-    company_growth_mirror: Path = Path("stores"),
-    company_growth_start: date | None = None,
-    company_growth_end: date | None = None,
-) -> ResearchInputsSnapshot:
-    context = latest_assessment(app_path, as_of=research_as_of, known_at=input_known_at)
-    return ResearchInputsSnapshot(
-        analysis=snapshot,
-        input_gaps=input_gaps,
-        market_context={
-            "market": build_market_snapshot(sqlite_path=market_path, asof_date=research_as_of),
-            "reading": reading_snapshot(indicators_path, asof=research_as_of),
-            "saved_market_context_assessment": None
-            if context is None
-            else assessment_projection(context, as_of=research_as_of),
-        },
-        securities_context={
-            ticker: {
-                "company_growth": company_growth(
-                    market_path,
-                    ticker=ticker,
-                    as_of=research_as_of,
-                    start=company_growth_start,
-                    end=company_growth_end,
-                    mirror=company_growth_mirror,
-                ).model_dump(mode="json"),
-                "technical_analysis": technical_analysis(
-                    market_path, ticker=ticker, as_of=research_as_of
-                ),
-                "market_context": build_security_market_context(
-                    sqlite_path=market_path,
-                    ticker=ticker,
-                    asof_date=research_as_of,
-                    self_range_window_bars=VALUATION_HISTORY_SESSIONS,
-                ),
-                "external_assessment": external_assessment(
-                    market_path, ticker=ticker, cutoff=input_known_at, evaluated_at=input_known_at
-                ).model_dump(mode="json"),
-            }
-            for ticker in tickers
-        },
-    )
 
 
 def project_research_inputs(

@@ -38,7 +38,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
 | `storage/`・`foundation/` | 接続、schema、transaction、lakeと汎用基盤 |
 
-五モデルはScreening専用の中間データではない。Investment Judgmentは内部Python読取入口から直接モデルと一次資料を統合し、候補外の企業も調査できる。Screeningは企業価値や買付採否を確定しない。Company Valuationは評価材料・機械見積りであり、真の企業価値や最終買付判断の確定ではない。五モデルは固定market releaseと独立economic snapshotから共通生成し、候補抽出より先に保存する。全社の全保持期間を扱う生成結果は順次圧縮し、一つのtransactionで保存する。途中失敗では生成を公開せず、候補抽出は保存後に必要な二モデルだけを読む。Screeningは生成済みモデルを二つのviewで選び、候補外もL3から読める。新Selectionは必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。具体的な算式・入力・候補規則は各実装とreferenceが所有する。
+五モデルはScreening専用の中間データではない。Investment Judgmentは内部Python読取入口から直接モデルと一次資料を統合し、候補外の企業も調査できる。Screeningは企業価値や買付採否を確定しない。Company Valuationは評価材料・機械見積りであり、真の企業価値や最終買付判断の確定ではない。五モデルは固定market releaseと独立economic snapshotから共通生成し、候補抽出より先に保存する。全社の全保持期間を扱う生成結果は順次圧縮し、一つのtransactionで保存する。途中失敗では生成を公開せず、候補抽出は保存後に必要な二モデルだけを読む。Screeningは生成済みモデルを二つのviewで選び、候補外もL3から読める。新Selectionは必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。新規Operationはこの生成済み入力だけを受け付け、旧runと可変storeからの新規収集経路は持たない。保存済み旧Selectionは元のhash・入力を保ち、Operation IDから再開する。具体的な算式・入力・候補規則は各実装とreferenceが所有する。
 
 `market/`は共通観測の読取・正規化・価格/財務算術に加え、source取得・原受領handoff・最新正本への投影を合成する、L1/L2をまたぐ境界である。共通価格は`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更は異なる契約である。
 

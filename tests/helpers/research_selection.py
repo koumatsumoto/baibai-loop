@@ -2,15 +2,16 @@
 
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.investment_judgment.operation.models import OperationPayload, OperationSession
 from baibai_engine.investment_judgment.selection import (
     AnalysisInputSnapshot,
     InputGap,
     ResearchInputsSnapshot,
     ResearchRequest,
     ResearchSelection,
-    ResearchSelectionDraft,
     SelectedTarget,
 )
 from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
@@ -98,14 +99,17 @@ def selection(
     )
 
 
-def draft_for(value):
-    return ResearchSelectionDraft(
-        schema_version=1,
-        request=value.request,
-        research_as_of=value.research_as_of,
-        input_known_at=value.input_known_at,
-        run_revision_id=value.inputs.analysis.run_revision_id,
-        selection_summary=value.selection_summary,
-        targets=value.targets,
-        input_gaps=value.inputs.input_gaps,
+def historical_operation(value):
+    """既知の旧保存Selectionを持つ歴史fixture。入力収集や新規startは行わない。"""
+    holding = value.request.scope == "review_positions"
+    return OperationSession(
+        operation_id=f"research-op-{uuid4().hex}",
+        session_kind="position-review" if holding else "capital-allocation",
+        status="active",
+        as_of=value.research_as_of,
+        ticker=value.targets[0].ticker if holding and len(value.targets) == 1 else None,
+        started_at=value.input_known_at,
+        payload=OperationPayload(
+            checkpoint="historical saved selection", artifacts=(value.model_dump(mode="json"),)
+        ),
     )

@@ -19,8 +19,7 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.l1_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
 from tests.helpers.proposal import PREPARED, PROPOSAL_ID, PUBLISHED, bind_review
-from tests.helpers.research_selection import draft_for, selection
-from tests.helpers.screening_run import stock_analysis
+from tests.helpers.research_selection import selected_target
 from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
 
 from baibai_engine.foundation.json import canonical_json
@@ -29,7 +28,11 @@ from baibai_engine.investment_judgment.market_context.models import MarketContex
 from baibai_engine.investment_judgment.market_context.service import AssessmentService
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.selection import selection_sha256
+from baibai_engine.investment_judgment.selection import (
+    GeneratedResearchSelectionDraft,
+    ResearchRequest,
+    selection_sha256,
+)
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     StockAssessmentDocument,
@@ -54,15 +57,20 @@ from baibai_engine.investment_judgment.workspace import (
     promote,
     resume_selected_workspace,
 )
+from baibai_engine.machine_analysis.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.company_valuation.metrics.models import DEFAULT_TTM_RULES
 from baibai_engine.machine_analysis.external_assessment.observations.models import (
     AnalystForecastObservation,
     ModelValuationObservation,
 )
 from baibai_engine.machine_analysis.external_assessment.query import external_assessment
 from baibai_engine.machine_analysis.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.generation_reader import read_and_generate_models
+from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.lake.writer import sealed_sqlite_snapshot
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")
 PROMOTED = datetime.fromisoformat("2026-10-14T16:06:00+09:00")
@@ -186,21 +194,36 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
         ),
         expected_head=None,
     )
-    selected = selection(
-        now=START,
-        tickers=("1234",),
-        scope="specified_stocks",
-        runs=runs,
-        rows=[stock_analysis("1234", metrics={"market_price_yen": quote, "er_annual": 0.13})],
-    )
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot:
+        generation = read_and_generate_models(
+            generation_id="synthetic-five-models",
+            market_snapshot=snapshot,
+            market_release=InputRelease(
+                release_id="synthetic-fixed-release", manifest_sha256="a" * 64
+            ),
+            economic_path=None,
+            economic_identity=None,
+            as_of=START.date(),
+            evaluation_time=START,
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("1234",),
+        )
+        ModelGenerationStore(runs).publish_stream(generation)
     prepared = prepare_selected_workspace(
-        draft=draft_for(selected),
+        draft=GeneratedResearchSelectionDraft(
+            schema_version=2,
+            request=ResearchRequest(
+                text="合成五モデルの判断経路", scope="specified_stocks", requested_tickers=("1234",)
+            ),
+            research_as_of=START.date(),
+            input_known_at=START,
+            generation_id=generation.metadata.generation_id,
+            selection_summary="観測の意味と欠測を保存して判断へ渡す",
+            targets=(selected_target(),),
+        ),
         db_path=app,
         workspace=tmp_path / "workspace",
-        sqlite_path=market,
         runs_path=runs,
-        indicators_path=tmp_path / "absent-indicators",
-        company_growth_mirror=tmp_path / "mirror",
         now=START,
     )
     operations = OperationService(app)
@@ -231,7 +254,11 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
 
 def _assessment_payload(case):
     document, review = pair_payload()
-    fixed = case.selected.inputs.securities_context["1234"]
+    fixed = {
+        model.model_id: model.payload
+        for model in case.selected.inputs.generation.models
+        if model.subject == "1234"
+    }
     technical = fixed["technical_analysis"]
     growth = fixed["company_growth"]
     trace = f"{case.prepared.operation_id}; selection_sha256={selection_sha256(case.selected)}"
@@ -247,7 +274,7 @@ def _assessment_payload(case):
                 "as_of": START.date().isoformat(),
                 "retrieved_at": START.isoformat(),
                 "used_for": trace
-                + "; inputs.securities_context.1234.company_growth; "
+                + "; inputs.generation.models[company_growth,1234]; "
                 + canonical_json(
                     {
                         key: growth[key]
@@ -264,7 +291,7 @@ def _assessment_payload(case):
                 "as_of": technical["history_end_date"],
                 "retrieved_at": START.isoformat(),
                 "used_for": trace
-                + "; inputs.securities_context.1234.technical_analysis; "
+                + "; inputs.generation.models[technical_analysis,1234]; "
                 + canonical_json(
                     {
                         key: technical[key]
@@ -288,7 +315,8 @@ def _assessment_payload(case):
                 "ref": "https://example.invalid/rates",
                 "as_of": "2026-10-14",
                 "retrieved_at": START.isoformat(),
-                "used_for": trace + f"; inputs.market_context; {CONTEXT_ID}; 金利の個社伝達",
+                "used_for": trace
+                + f"; inputs.saved_market_context_assessment; {CONTEXT_ID}; 金利の個社伝達",
             },
         ]
     )
@@ -311,7 +339,7 @@ def _assessment_payload(case):
                 "as_of": observation["snapshot_date"],
                 "retrieved_at": observation["fetched_at_utc"],
                 "used_for": trace
-                + "; inputs.securities_context.1234.external_assessment; "
+                + "; inputs.generation.models[external_assessment,1234]; "
                 + canonical_json(
                     {
                         key: observation.get(key)
@@ -531,10 +559,9 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     case = _prepare_case(tmp_path, monkeypatch, scenario)
     projection = project_research_inputs(case.selected)
     security = projection["securities"]["1234"]
-    assert security["machine_valuation"]["estimate"]["market_price_yen"] == case.quote
-    assert (
-        projection["market_context"]["saved_market_context_assessment"]["context_id"] == CONTEXT_ID
-    )
+    assert security["company_valuation"]["earnings_price"]["price_yen"] == case.quote
+    assert "machine_valuation" not in security
+    assert projection["saved_market_context_assessment"]["context_id"] == CONTEXT_ID
     growth = security["company_growth"]
     assert growth["read_semantics"] == "retained_latest_in_fixed_release_not_point_in_time"
     if scenario == "gaps":
@@ -543,7 +570,7 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
         assert growth["reported"]["rows"] == []
     else:
         assert growth["status"] == "available"
-        assert growth["input_release"]["release_id"] == "five-domain-fixed-input"
+        assert growth["input_release"]["release_id"] == "synthetic-fixed-release"
         assert [row["values"][:2] for row in growth["reported"]["rows"]] == [[100, 20], [120, 18]]
         columns = growth["reported_yoy"]["columns"]
         changes = {
@@ -605,15 +632,15 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     }
     case.runs.unlink()
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
-        lambda **_kw: pytest.fail("resume recollected mutable inputs"),
+        "baibai_engine.investment_judgment.workspace.selected_prepare.read_model_inputs",
+        lambda *_a, **_kw: pytest.fail("resume recollected mutable inputs"),
     )
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.inputs.company_growth",
+        "baibai_engine.machine_analysis.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("resume recalculated Company Growth"),
     )
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.inputs.technical_analysis",
+        "baibai_engine.machine_analysis.technical_analysis.query.technical_analysis",
         lambda *_a, **_kw: pytest.fail("resume recalculated Technical Analysis"),
     )
     (case.prepared.workspace / "domain-inputs.yaml").unlink()

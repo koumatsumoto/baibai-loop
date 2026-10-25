@@ -220,25 +220,10 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     )
     assert readings["jp.nikkei225"]["read_semantics"]["vintage_cutoff"] is None
 
-    from tests.helpers.research_selection import selection
-
-    from baibai_engine.investment_judgment.inputs import collect_research_inputs
     from baibai_engine.machine_analysis.market_context.reading.models import snapshot_payload
     from baibai_engine.machine_analysis.market_context.reading.query import read_store_snapshot
     from baibai_engine.machine_analysis.market_context.reading.rules import DEFAULT_RULES_PATH
 
-    selected = selection(now=datetime(2024, 8, 31, tzinfo=UTC))
-    inputs = collect_research_inputs(
-        snapshot=selected.inputs.analysis,
-        input_gaps=(),
-        tickers=(),
-        research_as_of=date(2024, 8, 31),
-        input_known_at=datetime(2024, 8, 31, tzinfo=UTC),
-        market_path=tmp_path / "missing-market.sqlite",
-        indicators_path=database,
-        app_path=tmp_path / "missing-app.sqlite",
-    )
-    assert inputs.market_context["reading"] == payload
     with closing(sqlite3.connect(database)) as con:
         con.row_factory = sqlite3.Row
         pure = snapshot_payload(

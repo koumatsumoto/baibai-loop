@@ -3,13 +3,15 @@
 from datetime import datetime
 
 import pytest
-from tests.helpers.research_selection import draft_for, selected_target, selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
+from tests.helpers.research_selection import selected_target, selection
 
 from baibai_engine.investment_judgment.operation.models import OperationPayload
 from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.selection import (
+    GeneratedResearchSelection,
+    GeneratedResearchSelectionDraft,
     ResearchSelection,
-    ResearchSelectionDraft,
     parse_selection,
     selection_sha256,
 )
@@ -75,14 +77,6 @@ def test_draft_four_parses_but_canonical_and_new_write_reject_it(tmp_path):
         "market_context": None,
         "external_assessment": None,
     }
-    draft = ResearchSelectionDraft.model_validate(
-        {
-            **draft_for(value).model_dump(mode="json"),
-            "targets": raw["targets"],
-            "input_gaps": inputs["input_gaps"],
-        }
-    )
-    assert len(draft.targets) == 4
     with pytest.raises(ValueError, match="saved research capacity"):
         validate_capacity(4, ResearchCapacity())
     with pytest.raises(ValueError, match="saved research capacity"):
@@ -91,8 +85,21 @@ def test_draft_four_parses_but_canonical_and_new_write_reject_it(tmp_path):
     raw["capacity"]["max_deep_research_targets"] = 4
     expanded = ResearchSelection.model_validate(raw)
     assert len(expanded.targets) == 4
+    current = seed_generated_selection(
+        runs=tmp_path / "runs", now=NOW, tickers=("1000", "1001", "1002")
+    )
+    draft_raw = generated_draft_for(current).model_dump(mode="json")
+    draft_raw["targets"].append(selected_target("1003").model_dump(mode="json"))
+    assert len(GeneratedResearchSelectionDraft.model_validate(draft_raw).targets) == 4
+    current_raw = current.model_dump(mode="json")
+    current_raw["targets"] = draft_raw["targets"]
+    current_raw["inputs"]["generation"]["subjects"].append("1003")
+    with pytest.raises(ValueError, match="saved research capacity"):
+        GeneratedResearchSelection.model_validate(current_raw)
+    current_raw["capacity"]["max_deep_research_targets"] = 4
+    expanded = GeneratedResearchSelection.model_validate(current_raw)
     with pytest.raises(ValueError, match="current capacity"):
-        OperationService(tmp_path / "app").start(
+        OperationService(tmp_path / "app", runs_path=tmp_path / "runs").start(
             session_kind="capital-allocation",
             as_of=NOW.date(),
             started_at=NOW,
@@ -139,12 +146,34 @@ def test_optional_domain_contexts_preserve_retained_snapshot_shape(optional_doma
         parse_selection(raw)
 
 
-def test_normalization_todo_text_and_legacy_rejection():
-    draft = draft_for(selection(now=NOW, tickers=("285A",), scope="specified_stocks")).model_dump(
-        mode="json"
-    )
+def test_normalization_todo_text_and_legacy_rejection(tmp_path):
+    draft = generated_draft_for(
+        seed_generated_selection(
+            runs=tmp_path / "runs", now=NOW, tickers=("285A",), scope="specified_stocks"
+        )
+    ).model_dump(mode="json")
     draft["targets"][0]["ticker"] = "285a"
     draft["targets"][0]["rationale"] = " TODO means an open research question "
-    assert ResearchSelectionDraft.model_validate(draft).targets[0].rationale.startswith("TODO")
+    assert (
+        GeneratedResearchSelectionDraft.model_validate(draft)
+        .targets[0]
+        .rationale.startswith("TODO")
+    )
     with pytest.raises(ValueError, match="explicit V2 cutover"):
         parse_selection({"kind": "research_selection", "request": "old", "targets": []})
+
+
+def test_saved_legacy_selection_is_readable_but_cannot_start_new_operation(tmp_path):
+    saved = selection(now=NOW, tickers=("1234",))
+    assert parse_selection(saved.model_dump(mode="json")) == saved
+    with pytest.raises(ValueError, match="resume-only"):
+        OperationService(tmp_path / "app", runs_path=tmp_path / "absent-runs").start(
+            session_kind="capital-allocation",
+            as_of=NOW.date(),
+            started_at=NOW,
+            payload=OperationPayload(
+                checkpoint="new request", artifacts=(saved.model_dump(mode="json"),)
+            ),
+        )
+    assert not (tmp_path / "app").exists()
+    assert not (tmp_path / "absent-runs").exists()

@@ -12,12 +12,8 @@ import pytest
 from tests.helpers.research_selection import selection
 from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
-from baibai_engine.investment_judgment.inputs import (
-    collect_research_inputs,
-    project_research_inputs,
-)
-from baibai_engine.investment_judgment.selection import InputGap
-from baibai_engine.investment_judgment.selection_query import load_analysis_snapshot
+from baibai_engine.investment_judgment.inputs import project_research_inputs
+from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, InputGap
 from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
 from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 from baibai_engine.machine_analysis.company_valuation.query import (
@@ -608,25 +604,22 @@ def _project_inputs(
         for t in tickers
         if t == "9999"
     )
-    snapshot = load_analysis_snapshot(
-        run_revision_id=revision,
-        research_as_of=as_of,
-        tickers=tickers,
-        gaps=gaps,
-        known_at=known_at,
-        runs_path=runs_path,
+    run = ScreeningRunReader(runs_path).analysis_run(
+        as_of=as_of, known_at=known_at, run_revision_id=revision
     )
-    inputs = collect_research_inputs(
-        snapshot=snapshot,
-        input_gaps=gaps,
-        tickers=tickers,
-        research_as_of=as_of,
-        input_known_at=cutoff,
-        market_path=market_path,
-        indicators_path=indicators_path,
-        app_path=app_path,
+    assert run is not None
+    saved_rows = {row["ticker"]: row for row in run.stock_analyses}
+    snapshot = AnalysisInputSnapshot(
+        run_revision_id=run.run_revision_id,
+        analysis_as_of=date.fromisoformat(run.as_of_date),
+        run_at=datetime.fromisoformat(run.run_at),
+        screening_rules_hash=run.payload.get("screening_rules_hash"),
+        er_model_version=run.payload.get("er_model_version"),
+        analyses={ticker: saved_rows[ticker] for ticker in tickers if ticker in saved_rows},
+        unavailable={gap.ticker: gap.reason for gap in gaps},
     )
     value = selection(now=known_at, tickers=tickers)
+    inputs = value.inputs.model_copy(update={"analysis": snapshot, "input_gaps": gaps})
     return project_research_inputs(value.model_copy(update={"inputs": inputs}))
 
 

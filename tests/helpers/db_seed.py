@@ -7,6 +7,7 @@ from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.investment_judgment.operation.models import OperationSession
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.position.store import LedgerStoreService, _event_values
@@ -81,4 +82,25 @@ def seed_tasks(path: Path, tasks: Iterable[Task]) -> None:
                 )
                 for task in tasks
             ],
+        )
+
+
+def seed_historical_operation(path: Path, operation: OperationSession) -> None:
+    """保存済み歴史Operationの読取fixture。現行のstart検証を代行しない。"""
+    initialize_database(path)
+    with closing(connect_rw(path)) as connection, connection:
+        connection.execute(
+            "INSERT INTO operation_session "
+            "(operation_id,session_kind,status,as_of,ticker,started_at,completed_at,payload) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                operation.operation_id,
+                operation.session_kind,
+                operation.status,
+                operation.as_of.isoformat(),
+                operation.ticker,
+                operation.started_at.isoformat(),
+                None if operation.completed_at is None else operation.completed_at.isoformat(),
+                canonical_json(operation.payload.model_dump(mode="json")),
+            ),
         )

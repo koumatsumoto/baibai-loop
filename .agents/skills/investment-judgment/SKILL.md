@@ -7,7 +7,7 @@ description: 人間の明示開始から有限対象を選び、Company Research
 
 ## 開始と固定対象
 
-既存Operationの続きは[完了と再開](#完了と再開)へ進み、新しいSelectionを作らない。
+既存Operationの続きは[完了と再開](#完了と再開)へ進み、新しいSelectionを作らない。旧形式の保存済みOperationもIDから再開する。旧draftや旧runを渡して新規開始しない。
 
 通常の「売買提案して」は`discover_new`、候補外も含む銘柄指定は`specified_stocks`、保有見直しは`review_positions`。同じ依頼で選定から具体提案まで進め、全候補Triageや人間による事前銘柄選択は要求しない。newとholdingを混ぜず、追加買付依頼は[現行方針](../../../docs/doctrine.md#investment-strategy)と照合する。
 

@@ -18,10 +18,7 @@ from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.investment_judgment.inputs import (
-    collect_research_inputs,
-    project_research_inputs,
-)
+from baibai_engine.investment_judgment.inputs import project_research_inputs
 from baibai_engine.investment_judgment.operation.models import OperationPayload
 from baibai_engine.investment_judgment.operation.progress import (
     ResearchProgress,
@@ -569,24 +566,18 @@ def test_domain_inputs_preserve_gaps_and_null_and_do_not_write_or_use_network(
 
     monkeypatch.setattr(socket, "socket", no_network)
     selected = make_selection(now=NOW, tickers=("1234",))
-    inputs = collect_research_inputs(
-        snapshot=selected.inputs.analysis,
-        input_gaps=selected.inputs.input_gaps,
-        tickers=("1234",),
-        research_as_of=NOW.date(),
-        input_known_at=NOW,
-        market_path=market,
-        indicators_path=tmp_path / "absent-indicators.sqlite",
-        app_path=db,
-    )
+    inputs = selected.inputs
     projected = project_research_inputs(selected.model_copy(update={"inputs": inputs}))
     assert set(projected["securities"]) == {"1234"}
     assert projected["known_at"] == selected.input_known_at.isoformat()
     assert "received_cutoff" not in projected
     assert projected["market_context"]["saved_market_context_assessment"] is None
     assert projected["market_context"]["reading"] is None
-    assert inputs.analysis == selected.inputs.analysis
-    assert inputs.input_gaps == selected.inputs.input_gaps
+    assert (
+        projected["securities"]["1234"]["machine_analysis_unavailable_reason"]
+        == selected.inputs.input_gaps[0].reason
+    )
+    assert projected["securities"]["1234"]["machine_valuation"] is None
     assert db.read_bytes() == before
     assert not market.exists()
     assert not (tmp_path / "absent-indicators.sqlite").exists()
@@ -596,16 +587,11 @@ def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypa
     db, market = case
     insert_daily_bars_from_closes(market, "1234", [100] * 19 + [120], end_date=NOW.date())
     selected = make_selection(now=NOW, tickers=("1234",))
-    inputs = collect_research_inputs(
-        snapshot=selected.inputs.analysis,
-        input_gaps=selected.inputs.input_gaps,
-        tickers=("1234",),
-        research_as_of=NOW.date(),
-        input_known_at=NOW,
-        market_path=market,
-        indicators_path=tmp_path / "absent-indicators.sqlite",
-        app_path=db,
-    )
+    from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
+
+    context = dict(selected.inputs.securities_context["1234"])
+    context["technical_analysis"] = technical_analysis(market, ticker="1234", as_of=NOW.date())
+    inputs = selected.inputs.model_copy(update={"securities_context": {"1234": context}})
     saved = type(selected).model_validate_json(
         selected.model_copy(update={"inputs": inputs}).model_dump_json()
     )
@@ -620,7 +606,9 @@ def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypa
     def no_recompute(*args, **kwargs):
         pytest.fail("projecting saved research inputs must not recalculate prices")
 
-    monkeypatch.setattr("baibai_engine.investment_judgment.inputs.technical_analysis", no_recompute)
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.technical_analysis.query.technical_analysis", no_recompute
+    )
     projected = project_research_inputs(saved)
     assert projected["securities"]["1234"]["technical_analysis"] == expected
     historical = saved.model_dump(mode="json")
@@ -636,9 +624,9 @@ def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypa
             "position",
         )
     }
-    historical["inputs"]["securities_context"]["1234"]["market_context"]["price"][
-        "bollinger_20bar"
-    ] = legacy_bb
+    historical["inputs"]["securities_context"]["1234"]["market_context"] = {
+        "price": {"bollinger_20bar": legacy_bb}
+    }
     old_projection = project_research_inputs(type(selected).model_validate(historical))
     assert "technical_analysis" not in old_projection["securities"]["1234"]
     assert (

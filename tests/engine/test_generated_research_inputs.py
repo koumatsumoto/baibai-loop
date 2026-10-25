@@ -75,17 +75,6 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp
         targets=(selected_target(),),
     )
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("new preparation must not read legacy or mutable model inputs")
-
-    monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
-        forbidden,
-    )
-    monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace.selected_prepare.load_analysis_snapshot",
-        forbidden,
-    )
     workspace = tmp_path / "research"
     db = tmp_path / "app.sqlite"
     prepared = prepare_selected_workspace(
@@ -93,8 +82,6 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp
         db_path=db,
         workspace=workspace,
         runs_path=runs,
-        sqlite_path=tmp_path / "missing-market",
-        indicators_path=tmp_path / "missing-indicators",
         now=NOW,
     )
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)

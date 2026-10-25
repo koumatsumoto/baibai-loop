@@ -14,8 +14,8 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.research_selection import draft_for, selection
 
 from baibai_engine.investment_judgment.operation.progress import progress_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
@@ -42,14 +42,12 @@ NOW = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
 @pytest.fixture
 def case(tmp_path):
     db, workspace = tmp_path / "app", tmp_path / "workspace"
-    value = selection(now=NOW, tickers=("1234",))
+    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("1234",))
     result = prepare_selected_workspace(
-        draft=draft_for(value),
+        draft=generated_draft_for(value),
         db_path=db,
         workspace=workspace,
-        sqlite_path=tmp_path / "absent",
-        runs_path=tmp_path / "absent-runs",
-        indicators_path=tmp_path / "absent-indicators",
+        runs_path=tmp_path / "runs",
         now=NOW,
     )
     return db, workspace, result.operation_id
@@ -431,14 +429,14 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     db = tmp_path / "app"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     seed_ledger(db, ledger)
-    value = selection(now=NOW, tickers=("2331",), scope="review_positions")
+    value = seed_generated_selection(
+        runs=tmp_path / "runs", now=NOW, tickers=("2331",), scope="review_positions"
+    )
     prepared = prepare_selected_workspace(
-        draft=draft_for(value),
+        draft=generated_draft_for(value),
         db_path=db,
         workspace=tmp_path / "workspace",
-        sqlite_path=tmp_path / "absent",
-        runs_path=tmp_path / "absent-runs",
-        indicators_path=tmp_path / "absent-indicators",
+        runs_path=tmp_path / "runs",
         now=NOW,
     )
     child = prepared.workspace / "holdings/2331"

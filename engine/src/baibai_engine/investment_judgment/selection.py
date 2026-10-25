@@ -77,31 +77,6 @@ class InputGap(_Contract):
     attempted_sources: tuple[Text, ...] = Field(min_length=1)
 
 
-class ResearchSelectionDraft(_Contract):
-    schema_version: Literal[1]
-    request: ResearchRequest
-    research_as_of: date
-    input_known_at: AwareDatetime
-    run_revision_id: Text | None = None
-    selection_summary: Text
-    targets: tuple[SelectedTarget, ...] = ()
-    input_gaps: tuple[InputGap, ...] = ()
-    company_growth_start: date | None = None
-    company_growth_end: date | None = None
-
-    @model_validator(mode="after")
-    def validate_selection(self) -> Self:
-        _validate_subjects(self.request, self.targets, self.input_gaps)
-        end = self.company_growth_end or self.research_as_of
-        if end > self.research_as_of or (
-            self.company_growth_start is not None and self.company_growth_start > end
-        ):
-            raise ValueError("company growth requires start <= end <= research_as_of")
-        if self.research_as_of > self.input_known_at.astimezone(JST).date():
-            raise ValueError("research_as_of is after the input cutoff's JST date")
-        return self
-
-
 class AnalysisInputSnapshot(_Contract):
     schema_version: Literal[1] = 1
     run_revision_id: Text | None

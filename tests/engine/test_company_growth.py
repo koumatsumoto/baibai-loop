@@ -10,16 +10,14 @@ from hashlib import sha256
 
 import pytest
 import yaml
+from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.l1_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
-from tests.helpers.research_selection import draft_for, selection
+from tests.helpers.research_selection import historical_operation, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
-from baibai_engine.investment_judgment.inputs import (
-    collect_research_inputs,
-    project_research_inputs,
-)
+from baibai_engine.investment_judgment.inputs import project_research_inputs
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.selection import (
@@ -27,11 +25,7 @@ from baibai_engine.investment_judgment.selection import (
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.workspace import (
-    ResearchWorkspaceConflictError,
-    prepare_selected_workspace,
-    resume_selected_workspace,
-)
+from baibai_engine.investment_judgment.workspace import resume_selected_workspace
 from baibai_engine.machine_analysis.company_growth.calculations import (
     build_changes,
     build_period_states,
@@ -370,19 +364,12 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
     path = market_store(tmp_path, records)
     selected = selection(now=NOW, tickers=("1234",))
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("network used"))
-    inputs = collect_research_inputs(
-        snapshot=selected.inputs.analysis,
-        input_gaps=selected.inputs.input_gaps,
-        tickers=("1234",),
-        research_as_of=NOW.date(),
-        input_known_at=NOW,
-        market_path=path,
-        indicators_path=tmp_path / "absent-indicators",
-        company_growth_mirror=tmp_path / "mirror",
-        app_path=tmp_path / "absent-app",
-        company_growth_start=date(2024, 4, 1),
-        company_growth_end=date(2024, 6, 30),
+    growth = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
     )
+    context = dict(selected.inputs.securities_context["1234"])
+    context["company_growth"] = growth.model_dump(mode="json")
+    inputs = selected.inputs.model_copy(update={"securities_context": {"1234": context}})
     saved = ResearchSelection.model_validate_json(
         selected.model_copy(update={"inputs": inputs}).model_dump_json()
     )
@@ -399,7 +386,7 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
             connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed")
         )
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.inputs.company_growth",
+        "baibai_engine.machine_analysis.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("growth recomputed"),
     )
     projected = project_research_inputs(saved)["securities"]["1234"]["company_growth"]
@@ -429,32 +416,26 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
 ):
     path = market_store(tmp_path, [document(2023, 1, 100), document(2024, 1, 200)])
     selected = selection(now=NOW, tickers=("1234",))
-    draft = draft_for(selected).model_copy(
+    context = dict(selected.inputs.securities_context["1234"])
+    context["company_growth"] = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
+    ).model_dump(mode="json")
+    selected = selected.model_copy(
         update={
-            "company_growth_start": date(2024, 4, 1),
-            "company_growth_end": date(2024, 6, 30),
+            "inputs": selected.inputs.model_copy(update={"securities_context": {"1234": context}})
         }
     )
     db, workspace = tmp_path / "application.sqlite", tmp_path / "workspace"
+    operation = historical_operation(selected)
+    seed_historical_operation(db, operation)
     arguments = dict(db_path=db, workspace=workspace, now=NOW)
-    prepared = prepare_selected_workspace(
-        draft=draft,
-        sqlite_path=path,
-        runs_path=tmp_path / "runs",
-        indicators_path=tmp_path / "absent-indicators",
-        company_growth_mirror=tmp_path / "mirror",
-        **arguments,
-    )
+    prepared = resume_selected_workspace(operation_id=operation.operation_id, **arguments)
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
     expected = project_research_inputs(saved)
     output = workspace / "domain-inputs.yaml"
     output.write_text("damaged projection", encoding="utf-8")
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
-        lambda **_kw: pytest.fail("inputs recollected"),
-    )
-    monkeypatch.setattr(
-        "baibai_engine.investment_judgment.inputs.company_growth",
+        "baibai_engine.machine_analysis.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("current method used"),
     )
     resumed = resume_selected_workspace(operation_id=prepared.operation_id, force=True, **arguments)
@@ -464,15 +445,6 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
         expected["securities"]["1234"]["company_growth"]["input_release"]["release_id"]
         == "synthetic-release-1"
     )
-    with pytest.raises(ResearchWorkspaceConflictError, match="different fixed selection"):
-        prepare_selected_workspace(
-            draft=draft.model_copy(update={"company_growth_start": date(2023, 4, 1)}),
-            sqlite_path=path,
-            runs_path=tmp_path / "runs",
-            indicators_path=tmp_path / "absent-indicators",
-            company_growth_mirror=tmp_path / "mirror",
-            **arguments,
-        )
 
 
 def test_same_current_state_keeps_distinct_paths_for_l3():
@@ -525,20 +497,22 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
         for quarter in range(1, 5)
     ]
     path = market_store(tmp_path, records)
-    draft = draft_for(selection(now=NOW, tickers=("1234",))).model_copy(
-        update={"company_growth_start": start, "company_growth_end": date(2025, 3, 31)}
+    selected = selection(now=NOW, tickers=("1234",))
+    context = dict(selected.inputs.securities_context["1234"])
+    context["company_growth"] = company_growth(
+        path, ticker="1234", as_of=NOW.date(), start=start, end=date(2025, 3, 31)
+    ).model_dump(mode="json")
+    selected = selected.model_copy(
+        update={
+            "inputs": selected.inputs.model_copy(update={"securities_context": {"1234": context}})
+        }
     )
+    operation = historical_operation(selected)
     arguments = dict(
-        draft=draft,
-        db_path=tmp_path / "application.sqlite",
-        workspace=tmp_path / "workspace",
-        sqlite_path=path,
-        runs_path=tmp_path / "runs",
-        indicators_path=tmp_path / "absent-indicators",
-        company_growth_mirror=tmp_path / "mirror",
-        now=NOW,
+        db_path=tmp_path / "application.sqlite", workspace=tmp_path / "workspace", now=NOW
     )
-    prepared = prepare_selected_workspace(**arguments)
+    seed_historical_operation(arguments["db_path"], operation)
+    prepared = resume_selected_workspace(operation_id=operation.operation_id, **arguments)
     service = OperationService(arguments["db_path"])
     saved = selection_binding(service.get(prepared.operation_id).payload)
     original = saved.model_dump(mode="json")
@@ -568,12 +542,14 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
     assert compact["full_result_ref"] == "/inputs/securities_context/1234/company_growth"
 
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace.selected_prepare.collect_research_inputs",
+        "baibai_engine.machine_analysis.company_growth.query.company_growth",
         lambda **_kw: pytest.fail("inputs recollected"),
     )
     authored = arguments["workspace"] / "assessment-draft.yaml"
     authored.write_text("authored draft retained")
-    resumed = prepare_selected_workspace(**arguments, company_growth_periods=16, force=True)
+    resumed = resume_selected_workspace(
+        operation_id=operation.operation_id, **arguments, company_growth_periods=16, force=True
+    )
     assert resumed.selection_sha256 == digest
     assert displayed()["display_scope"]["period_count"] == 16
     assert (
