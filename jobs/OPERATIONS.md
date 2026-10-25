@@ -397,7 +397,7 @@ main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrat
 未初期化storeだけ、整合する隔離marketとdocument inventoryを指定して初期抽出する。
 
 ```bash
-uv run baibai-engine screening refresh-edinet-facts \
+uv run baibai-engine data-collection market refresh-edinet-facts \
   --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>
 ```
 

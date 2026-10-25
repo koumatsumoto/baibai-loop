@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.screening.cli import app
+from baibai_engine.source_maintenance import cli as app
 from baibai_jobs.jobs import source_handoff
 
 
@@ -12,7 +12,7 @@ from baibai_jobs.jobs import source_handoff
 def test_source_command_preserves_selected_database(source, tmp_path):
     database = tmp_path / "scoped.sqlite"
     command = source_handoff._command(source, date(2026, 10, 24), database=database)
-    arguments = app.build_parser().parse_args(command[2:])
+    arguments = app.build_parser().parse_args(command[3:])
     assert arguments.sqlite_path == str(database)
 
 
@@ -31,7 +31,7 @@ def test_replay_extracts_from_the_same_database_as_import(source, tmp_path, mock
     )
 
     def run(command, **kwargs):
-        return subprocess.CompletedProcess(command, app.main(command[2:]), "", "")
+        return subprocess.CompletedProcess(command, app.main(command[3:]), "", "")
 
     mocker.patch.object(source_handoff.subprocess, "run", side_effect=run)
     result = source_handoff._replay(source, database, tmp_path)
@@ -51,7 +51,7 @@ def test_scoped_acquisition_passes_database_to_child_and_export(tmp_path, mocker
         (directory / "result.json").write_text(json.dumps({"source": source}))
 
     def run(command, **kwargs):
-        arguments = app.build_parser().parse_args(command[2:])
+        arguments = app.build_parser().parse_args(command[3:])
         assert arguments.sqlite_path == str(database)
         return subprocess.CompletedProcess(command, 0)
 

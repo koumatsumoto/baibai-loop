@@ -45,16 +45,18 @@ from baibai_engine.machine_analysis.company_valuation.metrics.relative import (
 from baibai_engine.machine_analysis.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
 from baibai_engine.machine_analysis.screening.metric_builder import (
-    BARS_INPUT_WINDOW_DAYS,
-    FIN_INPUT_WINDOW_DAYS,
-    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-    SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
     build_metrics,
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.input_windows import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+    SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
+)
 from baibai_engine.market.jpx_reader import read_jpx_regulations
 from baibai_engine.market.jquants_reader import (
     fin_summaries_readable_from,

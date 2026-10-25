@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-from baibai_engine.machine_analysis.screening.config import ScreeningConfig
+from baibai_engine.source_maintenance.config import SourceMaintenanceConfig
 
 
-class ScreeningConfigTests(unittest.TestCase):
+class SourceMaintenanceConfigTests(unittest.TestCase):
     def test_from_env_uses_canonical_market_store_directory(self) -> None:
-        config = ScreeningConfig.from_env(
+        config = SourceMaintenanceConfig.from_env(
             {
                 "JQUANTS_API_KEY": "token",
                 "EDINET_API_KEY": "key",
@@ -18,7 +18,7 @@ class ScreeningConfigTests(unittest.TestCase):
         self.assertEqual(config.sqlite_cache_dir, MARKET_DB_PATH.parent)
 
     def test_local_configuration_does_not_require_provider_credentials(self) -> None:
-        config = ScreeningConfig.from_env({})
+        config = SourceMaintenanceConfig.from_env({})
         self.assertIsNone(config.jquants_api_key)
         self.assertIsNone(config.edinet_api_key)
 

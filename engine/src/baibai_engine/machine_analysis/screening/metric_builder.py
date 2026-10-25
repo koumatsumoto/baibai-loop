@@ -41,22 +41,6 @@ from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.price_basis import asof_basis_closes
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
-# metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ位置 / sigma_gap に
-# 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
-# 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
-# リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
-# 期間の理由と適用先: docs/reference/screening-runtime.md#input-scope
-BARS_INPUT_WINDOW_DAYS = 1200
-
-FIN_INPUT_WINDOW_DAYS = 730
-
-# 株主還元の変化と正規化PERは複数期の通期実績を必要とする。production の
-# FinancialSnapshot / E[r] 入力窓は上の730日のまま維持し、正規化PERだけはFY行と
-# split eventを疎に読む。全bar・全四半期を日次runへ載せないための別窓である。
-SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS = 1200
-
-NORMALIZED_EPS_HISTORY_WINDOW_DAYS = 2200
-
 
 @dataclass(frozen=True)
 class MetricBuildResult:

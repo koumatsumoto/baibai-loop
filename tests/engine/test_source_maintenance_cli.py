@@ -16,13 +16,6 @@ from typing import Any
 from unittest.mock import patch
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.machine_analysis.screening.cli import app as screening_app
-from baibai_engine.machine_analysis.screening.cli.cache import (
-    backfill_history_command,
-    backfill_master_command,
-    bootstrap_cache_command,
-)
-from baibai_engine.machine_analysis.screening.cli.providers import ProviderBundle
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
@@ -46,6 +39,13 @@ from baibai_engine.market.jquants_writer import (
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.source_maintenance import cli as source_app
+from baibai_engine.source_maintenance.cache import (
+    backfill_history_command,
+    backfill_master_command,
+    bootstrap_cache_command,
+)
+from baibai_engine.source_maintenance.providers import ProviderBundle
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -389,7 +389,7 @@ class FakeJPXProvider:
         self.close_count += 1
 
 
-class ScreeningCliTests(unittest.TestCase):
+class SourceMaintenanceCliTests(unittest.TestCase):
     def test_bootstrap_cache_command_fails_jpx_bootstrap_failure(self) -> None:
         stderr = io.StringIO()
         jquants = FakeJQuantsProvider()
@@ -398,9 +398,7 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
-                    jpx=FakeJPXProvider(),
                     jpx_refresh=FakeJPXProvider(fail_bootstrap=True),
                     jquants_refresh=jquants,
                 ),
@@ -418,9 +416,7 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
-                    jpx=FakeJPXProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
@@ -441,9 +437,7 @@ class ScreeningCliTests(unittest.TestCase):
             asof_date=asof,
             providers=ProviderBundle(
                 jquants=jquants,
-                edinet=FakeEDINETReader(),
                 edinet_refresh=edinet,
-                jpx=jpx,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
             ),
@@ -517,9 +511,7 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=asof,
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
-                    jpx=FakeJPXProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
@@ -571,9 +563,7 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=asof,
                 providers=ProviderBundle(
                     jquants=jquants,
-                    edinet=FakeEDINETReader(),
                     edinet_refresh=FakeEDINETProvider(),
-                    jpx=FakeJPXProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
                 ),
@@ -596,9 +586,7 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=dates,
-                providers=ProviderBundle(
-                    jquants=jquants, edinet=None, jpx=None, jquants_refresh=jquants
-                ),
+                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -619,9 +607,7 @@ class ScreeningCliTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr), tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
-                providers=ProviderBundle(
-                    jquants=jquants, edinet=None, jpx=None, jquants_refresh=jquants
-                ),
+                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -651,7 +637,7 @@ class ScreeningCliTests(unittest.TestCase):
                     ),
                     contextlib.redirect_stderr(stderr),
                 ):
-                    exit_code = screening_app.main(["backfill-master", *argv])
+                    exit_code = source_app.main(["backfill-master", *argv])
             finally:
                 os.chdir(cwd)
         return exit_code, stderr.getvalue()
@@ -685,10 +671,13 @@ class ScreeningCliTests(unittest.TestCase):
         today = datetime.now(JST).date()
         called = []
         with (
-            patch.object(screening_app, "market_calendar_business_day", return_value=True),
-            patch.object(screening_app, "days_with_bars", return_value=set()),
+            patch.object(source_app, "market_calendar_business_day", return_value=True),
+            patch(
+                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                return_value=set(),
+            ),
             patch.object(
-                screening_app,
+                source_app,
                 "backfill_master_command",
                 side_effect=lambda **kwargs: called.append(kwargs["asof_dates"]) or 0,
             ),
@@ -700,9 +689,9 @@ class ScreeningCliTests(unittest.TestCase):
     def test_main_backfill_master_skips_today_on_closed_market(self) -> None:
         today = datetime.now(JST).date()
         with (
-            patch.object(screening_app, "market_calendar_business_day", return_value=False),
+            patch.object(source_app, "market_calendar_business_day", return_value=False),
             patch.object(
-                screening_app, "backfill_master_command", side_effect=AssertionError("no provider")
+                source_app, "backfill_master_command", side_effect=AssertionError("no provider")
             ),
         ):
             exit_code, _ = self._backfill_master_main(["--asof", today.isoformat()])
@@ -713,9 +702,9 @@ class ScreeningCliTests(unittest.TestCase):
         for value in (None, sqlite3.OperationalError("broken")):
             effect = {"return_value": value} if value is None else {"side_effect": value}
             with (
-                patch.object(screening_app, "market_calendar_business_day", **effect),
+                patch.object(source_app, "market_calendar_business_day", **effect),
                 patch.object(
-                    screening_app,
+                    source_app,
                     "backfill_master_command",
                     side_effect=AssertionError("no provider"),
                 ),
@@ -728,10 +717,13 @@ class ScreeningCliTests(unittest.TestCase):
         historical = date(2026, 9, 18)
         called = []
         with (
-            patch.object(screening_app, "market_calendar_business_day", return_value=False),
-            patch.object(screening_app, "days_with_bars", return_value={historical}),
+            patch.object(source_app, "market_calendar_business_day", return_value=False),
+            patch(
+                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                return_value={historical},
+            ),
             patch.object(
-                screening_app,
+                source_app,
                 "backfill_master_command",
                 side_effect=lambda **kwargs: called.append(kwargs["asof_dates"]) or 0,
             ),
@@ -1630,9 +1622,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2026, 9, 24),
                 end=date(2026, 9, 28),
-                providers=ProviderBundle(
-                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
-                ),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
             )
@@ -1658,9 +1648,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2018, 3, 1),
-                providers=ProviderBundle(
-                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
-                ),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1696,9 +1684,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2026, 7, 20),
                 end=date(2026, 7, 24),
-                providers=ProviderBundle(
-                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
-                ),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1721,8 +1707,6 @@ class BackfillHistoryTests(unittest.TestCase):
                     end=date(2026, 7, 26),
                     providers=ProviderBundle(
                         jquants=provider,
-                        edinet=None,
-                        jpx=FakeJPXProvider(),
                         jquants_refresh=provider,
                     ),
                     sqlite_path=sqlite_path,
@@ -1746,9 +1730,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2016, 8, 31),
-                providers=ProviderBundle(
-                    jquants=provider, edinet=None, jpx=FakeJPXProvider(), jquants_refresh=provider
-                ),
+                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
                 sqlite_path=Path("stores/market/market.sqlite"),
                 stdout=io.StringIO(),
             )
@@ -1772,9 +1754,7 @@ def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_p
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
                 jquants=jquants,
-                edinet=FakeEDINETReader(),
                 edinet_refresh=edinet,
-                jpx=jpx,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
             ),
@@ -1798,9 +1778,7 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
                 jquants=jquants,
-                edinet=FakeEDINETReader(),
                 edinet_refresh=edinet,
-                jpx=jpx,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
             ),

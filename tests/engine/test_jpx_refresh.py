@@ -8,8 +8,8 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
+import pandas as pd
 from tests.helpers.http_doubles import FakeSession, html_response, response
 
 from baibai_engine.data_collection.jpx.models import JPXResponse
@@ -20,13 +20,13 @@ from baibai_engine.data_collection.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.machine_analysis.screening.cli import app
 from baibai_engine.market.jpx_decode import resolve_earnings_calendar_urls
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.jpx_reader import JPXReader, read_jpx_regulations
 from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot, store_jpx_regulations
 from baibai_engine.market.jpx_refresh import JPXRefresh
 from baibai_engine.market.jpx_sources import JPX_EARNINGS_CALENDAR_INDEX_URL, JPX_REGULATION_URLS
+from baibai_engine.source_maintenance import cli as app
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 10, 15)

@@ -93,11 +93,11 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
     ],
 )
 def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected_exit, downloads):
-    from tests.engine.test_screening_cli import (
+    from tests.engine.test_source_maintenance_cli import (
         FakeEDINETMetricReader,
         _edinet_document,
     )
-    from tests.engine.test_screening_cli import (
+    from tests.engine.test_source_maintenance_cli import (
         _edinet_csv_zip as csv_zip,
     )
 

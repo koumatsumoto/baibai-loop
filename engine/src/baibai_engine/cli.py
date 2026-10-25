@@ -58,7 +58,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "screening": Domain(
         module="baibai_engine.machine_analysis.screening.cli.app",
-        summary="Machine Analysis: model generation, Screening candidates and reasons",
+        summary="saved legacy runs, calibration diagnostics and cross-domain cached profiles",
     ),
     "market-context": Domain(
         module="baibai_engine.machine_analysis.market_context.cli",
@@ -69,7 +69,7 @@ DOMAINS: Mapping[str, Domain] = {
         summary="read-only SMA20/50/200, BB20 and Wilder RSI14 from retained adjusted prices",
     ),
     "data-collection": Domain(
-        module="baibai_engine.data_collection.cli",
+        module="baibai_engine.data_collection_cli",
         summary="Data Collection: external sources and original receipts",
     ),
     "operation": Domain(

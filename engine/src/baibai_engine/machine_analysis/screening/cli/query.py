@@ -12,6 +12,7 @@ from typing import TextIO
 import yaml
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.foundation.date_utils import parse_iso_date as _parse_iso_date
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
@@ -26,7 +27,10 @@ from baibai_engine.market.price_reader import latest_daily_bar_date
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
 from baibai_engine.storage.application.paths import database_path
 
-from .common import _NoAliasDumper, _parse_iso_date
+
+class _NoAliasDumper(yaml.SafeDumper):
+    def ignore_aliases(self, data: object) -> bool:
+        return True
 
 
 def _query_asof(asof: str | None, sqlite_path: Path) -> date | None:

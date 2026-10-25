@@ -7,37 +7,16 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
-from baibai_engine.market.calendar import JQuantsMarketCalendarDay
-from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jpx_models import JPXEarningsCalendarSnapshot, JPXRegulationSnapshot
-from baibai_engine.market.jquants_models import (
-    JQuantsAllIssuesDailyMargin,
-    JQuantsFinancialSummary,
-    JQuantsMarginAlert,
-    JQuantsShortSaleReport,
-    JQuantsWeeklyMargin,
-)
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
 
 
 class JQuantsRead(Protocol):
-    def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]: ...
-    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]: ...
-    def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]: ...
     def get_adjustment_factor_bars_range(
         self, start: date, end: date
     ) -> list[JQuantsAdjustmentFactorEvent]: ...
-    def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
-    def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
-    def get_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]: ...
-    def get_mkt_all_issues_daily_margin(
-        self, balance_date: date
-    ) -> list[JQuantsAllIssuesDailyMargin]: ...
-    def get_mkt_short_sale_report_range(
-        self, start: date, end: date
-    ) -> list[JQuantsShortSaleReport]: ...
 
 
 class JQuantsMaintenance(Protocol):
@@ -63,16 +42,6 @@ class JQuantsMaintenance(Protocol):
     def close(self) -> None: ...
 
 
-class EDINETRead(Protocol):
-    def load_metric_records(self, asof_date: date) -> Mapping[str, EdinetMetricRecord]: ...
-
-    def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
-
-    def read_csv_zip(self, doc_id: str) -> bytes: ...
-
-    def read_xbrl_zip(self, doc_id: str) -> bytes: ...
-
-
 class EDINETMaintenance(Protocol):
     def close(self) -> None: ...
 
@@ -87,12 +56,6 @@ class EDINETMaintenance(Protocol):
     def refresh_document_state(self, asof_date: date) -> Mapping[str, int]: ...
 
     def backfill_document_identity(self, start: date, end: date) -> Mapping[str, int]: ...
-
-
-class JPXRead(Protocol):
-    def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot: ...
-
-    def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
 
 
 class JPXMaintenance(Protocol):
@@ -110,8 +73,6 @@ class JPXMaintenance(Protocol):
 @dataclass(frozen=True, slots=True)
 class ProviderBundle:
     jquants: JQuantsRead
-    edinet: EDINETRead | None
-    jpx: JPXRead
     jquants_refresh: JQuantsMaintenance | None = None
     edinet_refresh: EDINETMaintenance | None = None
     jpx_refresh: JPXMaintenance | None = None

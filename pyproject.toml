@@ -680,7 +680,7 @@ forbidden_modules = [
 name = "source transports and receipts do not depend on calculations or judgments"
 type = "forbidden"
 source_modules = [
-  "baibai_engine.data_collection.cli", "baibai_engine.data_collection.identifiers",
+  "baibai_engine.data_collection.identifiers",
   "baibai_engine.data_collection.read_http", "baibai_engine.data_collection.economic",
   "baibai_engine.data_collection.edinet", "baibai_engine.data_collection.equity_web",
   "baibai_engine.data_collection.jpx", "baibai_engine.data_collection.jquants",
@@ -740,3 +740,11 @@ forbidden_modules = [
   "baibai_engine.investment_judgment", "baibai_engine.position",
   "baibai_engine.machine_analysis.screening", "baibai_engine.read_api", "baibai_engine.job_api",
 ]
+
+
+[[tool.importlinter.contracts]]
+name = "queries analysis and judgments do not invoke source maintenance composition"
+type = "forbidden"
+source_modules = ["baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.position", "baibai_engine.read_api"]
+forbidden_modules = ["baibai_engine.source_maintenance", "baibai_engine.data_collection_cli"]
+allow_indirect_imports = true

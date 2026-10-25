@@ -1,6 +1,6 @@
 import pytest
 
-from baibai_engine.machine_analysis.screening.cli import app
+from baibai_engine.source_maintenance import cli as app
 
 
 @pytest.mark.parametrize(
@@ -12,7 +12,9 @@ from baibai_engine.machine_analysis.screening.cli import app
 )
 def test_public_refresh_does_not_initialize_unrelated_providers(tmp_path, mocker, command, handler):
     mocker.patch.object(
-        app.ScreeningConfig, "from_env", side_effect=AssertionError("unrelated provider config")
+        app.SourceMaintenanceConfig,
+        "from_env",
+        side_effect=AssertionError("unrelated provider config"),
     )
     refresh = mocker.patch.object(app, handler, return_value=0)
     path = tmp_path / "market.sqlite"

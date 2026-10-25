@@ -42,11 +42,13 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 `market/`は共通観測の読取・正規化・価格/財務算術に加え、source取得・原受領handoff・最新正本への投影を合成する、L1/L2をまたぐ境界である。共通価格は`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更は異なる契約である。
 
-外部評価の取得は`data_collection/external_assessment/`、TradingView通信合成は`data_collection/tradingview/`に置く。CLI・collector・handoffは取得と解析・保存を合成し、原本保持とL2投影を区別する。通信のない正規化・観測・読取はMachine Analysisが所有する。ただし、保存原本からL2行を置換するTradingViewのrebuildと、取得を起動するScreening CLIは既存の合成境界として残る。
+外部評価の取得は`data_collection/external_assessment/`、TradingView通信合成は`data_collection/tradingview/`に置く。CLI・collector・handoffは取得と解析・保存を合成し、原本保持とL2投影を区別する。通信のない正規化・観測・読取はMachine Analysisが所有する。ただし、保存原本からL2行を置換するTradingViewのrebuildと、取得を起動するsource_maintenanceのCLIは既存の合成境界として残る。
 
 仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Positionも使う有限数の変換は`foundation/numbers.py`に置き、PositionからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Positionは人間の確認済み事実を保存する。
 
 `jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。`read_api`は内部Python境界でありHTTP公開APIではない。既存Web画面・認証付き公開API・表示配信処理は撤去し、コアの成功条件に含めない。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
+
+`data-collection market`の実装は`source_maintenance/`が所有し、原本取得・保存原本の投影・保守を合成する。公開dispatcherは`data_collection_cli.py`に置き、純粋なsource通信・受領packageへL2や判断の依存を入れない。Screeningの旧生成入口とsource保守入口は撤去し、旧run読取・較正・既存の横断profileだけを残す。取得窓の共有定数は`market/input_windows.py`に置くが、新五モデルの保存履歴読取を制限しない。
 
 ジョブは一つの目的を持つ実行・成功失敗・再実行の単位、ワークフローはその順序・並行実行・依存関係を定めるもの。GitHub Actionsのjobと業務ジョブは常に一対一ではない。バッチ処理は非対話でまとまったデータを処理する方式を指す。
 

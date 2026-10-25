@@ -25,9 +25,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from tests.engine.test_screening_cli import (
+from tests.engine.test_source_maintenance_cli import (
     FakeEDINETProvider,
-    FakeEDINETReader,
     FakeJPXProvider,
     FakeJQuantsProvider,
     _edinet_csv_zip,
@@ -38,22 +37,19 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bar
 
 from baibai_engine.data_collection.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
-from baibai_engine.machine_analysis.screening.cli import app
-from baibai_engine.machine_analysis.screening.cli.cache import (
-    FIN_SUMMARY_REVISION_OVERLAP_DAYS,
-    refresh_edinet_documents_command,
-)
-from baibai_engine.machine_analysis.screening.cli.providers import ProviderBundle
-from baibai_engine.machine_analysis.screening.cli.valuation_catalyst_cli import (
-    backfill_edinet_identity_command,
-)
-from baibai_engine.machine_analysis.screening.metric_builder import (
+from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
+from baibai_engine.market.input_windows import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
-from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
-from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
-from baibai_engine.market.jpx_reader import JPXReader
+from baibai_engine.source_maintenance import cli as app
+from baibai_engine.source_maintenance.cache import (
+    FIN_SUMMARY_REVISION_OVERLAP_DAYS,
+    refresh_edinet_documents_command,
+)
+from baibai_engine.source_maintenance.providers import ProviderBundle
+from baibai_engine.source_maintenance.valuation_catalyst_cli import backfill_edinet_identity_command
 from baibai_engine.storage.observations.schema import open_connection
 
 # The store path every command below derives from the working directory.
@@ -212,7 +208,6 @@ def test_main_bootstrap_routes_reader_and_closes_maintenance() -> None:
 
     assert result.exit_code == 0, result.stderr
     providers = command.call_args.kwargs["providers"]
-    assert isinstance(providers.jpx, JPXReader)
     assert providers.jpx_refresh is jpx
     assert jpx.close_count == 1
 
@@ -317,8 +312,6 @@ def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
 def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> None:
     providers = ProviderBundle(
         jquants=FakeJQuantsProvider(),
-        edinet=FakeEDINETReader(),
-        jpx=FakeJPXProvider(),
     )
     stderr = io.StringIO()
     with contextlib.redirect_stderr(stderr):

@@ -129,18 +129,22 @@ def _skill(root: Path, body: str) -> None:
 
 
 def test_documented_command_gate_rejects_a_missing_required_option(tmp_path: Path) -> None:
-    _skill(tmp_path, "```bash\nuv run baibai-engine screening extract-edinet-metrics\n```\n")
+    _skill(
+        tmp_path,
+        "```bash\nuv run baibai-engine data-collection market extract-edinet-metrics\n```\n",
+    )
     assert check_documented_commands.check(tmp_path) == [
         (
             ".agents/skills/demo/SKILL.md: "
-            "`uv run baibai-engine screening extract-edinet-metrics` omits required --asof"
+            "`uv run baibai-engine data-collection market extract-edinet-metrics` omits required --asof"
         )
     ]
 
 
 def test_documented_command_gate_accepts_a_complete_command(tmp_path: Path) -> None:
     _skill(
-        tmp_path, "```bash\nuv run baibai-engine screening extract-edinet-metrics --asof <A>\n```\n"
+        tmp_path,
+        "```bash\nuv run baibai-engine data-collection market extract-edinet-metrics --asof <A>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == []
 

@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.market.adjusted_prices import close_change_since
+from baibai_engine.market.calendar_context import market_calendar_business_day
 from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.storage.observations.read import connect_read_only
 
@@ -17,23 +18,6 @@ from .sqlite import read_rows as _read_rows
 
 def read_rows(path: Path, sql: str, parameters: Sequence[object] = ()) -> list[sqlite3.Row]:
     return _read_rows(path, sql, parameters, connector=connect_read_only)
-
-
-def market_calendar_business_day(path: Path, day: date) -> bool | None:
-    """Return whether ``day`` is a trading day, or None when the calendar has no such row.
-
-    This answer controls the daily Screening update; indicators and export are
-    independent. Unlike optional view reads, calendar read failures raise so the
-    caller can report Screening's failure. An absent file, an unreadable store and
-    an uncovered date remain distinct from a confirmed non-business day.
-    """
-
-    with closing(connect_read_only(path)) as connection:
-        row = connection.execute(
-            "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
-            (day.isoformat(),),
-        ).fetchone()
-    return None if row is None else bool(row[0])
 
 
 def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tuple[float, date]]:
