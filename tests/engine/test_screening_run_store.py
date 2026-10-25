@@ -348,9 +348,9 @@ def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
     with closing(sqlite3.connect(legacy)) as connection, connection:
         connection.execute("CREATE TABLE old_cache(value TEXT)")
         connection.execute("PRAGMA user_version=5")
-    with pytest.raises(RuntimeError, match="rebuild"):
+    with pytest.raises(RuntimeError, match="explicit migration"):
         initialize_run_store(legacy)
-    with pytest.raises(RuntimeError, match="rebuild"):
+    with pytest.raises(RuntimeError, match="explicit migration"):
         ScreeningRunReader(legacy).latest_run()
 
 
