@@ -690,7 +690,6 @@ def test_invalid_same_day_publication_header_does_not_hide_behind_valid_revision
         latest_assessment_id(connection, "1234")
 
 
-
 def test_material_unknown_and_downside_loss_can_reach_buy_terms(connection):
     document, review = pair_payload()
     risk = document["permanent_loss_risks"][4]
@@ -752,21 +751,41 @@ def test_legacy_review_read_and_retry_preserve_stored_payload(connection):
     document, review = pair_payload()
     review["uncertainty_acceptance_reason"] = "細目は非重要とした当時の説明"
     update_review_hash(document, review)
-    pair = publish(connection, document, review)
-    legacy = pair.review.model_dump(mode="json")
+    typed = StockAssessmentDocument.model_validate(document)
+    typed_review = AssessmentReview.model_validate(review)
+    legacy = typed_review.model_dump(mode="json")
     legacy["nonmaterial_unknown_reason"] = legacy.pop("uncertainty_acceptance_reason")
     legacy_json = canonical_json(legacy)
+    # Seed the historical representation directly; published rows remain immutable.
     connection.execute(
-        "UPDATE stock_assessment_review SET payload = ? WHERE review_id = ?",
-        (legacy_json, pair.review.review_id),
+        "INSERT INTO stock_assessment VALUES(?,?,?,?,?,?,?,?)",
+        (
+            assessment_id(),
+            "1234",
+            "2026-10-14",
+            "supported",
+            NOW.isoformat(),
+            None,
+            canonical_json(typed.model_dump(mode="json")),
+            assessment_core_hash(typed),
+        ),
     )
-    assert load_reviewed_assessment(connection, pair.assessment_id) == pair
+    connection.execute(
+        "INSERT INTO stock_assessment_review VALUES(?,?,?,?)",
+        (typed_review.review_id, assessment_id(), typed_review.reviewed_at.isoformat(), legacy_json),
+    )
+    pair = load_reviewed_assessment(connection, assessment_id())
+    assert pair.document == typed
+    assert pair.review == typed_review
     assert publish(connection, document, legacy) == pair
     assert publish(connection, document, review) == pair
-    assert connection.execute(
-        "SELECT payload FROM stock_assessment_review WHERE review_id = ?",
-        (pair.review.review_id,),
-    ).fetchone()[0] == legacy_json
+    assert (
+        connection.execute(
+            "SELECT payload FROM stock_assessment_review WHERE review_id = ?",
+            (pair.review.review_id,),
+        ).fetchone()[0]
+        == legacy_json
+    )
     assert load_reviewed_assessment(connection, pair.assessment_id).core_sha256 == pair.core_sha256
     changed = dict(review, uncertainty_acceptance_reason="後から異なるリスクを受容")
     with pytest.raises(ResearchConflictError):

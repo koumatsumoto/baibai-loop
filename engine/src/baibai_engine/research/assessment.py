@@ -430,7 +430,9 @@ class AssessmentReview(BaseModel):
     strongest_countercase: NonEmptyStr
     uncertainty_acceptance_reason: NonEmptyStr | None = Field(
         default=None,
-        validation_alias=AliasChoices("uncertainty_acceptance_reason", "nonmaterial_unknown_reason"),
+        validation_alias=AliasChoices(
+            "uncertainty_acceptance_reason", "nonmaterial_unknown_reason"
+        ),
     )
     review_scope: NonEmptyStr
 
