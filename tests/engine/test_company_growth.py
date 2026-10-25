@@ -943,12 +943,8 @@ def test_compact_growth_keeps_quarter_and_annual_conflict_and_reported_cash_flow
 
     assert values("quarter")["parent_profit"] == 8
     assert values("annual_ttm")["parent_profit"] == 118
-    quarter_change = next(
-        c for c in latest["quarter"]["yoy"] if c["metric"] == "parent_profit"
-    )
-    annual_change = next(
-        c for c in latest["annual_ttm"]["yoy"] if c["metric"] == "parent_profit"
-    )
+    quarter_change = next(c for c in latest["quarter"]["yoy"] if c["metric"] == "parent_profit")
+    annual_change = next(c for c in latest["annual_ttm"]["yoy"] if c["metric"] == "parent_profit")
     assert quarter_change["rate"] == pytest.approx(-0.2)
     assert annual_change["from_value"] == 70
     assert annual_change["to_value"] == 118

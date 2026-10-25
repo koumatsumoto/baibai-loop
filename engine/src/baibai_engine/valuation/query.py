@@ -76,8 +76,7 @@ def valuation_metrics_from_analysis(analysis: Mapping[str, object]) -> dict[str,
         "ratios": {name: _number(analysis.get(name)) for name in ratios},
         "normalized_per_3fy": _number(metrics.get("normalized_per_3fy")),
         "ttm_quality": {
-            name: _text(quality.get(name))
-            for name in ("per_trailing", "ev_ebitda", "p_s", "pcfr")
+            name: _text(quality.get(name)) for name in ("per_trailing", "ev_ebitda", "p_s", "pcfr")
         },
         "interpretation": (
             "Saved pricing ratios, not intrinsic values. Forward PER uses company forecasts; "
