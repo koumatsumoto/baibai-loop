@@ -70,7 +70,7 @@ def test_malformed_known_model_is_not_misreported_as_missing_observation():
         calculation_revision="v1",
         payload={},
     )
-    with pytest.raises(ValueError, match="earnings_price.earnings_yield"):
+    with pytest.raises(ValueError, match=r"earnings_price\.earnings_yield"):
         select_generation(
             generation(malformed),
             tickers=("1234",),
