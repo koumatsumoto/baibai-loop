@@ -20,6 +20,10 @@ from baibai_engine.machine_analysis.external_assessment.query import (
     external_assessment,
     observed_tickers,
 )
+from baibai_engine.machine_analysis.external_assessment.reader import (
+    read_observation_population,
+    read_observations,
+)
 from baibai_engine.machine_analysis.external_assessment.store import save_observations
 from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.storage.observations.schema import open_connection
@@ -78,6 +82,35 @@ def test_latest_two_are_selected_per_distributor_including_nulls(tmp_path):
     assert sources["other"].inputs.previous == other_first
     assert sources["other"].comparisons[0].state == "missing"
     assert sources["other"].comparisons[0].delta is None
+
+
+def test_population_read_keeps_each_company_history_separate_and_matches_single_reads(tmp_path):
+    path = tmp_path / "market.sqlite"
+    rows = [
+        valuation(RECEIVED, consensus_target=1000),
+        valuation(RECEIVED + timedelta(minutes=1), consensus_target=1100),
+        valuation(RECEIVED + timedelta(minutes=2), consensus_target=1200),
+        valuation(RECEIVED + timedelta(minutes=3), consensus_target=2100).model_copy(
+            update={"ticker": "5678"}
+        ),
+        valuation(RECEIVED + timedelta(minutes=4), consensus_target=2200).model_copy(
+            update={"ticker": "5678"}
+        ),
+    ]
+    save_observations(path, rows)
+    tv_row(path, RECEIVED, ticker="1234", price_target_average=1100)
+    tv_row(path, RECEIVED + timedelta(minutes=1), ticker="5678", price_target_average=2200)
+    cutoff = RECEIVED + timedelta(days=1)
+    population = read_observation_population(
+        path, tickers=("1234", "5678", "9999"), cutoff=cutoff
+    )
+    for ticker, history in population.items():
+        assert history == read_observations(path, ticker, cutoff)
+    assert population["1234"].model_valuations[0].latest.consensus_target == 1200
+    assert population["1234"].model_valuations[0].previous.consensus_target == 1100
+    assert population["5678"].model_valuations[0].previous.consensus_target == 2100
+    assert population["9999"].model_valuations == ()
+    assert population["9999"].tradingview.latest is None
 
 
 def test_original_origin_groups_do_not_merge_different_models_into_votes(tmp_path):
