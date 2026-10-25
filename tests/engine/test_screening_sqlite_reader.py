@@ -199,7 +199,7 @@ class ReadFinSummariesTests(unittest.TestCase):
             assert summaries is not None
             self.assertEqual(len(summaries), 1)
             self.assertEqual(summaries[0].ticker, "3447")
-            self.assertEqual(summaries[0].eps_ttm, 50.0)
+            self.assertEqual(summaries[0].cumulative_eps, 50.0)
             self.assertEqual(summaries[0].fiscal_period, "2Q")
 
     def test_returns_none_when_coverage_dates_are_missing(self) -> None:

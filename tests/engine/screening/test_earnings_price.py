@@ -116,7 +116,7 @@ def test_ttm_keeps_actual_operands_instead_of_adding_reported_eps():
         fiscal_period="1Q",
         period_end=date(2025, 6, 30),
         profit=20.0,
-        eps_ttm=999.0,
+        cumulative_eps=999.0,
         disclosure_number="q1-2026",
     )
     current = replace(
@@ -126,7 +126,7 @@ def test_ttm_keeps_actual_operands_instead_of_adding_reported_eps():
         period_start=date(2026, 4, 1),
         period_end=date(2026, 6, 30),
         profit=40.0,
-        eps_ttm=-999.0,
+        cumulative_eps=-999.0,
         disclosure_number="q1-2027",
     )
     result = observation([prior, annual(), current])

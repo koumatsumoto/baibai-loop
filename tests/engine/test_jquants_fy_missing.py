@@ -28,7 +28,7 @@ def test_fy_reader_retains_latest_year_without_eps(tmp_path):
     rows = JQuantsReader(database).get_fy_summary_range(start, end)
     assert len(rows) == 6
     assert rows[-1].fiscal_year_end == date(2026, 3, 31)
-    assert rows[-1].eps_ttm is None
+    assert rows[-1].cumulative_eps is None
     signals = build_normalized_profit_signals(
         rows, [], end, close=100.0, ttm_rules=load_screening_rules().ttm
     )

@@ -88,13 +88,13 @@ def build_financial_snapshot(
     # 合成は 1 株当たりでなく円で行う。1 株当たりの各項は自分の期の株数で割られており、
     # 株数が動いた会社では和・差が成立しない (新株発行で株数が倍になった期を跨ぐと、
     # 黒字の会社が赤字に見える)。1 株当たりへの換算は最後に 1 回だけ行う。
-    eps_row = _latest_actual_row(summaries, field_names=("eps_ttm",))
-    eps_prior = _prior_year_summary(summaries, ttm_rules, field_name="eps_ttm")
+    eps_row = _latest_actual_row(summaries, field_names=("cumulative_eps",))
+    eps_prior = _prior_year_summary(summaries, ttm_rules, field_name="cumulative_eps")
     sales_row = _latest_actual_row(summaries, field_names=("sales",))
     sales_prior = _prior_year_summary(summaries, ttm_rules, field_name="sales")
     cfo_row = _latest_actual_row(summaries, field_names=("cfo",))
     cfo_prior = _prior_year_summary(summaries, ttm_rules, field_name="cfo")
-    eps_cumulative = eps_row.eps_ttm if eps_row else None
+    eps_cumulative = eps_row.cumulative_eps if eps_row else None
     profit_ttm, profit_quality = _ttm_value(summaries, "profit", ttm_rules)
     # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
     # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
@@ -328,7 +328,7 @@ def build_financial_snapshot(
         operating_profit=operating_profit,
         operating_profit_ttm=operating_profit_ttm,
         operating_profit_source=operating_profit_source,
-        eps_yoy=_yoy_ratio(eps_cumulative, eps_prior.eps_ttm if eps_prior else None),
+        eps_yoy=_yoy_ratio(eps_cumulative, eps_prior.cumulative_eps if eps_prior else None),
         sales_yoy=_yoy_ratio(
             sales_row.sales if sales_row else None,
             sales_prior.sales if sales_prior else None,

@@ -155,7 +155,7 @@ def _latest_complete_row(
 # 1 株当たりで開示される field。期をまたぐ和・差を作れないので TTM 合成へ渡さない。
 _PER_SHARE_FIELDS = frozenset(
     {
-        "eps_ttm",
+        "cumulative_eps",
         "forecast_eps",
         "bps",
         "dps_actual_annual",

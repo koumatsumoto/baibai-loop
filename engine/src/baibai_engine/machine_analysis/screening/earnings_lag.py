@@ -117,7 +117,7 @@ def _carries_actuals(item: JQuantsFinancialSummary) -> bool:
 
     return any(
         value is not None
-        for value in (item.sales, item.cfo, item.profit, item.operating_profit, item.eps_ttm)
+        for value in (item.sales, item.cfo, item.profit, item.operating_profit, item.cumulative_eps)
     )
 
 

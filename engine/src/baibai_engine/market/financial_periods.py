@@ -24,7 +24,7 @@ ACTUAL_FIELDS = (
     "operating_profit",
     "ordinary_profit",
     "profit",
-    "eps_ttm",
+    "cumulative_eps",
     "bps",
     "shares_outstanding",
     "treasury_shares",

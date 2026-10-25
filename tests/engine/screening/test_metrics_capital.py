@@ -411,7 +411,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
             operating_profit=None,
             ordinary_profit=None,
             profit=None,
-            eps_ttm=None,
+            cumulative_eps=None,
             bps=None,
             equity_to_asset_ratio=None,
             average_shares=None,

@@ -179,7 +179,7 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
 
     return replace(
         summary,
-        eps_ttm=None,
+        cumulative_eps=None,
         forecast_eps=None,
         bps=None,
         dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
@@ -243,7 +243,9 @@ def _normalize_summaries_with_status(
         normalized.append(
             replace(
                 summary,
-                eps_ttm=summary.eps_ttm * factor if summary.eps_ttm is not None else None,
+                cumulative_eps=summary.cumulative_eps * factor
+                if summary.cumulative_eps is not None
+                else None,
                 forecast_eps=None,
                 # 実績 DPS は原本のまま配当 resolver へ渡す。予想の明示 0 は残す。
                 dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),

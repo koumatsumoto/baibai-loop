@@ -13,7 +13,7 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
     def test_missing_reported_profit_is_not_reconstructed_from_eps(self) -> None:
         asof = date(2026, 6, 1)
         values = dict(
-            eps_ttm=20.0,
+            cumulative_eps=20.0,
             shares_outstanding=100.0,
             treasury_shares=10.0,
             fiscal_period="FY",
@@ -30,7 +30,7 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
             with self.subTest(profit=profit):
                 row = _summary("130A", date(2026, 5, 15), profit=profit, **values)
                 self.assertEqual(row.profit, profit)
-                self.assertEqual(row.eps_ttm, 20.0)
+                self.assertEqual(row.cumulative_eps, 20.0)
                 snapshot = build_metrics(
                     asof_date=asof,
                     securities_by_ticker={"130A": _security()},
@@ -259,7 +259,7 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
             fiscal_year_end=date(2025, 12, 31),
             period_start=date(2025, 1, 1),
             period_end=date(2025, 12, 31),
-            eps_ttm=10.0,
+            cumulative_eps=10.0,
             sales=100.0,
             cfo=10.0,
             operating_profit=20.0,
@@ -271,7 +271,7 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
             fiscal_year_end=date(2026, 12, 31),
             period_start=date(2026, 4, 1),
             period_end=date(2026, 12, 31),
-            eps_ttm=11.0,
+            cumulative_eps=11.0,
             sales=110.0,
             cfo=11.0,
             operating_profit=22.0,

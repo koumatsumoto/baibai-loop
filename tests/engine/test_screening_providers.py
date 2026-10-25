@@ -1445,7 +1445,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNotNone(summary)
         assert summary is not None
-        self.assertEqual(summary.eps_ttm, 0.0)
+        self.assertEqual(summary.cumulative_eps, 0.0)
         self.assertEqual(summary.sales, 0.0)
         self.assertEqual(summary.operating_profit, 0.0)
 
@@ -1567,7 +1567,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.ticker, "8891")
         self.assertIsNone(summary.forecast_eps)
         self.assertIn('"FEPS": "377.75"', summary.document_payload or "")
-        self.assertEqual(summary.eps_ttm, 300.50)
+        self.assertEqual(summary.cumulative_eps, 300.50)
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
         self.assertEqual(summary.fiscal_period, "1Q")
@@ -1594,7 +1594,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNone(fy.forecast_eps)
         fy = project_financial_documents([fy], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(fy.forecast_eps, 360.26)
-        self.assertEqual(fy.eps_ttm, 349.18)
+        self.assertEqual(fy.cumulative_eps, 349.18)
 
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         summary = normalize_financial_summary(

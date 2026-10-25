@@ -302,7 +302,7 @@ def _latest_fy_revisions(
                     getattr(row, field) is not None
                     for field in ("shares_outstanding", "treasury_shares")
                 ),
-                row.eps_ttm is not None,
+                row.cumulative_eps is not None,
                 row.dps_actual_annual is not None,
             ),
         )
@@ -316,7 +316,7 @@ def _latest_fy_revisions(
             result.append(
                 replace(
                     representative,
-                    eps_ttm=None,
+                    cumulative_eps=None,
                     dps_actual_annual=0.0
                     if all(row.dps_actual_annual == 0 for row in tied)
                     else None,
@@ -337,14 +337,18 @@ def _latest_fy_revisions(
                 else None
             )
 
-        eps = agreed(tied, "eps_ttm") if len({statement_basis(row) for row in tied}) == 1 else None
+        eps = (
+            agreed(tied, "cumulative_eps")
+            if len({statement_basis(row) for row in tied}) == 1
+            else None
+        )
         dps = agreed(tied, "dps_actual_annual")
         # EPS and payout are independent facts. The capital pair remains exactly
         # the representative source's pair; never fill its missing half from another.
         result.append(
             replace(
                 representative,
-                eps_ttm=eps,
+                cumulative_eps=eps,
                 dps_actual_annual=dps,
                 disclosure_number=None,
                 document_payload=None,

@@ -37,7 +37,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 fiscal_year_end=date(2024, 2, 29),
                 period_start=date(2023, 3, 1),
                 period_end=date(2024, 2, 29),
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
                 shares_outstanding=100_000_000.0,
                 sales=100.0,
             ),
@@ -48,7 +48,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 fiscal_year_end=date(2025, 2, 28),
                 period_start=date(2024, 3, 1),
                 period_end=date(2025, 2, 28),
-                eps_ttm=30.0,
+                cumulative_eps=30.0,
                 shares_outstanding=98_000_000.0,
                 sales=120.0,
             ),
@@ -85,7 +85,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 fiscal_year_end=date(2023, 3, 31),
                 period_start=date(2022, 4, 1),
                 period_end=date(2023, 3, 31),
-                eps_ttm=40.0,
+                cumulative_eps=40.0,
             ),
             _summary(
                 "130A",
@@ -94,7 +94,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 fiscal_year_end=date(2024, 3, 31),
                 period_start=date(2023, 4, 1),
                 period_end=date(2024, 3, 31),
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
             ),
             _summary(
                 "130A",
@@ -103,7 +103,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 fiscal_year_end=date(2025, 3, 31),
                 period_start=date(2024, 4, 1),
                 period_end=date(2025, 3, 31),
-                eps_ttm=20.0,
+                cumulative_eps=20.0,
             ),
         ]
         split_safe = build_normalized_profit_signals(
@@ -111,7 +111,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         )
         loss_mean = build_normalized_profit_signals(
             [
-                replace(summary, eps_ttm=value)
+                replace(summary, cumulative_eps=value)
                 for summary, value in zip(summaries, (-40.0, 0.0, 10.0), strict=True)
             ],
             (),
@@ -799,7 +799,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2025, 4, 30),
-                eps_ttm=98.65,
+                cumulative_eps=98.65,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -809,7 +809,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 2, 13),
-                eps_ttm=174.13,
+                cumulative_eps=174.13,
                 fiscal_period="FY",
                 fiscal_year_end=date(2025, 12, 31),
                 period_start=date(2025, 1, 1),
@@ -819,7 +819,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 5, 7),
-                eps_ttm=27.33,
+                cumulative_eps=27.33,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2026, 12, 31),
                 period_start=date(2026, 1, 1),
@@ -876,7 +876,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2018, 10, 31),
-                eps_ttm=161.76,
+                cumulative_eps=161.76,
                 shares_outstanding=prior_same_shares,
                 fiscal_period="2Q",
                 fiscal_year_end=date(2019, 3, 31),
@@ -886,7 +886,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2019, 5, 14),
-                eps_ttm=113.5,
+                cumulative_eps=113.5,
                 shares_outstanding=prior_fy_shares,
                 fiscal_period="FY",
                 fiscal_year_end=date(2019, 3, 31),
@@ -896,7 +896,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2019, 10, 31),
-                eps_ttm=21.32,
+                cumulative_eps=21.32,
                 shares_outstanding=latest_shares,
                 fiscal_period="2Q",
                 fiscal_year_end=date(2020, 3, 31),
@@ -943,7 +943,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             )
         ]
         rules = load_screening_rules()
-        for field in ("eps_ttm", "bps", "dps_actual_annual", "forecast_eps"):
+        for field in ("cumulative_eps", "bps", "dps_actual_annual", "forecast_eps"):
             with self.subTest(field=field), self.assertRaises(ValueError) as caught:
                 _ttm_value(summaries, field, rules.ttm)
             self.assertIn("per share", str(caught.exception))
@@ -1017,7 +1017,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             _summary(
                 "130A",
                 date(2026, 5, 15),
-                eps_ttm=10.0,
+                cumulative_eps=10.0,
                 profit=500_000_000.0,
                 shares_outstanding=100_000_000.0,
                 treasury_shares=30_000_000.0,
@@ -1105,7 +1105,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     _summary(
                         "130A",
                         asof,
-                        eps_ttm=10.0,
+                        cumulative_eps=10.0,
                         fiscal_period="FY",
                         fiscal_year_end=date(2026, 3, 31),
                         shares_outstanding=10.0,

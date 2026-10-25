@@ -35,7 +35,7 @@ _AMOUNT_FIELDS: tuple[tuple[Metric, str], ...] = (
 )
 _REPORTED_FIELDS: tuple[tuple[Metric, str], ...] = (
     *_AMOUNT_FIELDS,
-    ("reported_basic_eps", "eps_ttm"),
+    ("reported_basic_eps", "cumulative_eps"),
     ("average_shares", "average_shares"),
     ("operating_cash_flow", "cfo"),
 )

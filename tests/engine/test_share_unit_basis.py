@@ -37,7 +37,7 @@ def test_price_adjustment_and_financial_share_units_are_separate(kind, price_fac
         period_end=date(2026, 3, 31),
         shares_outstanding=100.0,
         treasury_shares=10.0,
-        eps_ttm=20.0,
+        cumulative_eps=20.0,
         dps_actual_annual=8.0,
     )
     source = replace(source, average_shares=90.0)
@@ -59,7 +59,7 @@ def test_price_adjustment_and_financial_share_units_are_separate(kind, price_fac
         assert row.shares_outstanding == 100.0 / unit_factor
         assert row.treasury_shares == 10.0 / unit_factor
         assert row.average_shares == 90.0 / unit_factor
-        assert row.eps_ttm == 20.0 * unit_factor
+        assert row.cumulative_eps == 20.0 * unit_factor
         assert row.dps_actual_annual == 8.0
         assert result.capital_basis_barrier is None
 

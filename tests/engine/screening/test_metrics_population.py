@@ -29,7 +29,7 @@ class MedianPopulationTests(unittest.TestCase):
             return JQuantsFinancialSummary(
                 ticker=code,
                 disclosed_at=date(2026, 2, 1),
-                eps_ttm=eps,
+                cumulative_eps=eps,
                 profit=eps * shares,
                 shares_outstanding=shares,
                 treasury_shares=0.0,
@@ -100,7 +100,7 @@ class MedianPopulationTests(unittest.TestCase):
             return JQuantsFinancialSummary(
                 ticker=code,
                 disclosed_at=date(2026, 2, 1),
-                eps_ttm=eps,
+                cumulative_eps=eps,
                 profit=eps * shares,
                 shares_outstanding=shares,
                 treasury_shares=0.0,

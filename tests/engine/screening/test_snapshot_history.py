@@ -185,7 +185,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     _summary(
                         "130A",
                         asof,
-                        eps_ttm=10.0,
+                        cumulative_eps=10.0,
                         fiscal_period="FY",
                         fiscal_year_end=date(2026, 3, 31),
                         shares_outstanding=10.0,

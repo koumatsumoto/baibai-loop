@@ -84,7 +84,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             ticker="130A",
             disclosed_at=asof - timedelta(days=10),
             forecast_eps=20.0,
-            eps_ttm=5.0,
+            cumulative_eps=5.0,
             bps=None,
             shares_outstanding=None,
             sales=250_000_000.0,
@@ -132,7 +132,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         disclosed = _summary(
             "130A",
             date(2026, 3, 1),
-            eps_ttm=10.0,
+            cumulative_eps=10.0,
             shares_outstanding=100_000_000.0,
             treasury_shares=0.0,
             fiscal_period="FY",
@@ -143,7 +143,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         undisclosed = replace(
             disclosed,
             disclosed_at=asof + timedelta(days=10),
-            eps_ttm=99.0,
+            cumulative_eps=99.0,
             profit=9_900_000_000.0,
             forecast_eps=120.0,
         )
@@ -206,7 +206,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     _summary(
                         "130A",
                         asof,
-                        eps_ttm=10.0,
+                        cumulative_eps=10.0,
                         fiscal_period="FY",
                         fiscal_year_end=date(2026, 3, 31),
                         shares_outstanding=10.0,
@@ -292,7 +292,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 _summary(
                     "130A",
                     asof,
-                    eps_ttm=10.0,
+                    cumulative_eps=10.0,
                     fiscal_period="FY",
                     fiscal_year_end=date(2026, 3, 31),
                     shares_outstanding=10.0,
