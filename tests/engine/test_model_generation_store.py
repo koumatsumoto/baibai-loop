@@ -62,12 +62,38 @@ def test_generation_round_trip_is_independent_of_candidate_selection(tmp_path):
     assert not store.publish(original)
     assert store.read(original.generation_id) == original
     assert store.read("missing") is None
-    company = store.read(original.generation_id, subjects=("1234",))
+    company = store.read_subjects(original.generation_id, subjects=("1234",))
     assert {model.subject for model in company.models} == {"1234"}
     assert company.inputs == original.inputs
-    combined = store.read(original.generation_id, subjects=("1234", "market"))
-    assert combined == original
-    assert store.read(original.generation_id, subjects=()).models == ()
+    combined = store.read_subjects(original.generation_id, subjects=("1234", "market"))
+    assert combined.models == original.models
+    assert combined.subjects == ("1234", "market")
+    assert store.read_subjects(original.generation_id, subjects=()).models == ()
+
+
+def test_partial_input_cannot_be_mistaken_for_a_complete_screening_generation(tmp_path):
+    store = ModelGenerationStore(tmp_path / "runs.sqlite")
+    first = generation()
+    second_company = GeneratedModel(
+        model_id="company_valuation",
+        subject="5678",
+        calculation_revision="v1",
+        payload={"earnings_price": {"earnings_yield": 0.2}},
+    )
+    full = ModelGeneration.model_validate(
+        {**first.model_dump(), "models": (*first.models, second_company)}
+    )
+    store.publish(full)
+    policy = TwoViewPolicy(earnings_limit=1, combined_limit=0)
+    assert select_generation(full, tickers=("1234", "5678"), policy=policy).result.tickers == (
+        "5678",
+    )
+    partial = store.read_subjects(full.generation_id, subjects=("1234",))
+    with pytest.raises(TypeError, match="complete model generation"):
+        select_generation(partial, tickers=("1234", "5678"), policy=policy)
+    with pytest.raises(TypeError, match="complete model generation"):
+        store.publish(partial)
+    assert store.read(full.generation_id) == full
 
 
 def test_generation_identity_cannot_be_reused_for_new_values_or_new_inputs(tmp_path):

@@ -24,6 +24,8 @@ def select_generation(
     generation: ModelGeneration, *, tickers: Sequence[str], policy: TwoViewPolicy
 ) -> ScreeningSelection:
     """企業集合と政策を明示し、生成済み観測の意味や保存値を変更せず選ぶ。"""
+    if not isinstance(generation, ModelGeneration):
+        raise TypeError("screening requires a complete model generation")
     subjects = sorted(normalize_ticker(ticker) for ticker in tickers)
     index = {(model.model_id, model.subject): model for model in generation.models}
     coordinates = [

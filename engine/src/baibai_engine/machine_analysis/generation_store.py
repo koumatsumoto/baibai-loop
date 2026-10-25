@@ -16,7 +16,7 @@ from baibai_engine.storage.machine_analysis import (
     initialize_run_store,
 )
 
-from .model_generation import GeneratedModel, ModelGeneration
+from .model_generation import GeneratedModel, ModelGeneration, ModelInputSlice
 
 
 class GenerationConflictError(ValueError):
@@ -29,6 +29,8 @@ class ModelGenerationStore:
 
     def publish(self, generation: ModelGeneration) -> bool:
         """生成結果を一括commitする。同一内容の再送はFalse、変更された再送は拒否。"""
+        if not isinstance(generation, ModelGeneration):
+            raise TypeError("publication requires a complete model generation")
         header = canonical_json(generation.model_dump(mode="json", exclude={"models"}))
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
@@ -70,10 +72,24 @@ class ModelGenerationStore:
                 connection.rollback()
                 raise
 
-    def read(
+    def read(self, generation_id: str) -> ModelGeneration | None:
+        return self._read(generation_id)
+
+    def read_subjects(
+        self, generation_id: str, *, subjects: Sequence[str]
+    ) -> ModelInputSlice | None:
+        """必要対象のみをL3等へ渡す。共通市場はsubject='market'で明示する。"""
+        scope = tuple(sorted(set(subjects)))
+        generation = self._read(generation_id, subjects=scope)
+        return (
+            None
+            if generation is None
+            else ModelInputSlice.model_validate({**generation.model_dump(), "subjects": scope})
+        )
+
+    def _read(
         self, generation_id: str, *, subjects: Sequence[str] | None = None
     ) -> ModelGeneration | None:
-        """subjects指定時はその対象だけを読む。共通市場はsubject='market'で明示する。"""
         with closing(connect_read_only(self._path)) as connection:
             connection.execute("BEGIN")
             header = connection.execute(

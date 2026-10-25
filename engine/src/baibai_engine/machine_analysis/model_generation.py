@@ -40,8 +40,8 @@ class GeneratedModel(BaseModel):
     payload: dict[str, JsonValue]
 
 
-class ModelGeneration(BaseModel):
-    """同じ入力集合からの生成結果。モデル追加は既存Screeningの規則変更ではない。"""
+class _ModelCollection(BaseModel):
+    """固定入力とモデル内容。完全生成と読取sliceが共有する意味。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -72,3 +72,21 @@ class ModelGeneration(BaseModel):
             (item for item in self.models if (item.model_id, item.subject) == (model_id, subject)),
             None,
         )
+
+
+class ModelGeneration(_ModelCollection):
+    """同じ入力集合からの完全な生成結果。モデル追加は候補政策を変更しない。"""
+
+
+class ModelInputSlice(_ModelCollection):
+    """L3等の対象別入力。取得範囲外を未生成と取り違えて再選定に使わない。"""
+
+    subjects: tuple[Identifier, ...]
+
+    @model_validator(mode="after")
+    def bounded_subjects(self) -> Self:
+        if len(set(self.subjects)) != len(self.subjects):
+            raise ValueError("input slice subjects must be unique")
+        if any(model.subject not in self.subjects for model in self.models):
+            raise ValueError("model is outside the input slice subjects")
+        return self
