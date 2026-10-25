@@ -1,4 +1,4 @@
-"""保存済み機械推計の対象集合・cutoff・副作用と、Valuation の依存境界。"""
+"""旧保存入力の機械推計投影・副作用と、Valuation の依存境界。"""
 
 import copy
 import hashlib
@@ -356,7 +356,7 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         run_revision_id="carry-inputs",
     )
     before = path.read_bytes()
-    stored = ScreeningRunReader(path).valuation_run(as_of=CUTOFF)
+    stored = ScreeningRunReader(path).get_run("carry-inputs")
     valuation = machine_valuation_from_analysis(stored.stock_analyses[0])
     assert valuation.dividend_yield == dividend
     assert valuation.net_share_change_yoy == share_change
@@ -478,43 +478,29 @@ def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
     )
 
 
-def test_saved_non_candidate_uses_latest_run_before_cutoff(tmp_path):
+def test_fixed_saved_non_candidate_preserves_valuation_without_latest_selection(tmp_path):
     path = tmp_path / "runs.sqlite"
-    publish(path, "2026-09-18", "old")
-    publish(path, "2026-09-19", "early", anchor=1400, run_at="2026-09-19T09:00:00+09:00")
-    publish(path, "2026-09-19", "last", anchor=1600)
-    publish(path, "2026-09-20", "future", anchor=2000)
+    publish(path, "2026-09-19", "fixed", anchor=1600)
+    publish(path, "2026-09-20", "newer", anchor=2000)
     reader = ScreeningRunReader(path)
-    result = reader.valuation_run(as_of=CUTOFF)
-    assert result.run_revision_id == "last"
-    assert result.as_of_date == CUTOFF.isoformat()
+    result = reader.get_run("fixed")
+    assert result is not None
+    assert result.run_revision_id == "fixed"
     assert result.stock_analyses[0]["candidate"]["reasons"] == []
     valuation = machine_valuation_from_analysis(result.stock_analyses[0])
     assert valuation.sector_median_anchor_yen == 1600
     assert valuation.er_annual == 0.075
-    assert reader.valuation_run(as_of=date(2026, 9, 17)) is None
-
-
-def test_fixed_run_checks_cutoff_and_identity(tmp_path):
-    path = tmp_path / "runs.sqlite"
-    publish(path, "2026-09-19", "fixed")
-    publish(path, "2026-09-20", "future")
-    reader = ScreeningRunReader(path)
-    assert reader.valuation_run(as_of=CUTOFF, run_revision_id="fixed") is not None
-    with pytest.raises(ValueError, match="after cutoff"):
-        reader.valuation_run(as_of=CUTOFF, run_revision_id="future")
-    with pytest.raises(ValueError, match="unknown run_revision_id"):
-        reader.valuation_run(as_of=CUTOFF, run_revision_id="absent")
+    assert reader.get_run("absent") is None
 
 
 def test_missing_scope_coordinates_and_broken_store_remain_distinct(tmp_path):
     path = tmp_path / "runs.sqlite"
     publish(path, "2026-09-19", "run")
     reader = ScreeningRunReader(path)
-    result = reader.valuation_run(as_of=CUTOFF)
+    result = reader.get_run("run")
     assert not any(row["ticker"] == "9999" for row in result.stock_analyses)
     publish(path, "2026-09-20", "missing-anchor", anchor=None)
-    result = reader.valuation_run(as_of=date(2026, 9, 20))
+    result = reader.get_run("missing-anchor")
     valuation = machine_valuation_from_analysis(result.stock_analyses[0])
     assert valuation.sector_median_anchor_yen is None
     assert valuation.er_annual == 0.075
@@ -524,7 +510,7 @@ def test_missing_scope_coordinates_and_broken_store_remain_distinct(tmp_path):
     connection.execute("DROP TABLE stock_analysis")
     connection.close()
     with pytest.raises(sqlite3.OperationalError):
-        reader.valuation_run(as_of=CUTOFF)
+        reader.get_run("run")
 
 
 def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
@@ -558,7 +544,7 @@ def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sqlite3, "connect", connect)
     monkeypatch.setattr(socket, "socket", forbidden)
-    stored = ScreeningRunReader(path).valuation_run(as_of=CUTOFF)
+    stored = ScreeningRunReader(path).get_run("run")
     assert machine_valuation_from_analysis(stored.stock_analyses[0]).er_annual == 0.075
     assert connections
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
@@ -600,9 +586,7 @@ def _project_inputs(
         for t in tickers
         if t == "9999"
     )
-    run = ScreeningRunReader(runs_path).analysis_run(
-        as_of=as_of, known_at=known_at, run_revision_id=revision
-    )
+    run = ScreeningRunReader(runs_path).get_run(revision)
     assert run is not None
     saved_rows = {row["ticker"]: row for row in run.stock_analyses}
     snapshot = AnalysisInputSnapshot(

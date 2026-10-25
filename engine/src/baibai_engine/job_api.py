@@ -153,9 +153,6 @@ from baibai_engine.machine_analysis.external_assessment.tradingview.observations
 from baibai_engine.machine_analysis.generation_reader import read_and_generate_models
 from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
 from baibai_engine.machine_analysis.model_generation import InputSnapshot as ModelInputSnapshot
-from baibai_engine.machine_analysis.screening.discovery.contracts import (
-    validate_candidate_run as validate_candidate_run,
-)
 from baibai_engine.machine_analysis.screening.saved_selection import select_saved_generation
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
@@ -343,7 +340,6 @@ __all__ = [
     "tradingview_failure_line",
     "tradingview_preflight",
     "tradingview_safe_progress",
-    "validate_candidate_run",
     "validate_economic_schema",
     "validate_lake_release_policy",
     "validate_market_schema",

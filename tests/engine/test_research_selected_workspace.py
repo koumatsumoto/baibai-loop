@@ -159,7 +159,7 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
         runs=runs,
         rows=[row, stock_analysis("5678", metrics=unrecorded)],
     )
-    stored = ScreeningRunReader(runs).valuation_run(as_of=NOW.date())
+    stored = ScreeningRunReader(runs).get_run(value.inputs.analysis.run_revision_id)
     machine = machine_valuation_from_analysis(
         next(row for row in stored.stock_analyses if row["ticker"] == "1234")
     )

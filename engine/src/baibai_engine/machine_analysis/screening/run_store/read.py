@@ -1,4 +1,4 @@
-"""Read-only query facade for screening run-store publications."""
+"""保存済み旧runをrevision IDで読む。新規判断用のrun選択は行わない。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.machine_analysis.screening.discovery.contracts import validate_candidate_run
-from baibai_engine.storage.machine_analysis import connect_read_only, run_clock
+from baibai_engine.storage.machine_analysis import connect_read_only
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,92 +37,6 @@ class ScreeningRunReader:
             row = connection.execute(
                 "SELECT * FROM screening_run WHERE run_revision_id = ?",
                 (run_revision_id,),
-            ).fetchone()
-            return None if row is None else _run_from_row(connection, row)
-
-    def list_runs(self) -> list[RunPublication]:
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            rows = connection.execute(
-                """
-                SELECT * FROM screening_run
-                ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC
-                """
-            ).fetchall()
-            return [_run_from_row(connection, row) for row in rows]
-
-    def latest_run(self) -> RunPublication | None:
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            row = connection.execute(
-                """
-                SELECT * FROM screening_run
-                ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            return None if row is None else _run_from_row(connection, row)
-
-    def latest_run_on(self, *, as_of: date) -> RunPublication | None:
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            row = connection.execute(
-                "SELECT * FROM screening_run WHERE asof_date = ? "
-                "ORDER BY run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
-                (as_of.isoformat(),),
-            ).fetchone()
-            return None if row is None else _run_from_row(connection, row)
-
-    def analysis_run(
-        self, *, as_of: date, known_at: datetime, run_revision_id: str | None = None
-    ) -> RunPublication | None:
-        """Select one analysis within Research's date and known-time boundaries."""
-        if known_at.tzinfo is None or known_at.utcoffset() is None:
-            raise ValueError("known_at must be timezone-aware")
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            if run_revision_id is not None:
-                row = connection.execute(
-                    "SELECT * FROM screening_run WHERE run_revision_id = ?", (run_revision_id,)
-                ).fetchone()
-                if row is None:
-                    raise ValueError(f"unknown run_revision_id: {run_revision_id}")
-            else:
-                row = connection.execute(
-                    "SELECT * FROM screening_run WHERE asof_date <= ? "
-                    "AND run_clock(run_at) <= ? "
-                    "ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
-                    (as_of.isoformat(), run_clock(known_at.isoformat())),
-                ).fetchone()
-            run = None if row is None else _run_from_row(connection, row)
-            if (
-                run_revision_id is not None
-                and run is not None
-                and (
-                    date.fromisoformat(run.as_of_date) > as_of
-                    or datetime.fromisoformat(run.run_at) > known_at
-                )
-            ):
-                raise ValueError("explicit analysis run is after the Research cutoff")
-            return run
-
-    def valuation_run(
-        self, *, as_of: date, run_revision_id: str | None = None
-    ) -> RunPublication | None:
-        """Resolve a retained analysis run without consulting candidate publications."""
-        if run_revision_id is not None:
-            run = self.get_run(run_revision_id)
-            if run is None:
-                raise ValueError(f"unknown run_revision_id: {run_revision_id}")
-            if run.as_of_date > as_of.isoformat():
-                raise ValueError(f"screening run as-of is after cutoff: {run.as_of_date} > {as_of}")
-            return run
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            row = connection.execute(
-                "SELECT * FROM screening_run WHERE asof_date <= ? "
-                "ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
-                (as_of.isoformat(),),
             ).fetchone()
             return None if row is None else _run_from_row(connection, row)
 

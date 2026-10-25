@@ -4,7 +4,6 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict
-from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -130,35 +129,6 @@ def test_read_export_preserves_saved_raw_values_candidate_and_nulls(tmp_path: Pa
     assert exported["stock_analyses"][0]["metrics"]["custom_known_value"] == 0.123456789
     assert exported["stock_analyses"] == list(run.stock_analyses)
     assert "security_analyses" not in exported
-
-
-def test_latest_same_day_cutoff_and_unknown_exact_do_not_fallback(tmp_path: Path) -> None:
-    path = tmp_path / "runs.sqlite"
-    old = _publish(path, _run(asof="2026-10-13"), revision="old")
-    early = _publish(path, _run(at="2026-10-14T09:00:00+09:00"), revision="early")
-    empty = _publish(path, _run(rows=[], at="2026-10-14T12:00:00+09:00"), revision="empty")
-    future = _publish(path, _run(asof="2026-10-15"), revision="future")
-    reader = ScreeningRunReader(path)
-    assert reader.latest_run().run_revision_id == future
-    assert reader.latest_run_on(as_of=date(2026, 10, 14)).run_revision_id == empty
-    assert candidate_rows(reader.latest_run_on(as_of=date(2026, 10, 14)).stock_analyses) == ()
-    cutoff = datetime.fromisoformat("2026-10-14T01:00:00+00:00")
-    assert reader.analysis_run(as_of=date(2026, 10, 14), known_at=cutoff).run_revision_id == early
-    assert reader.analysis_run(as_of=date(2026, 10, 13), known_at=cutoff).run_revision_id == old
-    for identifier in ("unknown", "future", "empty"):
-        with pytest.raises(
-            ValueError,
-            match=r"unknown|cutoff",
-        ):
-            reader.analysis_run(
-                as_of=date(2026, 10, 14), known_at=cutoff, run_revision_id=identifier
-            )
-    with pytest.raises(ValueError, match="timezone"):
-        reader.analysis_run(
-            as_of=date(2026, 10, 14), known_at=datetime.fromisoformat("2026-10-14T00:00:00")
-        )
-    assert reader.latest_run_on(as_of=date(2026, 10, 12)) is None
-    assert reader.get_run("unknown") is None
 
 
 @pytest.mark.parametrize(
@@ -295,7 +265,8 @@ def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
     pruned = ScreeningRunStore(path).prune(keep=1)
     assert pruned.deleted_runs == pruned.deleted_stock_analyses == 2
     assert not hasattr(pruned, "deleted_review_sets")
-    assert len(ScreeningRunReader(path).list_runs()) == 1
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM screening_run").fetchone() == (1,)
     legacy = tmp_path / "old.sqlite"
     with closing(sqlite3.connect(legacy)) as connection, connection:
         connection.execute("CREATE TABLE old_cache(value TEXT)")
@@ -303,7 +274,7 @@ def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="explicit migration"):
         initialize_run_store(legacy)
     with pytest.raises(RuntimeError, match="explicit migration"):
-        ScreeningRunReader(legacy).latest_run()
+        ScreeningRunReader(legacy).get_run("absent")
 
 
 def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -> None:
@@ -338,54 +309,6 @@ def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -
         StockAnalysis(**{**asdict(analysis), "per_forward": float("inf")})
 
 
-@pytest.mark.parametrize(
-    ("cutoff", "expected"),
-    [("000100", "zz-early"), ("000500", "aa-late"), ("000800", "00-latest")],
-)
-def test_research_cutoff_and_latest_selection_preserve_sub_millisecond_clock(
-    tmp_path: Path, cutoff: str, expected: str
-) -> None:
-    path = tmp_path / "runs.sqlite"
-    for fraction, revision in (
-        ("000000", "zz-early"),
-        ("000400", "aa-late"),
-        ("000700", "00-latest"),
-    ):
-        _publish(path, _run(at=f"2026-10-14T12:00:00.{fraction}+09:00"), revision=revision)
-    reader = ScreeningRunReader(path)
-    known_at = datetime.fromisoformat(f"2026-10-14T12:00:00.{cutoff}+09:00")
-    run = reader.analysis_run(as_of=date(2026, 10, 14), known_at=known_at)
-    assert run is not None
-    assert run.run_revision_id == expected
-    for fraction, revision in (
-        ("000000", "zz-early"),
-        ("000400", "aa-late"),
-        ("000700", "00-latest"),
-    ):
-        if fraction > cutoff:
-            with pytest.raises(ValueError, match="after the Research cutoff"):
-                reader.analysis_run(
-                    as_of=date(2026, 10, 14), known_at=known_at, run_revision_id=revision
-                )
-        else:
-            exact = reader.analysis_run(
-                as_of=date(2026, 10, 14), known_at=known_at, run_revision_id=revision
-            )
-            assert exact is not None
-            assert exact.run_revision_id == revision
-
-
-def test_research_cutoff_compares_offset_equivalent_timestamps(tmp_path: Path) -> None:
-    path = tmp_path / "runs.sqlite"
-    _publish(path, _run(at="2026-10-14T12:00:00.000400+09:00"), revision="aa-jst")
-    _publish(path, _run(at="2026-10-14T03:00:00.000400+00:00"), revision="zz-utc")
-    reader = ScreeningRunReader(path)
-    known_at = datetime.fromisoformat("2026-10-14T03:00:00.000400+00:00")
-    run = reader.analysis_run(as_of=date(2026, 10, 14), known_at=known_at)
-    assert run is not None
-    assert run.run_revision_id == "zz-utc"
-
-
 @pytest.fixture
 def precise_clock_runs(tmp_path):
     path = tmp_path / "runs.sqlite"
@@ -402,28 +325,6 @@ def precise_clock_runs(tmp_path):
     for revision, clock in zip(revisions, clocks, strict=True):
         _publish(path, _run(at=clock), revision=revision)
     return path, revisions, clocks
-
-
-@pytest.mark.parametrize(
-    "query", ["latest_run", "latest_run_on", "valuation_run", "analysis_run", "list_runs"]
-)
-def test_run_readers_use_the_same_exact_instant_order(precise_clock_runs, query):
-    path, revisions, clocks = precise_clock_runs
-    reader = ScreeningRunReader(path)
-    before = path.read_bytes()
-    arguments = {}
-    if query in {"latest_run_on", "valuation_run", "analysis_run"}:
-        arguments["as_of"] = date(2026, 10, 14)
-    if query == "analysis_run":
-        arguments["known_at"] = datetime.fromisoformat(clocks[-1])
-    result = getattr(reader, query)(**arguments)
-    if query == "list_runs":
-        assert [run.run_revision_id for run in result] == list(reversed(revisions))
-        assert [run.run_at for run in result] == list(reversed(clocks))
-    else:
-        assert result.run_revision_id == revisions[-1]
-        assert result.run_at == clocks[-1]
-    assert path.read_bytes() == before
 
 
 def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_clock_runs):

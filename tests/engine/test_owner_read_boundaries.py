@@ -68,7 +68,7 @@ def test_screening_read_helpers_accept_the_current_run_store(tmp_path: Path) -> 
     current = tmp_path / "runs.sqlite"
     initialize_run_store(current)
 
-    assert ScreeningRunReader(current).latest_run() is None
+    assert ScreeningRunReader(current).get_run("absent") is None
 
 
 def test_screening_reader_rejects_an_obsolete_run_store(tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ def test_screening_reader_rejects_an_obsolete_run_store(tmp_path: Path) -> None:
         RuntimeError,
         match=rf"found {RUN_STORE_SCHEMA_VERSION - 1}, expected {RUN_STORE_SCHEMA_VERSION}",
     ):
-        ScreeningRunReader(obsolete).latest_run()
+        ScreeningRunReader(obsolete).get_run("absent")
 
 
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
