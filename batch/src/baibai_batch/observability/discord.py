@@ -4,8 +4,8 @@ One message per terminal state of ``cloud-daily-batch``. It serves the daily
 machine loop's "見せる" role: from one message a reader learns whether the day's
 artefacts were published, which step to open when they were not, and which names
 entered or left the candidate list — the only channel that reaches the reader without
-being opened. Everything else about a run (durations, per-batch metrics, the lake
-release) lives in the workflow log the ``run:`` line points at.
+being opened. Detailed metrics and release identifiers stay in the workflow log linked by
+the Run line. Shared formatting also serves source receipts and missing-run alerts.
 
 Dependency-free by design: only the Python standard library and no 3.13+ syntax,
 so the notification step (and the pre-``setup-python`` smoke check) can import
@@ -201,7 +201,9 @@ def executor_label(env: Mapping[str, str]) -> str:
 def run_url(env: Mapping[str, str]) -> str:
     server = env.get("GITHUB_SERVER_URL", "https://github.com")
     repository = env.get("GITHUB_REPOSITORY", "local/local")
-    run_id = env.get("GITHUB_RUN_ID", "0")
+    run_id = env.get("GITHUB_RUN_ID", "")
+    if not run_id or not env.get("GITHUB_REPOSITORY"):
+        return ""
     attempt = env.get("GITHUB_RUN_ATTEMPT", "1")
     return f"{server}/{repository}/actions/runs/{run_id}/attempts/{attempt}"
 
@@ -310,6 +312,38 @@ def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
     return lines[:4]
 
 
+def render_run_notice(
+    *,
+    label: str,
+    batch: str,
+    asof: str,
+    details: list[str],
+    url: str,
+) -> str:
+    """Use one compact layout and keep the Run link when details need trimming."""
+
+    header = (
+        f"**{label} {sanitize_one_line(batch)}**\n"
+        f"対象日: {sanitize_one_line(asof) or '未確定'}\n"
+        f"Executor: {executor_label(os.environ)}"
+    )
+    footer = f"\n\nRun: <{url}>" if url else "\n\nRun: なし"
+    body = "\n\n" + "\n".join(f"- {line}" for line in details) if details else ""
+    budget = max(0, MESSAGE_MAX_CHARS - len(header) - len(footer))
+    if len(body) > budget:
+        body = body[: max(0, budget - 1)].rstrip() + "…"
+    return header + body + footer
+
+
+def step_label(value: str) -> str:
+    return {
+        "success": "成功",
+        "failure": "失敗",
+        "cancelled": "取消",
+        "skipped": "未実行",
+    }.get(value, "未確認")
+
+
 def render_message(
     *,
     outcome: str,
@@ -318,23 +352,34 @@ def render_message(
     notice: Mapping[str, object],
     url: str,
     integration_report: Mapping[str, object] | None = None,
+    step_outcomes: Mapping[str, str] | None = None,
 ) -> str:
-    """Render the bounded (<= 2000 chars) message: one headline, the delta, the run."""
+    """Separate workflow outcome, publication steps and retained screening data."""
 
-    headline = f"{OUTCOME_LABELS[outcome]} as-of {asof or '-'}"
+    details = []
     if failed_step:
-        headline += f" — failed step: {failed_step}"
-    lines = [
-        headline,
-        f"executor: {executor_label(os.environ)}",
-        *render_delta(notice),
-        *render_deferred_inputs(integration_report or {}),
-        f"run: {url}",
-    ]
-    message = "\n".join(lines)
-    if len(message) > MESSAGE_MAX_CHARS:
-        message = message[: MESSAGE_MAX_CHARS - 1].rstrip() + "…"
-    return message
+        details.append(f"要確認工程: {sanitize_one_line(failed_step)}")
+    if step_outcomes is not None:
+        details.append(
+            "工程結果: "
+            + " / ".join(
+                f"{name} {step_label(step_outcomes.get(step, 'unknown'))}"
+                for step, name in (
+                    ("publish-lake", "Lake公開"),
+                    ("upload-stores", "Store反映"),
+                    ("publish-serving", "表示公開"),
+                )
+            )
+        )
+    details.extend(render_delta(notice))
+    details.extend(render_deferred_inputs(integration_report or {}))
+    return render_run_notice(
+        label=OUTCOME_LABELS[outcome],
+        batch="共通統合（cloud-daily-batch）",
+        asof=asof,
+        details=details,
+        url=url,
+    )
 
 
 def deliver(
@@ -415,6 +460,7 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         notice=notice,
         url=run_url(env),
         integration_report=load_notice(args.integration_report_path),
+        step_outcomes=step_outcomes,
     )
     print(message, flush=True)
     failure = deliver(

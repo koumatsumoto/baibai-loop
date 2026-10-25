@@ -5,7 +5,14 @@ from __future__ import annotations
 import os
 import sys
 
-from .discord import DEFAULT_TIMEOUT_SECONDS, deliver, executor_label, run_url, sanitize_one_line
+from .discord import (
+    DEFAULT_TIMEOUT_SECONDS,
+    deliver,
+    render_run_notice,
+    run_url,
+    sanitize_one_line,
+    step_label,
+)
 
 
 def main() -> int:
@@ -13,10 +20,23 @@ def main() -> int:
     asof = sanitize_one_line(os.environ.get("ASOF", "unknown"))
     acquired = os.environ.get("ACQUIRE_RESULT", "unknown")
     staged = os.environ.get("STAGE_RESULT", "unknown")
-    message = (
-        f"source {source} as-of {asof}: acquisition={acquired}; private_receipts={staged}; "
-        "canonical/serving integration runs on its separate schedule"
-        f"\nexecutor: {executor_label(os.environ)}\nrun: {run_url(os.environ)}"
+    if "failure" in {acquired, staged}:
+        label = "[FAILED]"
+    elif "cancelled" in {acquired, staged}:
+        label = "[CANCELLED]"
+    elif acquired == staged == "success":
+        label = "[OK]"
+    else:
+        label = "[SKIPPED]" if acquired == "skipped" else "[UNKNOWN]"
+    message = render_run_notice(
+        label=label,
+        batch=f"情報取得（{source}）",
+        asof=asof if asof != "unknown" else "",
+        details=[
+            f"取得ジョブ: {step_label(acquired)} / private受領: {step_label(staged)}",
+            "正本・表示への反映は別スケジュールの共通統合で実施",
+        ],
+        url=run_url(os.environ),
     )
     print(message, flush=True)
     if acquired in {"failure", "cancelled"} or staged in {"failure", "cancelled"}:
