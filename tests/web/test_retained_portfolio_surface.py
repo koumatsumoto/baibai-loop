@@ -44,6 +44,7 @@ def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tm
     assert dashboard["available_cash_yen"] is not None
     tasks = json.loads((output / "views/tasks.json").read_text())
     assert tasks["open_tasks"][0]["task_id"] == task.task_id
+    assert tasks["earnings_calendar_available"] is False
     outcomes = json.loads((output / "views/outcomes.json").read_text())
     assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
     assert outcomes["outcomes"][0]["benchmark_cumulative_return_pct"] == 8.2
@@ -94,3 +95,13 @@ def test_local_read_surface_does_not_initialize_sources(tmp_path, path):
 def test_retired_local_api_routes_are_not_spa_fallback(tmp_path, path):
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
         assert client.get(path).status_code == 404
+
+
+def test_no_holdings_does_not_read_earnings_calendar(tmp_path, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no holding should query earnings calendar")
+
+    monkeypatch.setattr("baibai_web.sources.db_sources.read_next_earnings_dates", forbidden)
+    assert (
+        DbMarketSource(tmp_path / "absent").next_earnings_dates([], as_of=date(2026, 10, 25)) == {}
+    )

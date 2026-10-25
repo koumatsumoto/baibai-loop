@@ -160,3 +160,25 @@ def test_calendar_collapses_same_ticker_expiries_without_collapsing_other_milest
         ("reservation_expiry", "3333", date(2026, 10, 16)),
         ("reservation_expiry", "2222", date(2026, 10, 17)),
     ]
+
+
+@pytest.mark.parametrize("calendar", [None, {}])
+def test_unavailable_earnings_remains_distinct_from_confirmed_empty(mocker, calendar):
+    tasks, ledger, market = [mocker.Mock() for _ in range(3)]
+    tasks.exists.return_value = True
+    tasks.list_tasks.return_value = []
+    ledger.exists.return_value = True
+    ledger.snapshot.return_value.holdings = [mocker.Mock(ticker="2331")]
+    ledger.snapshot.return_value.active_reservations = [
+        mocker.Mock(ticker="2331", expires_at=datetime.fromisoformat("2026-10-17T00:00:00+09:00"))
+    ]
+    market.security_names.return_value = {}
+    market.next_earnings_dates.return_value = calendar
+    mocker.patch(
+        "baibai_web.readmodel.builders.tasks.datetime"
+    ).now.return_value = datetime.fromisoformat("2026-10-14T12:00:00+09:00")
+    view = build_tasks(tasks, ledger, market)
+    assert view.earnings_calendar_available is (calendar is not None)
+    assert [(event.kind, event.event_date) for event in view.upcoming_events] == [
+        ("reservation_expiry", date(2026, 10, 16))
+    ]

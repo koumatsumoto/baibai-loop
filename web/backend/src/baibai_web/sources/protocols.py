@@ -15,7 +15,9 @@ class LedgerSource(Protocol):
 
 class MarketSource(Protocol):
     def security_names(self, *, as_of: date) -> Mapping[str, str]: ...
-    def next_earnings_dates(self, tickers: list[str], *, as_of: date) -> Mapping[str, date]: ...
+    def next_earnings_dates(
+        self, tickers: list[str], *, as_of: date
+    ) -> Mapping[str, date] | None: ...
 
 
 class TaskSource(Protocol):

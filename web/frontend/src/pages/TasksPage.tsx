@@ -17,11 +17,50 @@ export function NextTaskCard({ task }: { task: TaskView | null }) {
   return <SectionCard meta={task?.overdue === true && <Badge variant="destructive">期限超過</Badge>} padded title="期限が近い用件">{task === null ? <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p> : <div className="flex flex-wrap items-center gap-x-4 gap-y-2"><time className="shrink-0 font-mono text-sm font-semibold" dateTime={task.due_date}>期限 {formatJstDate(task.due_date)}</time><p className="min-w-[16rem] flex-1 font-medium">{task.title}</p></div>}</SectionCard>
 }
 
-export function EventsCard({ events, ledgerError }: { events: UpcomingEventView[]; ledgerError: string | null }) {
-  const meta = ledgerError === null
+export function EventsCard({ events, ledgerError, earningsCalendarAvailable = null }: {
+  events: UpcomingEventView[]
+  ledgerError: string | null
+  earningsCalendarAvailable?: boolean | null
+}) {
+  const complete = ledgerError === null && earningsCalendarAvailable !== false
+  const meta = complete
     ? <Badge variant="secondary">{events.length} 件</Badge>
     : <Badge variant="destructive">不完全</Badge>
-  return <SectionCard description="決算・予約期限" meta={meta} title="今後 14 日のイベント">{ledgerError !== null && <Alert className="m-5" variant="destructive"><CircleAlert /><AlertTitle>イベント情報が不完全です</AlertTitle><AlertDescription>{ledgerError}</AlertDescription></Alert>}{events.length === 0 && ledgerError === null ? <p className="px-5 py-6 text-sm text-muted-foreground">今後 14 日のイベントはありません。</p> : <div className="divide-y">{events.map((event) => <div className="flex flex-wrap items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}><time className="min-w-[5.5rem] font-mono text-sm" dateTime={event.event_date}>{formatJstDateShort(event.event_date)}</time><Badge variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{event.days_until === 0 ? '本日' : `あと ${event.days_until} 日`}</Badge><Badge variant="secondary">{EVENT_KIND_LABEL[event.kind]}</Badge>{event.ticker === null ? <span>{event.label}</span> : <span className="font-medium hover:underline" ><span className="font-mono">{event.ticker}</span>{event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}</span>}</div>)}</div>}</SectionCard>
+  return (
+    <SectionCard description="決算・予約期限" meta={meta} title="今後 14 日のイベント">
+      {ledgerError !== null && (
+        <Alert className="m-5" variant="destructive">
+          <CircleAlert /><AlertTitle>イベント情報が不完全です</AlertTitle>
+          <AlertDescription>{ledgerError}</AlertDescription>
+        </Alert>
+      )}
+      {earningsCalendarAvailable === false && (
+        <Alert className="m-5" variant="destructive">
+          <CircleAlert /><AlertTitle>決算予定を確認できません</AlertTitle>
+          <AlertDescription>有効な決算カレンダーを確認できていません。確認できた予約期限だけを表示しています。</AlertDescription>
+        </Alert>
+      )}
+      {events.length === 0 && complete ? (
+        <p className="px-5 py-6 text-sm text-muted-foreground">今後 14 日のイベントはありません。</p>
+      ) : (
+        <div className="divide-y">
+          {events.map((event) => (
+            <div className="flex flex-wrap items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
+              <time className="min-w-[5.5rem] font-mono text-sm" dateTime={event.event_date}>{formatJstDateShort(event.event_date)}</time>
+              <Badge variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{event.days_until === 0 ? '本日' : `あと ${event.days_until} 日`}</Badge>
+              <Badge variant="secondary">{EVENT_KIND_LABEL[event.kind]}</Badge>
+              {event.ticker === null ? <span>{event.label}</span> : (
+                <span className="font-medium">
+                  <span className="font-mono">{event.ticker}</span>
+                  {event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  )
 }
 
 export function TaskList({ data }: { data: TasksView }) {
@@ -42,7 +81,7 @@ export function TasksPage() {
   if (data === null) return <LoadingPage label="Tasks を読み込んでいます" />
   return <PageShell lead="期限付きの用件と、近い決算・予約期限を確認します。" meta={<span className="text-xs text-muted-foreground">表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>} title="Tasks">
     <NextTaskCard task={data.next_task} />
-    <EventsCard events={data.upcoming_events} ledgerError={data.ledger_error} />
+    <EventsCard events={data.upcoming_events} ledgerError={data.ledger_error} earningsCalendarAvailable={data.earnings_calendar_available} />
     <TaskList data={data} />
   </PageShell>
 }

@@ -56,11 +56,15 @@ class DbMarketSource:
             if row.get("name")
         }
 
-    def next_earnings_dates(self, tickers: list[str], *, as_of: date) -> Mapping[str, date]:
+    def next_earnings_dates(self, tickers: list[str], *, as_of: date) -> Mapping[str, date] | None:
         if not tickers:
             return {}
-        dates = read_next_earnings_dates(self._path, as_of) or {}
-        return {ticker: dates[ticker] for ticker in tickers if ticker in dates}
+        dates = read_next_earnings_dates(self._path, as_of)
+        return (
+            None
+            if dates is None
+            else {ticker: dates[ticker] for ticker in tickers if ticker in dates}
+        )
 
 
 class DbTaskSource:

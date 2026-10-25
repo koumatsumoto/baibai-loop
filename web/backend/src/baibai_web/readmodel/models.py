@@ -98,6 +98,9 @@ class TasksView(BaseModel):
     open_tasks: list[TaskView]
     next_task: TaskView | None
     upcoming_events: list[UpcomingEventView]
+    earnings_calendar_available: bool | None = Field(
+        default=None, description="保有決算予定の確認可否。保有なし/台帳不明はnull。"
+    )
     ledger_error: str | None
 
 

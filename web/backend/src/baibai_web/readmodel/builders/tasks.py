@@ -66,10 +66,11 @@ def build_tasks(
         next_task=next_task,
         upcoming_events=_upcoming_events(
             today=today,
-            earnings=earnings_dates,
+            earnings=earnings_dates or {},
             names=security_names,
             expiries=((item.ticker, item.expires_at) for item in snapshot.active_reservations),
         ),
+        earnings_calendar_available=None if not holding_tickers else earnings_dates is not None,
         ledger_error=None,
     )
 

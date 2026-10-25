@@ -92,6 +92,10 @@ export interface TasksView {
   open_tasks: TaskView[]
   next_task: TaskView | null
   upcoming_events: UpcomingEventView[]
+  /**
+   * 保有決算予定の確認可否。保有なし/台帳不明はnull。
+   */
+  earnings_calendar_available: boolean | null
   ledger_error: string | null
 }
 

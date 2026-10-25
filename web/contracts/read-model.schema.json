@@ -596,6 +596,19 @@
           "title": "Upcoming Events",
           "type": "array"
         },
+        "earnings_calendar_available": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "保有決算予定の確認可否。保有なし/台帳不明はnull。",
+          "title": "Earnings Calendar Available"
+        },
         "ledger_error": {
           "anyOf": [
             {
@@ -614,6 +627,7 @@
         "open_tasks",
         "next_task",
         "upcoming_events",
+        "earnings_calendar_available",
         "ledger_error"
       ],
       "title": "TasksView",
