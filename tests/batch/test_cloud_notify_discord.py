@@ -206,23 +206,30 @@ def test_render_message_is_one_headline_the_delta_and_the_run(tmp_path: Path) ->
     )
 
     assert message.splitlines() == [
-        "[OK] as-of 2026-08-26",
-        "executor: Local",
-        "🆕 新規 候補入り: 1001 Alpha E[r]+8.0%",
-        "👋 候補退出: 9001 Zulu E[r]+6.0%",
-        f"run: {RUN_URL}",
+        "**[OK] 共通統合（cloud-daily-batch）**",
+        "対象日: 2026-08-26",
+        "Executor: Local",
+        "",
+        "- 🆕 新規 候補入り: 1001 Alpha E[r]+8.0%",
+        "- 👋 候補退出: 9001 Zulu E[r]+6.0%",
+        "",
+        f"Run: <{RUN_URL}>",
     ]
 
 
-def test_render_message_names_the_failed_step_in_the_headline() -> None:
+def test_render_message_names_the_failed_step_separately() -> None:
     message = render_message(
         outcome="failed", asof="", failed_step="hydrate", notice={}, url=RUN_URL
     )
 
     assert message.splitlines() == [
-        "[FAILED] as-of - — failed step: hydrate",
-        "executor: Local",
-        f"run: {RUN_URL}",
+        "**[FAILED] 共通統合（cloud-daily-batch）**",
+        "対象日: 未確定",
+        "Executor: Local",
+        "",
+        "- 要確認工程: hydrate",
+        "",
+        f"Run: <{RUN_URL}>",
     ]
 
 
@@ -237,8 +244,8 @@ def test_render_message_executor_comes_from_runner(monkeypatch, github_actions, 
     message = render_message(
         outcome="ok", asof="2026-09-26", failed_step="", notice={}, url=RUN_URL
     )
-    assert message.splitlines()[1] == f"executor: {expected}"
-    assert message.count("executor:") == 1
+    assert message.splitlines()[2] == f"Executor: {expected}"
+    assert message.count("Executor:") == 1
 
 
 def test_render_message_separates_an_unmeasured_delta_from_an_empty_one(tmp_path: Path) -> None:
@@ -273,7 +280,7 @@ def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_pa
 
     line = render_message(
         outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
-    ).splitlines()[2]
+    ).splitlines()[4]
 
     assert "全7件・銘柄コード順で5件表示" in line
     assert line.endswith("（他2件）")
@@ -289,7 +296,7 @@ def test_render_message_keeps_a_multiline_entry_from_splitting_the_message(
         outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
     )
 
-    assert len(message.splitlines()) == 5
+    assert len(message.splitlines()) == 8
     assert "1001 Evil name x" in message
 
 
@@ -361,10 +368,11 @@ def test_main_delivers_the_ok_message_with_the_delta(
 
     assert exit_code == 0
     message = _sent(transport)
-    assert message.startswith(
-        "[OK] as-of 2026-08-26\nexecutor: Local\n🆕 新規 候補入り: 1001 Alpha"
-    )
-    assert message.endswith(f"run: {RUN_URL}")
+    assert message.startswith("**[OK] 共通統合（cloud-daily-batch）**")
+    assert "対象日: 2026-08-26" in message
+    assert "- 工程結果: Lake公開 成功 / Store反映 成功 / 表示公開 成功" in message
+    assert "- 🆕 新規 候補入り: 1001 Alpha" in message
+    assert message.endswith(f"Run: <{RUN_URL}>")
     # The message is also printed so the run log carries it.
     assert message in capsys.readouterr().out
 
@@ -376,9 +384,8 @@ def test_main_reports_degraded_for_exit_3(tmp_path: Path, monkeypatch: pytest.Mo
         tmp_path, monkeypatch, "--batch-exit-code", "3", notice=notice
     )
 
-    assert _sent(transport).startswith(
-        "[DEGRADED] as-of 2026-08-26 — failed step: indicator-refresh-30d"
-    )
+    assert _sent(transport).startswith("**[DEGRADED]")
+    assert "要確認工程: indicator-refresh-30d" in _sent(transport)
 
 
 def test_main_names_the_batch_stage_when_the_batch_itself_failed(
@@ -390,7 +397,8 @@ def test_main_names_the_batch_stage_when_the_batch_itself_failed(
         tmp_path, monkeypatch, "--batch-exit-code", "1", notice=notice
     )
 
-    assert _sent(transport).startswith("[FAILED] as-of 2026-08-26 — failed step: screening-run")
+    assert _sent(transport).startswith("**[FAILED]")
+    assert "要確認工程: screening-run" in _sent(transport)
 
 
 def test_main_names_the_workflow_step_that_failed_before_the_batch(
@@ -400,7 +408,9 @@ def test_main_names_the_workflow_step_that_failed_before_the_batch(
         tmp_path, monkeypatch, "--setup-outcome", "success", "--sync-outcome", "failure"
     )
 
-    assert _sent(transport).startswith("[FAILED] as-of - — failed step: sync")
+    assert _sent(transport).startswith("**[FAILED]")
+    assert "対象日: 未確定" in _sent(transport)
+    assert "要確認工程: sync" in _sent(transport)
 
 
 def test_main_blames_pre_batch_when_no_tracked_step_failed_and_the_batch_never_ran(
@@ -408,13 +418,13 @@ def test_main_blames_pre_batch_when_no_tracked_step_failed_and_the_batch_never_r
 ) -> None:
     _exit_code, transport = _run_main(tmp_path, monkeypatch, "--setup-outcome", "success")
 
-    assert "failed step: pre-batch" in _sent(transport)
+    assert "要確認工程: pre-batch" in _sent(transport)
 
 
 def test_main_reports_cancelled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _exit_code, transport = _run_main(tmp_path, monkeypatch, "--cancelled", "true")
 
-    assert _sent(transport).startswith("[CANCELLED]")
+    assert _sent(transport).startswith("**[CANCELLED]")
 
 
 def test_main_exits_0_when_delivery_fails_and_says_so_on_stderr(
@@ -488,3 +498,40 @@ def test_successful_integration_notice_keeps_deferred_input_and_real_source_day(
     assert "入力延期: edinet-metrics" in message
     assert "保存一覧日=2026-10-23" in message
     assert "Screening更新なし（非営業日）" in message
+
+
+def test_failed_after_publication_keeps_successful_publication_steps() -> None:
+    message = render_message(
+        outcome="failed",
+        asof="2026-10-25",
+        failed_step="lease-release",
+        notice={},
+        url=RUN_URL,
+        step_outcomes={
+            "publish-lake": "success",
+            "upload-stores": "success",
+            "publish-serving": "success",
+            "lease-release": "failure",
+        },
+    )
+    assert "[FAILED]" in message
+    assert "要確認工程: lease-release" in message
+    assert "工程結果: Lake公開 成功 / Store反映 成功 / 表示公開 成功" in message
+
+
+def test_long_details_keep_a_complete_preview_suppressed_run_link() -> None:
+    message = discord.render_run_notice(
+        label="[FAILED]", batch="test", asof="2026-10-25", details=["x" * 4000], url=RUN_URL
+    )
+    assert len(message) <= discord.MESSAGE_MAX_CHARS
+    assert "…" in message
+    assert message.endswith(f"Run: <{RUN_URL}>")
+
+
+def test_local_execution_without_run_identity_does_not_invent_a_github_url() -> None:
+    assert discord.run_url({}) == ""
+    message = discord.render_run_notice(
+        label="[OK]", batch="test", asof="2026-10-25", details=[], url=""
+    )
+    assert "Run: なし" in message
+    assert "local/local" not in message

@@ -38,12 +38,12 @@ from baibai_batch.observability.discord import (
     Transport,
     _urllib_transport,
     deliver,
+    render_run_notice,
     run_url,
     sanitize_one_line,
 )
 
 WATCHED_WORKFLOW = "cloud-daily-batch"
-MESSAGE_MAX_CHARS = 2000
 RUNS_SHOWN = 5
 
 # The watchdog's own cron, in UTC. `--check-date` evaluates the window a scheduled
@@ -324,26 +324,25 @@ def render_alert(
     """Render the bounded alert message for a window with no successful run."""
     window_hours = int((verdict.window_end - verdict.window_start).total_seconds() // 3600)
     lines = [
-        (
-            f"[MISSING] no successful {workflow} run for "
-            f"{verdict.check_date.isoformat()} in the last {window_hours}h"
-        ),
+        f"監視対象: {sanitize_one_line(workflow)}",
+        f"直近{window_hours}時間の確認範囲に対象日の成功runなし",
         f"repo: {sanitize_one_line(repository)}",
         f"window: {verdict.window_start.isoformat()} .. {verdict.window_end.isoformat()}",
     ]
     if verdict.runs_in_window:
         lines.append("runs in window:")
-        for run in verdict.runs_in_window[:RUNS_SHOWN]:
-            lines.append(f"- {run.describe()}")
+        lines.extend(run.describe() for run in verdict.runs_in_window[:RUNS_SHOWN])
         if len(verdict.runs_in_window) > RUNS_SHOWN:
-            lines.append(f"- +{len(verdict.runs_in_window) - RUNS_SHOWN} more")
+            lines.append(f"+{len(verdict.runs_in_window) - RUNS_SHOWN} more")
     else:
         lines.append("runs in window: none")
-    lines.append(f"watchdog: {sanitize_one_line(watchdog_run_url)}")
-    message = "\n".join(lines)
-    if len(message) > MESSAGE_MAX_CHARS:
-        message = message[: MESSAGE_MAX_CHARS - 1].rstrip() + "…"
-    return message
+    return render_run_notice(
+        label="[MISSING]",
+        batch="実行監視（cloud-batch-watchdog）",
+        asof=verdict.check_date.isoformat(),
+        details=lines,
+        url=watchdog_run_url,
+    )
 
 
 def resolve_window_end(

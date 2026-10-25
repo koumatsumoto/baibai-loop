@@ -600,7 +600,10 @@ def test_the_alert_names_the_empty_window_without_guessing_why() -> None:
     assert "[MISSING]" in message
     assert "runs in window: none" in message
     assert "schedule did not fire" not in message
-    assert "https://run" in message
+    assert "**[MISSING] 実行監視（cloud-batch-watchdog）**" in message
+    assert "監視対象: cloud-daily-batch" in message
+    assert "対象日:" in message
+    assert message.endswith("Run: <https://run>")
 
 
 def test_the_alert_lists_the_runs_that_did_happen_but_did_not_succeed() -> None:
