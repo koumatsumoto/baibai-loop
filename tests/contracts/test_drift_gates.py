@@ -378,8 +378,8 @@ def test_markdown_link_gate_keeps_external_links_out_of_filesystem_checks(tmp_pa
     assert check_markdown_links.check(tmp_path) == []
 
 
-def test_markdown_link_gate_checks_study_links_and_bare_path_anchors(tmp_path):
-    study = tmp_path / "studies" / "example"
+def test_markdown_link_gate_checks_colocated_links_and_bare_path_anchors(tmp_path):
+    study = tmp_path / "docs" / "reference" / "example"
     study.mkdir(parents=True)
     (study / "plan.md").write_text("# Plan\n\n## Scope\n")
     report = study / "report.md"
@@ -387,5 +387,5 @@ def test_markdown_link_gate_checks_study_links_and_bare_path_anchors(tmp_path):
     assert check_markdown_links.check(tmp_path) == []
     report.write_text("[plan](plan.md#gone)\n")
     assert check_markdown_links.check(tmp_path) == [
-        "studies/example/report.md: missing Markdown anchor plan.md#gone"
+        "docs/reference/example/report.md: missing Markdown anchor plan.md#gone"
     ]
