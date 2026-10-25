@@ -20,6 +20,7 @@ from baibai_engine.machine_analysis.market_context.snapshot import (
 )
 from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.market.jquants_reader import read_master_snapshot
+from baibai_engine.market.price_models import PriceBar
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 5, 30)
@@ -263,11 +264,34 @@ def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_stor
         bars_by_ticker=bars,
         subjects=tickers,
     )
-    assert build_security_market_contexts(
-        sqlite_path=context_store,
-        tickers=tickers,
-        asof_date=ASOF,
-        self_range_window_bars=750,
-        prepared=prepared,
-        price_bars_by_ticker=bars,
-    ) == expected
+    assert (
+        build_security_market_contexts(
+            sqlite_path=context_store,
+            tickers=tickers,
+            asof_date=ASOF,
+            self_range_window_bars=750,
+            prepared=prepared,
+            price_bars_by_ticker=bars,
+        )
+        == expected
+    )
+
+
+def test_common_market_window_does_not_expand_with_sparse_selected_subjects(context_store):
+    old = [PriceBar(ASOF - timedelta(days=600 - i), 100.0 + i, None) for i in range(80)]
+    bars = {"1321": old, "OLD1": old}
+    master = read_master_snapshot(context_store, as_of=ASOF)
+    snapshots = []
+    for subjects in ((), ("OLD1",)):
+        prepared = prepare_market_context_from_bars(
+            sqlite_path=context_store,
+            asof_date=ASOF,
+            master=master,
+            bars_by_ticker=bars,
+            subjects=subjects,
+        )
+        snapshots.append(
+            build_market_snapshot(sqlite_path=context_store, asof_date=ASOF, prepared=prepared)
+        )
+    assert snapshots[0] == snapshots[1]
+    assert all(point["benchmark_return_20d"] is None for point in snapshots[1]["points"])

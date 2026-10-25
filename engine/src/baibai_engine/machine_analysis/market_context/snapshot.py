@@ -49,6 +49,10 @@ class _Series:
     dates: list[date]
     prices: list[float]
 
+    def since(self, start: date) -> _Series:
+        index = bisect_left(self.dates, start)
+        return self if index == 0 else _Series(self.dates[index:], self.prices[index:])
+
     def prefix(self, upto: date) -> Sequence[float]:
         return self.prices[: bisect_right(self.dates, upto)]
 
@@ -205,7 +209,11 @@ def build_market_snapshot(
     series_by_ticker = (
         _load_series(sqlite_path, start=start, end=asof_date)
         if prepared is None
-        else prepared.series_by_ticker
+        else {
+            ticker: series.since(start)
+            for ticker, series in prepared.series_by_ticker.items()
+            if series.dates and series.dates[-1] >= start
+        }
     )
     master = (
         read_master_snapshot(sqlite_path, as_of=asof_date) if prepared is None else prepared.master

@@ -9,9 +9,7 @@ from baibai_engine.storage.lake.writer import sealed_sqlite_snapshot
 
 
 def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(tmp_path, mocker):
-    path = market_store(
-        tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),)
-    )
+    path = market_store(tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),))
     spies = [
         mocker.spy(generation_reader, name)
         for name in ("read_price_bars", "read_financial_documents", "read_observation_population")

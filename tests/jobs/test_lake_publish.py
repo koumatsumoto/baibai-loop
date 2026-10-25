@@ -1343,12 +1343,17 @@ def test_failure_after_prepare_does_not_advance_pointer_or_origin(tmp_path, monk
     store = MemoryR2Store()
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
     path = tmp_path / "market.sqlite"
-    with pytest.raises(RuntimeError, match="generation failed"):
+    snapshot_paths = []
+
+    def prepare_then_fail():
         with market_publish_module.prepare_market_lake(
             sqlite_path=path, mirror_root=mirror, store=store, release_id="not-published"
         ) as prepared:
-            snapshot_path = prepared.source_snapshot.path
+            snapshot_paths.append(prepared.source_snapshot.path)
             raise RuntimeError("generation failed")
-    assert not snapshot_path.exists()
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        prepare_then_fail()
+    assert not snapshot_paths[0].exists()
     assert "lake/pointers/market/current.json" not in store.values
     assert read_lake_store_origin(path) is None

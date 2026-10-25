@@ -40,7 +40,7 @@ from baibai_engine.investment_judgment.workspace.files import (
     _load_mapping,
     _write_workspace_file,
 )
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation_query import read_model_inputs
 from baibai_engine.machine_analysis.screening.selection_query import read_selection
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
@@ -109,8 +109,8 @@ def _generated_selection(
         screening = read_selection(draft.screening_selection_id, path=runs_path)
         if screening is None or screening.generation_id != draft.generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-    models = ModelGenerationStore(runs_path).read_subjects(
-        draft.generation_id, subjects=("market", *(t.ticker for t in draft.targets))
+    models = read_model_inputs(
+        draft.generation_id, subjects=("market", *(t.ticker for t in draft.targets)), path=runs_path
     )
     if models is None:
         raise ValueError("chosen model generation is unavailable")

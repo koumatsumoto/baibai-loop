@@ -30,6 +30,14 @@ class TTMRules(BaseModel):
     period_end_tolerance_days: int = Field(ge=0)
 
 
+DEFAULT_TTM_RULES = TTMRules(
+    full_year_min_days=330,
+    full_year_max_days=370,
+    period_length_tolerance_ratio=0.1,
+    period_end_tolerance_days=45,
+)
+
+
 # field が 80 を超えるので kw_only にする。位置引数で組めると、先頭へ 1 つ足しただけで
 # 呼び出し側の全引数が静かに 1 つずれる。
 @dataclass(frozen=True, slots=True, kw_only=True, config=_MODEL_CONFIG)

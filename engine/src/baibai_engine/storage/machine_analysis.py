@@ -66,6 +66,7 @@ CREATE TABLE generated_model (
 CREATE TABLE screening_selection (
     selection_id TEXT PRIMARY KEY,
     generation_id TEXT NOT NULL REFERENCES model_generation(generation_id),
+    published_at TEXT NOT NULL,
     payload_gzip BLOB NOT NULL
 ) STRICT;
 CREATE INDEX screening_selection_generation_idx ON screening_selection (generation_id);

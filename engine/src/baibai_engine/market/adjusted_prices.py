@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import closing
 from datetime import date, timedelta
+from itertools import groupby
 from pathlib import Path
 
-from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.foundation.sqlite_read import read_rows, read_store_if_written
 from baibai_engine.market import price_models
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.price_basis import asof_basis_closes, asof_basis_prices
@@ -28,46 +30,60 @@ def read_price_bars(
     if tickers is not None:
         clause = " AND ticker IN (" + ",".join("?" for _ in tickers) + ")"
         parameters += tuple(tickers)
-    rows = read_rows(
-        sqlite_path,
+    query = (
         "SELECT ticker, traded_at, close, adjustment_factor, turnover_value, ex_right_type "  # nosec B608
         "FROM jquants_daily_bars WHERE traded_at >= ? AND traded_at <= ?"
         + clause
-        + " ORDER BY ticker, traded_at",
-        parameters,
-        connector=connect_read_only,
+        + " ORDER BY ticker, traded_at"
     )
-    # 取得世代の異なる調整済み価格を混ぜず、価格factorの後方累積で末尾基準へ揃える。
-    # factor自体にも配信元の訂正があるため、原本の再取得時には訂正値を保存する。
-    raw: dict[str, list[tuple[date, float | None, float | None, float | None]]] = {}
-    for ticker, traded_at, close, adjustment_factor, turnover_value, ex_right_type in rows:
-        _require_action_factor(ticker, traded_at, adjustment_factor, ex_right_type)
-        if not isinstance(traded_at, str):
-            continue
-        raw.setdefault(str(ticker), []).append(
-            (
-                date.fromisoformat(traded_at),
-                float(close) if isinstance(close, int | float) else None,
-                float(adjustment_factor) if isinstance(adjustment_factor, int | float) else None,
-                float(turnover_value) if isinstance(turnover_value, int | float) else None,
-            )
+    return (
+        read_store_if_written(
+            sqlite_path, lambda: _read_adjusted_rows(sqlite_path, query, parameters, end=end)
         )
+        or {}
+    )
+
+
+def _read_adjusted_rows(
+    path: Path, query: str, parameters: Sequence[object], *, end: date
+) -> dict[str, list[price_models.PriceBar]]:
+    """全社のSQL行とraw中間表を二重保持せず、銘柄単位で調整する。"""
     bars: dict[str, list[price_models.PriceBar]] = {}
-    for ticker, entries in raw.items():
-        valued = [
-            (traded_at, close, turnover)
-            for traded_at, close, _, turnover in entries
-            if close is not None
-        ]
-        adjusted = asof_basis_prices(
-            [(traded_at, close) for traded_at, close, _ in valued],
-            [(traded_at, adjustment_factor) for traded_at, _, adjustment_factor, _ in entries],
-            asof_date=end,
-        )
-        bars[ticker] = [
-            price_models.PriceBar(traded_at=traded_at, price=price, turnover_value=turnover)
-            for (traded_at, _, turnover), price in zip(valued, adjusted, strict=True)
-        ]
+    dates: dict[str, date] = {}
+    with closing(connect_read_only(path)) as connection:
+        rows = connection.execute(query, parameters)
+        for ticker, group in groupby(rows, key=lambda row: row[0]):
+            entries: list[tuple[date, float | None, float | None, float | None]] = []
+            for _, traded_at, close, factor, turnover, action in group:
+                _require_action_factor(ticker, traded_at, factor, action)
+                if not isinstance(traded_at, str):
+                    continue
+                day = dates.get(traded_at)
+                if day is None:
+                    day = date.fromisoformat(traded_at)
+                    dates[traded_at] = day
+                entries.append(
+                    (
+                        day,
+                        float(close) if isinstance(close, int | float) else None,
+                        float(factor) if isinstance(factor, int | float) else None,
+                        float(turnover) if isinstance(turnover, int | float) else None,
+                    )
+                )
+            if not entries:
+                continue
+            valued = [
+                (day, close, turnover) for day, close, _, turnover in entries if close is not None
+            ]
+            adjusted = asof_basis_prices(
+                [(day, close) for day, close, _ in valued],
+                [(day, factor) for day, _, factor, _ in entries],
+                asof_date=end,
+            )
+            bars[str(ticker)] = [
+                price_models.PriceBar(traded_at=day, price=price, turnover_value=turnover)
+                for (day, _, turnover), price in zip(valued, adjusted, strict=True)
+            ]
     return bars
 
 

@@ -40,8 +40,8 @@ class GeneratedModel(BaseModel):
     payload: dict[str, JsonValue]
 
 
-class _ModelCollection(BaseModel):
-    """固定入力とモデル内容。完全生成と読取sliceが共有する意味。"""
+class GenerationMetadata(BaseModel):
+    """計算対象日・実行時刻と固定入力。モデルを読み込まない一覧にも使う。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -50,6 +50,11 @@ class _ModelCollection(BaseModel):
     as_of: date
     evaluation_time: AwareDatetime
     inputs: dict[Identifier, InputSnapshot] = Field(min_length=1)
+
+
+class _ModelCollection(GenerationMetadata):
+    """固定入力に属する結果。完全生成と対象別sliceを区別する。"""
+
     models: tuple[GeneratedModel, ...]
 
     @field_validator("models")

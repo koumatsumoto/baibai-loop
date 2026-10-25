@@ -8,7 +8,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation_query import read_model_inputs
 from baibai_engine.machine_analysis.model_generation import ModelInputSlice
 
 from .company_growth_projection import project_company_growth
@@ -23,9 +23,7 @@ _COMPANY_MODELS = (
 
 
 def verify_generated_inputs(saved: ModelInputSlice, *, runs_path: Path) -> None:
-    canonical = ModelGenerationStore(runs_path).read_subjects(
-        saved.generation_id, subjects=saved.subjects
-    )
+    canonical = read_model_inputs(saved.generation_id, subjects=saved.subjects, path=runs_path)
     if canonical != saved:
         raise ValueError("model input slice differs from its canonical generation")
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -22,6 +23,7 @@ class ScreeningSelectionStore:
         self._path = path
 
     def publish(self, selection_id: str, selection: ScreeningSelection) -> bool:
+        """本DBの運用結果として発行する。比較実験は別の作業DBへ保存する。"""
         if not selection_id:
             raise ValueError("selection_id must not be empty")
         if not set(selection.result.tickers).issubset(selection.universe_tickers):
@@ -41,8 +43,13 @@ class ScreeningSelectionStore:
                     connection.commit()
                     return False
                 connection.execute(
-                    "INSERT INTO screening_selection VALUES (?,?,?)",
-                    (selection_id, selection.generation_id, gzip.compress(payload, mtime=0)),
+                    "INSERT INTO screening_selection VALUES (?,?,?,?)",
+                    (
+                        selection_id,
+                        selection.generation_id,
+                        datetime.now(UTC).isoformat(timespec="microseconds"),
+                        gzip.compress(payload, mtime=0),
+                    ),
                 )
                 connection.commit()
                 return True

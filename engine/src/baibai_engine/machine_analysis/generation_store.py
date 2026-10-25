@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import json
 import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
@@ -11,12 +10,12 @@ from pathlib import Path
 
 from baibai_engine.foundation.json import canonical_json
 from baibai_engine.storage.machine_analysis import (
-    connect_read_only,
     connect_rw,
     initialize_run_store,
 )
 
-from .model_generation import GeneratedModel, ModelGeneration, ModelInputSlice
+from .generation_query import read_generation, read_model_inputs
+from .model_generation import ModelGeneration, ModelInputSlice
 
 
 class GenerationConflictError(ValueError):
@@ -73,47 +72,12 @@ class ModelGenerationStore:
                 raise
 
     def read(self, generation_id: str) -> ModelGeneration | None:
-        return self._read(generation_id)
+        return read_generation(generation_id, path=self._path)
 
     def read_subjects(
         self, generation_id: str, *, subjects: Sequence[str]
     ) -> ModelInputSlice | None:
-        """必要対象のみをL3等へ渡す。共通市場はsubject='market'で明示する。"""
-        scope = tuple(sorted(set(subjects)))
-        generation = self._read(generation_id, subjects=scope)
-        return (
-            None
-            if generation is None
-            else ModelInputSlice.model_validate({**generation.model_dump(), "subjects": scope})
-        )
-
-    def _read(
-        self, generation_id: str, *, subjects: Sequence[str] | None = None
-    ) -> ModelGeneration | None:
-        with closing(connect_read_only(self._path)) as connection:
-            connection.execute("BEGIN")
-            header = connection.execute(
-                "SELECT header FROM model_generation WHERE generation_id=?", (generation_id,)
-            ).fetchone()
-            if header is None:
-                return None
-            scope = None if subjects is None else canonical_json(tuple(subjects))
-            rows = connection.execute(
-                "SELECT model_id,subject,calculation_revision,payload_gzip FROM generated_model "
-                "WHERE generation_id=? AND (? IS NULL OR subject IN "
-                "(SELECT value FROM json_each(?))) ORDER BY model_id,subject",
-                (generation_id, scope, scope),
-            )
-            models = tuple(
-                GeneratedModel(
-                    model_id=row[0],
-                    subject=row[1],
-                    calculation_revision=row[2],
-                    payload=json.loads(gzip.decompress(row[3])),
-                )
-                for row in rows
-            )
-            return ModelGeneration.model_validate({**json.loads(header[0]), "models": models})
+        return read_model_inputs(generation_id, subjects=subjects, path=self._path)
 
     @staticmethod
     def _require_identical(

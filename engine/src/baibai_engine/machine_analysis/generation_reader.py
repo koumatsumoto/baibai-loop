@@ -50,12 +50,15 @@ def read_and_generate_models(
     """
     if (economic_path is None) != (economic_identity is None):
         raise ValueError("economic snapshot path and identity must be paired")
-    if economic_identity is not None and economic_path is not None:
-        if (
+    if (
+        economic_identity is not None
+        and economic_path is not None
+        and (
             economic_identity.kind != "sqlite_snapshot"
             or sha256_file(economic_path) != economic_identity.sha256
-        ):
-            raise ValueError("economic snapshot differs from its fixed identity")
+        )
+    ):
+        raise ValueError("economic snapshot differs from its fixed identity")
     path = market_snapshot.path
     master = read_master_snapshot(path, as_of=as_of)
     if tickers is None:
@@ -65,10 +68,11 @@ def read_and_generate_models(
             sorted(
                 ticker
                 for ticker, row in master.securities.items()
-                if row["is_common_stock"]
-                and str(row["market_segment"]).upper() in ELIGIBLE_MARKETS
+                if row["is_common_stock"] and str(row["market_segment"]).upper() in ELIGIBLE_MARKETS
             )
         )
+        if not subjects:
+            raise ValueError("all-company generation has no eligible common-stock universe")
     else:
         subjects = tuple(sorted({normalize_ticker(ticker) for ticker in tickers}))
     documents: dict[str, list[JQuantsFinancialSummary]] = defaultdict(list)
@@ -139,7 +143,9 @@ def read_and_generate_models(
         external_observations=histories,
         market_context={
             "market": build_market_snapshot(sqlite_path=path, asof_date=as_of, prepared=prepared),
-            "reading": None if economic_path is None else reading_snapshot(economic_path, asof=as_of),
+            "reading": None
+            if economic_path is None
+            else reading_snapshot(economic_path, asof=as_of),
         },
         securities_context=contexts,
         market_context_revision="shared-market-context-v1",

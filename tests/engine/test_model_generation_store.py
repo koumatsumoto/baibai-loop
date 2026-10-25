@@ -189,3 +189,46 @@ def test_schema6_requires_explicit_migration_and_preserves_existing_data(tmp_pat
     with closing(sqlite3.connect(path)) as connection:
         assert connection.execute("SELECT payload FROM screening_run").fetchone()[0] == "{}"
     assert ModelGenerationStore(path).publish(generation())
+
+
+def test_publication_order_prefers_asof_then_real_publication_and_preserves_retry(tmp_path):
+    from baibai_engine.machine_analysis.screening.selection_query import read_publication
+
+    path = tmp_path / "runs"
+    models = ModelGenerationStore(path)
+    store = ScreeningSelectionStore(path)
+    current = generation()
+    older = current.model_copy(update={"generation_id": "older", "as_of": date(2026, 10, 22)})
+    models.publish(current)
+    models.publish(older)
+    for name, source, limit in (
+        ("z-first", current, 1),
+        ("a-second", current, 2),
+        ("late-backfill", older, 1),
+    ):
+        store.publish(
+            name,
+            select_generation(
+                source,
+                tickers=("1234",),
+                policy=TwoViewPolicy(earnings_limit=limit, combined_limit=0),
+            ),
+        )
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.executemany(
+            "UPDATE screening_selection SET published_at=? WHERE selection_id=?",
+            [
+                ("2026-10-25T09:00:00+00:00", "z-first"),
+                ("2026-10-25T18:00:01+09:00", "a-second"),
+                ("2026-10-26T00:00:00+00:00", "late-backfill"),
+            ],
+        )
+    latest = read_publication(path=path)
+    assert latest.selection_id == "a-second"
+    assert latest.selection.result.policy.earnings_limit == 2
+    assert read_publication(path=path, before_as_of=current.as_of).selection_id == "late-backfill"
+    first = read_publication(path=path, selection_id="z-first")
+    store.publish("z-first", first.selection)
+    assert read_publication(path=path, selection_id="z-first").published_at == first.published_at
+    assert read_publication(path=path).selection_id == "a-second"
+    assert read_publication(path=path, selection_id="missing") is None

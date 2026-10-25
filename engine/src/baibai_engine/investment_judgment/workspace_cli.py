@@ -31,7 +31,7 @@ from baibai_engine.investment_judgment.trade_proposal import ProposalConflictErr
 
 from .operation.service import OperationConflictError
 from .selection import GeneratedResearchSelectionDraft, ResearchRequest, ResearchSelectionDraft
-from .selection_query import ResearchInputsRequiredError, load_selection_context
+from .selection_query import ResearchInputsRequiredError, load_generated_selection_context
 from .workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceError,
@@ -81,7 +81,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="read comparison rows from the same run without requesting or selecting them",
     )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
-    context_parser.add_argument("--run-revision-id")
     context_parser.add_argument("--generation-id")
     context_parser.add_argument("--screening-selection-id")
     context_parser.add_argument("--db", type=Path)
@@ -223,31 +222,16 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     )
                 except ValidationError as error:
                     parser.error(str(error))
-                if args.generation_id is not None or args.screening_selection_id is not None:
-                    from .selection_query import load_generated_selection_context
-
-                    if args.run_revision_id is not None:
-                        raise ValueError("choose generated models or a legacy run, not both")
-                    payload = load_generated_selection_context(
-                        request=request,
-                        research_as_of=args.research_asof,
-                        generation_id=args.generation_id,
-                        screening_selection_id=args.screening_selection_id,
-                        known_at=resolved_now,
-                        runs_path=args.runs_path,
-                        db_path=args.db,
-                        comparison_tickers=tuple(args.compare_ticker),
-                    )
-                else:
-                    payload = load_selection_context(
-                        request=request,
-                        research_as_of=args.research_asof,
-                        run_revision_id=args.run_revision_id,
-                        known_at=resolved_now,
-                        runs_path=args.runs_path,
-                        db_path=args.db,
-                        comparison_tickers=tuple(args.compare_ticker),
-                    )
+                payload = load_generated_selection_context(
+                    request=request,
+                    research_as_of=args.research_asof,
+                    generation_id=args.generation_id,
+                    screening_selection_id=args.screening_selection_id,
+                    known_at=resolved_now,
+                    runs_path=args.runs_path,
+                    db_path=args.db,
+                    comparison_tickers=tuple(args.compare_ticker),
+                )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:
                     from baibai_engine.foundation.filesystem import write_text_atomic

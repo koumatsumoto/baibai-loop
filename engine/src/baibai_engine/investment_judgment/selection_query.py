@@ -206,8 +206,11 @@ def load_generated_selection_context(
     from pydantic import TypeAdapter
 
     from baibai_engine.investment_judgment.generated_inputs import project_generated_inputs
-    from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-    from baibai_engine.machine_analysis.screening.selection_query import read_selection
+    from baibai_engine.machine_analysis.generation_query import read_model_inputs
+    from baibai_engine.machine_analysis.screening.selection_query import (
+        read_publication,
+        read_selection,
+    )
     from baibai_engine.machine_analysis.screening.views import ViewSelection
 
     if known_at.utcoffset() is None:
@@ -215,6 +218,19 @@ def load_generated_selection_context(
     as_of = research_as_of or known_at.astimezone(JST).date()
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
+    if generation_id is None and screening_selection_id is None:
+        current = read_publication(path=runs_path, as_of=as_of, known_at=known_at)
+        if current is None:
+            return {
+                "schema_version": 3,
+                "status": "inputs_required",
+                "request": request.model_dump(mode="json"),
+                "research_as_of": as_of.isoformat(),
+                "input_known_at": known_at.isoformat(),
+                "missing_inputs": [{"code": "no_model_publication"}],
+            }
+        generation_id = current.generation.generation_id
+        screening_selection_id = current.selection_id
     if request.scope == "discover_new" and screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
     screening = None
@@ -251,7 +267,7 @@ def load_generated_selection_context(
             }
         )
     )
-    models = ModelGenerationStore(runs_path).read_subjects(generation_id, subjects=subjects)
+    models = read_model_inputs(generation_id, subjects=subjects, path=runs_path)
     if models is None:
         raise ValueError("chosen model generation is unavailable")
     if models.as_of > as_of or models.evaluation_time > known_at:
