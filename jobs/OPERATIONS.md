@@ -400,7 +400,7 @@ uv run baibai-engine market-context reading --asof <YYYY-MM-DD>
 uv run baibai-jobs validate-market-context-stores
 ```
 
-最後のcommandは原本storeのpayload・record count等を確認する。L2数式の証明やL3全履歴検査ではない。原本更新だけpush-indicatorsへ進み、式変更だけなら不要。取得失敗でcommit済み原本を取り消さず、L2欠測を直すため全取得を繰り返さない。
+最後のcommandは原本storeのpayload・record count等を確認する。L2数式の証明やL3全履歴検査ではない。原本更新だけpush-indicatorsへ進み、式変更だけなら不要。明示CLI取得では作業copyと同値の実受領も保存・発行する。長い取得中に正本が更新された場合や古い受領が後から統合される場合も、実際の最新受領を失わないためである。全履歴取得では同値・空応答の行も増えるため、必要なsourceと期間へ限定し、通常dailyの変更時のみ保存とは区別する。取得失敗でcommit済み原本を取り消さず、L2欠測を直すため全取得を繰り返さない。
 
 optionsのall-historyは保存済み古い日を再利用して直近と不足日を取得する。古い訂正は日付範囲を明示する。購読rolling境界の提供不能を示し、空応答と途中失敗を区別する。式変更だけでrawを再取得しない。
 
