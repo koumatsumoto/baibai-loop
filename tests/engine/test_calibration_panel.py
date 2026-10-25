@@ -26,7 +26,15 @@ from tests.helpers.screening_sqlite import (
     insert_financial_record,
 )
 
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import (
+    VALUATION_CALCULATION_REVISION,
+)
+from baibai_engine.machine_analysis.company_valuation.metrics.history import (
+    VALUATION_HISTORY_SESSIONS,
+)
+from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+    build_profitability_level_signals,
+)
 from baibai_engine.machine_analysis.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.machine_analysis.screening.calibration.cli import (
     calibration_build_command,
@@ -53,16 +61,16 @@ from baibai_engine.machine_analysis.screening.calibration.store import (
     write_forward,
     write_panel,
 )
-from baibai_engine.machine_analysis.screening.discovery.candidates import candidate_discovery_method_hash
+from baibai_engine.machine_analysis.screening.discovery.candidates import (
+    candidate_discovery_method_hash,
+)
 from baibai_engine.machine_analysis.screening.metric_builder import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.machine_analysis.screening.universe import UNIVERSE_SCOPE_REVISION
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import open_connection
-from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
-from baibai_engine.machine_analysis.company_valuation.metrics.history import VALUATION_HISTORY_SESSIONS
-from baibai_engine.machine_analysis.company_valuation.metrics.profit import build_profitability_level_signals
 
 ASOF = CALIBRATION_FIXTURE_ASOF
 

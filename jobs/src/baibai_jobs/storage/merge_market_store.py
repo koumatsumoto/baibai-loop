@@ -23,15 +23,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_jobs.storage.store_merge import (
-    MergeError,
-    MergeReport,
-    RowFilter,
-    TableMerge,
-    count,
-    merge_fact_tables,
-    schema_name,
-)
 from baibai_engine.job_api import (
     MARKET_SCHEMA_VERSION as SQLITE_SCHEMA_VERSION,
 )
@@ -40,6 +31,15 @@ from baibai_engine.job_api import (
 )
 from baibai_engine.job_api import (
     validate_market_schema as validate_current_schema,
+)
+from baibai_jobs.storage.store_merge import (
+    MergeError,
+    MergeReport,
+    RowFilter,
+    TableMerge,
+    count,
+    merge_fact_tables,
+    schema_name,
 )
 
 # The ledger of fetches, with the key that decides whether a row is the same row. It is

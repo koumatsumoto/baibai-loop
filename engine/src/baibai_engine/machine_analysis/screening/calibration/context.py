@@ -27,7 +27,9 @@ from baibai_engine.machine_analysis.company_valuation.calibration.contracts impo
     HURDLE_ER_ANNUAL,
     ErCalibrationContextArtifact,
 )
-from baibai_engine.machine_analysis.company_valuation.calibration.query import er_quintile_for_bounds
+from baibai_engine.machine_analysis.company_valuation.calibration.query import (
+    er_quintile_for_bounds,
+)
 from baibai_engine.machine_analysis.company_valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 from .evaluation import TRAP_EXCESS_THRESHOLD

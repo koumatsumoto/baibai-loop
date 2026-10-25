@@ -7,7 +7,10 @@ from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.reading.rules import ReadingRulesError, load_reading_rules
+from baibai_engine.machine_analysis.market_context.reading.rules import (
+    ReadingRulesError,
+    load_reading_rules,
+)
 from baibai_engine.storage.application.read import (
     connect_read_only as connect_application_read_only,
 )

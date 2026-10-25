@@ -14,7 +14,9 @@ from baibai_engine.machine_analysis.external_assessment.normalization import (
     document,
     number,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import AnalystRatingObservation
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    AnalystRatingObservation,
+)
 
 PARSER_VERSION = "rakuten-rating-3"
 IFRAME_BASE = "https://rakuten-sec.ifis.co.jp/index.php"

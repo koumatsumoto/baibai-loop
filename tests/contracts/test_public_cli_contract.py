@@ -68,7 +68,14 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
 
 @pytest.mark.parametrize(
     "domain",
-    ["screening", "investment-judgment", "position", "operation", "market-context", "technical-analysis"],
+    [
+        "screening",
+        "investment-judgment",
+        "position",
+        "operation",
+        "market-context",
+        "technical-analysis",
+    ],
 )
 def test_routed_domain_help_reaches_its_parser(domain: str) -> None:
     with pytest.raises(SystemExit) as exit_info:

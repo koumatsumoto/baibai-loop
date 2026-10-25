@@ -3,17 +3,22 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import (
+from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     _plan,
     _stage,
     pair_responses,
 )
-from tests.batch.external_assessment_publication_fixtures import (
+from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,
 )
-from tests.batch.external_assessment_publication_fixtures import publication as publication
+from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
+from baibai_engine.job_api import (
+    external_assessment_decode_attempt,
+    external_assessment_history_digests,
+    external_assessment_save_observations,
+)
 from baibai_jobs.jobs.external_assessment_integration import (
     VALUATION_DATASET,
     merge_ready,
@@ -23,11 +28,6 @@ from baibai_jobs.storage import external_assessment_staging as staging
 from baibai_jobs.storage import publish_market_lake as publisher
 from baibai_jobs.storage.external_assessment_ready import load_ready, prepare_plan, save_ready
 from baibai_jobs.storage.lake_publish import LakePublishError
-from baibai_engine.job_api import (
-    external_assessment_decode_attempt,
-    external_assessment_history_digests,
-    external_assessment_save_observations,
-)
 
 
 def ready_references(batch):
@@ -229,8 +229,6 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
 def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
     independent_plans, monkeypatch
 ):
-    from baibai_jobs.jobs import external_assessment_integration as integration
-    from baibai_jobs.storage.external_assessment_ready import available_ready
     from baibai_engine.job_api import (
         LakeObjectCache,
         LocalMirrorSource,
@@ -239,6 +237,8 @@ def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
         lake_session,
     )
     from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
+    from baibai_jobs.jobs import external_assessment_integration as integration
+    from baibai_jobs.storage.external_assessment_ready import available_ready
 
     store, selected, handle, database, mirror, directory = independent_plans
     before = publisher._serving_pointer(store).pointer

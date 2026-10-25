@@ -87,8 +87,12 @@ def test_native_withdrawal_removes_derived_reading_without_scalar_history(tmp_pa
     )
 
     from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-    from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+        load_definitions,
+    )
+    from baibai_engine.machine_analysis.market_context.reading.reader import (
+        build_store_observation_reader,
+    )
 
     path = tmp_path / "sources.sqlite"
     definitions = load_definitions()

@@ -12,7 +12,9 @@ from baibai_engine.data_collection.economic.providers.base import ProviderFetchS
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
 from baibai_engine.data_collection.economic.sources import require_source
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.machine_analysis.market_context.reading.reader import (
+    build_store_observation_reader,
+)
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
 PERIOD = date(2024, 8, 23)

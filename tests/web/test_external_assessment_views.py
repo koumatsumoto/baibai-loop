@@ -16,14 +16,11 @@ from tests.engine.test_external_assessment_sources import (
 from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import selection
 
-from baibai_jobs.jobs.external_assessment_cohorts import (
-    load_result,
-    make_plan,
-    new_result,
-    record_outcome,
-    result_value,
-)
 from baibai_engine.data_collection.external_assessment.collection import CollectionOutcome
+from baibai_engine.investment_judgment.inputs import (
+    collect_research_inputs,
+    project_research_inputs,
+)
 from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, rakuten
 from baibai_engine.machine_analysis.external_assessment.query import external_assessment
 from baibai_engine.machine_analysis.external_assessment.store import save_observations
@@ -33,7 +30,13 @@ from baibai_engine.read_api import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
-from baibai_engine.investment_judgment.inputs import collect_research_inputs, project_research_inputs
+from baibai_jobs.jobs.external_assessment_cohorts import (
+    load_result,
+    make_plan,
+    new_result,
+    record_outcome,
+    result_value,
+)
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
 from baibai_web.sources.db_sources import DbExternalAssessmentSource
@@ -317,7 +320,9 @@ def test_minkabu_only_ticker_keeps_detail_and_export(app_method_root, tmp_path, 
     """受領済みMinkabuは、他媒体や機械分析なしでも銘柄の存在根拠になる。"""
     from datetime import date
 
-    from baibai_engine.machine_analysis.external_assessment.observations.models import AnalystForecastObservation
+    from baibai_engine.machine_analysis.external_assessment.observations.models import (
+        AnalystForecastObservation,
+    )
 
     forecasts = (
         {

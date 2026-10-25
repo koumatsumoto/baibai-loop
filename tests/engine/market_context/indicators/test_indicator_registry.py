@@ -28,7 +28,9 @@ from baibai_engine.machine_analysis.market_context.indicator_cli import (
 from baibai_engine.machine_analysis.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.machine_analysis.market_context.indicators.read_contracts import point_in_time_providers
+from baibai_engine.machine_analysis.market_context.indicators.read_contracts import (
+    point_in_time_providers,
+)
 from baibai_engine.machine_analysis.market_context.reading.formulas import FORMULAS
 
 

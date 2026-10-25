@@ -11,14 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.jquants.receipts import read_complete_request
-from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
-from baibai_engine.data_collection.tradingview.receipts import read_tool_results
 from baibai_engine.data_collection.tradingview.collector import (
     calendar_context,
     preflight_snapshot,
     universe,
     validate_time,
 )
+from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.tradingview.receipts import read_tool_results
 from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.machine_analysis.external_assessment.tradingview.decode import decode_tool_result
 from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
@@ -28,7 +28,10 @@ from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics 
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
     COLUMNS as REQUEST_COLUMNS,
 )
-from baibai_engine.machine_analysis.external_assessment.tradingview.observations import FetchError, normalize_batch
+from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+    FetchError,
+    normalize_batch,
+)
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 

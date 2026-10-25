@@ -16,7 +16,6 @@ from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_jobs.validation.market_context_stores import main as validate_stores
 from baibai_engine.data_collection.economic.acquisition import (
     SourceRefreshFailure,
     SourceRefreshSuccess,
@@ -32,7 +31,10 @@ from baibai_engine.data_collection.economic.providers.native import fetch_native
 from baibai_engine.data_collection.economic.sources import require_source
 from baibai_engine.data_collection.economic.store import open_read_only_connection
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.machine_analysis.market_context.reading.reader import (
+    build_store_observation_reader,
+)
+from baibai_jobs.validation.market_context_stores import main as validate_stores
 
 IDS = ("jp.foreign_flows", "jp.topix", "vix")
 DAY = date(2026, 7, 24)
@@ -114,7 +116,9 @@ def wire(monkeypatch):
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
     for name in ["jquants_flows", "jquants_indices"]:
-        module = __import__(f"baibai_engine.data_collection.economic.providers.{name}", fromlist=["*"])
+        module = __import__(
+            f"baibai_engine.data_collection.economic.providers.{name}", fromlist=["*"]
+        )
         monkeypatch.setattr(module, "_read_api_key", lambda: "synthetic-key")
     monkeypatch.setattr(
         HTTPConnectionPool,

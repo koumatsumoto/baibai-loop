@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, seed_stage
+from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, seed_stage
 
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.jobs.external_assessment_cohorts import new_result

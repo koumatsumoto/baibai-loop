@@ -23,6 +23,7 @@ from typing import Literal, TextIO
 
 import yaml
 
+from baibai_engine.machine_analysis.company_valuation.estimates import SHARE_COUNT_CLIP, UPSIDE_CAP
 from baibai_engine.machine_analysis.screening.calibration.panel import PanelRow as StoredPanelRow
 from baibai_engine.machine_analysis.screening.calibration.store import (
     CalibrationCacheError,
@@ -32,7 +33,6 @@ from baibai_engine.machine_analysis.screening.calibration.store import (
     read_panel,
     read_panel_meta,
 )
-from baibai_engine.machine_analysis.company_valuation.estimates import SHARE_COUNT_CLIP, UPSIDE_CAP
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_HORIZONS = ("1y", "3y", "5y")

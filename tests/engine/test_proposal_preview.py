@@ -8,7 +8,10 @@ from decimal import Decimal
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
-from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal, preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal_query import (
+    get_investment_proposal,
+    preview_current_terms,
+)
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 
 
@@ -191,9 +194,9 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
 def test_rate_and_horizon_flow_through_context_publication_and_preview(
     tmp_path, horizon_months, expected_maximum
 ):
-    from baibai_engine.read_api.research import reviewed_assessment_projection
     from baibai_engine.investment_judgment.stock_assessment import assessment_core_hash
     from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
+    from baibai_engine.read_api.research import reviewed_assessment_projection
 
     # A synthetic fixed total value isolates period propagation, not business growth.
     case = backend_case(tmp_path, required_rate="3", horizon_months=horizon_months)

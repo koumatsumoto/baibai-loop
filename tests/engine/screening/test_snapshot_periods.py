@@ -7,13 +7,20 @@ import pytest
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
+from baibai_engine.machine_analysis.company_valuation.metrics.periods import (
+    _prior_year_summary,
+    _ttm_value,
+)
+from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+    build_normalized_profit_signals,
+)
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import build_stock_analysis_metrics
-from baibai_engine.machine_analysis.company_valuation.metrics.periods import _prior_year_summary, _ttm_value
-from baibai_engine.machine_analysis.company_valuation.metrics.profit import build_normalized_profit_signals
+from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
+)
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
 
 
 class ScreeningMetricsTests(SnapshotFixtures):

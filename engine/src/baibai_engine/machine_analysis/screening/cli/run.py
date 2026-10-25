@@ -11,18 +11,19 @@ from typing import TextIO
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
-from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
-from baibai_engine.market.jpx_models import (
-    JPXProviderError,
-    index_calendar_announcements,
-    next_earnings_dates,
+from baibai_engine.machine_analysis.company_valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
+from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
+    build_shares_outstanding_index,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
+from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+    build_normalized_profit_signals,
+)
 from baibai_engine.machine_analysis.screening.config import ScreeningConfig
-from baibai_engine.machine_analysis.screening.earnings_lag import build_earnings_lag, tickers_without_calendar_rows
+from baibai_engine.machine_analysis.screening.earnings_lag import (
+    build_earnings_lag,
+    tickers_without_calendar_rows,
+)
 from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
 from baibai_engine.machine_analysis.screening.metric_builder import (
     BARS_INPUT_WINDOW_DAYS,
@@ -33,7 +34,10 @@ from baibai_engine.machine_analysis.screening.metric_builder import (
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
-from baibai_engine.machine_analysis.screening.rule_config import ScreeningRules, load_screening_rules
+from baibai_engine.machine_analysis.screening.rule_config import (
+    ScreeningRules,
+    load_screening_rules,
+)
 from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.machine_analysis.screening.schema import ScreeningRunDocument, StockAnalysis
@@ -47,11 +51,17 @@ from baibai_engine.machine_analysis.screening.universe import (
     build_universe,
     candidate_comparison_population,
 )
+from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.market.jpx_models import (
+    JPXProviderError,
+    index_calendar_announcements,
+    next_earnings_dates,
+)
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
-from baibai_engine.machine_analysis.company_valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
-from baibai_engine.machine_analysis.company_valuation.metrics.capital import build_shares_outstanding_index
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.company_valuation.metrics.profit import build_normalized_profit_signals
 
 from .providers import ProviderBundle
 

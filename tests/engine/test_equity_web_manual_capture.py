@@ -9,7 +9,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import pair_responses
+from tests.jobs.external_assessment_publication_fixtures import pair_responses
 from tests.engine.test_external_assessment_collection import BytesSession, _original
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 from tests.engine.test_kabumap import html as kabumap_html

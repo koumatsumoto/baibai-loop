@@ -10,7 +10,9 @@ CALIBRATION_DIR = Path("stores/screening/calibration")
 ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path(
     "engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml"
 )
-SCREENING_RULES_PATH = Path("engine/src/baibai_engine/machine_analysis/screening/rules/2026-10-16T133000+0900.yaml")
+SCREENING_RULES_PATH = Path(
+    "engine/src/baibai_engine/machine_analysis/screening/rules/2026-10-16T133000+0900.yaml"
+)
 READING_RULES_PATH = Path(
     "engine/src/baibai_engine/machine_analysis/market_context/reading/rules/2026-08-01T100000+0900.yaml"
 )

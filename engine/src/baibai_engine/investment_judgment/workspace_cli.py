@@ -27,9 +27,9 @@ from baibai_engine.foundation.repository_layout import (
 )
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError
 
 from .operation.service import OperationConflictError
-from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError
 from .selection import ResearchRequest, ResearchSelectionDraft
 from .selection_query import ResearchInputsRequiredError, load_selection_context
 from .workspace import (
@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     context_parser.add_argument("--out", type=Path)
     calibration_parser = subparsers.add_parser(
-        "calibration-context", help="read validated E[r] history for a fixed Research run"
+        "calibration-context", help="read validated E[r] history for a fixed Investment Judgment run"
     )
     calibration_parser.add_argument("--operation-id", required=True)
     calibration_parser.add_argument("--db", type=Path)
@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     calibration_parser.add_argument("--asof", type=date.fromisoformat)
     prepare_parser = subparsers.add_parser(
-        "prepare", help="save selected Research inputs or resume an Operation"
+        "prepare", help="save selected Investment Judgment inputs or resume an Operation"
     )
     source_parser = prepare_parser.add_mutually_exclusive_group(required=True)
     source_parser.add_argument("--selection-file", type=Path)
@@ -143,7 +143,9 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--force", action="store_true")
 
     subparsers.add_parser(
-        "stock-assessment-evaluate", help="evaluate a Stock Assessment draft (read-only)", add_help=False
+        "stock-assessment-evaluate",
+        help="evaluate a Stock Assessment draft (read-only)",
+        add_help=False,
     )
     subparsers.add_parser(
         "calculate",
@@ -158,7 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--db", type=Path)
 
     for command, help_text in (
-        ("trade-proposal-context", "read fixed Research scope and current proposal inputs"),
+        ("trade-proposal-context", "read fixed Investment Judgment scope and current proposal inputs"),
         ("trade-proposal-scaffold", "scaffold an Trade Proposal with a fixed input snapshot"),
     ):
         child = subparsers.add_parser(command, help=help_text)
@@ -174,7 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
         child.add_argument("--db", type=Path)
         child.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     preview_parser = subparsers.add_parser(
-        "trade-proposal-preview", help="read current conditions separately from saved proposal terms"
+        "trade-proposal-preview",
+        help="read current conditions separately from saved proposal terms",
     )
     preview_parser.add_argument("--proposal-id", required=True)
     preview_parser.add_argument("--db", type=Path)
@@ -196,7 +199,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if arguments and arguments[0] == "stock-assessment-evaluate":
         # Returned unwrapped: evaluation reports "not assessment-ready" as exit 2,
         # which is not this CLI's usage/data/conflict code set.
-        from baibai_engine.investment_judgment.stock_assessment_evaluation_cli import main as evaluate_main
+        from baibai_engine.investment_judgment.stock_assessment_evaluation_cli import (
+            main as evaluate_main,
+        )
 
         return evaluate_main(arguments[1:], now=now)
     parser = build_parser()
@@ -316,7 +321,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     out,
                 )
             case "trade-proposal-context":
-                from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
+                from baibai_engine.investment_judgment.trade_proposal_inputs import (
+                    build_proposal_context,
+                )
 
                 context = build_proposal_context(
                     operation_id=args.operation_id,
@@ -327,8 +334,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 out.write(json.dumps(context.payload(), ensure_ascii=False) + "\n")
             case "trade-proposal-scaffold":
                 from baibai_engine.foundation.filesystem import write_text_atomic
-
-                from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
+                from baibai_engine.investment_judgment.trade_proposal_scaffold import (
+                    scaffold_proposal,
+                )
 
                 if args.out.exists():
                     raise ResearchWorkspaceConflictError("proposal output already exists")
@@ -350,8 +358,13 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
                 _emit({"proposal_draft": str(args.out), "proposal_id": args.proposal_id}, out)
             case "trade-proposal-check" | "trade-proposal-publish":
-                from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
-                from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
+                from baibai_engine.investment_judgment.trade_proposal import (
+                    TradeProposal,
+                    proposal_draft_sha256,
+                )
+                from baibai_engine.investment_judgment.trade_proposal_service import (
+                    TradeProposalService,
+                )
 
                 try:
                     payload = safe_load(args.draft.read_text(encoding="utf-8"))
@@ -380,7 +393,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     return 0 if validation.valid else 3
                 _emit(service.publish(proposal).model_dump(mode="json"), out)
             case "trade-proposal-preview":
-                from baibai_engine.investment_judgment.trade_proposal_query import preview_current_terms
+                from baibai_engine.investment_judgment.trade_proposal_query import (
+                    preview_current_terms,
+                )
 
                 preview = preview_current_terms(
                     proposal_id=args.proposal_id,

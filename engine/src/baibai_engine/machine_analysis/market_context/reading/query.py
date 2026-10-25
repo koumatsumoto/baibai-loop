@@ -9,14 +9,24 @@ from typing import cast
 
 from baibai_engine.foundation.sqlite_read import connect_read_only, is_unwritten_store
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.indicators.read_contracts import point_in_time_providers
+from baibai_engine.machine_analysis.market_context.indicators.read_contracts import (
+    point_in_time_providers,
+)
 from baibai_engine.machine_analysis.market_context.reading.compute import compute_reading
-from baibai_engine.machine_analysis.market_context.reading.models import ReadingSnapshot, snapshot_payload
-from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.machine_analysis.market_context.reading.models import (
+    ReadingSnapshot,
+    snapshot_payload,
+)
+from baibai_engine.machine_analysis.market_context.reading.reader import (
+    build_store_observation_reader,
+)
 from baibai_engine.machine_analysis.market_context.reading.rules import (
     DEFAULT_RULES_PATH as READING_RULES_PATH,
 )
-from baibai_engine.machine_analysis.market_context.reading.rules import load_reading_rules, rules_revision
+from baibai_engine.machine_analysis.market_context.reading.rules import (
+    load_reading_rules,
+    rules_revision,
+)
 
 
 def reading_snapshot(

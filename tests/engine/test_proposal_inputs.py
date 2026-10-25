@@ -17,7 +17,10 @@ from tests.helpers.proposal import (
 
 from baibai_engine.investment_judgment.trade_proposal import ProposalError
 from baibai_engine.investment_judgment.trade_proposal_fingerprint import proposal_inputs_fingerprint
-from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context, collect_proposal_inputs
+from baibai_engine.investment_judgment.trade_proposal_inputs import (
+    build_proposal_context,
+    collect_proposal_inputs,
+)
 from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService

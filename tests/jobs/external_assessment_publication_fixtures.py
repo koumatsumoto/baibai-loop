@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.batch.external_assessment_response_fixtures import response
+from tests.jobs.external_assessment_response_fixtures import response
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 from tests.engine.test_kabumap import html as kabumap_html
 from tests.engine.test_minkabu import html as minkabu_html
@@ -17,6 +17,21 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master import insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Source
+from baibai_engine.job_api import (
+    ExternalAssessmentAnalystRatingObservation,
+    ExternalAssessmentCollectionOutcome,
+    ExternalAssessmentModelValuationObservation,
+    external_assessment_collector_binding,
+    external_assessment_decode_attempt,
+    external_assessment_save_observations,
+)
+from baibai_engine.machine_analysis.external_assessment.normalization import (
+    kabumap,
+    minkabu,
+    monex,
+    rakuten,
+)
 from baibai_jobs.jobs import external_assessment_integration as external_assessment
 from baibai_jobs.jobs.external_assessment_cohorts import (
     RunPlan,
@@ -36,16 +51,6 @@ from baibai_jobs.storage.external_assessment_staging import (
 )
 from baibai_jobs.storage.lake_publish import ObjectStore
 from baibai_jobs.storage.publication_lease import acquire, verify_held
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystRatingObservation,
-    ExternalAssessmentCollectionOutcome,
-    ExternalAssessmentModelValuationObservation,
-    external_assessment_collector_binding,
-    external_assessment_decode_attempt,
-    external_assessment_save_observations,
-)
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Source
-from baibai_engine.machine_analysis.external_assessment.normalization import kabumap, minkabu, monex, rakuten
 
 
 def pair_responses(

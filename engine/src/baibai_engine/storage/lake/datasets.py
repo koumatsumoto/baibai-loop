@@ -23,8 +23,12 @@ from baibai_engine.machine_analysis.external_assessment.observations.identity im
     MODEL_VALUATION_DATASET,
     QUANTS_SCORE_DATASET,
 )
-from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
-from baibai_engine.machine_analysis.external_assessment.tradingview.contract import TABLE as TV_TABLE
+from baibai_engine.machine_analysis.external_assessment.tradingview.contract import (
+    COLUMNS as TV_COLUMNS,
+)
+from baibai_engine.machine_analysis.external_assessment.tradingview.contract import (
+    TABLE as TV_TABLE,
+)
 from baibai_engine.storage.lake.keys import LakeLayer
 
 PartitionGrain = Literal["year", "month"]

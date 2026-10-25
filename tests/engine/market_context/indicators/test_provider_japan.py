@@ -40,7 +40,9 @@ from baibai_engine.machine_analysis.market_context.indicators.definitions import
 )
 from baibai_engine.machine_analysis.market_context.reading.native import _one_value
 from baibai_engine.machine_analysis.market_context.reading.observations import reading_observation
-from baibai_engine.machine_analysis.market_context.reading.tsr_bankruptcies import parse_tsr_bankruptcies_json
+from baibai_engine.machine_analysis.market_context.reading.tsr_bankruptcies import (
+    parse_tsr_bankruptcies_json,
+)
 
 
 def _read_boj(series, content, *, start, end):
@@ -810,7 +812,9 @@ class IndicatorsProviderParserTests(TestCase):
     def test_tsr_partial_history_is_visible_as_stale_and_insufficient_in_reading(self) -> None:
         from tests.helpers.indicator_store import store_reader
 
-        from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+        from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+            load_definitions,
+        )
         from baibai_engine.machine_analysis.market_context.reading.compute import compute_reading
         from baibai_engine.machine_analysis.market_context.reading.rules import load_reading_rules
 

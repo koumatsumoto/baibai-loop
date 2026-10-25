@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.batch.test_external_assessment_daily import FakeObjectStore, plan
+from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
 from tests.engine.test_external_assessment_sources import (
     monex_html,
     official_html,
@@ -13,12 +13,12 @@ from tests.engine.test_external_assessment_sources import (
 )
 from tests.engine.test_kabumap import html as kabumap_html
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.storage import external_assessment_staging as staging
+from baibai_engine.data_collection.equity_web import http as source_http
 from baibai_engine.job_api import (
     external_assessment_collect_pair,
 )
-from baibai_engine.data_collection.equity_web import http as source_http
+from baibai_jobs.jobs import external_assessment_daily as daily
+from baibai_jobs.storage import external_assessment_staging as staging
 
 BASE = datetime(2026, 10, 11, 0, tzinfo=UTC)
 

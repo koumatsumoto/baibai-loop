@@ -13,11 +13,10 @@ from pathlib import Path
 from time import perf_counter
 from typing import cast
 
-from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth, InputRelease
-from baibai_engine.machine_analysis.company_growth.query import company_growth
 from baibai_engine.foundation.json import canonical_json
 from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
+from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth, InputRelease
+from baibai_engine.machine_analysis.company_growth.query import company_growth
 from baibai_engine.storage.lake.datasets import JQUANTS_FIN_SUMMARIES, JQUANTS_MASTER_SNAPSHOTS
 from baibai_engine.storage.lake.objects import LakeObjectCache
 from baibai_engine.storage.lake.reader import (
@@ -30,6 +29,7 @@ from baibai_engine.storage.lake.reader import (
 from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
+from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
 from tools.company_growth_sample import Sample, SampleInput, measure_samples
 
 _TICKERS = ("4502", "7201", "6758", "8306", "9983")

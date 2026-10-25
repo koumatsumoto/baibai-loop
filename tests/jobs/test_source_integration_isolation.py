@@ -3,18 +3,18 @@ from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
-from tests.batch.test_source_receipts import Store, stage
+from tests.jobs.test_source_receipts import Store, stage
 from tests.engine.test_jquants_handoff import calendar
 from tests.engine.test_jquants_projection import FIRST_AT, body, receive
 
-from baibai_jobs.jobs.source_integration import apply
-from baibai_jobs.storage.economic_staging import save_handoff
-from baibai_jobs.storage.source_receipts import available_handoffs, seal_integrated
 from baibai_engine.data_collection.economic.records import read_snapshots
 from baibai_engine.data_collection.economic.store import initialize_database
 from baibai_engine.market.jquants_handoff import MARKET_SOURCES, export_handoff
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.storage.observations.schema import open_connection
+from baibai_jobs.jobs.source_integration import apply
+from baibai_jobs.storage.economic_staging import save_handoff
+from baibai_jobs.storage.source_receipts import available_handoffs, seal_integrated
 
 
 def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_source(

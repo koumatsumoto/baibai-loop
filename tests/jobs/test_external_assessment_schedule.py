@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.batch.test_external_assessment_daily import (
+from tests.jobs.test_external_assessment_daily import (
     FakeObjectStore,
     completed_pair,
     plan,
@@ -20,6 +20,9 @@ from tests.engine.test_external_assessment_daily_verification import build_maste
 from tests.engine.test_external_assessment_pair_collection import Session
 from tests.engine.test_external_assessment_sources import monex_html
 
+from baibai_engine.data_collection.equity_web import http as source_http
+from baibai_engine.data_collection.external_assessment import collection
+from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.jobs import external_assessment_sources as sources
 from baibai_jobs.jobs.external_assessment_cohorts import new_result
@@ -28,9 +31,6 @@ from baibai_jobs.jobs.schedule import (
     external_assessment_target_date,
 )
 from baibai_jobs.storage import external_assessment_staging as staging
-from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
-from baibai_engine.storage.lake.keys import current_release_pointer_key
 
 CREATED = datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
 FRIDAY = date(2026, 10, 9)

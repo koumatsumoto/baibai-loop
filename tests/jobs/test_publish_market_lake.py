@@ -11,11 +11,11 @@ import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.storage.publish_market_lake as publish_module
-from baibai_jobs.storage.lake_publish import LakePublishError
-from baibai_jobs.storage.publication_lease import _save_handle, acquire
 from baibai_engine.job_api import (
     LakeBuildError,
 )
+from baibai_jobs.storage.lake_publish import LakePublishError
+from baibai_jobs.storage.publication_lease import _save_handle, acquire
 
 ROOT = Path(__file__).resolve().parents[2]
 

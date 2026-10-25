@@ -6,12 +6,15 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
-from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment, require_assessment_ref
-from baibai_engine.investment_judgment.decimal_number import decimal_to_number
-from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.foundation.numbers import finite_decimal
+from baibai_engine.investment_judgment.decimal_number import decimal_to_number
 from baibai_engine.investment_judgment.scenario import maximum_entry_price, project_return
+from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
+from baibai_engine.investment_judgment.stock_assessment_store import (
+    load_reviewed_assessment,
+    require_assessment_ref,
+)
+from baibai_engine.storage.application.read import connect_read_only
 
 from .sqlite import read_application_rows as read_rows
 

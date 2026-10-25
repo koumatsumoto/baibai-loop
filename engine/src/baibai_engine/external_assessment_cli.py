@@ -12,9 +12,8 @@ from pathlib import Path
 from baibai_engine.data_collection.external_assessment.cli import add_acquisition_commands
 from baibai_engine.data_collection.external_assessment.cli import main as acquisition_main
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-from baibai_engine.storage.observations.schema import SQLiteSchemaError
-
 from baibai_engine.machine_analysis.external_assessment.query import external_assessment
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 
 def build_parser() -> argparse.ArgumentParser:

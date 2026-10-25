@@ -148,7 +148,7 @@ def test_documented_command_gate_accepts_a_complete_command(tmp_path: Path) -> N
 def _transfer_script(root: Path, *names: str) -> None:
     """A stand-in for `r2_transfer.sh` carrying only the dispatch the gate reads."""
 
-    path = root / "batch" / "scripts" / "r2_transfer.sh"
+    path = root / "jobs" / "scripts" / "r2_transfer.sh"
     path.parent.mkdir(parents=True, exist_ok=True)
     branches = "".join(f"  {name})\n    :\n    ;;\n" for name in names)
     path.write_text(

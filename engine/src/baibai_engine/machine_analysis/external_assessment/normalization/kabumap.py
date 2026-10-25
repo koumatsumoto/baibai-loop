@@ -13,7 +13,9 @@ from baibai_engine.machine_analysis.external_assessment.normalization import (
     document,
     numeric_text,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import QuantsScoreObservation
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    QuantsScoreObservation,
+)
 
 PARSER_VERSION = "kabumap-quants-3"
 LABELS = {

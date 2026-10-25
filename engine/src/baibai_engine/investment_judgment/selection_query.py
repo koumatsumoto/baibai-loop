@@ -9,15 +9,19 @@ from typing import Any
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.foundation.time import JST
-from baibai_engine.position.ledger import replay_events_through
-from baibai_engine.position.ledger_read import load_ledger_document
 from baibai_engine.investment_judgment.market_context.projection import assessment_projection
 from baibai_engine.investment_judgment.market_context.query import latest_assessment
-from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, InputGap, ResearchRequest
+from baibai_engine.investment_judgment.selection import (
+    AnalysisInputSnapshot,
+    InputGap,
+    ResearchRequest,
+)
 from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.screening.discovery.projection import candidate_rows
 from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 from baibai_engine.machine_analysis.screening.run_store.read import RunPublication
+from baibai_engine.position.ledger import replay_events_through
+from baibai_engine.position.ledger_read import load_ledger_document
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 

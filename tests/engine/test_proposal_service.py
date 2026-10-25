@@ -8,10 +8,10 @@ import pytest
 import yaml
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
+from baibai_engine.investment_judgment.selection import selection_sha256
 from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError, ProposalError
 from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
-from baibai_engine.investment_judgment.selection import selection_sha256
 from baibai_engine.investment_judgment.workspace_cli import main
 
 
@@ -94,7 +94,9 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
     def fail_output(*_args, **_kwargs):
         raise yaml.YAMLError("synthetic publication output failure")
 
-    monkeypatch.setattr("baibai_engine.investment_judgment.workspace_cli.yaml.safe_dump", fail_output)
+    monkeypatch.setattr(
+        "baibai_engine.investment_judgment.workspace_cli.yaml.safe_dump", fail_output
+    )
     with pytest.raises(yaml.YAMLError, match="synthetic publication output failure"):
         main(
             [
@@ -188,9 +190,9 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     raw["inputs"]["available_cash_yen"] = "3E+5"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert (
-        TradeProposalService(
-            case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-        ).publish(proposal)
+        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+            proposal
+        )
         == proposal
     )
 
@@ -259,7 +261,10 @@ def test_warning_or_exposure_tampering_not_accepted_by_new_review(case, change):
     else:
         assert raw["items"][0]["terms"]["warnings"]
         raw["items"][0]["terms"]["warnings"] = []
-    from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
+    from baibai_engine.investment_judgment.trade_proposal import (
+        TradeProposal,
+        proposal_draft_sha256,
+    )
 
     changed = TradeProposal.model_validate(raw)
     raw["review"]["draft_sha256"] = proposal_draft_sha256(changed)
@@ -268,9 +273,9 @@ def test_warning_or_exposure_tampering_not_accepted_by_new_review(case, change):
     before = _counts(case.app)
     message = "terms warnings" if change == "terms_warning" else "warning/exposure"
     with pytest.raises(ProposalConflictError, match=message):
-        TradeProposalService(
-            case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-        ).publish(changed)
+        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+            changed
+        )
     assert _counts(case.app) == before
 
 
@@ -338,8 +343,8 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
     case = backend_case(tmp_path, tickers=("1234", "5678"))
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
-    from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
     from baibai_engine.investment_judgment.operation.progress import UnfinishedTarget
+    from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
 
     case.operation = case.operations.record_outcome(
         case.operation.operation_id,

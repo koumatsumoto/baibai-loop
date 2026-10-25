@@ -8,8 +8,8 @@ from datetime import datetime
 
 from baibai_engine.investment_judgment.operation.models import OperationSession
 from baibai_engine.investment_judgment.operation.progress import proposal_scope, selection_binding
-from baibai_engine.investment_judgment.trade_proposal import ProposalResearchScope, RequestScope
 from baibai_engine.investment_judgment.selection import ResearchSelection
+from baibai_engine.investment_judgment.trade_proposal import ProposalResearchScope, RequestScope
 
 
 def require_proposal_research_scope(

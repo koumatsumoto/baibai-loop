@@ -7,9 +7,7 @@ import sys
 from pathlib import Path
 
 _RUNTIME_ROOTS = ("engine/src", "web/backend/src", "jobs/src")
-_CONTEXT_PATH = (
-    "engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml"
-)
+_CONTEXT_PATH = "engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml"
 _OWNERS = {
     "stores/application/baibai.sqlite": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"

@@ -14,6 +14,7 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
+from baibai_engine.investment_judgment.scenario import maximum_entry_price, project_return
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     StockAssessmentDocument,
@@ -28,7 +29,6 @@ from baibai_engine.investment_judgment.stock_assessment_store import (
     publish_reviewed_assessment,
 )
 from baibai_engine.storage.application.schema import SCHEMA_SQL
-from baibai_engine.investment_judgment.scenario import maximum_entry_price, project_return
 
 
 @pytest.fixture

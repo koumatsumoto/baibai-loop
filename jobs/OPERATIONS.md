@@ -52,7 +52,7 @@ Screening成功は全source成功を意味しない。旧snapshot日を当日へ
 
 `cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領を独立させる。取得側は担当groupだけの再生成可能なread-only inputを読み、正本全体をpullしない。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。
 
-groupと取得範囲は `collection economic groups` とData Collectionのsource catalogを正本とする。共有quota・取得方式ごとの制約を保ち、月次・四半期を一律「直前2か月」に縮めない。通常改訂や公表遅延を落とすためで、古い年次改訂は別の明示取得で扱う。全体ファイル配信では比較範囲を絞っても通信量は減らない。松井の現在ページから過去履歴を回復したとは扱わない。PMIの新配信元・速報採用は #1477 の未完了範囲。
+groupと取得範囲は `data-collection economic groups` とData Collectionのsource catalogを正本とする。共有quota・取得方式ごとの制約を保ち、月次・四半期を一律「直前2か月」に縮めない。通常改訂や公表遅延を落とすためで、古い年次改訂は別の明示取得で扱う。全体ファイル配信では比較範囲を絞っても通信量は減らない。松井の現在ページから過去履歴を回復したとは扱わない。PMIの新配信元・速報採用は #1477 の未完了範囲。
 
 `--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗は通知の「全履歴の限定回復待ち」に出し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
 
@@ -243,9 +243,9 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 
 <a id="research-input-preparation"></a>
-## Research入力の準備
+## Investment Judgment入力の準備
 
-新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。企業成長は固定releaseの財務・masterとmanifestを配置したローカルmirrorを読む。通常は既存`hydrate-market`を使い、別配置なら`research prepare --company-growth-mirror <LOCAL_MIRROR>`を指定する。query自体はネットワーク取得をせず、mirror不足を更新中のSQLite行で代替しない。[固定release](#fixed-release-read)の手順で準備し、取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
+新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。企業成長は固定releaseの財務・masterとmanifestを配置したローカルmirrorを読む。通常は既存`hydrate-market`を使い、別配置なら`investment-judgment prepare --company-growth-mirror <LOCAL_MIRROR>`を指定する。query自体はネットワーク取得をせず、mirror不足を更新中のSQLite行で代替しない。[固定release](#fixed-release-read)の手順で準備し、取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
 
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
@@ -385,14 +385,14 @@ PDF自身のPMI名・embargo月・対象headline月を確認し、月の穴を�
 <a id="edinet-metrics-revision"></a>
 ## EDINET metricsの意味変更
 
-[抽出意味revision](../docs/reference/data-sources.md#edinet-metric-revision)を変える時だけ実施する。Investment Judgment facts revisionとは別。隔離コピーで保持CSV ZIPを再抽出し、期待差分・quality/failure・coverageを確認する。
+[抽出意味revision](../docs/reference/data-sources.md#edinet-metric-revision)を変える時だけ実施する。Company Research facts revisionとは別。隔離コピーで保持CSV ZIPを再抽出し、期待差分・quality/failure・coverageを確認する。
 
 main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrate→比較元backup→extract-edinet-metrics→publish-lake→push-market→固定release読戻しを行う。原本不足で取得が必要な時だけrefresh-edinet-metricsを使う。対象as-ofを指定し、保存値とrevision・store-local情報の整合を確認する。
 
 期待外差分、取得失敗、世代競合、lease失効で後段を止める。準備コピーを本番へ戻さず、再抽出後にhydrateせず、旧値のrevisionだけを付け替えない。通常dailyへ意味移行を代行させない。
 
 <a id="edinet-source-archives"></a>
-## EDINET原本とResearch facts
+## EDINET原本とCompany Research facts
 
 原本再利用は明示したmarket SQLiteのedinet_source_archivesから行い、以前の端末ZIPを暗黙に取り込まない。stored_onは初回保存UTC日で開示・初回利用可能日ではない。受領ZIPとL2の選択文書・metricsを混同せず、取得エラーで既存ZIPを上書きしない。
 
@@ -497,7 +497,7 @@ local認証失敗はlocal fileを再認証しGitHub secretを変えない。secr
 
 ### 保存と再試行
 
-MCP transport失敗とtool内provider失敗、正常null/unresolvedを分ける。取得不良batchは未保存のまま次へ進み、連続不良や429で新requestを止める。即時同batch retryをせず通常intervalを守る。正常batchを公開し、次slotは未保存分から再開する。
+MCP transport失敗とtool内provider失敗、正常null/unresolvedを分ける。取得不良の要求単位は未保存のまま次へ進み、連続不良や429で新requestを止める。同じ要求単位の即時retryをせず通常intervalを守る。正常な受領分を公開し、次slotは未保存分から再開する。
 
 Retry-Afterがある場合は期限を守る。Actions cooldownの保存失敗や強制終了で記録不明ならworkflowを止め直前応答と期限を確認し、盲目的に再実行しない。local手動取得も同じ待機指示を守る。authは対話認証、provider_responseはsafeなvalidation reason、storageはcalendar/master/schemaを起点に調べる。例外本文・raw・秘密をIssueへ出さない。
 

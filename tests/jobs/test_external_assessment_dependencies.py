@@ -4,17 +4,17 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.batch.test_external_assessment_daily import wire_success
+from tests.jobs.test_external_assessment_daily import wire_success
 from tests.engine.test_external_assessment_daily_verification import build_master_lake
 from tests.engine.test_jquants_projection import body, receive
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs.source_handoff import _export
-from baibai_jobs.storage.economic_staging import save_handoff
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.observations.schema import open_connection
+from baibai_jobs.jobs import external_assessment_daily as daily
+from baibai_jobs.jobs.source_handoff import _export
+from baibai_jobs.storage.economic_staging import save_handoff
 
 DAY = date(2026, 10, 19)
 PREVIOUS = date(2026, 10, 16)

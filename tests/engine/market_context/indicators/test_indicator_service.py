@@ -490,7 +490,9 @@ def test_invalid_l2_value_does_not_destroy_received_native_input(tmp_path, monke
 def test_l2_accepts_the_declared_plausible_boundaries(value):
     from dataclasses import replace
 
-    from baibai_engine.machine_analysis.market_context.reading.observations import reading_observation
+    from baibai_engine.machine_analysis.market_context.reading.observations import (
+        reading_observation,
+    )
 
     series = replace(load_definitions().by_id()["us.10y"], plausible_min=-2.0, plausible_max=20.0)
     result = reading_observation(

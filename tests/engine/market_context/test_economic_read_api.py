@@ -296,10 +296,10 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
 
     from tests.helpers.research_selection import selection
 
+    from baibai_engine.investment_judgment.inputs import collect_research_inputs
     from baibai_engine.machine_analysis.market_context.reading.models import snapshot_payload
     from baibai_engine.machine_analysis.market_context.reading.query import read_store_snapshot
     from baibai_engine.machine_analysis.market_context.reading.rules import DEFAULT_RULES_PATH
-    from baibai_engine.investment_judgment.inputs import collect_research_inputs
     from baibai_web.readmodel.models import ReadingView
 
     selected = selection(now=datetime(2024, 8, 31, tzinfo=UTC))
@@ -423,7 +423,9 @@ def test_document_revision_changes_chart_and_freshness(tmp_path: Path) -> None:
     from dataclasses import replace
 
     from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+        load_definitions,
+    )
 
     database = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["jp.bankruptcies"]

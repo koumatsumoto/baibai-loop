@@ -89,10 +89,12 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_run(tmp_path):
 def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monkeypatch, unrecorded):
     from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
-    from baibai_engine.read_api import stored_machine_valuation
     from baibai_engine.investment_judgment.inputs import project_research_inputs
-    from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
+    from baibai_engine.machine_analysis.screening.discovery.candidates import (
+        build_candidate_contexts,
+    )
     from baibai_engine.machine_analysis.screening.run_store import ScreeningRunStore
+    from baibai_engine.read_api import stored_machine_valuation
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
     # Saved JSON is the input; expectations below are independent of the projection helper.
@@ -385,8 +387,8 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
 ):
     from tests.helpers.db_seed import seed_ledger
 
-    from baibai_engine.position.ledger import PortfolioLedgerDocument
     from baibai_engine.investment_judgment.operation.cli import main as operation_main
+    from baibai_engine.position.ledger import PortfolioLedgerDocument
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research called network"))
     seed_ledger(
@@ -443,7 +445,10 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         str(tmp_path / "absent-market"),
     ]
     assert (
-        main(["trade-proposal-context", "--operation-id", prepared.operation_id, *common_args], now=NOW)
+        main(
+            ["trade-proposal-context", "--operation-id", prepared.operation_id, *common_args],
+            now=NOW,
+        )
         == 0
     )
     context = json.loads(capsys.readouterr().out)
@@ -532,7 +537,9 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         completed_at=NOW,
     )
     assert "human_confirmation" not in complete.payload.model_dump()
-    assert main(["trade-proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
+    assert (
+        main(["trade-proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
+    )
     preview = json.loads(capsys.readouterr().out)
     assert preview["saved_proposal_id"] == proposal_id
     assert preview["status"] == "unchanged"

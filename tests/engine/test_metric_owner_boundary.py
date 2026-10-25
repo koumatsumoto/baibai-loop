@@ -11,9 +11,9 @@ from datetime import date
 import pytest
 from pydantic import TypeAdapter
 
+from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.storage.observations.schema import open_connection
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 
 
 def test_financial_snapshot_json_preserves_values_and_missingness() -> None:

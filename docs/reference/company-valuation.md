@@ -5,7 +5,7 @@
 <a id="machine-valuation"></a>
 ## 機械ER/FV
 
-機械E[r]は倍率収束とcarryによるsecondary prior。四Approachの候補membership・順位、AI調査の優先度、企業固有の価値を所有しない。年率ratio、成分、入力basis、anchor・係数・clipの前提と一緒に読む。機械の5年priorは企業評価の期間を固定しない。
+機械E[r]は倍率収束とcarryによるsecondary prior。四Approachの候補membership・順位、AI調査の優先度、企業固有の価値を所有しない。年率ratio、成分、入力basis、anchor・係数・clipの前提と一緒に読む。機械の5年priorは銘柄評価の期間を固定しない。
 
 carryの配当・グロス株数変化が欠測なら計算上の寄与は0になるが、無配・株数不変を観測した意味ではない。元のnullable入力と欠測仮定を示す。予想DPS spike guardは一回性の分配を反復carryへ入れる影響を限定するため採用したが、当時の長期比較は盲検の閾値検証ではなく、5y top5 trap悪化の受容を含む。[採用時の制約](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-30-dividend-carry-spike-guard/report.md)は将来成績の保証ではない。株数減少は消却・発行等を含む過去の変化で、自己株取得の実行cash・未消化枠・将来還元ではない。
 
@@ -58,7 +58,7 @@ OCFとcapexは同じcontext・scopeを使い、合算と内訳を二重計上せ
 
 exact/approximated/unavailableは取得フローと期間の品質。年次metadataの12か月確認と、半期等を完全TTMへ合成できることは別で、半期CFを機械年率化しない。net cashは時点残高で12か月フローではない。品質は経済的持続性・株主回収可能性・倍率全体の正しさの認定ではない。
 
-ResearchのBS文脈で測定日やdebt scopeが未保存なら、最新開示日・書類期末・最大carry lagから推定しない。金額と品質だけでなく原典の時点・連結・単位・内訳を必要な範囲で確認する。
+Investment JudgmentのBS文脈で測定日やdebt scopeが未保存なら、最新開示日・書類期末・最大carry lagから推定しない。金額と品質だけでなく原典の時点・連結・単位・内訳を必要な範囲で確認する。
 
 ## 配当と還元
 
@@ -70,7 +70,7 @@ basis未解決と無配・未観測を分け、独立して使える予想まで
 
 ## 相対比較と自己レンジ
 
-業種中央値はCandidate Discoveryの共通資格母集団で作る。母数下限は少数の中央値へ依存しすぎないための慣例で、経済的最適値ではない。軸ごとの欠測が異なるので業種/市場fallbackも軸ごとに異なる。market fallbackのgapを「同業より割安」と読まず、構成の違いとbasisを併記する。
+業種中央値はScreeningの共通資格母集団で作る。母数下限は少数の中央値へ依存しすぎないための慣例で、経済的最適値ではない。軸ごとの欠測が異なるので業種/市場fallbackも軸ごとに異なる。market fallbackのgapを「同業より割安」と読まず、構成の違いとbasisを併記する。
 
 自己レンジは**現在fundamentalsを固定し、過去価格だけを動かした倍率比較**。各日の当時利益・資本から再現した倍率履歴ではない。min/max内の位置は観測順位のpercentileではなく、短い履歴の位置0も長期割安の証拠ではない。bar本数、履歴期間proxy、scope内の相対密度を合わせて読む。密度は取引calendarの完全性を証明しない。
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.machine_analysis.screening.calibration.evaluation.aggregate import _aggregate
 from baibai_engine.machine_analysis.screening.calibration.evaluation.axes import (
     _adjustment_factor_status,
@@ -46,6 +45,7 @@ from baibai_engine.machine_analysis.screening.calibration.horizons import requir
 from baibai_engine.machine_analysis.screening.calibration.panel import PanelRow
 from baibai_engine.machine_analysis.screening.discovery.contracts import APPROACH_IDS
 from baibai_engine.machine_analysis.screening.rule_config import CandidateDiscoveryRules
+from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 
 def evaluate_cohorts(

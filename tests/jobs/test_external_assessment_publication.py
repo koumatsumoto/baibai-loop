@@ -12,11 +12,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.batch.external_assessment_publication_fixtures import publication as publication
+from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tools.quality.drift.check_workflow_trust import check_workflow
 
-from baibai_jobs.jobs import external_assessment_integration as external_assessment
-from baibai_jobs.storage import publish_market_lake as publisher
 from baibai_engine.job_api import (
     ExternalAssessmentAnalystRatingObservation,
     LakeObjectCache,
@@ -25,6 +23,8 @@ from baibai_engine.job_api import (
     external_assessment_verify_release_history,
     lake_session,
 )
+from baibai_jobs.jobs import external_assessment_integration as external_assessment
+from baibai_jobs.storage import publish_market_lake as publisher
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
 

@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from baibai_engine.position.ledger import replay_events_through
-from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.selection import (
@@ -19,6 +17,8 @@ from baibai_engine.investment_judgment.workspace.files import (
     ResearchWorkspaceConflictError,
     _nonempty_string,
 )
+from baibai_engine.position.ledger import replay_events_through
+from baibai_engine.position.store import LedgerStoreService
 
 
 def workspace_selection(

@@ -12,7 +12,9 @@ from baibai_engine.data_collection.economic.acquisition import (
 from baibai_engine.data_collection.economic.acquisition import (
     refresh_sources as refresh_economic_sources,
 )
-from baibai_engine.data_collection.economic.handoff import export_receipts as export_economic_receipts
+from baibai_engine.data_collection.economic.handoff import (
+    export_receipts as export_economic_receipts,
+)
 from baibai_engine.data_collection.economic.receipt_policy import (
     retain_rechecks as retain_economic_rechecks,
 )
@@ -46,9 +48,6 @@ from baibai_engine.data_collection.equity_web.receipts import (
 )
 from baibai_engine.data_collection.equity_web.receipts import (
     validate_response as equity_web_validate_response,
-)
-from baibai_engine.data_collection.jquants.dependencies import (
-    export_dependencies as export_master_calendar_dependencies,
 )
 from baibai_engine.data_collection.external_assessment.cli import (
     main as external_assessment_acquisition_main,
@@ -86,6 +85,26 @@ from baibai_engine.data_collection.external_assessment.verification import (
 from baibai_engine.data_collection.external_assessment.verification import (
     verify_release_history as external_assessment_verify_release_history,
 )
+from baibai_engine.data_collection.jquants.dependencies import (
+    export_dependencies as export_master_calendar_dependencies,
+)
+from baibai_engine.data_collection.tradingview.collector import (
+    preflight_snapshot as tradingview_preflight,
+)
+from baibai_engine.data_collection.tradingview.handoff import TradingViewHandoff
+from baibai_engine.data_collection.tradingview.handoff import (
+    export_handoff as export_tradingview_handoff,
+)
+from baibai_engine.data_collection.tradingview.handoff import (
+    import_handoff as import_tradingview_handoff,
+)
+from baibai_engine.foundation.repository_layout import (
+    MARKET_DB_PATH,
+    RUNS_DB_PATH,
+    StoreLayoutError,
+    reject_noncanonical_store_paths,
+    repository_root_error,
+)
 from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
     decode_attempt as external_assessment_decode_attempt,
 )
@@ -119,31 +138,17 @@ from baibai_engine.machine_analysis.external_assessment.observations.models impo
 from baibai_engine.machine_analysis.external_assessment.store import (
     save_observations as external_assessment_save_observations,
 )
-from baibai_engine.data_collection.tradingview.collector import (
-    preflight_snapshot as tradingview_preflight,
-)
 from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
     failure_line as tradingview_failure_line,
 )
 from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
     safe_progress as tradingview_safe_progress,
 )
-from baibai_engine.data_collection.tradingview.handoff import TradingViewHandoff
-from baibai_engine.data_collection.tradingview.handoff import (
-    export_handoff as export_tradingview_handoff,
-)
-from baibai_engine.data_collection.tradingview.handoff import (
-    import_handoff as import_tradingview_handoff,
-)
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
     FetchError as TradingViewFetchError,
 )
-from baibai_engine.foundation.repository_layout import (
-    MARKET_DB_PATH,
-    RUNS_DB_PATH,
-    StoreLayoutError,
-    reject_noncanonical_store_paths,
-    repository_root_error,
+from baibai_engine.machine_analysis.screening.discovery.contracts import (
+    validate_candidate_run as validate_candidate_run,
 )
 from baibai_engine.market.edinet_acquisition import acquire_archives as acquire_edinet_archives
 from baibai_engine.market.edinet_handoff import archive_keys as edinet_archive_keys
@@ -159,9 +164,6 @@ from baibai_engine.market.jquants_handoff import export_handoff as export_jquant
 from baibai_engine.market.jquants_handoff import import_handoff as import_jquants_handoff
 from baibai_engine.market.source_inputs import SOURCE_INPUT_GROUPS
 from baibai_engine.market.source_inputs import export_source_input as export_market_source_input
-from baibai_engine.machine_analysis.screening.discovery.contracts import (
-    validate_candidate_run as validate_candidate_run,
-)
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.equity_web_verification import (
     history_digests as equity_web_history_digests,

@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def test_pull_prepares_market_before_reporting_success(tmp_path: Path) -> None:
-    scripts = tmp_path / "batch" / "scripts"
+    scripts = tmp_path / "jobs" / "scripts"
     scripts.mkdir(parents=True)
     pull = scripts / "pull.sh"
     shutil.copy2(Path(__file__).resolve().parents[2] / "jobs/scripts/pull.sh", pull)

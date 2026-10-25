@@ -16,10 +16,16 @@ def production_rules_contract_hash(
 ) -> str:
     """Return the exact screening identity used by production runs and candidate contexts."""
 
-    from baibai_engine.machine_analysis.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
+    from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import (
+        VALUATION_CALCULATION_REVISION,
+    )
+    from baibai_engine.machine_analysis.company_valuation.metrics.history import (
+        VALUATION_HISTORY_SESSIONS,
+    )
+    from baibai_engine.machine_analysis.market_context.margin import (
+        MARKET_CONTEXT_CALCULATION_REVISION,
+    )
     from baibai_engine.machine_analysis.screening.metric_builder import BARS_INPUT_WINDOW_DAYS
-    from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
-    from baibai_engine.machine_analysis.company_valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 
     return rules_contract_hash(
         rules_json,

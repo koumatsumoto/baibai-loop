@@ -7,7 +7,7 @@ import { AsOfBadge } from '../components/AsOfBadge'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
-import { ResearchNav } from '../components/ResearchNav'
+import { InvestmentJudgmentNav } from '../components/InvestmentJudgmentNav'
 import { SavedAssessmentLink } from '../components/ReadingNavigation'
 import { AssessmentReviewContent, ReviewedAssessmentContent } from '../components/ReviewedAssessmentContent'
 import { SectionCard } from '../components/SectionCard'
@@ -50,7 +50,7 @@ export function ProposalItemContent({ item, savedQuote, proposalId }: { item: In
     {item.action === 'defer' && <div className="grid gap-2 text-sm"><p className="font-medium">判断を保留する不足</p><ul className="list-inside list-disc">{item.blockers.map(reason => <li key={reason.code}>{reason.message}</li>)}</ul><p>再開条件: {item.resume_conditions.join(' / ')}</p></div>}
     <p className="text-sm">見直し条件: {item.review_conditions.join(' / ')}</p>
     <div className="grid gap-2 border-t pt-2">
-      {item.assessment_ref ? <SavedAssessmentLink className="inline-flex min-h-11 w-fit items-center text-sm underline" assessmentId={item.assessment_ref.assessment_id} proposalId={proposalId} ticker={item.ticker}>この提案が参照した評価・独立Reviewを読む →</SavedAssessmentLink> : <p className="text-sm text-muted-foreground">調査未完了のため、完成評価への参照はありません。</p>}
+      {item.assessment_ref ? <SavedAssessmentLink className="inline-flex min-h-11 w-fit items-center text-sm underline" assessmentId={item.assessment_ref.assessment_id} proposalId={proposalId} ticker={item.ticker}>この提案が参照した評価・独立検証を読む →</SavedAssessmentLink> : <p className="text-sm text-muted-foreground">調査未完了のため、完成評価への参照はありません。</p>}
       <Link className="inline-flex min-h-11 w-fit items-center text-sm underline" to={`/securities/${item.ticker}`}>最新の銘柄情報・評価を見る（提案当時とは別） →</Link>
     </div>
   </article>
@@ -72,7 +72,7 @@ export function ProposalAssessmentDetails({ item, proposalId }: { item: Investme
 
 export function ProposalReviewContent({ review, proposalId, draftSha256 }: { review: Record<string, unknown>; proposalId: string; draftSha256: string }) {
   const findings = Array.isArray(review.open_findings) ? review.open_findings : null
-  return <SectionCard padded title="提案内容の独立Review" description="保存した提案内容の確認です。人間の採用・注文・約定を示しません。">
+  return <SectionCard padded title="提案内容の独立検証" description="保存した提案内容の確認です。人間の採用・注文・約定を示しません。">
     <dl className="grid gap-4 text-sm leading-7 sm:grid-cols-2">
       <div><dt className="text-xs text-muted-foreground">確認結果</dt><dd>{review.conclusion === 'pass' ? '提案内容のReview通過' : text(review.conclusion)}</dd></div>
       <div><dt className="text-xs text-muted-foreground">確認者・時刻</dt><dd>{text(review.reviewer_identity)}<br />{text(review.reviewed_at)}</dd></div>
@@ -139,7 +139,7 @@ export function CurrentProposalPreviewPanel({ proposalId }: { proposalId: string
   </SectionCard>
 }
 
-export function InvestmentProposalPage() {
+export function TradeProposalPage() {
   const { proposalId = '' } = useParams<{ proposalId: string }>()
   const [data, setData] = useState<InvestmentProposalView | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -152,14 +152,14 @@ export function InvestmentProposalPage() {
       .then(result => { if (!controller.signal.aborted) setData(result) })
       .catch((reason: unknown) => {
         if (controller.signal.aborted || (reason instanceof Error && reason.name === 'AbortError')) return
-        setError(reason instanceof Error ? reason.message : '投資提案を読み込めませんでした')
+        setError(reason instanceof Error ? reason.message : '売買提案を読み込めませんでした')
       })
     return () => controller.abort()
   }, [proposalId])
-  if (error) return <PageState message={error} title="投資提案" />
-  if (!data || data.proposal_id !== proposalId) return <LoadingPage label="投資提案を読み込んでいます" />
+  if (error) return <PageState message={error} title="売買提案" />
+  if (!data || data.proposal_id !== proposalId) return <LoadingPage label="売買提案を読み込んでいます" />
   const quotes = Array.isArray(data.saved_inputs.quotes) ? data.saved_inputs.quotes.map(record) : []
-  return <PageShell above={<ResearchNav />} title={data.headline} lead="発行時の評価・比較範囲・価格・資金を固定した提案です。採否・注文・約定は別工程です。" width="reading" meta={<div className="flex flex-wrap gap-3"><AsOfBadge value={data.as_of} /><UpdatedAtBadge value={data.published_at} /></div>}>
+  return <PageShell above={<InvestmentJudgmentNav />} title={data.headline} lead="発行時の評価・比較範囲・価格・資金を固定した提案です。採否・注文・約定は別工程です。" width="reading" meta={<div className="flex flex-wrap gap-3"><AsOfBadge value={data.as_of} /><UpdatedAtBadge value={data.published_at} /></div>}>
     <SectionCard padded title="比較と今回の判断"><p className="whitespace-pre-line text-sm leading-7">{data.comparison}</p><p className="mt-3 whitespace-pre-line text-sm leading-7">見送った選択肢: {data.forgone}</p>
       <nav className="mt-4 grid gap-2 sm:grid-cols-2" aria-label="今回の対象と判断">{data.items.map(item => <a className="flex min-h-11 flex-wrap items-center gap-x-3 rounded border px-3 py-2 text-sm underline" href={`#proposal-item-${item.ticker}`} key={item.ticker}><span className="font-mono">{item.ticker}</span><span>{ACTION_LABELS[item.action] ?? item.action}</span>{(item.action === 'buy' || item.action === 'sell') && <span>{item.order_readiness === 'ready' ? '提案条件確定' : '価格・数量等の条件未確定'}</span>}</a>)}</nav>
     </SectionCard>

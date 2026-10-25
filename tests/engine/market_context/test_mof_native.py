@@ -10,7 +10,9 @@ from baibai_engine.data_collection.economic.providers import mof_jgb
 from baibai_engine.data_collection.economic.records import read_snapshots
 from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.machine_analysis.market_context.reading.reader import (
+    build_store_observation_reader,
+)
 
 
 def test_current_month_missing_cell_overrides_history_and_prior_value(tmp_path, monkeypatch):

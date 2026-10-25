@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import date
 
 from baibai_engine.foundation.date_utils import add_months_clamped
+from baibai_engine.machine_analysis.company_valuation.metrics.models import TTMRules
 from baibai_engine.market.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
@@ -21,7 +22,6 @@ from baibai_engine.market.financial_periods import (
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.machine_analysis.company_valuation.metrics.models import TTMRules
 
 _AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
 

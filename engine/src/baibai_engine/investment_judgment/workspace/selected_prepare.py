@@ -8,7 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.investment_judgment.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.investment_judgment.inputs import (
+    collect_research_inputs,
+    project_research_inputs,
+)
 from baibai_engine.investment_judgment.operation.models import OperationPayload, OperationSession
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
@@ -20,7 +23,10 @@ from baibai_engine.investment_judgment.selection import (
     ResearchTarget,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY, validate_capacity
+from baibai_engine.investment_judgment.selection_policy import (
+    CURRENT_RESEARCH_CAPACITY,
+    validate_capacity,
+)
 from baibai_engine.investment_judgment.selection_query import load_analysis_snapshot
 from baibai_engine.investment_judgment.workspace.admission import workspace_selection
 from baibai_engine.investment_judgment.workspace.files import (

@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-PUBLISH_SCRIPT = ROOT / "batch" / "scripts" / "publish.sh"
+PUBLISH_SCRIPT = ROOT / "jobs" / "scripts" / "publish.sh"
 
 
 def _isolated_publish_script(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     root = tmp_path / "repo"
-    scripts = root / "batch" / "scripts"
+    scripts = root / "jobs" / "scripts"
     scripts.mkdir(parents=True)
     publish = scripts / "publish.sh"
     shutil.copy2(PUBLISH_SCRIPT, publish)

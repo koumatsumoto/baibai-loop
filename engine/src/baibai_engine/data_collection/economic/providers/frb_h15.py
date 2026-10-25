@@ -5,7 +5,10 @@ import io
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from baibai_engine.data_collection.economic.provider_specs import FRB_H15_PACKAGE_SERIES, ProviderSpec
+from baibai_engine.data_collection.economic.provider_specs import (
+    FRB_H15_PACKAGE_SERIES,
+    ProviderSpec,
+)
 from baibai_engine.data_collection.economic.records import NativeRecords
 from baibai_engine.data_collection.economic.sources import SourceDefinition
 

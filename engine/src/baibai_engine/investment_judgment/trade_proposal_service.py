@@ -13,24 +13,23 @@ from pathlib import Path
 from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.sessions import latest_eligible_close_date
-from baibai_engine.position.market_source import next_order_session
-from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
+from baibai_engine.investment_judgment.operation.research_binding import (
+    require_proposal_research_scope,
+)
 from baibai_engine.investment_judgment.stock_assessment_store import (
     ReviewedAssessment,
     latest_assessment_id,
     require_assessment_ref,
 )
-from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
-from baibai_engine.investment_judgment.operation.research_binding import require_proposal_research_scope
 from baibai_engine.investment_judgment.trade_proposal import (
     BuyItem,
     GateReason,
     HoldItem,
-    TradeProposal,
     ProposalConflictError,
     ProposalError,
     SellItem,
+    TradeProposal,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal_conditions import (
@@ -49,6 +48,9 @@ from baibai_engine.investment_judgment.trade_proposal_inputs import (
 from baibai_engine.investment_judgment.trade_proposal_policy import validate_proposal_policy
 from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings
+from baibai_engine.market.sessions import latest_eligible_close_date
+from baibai_engine.position.market_source import next_order_session
+from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
@@ -307,9 +309,7 @@ class TradeProposalService:
         self._sqlite_path = sqlite_path
         self._clock = clock or (lambda: datetime.now(JST))
 
-    def check(
-        self, proposal: TradeProposal, *, require_review: bool = True
-    ) -> ProposalValidation:
+    def check(self, proposal: TradeProposal, *, require_review: bool = True) -> ProposalValidation:
         with closing(connect_read_only(self._db_path)) as connection:
             connection.execute("BEGIN")
             return check_proposal(

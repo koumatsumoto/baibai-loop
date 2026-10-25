@@ -38,7 +38,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
 | `storage/`・`foundation/` | 接続、schema、transaction、lakeと汎用基盤 |
 
-五モデルはScreening専用の中間データではない。Investment Judgmentは公開読取入口から直接モデルと一次資料を統合し、候補外の企業も調査できる。現行Screeningの入力・順位・候補規則は名称整理では変えず、企業価値や買付採否を確定しない。Company Valuationも真の企業価値や最終買付判断を確定するものではない。
+五モデルはScreening専用の中間データではない。Investment Judgmentは公開読取入口から直接モデルと一次資料を統合し、候補外の企業も調査できる。現行Screeningの入力・順位・候補規則は名称整理では変えず、企業価値や買付採否を確定しない。現行のERや四つの候補抽出経路は現在の実装方式であり、正式用語・責務の確定は戦略の妥当性や将来の維持を確定するものではない。Company Valuationも真の企業価値や最終買付判断を確定するものではない。
 
 `market/`はsource独立取得、原受領のhandoff、最新正本への投影が同じmodule群で連携している。これを丸ごとL2へ置くと新規取得まで機械分析に見え、分割にはtransaction・再開・store依存の再設計が要るため現配置を保つ。共通価格は`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更を同じ契約へ潰さない。
 
@@ -64,7 +64,7 @@ Company Research（企業調査）は一次資料から事業・財務・競争�
 
 | 作業の入口 | 操作先 |
 | --- | --- |
-| 新しい有限Research | [Researchの開始](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象) |
+| 新しい有限Investment Judgment | [Investment Judgmentの開始](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象) |
 | 共通市場判断だけを作る | [市場環境判断（Market Context Assessment）](../.agents/skills/market-context-assessment/SKILL.md) |
 | 人間が確認した取引事実を記す | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
 | 既存Operationを続ける | [保存入力からの再開](../.agents/skills/investment-judgment/SKILL.md#完了と再開) |
@@ -91,7 +91,7 @@ source取得は担当範囲の再生成可能なread-only inputと原受領hando
 
 現行のdated規則だけを[`machine_analysis/screening/rules/`](../engine/src/baibai_engine/machine_analysis/screening/rules/)と[`machine_analysis/market_context/reading/rules/`](../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)へ配置し、既定revisionは各loaderが読む。旧版は[Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/method)で保持し、保存結果の閲覧に再配置しない。過去計算の再現には当時の規則だけでなくコードと入力も要る。規則の意味を変える場合は新revisionとし、配置変更だけで内容・識別子・保存判断を変えない。較正の配布artifactは[`machine_analysis/company_valuation/calibration/published/`](../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)、表示設定は`web/config/`に置く。
 
-開発計測・移行の記録はIssue/PRと[固定Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports)へ委ねる。正式なResearch成果は上記application DBへ保存し、過去の開発レポートを現在の判断として再発行しない。
+開発計測・移行の記録はIssue/PRと[固定Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports)へ委ねる。正式なInvestment Judgment成果は上記application DBへ保存し、過去の開発レポートを現在の判断として再発行しない。
 
 配置・Python名・CLI・表示名の変更では、保存済みJSONのkind/field、DB table、R2 key、ID・fingerprint・本文・履歴、規則hash/dated stem、model revisionを変えない。保存契約の`investment_proposal`・`research_selection`等はそのまま読み書きし、現在の工程名と区別する。原本bytes・受領日時・source identity・release/hash、候補集合と理由、null/0と既知不足の意味も保つ。
 

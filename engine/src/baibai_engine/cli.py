@@ -83,7 +83,8 @@ DOMAINS: Mapping[str, Domain] = {
     "investment-judgment": Domain(
         module="baibai_engine.investment_judgment.workspace_cli",
         summary=(
-            "Investment Judgment: Company Research, Stock Assessment, Independent Review, Trade Proposal"
+            "Investment Judgment: Company Research, Stock Assessment, "
+            "Independent Review, Trade Proposal"
         ),
     ),
     "task": Domain(

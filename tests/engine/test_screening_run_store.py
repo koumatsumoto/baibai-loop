@@ -11,7 +11,6 @@ import pytest
 import yaml
 from tests.engine.test_candidate_discovery import GOLDEN, _analysis
 
-from baibai_engine.read_api.screening import previous_run_revision_id
 from baibai_engine.machine_analysis.screening.discovery.contracts import APPROACH_IDS
 from baibai_engine.machine_analysis.screening.discovery.projection import candidate_rows
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
@@ -31,6 +30,7 @@ from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     serialize_published_run_yaml,
     stock_analysis_payload,
 )
+from baibai_engine.read_api.screening import previous_run_revision_id
 
 RULES = load_screening_rules()
 RULES_HASH = production_rules_contract_hash(RULES.model_dump_json())

@@ -12,11 +12,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_jobs.observability.discord import write_json_atomic
-from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
-from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
-from baibai_jobs.storage.merge_economic_store import FACT_KEYS, merge_stores, verify_stores
-from baibai_jobs.storage.store_merge import MergeError
 from baibai_engine.job_api import (
     DEFAULT_ECONOMIC_DB_PATH,
     EconomicSchemaError,
@@ -30,6 +25,11 @@ from baibai_engine.job_api import (
     retain_economic_rechecks,
     validate_economic_schema,
 )
+from baibai_jobs.observability.discord import write_json_atomic
+from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
+from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
+from baibai_jobs.storage.merge_economic_store import FACT_KEYS, merge_stores, verify_stores
+from baibai_jobs.storage.store_merge import MergeError
 
 
 def selected_sources(group: str, source_id: str = "") -> list[str]:

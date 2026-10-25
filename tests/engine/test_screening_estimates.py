@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import unittest
 
+from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.company_valuation.metrics.models import (
+    UNRESOLVED_DIVIDEND_BASIS,
+    FinancialSnapshot,
+)
 from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
 from baibai_engine.machine_analysis.screening.stock_analysis_builder import expected_return_inputs
-from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
-from baibai_engine.machine_analysis.company_valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS, FinancialSnapshot
 
 
 def _financial(

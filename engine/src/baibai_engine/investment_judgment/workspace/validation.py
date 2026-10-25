@@ -11,6 +11,8 @@ from typing import cast
 import yaml
 
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.investment_judgment.inputs import project_research_inputs
+from baibai_engine.investment_judgment.selection import ResearchSelection
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     StockAssessmentDocument,
@@ -18,8 +20,6 @@ from baibai_engine.investment_judgment.stock_assessment import (
     assessment_core_hash,
     evaluate_assessment,
 )
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.selection import ResearchSelection
 from baibai_engine.investment_judgment.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,

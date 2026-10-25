@@ -19,7 +19,10 @@ from baibai_engine.machine_analysis.screening.discovery.contracts import (
     StockCandidateContext,
     validate_candidate_run,
 )
-from baibai_engine.machine_analysis.screening.discovery.projection import candidate_rows, reinvestment_coordinates
+from baibai_engine.machine_analysis.screening.discovery.projection import (
+    candidate_rows,
+    reinvestment_coordinates,
+)
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 
 SCREENING_RULES = load_screening_rules()

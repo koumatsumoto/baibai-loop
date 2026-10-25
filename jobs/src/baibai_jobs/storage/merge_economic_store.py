@@ -8,6 +8,8 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.job_api import EconomicSchemaError
+from baibai_engine.job_api import validate_economic_schema as validate_current_schema
 from baibai_jobs.storage.store_merge import (
     MergeError,
     MergeReport,
@@ -16,8 +18,6 @@ from baibai_jobs.storage.store_merge import (
     require_matching_payloads,
     source_only_rows,
 )
-from baibai_engine.job_api import EconomicSchemaError
-from baibai_engine.job_api import validate_economic_schema as validate_current_schema
 
 FACT_KEYS = {
     "economic_source_records": ("source_id", "observed_at", "fetched_at"),

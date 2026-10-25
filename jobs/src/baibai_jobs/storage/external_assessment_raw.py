@@ -19,10 +19,10 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from baibai_engine.job_api import EquityWebSourceResponse, equity_web_validate_response
 from baibai_jobs.storage.external_assessment_identity import RAW_BUNDLE_FORMAT, RAW_PREFIX
 from baibai_jobs.storage.external_assessment_staging import prefix
 from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.job_api import EquityWebSourceResponse, equity_web_validate_response
 
 RETENTION_DAYS = 3
 

@@ -10,14 +10,6 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
-from baibai_jobs.storage.merge_market_store import (
-    ALL_TABLES,
-    FACT_KEYS,
-    UNCOMPARED,
-    MergeError,
-    main,
-    merge_stores,
-)
 from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.market.jquants_writer import store_jquants_short_sale_reports
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
@@ -28,6 +20,14 @@ from baibai_engine.storage.observations.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.storage.merge_market_store import (
+    ALL_TABLES,
+    FACT_KEYS,
+    UNCOMPARED,
+    MergeError,
+    main,
+    merge_stores,
+)
 
 _FIN_RANGE = "get_fin_summary_range:2020-01-01..2020-12-31"
 

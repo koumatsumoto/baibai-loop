@@ -91,7 +91,9 @@ def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
 )
 def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, error):
     from baibai_engine.data_collection.tradingview.cli import failure_line
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import ProviderHTTPError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderHTTPError,
+    )
 
     payload = {"success": False, "error": error, "token": "private-token"}
     session = SimpleNamespace(
@@ -129,7 +131,9 @@ def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, err
     ],
 )
 def test_unrecognized_envelope_stays_invalid_without_text_fallback(payload):
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import ProviderPayloadError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderPayloadError,
+    )
 
     session = SimpleNamespace(
         call_tool=AsyncMock(

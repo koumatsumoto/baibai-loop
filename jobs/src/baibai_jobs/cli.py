@@ -6,15 +6,15 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from baibai_jobs.jobs.daily import main as daily_main
-from baibai_jobs.jobs.tradingview import main as tradingview_main
-from baibai_jobs.validation.market_context_stores import (
-    main as validate_market_context_stores_main,
-)
 from baibai_engine.job_api import (
     StoreLayoutError,
     external_assessment_acquisition_main,
     reject_noncanonical_store_paths,
+)
+from baibai_jobs.jobs.daily import main as daily_main
+from baibai_jobs.jobs.tradingview import main as tradingview_main
+from baibai_jobs.validation.market_context_stores import (
+    main as validate_market_context_stores_main,
 )
 
 Command = Callable[[list[str] | None], int]

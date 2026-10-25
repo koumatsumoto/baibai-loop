@@ -6,11 +6,11 @@ from datetime import date, timedelta
 
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
 
+from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
 
 
 class SnapshotFixtures(unittest.TestCase):

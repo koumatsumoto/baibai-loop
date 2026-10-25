@@ -19,19 +19,21 @@ from datetime import date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
 from baibai_engine.foundation.sqlite_read import read_rows
-from baibai_engine.market.jpx_reader import read_jpx_regulations, read_next_earnings_dates
+from baibai_engine.machine_analysis.company_valuation.metrics.history import (
+    VALUATION_HISTORY_SESSIONS,
+)
+from baibai_engine.machine_analysis.external_assessment.query import external_assessment
 from baibai_engine.machine_analysis.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.machine_analysis.market_context.security import build_security_market_context
+from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
+from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
+from baibai_engine.market.jpx_reader import read_jpx_regulations, read_next_earnings_dates
 from baibai_engine.read_api.position import (
     portfolio_ledger_document,
     replay_events_through,
     summarize_portfolio,
 )
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
-from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
-from baibai_engine.machine_analysis.company_valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 
 
 def build_ticker_profile(

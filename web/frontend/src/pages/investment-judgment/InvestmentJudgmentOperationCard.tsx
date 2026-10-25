@@ -9,7 +9,7 @@ const OPERATION_KIND_LABEL: Record<string, string> = {
   'position-review': '保有の見直し',
 }
 
-export function ResearchOperationCard({ operations, names = new Map() }: { operations: OperationSessionView[]; names?: ReadonlyMap<string, string | null> }) {
+export function InvestmentJudgmentOperationCard({ operations, names = new Map() }: { operations: OperationSessionView[]; names?: ReadonlyMap<string, string | null> }) {
   const sessions = [...operations].sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || Date.parse(b.started_at) - Date.parse(a.started_at))
   const content = sessions.map(operation => {
     const research = operation.research
@@ -25,7 +25,7 @@ export function ResearchOperationCard({ operations, names = new Map() }: { opera
     return <article className="grid gap-3 rounded-lg border p-4" key={operation.operation_id}>
       <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{operation.status === 'completed' ? '調査終了' : operation.status === 'active' ? '調査進行中' : operation.status}</p><AsOfBadge value={operation.as_of} /></div>
       <p className="text-xs text-muted-foreground">開始 {formatJstStamp(operation.started_at)} · 固定対象 {research.targets.length}件</p>
-      <p className="text-sm">企業評価・Review完了 {reviewed}件 · 調査未完了 {unfinished}件 · 成果未記録 {research.targets.length - reviewed - unfinished}件</p>
+      <p className="text-sm">銘柄評価・独立検証完了 {reviewed}件 · 調査未完了 {unfinished}件 · 成果未記録 {research.targets.length - reviewed - unfinished}件</p>
       <p className="text-sm">{research.proposal_id ? '保存提案あり。具体条件・保留・見送りは保存提案で確認します。' : '保存提案の参照はありません。'}</p>
       <p className="text-sm">{research.request_scope === 'discover_new' ? '新規購入の探索' : research.request_scope === 'specified_stocks' ? '指定銘柄の調査' : '保有の見直し'} · 深掘り上限 {research.max_deep_research_targets}件</p>
       {research.selection_summary && <p className="text-sm">{research.selection_summary}</p>}
@@ -35,8 +35,8 @@ export function ResearchOperationCard({ operations, names = new Map() }: { opera
         {target.selection_rationale && <p>選定理由: {target.selection_rationale}</p>}
         {target.research_question && <p>調査の問い: {target.research_question}</p>}
         {target.key_risk && <p>主要リスク: {target.key_risk}</p>}
-        <p>{target.outcome_status === 'reviewed' ? '企業評価・Review完了' : target.outcome_status === 'unfinished' ? `調査未完了: ${target.unfinished_reason ?? '理由未記録'}` : '成果未記録'}</p>
-        {target.outcome_status === 'reviewed' && <p className="text-xs text-muted-foreground">企業評価の完了です。提案・採否・約定は別に確認します。</p>}
+        <p>{target.outcome_status === 'reviewed' ? '銘柄評価・独立検証完了' : target.outcome_status === 'unfinished' ? `調査未完了: ${target.unfinished_reason ?? '理由未記録'}` : '成果未記録'}</p>
+        {target.outcome_status === 'reviewed' && <p className="text-xs text-muted-foreground">銘柄評価の完了です。提案・採否・約定は別に確認します。</p>}
         {target.assessment_ref && <Link className="w-fit text-xs underline" to={`/stocks/stock-assessments/${target.assessment_ref.assessment_id}`}>この調査で完成した評価版を見る →</Link>}
         <Link className="w-fit text-xs underline" to={`/securities/${target.ticker}`}>最新の銘柄情報を見る →</Link>
       </div>)}

@@ -82,7 +82,9 @@ def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
 
     from baibai_engine.data_collection.economic.providers.mof_jgb import parse_mof_jgb_csv
     from baibai_engine.data_collection.economic.sources import require_source
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+        load_definitions,
+    )
     from baibai_engine.machine_analysis.market_context.reading.native import _one_value
 
     day = date(2026, 5, 1)
@@ -103,7 +105,9 @@ def test_umich_acquisition_preserves_other_columns_before_l2_selection():
 
     from baibai_engine.data_collection.economic.providers.umich_sca import parse_umich_table
     from baibai_engine.data_collection.economic.sources import load_sources
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+        load_definitions,
+    )
     from baibai_engine.machine_analysis.market_context.reading.native import _one_value
 
     day = date(2026, 5, 1)
@@ -125,7 +129,9 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
     from baibai_engine.data_collection.economic import store as economic_store
     from baibai_engine.data_collection.economic.records import read_snapshots
     from baibai_engine.machine_analysis.market_context import indicator_service
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+        load_definitions,
+    )
 
     day = date(2026, 5, 1)
     path = tmp_path / "indicators.sqlite"
@@ -176,7 +182,9 @@ def test_l2_resolves_shared_source_metadata_from_one_catalog(monkeypatch):
 
 
 def test_l2_registry_rejects_inline_external_source_configuration(tmp_path):
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+        load_definitions,
+    )
 
     path = tmp_path / "reading.yaml"
     path.write_text("series: [{source_id: fed-h15, provider: frb_h15}]")
@@ -185,7 +193,9 @@ def test_l2_registry_rejects_inline_external_source_configuration(tmp_path):
 
 
 def test_l2_registry_rejects_an_unknown_source_binding(tmp_path):
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+        load_definitions,
+    )
 
     path = tmp_path / "reading.yaml"
     path.write_text("series: [{source_id: unknown-source}]")

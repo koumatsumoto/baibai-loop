@@ -25,7 +25,10 @@ from baibai_engine.data_collection.economic.records import (
 from baibai_engine.data_collection.economic.sources import require_source
 from baibai_engine.data_collection.economic.store import initialize_database
 from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
-from baibai_engine.machine_analysis.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
 from baibai_engine.machine_analysis.market_context.reading.option_iv import (
     CALL,
     PUT,
@@ -1037,7 +1040,8 @@ class OptionAcquisitionTest(unittest.TestCase):
             connection.close()
         with (
             mock.patch(
-                "baibai_engine.machine_analysis.market_context.indicator_service._today_jst", return_value=ASOF
+                "baibai_engine.machine_analysis.market_context.indicator_service._today_jst",
+                return_value=ASOF,
             ),
             mock.patch.object(OptionChainSource, "__init__", return_value=None),
             mock.patch.object(OptionChainSource, "close"),

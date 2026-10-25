@@ -10,8 +10,9 @@ from baibai_engine.data_collection.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
-from baibai_engine.machine_analysis.external_assessment.tradingview import cli, diagnostics
 from baibai_engine.data_collection.tradingview.collector import SourceDataError, TimeGuardError
+from baibai_engine.data_collection.tradingview import cli
+from baibai_engine.machine_analysis.external_assessment.tradingview import diagnostics
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import FetchError
 
 
@@ -183,7 +184,9 @@ def test_provider_http_category_through_collection_and_groups(status, category):
         CollectionFailure,
         CollectionProgress,
     )
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import ProviderHTTPError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderHTTPError,
+    )
 
     error = ProviderHTTPError(status)
     error.__cause__ = RuntimeError("private-token private-body")
@@ -204,7 +207,9 @@ def test_cli_collection_error_prints_only_safe_diagnostics(monkeypatch, capsys):
         CollectionFailure,
         CollectionProgress,
     )
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import ProviderPayloadError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderPayloadError,
+    )
 
     def fail(*args, **kwargs):
         error = ProviderPayloadError("invalid_numeric", "quote_close")

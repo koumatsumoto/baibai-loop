@@ -14,4 +14,3 @@ def finite_decimal(value: object) -> Decimal:
     if not number.is_finite():
         raise ValueError("must be a finite decimal number")
     return number
-

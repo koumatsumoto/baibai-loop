@@ -7,28 +7,23 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import (
+from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     integrate_ready_plans,
     pair_responses,
     ready_reference,
     upload_bundle,
 )
-from tests.batch.external_assessment_publication_fixtures import _plan as _plan
-from tests.batch.external_assessment_publication_fixtures import _stage as _stage
-from tests.batch.external_assessment_publication_fixtures import publication as publication
-from tests.batch.test_external_assessment_raw import Session
-from tests.batch.test_external_assessment_raw import connect as connect
+from tests.jobs.external_assessment_publication_fixtures import _plan as _plan
+from tests.jobs.external_assessment_publication_fixtures import _stage as _stage
+from tests.jobs.external_assessment_publication_fixtures import publication as publication
+from tests.jobs.test_external_assessment_raw import Session
+from tests.jobs.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_sources import monex_html
 from tests.engine.test_minkabu import html as minkabu_html
 from tests.engine.test_minkabu import no_coverage_html
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs import external_assessment_integration as integration
-from baibai_jobs.jobs.external_assessment_cohorts import new_result, record_outcome
-from baibai_jobs.storage import publish_market_lake as publisher
-from baibai_jobs.storage.external_assessment_ready import available_ready
-from baibai_jobs.storage.external_assessment_staging import CohortStage, stage_bytes, stage_key
+from baibai_engine.data_collection.equity_web.receipts import read_responses
 from baibai_engine.job_api import (
     ExternalAssessmentCollectionOutcome,
     equity_web_history_digests,
@@ -36,7 +31,6 @@ from baibai_engine.job_api import (
     external_assessment_decode_attempt,
     external_assessment_history_digests,
 )
-from baibai_engine.data_collection.equity_web.receipts import read_responses
 from baibai_engine.machine_analysis.external_assessment.normalization import ParseError
 from baibai_engine.machine_analysis.external_assessment.observations.contract import (
     ANALYST_RATING_TABLE,
@@ -49,6 +43,12 @@ from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import open_connection
+from baibai_jobs.jobs import external_assessment_daily as daily
+from baibai_jobs.jobs import external_assessment_integration as integration
+from baibai_jobs.jobs.external_assessment_cohorts import new_result, record_outcome
+from baibai_jobs.storage import publish_market_lake as publisher
+from baibai_jobs.storage.external_assessment_ready import available_ready
+from baibai_jobs.storage.external_assessment_staging import CohortStage, stage_bytes, stage_key
 
 
 def _publish(publication, plan, suffix):

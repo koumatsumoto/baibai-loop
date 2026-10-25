@@ -23,13 +23,21 @@ from typing import cast
 # 表を更新し忘れた delegation は gate をすり抜けない。
 DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine data-collection economic": "baibai_engine.data_collection.economic.cli",
-    "baibai-engine market-context indicators": "baibai_engine.machine_analysis.market_context.indicator_cli",
-    "baibai-engine market-context reading": "baibai_engine.machine_analysis.market_context.reading.cli",
-    "baibai-engine investment-judgment market-context": "baibai_engine.investment_judgment.market_context.cli",
+    "baibai-engine market-context indicators": (
+        "baibai_engine.machine_analysis.market_context.indicator_cli"
+    ),
+    "baibai-engine market-context reading": (
+        "baibai_engine.machine_analysis.market_context.reading.cli"
+    ),
+    "baibai-engine investment-judgment market-context": (
+        "baibai_engine.investment_judgment.market_context.cli"
+    ),
     "baibai-engine investment-judgment stock-assessment-evaluate": (
         "baibai_engine.investment_judgment.stock_assessment_evaluation_cli"
     ),
-    "baibai-engine investment-judgment calculate": "baibai_engine.investment_judgment.calculation_cli",
+    "baibai-engine investment-judgment calculate": (
+        "baibai_engine.investment_judgment.calculation_cli"
+    ),
 }
 
 

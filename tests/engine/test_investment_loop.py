@@ -11,15 +11,18 @@ from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_revi
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review
 from tests.helpers.research_selection import selection
 
+from baibai_engine.investment_judgment.operation.models import OperationPayload
+from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal_query import (
+    get_investment_proposal,
+    preview_current_terms,
+)
+from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
-from baibai_engine.investment_judgment.operation.models import OperationPayload
-from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal, preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
-from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 
 
 @pytest.mark.parametrize("fill_first", [False, True])

@@ -8,6 +8,16 @@ from datetime import date
 from itertools import pairwise
 
 from baibai_engine.foundation.date_utils import add_months_clamped
+from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
+    _normalize_summaries_to_asof_basis,
+)
+from baibai_engine.machine_analysis.company_valuation.metrics.models import (
+    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
+    UNRESOLVED_DIVIDEND_BASIS,
+)
+from baibai_engine.machine_analysis.company_valuation.metrics.periods import (
+    _accounting_observation_key,
+)
 from baibai_engine.market.financial_documents import (
     accounting_period_identity,
     latest_disclosure_candidates,
@@ -19,12 +29,6 @@ from baibai_engine.market.financial_periods import period_days, resolve_actual_c
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_basis import cumulative_share_unit_factor_after, share_unit_factor
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.machine_analysis.company_valuation.metrics.capital import _normalize_summaries_to_asof_basis
-from baibai_engine.machine_analysis.company_valuation.metrics.models import (
-    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
-    UNRESOLVED_DIVIDEND_BASIS,
-)
-from baibai_engine.machine_analysis.company_valuation.metrics.periods import _accounting_observation_key
 
 # 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
 # 特別配当か未実現の還元転換かを機械入力から区別できない。実績が正なら既存の実績経路へ

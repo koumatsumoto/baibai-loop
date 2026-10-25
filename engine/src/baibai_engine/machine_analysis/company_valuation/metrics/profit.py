@@ -8,12 +8,9 @@ from datetime import date
 from math import isfinite
 from statistics import fmean
 
-from baibai_engine.market.financial_documents import statement_basis
-from baibai_engine.market.financial_periods import period_days
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.metric_quality import OperatingProfitSource
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.machine_analysis.company_valuation.metrics.capital import _normalize_summaries_to_asof_basis
+from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
+    _normalize_summaries_to_asof_basis,
+)
 from baibai_engine.machine_analysis.company_valuation.metrics.dividends import (
     _latest_consecutive_values,
     _latest_fy_revisions,
@@ -24,6 +21,11 @@ from baibai_engine.machine_analysis.company_valuation.metrics.periods import (
     _latest_summary,
     _ttm_value,
 )
+from baibai_engine.market.financial_documents import statement_basis
+from baibai_engine.market.financial_periods import period_days
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.metric_quality import OperatingProfitSource
+from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

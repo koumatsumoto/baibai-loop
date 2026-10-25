@@ -24,7 +24,10 @@ from baibai_engine.machine_analysis.external_assessment.observations.models impo
     QuantsScoreObservation,
 )
 from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.store import ObservationConflictError, save_observations
+from baibai_engine.machine_analysis.external_assessment.store import (
+    ObservationConflictError,
+    save_observations,
+)
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 RECEIVED = datetime(2026, 10, 10, 16, 30, 0, 123456, tzinfo=UTC)

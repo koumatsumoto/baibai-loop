@@ -101,7 +101,7 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
     import subprocess
     import sys
 
-    from tests.batch.test_cloud_r2_transfer import _environment, _fake_aws, _fake_repo
+    from tests.jobs.test_cloud_r2_transfer import _environment, _fake_aws, _fake_repo
 
     from baibai_engine.storage.lake import models
 

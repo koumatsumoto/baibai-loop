@@ -718,6 +718,7 @@ source_modules = [
   "baibai_engine.data_collection.tradingview.authorize",
   "baibai_engine.data_collection.tradingview.client",
   "baibai_engine.data_collection.tradingview.contract",
+  "baibai_engine.data_collection.tradingview.models",
   "baibai_engine.data_collection.tradingview.receipts",
 ]
 forbidden_modules = [

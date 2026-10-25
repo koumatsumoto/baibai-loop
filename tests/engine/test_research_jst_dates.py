@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     StockAssessmentDocument,
@@ -14,8 +14,12 @@ from baibai_engine.investment_judgment.stock_assessment import (
     assessment_core_hash,
     evaluate_assessment,
 )
-from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
-from baibai_engine.investment_judgment.trade_proposal import PositionInput, QuoteInput, RemainingReward
+from baibai_engine.investment_judgment.trade_proposal import (
+    PositionInput,
+    QuoteInput,
+    RemainingReward,
+)
+from baibai_engine.position.policy import PORTFOLIO_POLICY
 
 JST_MORNING = "2026-10-14T08:30:00+09:00"
 UTC_MORNING = "2026-10-13T23:30:00Z"

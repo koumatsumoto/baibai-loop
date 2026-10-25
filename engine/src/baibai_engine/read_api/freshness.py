@@ -18,7 +18,9 @@ from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
 from baibai_engine.machine_analysis.market_context.indicators.read_contracts import NATIVE_PROVIDERS
 from baibai_engine.machine_analysis.market_context.reading.documents import read_document_series
-from baibai_engine.machine_analysis.market_context.reading.observations import UnavailableObservationError
+from baibai_engine.machine_analysis.market_context.reading.observations import (
+    UnavailableObservationError,
+)
 
 from .sqlite import connect_read_only, read_application_rows, read_rows
 

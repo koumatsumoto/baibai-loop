@@ -10,6 +10,8 @@ import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
 from baibai_engine.investment_judgment import workspace_cli
+from baibai_engine.investment_judgment.calculation import CalculationInput, calculate
+from baibai_engine.investment_judgment.calculation_cli import main
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     StockAssessmentDocument,
@@ -17,8 +19,6 @@ from baibai_engine.investment_judgment.stock_assessment import (
     assessment_core_hash,
     evaluate_assessment,
 )
-from baibai_engine.investment_judgment.calculation import CalculationInput, calculate
-from baibai_engine.investment_judgment.calculation_cli import main
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 

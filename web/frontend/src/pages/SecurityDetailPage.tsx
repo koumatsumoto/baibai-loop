@@ -7,8 +7,8 @@ import { AsOfBadge } from '../components/AsOfBadge'
 import { ReviewedAssessmentContent } from '../components/ReviewedAssessmentContent'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
-import { ResearchNav } from '../components/ResearchNav'
-import { SecurityMarketContextSection } from './research/MarketEvidence'
+import { InvestmentJudgmentNav } from '../components/InvestmentJudgmentNav'
+import { SecurityMarketContextSection } from './market-context/MarketEvidence'
 import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
@@ -105,7 +105,7 @@ export function SecurityDetailPage() {
   return (
     <PageShell
       above={(
-        <div className="grid gap-4"><ResearchNav /><nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="パンくず">
+        <div className="grid gap-4"><InvestmentJudgmentNav /><nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="パンくず">
           <Link className="underline-offset-4 hover:text-foreground hover:underline" to={exploration}>候補探索</Link>
           <span>/</span>
           <span className="font-mono text-foreground">{data.ticker}</span>
@@ -122,13 +122,13 @@ export function SecurityDetailPage() {
       title={data.company_name ?? data.ticker}
       width="reading"
     >
-      <nav aria-label="銘柄の根拠" className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><a className="underline" href="#research">企業評価</a>{data.stock_analysis && <a className="underline" href="#valuation">価値の指標</a>}<a className="underline" href="#market-context">市場の指標</a><a className="underline" href="#external-assessment">外部評価</a></nav>
+      <nav aria-label="銘柄の根拠" className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><a className="underline" href="#research">銘柄評価</a>{data.stock_analysis && <a className="underline" href="#valuation">価値の指標</a>}<a className="underline" href="#market-context">市場の指標</a><a className="underline" href="#external-assessment">外部評価</a></nav>
       <div className="scroll-mt-24" id="research">
       <SectionCard
         description="latest research"
         meta={assessment && <AsOfBadge value={assessment.revision.as_of} />}
         padded
-        title="最新の企業評価"
+        title="最新の銘柄評価"
       >
         <>
           {!assessment ? (
@@ -136,13 +136,13 @@ export function SecurityDetailPage() {
           ) : (
             <div className="grid gap-6">
               <dl className="grid gap-4 sm:grid-cols-3">
-                <Field label="企業評価"><span>{STANCE_LABELS[assessment.revision.stance] ?? assessment.revision.stance}</span></Field>
+                <Field label="銘柄評価"><span>{STANCE_LABELS[assessment.revision.stance] ?? assessment.revision.stance}</span></Field>
                 <Field label="評価状態"><span>{assessment.revision.status}</span></Field>
                 <Field label="Pmax（原評価）"><YenAmount value={assessment.revision.pmax_original_yen} /></Field>
               </dl>
               <p className="text-sm text-muted-foreground">supported は評価の根拠が確認された結論です。購入提案・採否・実約定は別に確認します。</p>
               <ReviewedAssessmentContent document={assessment.document} projection={assessment.projection} review={assessment.review} />
-              <Link className="w-fit text-sm underline" to={`/stocks/stock-assessments/${assessment.revision.assessment_id}`}>この評価版と独立 Review を見る →</Link>
+              <Link className="w-fit text-sm underline" to={`/stocks/stock-assessments/${assessment.revision.assessment_id}`}>この評価版と独立検証 を見る →</Link>
             </div>
           )}
         </>
@@ -166,7 +166,7 @@ export function SecurityDetailPage() {
               </Field>
               <Field label="原評価のPmax（新規買付上限）"><YenAmount value={data.holding.pmax_raw_yen} /></Field>
               <Field label="Pmaxとの差"><span><PctBadge value={data.holding.pmax_gap_pct} />{data.holding.pmax_gap_unavailable_reason && <span className="block text-xs text-muted-foreground">{data.holding.pmax_gap_unavailable_reason}</span>}</span></Field>
-              <Field label="企業評価"><Badge variant="outline">{data.holding.stance ? STANCE_LABELS[data.holding.stance] ?? data.holding.stance : '—'}</Badge></Field>
+              <Field label="銘柄評価"><Badge variant="outline">{data.holding.stance ? STANCE_LABELS[data.holding.stance] ?? data.holding.stance : '—'}</Badge></Field>
               <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsUnavailable}</span></Field>
             </dl>
           </>
@@ -194,9 +194,9 @@ export function SecurityDetailPage() {
         )}
       </SectionCard>
 
-      <SectionCard description="購入・保有・売却・見送り・保留の保存提案。採否・注文・約定は別工程です。" meta={<Badge variant="secondary">{data.investment_proposals.length} 件</Badge>} title="投資提案の履歴">
+      <SectionCard description="購入・保有・売却・見送り・保留の保存提案。採否・注文・約定は別工程です。" meta={<Badge variant="secondary">{data.investment_proposals.length} 件</Badge>} title="売買提案の履歴">
         {data.investment_proposals.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">投資提案の記録なし</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">売買提案の記録なし</p>
         ) : (
           <Table>
             <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>行動</TableHead><TableHead>提案</TableHead></TableRow></TableHeader>
@@ -215,7 +215,7 @@ export function SecurityDetailPage() {
 
       </div></details>
 
-      {data.stock_analysis && <div className="scroll-mt-24" id="valuation"><SectionCard description="保存済みの機械分析。企業固有の評価や投資提案とは別です。" meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />} padded title="価値の指標">
+      {data.stock_analysis && <div className="scroll-mt-24" id="valuation"><SectionCard description="保存済みの機械分析。企業固有の評価や売買提案とは別です。" meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />} padded title="価値の指標">
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Field label="PER 予想 / 実績">{data.stock_analysis.per_forward ?? '未観測'} / {data.stock_analysis.per_trailing ?? '未観測'}</Field>
           <Field label="PBR">{data.stock_analysis.pbr ?? '未観測'}</Field>
@@ -229,7 +229,7 @@ export function SecurityDetailPage() {
       </SectionCard></div>}
       <div className="scroll-mt-24" id="market-context"><SecurityMarketContextSection context={data.market_context} /></div>
       <div className="scroll-mt-24" id="external-assessment"><ExternalAssessmentSection assessment={data.external_assessment} /></div>
-      <Link className="text-sm underline" to="/stocks">調査・提案を見る →</Link>
+      <Link className="text-sm underline" to="/stocks">投資判断を見る →</Link>
     </PageShell>
   )
 }

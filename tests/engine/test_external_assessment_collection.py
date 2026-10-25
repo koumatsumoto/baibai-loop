@@ -22,7 +22,9 @@ from baibai_engine.data_collection.equity_web.capture import (
 from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
 from baibai_engine.data_collection.external_assessment import cli, collection
 from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, monex
-from baibai_engine.machine_analysis.external_assessment.observations.models import ModelValuationObservation
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    ModelValuationObservation,
+)
 from baibai_engine.storage.observations.schema import open_connection
 
 

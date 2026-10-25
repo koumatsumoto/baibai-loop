@@ -7,10 +7,15 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.foundation.sqlite_read import read_store_if_written
-from baibai_engine.machine_analysis.screening.discovery.projection import candidate_rows, reinvestment_coordinates
+from baibai_engine.machine_analysis.screening.discovery.projection import (
+    candidate_rows,
+    reinvestment_coordinates,
+)
 from baibai_engine.machine_analysis.screening.earnings_lag import interpreted_next_earnings_status
 from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
-from baibai_engine.machine_analysis.screening.run_store import connect_read_only as connect_run_store_read_only
+from baibai_engine.machine_analysis.screening.run_store import (
+    connect_read_only as connect_run_store_read_only,
+)
 
 from .sqlite import read_rows
 
@@ -22,9 +27,16 @@ def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
     # calibration context needs the panel contract and method configuration.
     from yaml import YAMLError
 
-    from baibai_engine.machine_analysis.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
-    from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
-    from baibai_engine.machine_analysis.company_valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
+    from baibai_engine.machine_analysis.company_valuation.estimates import (
+        EXPECTED_RETURN_MODEL_VERSION,
+    )
+    from baibai_engine.machine_analysis.screening.rule_config import (
+        DEFAULT_RULES_PATH,
+        load_screening_rules,
+    )
+    from baibai_engine.machine_analysis.screening.rules_identity import (
+        production_rules_contract_hash,
+    )
 
     try:
         rules = load_screening_rules(root / DEFAULT_RULES_PATH)

@@ -1,4 +1,4 @@
-# Research fact source fixtures
+# Company Research fact source fixtures
 
 EDINET type=1のPublicDoc instance、issuer XSD、Japanese label linkbaseから、対象数値、context、unit、member定義とlabel、借入金・社債TextBlockを抜粋したもの。2026-09-19取得。数値・期間・HTML tableは変更せず、無関係な本文と要素を除き、XSD参照先のbasenameをfixture名へ置換した。テスト時にZIPへ束ねる。
 

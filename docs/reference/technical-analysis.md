@@ -1,6 +1,6 @@
 # テクニカル分析
 
-保存価格から位置・勢い・変動幅を読む独立L2領域。`technical_analysis/`が計算・query・CLIを所有し、[共有価格basis](../../engine/src/baibai_engine/market/price_basis.py)を使う。企業価値・候補順位・合成score・自動売買を作らず、新しいsourceやstoreを持たない。
+保存価格から位置・勢い・変動幅を読む独立L2領域。`machine_analysis/technical_analysis/`が計算・query・CLIを所有し、[共有価格basis](../../engine/src/baibai_engine/market/price_basis.py)を使う。企業価値・候補順位・合成score・自動売買を作らず、新しいsourceやstoreを持たない。
 
 ## 入力と解釈
 
@@ -10,12 +10,12 @@ SMA20/50/200は現在価格との位置・並び・乖離を読む。期間は�
 
 Wilder RSI14は保存済み全履歴のseedと再帰に依存する。履歴の開始・本数・seed情報を確認し、直近14差分の単純平均と混ぜない。完全flatの50は計算上のconventionで、独立した中立判断ではない。履歴延長やprovider訂正で計算値は変わり得る。
 
-## Researchへの接続
+## Investment Judgmentへの接続
 
 ```bash
 uv run baibai-engine technical-analysis show --ticker 7203 --asof 2026-10-16
 ```
 
-観測日cutoffは守るが、後日受領や訂正前vintageまで復元するintraday PITではない。Researchは読んだ結果を固定し、内部のsecurities_contextをdomain-inputs.yamlのsecuritiesへ投影する。blockのない旧snapshotへ後付け再計算しない。
+観測日cutoffは守るが、後日受領や訂正前vintageまで復元するintraday PITではない。Investment Judgmentは読んだ結果を固定し、内部のsecurities_contextをdomain-inputs.yamlのsecuritiesへ投影する。blockのない旧snapshotへ後付け再計算しない。
 
-MA・BB・RSI・騰落率は同じ価格を加工した情報で、独立票ではない。BB下側・低RSIを買い、上側・高RSIを売りと自動解釈せず、価値差と価格局面を[企業評価](stock-assessment.md#analysis-domain-integration)で接続する。
+MA・BB・RSI・騰落率は同じ価格を加工した情報で、独立票ではない。BB下側・低RSIを買い、上側・高RSIを売りと自動解釈せず、価値差と価格局面を[銘柄評価](stock-assessment.md#analysis-domain-integration)で接続する。

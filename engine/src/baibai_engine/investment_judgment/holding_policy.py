@@ -6,8 +6,16 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument, current_price_projection
-from baibai_engine.investment_judgment.trade_proposal import GateReason, PositionInput, QuoteInput, RemainingReward
+from baibai_engine.investment_judgment.stock_assessment import (
+    StockAssessmentDocument,
+    current_price_projection,
+)
+from baibai_engine.investment_judgment.trade_proposal import (
+    GateReason,
+    PositionInput,
+    QuoteInput,
+    RemainingReward,
+)
 
 type HoldingGateCode = Literal[
     "reviewed_assessment_required",

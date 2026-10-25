@@ -9,7 +9,6 @@ import pytest
 import requests
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse
 
-from baibai_jobs.jobs.daily import _economic_refresh_groups, _parse_economic_sources
 from baibai_engine.data_collection.economic import acquisition, store
 from baibai_engine.data_collection.economic.documents import (
     SourceDocument,
@@ -24,10 +23,13 @@ from baibai_engine.machine_analysis.market_context.indicator_service import Indi
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
 from baibai_engine.machine_analysis.market_context.reading.compute import compute_reading
 from baibai_engine.machine_analysis.market_context.reading.documents import read_document_series
-from baibai_engine.machine_analysis.market_context.reading.observations import UnavailableObservationError
+from baibai_engine.machine_analysis.market_context.reading.observations import (
+    UnavailableObservationError,
+)
 from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
 from baibai_engine.machine_analysis.market_context.reading.rules import load_reading_rules
 from baibai_engine.read_api.market_context import indicator_series
+from baibai_jobs.jobs.daily import _economic_refresh_groups, _parse_economic_sources
 from baibai_web.readmodel.models import ReadingSeriesView
 
 SERIES_ID = "jp.matsui_margin_long_evaluation_pnl"

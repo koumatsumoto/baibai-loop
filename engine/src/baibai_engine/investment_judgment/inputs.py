@@ -9,11 +9,6 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.machine_analysis.company_growth.query import company_growth
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
-from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
-from baibai_engine.machine_analysis.market_context.security import build_security_market_context
-from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
 from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
 from baibai_engine.investment_judgment.market_context.projection import assessment_projection
 from baibai_engine.investment_judgment.market_context.query import latest_assessment
@@ -24,8 +19,10 @@ from baibai_engine.investment_judgment.selection import (
     ResearchSelection,
     selection_targets,
 )
-from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
-from baibai_engine.machine_analysis.company_valuation.metrics.history import VALUATION_HISTORY_SESSIONS
+from baibai_engine.machine_analysis.company_growth.query import company_growth
+from baibai_engine.machine_analysis.company_valuation.metrics.history import (
+    VALUATION_HISTORY_SESSIONS,
+)
 from baibai_engine.machine_analysis.company_valuation.query import (
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
@@ -33,6 +30,11 @@ from baibai_engine.machine_analysis.company_valuation.query import (
     machine_valuation_from_analysis,
     valuation_metrics_from_analysis,
 )
+from baibai_engine.machine_analysis.external_assessment.query import external_assessment
+from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.market_context.security import build_security_market_context
+from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
+from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
 
 
 def collect_research_inputs(

@@ -11,18 +11,18 @@ from collections import Counter
 import pytest
 import requests
 from botocore.exceptions import ClientError, ReadTimeoutError
-from tests.batch.external_assessment_response_fixtures import response
-from tests.batch.test_external_assessment_daily import FakeObjectStore, observation, plan
+from tests.jobs.external_assessment_response_fixtures import response
+from tests.jobs.test_external_assessment_daily import FakeObjectStore, observation, plan
 from tests.engine.test_external_assessment_sources import monex_html
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.storage import external_assessment_raw as external_assessment_raw
-from baibai_jobs.storage import external_assessment_staging as external_assessment_staging
-from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
 from baibai_engine.job_api import (
     ExternalAssessmentCollectionOutcome,
     ExternalAssessmentCollectionResult,
 )
+from baibai_jobs.jobs import external_assessment_daily as daily
+from baibai_jobs.storage import external_assessment_raw as external_assessment_raw
+from baibai_jobs.storage import external_assessment_staging as external_assessment_staging
+from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
 
 
 class S3Client:

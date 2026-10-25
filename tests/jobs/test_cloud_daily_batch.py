@@ -12,6 +12,13 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
+from baibai_engine.data_collection.economic.acquisition import (
+    DEFAULT_LATEST_LOOKBACK_DAYS,
+    LATEST_FETCH_LOOKBACK_DAYS,
+)
+from baibai_engine.data_collection.economic.sources import load_sources
+from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.market.jquants_writer import store_jquants_market_calendar
 from baibai_jobs.jobs.daily import (
     BatchStepError,
     CommandResult,
@@ -25,13 +32,6 @@ from baibai_jobs.jobs.daily import (
     run_daily_batch,
     run_daily_batch_structured,
 )
-from baibai_engine.data_collection.economic.acquisition import (
-    DEFAULT_LATEST_LOOKBACK_DAYS,
-    LATEST_FETCH_LOOKBACK_DAYS,
-)
-from baibai_engine.data_collection.economic.sources import load_sources
-from baibai_engine.market.jquants_writer import store_jquants_market_calendar
-from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
 
 JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)
@@ -172,8 +172,8 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
         "screening refresh-edinet-facts": [OK],
-        "collection economic list": [ECONOMIC_LIST_OK],
-        "collection economic refresh": [OK, OK, OK],
+        "data-collection economic list": [ECONOMIC_LIST_OK],
+        "data-collection economic refresh": [OK, OK, OK],
         "export": [OK],
         "screening prune": [OK],
     }
@@ -229,10 +229,10 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening verify-cache-coverage",
         "screening run",
         "screening refresh-edinet-facts",
-        "collection economic list",
-        "collection economic refresh",
-        "collection economic refresh",
-        "collection economic refresh",
+        "data-collection economic list",
+        "data-collection economic refresh",
+        "data-collection economic refresh",
+        "data-collection economic refresh",
         "export",
         "screening prune",
         "task reconcile-earnings",
@@ -304,7 +304,7 @@ def test_daily_batch_refreshes_sources_by_frequency_window(tmp_path: Path) -> No
 
     run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
-    refresh_calls = [argv for argv in runner.calls if _key(argv) == "collection economic refresh"]
+    refresh_calls = [argv for argv in runner.calls if _key(argv) == "data-collection economic refresh"]
     assert [argv[4:] for argv in refresh_calls] == [
         ["fed-h15", "--start", (ASOF - timedelta(days=14)).isoformat(), "--end", "2026-07-21"],
         [
@@ -339,7 +339,7 @@ def test_daily_batch_defers_remaining_cache_gap_after_bootstrap(tmp_path: Path) 
     assert result.screening_status == "failed"
     assert "screening bootstrap-cache" in runner.call_keys()
     assert "screening run" not in runner.call_keys()
-    assert runner.call_keys().count("collection economic list") == 1
+    assert runner.call_keys().count("data-collection economic list") == 1
     assert runner.call_keys().count("export") == 1
     assert "--skip-history" in _call(runner, "export")
 
@@ -373,7 +373,7 @@ def test_daily_batch_defers_metric_refresh_without_quarantine_counters(
     )
     assert "without quarantine counters" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "export" in runner.call_keys()
 
 
@@ -387,7 +387,7 @@ def test_daily_batch_defers_verifier_crash_without_publishing_screening(tmp_path
     assert result.exit_code == 3
     assert result.screening_status == "failed"
     assert "screening run" not in runner.call_keys()
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "export" in runner.call_keys()
 
 
@@ -421,7 +421,7 @@ def test_daily_batch_continues_economic_sources_after_screening_fatal(
     assert "provider unavailable" in error
     assert "read models exported locally" in error
     assert "export published" not in error
-    assert runner.call_keys().count("collection economic list") == 1
+    assert runner.call_keys().count("data-collection economic list") == 1
     assert runner.call_keys().count("export") == 1
     assert "screening prune" not in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
@@ -453,7 +453,7 @@ def test_daily_batch_defers_economic_source_refresh_failure_until_after_export(
     tmp_path: Path, capsys
 ) -> None:
     script = _success_script()
-    script["collection economic refresh"] = [
+    script["data-collection economic refresh"] = [
         CommandResult(1, "", "provider down\n"),
         OK,
         OK,
@@ -466,7 +466,7 @@ def test_daily_batch_defers_economic_source_refresh_failure_until_after_export(
 
     assert exit_code == 3
     keys = runner.call_keys()
-    assert keys.count("collection economic refresh") == 3
+    assert keys.count("data-collection economic refresh") == 3
     assert "export" in keys
     # The deferred detail is surfaced immediately, not only in the final summary.
     assert "deferred failure" in capsys.readouterr().err
@@ -474,7 +474,7 @@ def test_daily_batch_defers_economic_source_refresh_failure_until_after_export(
 
 def test_daily_batch_defers_economic_source_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
-    script["collection economic list"] = [CommandResult(1, "", "boom\n")]
+    script["data-collection economic list"] = [CommandResult(1, "", "boom\n")]
     runner = _runner(script)
 
     exit_code = run_daily_batch(
@@ -483,7 +483,7 @@ def test_daily_batch_defers_economic_source_list_failure_and_still_exports(tmp_p
 
     assert exit_code == 3
     keys = runner.call_keys()
-    assert "collection economic refresh" not in keys
+    assert "data-collection economic refresh" not in keys
     assert "export" in keys
 
 
@@ -494,7 +494,7 @@ def test_daily_batch_defers_run_view_without_revision(tmp_path: Path) -> None:
     )
     assert result.exit_code == 3
     assert result.screening_status == "failed"
-    assert "collection economic list" in runner.call_keys()
+    assert "data-collection economic list" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -504,7 +504,7 @@ def test_daily_batch_export_failure_remains_fatal_after_economic_sources(tmp_pat
     runner = _runner(script)
     with pytest.raises(BatchStepError, match="export-read-models"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "screening prune" not in runner.call_keys()
 
 
@@ -520,7 +520,7 @@ def test_daily_batch_skips_only_screening_on_non_business_day(tmp_path: Path, ca
     assert result.market_updated is False
     assert "screening bootstrap-cache" not in runner.call_keys()
     assert "screening run" not in runner.call_keys()
-    assert runner.call_keys().count("collection economic list") == 1
+    assert runner.call_keys().count("data-collection economic list") == 1
     assert runner.call_keys().count("export") == 1
     assert "--skip-history" in _call(runner, "export")
     assert f"skip Screening: {today.isoformat()} は非営業日" in capsys.readouterr().out
@@ -542,7 +542,7 @@ def test_analysis_structured_path_gates_an_explicit_non_business_day(tmp_path: P
     assert result.screening_status == "skipped_non_business_day"
     assert result.exit_code == 0
     assert "screening run" not in runner.call_keys()
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
@@ -646,7 +646,7 @@ def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path
     assert result.screening_status == "failed"
     assert "does not cover" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -664,7 +664,7 @@ def test_daily_batch_errors_when_calendar_table_is_missing(tmp_path: Path, capsy
     assert result.screening_status == "failed"
     assert "unreadable" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -677,7 +677,7 @@ def test_daily_batch_errors_when_market_sqlite_is_absent(tmp_path: Path, capsys)
     assert result.screening_status == "failed"
     assert "does not exist" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -918,7 +918,7 @@ def test_daily_batch_exits_3_and_names_the_first_deferred_macro_failure(
     tmp_path: Path,
 ) -> None:
     script = _success_script()
-    script["collection economic refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
+    script["data-collection economic refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
     notice_path = tmp_path / "notice.json"
 
     exit_code = run_daily_batch(
@@ -1149,7 +1149,7 @@ def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_pub
         ).fetchone() == (1,)
     assert "screening run" not in runner.call_keys()
     assert (
-        runner.call_keys().count("collection economic list")
+        runner.call_keys().count("data-collection economic list")
         == runner.call_keys().count("export")
         == 1
     )
@@ -1168,7 +1168,7 @@ def test_corrupt_market_store_does_not_block_economic_sources_and_export_stays_f
     with pytest.raises(BatchStepError, match="export-read-models"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
     assert "screening run" not in runner.call_keys()
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert not (tmp_path / "serving/views/meta.json").exists()
 
 
@@ -1233,7 +1233,7 @@ def test_daily_rejects_invalid_committed_run_export_and_keeps_economic_sources_i
     assert result.exit_code == 3
     assert result.screening_status == "failed"
     assert result.candidate_count is None
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
     assert "screening prune" not in runner.call_keys()
 
@@ -1292,7 +1292,7 @@ def test_unreadable_change_probe_does_not_stop_batch_or_claim_no_change(
     assert result.exit_code == 0
     assert result.market_updated is None
     assert _load_notice(notice_path)["market_updated"] is None
-    assert "collection economic refresh" in runner.call_keys()
+    assert "data-collection economic refresh" in runner.call_keys()
     assert "export" in runner.call_keys()
     assert closed == ([] if failure == "connect" else [True])
 
@@ -1324,4 +1324,4 @@ def test_saved_economic_mode_does_not_reacquire_any_economic_source(tmp_path):
         refresh_economic=False,
     )
     assert result.exit_code == 0
-    assert not any("collection economic" in key for key in runner.call_keys())
+    assert not any("data-collection economic" in key for key in runner.call_keys())

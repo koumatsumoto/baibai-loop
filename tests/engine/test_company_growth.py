@@ -15,21 +15,31 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import draft_for, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
-from baibai_engine.machine_analysis.company_growth.calculations import build_changes, build_period_states
-from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
-from baibai_engine.market.financial_documents import normalize_financial_summary
-from baibai_engine.market.financial_periods import prior_year_period_matches
-from baibai_engine.read_api.company_growth import company_growth as public_company_growth
 from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
-from baibai_engine.investment_judgment.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.investment_judgment.inputs import (
+    collect_research_inputs,
+    project_research_inputs,
+)
 from baibai_engine.investment_judgment.operation.progress import selection_binding
 from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.selection import ResearchSelection, parse_selection, selection_sha256
+from baibai_engine.investment_judgment.selection import (
+    ResearchSelection,
+    parse_selection,
+    selection_sha256,
+)
 from baibai_engine.investment_judgment.workspace import (
     ResearchWorkspaceConflictError,
     prepare_selected_workspace,
     resume_selected_workspace,
 )
+from baibai_engine.machine_analysis.company_growth.calculations import (
+    build_changes,
+    build_period_states,
+)
+from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
+from baibai_engine.market.financial_documents import normalize_financial_summary
+from baibai_engine.market.financial_periods import prior_year_period_matches
+from baibai_engine.read_api.company_growth import company_growth as public_company_growth
 from baibai_engine.storage.lake.keys import release_manifest_key
 from baibai_engine.storage.lake.models import (
     ReleaseManifest,
@@ -758,7 +768,8 @@ def test_fixed_reader_os_failure_is_local_to_growth(tmp_path, monkeypatch):
         raise PermissionError("injected existing object failure")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.company_growth.query.read_fixed_financial_documents", unreadable
+        "baibai_engine.machine_analysis.company_growth.query.read_fixed_financial_documents",
+        unreadable,
     )
     result = company_growth(path, ticker="1234", as_of=NOW.date())
     assert result.reason == "fixed_release_inputs_unavailable"
@@ -772,10 +783,10 @@ def test_private_acceptance_uses_only_financial_master_and_never_overwrites_resu
     from tests.helpers.r2_store import MemoryR2Store
     from tools.company_growth_acceptance import execute
 
-    from baibai_jobs.storage.lake_publish import LakeCASConflict
     from baibai_engine.storage.lake.keys import current_release_pointer_key
     from baibai_engine.storage.lake.release import LakeReleasePointer
     from baibai_engine.storage.observations.coverage import record_range_source_coverage
+    from baibai_jobs.storage.lake_publish import LakeCASConflict
 
     records = [
         document(y, q, q * 42424242, q * 11, q * 7) for y in (2022, 2023, 2024) for q in range(1, 5)

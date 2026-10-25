@@ -121,7 +121,7 @@ def test_partial_proposal_preserves_scope_exact_pair_and_saved_terms_in_api_and_
     output = tmp_path / "export"
     export_read_models(app_method_root, output)
     assert json.loads((output / f"views/investment-proposal--{identity}.json").read_text()) == view
-    assert (output / f"views/investment-trade-proposal-preview--{identity}.json").is_file()
+    assert (output / f"views/investment-proposal-preview--{identity}.json").is_file()
     assert db.read_bytes() == before
 
 

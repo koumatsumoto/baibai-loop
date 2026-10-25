@@ -10,8 +10,8 @@ import httpx2
 import pytest
 from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
 
-from baibai_engine.machine_analysis.external_assessment.tradingview import cli
 from baibai_engine.data_collection.tradingview.collector import collect, preflight_snapshot
+from baibai_engine.data_collection.tradingview import cli
 from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
     SourceDataError,
     TimeGuardError,

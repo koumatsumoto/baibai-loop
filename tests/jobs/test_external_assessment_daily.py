@@ -8,20 +8,11 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.batch.external_assessment_response_fixtures import response
+from tests.jobs.external_assessment_response_fixtures import response
 from tests.engine.test_external_assessment_daily_verification import ASOF, build_master_lake
 from tests.engine.test_external_assessment_sources import monex_html
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs.external_assessment_cohorts import (
-    make_plan,
-    new_result,
-    record_outcome,
-)
-from baibai_jobs.storage import external_assessment_raw
-from baibai_jobs.storage import external_assessment_staging as staging
-from baibai_jobs.storage.lake_publish import LakeCASConflict, LakePublishError, RemoteObject
 from baibai_engine.job_api import (
     ExternalAssessmentCollectionOutcome,
     ExternalAssessmentCollectionResult,
@@ -31,6 +22,15 @@ from baibai_engine.job_api import (
 from baibai_engine.machine_analysis.external_assessment.normalization import monex
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.objects import LakeObjectError
+from baibai_jobs.jobs import external_assessment_daily as daily
+from baibai_jobs.jobs.external_assessment_cohorts import (
+    make_plan,
+    new_result,
+    record_outcome,
+)
+from baibai_jobs.storage import external_assessment_raw
+from baibai_jobs.storage import external_assessment_staging as staging
+from baibai_jobs.storage.lake_publish import LakeCASConflict, LakePublishError, RemoteObject
 
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)
 

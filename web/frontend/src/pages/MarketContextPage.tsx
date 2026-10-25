@@ -8,8 +8,8 @@ import type { AssessmentExcerptView, IndicatorPointView, ReadingSeriesView, Read
 import { InfoHint } from '../components/InfoHint'
 import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
-import { ResearchNav } from '../components/ResearchNav'
-import { MarketSnapshotSection } from './research/MarketEvidence'
+import { InvestmentJudgmentNav } from '../components/InvestmentJudgmentNav'
+import { MarketSnapshotSection } from './market-context/MarketEvidence'
 import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { StaleBadge } from '../components/StaleBadge'
@@ -352,7 +352,7 @@ export function MarketContextPage() {
   }
 
   return (
-    <PageShell above={<ResearchNav />} title="市場環境" lead="調査・提案を読むための市場環境と保存済みの根拠です。観測や機械分析だけで売買判断を作りません。">
+    <PageShell above={<InvestmentJudgmentNav />} title="市場環境" lead="投資判断を読むための市場環境と保存済みの根拠です。観測や機械分析だけで売買判断を作りません。">
       <MarketSnapshotSection snapshot={data.market_snapshot} />
       <LatestContext context={data.latest_context} />
 

@@ -9,6 +9,17 @@ from functools import partial
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
+from baibai_engine.investment_judgment.trade_proposal import (
+    ProposalConflictError,
+    ProposalError,
+    order_readiness,
+)
+from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
+from baibai_engine.investment_judgment.trade_proposal_query import (
+    get_investment_proposal,
+    preview_current_terms,
+)
+from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import (
     apply_draft,
@@ -17,10 +28,6 @@ from baibai_engine.position.drafts import (
 )
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError, ProposalError, order_readiness
-from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
-from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal, preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 
 SELL_TERMS = {
     "side": "sell",
@@ -138,9 +145,7 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
         now=now,
     )
     assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
-    current_service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: now
-    )
+    current_service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
     assert current_service.publish(published) == published
     assert case.app.read_bytes() == before
     assert preview.status == ("blocked" if blocked else "changed")
@@ -257,9 +262,7 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     )
     assert cancelled is not None
     apply_draft(store, cancelled, human_confirmed=True)
-    current_service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: now
-    )
+    current_service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
     with pytest.raises(ProposalConflictError, match="input facts changed"):
         current_service.check(concrete)
     context = build_proposal_context(

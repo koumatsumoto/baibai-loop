@@ -14,12 +14,12 @@ from pathlib import Path
 import pytest
 from mcp.types import CallToolResult
 
+from baibai_engine.data_collection.tradingview.receipts import retain_tool_result
+from baibai_engine.job_api import MarketSchemaError
+from baibai_engine.storage.observations.schema import open_connection
 from baibai_jobs.jobs import tradingview as runner
 from baibai_jobs.jobs import tradingview_receipts as receipt_jobs
 from baibai_jobs.jobs.tradingview_receipts import can_publish_failure_receipts, count_layer_rows
-from baibai_engine.job_api import MarketSchemaError
-from baibai_engine.data_collection.tradingview.receipts import retain_tool_result
-from baibai_engine.storage.observations.schema import open_connection
 
 REAL_COMMAND = runner.command
 

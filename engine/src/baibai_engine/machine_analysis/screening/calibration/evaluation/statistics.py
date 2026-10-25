@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from math import isfinite, sqrt
 from statistics import fmean, median
 
-from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.machine_analysis.screening.calibration.evaluation.policy import (
     DECILES,
     MIN_AXIS_SAMPLE,
@@ -18,6 +17,7 @@ from baibai_engine.machine_analysis.screening.calibration.forward import (
     ForwardReturnRow,
 )
 from baibai_engine.machine_analysis.screening.calibration.panel import PanelRow
+from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

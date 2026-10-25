@@ -24,7 +24,9 @@ from baibai_engine.machine_analysis.external_assessment.normalization import (
     monex,
     rakuten,
 )
-from baibai_engine.machine_analysis.external_assessment.normalization.decode import parse_source_html
+from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
+    parse_source_html,
+)
 from baibai_engine.machine_analysis.external_assessment.observations.identity import (
     PAIR_ACQUISITION_POLICY_VERSION,
 )

@@ -6,6 +6,11 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
+from baibai_engine.job_api import (
+    ExternalAssessmentAnalystRatingObservation,
+    ExternalAssessmentCollectionOutcome,
+    ExternalAssessmentModelValuationObservation,
+)
 from baibai_jobs.jobs.external_assessment_cohorts import (
     PairEntry,
     load_plan,
@@ -16,11 +21,6 @@ from baibai_jobs.jobs.external_assessment_cohorts import (
     record_outcome,
     result_value,
     summarize,
-)
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystRatingObservation,
-    ExternalAssessmentCollectionOutcome,
-    ExternalAssessmentModelValuationObservation,
 )
 
 

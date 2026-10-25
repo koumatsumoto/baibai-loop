@@ -14,8 +14,8 @@ from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, sto
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.data_collection.tradingview.receipts import retain_tool_result
 from baibai_engine.data_collection.tradingview.collector import collect, preflight_snapshot
+from baibai_engine.data_collection.tradingview.receipts import retain_tool_result
 from baibai_engine.market.jquants_reader import read_eq_master_exact
 from baibai_engine.market.jquants_writer import store_jquants_market_calendar, store_jquants_master
 from baibai_engine.storage.lake.duck import lake_session
@@ -208,7 +208,9 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         )
     if not manual_observation:
         store_jquants_master(path, make_master_records(today), requested_asof=today)
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import ProviderHTTPError
+    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+        ProviderHTTPError,
+    )
 
     calls = 0
 

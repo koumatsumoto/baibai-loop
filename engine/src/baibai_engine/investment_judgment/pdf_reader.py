@@ -9,7 +9,8 @@ The file must already be on disk — this tool does not fetch URLs, so the retri
 stays visible in the session that recorded `retrieved_at` for the assessment source.
 
     uv run python -m baibai_engine.investment_judgment.pdf_reader <pdf> --pages 1-3
-    uv run python -m baibai_engine.investment_judgment.pdf_reader <pdf> --search 減価償却費 自己株式の取得
+    uv run python -m baibai_engine.investment_judgment.pdf_reader <pdf> \
+      --search 減価償却費 自己株式の取得
 """
 
 from __future__ import annotations

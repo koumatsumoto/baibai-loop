@@ -17,8 +17,10 @@ from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.investment_judgment.stock_assessment_store import publish_reviewed_assessment
-from baibai_engine.investment_judgment.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.investment_judgment.inputs import (
+    collect_research_inputs,
+    project_research_inputs,
+)
 from baibai_engine.investment_judgment.operation.models import OperationPayload
 from baibai_engine.investment_judgment.operation.progress import (
     ResearchProgress,
@@ -27,12 +29,15 @@ from baibai_engine.investment_judgment.operation.progress import (
     selection_binding,
     with_progress,
 )
-from baibai_engine.investment_judgment.operation.research_binding import require_proposal_research_scope
+from baibai_engine.investment_judgment.operation.research_binding import (
+    require_proposal_research_scope,
+)
 from baibai_engine.investment_judgment.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,
 )
+from baibai_engine.investment_judgment.stock_assessment_store import publish_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
 from baibai_engine.storage.application.read import connect_read_only

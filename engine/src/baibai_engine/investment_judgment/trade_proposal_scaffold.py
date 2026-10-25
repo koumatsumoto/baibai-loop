@@ -10,9 +10,9 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.investment_judgment.trade_proposal import (
     DeferItem,
     GateReason,
-    TradeProposal,
     ProposalContentReview,
     ProposalItem,
+    TradeProposal,
 )
 from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings

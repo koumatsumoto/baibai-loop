@@ -7,10 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from baibai_jobs.validation.market_context_stores import (
-    main,
-    validate_store,
-)
 from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
 from baibai_engine.data_collection.economic.records import store_snapshot
 from baibai_engine.data_collection.economic.store import (
@@ -18,6 +14,10 @@ from baibai_engine.data_collection.economic.store import (
     EconomicSchemaError,
     initialize_database,
     record_source_run,
+)
+from baibai_jobs.validation.market_context_stores import (
+    main,
+    validate_store,
 )
 
 

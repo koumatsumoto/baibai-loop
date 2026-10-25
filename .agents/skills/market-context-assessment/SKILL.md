@@ -1,6 +1,6 @@
 ---
 name: market-context-assessment
-description: 人間の明示開始から市場入力を固定し、重要な環境変化と含意を独立Review後に発行する。
+description: 人間の明示開始から市場入力を固定し、重要な環境変化と含意を独立検証後に発行する。
 ---
 
 # 市場環境判断（Market Context Assessment）

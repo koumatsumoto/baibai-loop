@@ -206,7 +206,9 @@ def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_receive
 ):
     from tests.engine.test_minkabu import no_coverage_html
 
-    from baibai_engine.machine_analysis.external_assessment.normalization.decode import decode_attempt
+    from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
+        decode_attempt,
+    )
 
     originals = []
     client = Session(clock, [(404, "not found", {}), (200, no_coverage_html(linked=linked), {})])

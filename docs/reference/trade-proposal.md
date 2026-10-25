@@ -1,24 +1,24 @@
 # Trade Proposal
 
-保存済みの[企業評価](stock-assessment.md)を、確認した価格・cash・保有・注文へ適用した行動と条件。公開は人間の採用・予約・注文・約定を作らない。操作順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)、modelと現在previewは`investment_judgment/trade_proposal.py`・`trade_proposal_query.py`、保存は`trade_proposal_service.py`が所有する。
+保存済みの[銘柄評価](stock-assessment.md)を、確認した価格・cash・保有・注文へ適用した行動と条件。公開は人間の採用・予約・注文・約定を作らない。操作順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)、modelと現在previewは`investment_judgment/trade_proposal.py`・`trade_proposal_query.py`、保存は`trade_proposal_service.py`が所有する。
 
 ## 行動と比較
 
 buyは現在closeを上限とする指値または低い指値待ち、holdは今回確認した仮説維持/十分な残存見返り、sellは重要な仮説不成立/確認済みの見返り不足による全量回収。no_actionは完成した比較による経済的見送り、deferは調査・入力・判断条件の不足である。
 
-固定Operationの全対象を完成評価または理由・参照付き未完了で被覆し、new/holdingを混ぜない。未調査は評価参照なしのdefer。独立Review済みuncertain/unresolvedの評価も参照付きdeferにできる。0対象に空提案を作らない。
+固定Operationの全対象を完成評価または理由・参照付き未完了で被覆し、new/holdingを混ぜない。未調査は評価参照なしのdefer。独立検証済みuncertain/unresolvedの評価も参照付きdeferにできる。0対象に空提案を作らない。
 
 価値獲得経路、Base/Downside、反証、実現時間を現金維持や他の完成案と比べる。同じBase年率でも倍率上昇と利益回復への依存を分け、Pmax内だけで採用しない。企業本文を再掲せずexact評価へ辿る理由にする。重要なテクニカル分析の所見は行動理由と見直し条件へつなぎ、価格局面だけでPmaxやsell条件を変えない。
 
-ProposalはReviewed Assessment全文を参照する。未評価のSelection L2 blockを直接足すとReviewを経ない判断根拠が入り得るため、重要な支持・相反・不足を評価と独立Reviewへ通す。[当時の四領域結合検証](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-l3-four-domain-integration/report.md)は有限な接続確認であり、全判断や将来収益の実証ではない。
+ProposalはReviewed Assessment全文を参照する。未評価のSelection L2 blockを直接足すとReviewを経ない判断根拠が入り得るため、重要な支持・相反・不足を評価と独立検証へ通す。[当時の四領域結合検証](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-l3-four-domain-integration/report.md)は有限な接続確認であり、全判断や将来収益の実証ではない。
 
 ## 条件付き購入
 
-実quoteは観測、提案limitは試算価格。安い架空quoteで不足を埋めない。Baseの終価・今後分配・期間と[案件ごとの要求率](../doctrine.md#required-return-policy)によるPmax以下で、仮説・権利basis・cash・既保有・予約・同提案の約定等の条件を確認する。算術のownerは`research/entry_policy.py`。
+実quoteは観測、提案limitは試算価格。安い架空quoteで不足を埋めない。Baseの終価・今後分配・期間と[案件ごとの要求率](../doctrine.md#required-return-policy)によるPmax以下で、仮説・権利basis・cash・既保有・予約・同提案の約定等の条件を確認する。算術のownerは`investment_judgment/entry_policy.py`。
 
 現在closeがPmax超過でも低いlimitで待てる。ただし購入の経済判断をまだ採らず、値下がり時に再検討するだけの監視価格はbuyにしない。評価不能や具体条件の不足を指値で迂回せず、完成した見送りはno_action、未完了の判断はdeferで理由と再開条件を残す。重要な不確実性があっても、[引受理由](stock-assessment.md#uncertainty-and-decision)を持つsupported/resolvedの評価からbuyを提案できる。提案理由には見込む条件付き利回り、主要な損失経路、なぜ今そのリスクに見返りが見合うかを示し、未確定事項の列挙だけで終えない。
 
-数量はlimit・guide上限・確認済みcashの単元床から求める。guideを超える1単元もcash内ならwarning付き候補となり、下限を満たすだけの増量はしない。通常は既保有・active買予約への追加提案をせず、別評価IDで迂回しない。同提案の約定後は全売却済みでも再利用せず新しいResearchで判断する。
+数量はlimit・guide上限・確認済みcashの単元床から求める。guideを超える1単元もcash内ならwarning付き候補となり、下限を満たすだけの増量はしない。通常は既保有・active買予約への追加提案をせず、別評価IDで迂回しない。同提案の約定後は全売却済みでも再利用せず新しいInvestment Judgmentで判断する。
 
 <a id="price-grid"></a>
 ### 具体条件

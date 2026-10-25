@@ -53,7 +53,7 @@ PubDateは正確なAPI利用可能時刻の証明ではない。現行servingは
 
 ## EDINET
 
-一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Valuationのtype=5 CSV経路とResearch factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
+一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Valuationのtype=5 CSV経路とCompany Research factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
 
 <a id="edinet-metric-revision"></a>
 ### 抽出意味revision
@@ -67,7 +67,7 @@ EDINET_METRIC_REVISIONは数値・文書選択・訂正/取下げ・期間/連�
 
 負債はJP GAAP明細表の明示元本。社債括弧内額を年別償還へ重ねず、リース・金利・担保・covenant・IFRS注記・5年超残差を完全に含む表とはしない。「－」・nil・未開示・未対応・未取得は0ではない。抽出okで0行もあり、取得失敗で以前のfactを消さない。
 
-disclosed_onは提出JST日で、比較年度末へ遡及して利用可能にはならない。訂正は別docIDで保持し、同一releaseでも古い年次へfallbackしない。metricsと結ぶ時はtickerだけでなくas-of・原典期間・連結・通貨を揃える。借換え・将来FCF・維持投資はResearchの見積りであり、抽出factへ混ぜない。選択と照会は[固定release操作](../../jobs/OPERATIONS.md#edinet-research-query)に従う。
+disclosed_onは提出JST日で、比較年度末へ遡及して利用可能にはならない。訂正は別docIDで保持し、同一releaseでも古い年次へfallbackしない。metricsと結ぶ時はtickerだけでなくas-of・原典期間・連結・通貨を揃える。借換え・将来FCF・維持投資はInvestment Judgmentの見積りであり、抽出factへ混ぜない。選択と照会は[固定release操作](../../jobs/OPERATIONS.md#edinet-research-query)に従う。
 
 <a id="external-assessment"></a>
 ## 外部評価

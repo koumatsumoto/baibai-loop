@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 from baibai_engine.machine_analysis.screening.calibration.evaluation.aggregate import _aggregate
 from baibai_engine.machine_analysis.screening.calibration.evaluation.axes import _evaluate_axis
-from baibai_engine.machine_analysis.screening.calibration.evaluation.policy import MIN_AXIS_SAMPLE, AxisSpec
+from baibai_engine.machine_analysis.screening.calibration.evaluation.policy import (
+    MIN_AXIS_SAMPLE,
+    AxisSpec,
+)
 
 
 def test_defined_deciles_do_not_disappear_when_rank_correlation_is_undefined() -> None:

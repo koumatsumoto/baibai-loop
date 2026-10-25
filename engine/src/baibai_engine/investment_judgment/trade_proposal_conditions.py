@@ -8,12 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.universe import ELIGIBLE_MARKETS
-from baibai_engine.position.market_source import market_basis_is_confirmed, next_order_session
-from baibai_engine.position.policy import PORTFOLIO_POLICY
-from baibai_engine.position.price_grid import PRICE_GRID_CONFIRMED_AT, PRICE_GRID_VALID_UNTIL
-from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
 from baibai_engine.investment_judgment.entry_policy import BuyTermsEvaluation, evaluate_buy_terms
+from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
 from baibai_engine.investment_judgment.trade_proposal import (
     BuyItem,
     GateReason,
@@ -21,6 +17,10 @@ from baibai_engine.investment_judgment.trade_proposal import (
     QuoteInput,
     SellItem,
 )
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.position.market_source import market_basis_is_confirmed, next_order_session
+from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.position.price_grid import PRICE_GRID_CONFIRMED_AT, PRICE_GRID_VALID_UNTIL
 
 if TYPE_CHECKING:
     from baibai_engine.investment_judgment.stock_assessment_store import ReviewedAssessment

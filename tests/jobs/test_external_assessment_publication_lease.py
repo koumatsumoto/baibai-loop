@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import integrate_ready_plans
-from tests.batch.external_assessment_publication_fixtures import publication as publication
+from tests.jobs.external_assessment_publication_fixtures import integrate_ready_plans
+from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
 from baibai_jobs.storage import lake_publish, publication_lease
 from baibai_jobs.storage import publish_market_lake as publisher

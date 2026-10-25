@@ -9,7 +9,11 @@ from tests.engine.test_external_assessment_sources import (
     rakuten_no_estimates_html,
 )
 
-from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, monex, rakuten
+from baibai_engine.machine_analysis.external_assessment.normalization import (
+    ParseError,
+    monex,
+    rakuten,
+)
 
 RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 

@@ -12,6 +12,7 @@ from typing import TextIO, cast
 import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
+from baibai_engine.machine_analysis.company_valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.storage.lake.retention import lake_writer_lock
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
@@ -19,7 +20,6 @@ from baibai_engine.storage.lake.writer import (
     sealed_sqlite_snapshot,
 )
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
-from baibai_engine.machine_analysis.company_valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 from ..discovery.contracts import APPROACH_IDS
 from ..rule_config import ScreeningRules

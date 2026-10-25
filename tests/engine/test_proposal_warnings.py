@@ -10,12 +10,12 @@ from baibai_engine.investment_judgment.trade_proposal import (
     BuyItem,
     GateReason,
     HoldItem,
-    TradeProposal,
     LiquidityContext,
     PositionInput,
     QuoteInput,
     ReservationInput,
     SellItem,
+    TradeProposal,
 )
 from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings
 

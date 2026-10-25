@@ -4,8 +4,8 @@ from decimal import Decimal
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
 from baibai_engine.investment_judgment.entry_policy import evaluate_buy_terms
+from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
 from baibai_engine.investment_judgment.trade_proposal import QuoteInput
 
 AS_OF = date(2026, 10, 14)

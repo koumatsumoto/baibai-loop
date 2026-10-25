@@ -14,14 +14,6 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_engine.market.adjusted_prices import read_price_bars
-from baibai_engine.market.jquants_reader import read_master_snapshot
-from baibai_engine.market.price_models import PriceBar
-from baibai_engine.machine_analysis.market_context.benchmark import compute_benchmark_trend
-from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
-from baibai_engine.machine_analysis.market_context.sector import _rank_to_percentiles, sector_relative_strength
-from baibai_engine.machine_analysis.market_context.security import build_security_market_context
-from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
 from baibai_engine.investment_judgment.market_context.models import StoredAssessment
 from baibai_engine.investment_judgment.market_context.query import (
     assessment_payload as read_context,
@@ -29,9 +21,20 @@ from baibai_engine.investment_judgment.market_context.query import (
 from baibai_engine.investment_judgment.market_context.query import (
     latest_assessment_payload,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.market_context.benchmark import compute_benchmark_trend
+from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.market_context.sector import (
+    _rank_to_percentiles,
+    sector_relative_strength,
+)
+from baibai_engine.machine_analysis.market_context.security import build_security_market_context
+from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
 from baibai_engine.machine_analysis.technical_analysis.calculations import bollinger_20bar
 from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
+from baibai_engine.market.adjusted_prices import read_price_bars
+from baibai_engine.market.jquants_reader import read_master_snapshot
+from baibai_engine.market.price_models import PriceBar
+from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 5, 29)
 

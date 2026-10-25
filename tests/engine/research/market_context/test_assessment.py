@@ -10,7 +10,10 @@ from tests.helpers.assessment_history import historical_context_payload as histo
 from tests.helpers.assessment_history import seed_history
 
 from baibai_engine.investment_judgment.market_context.cli import main
-from baibai_engine.investment_judgment.market_context.models import MarketContextAssessment, StoredAssessment
+from baibai_engine.investment_judgment.market_context.models import (
+    MarketContextAssessment,
+    StoredAssessment,
+)
 from baibai_engine.investment_judgment.market_context.projection import assessment_projection
 from baibai_engine.investment_judgment.market_context.query import (
     assessment_by_id,

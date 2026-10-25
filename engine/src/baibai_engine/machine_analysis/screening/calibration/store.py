@@ -18,8 +18,10 @@ from typing import Literal, cast
 
 from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
+from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import (
+    VALUATION_CALCULATION_REVISION,
+)
 from baibai_engine.machine_analysis.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
-from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
 
 from .forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,

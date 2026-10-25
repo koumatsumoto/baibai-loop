@@ -9,24 +9,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.investment_judgment.stock_assessment_store import ReviewedAssessment, require_assessment_ref
+from baibai_engine.investment_judgment.stock_assessment_store import (
+    ReviewedAssessment,
+    require_assessment_ref,
+)
 from baibai_engine.investment_judgment.trade_proposal import (
     BuyItem,
     GateReason,
     HoldItem,
-    TradeProposal,
     ProposalConflictError,
     ProposalInputs,
     SellItem,
+    TradeProposal,
     order_readiness,
     proposal_draft_sha256,
 )
 from baibai_engine.storage.application.read import connect_read_only
 
 
-def load_investment_proposal(
-    connection: sqlite3.Connection, proposal_id: str
-) -> TradeProposal:
+def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -> TradeProposal:
     """本文/hash/index/正確な評価pairを検証する。現在の資格やprogressは読まない。"""
 
     row = connection.execute(
@@ -128,9 +129,12 @@ def _preview_buy(
     sqlite_path: Path,
     now: datetime,
 ) -> tuple[dict[str, object], list[GateReason]]:
+    from baibai_engine.investment_judgment.trade_proposal_conditions import (
+        buy_evaluation,
+        buy_evaluation_payload,
+    )
     from baibai_engine.position.market_source import next_order_session
     from baibai_engine.position.price_grid import floor_common_stock_limit
-    from baibai_engine.investment_judgment.trade_proposal_conditions import buy_evaluation, buy_evaluation_payload
 
     ceiling = item.terms.limit_price_yen if item.terms is not None else item.proposed_limit_yen
     assert ceiling is not None
@@ -196,9 +200,9 @@ def _preview_holding(
     now: datetime,
 ) -> tuple[dict[str, object], list[GateReason]]:
     from baibai_engine.foundation.time import JST
-    from baibai_engine.position.policy import PORTFOLIO_POLICY
     from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
     from baibai_engine.investment_judgment.trade_proposal_conditions import assessment_quote_basis
+    from baibai_engine.position.policy import PORTFOLIO_POLICY
 
     position = next(
         (position for position in inputs.positions if position.ticker == item.ticker), None
@@ -256,21 +260,23 @@ def preview_current_terms(
 ) -> CurrentProposalPreview:
     """保存limitと実quoteの再試算を分ける。再発行/最新runへの付替えは行わない。"""
     from baibai_engine.foundation.time import JST
-    from baibai_engine.position.market_source import next_order_session
-    from baibai_engine.position.policy import PORTFOLIO_POLICY
     from baibai_engine.investment_judgment.stock_assessment import current_price_projection
     from baibai_engine.investment_judgment.stock_assessment_store import latest_assessment_id
     from baibai_engine.investment_judgment.trade_proposal_conditions import (
         assessment_quote_basis,
         terms_unavailable_reasons,
     )
-    from baibai_engine.investment_judgment.trade_proposal_fingerprint import proposal_inputs_fingerprint
+    from baibai_engine.investment_judgment.trade_proposal_fingerprint import (
+        proposal_inputs_fingerprint,
+    )
     from baibai_engine.investment_judgment.trade_proposal_inputs import (
         DEFAULT_BUDGET_MAX_YEN,
         DEFAULT_BUDGET_MIN_YEN,
         collect_proposal_inputs,
     )
     from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings
+    from baibai_engine.position.market_source import next_order_session
+    from baibai_engine.position.policy import PORTFOLIO_POLICY
 
     if now.utcoffset() is None:
         raise ValueError("proposal preview time requires a timezone")

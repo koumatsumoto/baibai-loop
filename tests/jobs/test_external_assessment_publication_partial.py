@@ -3,18 +3,18 @@
 import uuid
 
 import pytest
-from tests.batch.external_assessment_publication_fixtures import (
+from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     _plan,
     _stage,
     integrate_ready_plans,
     pair_responses,
 )
-from tests.batch.external_assessment_publication_fixtures import publication as publication
+from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
+from baibai_engine.job_api import external_assessment_decode_attempt
 from baibai_jobs.storage import external_assessment_staging as staging
 from baibai_jobs.storage.external_assessment_ready import prepare_plan
-from baibai_engine.job_api import external_assessment_decode_attempt
 
 
 @pytest.mark.parametrize("normal_null", [False, True])

@@ -13,17 +13,6 @@ from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_jobs.storage import lake_publish as lake_publish_module
-from baibai_jobs.storage import publish_market_lake as market_publish_module
-from baibai_jobs.storage.lake_publish import (
-    Boto3R2Store,
-    LakeCASConflict,
-    LakePublishError,
-    PointerPrecondition,
-    RemoteObject,
-    publish_release,
-)
-from baibai_jobs.storage.publication_lease import _save_handle, acquire, release
 from baibai_engine.storage.lake import models as lake_models
 from baibai_engine.storage.lake import writer as lake_writer_module
 from baibai_engine.storage.lake.keys import dataset_manifest_key
@@ -47,6 +36,17 @@ from baibai_engine.storage.observations.lake_origin import (
 )
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_engine.storage.observations.snapshot import create_snapshot
+from baibai_jobs.storage import lake_publish as lake_publish_module
+from baibai_jobs.storage import publish_market_lake as market_publish_module
+from baibai_jobs.storage.lake_publish import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    PointerPrecondition,
+    RemoteObject,
+    publish_release,
+)
+from baibai_jobs.storage.publication_lease import _save_handle, acquire, release
 
 
 @pytest.fixture(autouse=True)

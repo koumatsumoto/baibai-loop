@@ -10,8 +10,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
+from baibai_engine.machine_analysis.screening.rule_config import (
+    DEFAULT_RULES_PATH,
+    load_screening_rules,
+)
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
-from baibai_engine.machine_analysis.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
 
@@ -168,7 +171,7 @@ def _run_upload_step(
     the reported results are observed rather than read.
     """
     script = steps_by_id["upload-stores"]["run"]
-    stub_dir = tmp_path / "batch" / "scripts"
+    stub_dir = tmp_path / "jobs" / "scripts"
     stub_dir.mkdir(parents=True)
     timings = tmp_path / "timings.tsv"
     (stub_dir / "r2_transfer.sh").write_text(

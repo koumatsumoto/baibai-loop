@@ -12,7 +12,10 @@ from typing import cast
 
 from baibai_engine.data_collection.economic import store as economic_store
 from baibai_engine.data_collection.economic.store import DEFAULT_DB_PATH, EconomicSchemaError
-from baibai_engine.machine_analysis.market_context.reading.query import read_store_snapshot, store_snapshot_payload
+from baibai_engine.machine_analysis.market_context.reading.query import (
+    read_store_snapshot,
+    store_snapshot_payload,
+)
 
 from .models import ReadingSnapshot, SeriesReading
 from .rules import DEFAULT_RULES_PATH, ReadingRulesError

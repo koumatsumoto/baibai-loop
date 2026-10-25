@@ -140,4 +140,6 @@ def _next_action(workspace_status: str, ticker: str) -> str:
         case "ready_for_review":
             return f"{ticker}: complete an independent Assessment Review for the current assessment"
         case _:
-            return f"{ticker}: publish the reviewed assessment with research stock-assessment-promote"
+            return (
+                f"{ticker}: publish the reviewed assessment with research stock-assessment-promote"
+            )

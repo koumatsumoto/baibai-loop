@@ -5,7 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from baibai_engine.machine_analysis.screening.calibration.evaluation.axes import _evaluate_axis
-from baibai_engine.machine_analysis.screening.calibration.evaluation.policy import MIN_AXIS_SAMPLE, AxisSpec
+from baibai_engine.machine_analysis.screening.calibration.evaluation.policy import (
+    MIN_AXIS_SAMPLE,
+    AxisSpec,
+)
 from baibai_engine.machine_analysis.screening.calibration.evaluation.statistics import _group_stats
 
 

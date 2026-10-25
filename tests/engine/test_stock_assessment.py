@@ -17,6 +17,7 @@ from tests.helpers.assessment_v1 import (
 )
 
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.investment_judgment.entry_policy import evaluate_buy_terms
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentRef,
     AssessmentReview,
@@ -36,7 +37,6 @@ from baibai_engine.investment_judgment.stock_assessment_store import (
     publish_reviewed_assessment,
     require_assessment_ref,
 )
-from baibai_engine.investment_judgment.entry_policy import evaluate_buy_terms
 from baibai_engine.investment_judgment.trade_proposal import QuoteInput
 from baibai_engine.storage.application.schema import SCHEMA_SQL
 

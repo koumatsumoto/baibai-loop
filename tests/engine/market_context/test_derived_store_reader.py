@@ -12,7 +12,9 @@ from tests.helpers.indicator_store import (
 
 from baibai_engine.data_collection.economic.store import initialize_database
 from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.machine_analysis.market_context.reading.reader import (
+    build_store_observation_reader,
+)
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 
 

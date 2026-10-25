@@ -17,13 +17,13 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_selection import draft_for, selection
 
+from baibai_engine.investment_judgment.operation.progress import progress_binding
+from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.stock_assessment import AssessmentError, load_assessment
 from baibai_engine.investment_judgment.stock_assessment_store import (
     AssessmentStoreService,
     load_reviewed_assessment,
 )
-from baibai_engine.investment_judgment.operation.progress import progress_binding
-from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,

@@ -31,7 +31,10 @@ from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics 
 from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
     TimeGuardError as TimeGuardError,
 )
-from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import failure_category, failure_line
+from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+    failure_category,
+    failure_line,
+)
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
     COLUMNS as REQUEST_COLUMNS,
 )

@@ -7,7 +7,10 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 
 from baibai_engine.data_collection.economic.records import store_snapshot
-from baibai_engine.machine_analysis.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
 from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
 
 SOURCE_URL = "https://example.com/data.csv"

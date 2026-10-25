@@ -1,6 +1,9 @@
 """Physical dataset contracts; safe for schema/lake to import without services."""
 
-from baibai_engine.machine_analysis.external_assessment.observations.models import QUANTS_METRICS, VALUATION_METRICS
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    QUANTS_METRICS,
+    VALUATION_METRICS,
+)
 
 from .identity import ANALYST_FORECAST_TABLE as ANALYST_FORECAST_TABLE
 from .identity import ANALYST_RATING_TABLE as ANALYST_RATING_TABLE

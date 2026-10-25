@@ -11,7 +11,6 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.foundation.time import JST
-
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentError,
     UnpublishedAssessment,

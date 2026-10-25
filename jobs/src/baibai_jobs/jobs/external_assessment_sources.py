@@ -13,6 +13,10 @@ from typing import cast
 
 import requests
 
+from baibai_engine.job_api import (
+    ExternalAssessmentHostRateLimiter,
+    ExternalAssessmentSource,
+)
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.jobs.external_assessment_cohorts import RunPlan, summarize
 from baibai_jobs.jobs.schedule import external_assessment_target_date
@@ -26,10 +30,6 @@ from baibai_jobs.storage.external_assessment_staging import (
     terminal_result,
 )
 from baibai_jobs.storage.lake_publish import Boto3R2Store, ObjectStore
-from baibai_engine.job_api import (
-    ExternalAssessmentHostRateLimiter,
-    ExternalAssessmentSource,
-)
 
 SOURCES: tuple[ExternalAssessmentSource, ...] = ("monex", "rakuten", "kabumap", "minkabu")
 

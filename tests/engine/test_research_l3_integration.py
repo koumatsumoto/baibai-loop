@@ -23,42 +23,45 @@ from tests.helpers.research_selection import draft_for, selection
 from tests.helpers.screening_run import stock_analysis
 from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
 
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
-    AnalystForecastObservation,
-    ModelValuationObservation,
-)
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
 from baibai_engine.foundation.json import canonical_json
-from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.investment_judgment.inputs import project_research_inputs
+from baibai_engine.investment_judgment.market_context.models import MarketContextAssessment
+from baibai_engine.investment_judgment.market_context.service import AssessmentService
+from baibai_engine.investment_judgment.operation.progress import selection_binding
+from baibai_engine.investment_judgment.operation.service import OperationService
+from baibai_engine.investment_judgment.selection import selection_sha256
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     StockAssessmentDocument,
     assessment_core_hash,
 )
 from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.market_context.models import MarketContextAssessment
-from baibai_engine.investment_judgment.market_context.service import AssessmentService
-from baibai_engine.investment_judgment.operation.progress import selection_binding
-from baibai_engine.investment_judgment.operation.service import OperationService
 from baibai_engine.investment_judgment.trade_proposal import (
-    TradeProposal,
     ProposalConflictError,
+    TradeProposal,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
-from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal, preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal_query import (
+    get_investment_proposal,
+    preview_current_terms,
+)
 from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
-from baibai_engine.investment_judgment.selection import selection_sha256
 from baibai_engine.investment_judgment.workspace import (
     ResearchWorkspaceDataError,
     prepare_selected_workspace,
     promote,
     resume_selected_workspace,
 )
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    AnalystForecastObservation,
+    ModelValuationObservation,
+)
+from baibai_engine.machine_analysis.external_assessment.query import external_assessment
+from baibai_engine.machine_analysis.external_assessment.store import save_observations
+from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.storage.application.read import connect_read_only
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")

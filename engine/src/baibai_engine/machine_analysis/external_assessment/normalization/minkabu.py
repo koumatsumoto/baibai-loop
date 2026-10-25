@@ -14,7 +14,9 @@ from baibai_engine.machine_analysis.external_assessment.normalization import (
     number,
     numeric_text,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import AnalystForecastObservation
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    AnalystForecastObservation,
+)
 
 PARSER_VERSION = "minkabu-analyst-6"
 RATING_LABELS = ("強気買い", "買い", "中立", "売り", "強気売り")

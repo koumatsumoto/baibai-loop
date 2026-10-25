@@ -12,12 +12,6 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
-from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument, assessment_core_hash
-from baibai_engine.investment_judgment.stock_assessment_store import (
-    AssessmentStoreService,
-    ResearchValidationError,
-)
-from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.investment_judgment.scenario import (
     Projection,
     maximum_entry_price,
@@ -25,6 +19,15 @@ from baibai_engine.investment_judgment.scenario import (
     required_total_value,
     valuation_conditions,
 )
+from baibai_engine.investment_judgment.stock_assessment import (
+    StockAssessmentDocument,
+    assessment_core_hash,
+)
+from baibai_engine.investment_judgment.stock_assessment_store import (
+    AssessmentStoreService,
+    ResearchValidationError,
+)
+from baibai_engine.storage.application.read import connect_read_only
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 

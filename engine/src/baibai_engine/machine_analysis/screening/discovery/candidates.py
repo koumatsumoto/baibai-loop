@@ -12,6 +12,10 @@ from typing import NamedTuple
 
 from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.machine_analysis.company_valuation.metrics.relative import (
+    MIN_SECTOR_MEDIAN_POPULATION,
+    normalized_earnings_sector_gaps,
+)
 from baibai_engine.machine_analysis.screening.discovery.contracts import (
     APPROACH_IDS,
     CandidateDiscoveryMethodIdentity,
@@ -22,10 +26,6 @@ from baibai_engine.machine_analysis.screening.discovery.contracts import (
 )
 from baibai_engine.machine_analysis.screening.rule_config import CandidateDiscoveryRules
 from baibai_engine.machine_analysis.screening.universe import UNIVERSE_SCOPE_REVISION
-from baibai_engine.machine_analysis.company_valuation.metrics.relative import (
-    MIN_SECTOR_MEDIAN_POPULATION,
-    normalized_earnings_sector_gaps,
-)
 
 from .projection import reinvestment_coordinates
 

@@ -25,7 +25,9 @@ def observed_tickers(path: Path, *, cutoff: datetime) -> list[str]:
         QUANTS_SCORE_TABLE,
     )
     from baibai_engine.machine_analysis.external_assessment.observations.models import utc_datetime
-    from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
+    from baibai_engine.machine_analysis.external_assessment.tradingview.contract import (
+        COLUMNS as TV_COLUMNS,
+    )
     from baibai_engine.storage.observations.read import connect_read_only
 
     cutoff = utc_datetime(cutoff)

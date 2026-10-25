@@ -20,6 +20,12 @@ from types import FrameType
 
 from dotenv import load_dotenv
 
+from baibai_engine.job_api import (
+    MARKET_DB_PATH,
+    tradingview_failure_line,
+    tradingview_preflight,
+    tradingview_safe_progress,
+)
 from baibai_jobs.jobs.schedule import resolve_tradingview_target
 from baibai_jobs.jobs.tradingview_receipts import (
     KNOWN_FAILURES,
@@ -27,12 +33,6 @@ from baibai_jobs.jobs.tradingview_receipts import (
     count_layer_rows,
 )
 from baibai_jobs.storage import publication_lease as lease
-from baibai_engine.job_api import (
-    MARKET_DB_PATH,
-    tradingview_failure_line,
-    tradingview_preflight,
-    tradingview_safe_progress,
-)
 
 ROOT = Path(__file__).resolve().parents[4]
 FETCH_TIMEOUT = 30 * 60

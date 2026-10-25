@@ -19,7 +19,7 @@ _SCAN_DIRECTORIES = (
     "docs",
     "engine",
     "web",
-    "batch",
+    "jobs",
     "tools",
     "stores",
     ".agents/skills",

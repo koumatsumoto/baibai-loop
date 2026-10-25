@@ -16,6 +16,20 @@ from pathlib import Path
 
 import requests
 
+from baibai_engine.job_api import (
+    EquityWebSourceResponse,
+    ExternalAssessmentCollectionResult,
+    ExternalAssessmentHostRateLimiter,
+    ExternalAssessmentSource,
+    LakeObjectCache,
+    external_assessment_calendar_master_asof,
+    external_assessment_collect_pair,
+    external_assessment_collector_binding,
+    external_assessment_frozen_lake_universe,
+    external_assessment_received_calendar,
+    external_assessment_received_master_universe,
+    lake_session,
+)
 from baibai_jobs.jobs.external_assessment_cohorts import (
     RunPlan,
     make_plan,
@@ -40,20 +54,6 @@ from baibai_jobs.storage.source_dependencies import (
     available_dependencies,
     latest_dependency,
     load_dependency,
-)
-from baibai_engine.job_api import (
-    EquityWebSourceResponse,
-    ExternalAssessmentCollectionResult,
-    ExternalAssessmentHostRateLimiter,
-    ExternalAssessmentSource,
-    LakeObjectCache,
-    external_assessment_calendar_master_asof,
-    external_assessment_collect_pair,
-    external_assessment_collector_binding,
-    external_assessment_frozen_lake_universe,
-    external_assessment_received_calendar,
-    external_assessment_received_master_universe,
-    lake_session,
 )
 
 SOFT_BUDGET_SECONDS = 4 * 60 * 60

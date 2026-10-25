@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from baibai_engine.investment_judgment.trade_proposal import TradeProposal, ProposalError
+from baibai_engine.investment_judgment.trade_proposal import ProposalError, TradeProposal
 
 MAX_NEW_BUYS = 1
 

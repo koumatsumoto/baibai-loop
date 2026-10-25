@@ -11,7 +11,9 @@ from baibai_engine.machine_analysis.external_assessment.normalization import (
     document,
     number,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import ModelValuationObservation
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    ModelValuationObservation,
+)
 
 PARSER_VERSION = "monex-theory-3"
 

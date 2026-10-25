@@ -29,8 +29,6 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from baibai_jobs.jobs.schedule import batch_target_date
-from baibai_jobs.observability.discord import sanitize_one_line, write_json_atomic
 from baibai_engine.job_api import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
@@ -40,6 +38,8 @@ from baibai_engine.job_api import (
     validate_candidate_run,
 )
 from baibai_engine.read_api import market_calendar_business_day
+from baibai_jobs.jobs.schedule import batch_target_date
+from baibai_jobs.observability.discord import sanitize_one_line, write_json_atomic
 
 _JST = ZoneInfo("Asia/Tokyo")
 _ENGINE = "baibai-engine"
@@ -395,14 +395,14 @@ def _parse_economic_sources(stdout: str) -> list[_EconomicSource]:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise BatchStepError(
-            f"collection economic list --format json output is not parseable JSON: {exc}"
+            f"data-collection economic list --format json output is not parseable JSON: {exc}"
         ) from exc
     if not isinstance(payload, list):
-        raise BatchStepError("collection economic list --format json output is not a list")
+        raise BatchStepError("data-collection economic list --format json output is not a list")
     sources: list[_EconomicSource] = []
     for entry in payload:
         if not isinstance(entry, dict):
-            raise BatchStepError("collection economic list --format json row is not an object")
+            raise BatchStepError("data-collection economic list --format json row is not an object")
         try:
             sources.append(
                 _EconomicSource(
@@ -412,7 +412,7 @@ def _parse_economic_sources(stdout: str) -> list[_EconomicSource]:
             )
         except KeyError as exc:
             raise BatchStepError(
-                f"collection economic list --format json row missing field {exc}"
+                f"data-collection economic list --format json row missing field {exc}"
             ) from exc
     return sources
 

@@ -11,10 +11,15 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
 
-from baibai_engine.machine_analysis.external_assessment.analysis import FORECAST_METRICS
 from baibai_engine.external_assessment_cli import main
-from baibai_engine.machine_analysis.external_assessment.observations.models import QuantsScoreObservation
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment, observed_tickers
+from baibai_engine.machine_analysis.external_assessment.analysis import FORECAST_METRICS
+from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    QuantsScoreObservation,
+)
+from baibai_engine.machine_analysis.external_assessment.query import (
+    external_assessment,
+    observed_tickers,
+)
 from baibai_engine.machine_analysis.external_assessment.store import save_observations
 from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.storage.observations.schema import open_connection

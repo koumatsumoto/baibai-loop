@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.machine_analysis.market_context.margin import MarginBalance
 from baibai_engine.market.jquants_models import JQuantsAllIssuesDailyMargin, JQuantsWeeklyMargin
 from baibai_engine.market.margin_reader import (
     MarginCadence,
@@ -12,7 +13,6 @@ from baibai_engine.market.margin_reader import (
     read_all_issues_daily_margin,
     read_weekly_margin,
 )
-from baibai_engine.machine_analysis.market_context.margin import MarginBalance
 
 # The delta axis reaches back 26 observed ISO weeks. Daily observations are sampled
 # to one balance date per week; missing weeks can make the calendar span longer.

@@ -11,26 +11,17 @@ from hashlib import sha256
 from pathlib import Path
 
 from baibai_engine.foundation.json import canonical_json
+from baibai_engine.foundation.numbers import finite_decimal
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.jquants_reader import read_master_snapshot
-from baibai_engine.position.ledger import (
-    ExecutionEvent,
-    MarketPrice,
-    replay_events_through,
-    summarize_portfolio,
-)
-from baibai_engine.position.ledger_read import load_ledger_in_transaction
-from baibai_engine.position.market_source import market_basis_is_confirmed, read_unadjusted_close
-from baibai_engine.position.policy import PORTFOLIO_POLICY
-from baibai_engine.position.valuation import holding_episode
+from baibai_engine.investment_judgment.operation.models import OperationSession
+from baibai_engine.investment_judgment.operation.progress import proposal_scope, selection_binding
+from baibai_engine.investment_judgment.selection import ResearchSelection
 from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment_store import (
     ReviewedAssessment,
     latest_assessment_id,
     require_assessment_ref,
 )
-from baibai_engine.investment_judgment.operation.models import OperationSession
-from baibai_engine.investment_judgment.operation.progress import proposal_scope, selection_binding
 from baibai_engine.investment_judgment.trade_proposal import (
     LiquidityContext,
     PositionInput,
@@ -42,9 +33,18 @@ from baibai_engine.investment_judgment.trade_proposal import (
     ReservationInput,
     SecurityClassification,
 )
-from baibai_engine.investment_judgment.selection import ResearchSelection
+from baibai_engine.market.jquants_reader import read_master_snapshot
+from baibai_engine.position.ledger import (
+    ExecutionEvent,
+    MarketPrice,
+    replay_events_through,
+    summarize_portfolio,
+)
+from baibai_engine.position.ledger_read import load_ledger_in_transaction
+from baibai_engine.position.market_source import market_basis_is_confirmed, read_unadjusted_close
+from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.position.valuation import holding_episode
 from baibai_engine.storage.application.read import connect_read_only
-from baibai_engine.foundation.numbers import finite_decimal
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
@@ -80,7 +80,9 @@ def _original_assessment(
         if row is not None and row[0] != ticker:
             raise ProposalError("recorded initial buy binding ticker differs from holding")
         if row is not None and row[1] == "proposal" and row[2] is not None:
-            from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
+            from baibai_engine.investment_judgment.trade_proposal_query import (
+                load_investment_proposal,
+            )
 
             proposal = load_investment_proposal(connection, str(row[2]))
             item = next(
@@ -324,14 +326,14 @@ def _context_calculations(
     now: datetime,
     session: date | None,
 ) -> dict[str, dict[str, object]]:
-    from baibai_engine.position.price_grid import floor_common_stock_limit
+    from baibai_engine.investment_judgment.scenario import maximum_entry_price
     from baibai_engine.investment_judgment.stock_assessment import current_price_projection
     from baibai_engine.investment_judgment.trade_proposal_conditions import (
         assessment_quote_basis,
         buy_evaluation,
         buy_evaluation_payload,
     )
-    from baibai_engine.investment_judgment.scenario import maximum_entry_price
+    from baibai_engine.position.price_grid import floor_common_stock_limit
 
     result: dict[str, dict[str, object]] = {}
     for outcome in scope.outcomes:

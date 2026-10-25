@@ -11,7 +11,10 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.investment_judgment.cash_share_cb import CashShareCBInput, calculate_cash_share_cb
+from baibai_engine.investment_judgment.cash_share_cb import (
+    CashShareCBInput,
+    calculate_cash_share_cb,
+)
 
 from .calculation import CalculationInput, calculate
 

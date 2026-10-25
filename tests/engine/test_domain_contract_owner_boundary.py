@@ -13,11 +13,11 @@ import yaml
 from tests.helpers.er_calibration_context import context_artifact
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.jpx_total_return import load_benchmark_observation
 from baibai_engine.machine_analysis.company_valuation.calibration.query import (
     candidate_er_band_context,
     load_er_calibration_context,
 )
+from baibai_engine.market.jpx_total_return import load_benchmark_observation
 
 ROOT = Path(__file__).resolve().parents[2]
 

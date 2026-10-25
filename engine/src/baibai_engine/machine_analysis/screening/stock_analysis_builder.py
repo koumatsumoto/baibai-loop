@@ -10,13 +10,6 @@ import json
 from collections.abc import Mapping
 from datetime import date
 
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
-from baibai_engine.machine_analysis.screening.schema import (
-    DerivedMetrics,
-    StockAnalysis,
-    UniverseSnapshot,
-)
 from baibai_engine.machine_analysis.company_valuation.estimates import (
     ExpectedReturnEstimate,
     ExpectedReturnInputs,
@@ -27,6 +20,13 @@ from baibai_engine.machine_analysis.company_valuation.metrics.models import (
     UNRESOLVED_DIVIDEND_BASIS,
     FinancialSnapshot,
 )
+from baibai_engine.machine_analysis.screening.schema import (
+    DerivedMetrics,
+    StockAnalysis,
+    UniverseSnapshot,
+)
+from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
 
 from .earnings_lag import EarningsLag
 
