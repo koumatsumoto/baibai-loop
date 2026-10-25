@@ -103,6 +103,16 @@ def project_research_inputs(
             "research_as_of": selection.research_as_of.isoformat(),
             "known_at": selection.input_known_at.isoformat(),
             "saved_market_context_assessment": selection.inputs.saved_market_context_assessment,
+            "screening_selection": None
+            if selection.inputs.screening_selection is None
+            else {
+                "selection_id": selection.inputs.screening_selection_id,
+                "generation_id": selection.inputs.generation.generation_id,
+                "universe_count": len(selection.inputs.screening_selection.universe_tickers),
+                "result": selection.inputs.model_dump(
+                    mode="json", include={"screening_selection"}
+                )["screening_selection"]["result"],
+            },
             "research_targets": [
                 target.model_dump(mode="json") for target in selection_targets(selection)
             ],

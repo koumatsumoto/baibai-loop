@@ -23,6 +23,7 @@ from baibai_engine.foundation.json import canonical_json
 from baibai_engine.foundation.time import JST
 from baibai_engine.investment_judgment.selection_policy import ResearchCapacity, validate_capacity
 from baibai_engine.machine_analysis.model_generation import ModelInputSlice
+from baibai_engine.machine_analysis.screening.model_projection import ScreeningSelection
 
 
 def _ticker(value: object) -> str:
@@ -188,7 +189,19 @@ class GeneratedResearchInputs(_Contract):
 
     generation: ModelInputSlice
     screening_selection_id: Text | None = None
+    screening_selection: ScreeningSelection | None = None
     saved_market_context_assessment: dict[str, JsonValue] | None = None
+
+    @model_validator(mode="after")
+    def fixed_policy(self) -> Self:
+        if (self.screening_selection_id is None) != (self.screening_selection is None):
+            raise ValueError("screening selection identity and saved result must be paired")
+        if (
+            self.screening_selection is not None
+            and self.screening_selection.generation_id != self.generation.generation_id
+        ):
+            raise ValueError("screening selection differs from the chosen generation")
+        return self
 
 
 class GeneratedResearchSelectionDraft(_Contract):

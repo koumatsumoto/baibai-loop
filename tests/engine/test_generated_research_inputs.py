@@ -123,6 +123,7 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp
         research_as_of=AS_OF,
         input_known_at=NOW,
         generation_id=generation.generation_id,
+        screening_selection_id="policy-1",
         selection_summary="根拠を比較",
         targets=(selected_target(),),
     )
@@ -151,9 +152,11 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp
     )
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
     assert saved.schema_version == 3
+    assert saved.inputs.screening_selection.result.policy.earnings_limit == 20
     digest = selection_sha256(saved)
     original = project_research_inputs(saved)
     assert "machine_valuation" not in original["securities"]["1234"]
+    assert original["screening_selection"]["result"]["policy"]["earnings_limit"] == 20
     assert "not_generated" in original["securities"]["1234"]
     (adv,) = proposal_liquidity_context(saved)
     assert isinstance(adv, GeneratedLiquidityContext)

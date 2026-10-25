@@ -108,10 +108,7 @@ class OperationService:
             selection_id = selection.inputs.screening_selection_id
             if selection_id is not None:
                 screening = read_selection(selection_id, path=self._runs_path)
-                if (
-                    screening is None
-                    or screening.generation_id != selection.inputs.generation.generation_id
-                ):
+                if screening is None or screening != selection.inputs.screening_selection:
                     raise OperationConflictError(
                         "screening selection differs from chosen generation"
                     )

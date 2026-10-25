@@ -59,6 +59,10 @@ class FinancialSnapshot:
     # 予想があれば使い、無ければ利回りと E[r] を出さない。
     # dividend_split_factor は配当計算窓に調整があれば累積 factor を記録する。
     # 相殺して 1 でも記録する。変更なし・factor 不明は None。値だけでは解決状態を表さない。
+    # 倍率/警告の元数値を同じsource traceと保持する。EPSはas-of株式basis。
+    forecast_eps_yen: float | None = None
+    forecast_profit_yen: float | None = None
+    forecast_ordinary_profit_yen: float | None = None
     earnings_forecast_source: dict[str, str | None] | None = None
     dividend_forecast_source: dict[str, str | None] | None = None
     dps_actual_annual: float | None = None

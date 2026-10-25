@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -131,3 +132,21 @@ def test_growth_display_range_does_not_truncate_valuation_inputs_or_retained_cov
     assert bounded[1].payload["periods"] == []
     assert full[1].payload["coverage"] == bounded[1].payload["coverage"]
     assert bounded[1].payload["requested_start"] == "2026-04-01"
+
+
+def test_forecast_ratios_keep_their_numeric_inputs_not_only_warning_flags():
+    forecast = replace(
+        document(),
+        forecast_status="confirmed",
+        forecast_eps=2.0,
+        forecast_profit=160.0,
+        forecast_ordinary_profit=-10.0,
+    )
+    valuation = generate(documents=(forecast,), bars=(PriceBar(ASOF, 10.0, None),))[0]
+    financial = valuation.payload["financial"]
+    assert financial["forecast_eps_yen"] == 2.0
+    assert financial["forecast_profit_yen"] == 160.0
+    assert financial["forecast_ordinary_profit_yen"] == -10.0
+    assert financial["per_forward"] == 5.0
+    assert financial["forecast_special_gain_flag"] is True
+    assert financial["forecast_full_year_loss_flag"] is True

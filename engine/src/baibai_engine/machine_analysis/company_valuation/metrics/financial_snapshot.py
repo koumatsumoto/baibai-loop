@@ -259,6 +259,9 @@ def build_financial_snapshot(
     return FinancialSnapshot(
         latest_financial_disclosure_date=latest.disclosed_at if latest else None,
         per_forward=per_forward,
+        forecast_eps_yen=forecast_eps,
+        forecast_profit_yen=forecast_profit,
+        forecast_ordinary_profit_yen=forecast_ordinary_profit,
         earnings_forecast_source=forecast_source_trace(forecast),
         dividend_forecast_source=forecast_source_trace(
             latest_forecast_source(summaries, dividend=True), dividend=True

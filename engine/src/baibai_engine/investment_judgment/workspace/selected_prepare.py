@@ -104,6 +104,7 @@ def _generated_selection(
 ) -> GeneratedResearchSelection:
     if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
+    screening = None
     if draft.screening_selection_id is not None:
         screening = read_selection(draft.screening_selection_id, path=runs_path)
         if screening is None or screening.generation_id != draft.generation_id:
@@ -124,6 +125,7 @@ def _generated_selection(
         inputs=GeneratedResearchInputs(
             generation=models,
             screening_selection_id=draft.screening_selection_id,
+            screening_selection=screening,
             saved_market_context_assessment=None
             if context is None
             else assessment_projection(context, as_of=draft.research_as_of),
