@@ -8,13 +8,15 @@ buyは現在closeを上限とする指値または低い指値待ち、holdは�
 
 固定Operationの全対象を完成評価または理由・参照付き未完了で被覆し、new/holdingを混ぜない。未調査は評価参照なしのdefer。独立検証済みuncertain/unresolvedの評価も参照付きdeferにできる。0対象に空提案を作らない。
 
-価値獲得経路、Base/Downside、反証、実現時間を現金維持や他の完成案と比べる。同じBase年率でも倍率上昇と利益回復への依存を分け、Pmax内だけで採用しない。企業本文を再掲せずexact評価へ辿る理由にする。重要なテクニカル分析の所見は行動理由と見直し条件へつなぎ、価格局面だけでPmaxやsell条件を変えない。
+価値獲得経路、Base/Downside、反証、実現時間を投下額に照らし、確認済み保有との共通要因・同時損失を含む[全体の経済性](../doctrine.md#economic-return-policy)として現金維持や他の完成案と比べる。同じBase年率でも倍率上昇と利益回復への依存を分け、Pmax内だけで採用しない。企業本文を再掲せずexact評価へ辿る理由にする。重要なテクニカル分析の所見は行動理由と見直し条件へつなぎ、価格局面だけでPmaxやsell条件を変えない。
 
 ProposalはReviewed Assessment全文を参照する。未評価のSelection L2 blockを直接足すとReviewを経ない判断根拠が入り得るため、重要な支持・相反・不足を評価と独立検証へ通す。[当時の四領域結合検証](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-l3-four-domain-integration/report.md)は有限な接続確認であり、全判断や将来収益の実証ではない。
 
 ## 条件付き購入
 
 実quoteは観測、提案limitは試算価格。安い架空quoteで不足を埋めない。Baseの終価・今後分配・期間と[案件ごとの要求率](../doctrine.md#required-return-policy)によるPmax以下で、仮説・権利basis・cash・既保有・予約・同提案の約定等の条件を確認する。算術のownerは`investment_judgment/entry_policy.py`。
+
+PmaxはBaseの条件付き年率が要求率を満たす価格上限で、期待値や勝率ではない。上振れを含めた経済判断が魅力的でも、そのlimitでのBase年率が要求率未達なら現行gateは通さない。経済判断とgateが食い違う場合は、実装上の制約として区別して残し、Baseや要求率の通過用変更で迂回しない。
 
 現在closeがPmax超過でも低いlimitで待てる。ただし購入の経済判断をまだ採らず、値下がり時に再検討するだけの監視価格はbuyにしない。評価不能や具体条件の不足を指値で迂回せず、完成した見送りはno_action、未完了の判断はdeferで理由と再開条件を残す。重要な不確実性があっても、[引受理由](stock-assessment.md#uncertainty-and-decision)を持つsupported/resolvedの評価からbuyを提案できる。提案理由には見込む条件付き利回り、主要な損失経路、なぜ今そのリスクに見返りが見合うかを示し、未確定事項の列挙だけで終えない。
 
