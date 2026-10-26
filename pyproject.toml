@@ -572,7 +572,7 @@ forbidden_modules = ["baibai_engine.market.edinet_metrics.csv", "baibai_engine.s
 [[tool.importlinter.contracts]]
 name = "financial and price calculations use only pure observation inputs"
 type = "forbidden"
-source_modules = ["baibai_engine.machine_analysis.company_valuation.metrics", "baibai_engine.machine_analysis.market_context.history", "baibai_engine.machine_analysis.market_context.margin", "baibai_engine.machine_analysis.technical_analysis.calculations", "baibai_engine.market.price_basis", "baibai_engine.market.margin_publication"]
+source_modules = ["baibai_engine.machine_analysis.company_valuation.metrics", "baibai_engine.machine_analysis.market_context.history", "baibai_engine.machine_analysis.market_context.margin", "baibai_engine.machine_analysis.technical_analysis.calculations", "baibai_engine.machine_analysis.technical_analysis.price_path", "baibai_engine.machine_analysis.market_context.price_path", "baibai_engine.market.price_observation", "baibai_engine.market.price_basis", "baibai_engine.market.margin_publication"]
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.edinet_metrics.csv", "baibai_engine.market.price_reader",
   "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.market.adjusted_prices",

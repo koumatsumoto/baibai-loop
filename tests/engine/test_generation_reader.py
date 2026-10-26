@@ -8,7 +8,8 @@ from tests.helpers.l1_release import market_store
 
 from baibai_engine.machine_analysis import generation_reader
 from baibai_engine.machine_analysis.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.company_valuation.metrics.models import TTMRules
+from baibai_engine.machine_analysis.company_valuation.metrics.models import DEFAULT_TTM_RULES, TTMRules
+from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
 from baibai_engine.market.calendar_context import price_calendar_basis
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
 from baibai_engine.storage.lake.writer import sealed_sqlite_snapshot
@@ -18,7 +19,12 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
     path = market_store(tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),))
     spies = [
         mocker.spy(generation_reader, name)
-        for name in ("read_price_bars", "read_financial_documents", "read_observation_population")
+        for name in (
+            "read_price_bars",
+            "read_financial_documents",
+            "read_observation_population",
+            "read_price_day_states",
+        )
     ]
     mocker.patch(
         "baibai_engine.machine_analysis.market_context.security.read_price_bars",
@@ -55,7 +61,67 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
         == "new-release"
     )
     assert result.result("market_context", "market").payload["reading"] is None
-    assert [spy.call_count for spy in spies] == [1, 1, 1]
+    assert [spy.call_count for spy in spies] == [1, 1, 1, 1]
+
+
+@pytest.mark.parametrize("benchmark_mixed", [False, True])
+def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
+    tmp_path, mocker, benchmark_mixed
+):
+    as_of = date(2026, 10, 26)
+    calendar = {
+        as_of - timedelta(days=n): (as_of - timedelta(days=n)).weekday() < 5 for n in range(500)
+    }
+    dates = sorted(day for day, business in calendar.items() if business)[-253:]
+    rows = tuple(
+        (ticker, day.isoformat(), (100.0 if day != as_of else 75.0), 1.0)
+        for ticker in ("7800", "1321")
+        for day in dates
+    )
+    path = market_store(tmp_path / "market.sqlite", daily_bars=rows)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.executemany(
+            "INSERT OR REPLACE INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
+            [(day.isoformat(), "1" if business else "0") for day, business in calendar.items()],
+        )
+        connection.execute(
+            "UPDATE jquants_daily_bars SET open=close,high=close,low=close,volume=100,"
+            "turnover_value=100000000"
+        )
+        if benchmark_mixed:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET open=NULL WHERE ticker='1321' AND traded_at=?",
+                (as_of.isoformat(),),
+            )
+    before = path.read_bytes()
+    reader = mocker.spy(generation_reader, "read_price_day_states")
+    with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
+        result = generation_reader.read_and_generate_models(
+            generation_id="price-path-fixture",
+            market_snapshot=snapshot,
+            market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+            economic_path=None,
+            economic_identity=None,
+            as_of=as_of,
+            evaluation_time=datetime(2026, 10, 27, tzinfo=UTC),
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("7800",),
+        ).materialize()
+    assert reader.call_count == 1
+    technical = result.result("technical_analysis", "7800").payload
+    assert technical == technical_analysis(path, ticker="7800", as_of=as_of)
+    assert technical["price_path"]["annotation"]["matched_refs"] == ["R1", "R20", "G60"]
+    market = result.result("market_context", "7800").payload
+    assert market["price"]["avg_turnover_20d_oku"] == 1
+    assert market["price"]["return_20d"] == -0.25
+    assert market["price"]["high_52w"] == 100
+    comparison = market["price_path_relative"]["comparisons"]["G252"]
+    if benchmark_mixed:
+        assert comparison["relative_return"] is None
+        assert comparison["status"] == "missing_benchmark_endpoint"
+    else:
+        assert comparison["relative_return"] == 0
+    assert path.read_bytes() == before
 
 
 def test_calendar_requires_contiguous_dates_without_coupling_y_to_m_history():

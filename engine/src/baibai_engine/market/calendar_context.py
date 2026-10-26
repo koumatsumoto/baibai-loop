@@ -57,7 +57,12 @@ def read_price_calendar_basis(
     connection: sqlite3.Connection, *, as_of: date
 ) -> tuple[date | None, tuple[date, ...]]:
     """保存済み共通calendarだけを使い、個社価格から営業日を補完しない。"""
-    calendar = {
+    return price_calendar_basis(read_price_calendar(connection, as_of=as_of), as_of=as_of)
+
+
+def read_price_calendar(connection: sqlite3.Connection, *, as_of: date) -> dict[date, bool]:
+    """Share the saved calendar without applying another indicator's history requirement."""
+    return {
         date.fromisoformat(row[0]): bool(row[1])
         for row in connection.execute(
             "SELECT day, holiday_division IN ('1','2') FROM jquants_market_calendar "
@@ -65,7 +70,6 @@ def read_price_calendar_basis(
             (as_of.isoformat(),),
         )
     }
-    return price_calendar_basis(calendar, as_of=as_of)
 
 
 def price_calendar_basis(

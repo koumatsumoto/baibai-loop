@@ -44,6 +44,7 @@ def generate_financial_and_price_models(
     ttm_rules: TTMRules,
     growth_start: date | None = None,
     edinet: EdinetMetricRecord | None = None,
+    price_path: dict[str, object] | None = None,
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業価値・企業成長・テクニカル分析を生成する。
 
@@ -99,7 +100,7 @@ def generate_financial_and_price_models(
         start=growth_start,
     )
     technical = generate_technical_analysis(
-        bars, ticker=ticker, as_of=as_of, trading_dates=trading_dates
+        bars, ticker=ticker, as_of=as_of, trading_dates=trading_dates, price_path=price_path
     )
     return (
         GeneratedModel(
