@@ -120,40 +120,6 @@ merge・origin・schema・取得ETag/CASの失敗では公開を止める。lake
 
 malformed leaseは自動修復しない。GitHubとlocalにactive/pending writerがないと確認した場合だけexact coordination/publication-lease.jsonを調べ、対象1keyの削除後に通常acquireで再作成する。prefix削除や手書きJSON上書きを通常運用へ入れない。
 
-## 五モデルstoreへの一回移行（schema 6 → 7）
-
-Actionsからは一回用の`cloud-model-store-migration.yml`をmainで手動実行する。対象mainのCI成功後、旧SHAの実行中・待機中machine writer（daily外側のqueueを含む）が残っていないことを確認する。workflowは現main SHA・source schema 6を要求し、既存R2接続で移行と読戻しだけを行う。私的DBやraw errorを公開artifact/logへ出さず、固定phaseだけを報告する。成功後の再実行や旧SHAのdaily再実行をせず、以後は新mainから開始する。PUT後の失敗は到達点を確認し、無条件再送やreceipt削除で回避しない。
-
-```bash
-gh workflow run cloud-model-store-migration.yml --ref main
-```
-
-
-旧screening runを保持したまま五モデルの保存tableだけを加える。対応codeのmain反映とstore移行を同じdeliveryで完了し、それまでは共通統合を開始しない。dailyの自動移行や旧runの再計算はしない。既存writerが動いていないことを確認し、上記operator lease内でreceipt検証付きfresh pull-machine・別コピー移行・条件付き反映を行う。作業中のmachine DBがある領域は使わない。pull-runsだけでは他storeを含む既存receiptの整合を確認できないため、この移行の開始には使わない。
-
-```bash
-with_publication_lease bash -ec '
-  jobs/scripts/r2_transfer.sh pull-machine
-  backup_dir=$(mktemp -d stores/model-store-migration.XXXXXX)
-  uv run python -m baibai_jobs.storage.sqlite_snapshot create \
-    --source stores/screening/runs.sqlite --output "$backup_dir/source.sqlite"
-  uv run python -m tools.migrate_model_store \
-    --source "$backup_dir/source.sqlite" --output "$backup_dir/migrated.sqlite"
-  uv run python -m baibai_jobs.storage.sqlite_snapshot check \
-    --path "$backup_dir/migrated.sqlite" --schema-version 7
-  uv run python -m baibai_jobs.storage.sqlite_snapshot create \
-    --source "$backup_dir/migrated.sqlite" --output stores/screening/runs.sqlite
-  jobs/scripts/r2_transfer.sh push-runs
-  jobs/scripts/r2_transfer.sh pull-machine
-  uv run python -m tools.migrate_model_store --verify-only \
-    --source "$backup_dir/source.sqlite" --output stores/screening/runs.sqlite
-'
-```
-
-toolはWAL込みの別コピーだけを移行し、元DBを変更しない。出力pathが既存なら拒否し、失敗コピーは調査用に残す。source schema・旧run/個社行数が一致し、新tableが読めることを確認する。push-runsは取得ETagへの条件付きPUTとmachine receipt更新だけを行い、market・economic・lake・applicationを再発行しない。
-
-反映後も同じlease内でpull-machineし、schema 7、旧行の全field一致、receipt整合を読戻してからleaseを解放する。その後に共通統合を実施する。PUTとreceiptの片方だけが成功した場合は再送せず到達点を確認する。移行前コピーは保全し、新しい世代を旧コピーで巻き戻さない。このdeliveryの完了後に一回用toolを撤去する。
-
 ## application DB を反映する
 
 作業開始前に、空の作業領域へpull-appしてDBとstores/.r2-generations/baibai.sqlite.etagを一組で取得する。そのDBを正規CLIで更新し、取得ETagを保持する。
