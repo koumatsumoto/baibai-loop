@@ -227,7 +227,11 @@ def test_query_and_cli_include_the_same_common_calendar_momentum(tmp_path, capsy
             (499 - (ASOF - dates[-22]).days) / (499 - (ASOF - dates[-253]).days) - 1
         )
         shared = generate_technical_analysis(
-            observed(list(range(100, 500))), ticker="1234", as_of=ASOF, trading_dates=dates
+            observed(list(range(100, 500))),
+            ticker="1234",
+            as_of=ASOF,
+            trading_dates=dates,
+            price_path=result["price_path"],
         )
         assert result == shared
     assert main(["show", "--ticker", "1234", "--asof", str(ASOF), "--db", str(path)]) == 0

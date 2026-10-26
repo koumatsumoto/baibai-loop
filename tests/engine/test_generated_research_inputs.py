@@ -59,9 +59,12 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
     assert "machine_valuation" not in result["model_inputs"]["securities"]["1234"]
 
 
-def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp_path, monkeypatch):
+@pytest.mark.parametrize("with_price_path", [False, True])
+def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(
+    tmp_path, monkeypatch, with_price_path
+):
     runs = tmp_path / "runs.sqlite"
-    generation = seed_generation(runs, now=NOW, as_of=AS_OF)
+    generation = seed_generation(runs, now=NOW, as_of=AS_OF, with_price_path=with_price_path)
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(
@@ -92,6 +95,7 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(tmp
     assert "machine_valuation" not in original["securities"]["1234"]
     assert original["screening_selection"]["result"]["policy"]["earnings_limit"] == 20
     assert "not_generated" in original["securities"]["1234"]
+    assert ("price_path" in original["securities"]["1234"]["technical_analysis"]) == with_price_path
     (adv,) = proposal_liquidity_context(saved)
     assert isinstance(adv, GeneratedLiquidityContext)
     assert adv.adv_yen == Decimal("125000000")

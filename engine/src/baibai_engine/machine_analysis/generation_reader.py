@@ -10,11 +10,13 @@ from pathlib import Path
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
 from baibai_engine.market.adjusted_prices import read_price_bars
-from baibai_engine.market.calendar_context import read_price_calendar_basis
+from baibai_engine.market.calendar_context import price_calendar_basis, read_price_calendar
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents, read_master_snapshot
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.price_observation import price_calendar
+from baibai_engine.market.price_observation_reader import read_price_day_states
 from baibai_engine.market.price_reader import _adjustment_events_from_rows
 from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.lake.sources import sha256_file
@@ -26,10 +28,13 @@ from .company_valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 from .company_valuation.metrics.models import TTMRules
 from .external_assessment.reader import read_observation_population
 from .generation import CompanyModelInputs, generate_models
+from .market_context.benchmark import NIKKEI225_ETF_PROXY
+from .market_context.price_path import compare_price_path
 from .market_context.reading.query import reading_snapshot
 from .market_context.security import build_security_market_contexts
 from .market_context.snapshot import build_market_snapshot, prepare_market_context_from_bars
 from .model_generation import InputSnapshot, ModelGenerationStream
+from .technical_analysis.price_path import observe_price_path
 
 
 def read_and_generate_models(
@@ -83,7 +88,19 @@ def read_and_generate_models(
         connection.execute("BEGIN")
         for row in read_financial_documents(connection, start=date.min, end=date.max):
             documents[row.ticker].append(row)
-        expected_price_date, trading_dates = read_price_calendar_basis(connection, as_of=as_of)
+        calendar = read_price_calendar(connection, as_of=as_of)
+        expected_price_date, trading_dates = price_calendar_basis(calendar, as_of=as_of)
+        path_calendar = price_calendar(calendar, as_of=as_of)
+        state_start = min(
+            (window[0] for window in path_calendar.windows.values() if window is not None),
+            default=path_calendar.expected_price_date or as_of,
+        )
+        day_states = read_price_day_states(
+            connection,
+            start=state_start,
+            end=as_of,
+            tickers=(*subjects, NIKKEI225_ETF_PROXY),
+        )
         action_rows = connection.execute(
             "SELECT ticker,traded_at,adjustment_factor,ex_right_type FROM jquants_daily_bars "
             "WHERE traded_at<=? AND (adjustment_factor!=1.0 OR ex_right_type IS NOT NULL) "
@@ -108,6 +125,27 @@ def read_and_generate_models(
         prepared=prepared,
         price_bars_by_ticker=prices,
     )
+    # The legacy prepared benchmark is intentionally shorter. Reuse the already
+    # read full adjusted series for long-path endpoints without changing old MC.
+    benchmark_prices = {
+        bar.traded_at: bar.price
+        for bar in prices.get(prepared.benchmark_ticker, ())
+        if day_states.get(prepared.benchmark_ticker, {}).get(bar.traded_at) == "priced"
+    }
+    price_paths = {}
+    for ticker in subjects:
+        path_observation = observe_price_path(
+            prices.get(ticker, ()),
+            calendar=path_calendar,
+            day_states=day_states.get(ticker, {}),
+        )
+        price_paths[ticker] = path_observation.payload
+        contexts[ticker]["price_path_relative"] = compare_price_path(
+            path_observation.comparison_pairs,
+            benchmark_prices=benchmark_prices,
+            as_of=as_of,
+            benchmark_ticker=prepared.benchmark_ticker,
+        )
     histories = read_observation_population(path, tickers=subjects, cutoff=evaluation_time)
     edinet = EDINETReader(path).load_metric_records(as_of)
     companies = [
@@ -118,6 +156,7 @@ def read_and_generate_models(
             adjustment_events=events.get(ticker, ()),
             sector=None if master is None else _sector(master.securities.get(ticker)),
             edinet=edinet.get(ticker),
+            price_path=price_paths[ticker],
         )
         for ticker in subjects
     ]
@@ -151,7 +190,7 @@ def read_and_generate_models(
             else reading_snapshot(economic_path, asof=as_of),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v1",
+        market_context_revision="shared-market-context-price-path-v2",
         growth_start=growth_start,
     )
 

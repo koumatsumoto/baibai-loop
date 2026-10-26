@@ -34,6 +34,7 @@ class CompanyModelInputs:
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent]
     sector: str | None
     edinet: EdinetMetricRecord | None = None
+    price_path: dict[str, object] | None = None
 
 
 def generate_models(
@@ -90,6 +91,7 @@ def generate_models(
                 ttm_rules=ttm_rules,
                 growth_start=growth_start,
                 edinet=company.edinet,
+                price_path=company.price_path,
             )
             history = external_observations.get(ticker)
             if history is not None:

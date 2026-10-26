@@ -102,6 +102,44 @@ def test_generated_observations_drive_the_two_views_without_rounding():
     assert result.tickers == ("1234", "5678")
 
 
+def test_price_path_annotation_cannot_change_y_or_ym_selection():
+    original = generation(
+        value("1234", 0.10),
+        value("5678", 0.09),
+        *(
+            GeneratedModel(
+                model_id="technical_analysis",
+                subject=ticker,
+                calculation_revision="legacy",
+                payload={"price_momentum": {"value": momentum}},
+            )
+            for ticker, momentum in (("1234", -0.5), ("5678", 0.5))
+        ),
+    )
+    extended = generation(
+        *(
+            model.model_copy(
+                update={
+                    "calculation_revision": "with-price-path",
+                    "payload": {
+                        **model.payload,
+                        "price_path": {
+                            "annotation": {"status": "matched", "matched_refs": ["G60"]}
+                        },
+                    },
+                }
+            )
+            if model.model_id == "technical_analysis"
+            else model
+            for model in original.models
+        )
+    )
+    policy = TwoViewPolicy(earnings_limit=1, combined_limit=1)
+    assert select_generation(
+        original, tickers=("1234", "5678"), policy=policy
+    ) == select_generation(extended, tickers=("1234", "5678"), policy=policy)
+
+
 def test_selection_retains_the_requested_universe_including_missing_models():
     saved = generation(value("1234", 0.10))
     policy = TwoViewPolicy(earnings_limit=1, combined_limit=1)

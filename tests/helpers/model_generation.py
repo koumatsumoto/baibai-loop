@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
 
 
-def seed_generation(path, *, now, as_of):
+def seed_generation(path, *, now, as_of, with_price_path=False):
     payloads = {
         "company_valuation": {"earnings_price": {"earnings_yield": 0.12}, "financial": None},
         "technical_analysis": {"price_momentum": {"value": None, "reason": "missing_endpoint"}},
@@ -26,6 +26,12 @@ def seed_generation(path, *, now, as_of):
         "external_assessment": {"forecast": None, "reason": "not_covered"},
         "market_context": {"price": {"avg_turnover_20d_oku": 1.25}},
     }
+    if with_price_path:
+        payloads["technical_analysis"]["price_path"] = {
+            "calculation_revision": "synthetic-price-path",
+            "annotation": {"status": "matched", "matched_refs": ["G60"]},
+        }
+        payloads["market_context"]["price_path_relative"] = {"comparisons": {}}
     models = [
         GeneratedModel(
             model_id=name, subject="1234", calculation_revision="synthetic-v1", payload=payload

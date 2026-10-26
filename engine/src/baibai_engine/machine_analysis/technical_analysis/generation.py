@@ -21,7 +21,12 @@ from .momentum import price_momentum_12_1
 
 
 def generate_technical_analysis(
-    bars: Sequence[PriceBar], *, ticker: str, as_of: date, trading_dates: Sequence[date]
+    bars: Sequence[PriceBar],
+    *,
+    ticker: str,
+    as_of: date,
+    trading_dates: Sequence[date],
+    price_path: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """同一調整基準の時系列を受け取り、個別読取と全社生成で同じ算術を使う。"""
     ticker = normalize_ticker(ticker)
@@ -47,4 +52,5 @@ def generate_technical_analysis(
             )
         ),
         "price_momentum_revision": "common-calendar-252-21-v2",
+        **({"price_path": price_path} if price_path is not None else {}),
     }
