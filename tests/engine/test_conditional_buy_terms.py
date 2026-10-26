@@ -87,6 +87,28 @@ def test_cash_is_checked_at_recommended_limit_and_guide_is_not_a_hard_cap():
     assert evaluate(available_cash_yen=Decimal(99999)).quantity == 0
 
 
+def test_above_quote_ceiling_uses_limit_for_cash_quantity_and_return():
+    result = evaluate(quote=quote("875"), proposed_limit_yen=Decimal(880))
+    assert result.hard_blockers == ()
+    assert result.quantity == 300
+    assert result.quantity * Decimal(880) == 264000
+    assert result.current_price_projection["price_yen"] == 875
+    assert result.limit_price_projection["price_yen"] == 880
+    assert result.limit_price_projection["base"]["total_return_pct"] == 25
+    assert result.current_price_projection["base"]["total_return_pct"] > 25
+    # 263,000円は875円なら300株を賄えるが、上限880円では200株となる。
+    limited_cash = evaluate(
+        quote=quote("875"),
+        proposed_limit_yen=Decimal(880),
+        available_cash_yen=Decimal(263000),
+    )
+    assert limited_cash.hard_blockers == ()
+    assert limited_cash.quantity == 200
+    above_pmax = evaluate(quote=quote("875"), proposed_limit_yen=Decimal(1001))
+    assert "limit_above_pmax" in codes(above_pmax)
+    assert above_pmax.quantity == 0
+
+
 @pytest.mark.parametrize(
     ("overrides", "blocker"),
     [

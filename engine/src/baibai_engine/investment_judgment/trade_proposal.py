@@ -271,7 +271,7 @@ class _ProposalItem(_ProposalValue):
 class BuyItem(_ProposalItem):
     action: Literal["buy"]
     assessment_ref: AssessmentRef
-    timing: Literal["at_current_limit", "wait_limit"]
+    timing: Literal["at_current_limit", "wait_limit", "place_limit"]
     terms: LimitTerms | None
     proposed_limit_yen: PositiveMoney | None = None
     terms_unavailable_reasons: JsonTuple[GateReason] = ()

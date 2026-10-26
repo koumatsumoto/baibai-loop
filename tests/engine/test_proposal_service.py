@@ -3,14 +3,22 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from datetime import UTC, timedelta
+from decimal import Decimal
 
 import pytest
 import yaml
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
 from baibai_engine.investment_judgment.selection import selection_sha256
-from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError, ProposalError
-from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal
+from baibai_engine.investment_judgment.trade_proposal import (
+    ProposalConflictError,
+    ProposalError,
+    TradeProposal,
+)
+from baibai_engine.investment_judgment.trade_proposal_query import (
+    get_investment_proposal,
+    preview_current_terms,
+)
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
 from baibai_engine.investment_judgment.workspace_cli import main
 
@@ -112,6 +120,46 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
     assert capsys.readouterr().out == ""
     stored = get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
     assert stored == proposal.model_copy(update={"published_at": PUBLISHED})
+
+
+def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
+    raw = reviewed_proposal(case).payload()
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=875")
+    raw["inputs"]["quotes"][0]["price_yen"] = "875"
+    raw["forgone"] = "観測875円を保持し、支払上限880円で指値を提案する。"
+    item = raw["items"][0]
+    item["timing"] = "place_limit"
+    item["terms"].update(limit_price_yen="880", notional_yen="264000")
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    ledger_before = _ledger_snapshot(case.app)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(proposal).valid
+    published = service.publish(proposal)
+    assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    assert published.inputs.quotes[0].price_yen == Decimal(875)
+    assert published.items[0].terms.notional_yen == Decimal(264000)
+    preview = preview_current_terms(
+        proposal_id=published.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=5),
+    )
+    assert preview.status == "unchanged"
+    row = preview.items[0]
+    assert Decimal(row["current_quote_calculation"]["calculation_price_yen"]) == Decimal(875)
+    saved_limit = row["saved_limit_revalidation"]
+    assert saved_limit["hard_blockers"] == []
+    assert saved_limit["quantity"] == 300
+    assert saved_limit["current_price_projection"]["price_yen"] == 875
+    assert saved_limit["limit_price_projection"]["price_yen"] == 880
+    assert saved_limit["limit_price_projection"]["base"]["total_return_pct"] == 25
+    assert _ledger_snapshot(case.app) == ledger_before
+    changed = published.payload()
+    changed["items"][0]["terms"].update(limit_price_yen="885", notional_yen="265500")
+    with pytest.raises(ProposalConflictError, match="content review"):
+        service.check(TradeProposal.model_validate(changed))
+    assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
 
 
 def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gates(case):
