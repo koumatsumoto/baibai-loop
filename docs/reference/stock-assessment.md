@@ -42,7 +42,7 @@
 <a id="scenario-arithmetic"></a>
 ## 条件付き価値
 
-resolved valuationは原価格、比較期間、案件ごとの[要求年率](../doctrine.md#required-return-policy)、Base/Downsideを持つ。resolvedは、根拠を明記した仮定の下で単位・期間・利益・資金・株主帰属が整合する条件付き評価であり、将来の実現確定ではない。根拠のない数字を置いただけの計算例は所見へ分ける。unresolvedでは理由を残し、価格・期間・Projectionをゼロや推定で埋めない。supportedは購入採用ではなく、Pmax超過・cash不足で銘柄評価をunsupportedへ変えない。
+resolved valuationは原価格、比較期間、案件ごとの[要求年率](../doctrine.md#required-return-policy)、Base/Downsideを持つ。Baseの置き方とリスクの織込みは[doctrine](../doctrine.md#fact-analysis-separation)に従う。resolvedは、根拠を明記した仮定の下で単位・期間・利益・資金・株主帰属が整合する条件付き評価であり、将来の実現確定ではない。根拠のない数字を置いただけの計算例は所見へ分ける。unresolvedでは理由を残し、価格・期間・Projectionをゼロや推定で埋めない。supportedは購入採用ではなく、Pmax超過・cash不足で銘柄評価をunsupportedへ変えない。
 
 terminalは分配後に残る価値、cashは比較期間の累積分配。同じ起点の未調整1株へ揃える。配当・資産売却・買戻しを二重算入せず、終期の権利落ち後価格と未入金配当権利を分ける。権利確定前の未公表配当は仮定とし、公表済みだけの条件と混ぜない。
 
@@ -106,6 +106,8 @@ supportedには、仮説が未破綻なだけでなく、確認した事実・�
 ## 独立検証と保存
 
 作者とは別の作業者が原典、年度見出し・当期/前期列、単位・期間、仮定と最強反証を確認する。resolvedではBase/Downsideのterminalとcashを独立入力から再計算する。作者の抽出値・入力・出力のコピーやhash一致は独立性・真実性の証明ではない。unresolvedでは数値検算を捏造せず、所見・不足・結論を独立に検討する。
+
+Reviewは[全体の経済的利益を狙う方針](../doctrine.md#economic-return-policy)に照らし、見返りの過大評価と過剰な下方仮定の双方が採否を歪めていないか検討する。
 
 資本bridgeは留保・投資・分配・返済・希薄化の両側を追う。外部一致や価格情報の多重票を割安確認へ変換せず、重要な相反と比較不能な条件を検討する。残るunknown/partialを非重要やverifiedへ書き換えず、読み直した範囲・限界と、不確実性を引き受ける理由をReviewの `uncertainty_acceptance_reason` へ残す。一次資料のverifiedは、事実として用いた主要観測を原典で確認した意味であり、全情報の完全性や未来の保証ではない。
 
