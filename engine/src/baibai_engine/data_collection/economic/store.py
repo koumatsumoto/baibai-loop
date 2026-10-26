@@ -48,6 +48,9 @@ _TABLES = {
 }
 
 
+RECEIPT_KEYS = {table: primary_key for table, (_, primary_key) in _TABLES.items()}
+
+
 class EconomicSchemaError(RuntimeError):
     """The source store is missing or uses a different storage contract."""
 

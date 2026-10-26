@@ -18,6 +18,7 @@ from baibai_engine.job_api import (
     JQuantsProviderError,
     MarketSchemaError,
     TradingViewFetchError,
+    accept_economic_rechecks,
     extract_saved_edinet,
     validate_economic_schema,
     validate_market_schema,
@@ -25,7 +26,6 @@ from baibai_engine.job_api import (
 from baibai_jobs.jobs.external_assessment_integration import merge_ready, verify_and_seal
 from baibai_jobs.jobs.source_handoff import _replay, complete
 from baibai_jobs.observability.discord import write_json_atomic
-from baibai_jobs.storage.economic_receipts import accept_rechecks
 from baibai_jobs.storage.external_assessment_ready import available_ready
 from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
 from baibai_jobs.storage.merge_economic_store import merge_stores, verify_stores
@@ -85,7 +85,9 @@ def apply(
                     failed = recovery = not complete(result)
                 else:
                     accepted = packet / "accepted.sqlite"
-                    result = accept_rechecks(packet / "receipts.sqlite", economic, accepted)
+                    result = accept_economic_rechecks(
+                        packet / "receipts.sqlite", economic, accepted
+                    )
                     merge_stores(accepted, economic)
                     failed = recovery = bool(result["late_recovery_required"])
                 applied = True

@@ -36,18 +36,18 @@ from baibai_engine.data_collection.tradingview.collector import (
     collect,
     preflight_snapshot,
 )
+from baibai_engine.data_collection.tradingview.diagnostics import (
+    CollectionProgress,
+    failure_category,
+    failure_line,
+    safe_progress,
+)
 from baibai_engine.data_collection.tradingview.rebuild import (
     RebuildError,
     rebuild_from_receipts,
 )
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.machine_analysis.external_assessment.tradingview.decode import decode_tool_result
-from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
-    CollectionProgress,
-    failure_category,
-    failure_line,
-    safe_progress,
-)
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import FetchError
 
 

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.job_api import (
     DEFAULT_ECONOMIC_DB_PATH,
+    ECONOMIC_RECEIPT_KEYS,
     EconomicSchemaError,
     EconomicSourceRefreshFailure,
     economic_acquisition_groups,
@@ -28,7 +29,7 @@ from baibai_engine.job_api import (
 from baibai_jobs.observability.discord import write_json_atomic
 from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
 from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
-from baibai_jobs.storage.merge_economic_store import FACT_KEYS, merge_stores, verify_stores
+from baibai_jobs.storage.merge_economic_store import merge_stores, verify_stores
 from baibai_jobs.storage.store_merge import MergeError
 
 
@@ -100,7 +101,7 @@ def receive(directory: Path, database: Path, group: str, source_id: str, *, veri
     source = directory / "receipts.sqlite"
     with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_economic_schema(conn)
-        for table in FACT_KEYS:
+        for table in ECONOMIC_RECEIPT_KEYS:
             actual = {row[0] for row in conn.execute(f"SELECT DISTINCT source_id FROM {table}")}  # nosec B608
             if not actual <= set(expected):
                 raise ValueError("economic handoff contains another acquisition group's receipts")

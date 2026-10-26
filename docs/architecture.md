@@ -27,7 +27,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 | 配置 | 所有する責務 |
 | --- | --- |
 | `data_collection/` | 情報収集 / Data Collection：sourceとの通信、原本・native record・受領の契約、取得の合成 |
-| `machine_analysis/company_valuation/` | 企業価値 / Company Valuation：[財務指標と価値の機械見積り](reference/company-valuation.md)、[較正文脈](reference/estimate-calibration.md) |
+| `machine_analysis/company_valuation/` | 企業価値 / Company Valuation：[現行の財務観測・利益と価格の座標](reference/company-valuation.md)、旧runの機械ER/FVと[較正文脈](reference/estimate-calibration.md) |
 | `machine_analysis/company_growth/` | 企業成長 / Company Growth：[過去実績状態・変化](reference/company-growth.md)、会計四半期を整理軸とする振り返り |
 | `machine_analysis/market_context/` | 市場環境 / Market Context：[経済Reading、市場・業種・個別の相対状態](reference/market-context.md) |
 | `machine_analysis/external_assessment/` | 外部評価 / External Assessment：[外部提示値の出所・対象期・比較条件と欠測](reference/data-sources.md#external-assessment) |
@@ -38,7 +38,11 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
 | `storage/`・`foundation/` | 接続、schema、transaction、lakeと汎用基盤 |
 
-五モデルはScreening専用の中間データではない。Investment Judgmentは内部Python読取入口から直接モデルと一次資料を統合し、候補外の企業も調査できる。Screeningは企業価値や買付採否を確定しない。Company Valuationは評価材料・機械見積りであり、真の企業価値や最終買付判断の確定ではない。五モデルは固定market releaseと独立economic snapshotから共通生成し、候補抽出より先に保存する。全社の全保持期間を扱う生成結果は順次圧縮し、一つのtransactionで保存する。途中失敗では生成を公開せず、候補抽出は保存後に必要な二モデルだけを読む。Screeningは生成済みモデルを二つのviewで選び、候補外もL3から読める。新Selectionは必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。新規Operationはこの生成済み入力だけを受け付け、旧runと可変storeからの新規収集経路は持たない。保存済み旧Selectionは元のhash・入力を保ち、Operation IDから再開する。具体的な算式・入力・候補規則は各実装とreferenceが所有する。
+五モデルはScreening専用の中間データではない。Investment Judgmentは保存モデルと一次資料を統合し、候補外の企業も調査できる。現行のCompany Valuationは財務観測と利益・価格の座標を渡し、機械ER/FVは新Selectionの入力に含めない。同domainに残る機械ER/FVと較正は旧runの読取・保守用である。企業価値の評価はL3、最終買付採否は人間が担い、Screeningはどちらも確定しない。
+
+五モデルは固定market releaseと独立economic snapshotから[共通生成](../engine/src/baibai_engine/machine_analysis/generation_reader.py)し、候補抽出より先に[一つのtransactionで保存](../engine/src/baibai_engine/machine_analysis/generation_store.py)する。対象全社の保持履歴を扱う生成結果は順次圧縮し、途中失敗では生成を公開しない。共通の読取・モデル合成・保存は`machine_analysis/`直下、個別モデルの計算は各domainが所有する。Jobsの[model_integration](../jobs/src/baibai_jobs/jobs/model_integration.py)は生成・候補抽出・同じreleaseの公開という実行順を合成する。Screeningは保存済みのCompany ValuationとTechnical Analysisだけを読み、[二つのview](reference/screening-runtime.md#rule-purpose)で候補と抽出理由を作る。
+
+投資判断を始めるSelectionは、必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。新規Operationはこの生成済み入力だけを受け付け、旧runと可変storeからの新規収集経路は持たない。保存済み旧Selectionは元のhash・入力を保ち、Operation IDから再開する。具体的な算式・入力・候補規則は各実装とreferenceが所有する。
 
 `market/`は共通観測の読取・正規化・価格/財務算術に加え、source取得・原受領handoff・最新正本への投影を合成する、L1/L2をまたぐ境界である。共通価格は`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更は異なる契約である。
 
@@ -84,13 +88,18 @@ Company Research（企業調査）は一次資料から事業・財務・競争�
 | market lake | L1原本とL2投影のimmutable object・manifest。readerは一つのreleaseを固定する |
 | market SQLite | lake対象tableの実行用コピーと、取得coverage等のstore-local情報 |
 | economic source SQLite | 経済原本・受領・取得記録。Readingは保存原本とmethodから読取時に計算する |
-| model generations / screening selections / calibration | 再生成可能な五モデル、独立した候補抽出政策と結果、旧run・較正snapshot |
+| runs SQLite（`runs.sqlite`） | 再生成可能な五モデル・候補抽出政策と結果、および旧runが同居するDB |
+| calibration directory | 再生成可能なローカル較正snapshot。`runs.sqlite`とは別に保存する |
 
-source取得は担当範囲の再生成可能なread-only inputと原受領handoffだけを扱う。共通統合は開始時に存在するimmutable受領を固定し、取得全体の完了を待たず、最新正本へ各domainのprojection/rebuildを適用して一回の固定market snapshotからfull lake releaseを用意し、同じ入力でL2生成・候補保存後にそのreleaseを公開する。source-local SQLiteは全体releaseへboundな実行コピーではなく、full originを持たせない。通常の経済取得は一時受領に実取得の同値も保持し、正本への変更時追記・同値no-opは最新正本との比較で決める。明示CLI回復は並行更新・未統合受領との順序を保つため同値の実受領も発行し、対象source・期間を限定する。
+通常の独立Actionsによるsource取得は、担当範囲の再生成可能なread-only inputから原受領handoffを作り、正本を直接更新しない。共通統合は開始時に存在するimmutable受領を固定し、取得全体の完了を待たず、最新正本へ各domainのprojection/rebuildを適用して一回の固定market snapshotからfull lake releaseを用意し、同じ入力でL2生成・候補保存後にそのreleaseを公開する。source-local SQLiteは担当sourceだけの部分データであり、全体releaseを復元した実行コピーではない。そのため全体releaseへの所属を示すorigin情報を付けない。明示的に認可された[ローカルTradingView運用](../jobs/OPERATIONS.md#local-tradingview-runtime)は、取得とlake公開を同じlease内で行う別経路である。
+
+通常の経済取得は一時受領に実取得の同値も保持し、正本への変更時追記・同値no-opは最新正本との比較で決める。明示CLI回復は並行更新・未統合受領との順序を保つため同値の実受領も発行し、対象source・期間を限定する。
 
 クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/foundation/repository_layout.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
 
-現行のdated規則だけを[`machine_analysis/screening/rules/`](../engine/src/baibai_engine/machine_analysis/screening/rules/)と[`machine_analysis/market_context/reading/rules/`](../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)へ配置し、既定revisionは各loaderが読む。旧版は[Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/method)で保持し、保存結果の閲覧に再配置しない。過去計算の再現には当時の規則だけでなくコードと入力も要る。規則の意味を変える場合は新revisionとし、配置変更だけで内容・識別子・保存判断を変えない。較正の配布artifactは[`machine_analysis/company_valuation/calibration/published/`](../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)に置く。
+新Screeningは[views.py](../engine/src/baibai_engine/machine_analysis/screening/views.py)の算式と`TwoViewPolicy`を使い、使用した政策本文を候補結果と一緒に保存する。この経路はdated YAMLを読まない。
+
+dated規則の[screening/rules/](../engine/src/baibai_engine/machine_analysis/screening/rules/)は旧run・較正用、[market_context/reading/rules/](../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)は現在のReading用で、それぞれのloaderが既定revisionを読む。採用中の版だけを配置し、旧版は[Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/method)に残す。保存結果の閲覧に旧版を再配置せず、過去計算の再現には当時のコードと入力も用意する。dated規則の意味変更は新revisionとし、配置変更だけで内容・識別子・保存判断を変えない。較正の配布artifactは[`machine_analysis/company_valuation/calibration/published/`](../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)に置く。
 
 開発計測・移行の記録はIssue/PRと[固定Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports)へ委ねる。正式なInvestment Judgment成果は上記application DBへ保存し、過去の開発レポートを現在の判断として再発行しない。
 

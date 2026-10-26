@@ -14,7 +14,7 @@ from baibai_engine.data_collection.economic.receipt_policy import retain_recheck
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
 from baibai_engine.data_collection.economic.sources import SourceDefinition
 from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_jobs.storage.economic_receipts import accept_rechecks
+from baibai_engine.job_api import accept_economic_rechecks as accept_rechecks
 from baibai_jobs.storage.merge_economic_store import merge_stores, verify_stores
 
 DAY = date(2026, 10, 15)

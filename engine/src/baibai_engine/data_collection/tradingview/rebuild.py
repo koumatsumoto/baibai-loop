@@ -15,12 +15,12 @@ from baibai_engine.data_collection.tradingview.collector import (
     validate_time,
 )
 from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.tradingview.diagnostics import (
+    failure_category,
+)
 from baibai_engine.data_collection.tradingview.receipts import read_tool_results
 from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.machine_analysis.external_assessment.tradingview.decode import decode_tool_result
-from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
-    failure_category,
-)
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
     COLUMNS as REQUEST_COLUMNS,
 )

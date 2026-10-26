@@ -106,9 +106,9 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     from datetime import UTC, date, datetime
 
     from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
+    from baibai_engine.job_api import accept_economic_rechecks as accept_rechecks
     from baibai_engine.storage.observations.schema import open_connection
     from baibai_jobs.jobs.source_integration import apply
-    from baibai_jobs.storage.economic_receipts import accept_rechecks
     from baibai_jobs.storage.merge_economic_store import merge_stores
 
     store = Store()

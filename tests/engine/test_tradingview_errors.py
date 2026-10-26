@@ -6,13 +6,12 @@ import pytest
 from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.shared.exceptions import MCPError
 
-from baibai_engine.data_collection.tradingview import cli
+from baibai_engine.data_collection.tradingview import cli, diagnostics
 from baibai_engine.data_collection.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
 from baibai_engine.data_collection.tradingview.collector import SourceDataError, TimeGuardError
-from baibai_engine.machine_analysis.external_assessment.tradingview import diagnostics
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import FetchError
 
 
@@ -48,7 +47,7 @@ def test_safe_category_through_nested_sdk_groups(error, category):
     ],
 )
 def test_internal_diagnostics_identify_leaf_without_exposing_payload(error, detail):
-    from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+    from baibai_engine.data_collection.tradingview.diagnostics import (
         CollectionFailure,
         CollectionProgress,
     )
