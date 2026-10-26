@@ -362,7 +362,7 @@ def test_legacy_buy_timing_still_rejects_a_limit_above_quote(payload, timing):
     item = payload["items"][0]
     item["timing"] = timing
     item["terms"].update(limit_price_yen="880", notional_yen="264000")
-    with pytest.raises(ValidationError, match="actual close|below the actual quote"):
+    with pytest.raises(ValidationError, match=r"actual close|below the actual quote"):
         TradeProposal.model_validate(payload)
 
 
