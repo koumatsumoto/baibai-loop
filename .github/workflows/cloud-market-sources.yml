@@ -43,6 +43,7 @@ jobs:
       - name: Select independent source groups for this acquisition slot
         id: plan
         env:
+          PYTHONPATH: jobs/src
           SOURCE: ${{ inputs.source || 'all' }}
           ASOF: ${{ inputs.asof }}
           SCHEDULE: ${{ github.event.schedule }}
@@ -51,10 +52,14 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-          from datetime import datetime, date
-          from zoneinfo import ZoneInfo
+          from datetime import datetime
+          from baibai_jobs.jobs.schedule import market_source_target_date
           all_sources = ['jquants-market', 'jquants-financial', 'jpx-earnings', 'jpx-regulations', 'edinet-list', 'edinet-metrics', 'edinet-facts']
-          day = date.fromisoformat(os.environ['ASOF']) if os.environ['ASOF'] else datetime.fromisoformat(os.environ['RUN_CREATED_AT']).astimezone(ZoneInfo('Asia/Tokyo')).date()
+          day = market_source_target_date(
+              datetime.fromisoformat(os.environ['RUN_CREATED_AT']),
+              schedule=os.environ['SCHEDULE'],
+              asof=os.environ['ASOF'],
+          )
           source = os.environ['SOURCE']
           if source != 'all' and source not in all_sources:
               raise ValueError('unknown source acquisition group')
@@ -63,7 +68,7 @@ jobs:
               selected = ['edinet-metrics']
           elif slot == '13 9 * * *':
               selected = ['edinet-facts']
-          elif slot:
+          elif slot == '43 7 * * *':
               selected = all_sources[:5] if day.weekday() < 5 else ['edinet-list']
           else:
               selected = all_sources if source == 'all' else [source]

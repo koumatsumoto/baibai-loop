@@ -44,7 +44,9 @@ def test_unknown_newer_schedule_blocks_older_known_date(tmp_path, schedule, reve
     snapshot = build_earnings_calendar_snapshot(
         files, asof_date=date(2026, 10, 15), source_urls=tuple(by_url)
     )
-    store_jpx_earnings_calendar_snapshot(tmp_path / "market.sqlite", snapshot)
+    store_jpx_earnings_calendar_snapshot(
+        tmp_path / "market.sqlite", snapshot, fetched_at_utc="2026-10-15T00:00:00+00:00"
+    )
     assert [entry.ticker for entry in snapshot.entries] == ["7203"]
     stored = read_jpx_earnings_calendar_snapshot(tmp_path / "market.sqlite", date(2026, 10, 15))
     assert stored is not None

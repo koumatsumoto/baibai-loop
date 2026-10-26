@@ -6,6 +6,7 @@ import sqlite3
 from datetime import UTC, date, datetime
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -39,6 +40,14 @@ SOURCE_FILES = {
 }
 FILE_A = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
 FILE_B = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan09_1015.xlsx"
+
+
+@pytest.fixture
+def _calendar_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_at = datetime(2026, 10, 15, tzinfo=UTC)
+    clock = SimpleNamespace(now=lambda zone: captured_at.astimezone(zone))
+    monkeypatch.setattr("baibai_engine.market.jpx_refresh.datetime", clock)
+    monkeypatch.setattr("baibai_engine.data_collection.jpx.http.datetime", clock)
 
 
 def _regulation_session(*, broken: str | None = None) -> FakeSession:
@@ -185,6 +194,7 @@ def test_regulation_partial_http_failure_retains_only_prior_responses(tmp_path: 
     assert read_jpx_regulations(path, ASOF) is None
 
 
+@pytest.mark.usefixtures("_calendar_clock")
 def test_calendar_refresh_replays_precedence_and_reader_stays_offline(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     session = _calendar_session()
@@ -244,6 +254,7 @@ def test_calendar_partial_failure_keeps_incomplete_bundle(tmp_path: Path, failur
     )
 
 
+@pytest.mark.usefixtures("_calendar_clock")
 def test_calendar_malformed_http_200_completes_l1_without_l2(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     JPXRefresh(sqlite_path=path, session=_calendar_session()).refresh_earnings_calendar_snapshot(
