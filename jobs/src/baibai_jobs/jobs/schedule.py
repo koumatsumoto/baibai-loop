@@ -11,6 +11,11 @@ _JST = timezone(timedelta(hours=9))
 BATCH_SCHEDULED_FIRE_TIME = time(13, 43, tzinfo=UTC)
 ECONOMIC_SCHEDULED_FIRE_TIME = time(7, 43, tzinfo=UTC)
 EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME = time(10, 13, tzinfo=UTC)
+MARKET_SOURCE_SCHEDULES = {
+    "43 7 * * *": time(7, 43, tzinfo=UTC),
+    "43 8 * * *": time(8, 43, tzinfo=UTC),
+    "13 9 * * *": time(9, 13, tzinfo=UTC),
+}
 
 
 def batch_target_date(instant: datetime) -> date:
@@ -37,6 +42,20 @@ def acquisition_target_date(
     if fired > instant:
         fired -= timedelta(days=1)
     return fired.astimezone(_JST).date()
+
+
+def market_source_target_date(created_at: datetime, *, schedule: str, asof: str = "") -> date:
+    """Resolve market acquisition from its original run clock and known cron slot."""
+    if created_at.tzinfo is None or created_at.utcoffset() is None:
+        raise ValueError("timezone-aware market source run clock required")
+    fire_time = MARKET_SOURCE_SCHEDULES.get(schedule)
+    if schedule and fire_time is None:
+        raise ValueError("unknown market source schedule")
+    if asof:
+        return date.fromisoformat(asof)
+    if fire_time is not None:
+        return acquisition_target_date(created_at, fire_time)
+    return created_at.astimezone(_JST).date()
 
 
 def external_assessment_target_date(created_at: datetime, now: datetime) -> tuple[date, bool]:
