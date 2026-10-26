@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -168,7 +168,7 @@ def test_jst_and_utc_date_boundaries_keep_slot_date(schedule, created_at, expect
             "",
             "all",
             "2026-10-27",
-            INPUT_SOURCES + ["edinet-metrics", "edinet-facts"],
+            [*INPUT_SOURCES, "edinet-metrics", "edinet-facts"],
         ),
         (
             "2026-10-26T15:29:01Z",
