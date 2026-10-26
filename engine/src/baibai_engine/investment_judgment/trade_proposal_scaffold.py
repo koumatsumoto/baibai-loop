@@ -55,7 +55,7 @@ def scaffold_proposal(
                 assessment_ref=reference,
                 rationale=rationale,
                 review_conditions=(
-                    "根拠・入力・見直し条件を今回の独立検証で確認する。",
+                    "根拠・入力と見直す時点を確認し、買付では未約定・部分約定・新情報の後に何を再確認するかを記す。",
                     (
                         "テクニカル分析を使う場合は再確認条件と時点・basis・期間の整合、"
                         "価格局面と企業価値の混同、同じ価格情報の多重票を確認する。"
@@ -85,11 +85,11 @@ def scaffold_proposal(
         research_scope=context.research_scope,
         headline="提案の要点を記述してください。",
         comparison=(
-            "完成した評価の価値・仮定・期間、環境伝達、外部予測との相違、重要な価格局面を踏まえ、"
-            "今買う・待つ・見送る理由を現金維持等の代替案と比較する。"
-            "テクニカル分析の欠測で他モデルを一律停止せず、未完成は経済的見送りへ混ぜない。"
+            "完成した評価を現金維持等と比べ、選択理由と反転条件を記す。新規買付は"
+            "docs/reference/trade-proposal.md#limit-selectionに従い、"
+            "limit候補の見返り・数量・cashと待機案を比較する。未完成を経済的見送りへ混ぜない。"
         ),
-        forgone="採らない行動と理由を記述してください。",
+        forgone="採らない行動と理由（新規買付では別の指値・待機案）を記述してください。",
         market_context_assessment_id=context.market_context_assessment_id,
         inputs=context.inputs,
         items=tuple(items),
