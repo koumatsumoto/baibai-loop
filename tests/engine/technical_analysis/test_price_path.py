@@ -145,7 +145,9 @@ def test_calendar_holes_are_scoped_to_required_windows_and_no_company_price_fill
 
 
 @pytest.mark.parametrize("benchmark_start", [None, 0.0, -1.0, float("nan"), float("inf")])
-def test_tri_valued_or_keeps_positive_and_unavailable_refs_and_benchmark_independent(benchmark_start):
+def test_tri_valued_or_keeps_positive_and_unavailable_refs_and_benchmark_independent(
+    benchmark_start,
+):
     result = observe({DATES[-2]: 100, ASOF: 75})
     annotation = result.payload["annotation"]
     assert annotation["status"] == "matched"
