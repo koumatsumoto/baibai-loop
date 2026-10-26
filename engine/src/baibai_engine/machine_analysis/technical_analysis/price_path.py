@@ -101,13 +101,16 @@ def observe_price_path(
         )
         observations[ref] = item
         if value is not None:
-            assert start_date is not None and expected is not None
-            assert start_price is not None and current is not None
+            assert start_date is not None
+            assert expected is not None
+            assert start_price is not None
+            assert current is not None
             pairs.append(PriceComparisonPair(ref, start_date, expected, start_price, current))
         if ref in _THRESHOLDS:
             decision: bool | None = None
             if value is not None:
-                assert start_price is not None and current is not None
+                assert start_price is not None
+                assert current is not None
                 matched = _at_or_below(start_price, current, _THRESHOLDS[ref])
                 if matched:
                     decision = True
@@ -137,6 +140,8 @@ def observe_price_path(
             "observations": observations,
             "annotation": {
                 "policy_revision": ANNOTATION_POLICY_REVISION,
+                "purpose": "research_price_context",
+                "threshold_basis": "provisional_not_optimized",
                 "thresholds": dict(_THRESHOLDS),
                 "comparison": "inclusive_decimal_cross_product_on_adjusted_float_strings",
                 "status": "matched"

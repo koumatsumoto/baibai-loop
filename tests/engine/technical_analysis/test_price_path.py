@@ -11,9 +11,7 @@ from baibai_engine.market.price_models import PriceBar
 from baibai_engine.market.price_observation import classify_price_day, price_calendar
 
 ASOF = date(2026, 10, 26)
-CALENDAR = {
-    ASOF - timedelta(days=n): (ASOF - timedelta(days=n)).weekday() < 5 for n in range(500)
-}
+CALENDAR = {ASOF - timedelta(days=n): (ASOF - timedelta(days=n)).weekday() < 5 for n in range(500)}
 DATES = sorted(day for day, business in CALENDAR.items() if business)
 
 
@@ -21,7 +19,7 @@ def observe(prices, *, states=None, calendar=None):
     return observe_price_path(
         [PriceBar(day, value, None) for day, value in sorted(prices.items())],
         calendar=price_calendar(CALENDAR if calendar is None else calendar, as_of=ASOF),
-        day_states={day: "priced" for day in prices} if states is None else states,
+        day_states=dict.fromkeys(prices, "priced") if states is None else states,
     )
 
 
@@ -43,7 +41,9 @@ def test_saved_six_field_state_is_not_a_reason_for_no_executions(values, expecte
 @pytest.mark.parametrize(
     ("ref", "differences", "end"), [("R1", 1, 92), ("R20", 20, 80), ("G60", 60, 80)]
 )
-def test_threshold_boundary_uses_price_pairs_without_rounding_the_observation(ref, differences, end):
+def test_threshold_boundary_uses_price_pairs_without_rounding_the_observation(
+    ref, differences, end
+):
     prices = dict.fromkeys(DATES[-253:], 99.0)
     prices[DATES[-differences - 1]] = 100.0
     prices[ASOF] = end
@@ -62,7 +62,7 @@ def test_return_needs_endpoints_but_peak_nonmatch_needs_explained_days(state):
     prices[DATES[-2]] = 90.0
     hole = DATES[-10]
     del prices[hole]
-    states = {day: "priced" for day in prices}
+    states = dict.fromkeys(prices, "priced")
     if state != "absent":
         states[hole] = state
     result = observe(prices, states=states).payload
@@ -96,7 +96,7 @@ def test_short_history_witness_and_first_observation_unknown():
 def test_expected_current_no_trade_never_carries_old_close_forward():
     last = DATES[-8]
     prices = {DATES[-20]: 100, last: 80}
-    states = {day: "priced" for day in prices} | {ASOF: "no_trade"}
+    states = dict.fromkeys(prices, "priced") | {ASOF: "no_trade"}
     result = observe(prices, states=states).payload
     assert result["latest_observed_price_date"] == last.isoformat()
     assert result["expected_price_date"] == ASOF.isoformat()
@@ -144,16 +144,20 @@ def test_calendar_holes_are_scoped_to_required_windows_and_no_company_price_fill
     assert missing["annotation"]["status"] == "unassessable"
 
 
-def test_tri_valued_or_keeps_positive_and_unavailable_refs_and_benchmark_independent():
+@pytest.mark.parametrize("benchmark_start", [None, 0.0, -1.0, float("nan"), float("inf")])
+def test_tri_valued_or_keeps_positive_and_unavailable_refs_and_benchmark_independent(benchmark_start):
     result = observe({DATES[-2]: 100, ASOF: 75})
     annotation = result.payload["annotation"]
     assert annotation["status"] == "matched"
     assert annotation["matched_refs"] == ["R1", "G60"]
     assert annotation["unavailable_refs"] == ["R20"]
     assert set(annotation["evaluated_refs"]).isdisjoint(annotation["unavailable_refs"])
+    benchmark_prices = {ASOF: 200}
+    if benchmark_start is not None:
+        benchmark_prices[DATES[-2]] = benchmark_start
     relative = compare_price_path(
         result.comparison_pairs,
-        benchmark_prices={ASOF: 200},
+        benchmark_prices=benchmark_prices,
         as_of=ASOF,
         benchmark_ticker="1321",
     )
@@ -163,9 +167,7 @@ def test_tri_valued_or_keeps_positive_and_unavailable_refs_and_benchmark_indepen
 
 def test_split_adjusted_stock_and_benchmark_use_same_endpoints_and_keep_null_day_factor():
     before, action_day = DATES[-3], DATES[-2]
-    prices = asof_basis_prices(
-        [(before, 400), (ASOF, 90)], [(action_day, 0.25)], asof_date=ASOF
-    )
+    prices = asof_basis_prices([(before, 400), (ASOF, 90)], [(action_day, 0.25)], asof_date=ASOF)
     result = observe(
         dict(zip((before, ASOF), prices, strict=True)),
         states={before: "priced", action_day: "no_trade", ASOF: "priced"},

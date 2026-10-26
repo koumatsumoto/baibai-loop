@@ -123,7 +123,9 @@ def test_price_path_annotation_cannot_change_y_or_ym_selection():
                     "calculation_revision": "with-price-path",
                     "payload": {
                         **model.payload,
-                        "price_path": {"annotation": {"status": "matched", "matched_refs": ["G60"]}},
+                        "price_path": {
+                            "annotation": {"status": "matched", "matched_refs": ["G60"]}
+                        },
                     },
                 }
             )
@@ -133,9 +135,9 @@ def test_price_path_annotation_cannot_change_y_or_ym_selection():
         )
     )
     policy = TwoViewPolicy(earnings_limit=1, combined_limit=1)
-    assert select_generation(original, tickers=("1234", "5678"), policy=policy) == select_generation(
-        extended, tickers=("1234", "5678"), policy=policy
-    )
+    assert select_generation(
+        original, tickers=("1234", "5678"), policy=policy
+    ) == select_generation(extended, tickers=("1234", "5678"), policy=policy)
 
 
 def test_selection_retains_the_requested_universe_including_missing_models():

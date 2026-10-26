@@ -8,7 +8,10 @@ from tests.helpers.l1_release import market_store
 
 from baibai_engine.machine_analysis import generation_reader
 from baibai_engine.machine_analysis.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.company_valuation.metrics.models import DEFAULT_TTM_RULES, TTMRules
+from baibai_engine.machine_analysis.company_valuation.metrics.models import (
+    DEFAULT_TTM_RULES,
+    TTMRules,
+)
 from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
 from baibai_engine.market.calendar_context import price_calendar_basis
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
