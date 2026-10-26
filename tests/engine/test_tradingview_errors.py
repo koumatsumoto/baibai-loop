@@ -48,7 +48,7 @@ def test_safe_category_through_nested_sdk_groups(error, category):
     ],
 )
 def test_internal_diagnostics_identify_leaf_without_exposing_payload(error, detail):
-    from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+    from baibai_engine.data_collection.tradingview.diagnostics import (
         CollectionFailure,
         CollectionProgress,
     )

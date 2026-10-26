@@ -62,7 +62,9 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 ### source入力・市場原本の引渡し
 
-共通統合だけが`cloud-publish`と共通leaseを持つ。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・TV master補完・経済取得は共有quotaを守る。
+日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。[明示的なローカルTradingView運用](#local-tradingview-runtime)は、取得とlake公開を同じlease内で行う別経路である。
+
+inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・TV master補完・経済取得は共有quotaを守る。
 
 市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewは既存slotとexact-date master方針を保ち、自分の受領だけをprivate stageへ渡す。
 
@@ -513,6 +515,7 @@ tradingview-runtimeはjob開始時に最新のrotating stateを読むためのen
 
 継続認証だけの明示確認はmainのCIでtradingview_oauth_smoke=trueを指定する。2銘柄の取得とrotationを行うがsnapshotは保存しない。通常開発で自動起動しない。
 
+<a id="local-tradingview-runtime"></a>
 ### 独立したローカル認証で取得する
 
 専用clean runtime checkoutを使い、fresh pull/hydrateで置換されるstoreを編集中のcheckoutと共用しない。既存R2/J-Quants接続、AWS CLI、httpfsを用意する。GitHub stateをコピーせず別fileへ対話認証する。

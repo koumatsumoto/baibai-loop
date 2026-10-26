@@ -649,7 +649,7 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
 
 
 def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
-    from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+    from baibai_engine.data_collection.tradingview.diagnostics import (
         failure_category,
     )
 

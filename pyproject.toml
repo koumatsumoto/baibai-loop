@@ -711,6 +711,7 @@ type = "forbidden"
 source_modules = [
   "baibai_engine.data_collection.external_assessment",
   "baibai_engine.data_collection.tradingview.collector",
+  "baibai_engine.data_collection.tradingview.diagnostics",
   "baibai_engine.data_collection.tradingview.cli",
   "baibai_engine.data_collection.tradingview.handoff",
   "baibai_engine.data_collection.tradingview.rebuild",

@@ -8,6 +8,7 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.job_api import ECONOMIC_RECEIPT_KEYS as FACT_KEYS
 from baibai_engine.job_api import EconomicSchemaError
 from baibai_engine.job_api import validate_economic_schema as validate_current_schema
 from baibai_jobs.storage.store_merge import (
@@ -18,12 +19,6 @@ from baibai_jobs.storage.store_merge import (
     require_matching_payloads,
     source_only_rows,
 )
-
-FACT_KEYS = {
-    "economic_source_records": ("source_id", "observed_at", "fetched_at"),
-    "economic_source_documents": ("source_id", "request_key", "fetched_at"),
-    "economic_source_runs": ("run_id",),
-}
 
 
 def verify_stores(source: Path, target: Path) -> None:

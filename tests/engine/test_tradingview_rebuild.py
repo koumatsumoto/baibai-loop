@@ -26,7 +26,7 @@ from baibai_engine.data_collection.tradingview.rebuild import (
     rebuild_from_receipts,
 )
 from baibai_engine.data_collection.tradingview.receipts import read_tool_results, retain_tool_result
-from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+from baibai_engine.data_collection.tradingview.diagnostics import (
     failure_category,
 )
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import COLUMNS

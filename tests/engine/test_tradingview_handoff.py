@@ -13,7 +13,7 @@ from baibai_engine.data_collection.tradingview.handoff import (
     import_handoff,
 )
 from baibai_engine.data_collection.tradingview.rebuild import rebuild_from_receipts
-from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+from baibai_engine.data_collection.tradingview.diagnostics import (
     SourceDataError,
 )
 from baibai_engine.storage.observations.schema import open_connection

@@ -42,7 +42,7 @@ from baibai_engine.data_collection.tradingview.rebuild import (
 )
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.machine_analysis.external_assessment.tradingview.decode import decode_tool_result
-from baibai_engine.machine_analysis.external_assessment.tradingview.diagnostics import (
+from baibai_engine.data_collection.tradingview.diagnostics import (
     CollectionProgress,
     failure_category,
     failure_line,
