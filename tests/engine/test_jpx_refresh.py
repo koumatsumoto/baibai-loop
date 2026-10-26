@@ -194,9 +194,8 @@ def test_regulation_partial_http_failure_retains_only_prior_responses(tmp_path: 
     assert read_jpx_regulations(path, ASOF) is None
 
 
-def test_calendar_refresh_replays_precedence_and_reader_stays_offline(
-    tmp_path: Path, _calendar_clock: None
-) -> None:
+@pytest.mark.usefixtures("_calendar_clock")
+def test_calendar_refresh_replays_precedence_and_reader_stays_offline(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     session = _calendar_session()
     snapshot = JPXRefresh(sqlite_path=path, session=session).refresh_earnings_calendar_snapshot(
@@ -255,9 +254,8 @@ def test_calendar_partial_failure_keeps_incomplete_bundle(tmp_path: Path, failur
     )
 
 
-def test_calendar_malformed_http_200_completes_l1_without_l2(
-    tmp_path: Path, _calendar_clock: None
-) -> None:
+@pytest.mark.usefixtures("_calendar_clock")
+def test_calendar_malformed_http_200_completes_l1_without_l2(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     JPXRefresh(sqlite_path=path, session=_calendar_session()).refresh_earnings_calendar_snapshot(
         ASOF
