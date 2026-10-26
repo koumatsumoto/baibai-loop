@@ -73,6 +73,8 @@ uv run baibai-engine investment-judgment trade-proposal-scaffold \
 
 [Trade Proposal](../../../docs/reference/trade-proposal.md)に従い全固定対象を被覆する。0対象では空Proposalを作らず、選定理由を保って終了する。
 
+新規買付は[指値と待機案の選択](../../../docs/reference/trade-proposal.md#limit-selection)に従い、同じ固定入力で候補の数量・支出・returnと待機案を比較し、選択理由と未約定後の再確認を記してからcheck・独立Reviewへ進む。
+
 ```bash
 uv run baibai-engine investment-judgment trade-proposal-check <DRAFT> --db stores/application/baibai.sqlite
 uv run baibai-engine investment-judgment trade-proposal-publish <REVIEWED_DRAFT> --db stores/application/baibai.sqlite
