@@ -151,23 +151,3 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
     except BaseException:
         connection.close()
         raise
-
-
-def migrate_run_store_v6(path: Path) -> int:
-    """明示的な移行専用。通常の初期化・dailyから既存storeを移行しない。"""
-    if not path.is_file():
-        raise FileNotFoundError(f"machine-analysis store does not exist: {path}")
-    with closing(connect_rw(path)) as connection:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if version == RUN_STORE_SCHEMA_VERSION:
-            return version
-        if version != 6:
-            raise RuntimeError(f"migration requires schema 6, found {version}")
-        try:
-            connection.executescript("BEGIN IMMEDIATE;\n" + GENERATION_SCHEMA_SQL)
-            connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
-            connection.commit()
-        except BaseException:
-            connection.rollback()
-            raise
-    return RUN_STORE_SCHEMA_VERSION

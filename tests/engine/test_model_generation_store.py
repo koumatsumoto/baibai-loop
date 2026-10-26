@@ -19,8 +19,8 @@ from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
 from baibai_engine.storage.machine_analysis import (
     GENERATION_SCHEMA_SQL,
     SCHEMA_SQL,
+    connect_read_only,
     initialize_run_store,
-    migrate_run_store_v6,
 )
 
 
@@ -162,7 +162,7 @@ def test_selection_cannot_reference_an_unpublished_generation(tmp_path):
     assert store.read("selection-a") is None
 
 
-def test_schema6_requires_explicit_migration_and_preserves_existing_data(tmp_path):
+def test_schema6_is_rejected_without_changing_existing_data(tmp_path):
     path = tmp_path / "runs.sqlite"
     with closing(sqlite3.connect(path)) as connection:
         connection.executescript(SCHEMA_SQL.removesuffix(GENERATION_SCHEMA_SQL))
@@ -182,13 +182,21 @@ def test_schema6_requires_explicit_migration_and_preserves_existing_data(tmp_pat
             ),
         )
         connection.commit()
+    before = path.read_bytes()
     with pytest.raises(RuntimeError, match="obsolete schema"):
         initialize_run_store(path)
-    assert migrate_run_store_v6(path) == 7
-    assert migrate_run_store_v6(path) == 7
+    with pytest.raises(RuntimeError, match="schema is not current"):
+        connect_read_only(path)
+    assert path.read_bytes() == before
     with closing(sqlite3.connect(path)) as connection:
         assert connection.execute("SELECT payload FROM screening_run").fetchone()[0] == "{}"
-    assert ModelGenerationStore(path).publish(generation())
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_schema WHERE name = 'model_generation'"
+            ).fetchone()
+            is None
+        )
 
 
 def test_publication_order_prefers_asof_then_real_publication_and_preserves_retry(tmp_path):
