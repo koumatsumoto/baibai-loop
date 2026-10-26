@@ -8,8 +8,7 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.job_api import ECONOMIC_RECEIPT_KEYS as FACT_KEYS
-from baibai_engine.job_api import EconomicSchemaError
+from baibai_engine.job_api import ECONOMIC_RECEIPT_KEYS, EconomicSchemaError
 from baibai_engine.job_api import validate_economic_schema as validate_current_schema
 from baibai_jobs.storage.store_merge import (
     MergeError,
@@ -29,8 +28,8 @@ def verify_stores(source: Path, target: Path) -> None:
         conn.execute("ATTACH DATABASE ? AS source", (source.resolve().as_uri() + "?mode=ro",))
         try:
             validate_current_schema(conn, schema="source")
-            require_identical_columns(conn, tuple(FACT_KEYS))
-            for table, keys in FACT_KEYS.items():
+            require_identical_columns(conn, tuple(ECONOMIC_RECEIPT_KEYS))
+            for table, keys in ECONOMIC_RECEIPT_KEYS.items():
                 require_matching_payloads(conn, table, keys=keys)
                 if source_only_rows(conn, table, keys=keys):
                     raise MergeError("economic publication readback is missing received rows")
@@ -52,10 +51,10 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             )
             try:
                 validate_current_schema(connection, schema="source")
-                require_identical_columns(connection, tuple(FACT_KEYS))
+                require_identical_columns(connection, tuple(ECONOMIC_RECEIPT_KEYS))
                 connection.execute("BEGIN IMMEDIATE")
                 try:
-                    tables = merge_fact_tables(connection, FACT_KEYS)
+                    tables = merge_fact_tables(connection, ECONOMIC_RECEIPT_KEYS)
                     connection.commit()
                     return MergeReport(tables=tables)
                 except BaseException:

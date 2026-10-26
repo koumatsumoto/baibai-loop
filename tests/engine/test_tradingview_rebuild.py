@@ -21,14 +21,14 @@ from baibai_engine.data_collection.tradingview.collector import (
     collect,
 )
 from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.tradingview.diagnostics import (
+    failure_category,
+)
 from baibai_engine.data_collection.tradingview.rebuild import (
     RebuildError,
     rebuild_from_receipts,
 )
 from baibai_engine.data_collection.tradingview.receipts import read_tool_results, retain_tool_result
-from baibai_engine.data_collection.tradingview.diagnostics import (
-    failure_category,
-)
 from baibai_engine.machine_analysis.external_assessment.tradingview.observations import COLUMNS
 from baibai_engine.storage.observations.schema import open_connection
 
