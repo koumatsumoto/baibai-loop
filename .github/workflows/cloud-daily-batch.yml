@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       asof:
-        description: "Optional YYYY-MM-DD model as-of; common calendar determines price dates"
+        description: "モデル基準日 YYYY-MM-DD。空欄は元run作成時のJST日（直近完了日ではない）。寄前・場中はJSTの前日を明示"
         required: false
         type: string
 
