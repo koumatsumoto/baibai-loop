@@ -344,6 +344,45 @@ def test_wait_limit_must_be_below_actual_quote(payload):
         TradeProposal.model_validate(payload)
 
 
+@pytest.mark.parametrize("limit", ["870", "875", "880"])
+def test_place_limit_preserves_quote_and_explicit_ceiling_on_either_side(payload, limit):
+    payload["inputs"]["quotes"][0]["price_yen"] = "875"
+    item = payload["items"][0]
+    item["timing"] = "place_limit"
+    item["terms"].update(limit_price_yen=limit, notional_yen=str(Decimal(limit) * 300))
+    proposal = TradeProposal.model_validate(payload)
+    assert proposal.inputs.quotes[0].price_yen == Decimal(875)
+    assert proposal.items[0].terms.limit_price_yen == Decimal(limit)
+    assert proposal_draft_sha256(proposal) != proposal.review.draft_sha256
+
+
+@pytest.mark.parametrize("timing", ["at_current_limit", "wait_limit"])
+def test_legacy_buy_timing_still_rejects_a_limit_above_quote(payload, timing):
+    payload["inputs"]["quotes"][0]["price_yen"] = "875"
+    item = payload["items"][0]
+    item["timing"] = timing
+    item["terms"].update(limit_price_yen="880", notional_yen="264000")
+    with pytest.raises(ValidationError, match="actual close|below the actual quote"):
+        TradeProposal.model_validate(payload)
+
+
+def test_place_limit_keeps_explicit_ceiling_when_classification_prevents_terms(payload):
+    payload["inputs"]["quotes"][0]["price_yen"] = "875"
+    item = payload["items"][0]
+    item.update(
+        timing="place_limit",
+        terms=None,
+        proposed_limit_yen="880",
+        terms_unavailable_reasons=[
+            {"code": "security_classification_unavailable", "message": "分類未確認"}
+        ],
+    )
+    proposal = TradeProposal.model_validate(payload)
+    assert proposal.inputs.quotes[0].price_yen == Decimal(875)
+    assert proposal.items[0].proposed_limit_yen == Decimal(880)
+    assert order_readiness(proposal.items[0]) == "needs_terms"
+
+
 def test_hold_on_case_intact_does_not_require_current_return_or_quote(payload):
     _holding_payload(payload)
     payload["inputs"]["quotes"] = []
@@ -424,6 +463,10 @@ def test_sell_full_holding_and_no_buy_maximum(payload):
     )
     item.update(terms=buy_terms, terms_unavailable_reasons=[])
     assert TradeProposal.model_validate(payload).items[0].terms.side == "sell"
+    buy_terms.update(limit_price_yen="1101", notional_yen="110100")
+    with pytest.raises(ValidationError, match="actual close"):
+        TradeProposal.model_validate(payload)
+    buy_terms.update(limit_price_yen="1100", notional_yen="110000")
     buy_terms.update(quantity=50, notional_yen="55000")
     with pytest.raises(ValidationError, match="entire holding"):
         TradeProposal.model_validate(payload)
