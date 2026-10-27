@@ -195,18 +195,12 @@ _TAGS: dict[str, tuple[str, ...]] = {
         "jppfs_cor:DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF",
     ),
     "ocf_inventories_cash_effect": ("jppfs_cor:DecreaseIncreaseInInventoriesOpeCF",),
-    "ocf_payables_cash_effect": (
-        "jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF",
-    ),
+    "ocf_payables_cash_effect": ("jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF",),
     "ocf_contract_liabilities_cash_effect": (
         "jppfs_cor:IncreaseDecreaseInContractLiabilitiesOpeCF",
     ),
-    "ocf_advances_received_cash_effect": (
-        "jppfs_cor:IncreaseDecreaseInAdvancesReceivedOpeCF",
-    ),
-    "ocf_other_payables_cash_effect": (
-        "jppfs_cor:IncreaseDecreaseInAccountsPayableOtherOpeCF",
-    ),
+    "ocf_advances_received_cash_effect": ("jppfs_cor:IncreaseDecreaseInAdvancesReceivedOpeCF",),
+    "ocf_other_payables_cash_effect": ("jppfs_cor:IncreaseDecreaseInAccountsPayableOtherOpeCF",),
 }
 
 
