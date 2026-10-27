@@ -55,6 +55,7 @@ def _print_cache_coverage_issues(
         print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
     print(
         "coverage verification is read-only and does not fetch raw JSON or provider APIs; "
-        "run bootstrap-cache --asof and refresh-edinet-metrics, then rerun coverage verification.",
+        "repair only the reported source scope through baibai-engine data-collection market "
+        "(see jobs/OPERATIONS.md), then rerun this legacy calibration diagnostic.",
         file=stream,
     )

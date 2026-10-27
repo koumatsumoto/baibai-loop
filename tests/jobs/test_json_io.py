@@ -21,7 +21,9 @@ def test_atomic_json_replaces_with_complete_payload(tmp_path):
 
 
 def test_failed_serialization_keeps_prior_file_and_removes_temporary(tmp_path, monkeypatch):
-    path = tmp_path / "result.json"
+    directory = tmp_path / "json-output"
+    directory.mkdir()
+    path = directory / "result.json"
     path.write_text("old")
 
     def fail(payload, stream, **kwargs):
@@ -32,7 +34,7 @@ def test_failed_serialization_keeps_prior_file_and_removes_temporary(tmp_path, m
     with pytest.raises(ValueError, match="serialization failed"):
         json_io.write_json_atomic(path, {"status": "new"})
     assert path.read_text() == "old"
-    assert list(tmp_path.iterdir()) == [path]
+    assert list(directory.iterdir()) == [path]
 
 
 def test_notification_module_does_not_own_storage_writer():

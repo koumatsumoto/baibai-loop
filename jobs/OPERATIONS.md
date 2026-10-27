@@ -525,14 +525,14 @@ uv run baibai-engine tradingview rebuild --sqlite /tmp/market-rebuild.sqlite \
 
 既存のdue taskを使い、同じ期限・対象・問いのopen taskを重複登録しない。実行後は完了を記録し、必要な次回分だけ作る。開発変更はGitHub Issueで管理する。
 
-calibrationは月初、前月の完全月末まで同じrulesでbuild→evaluateする。forceは全再構築の時だけ使う。
+旧ER/FV・四Approachのcalibrationは、評価する仮説・対象期間・利用先を明示した研究/保守で必要な時だけbuild→evaluateする。新しい五モデル・Y/M二viewの通常運用に月次再構築や旧contextの期限更新を要求しない。月次比較を計画する場合は前月までの対象を同じrulesで扱い、forceは全再構築の時だけ使う。
 
 ```bash
 uv run baibai-engine screening calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 uv run baibai-engine screening calibration-evaluate --out /tmp/calibration-evaluation.yaml
 ```
 
-判断面の文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
+保存済み旧Selectionに対応する較正文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
 
 ```bash
 uv run baibai-engine screening calibration-evaluate \

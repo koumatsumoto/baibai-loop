@@ -72,13 +72,9 @@ def verify_screening_sqlite_coverage(
     try:
         conn = _connect_readonly(sqlite_path)
         try:
-            # `quick_check` rather than `integrity_check`: on the multi-GB market
-            # store the deep check costs ~11s against ~2s, and the batch pays it
-            # twice (once before `bootstrap-cache`, once on the recheck). What the
-            # deep check adds over the quick one is index-content cross-checking,
-            # and a store arriving from R2 has already passed `quick_check` on
-            # download. The density checks below detect some missing-data cases;
-            # they do not replace integrity_check's index-content verification.
+            # This manual diagnostic uses quick_check to bound scan cost. Its
+            # density checks do not replace integrity_check's index-content proof,
+            # and this legacy coverage contract is not a daily generation gate.
             integrity_row = conn.execute("PRAGMA quick_check").fetchone()
             if integrity_row is None or integrity_row[0] != "ok":
                 reason = integrity_row[0] if integrity_row else "<no result>"
