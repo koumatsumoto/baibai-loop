@@ -1,4 +1,4 @@
-"""Public HTML receipt identity, byte retention and fixed L1 release behavior."""
+"""Public HTML receipt identity, byte retention and fixed lake release behavior."""
 
 from __future__ import annotations
 
@@ -289,7 +289,9 @@ def test_idle_connection_and_explicit_missing_ids(tmp_path):
         assert not conn.in_transaction
 
 
-def test_complete_and_incomplete_attempts_roundtrip_through_fixed_l1_release(tmp_path, monkeypatch):
+def test_complete_and_incomplete_attempts_roundtrip_through_fixed_lake_release(
+    tmp_path, monkeypatch
+):
     narrow_release_policy(monkeypatch, datasets=(DATASET,))
     market = tmp_path / "market.sqlite"
     with closing(open_connection(market)) as conn:

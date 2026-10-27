@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.engine.test_edinet_metric_eligibility import BASE, RECORDED, TARGET, _seed
-from tests.helpers.l1_release import market_store
+from tests.helpers.lake_release import market_store
 
 from baibai_engine.machine_analysis import generation_reader
 from baibai_engine.machine_analysis.company_growth.models import InputRelease

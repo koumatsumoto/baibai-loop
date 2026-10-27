@@ -126,7 +126,7 @@ class ModelGenerationStore:
         return read_model_inputs(generation_id, subjects=subjects, path=self._path)
 
     def prune(self, *, keep: int = 3, preserve: Sequence[str] = ()) -> tuple[str, ...]:
-        """政策付き世代を公開順で優先し、再生成cacheだけを有限に保つ。
+        """政策付き世代を基準日・公開順で優先し、再生成cacheだけを有限に保つ。
 
         bare生成は政策付き世代の後に置く。保存済みL3入力はapplication側の複写であり、
         本操作は原本・application・旧run・較正へ触れない。

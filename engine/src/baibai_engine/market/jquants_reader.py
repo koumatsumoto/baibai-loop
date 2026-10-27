@@ -283,6 +283,7 @@ def read_fin_summaries(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not range_covered(conn, "jquants_fin_summaries", start, end):
             return None
         return read_financial_documents(conn, start=start, end=end)
@@ -364,6 +365,7 @@ def read_market_calendar(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         return _read_calendar(conn, start, end)
     finally:
         conn.close()

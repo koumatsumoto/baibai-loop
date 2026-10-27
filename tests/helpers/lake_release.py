@@ -175,7 +175,7 @@ def market_store(
         2,
     ),
 ) -> Path:
-    """Seed the three tables an L1 fixture release is built from.
+    """Seed the three tables a lake fixture release is built from.
 
     The column lists live here so a schema change reaches every lake fixture at once;
     the rows stay with the caller, because how many periods a store spans is what each

@@ -70,6 +70,7 @@ def read_jpx_earnings_calendar_snapshot(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         coverage = conn.execute(
             "SELECT coverage_start, coverage_end, fetched_at_utc, "
             "record_count, status FROM source_coverage "
@@ -136,6 +137,7 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not date_covered(conn, "jpx_regulation_flags", asof_date):
             return None
         rows = conn.execute(

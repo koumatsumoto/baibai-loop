@@ -65,7 +65,7 @@ def _print_table(snapshot: ReadingSnapshot) -> None:
         "statistic\tstat_value\tpercentile\tz\twindow\tnotes",
     )
     for reading in snapshot.series:
-        notes = list(reading.flags)
+        notes = [*reading.flags, *(" ".join(note.split()) for note in reading.notes)]
         if reading.stale:
             notes.append("stale")
         if reading.insufficient_history:

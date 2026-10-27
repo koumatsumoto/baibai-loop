@@ -41,6 +41,8 @@ uv run baibai-engine market-context snapshot --asof <YYYY-MM-DD> --format json
 uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 
+指標CLIの`--latest`は保存入力から得られる最後の観測を元の日付で返す。今日の値や鮮度の保証ではなく、当日rangeの欠測を補完しない。
+
 percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latestやtrendまでyoyへ変わるわけではない。実効窓・観測数・sampling頻度を揃え、疎な系列を密な日次履歴と同列に比較しない。履歴不足でも最新値そのものが誤りとは限らず、stale・取得失敗・分布の端を区別する。next_print_estimateはcadence/lagの推定で公式calendarではない。
 
 ネット流動性は入力の単位を揃えるが、WALCLの水曜残高、WTREGENの週平均、日次RRPを組み合わせる近似であり、同時点の厳密な残高や投資可能資金ではない。月次整列の代表日や採用入力vintageも実公表時刻ではない。
@@ -73,4 +75,4 @@ as_ofは判断対象日、known_atは入力確定時刻。対象日以下でcuto
 
 exact IDによる閲覧は保存本文・入力・引用・supersedesをそのまま返し、新writerの構造や現在のcutoffで書き換えない。分析用の選択とは別である。古い章・scorecardを共通projectionだけで置き換えず、保存判断の抽出を新しい判断の必須構造にしない。
 
-L2原本確認のためにL3全履歴を先行validationする手順は持たない。保存判断は通常readerで利用時にpayload・identityを確認する。旧runner inputがなければ保存本文から得る範囲を示し、当時の全入力を再現したとは扱わない。
+L2原本確認のためにL3全履歴を先行validationする手順は持たない。分析用latestは対象日・公表時刻で選んだ一件のpayload・identityを確認し、未選択の全履歴本文を前提にしない。選択本文の不整合は古い正常な判断へのfallbackで隠さない。exact ID/historyは明示した保存履歴を検証して読む。旧runner inputがなければ保存本文から得る範囲を示し、当時の全入力を再現したとは扱わない。

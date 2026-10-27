@@ -1,4 +1,4 @@
-"""Measure a production-size L1 export, and what a one-month correction moves.
+"""Measure a production-size lake export, and what a one-month correction moves.
 
 Both runs derive every partition. Timings and object reuse are measurements, not
 fixed-cost guarantees. This diagnostic reports the effect of one synthetic row
@@ -66,7 +66,11 @@ def _inject_one_month_correction(sqlite_path: Path) -> str:
 
 
 def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> dict[str, object]:
-    with tempfile.TemporaryDirectory(prefix="baibai-l1-export-acceptance-") as temporary:
+    if report_path.resolve() == sqlite_path.resolve() or (
+        report_path.exists() and sqlite_path.exists() and report_path.samefile(sqlite_path)
+    ):
+        raise ValueError("benchmark report must not replace the input market store")
+    with tempfile.TemporaryDirectory(prefix="baibai-lake-export-acceptance-") as temporary:
         root = Path(temporary)
         working_sqlite = root / "market.sqlite"
         mirror = root / "mirror"
@@ -99,7 +103,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         new_keys = set(corrected_objects) - set(baseline_objects)
 
         payload: dict[str, object] = {
-            "kind": "l1_full_history_export_benchmark",
+            "kind": "lake_full_history_export_benchmark",
             "status": "measured",
             "recorded_at": datetime.now(UTC).isoformat(),
             "producer_git_commit": producer_commit,

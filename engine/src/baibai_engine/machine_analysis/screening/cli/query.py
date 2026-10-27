@@ -18,6 +18,7 @@ from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     published_run_payload,
     serialize_published_run_yaml,
 )
+from baibai_engine.storage.machine_analysis import run_store_path
 
 
 def run_show_command(
@@ -36,7 +37,13 @@ def run_show_command(
         return 1
     out = stdout if stdout is not None else sys.stdout
     try:
-        run = ScreeningRunReader(runs_db_path).get_run(run_revision_id)
+        source = run_store_path(runs_db_path)
+        if output_path is not None and (
+            output_path.resolve() == source.resolve()
+            or (output_path.exists() and source.exists() and output_path.samefile(source))
+        ):
+            raise ValueError("export output must not replace the input run store")
+        run = ScreeningRunReader(source).get_run(run_revision_id)
         if run is None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
         payload = published_run_payload(run)

@@ -241,7 +241,7 @@ class PanelDiagnostics:
     rules_hash: str
     universe_size: int
     population_size: int
-    # 保存済みdiagnosticsのwire名。現行Stock Analysisの件数。
+    # 保存済みdiagnosticsのwire名。旧Stock Analysis契約で再構成した件数。
     security_analyses: int
     nominated_candidates: int
     bars_tickers_not_in_master: int

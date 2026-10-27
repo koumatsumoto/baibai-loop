@@ -52,6 +52,33 @@ def test_twr_rejects_zero_nav_after_withdrawal() -> None:
         )
 
 
+def test_twr_preserves_total_loss_through_zero_days_and_refunding() -> None:
+    result = compute_time_weighted_return(
+        (
+            DailyNav(date(2026, 1, 2), 1_000),
+            DailyNav(date(2026, 1, 5), 0),
+            DailyNav(date(2026, 1, 6), 0),
+            DailyNav(date(2026, 1, 7), 550, external_flow_yen=500),
+            DailyNav(date(2026, 1, 8), 605),
+        ),
+        horizon_years=3,
+    )
+    assert result.cumulative_return_pct == -100.0
+    assert result.annualized_return_pct == -100.0
+
+
+@pytest.mark.parametrize(("nav_yen", "flow_yen"), [(1, 0), (-1, 0), (0, -1)])
+def test_twr_rejects_invalid_changes_after_total_loss(nav_yen, flow_yen) -> None:
+    with pytest.raises(PortfolioOutcomeError, match="zero_or_negative_nav"):
+        compute_time_weighted_return(
+            (
+                DailyNav(date(2026, 1, 2), 1_000),
+                DailyNav(date(2026, 1, 5), 0),
+                DailyNav(date(2026, 1, 6), nav_yen, external_flow_yen=flow_yen),
+            )
+        )
+
+
 def _benchmark() -> BenchmarkObservation:
     return BenchmarkObservation.model_validate(
         {
@@ -150,14 +177,15 @@ def _ledger() -> PortfolioLedgerDocument:
     )
 
 
-def test_confirmed_cost_consuming_all_capital_is_resolved_not_missing() -> None:
+@pytest.mark.parametrize("loss_day", ["2026-01-05", "2026-01-06"])
+def test_confirmed_cost_consuming_all_capital_is_resolved_not_missing(loss_day) -> None:
     raw = _ledger().model_dump(mode="json")
     raw["events"] = [
         raw["events"][0],
         {
             "event_id": "confirmed-cost",
             "type": "cost",
-            "occurred_at": "2026-01-06T09:00:00+09:00",
+            "occurred_at": f"{loss_day}T09:00:00+09:00",
             "cost_kind": "commission",
             "amount_yen": 1_000,
         },
@@ -165,7 +193,7 @@ def test_confirmed_cost_consuming_all_capital_is_resolved_not_missing() -> None:
     result = compute_portfolio_outcome(
         PortfolioLedgerDocument.model_validate(raw),
         _benchmark(),
-        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        business_days=(date(2025, 1, 6), date(2026, 1, 5), date(2026, 1, 6)),
         bars=(),
     )
     assert result.status == "resolved"

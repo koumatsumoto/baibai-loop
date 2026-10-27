@@ -65,17 +65,31 @@ class IndicatorsService:
 
     def get_latest(self, series_id: str) -> QueryResult:
         end = _today_jst()
-        registered = load_definitions().by_id()
+        definitions = load_definitions()
+        registered = definitions.by_id()
         if series_id not in registered:
             raise KeyError(f"unknown indicator series: {series_id}")
         series = registered[series_id]
-        start = (
-            date(1970, 1, 1)
-            if series.provider == "derived"
-            else end - timedelta(days=_LATEST_READ_DAYS.get(series.frequency, 370))
-        )
-        result = self.get_range(series_id, start=start, end=end)
-        return QueryResult(result.series, result.observations[-1:])
+        floor = date(1970, 1, 1) if series.provider == "derived" else date.min
+        days = _LATEST_READ_DAYS.get(series.frequency, 370)
+        with closing(open_read_only_connection(self.db_path)) as connection:
+            connection.execute("BEGIN")
+            reader = build_store_observation_reader(
+                connection, series=definitions.series, vintage_cutoff=end
+            )
+            while True:
+                start = (
+                    floor
+                    if series.provider == "derived"
+                    else end - timedelta(days=min(days, (end - floor).days))
+                )
+                observations = tuple(reader(series_id, start, end))
+                if observations or start == floor:
+                    return QueryResult(series, observations[-1:])
+                # Search older saved observations without recomputing recent
+                # option chains or treating an old date as today's observation.
+                end = start - timedelta(days=1)
+                days *= 2
 
 
 def _today_jst() -> date:

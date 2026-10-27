@@ -116,7 +116,6 @@ def _run_cli(
             os.environ,
             {"JQUANTS_API_KEY": "test-jquants-key", "EDINET_API_KEY": "test-edinet-key"},
         ),
-        patch.object(app, "JQuantsReader", lambda *_args, **_kwargs: jquants),
         patch.object(app, "JQuantsRefresh", lambda *_args, **_kwargs: jquants),
         patch.object(app, "EDINETRefresh", lambda *_args, **_kwargs: edinet),
         patch.object(app, "JPXRefresh", lambda *_args, **_kwargs: jpx),
@@ -140,9 +139,6 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
             app, "EDINETRefresh", side_effect=AssertionError("EDINET provider constructed")
         ) as edinet,
         patch.object(
-            app, "JQuantsReader", side_effect=AssertionError("J-Quants reader constructed")
-        ) as jquants,
-        patch.object(
             app, "JQuantsRefresh", side_effect=AssertionError("J-Quants refresh constructed")
         ) as refresh,
         patch.object(
@@ -155,7 +151,7 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
         contextlib.redirect_stderr(stderr),
     ):
         exit_code = app.main(argv)
-    for constructor in (session, edinet, jquants, refresh, jpx, bundle):
+    for constructor in (session, edinet, refresh, jpx, bundle):
         constructor.assert_not_called()
     return _CliResult(exit_code=exit_code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
@@ -196,7 +192,7 @@ def test_main_bootstrap_cache_fetches_each_source_window_around_the_argv_asof() 
     assert "bootstrap-cache done" in result.stdout
 
 
-def test_main_bootstrap_routes_reader_and_closes_maintenance() -> None:
+def test_main_bootstrap_routes_and_closes_maintenance() -> None:
     jpx = FakeJPXProvider()
     with patch.object(app, "bootstrap_cache_command", return_value=0) as command:
         result = _run_cli(
@@ -245,7 +241,6 @@ def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
                 "JPX_DELISTING_WARNING_URL": "https://example.com/delisted",
             },
         ),
-        patch.object(app, "JQuantsReader", return_value=jquants),
         patch.object(app, "JQuantsRefresh", return_value=jquants),
         patch.object(app, "EDINETRefresh", return_value=_SeamEDINETProvider()),
         patch.object(app, "JPXRefresh", return_value=FakeJPXProvider()) as jpx_factory,
@@ -310,9 +305,7 @@ def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
 
 
 def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> None:
-    providers = ProviderBundle(
-        jquants=FakeJQuantsProvider(),
-    )
+    providers = ProviderBundle()
     stderr = io.StringIO()
     with contextlib.redirect_stderr(stderr):
         assert (
@@ -401,11 +394,11 @@ def test_main_backfill_history_covers_every_range_source_over_the_argv_window() 
     window = (date(2026, 1, 5), date(2026, 1, 30))
     for source in ("get_eq_bars_daily_range", "get_fin_summary_range", "get_mkt_calendar"):
         assert [call[1:] for call in jquants.calls if call[0] == source] == [window]
-    # The window's own final week is still open at `end`, so the three completed
-    # weeks are the balance dates the argv window resolves to.
+    # This is a historical acquisition window, not the publication clock.
+    # Its final Friday remains eligible without a later week in the cache.
     assert [
         week_end for name, week_end, _ in jquants.calls if name == "get_mkt_margin_interest_week"
-    ] == [date(2026, 1, 9), date(2026, 1, 16), date(2026, 1, 23)]
+    ] == [date(2026, 1, 9), date(2026, 1, 16), date(2026, 1, 23), date(2026, 1, 30)]
     assert "backfill-history done: 2026-01-05..2026-01-30" in result.stdout
 
 

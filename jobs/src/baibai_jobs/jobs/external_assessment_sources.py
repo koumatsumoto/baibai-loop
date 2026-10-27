@@ -299,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
                     "already_partially_published",
                 }
         if args.report_output is not None:
-            from baibai_jobs.observability.discord import write_json_atomic
+            from baibai_jobs.storage.json_io import write_json_atomic
 
             write_json_atomic(args.report_output, report)
         print(json.dumps(report, sort_keys=True))

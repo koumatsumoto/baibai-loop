@@ -17,8 +17,8 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
 from baibai_engine.storage.lake import duck as duck_module
 from baibai_engine.storage.lake import hydrate as hydrate_module

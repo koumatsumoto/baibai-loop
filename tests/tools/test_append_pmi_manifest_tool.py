@@ -108,11 +108,7 @@ def test_parse_release_index_reads_the_date_title_and_link_of_each_listed_releas
 
 
 def test_parse_release_index_reads_nothing_from_a_page_that_lists_no_release() -> None:
-    """The publisher's WAF answers a plain client with a challenge page and a 200.
-
-    Treating that as an empty index is what lets the caller fall back to a browser
-    instead of reporting the month as unpublished.
-    """
+    """An unrecognized HTML body is not evidence that a month is unpublished."""
 
     assert parse_release_index("<html><body>Verifying...</body></html>") == ()
 

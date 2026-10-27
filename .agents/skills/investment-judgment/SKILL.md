@@ -9,6 +9,8 @@ description: 人間の明示開始から有限対象を選び、Company Research
 
 既存Operationの続きは[完了と再開](#完了と再開)へ進み、新しいSelectionを作らない。旧形式の保存済みOperationもIDから再開する。旧draftや旧runを渡して新規開始しない。
 
+クラウド正本へ反映する作業は、開始前に[application作業コピーの準備](../../../jobs/OPERATIONS.md#application-db-を反映する)を行い、DBと取得ETagを揃える。既存作業の再開ではその組を保持する。machineのpullはapplicationを含まない。
+
 通常の「売買提案して」は`discover_new`、候補外も含む銘柄指定は`specified_stocks`、保有見直しは`review_positions`。同じ依頼で選定から具体提案まで進め、全候補Triageや人間による事前銘柄選択は要求しない。newとholdingを混ぜず、追加買付依頼は[現行方針](../../../docs/doctrine.md#investment-strategy)と照合する。
 
 ```bash
@@ -21,6 +23,8 @@ uv run baibai-engine investment-judgment selection-context \
 
 selection-contextは発行済みの候補政策と、そのgenerationのモデルを返す。未生成とpayload内の欠測を区別し、欠測を正常値へ補わない。prepareは選定した対象のモデルと政策本文を固定保存し、可変storeから再計算しない。
 
+調査対象と採否は[投資戦略](../../../docs/doctrine.md#economic-return-policy)に照らして判断し、統合の進め方は下記のCompany Researchへ進む。
+
 候補外や異なる価値獲得経路の少数の対照は、返された `screening_selection_id` を固定して同じcontextへ読める。`--compare-ticker` は `--ticker` と異なり、ユーザー指定銘柄・推薦集合・深掘り対象を変更しない。未生成のモデルは各社の `not_generated` に残る。実際の対象は比較後にdraftへ選び、候補外を毎回入れるノルマにはしない。
 
 ```bash
@@ -32,7 +36,7 @@ uv run baibai-engine investment-judgment selection-context \
 
 低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。候補抽出の名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
 
-企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。必要なら同じ固定入力から必要期間を再生成し、別generationとして明示する。prepare中に範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
+企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。通常生成は全保持範囲であり、長期の読取は下記の表示期数と完全結果を使う。prepare中に生成範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
 
 新規draftはschema_version=2とし、contextのgeneration_id・screening_selection_id・Investment Judgment日・cutoff・requestを引き継ぐ。対象と問い、選定理由、比較した代替と未確認の範囲を記し、全社モデルをLLMへ一括投入しない。指定/保有は候補外でも調べられ、候補内membershipを購入資格にしない。
 
@@ -52,7 +56,7 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 
 1. `investment-judgment stock-assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。[直近ニュース・カタリストの確認](../../../docs/reference/stock-assessment.md#recent-news-research)をCompany Researchの基本手順として行う。
 
-   既存候補・明示対象では、selected固定modelの価格context・同端点市場比較から重要期間と競合仮説を選び、好悪ニュース・原典、利益/cash/必要資本/回復期間、再確認条件へつなぐ。[五モデルの統合](../../../docs/reference/stock-assessment.md#analysis-domain-integration)を正準とし、価格注記から自動起動したり全件の追加調査を義務にしない。
+   [五モデルの統合](../../../docs/reference/stock-assessment.md#analysis-domain-integration)に従い、重要な支持・相反・不足を個社の仮定へ接続する。価格contextもその一材料であり、必要なら同端点の市場比較とニュースを照合する。価格注記だけを調査の起点に固定せず、全シグナルの追加調査を義務にしない。
 2. [条件付き価値](../../../docs/reference/stock-assessment.md#scenario-arithmetic)を組み立て、数値計算には`investment-judgment calculate <INPUTS>`を使える。PDFの抽出が空・崩れた場合は原ページへ戻り、記載なしやゼロとしない。
 3. `investment-judgment stock-assessment-evaluate <DRAFT>`で確認する。`investment-judgment independent-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`からReviewを準備し、作者と別の作業者が原典・仮定・算術・反証を検討する。作者の入力や出力のコピーを独立検算としない。[不確実性の受容](../../../docs/reference/stock-assessment.md#uncertainty-and-decision)に従い、未知を一律保留にせず、受けるリスクと見返りの根拠を確認する。
 4. `investment-judgment stock-assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`investment-judgment stock-assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。

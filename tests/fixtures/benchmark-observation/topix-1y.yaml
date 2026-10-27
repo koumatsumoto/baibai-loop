@@ -1,3 +1,4 @@
+# 形式・算術検証用。実運用へ流用せず、対象期間の公式原典を別途確認する。
 schema_version: 1
 kind: benchmark_observation
 benchmark_id: jpx-topix-gross-total-return

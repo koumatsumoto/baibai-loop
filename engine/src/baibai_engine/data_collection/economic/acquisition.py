@@ -22,12 +22,6 @@ from .providers.jquants_options import OptionChainSource
 from .providers.native import fetch_native_records
 from .records import store_snapshot, stored_days
 from .refresh_policy import (
-    DEFAULT_LATEST_LOOKBACK_DAYS as DEFAULT_LATEST_LOOKBACK_DAYS,
-)
-from .refresh_policy import (
-    LATEST_FETCH_LOOKBACK_DAYS as LATEST_FETCH_LOOKBACK_DAYS,
-)
-from .refresh_policy import (
     recent_start,
     recovery_ranges,
     source_policy,

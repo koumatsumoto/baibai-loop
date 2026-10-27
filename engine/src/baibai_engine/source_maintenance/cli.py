@@ -32,7 +32,6 @@ from baibai_engine.market.jpx_models import (
 )
 from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.market.jpx_refresh import JPXRefresh
-from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.valuation_catalysts import (
     TSECapitalPolicyRefreshSummary,
@@ -440,7 +439,6 @@ def main(argv: list[str] | None = None) -> int:
             resources.callback(jpx_refresh.close)
         edinet_reader = EDINETReader(sqlite_path)
         providers = ProviderBundle(
-            jquants=JQuantsReader(sqlite_path),
             jquants_refresh=jquants_refresh,
             edinet_refresh=edinet_refresh,
             jpx_refresh=jpx_refresh,

@@ -250,7 +250,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 <a id="research-input-preparation"></a>
 ## Investment Judgment入力の準備
 
-新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。新規は保存済みgenerationと、候補探索では候補政策を固定し、prepareで必要なモデル断面をapplicationへ複写する。prepare中に企業成長を再計算せず、固定入力からの再開にもmarket mirrorを要求しない。企業成長を別途再生成する場合は[固定release](#fixed-release-read)の財務・masterを用意し、更新中のSQLite行で代替しない。取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
+新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。新規は保存済みgenerationと、候補探索では候補政策を固定し、prepareで必要なモデル断面をapplicationへ複写する。prepare中に企業成長を再計算せず、固定入力からの再開にもmarket mirrorを要求しない。長い表示は同じ保存結果から切り替える。固定旧入力から別generationを生成・保存する専用CLIは現状未提供であり、現在marketから新releaseを作って公開するmodel_integrationを代用しない。個別の成長照会は[固定release](#fixed-release-read)の財務・masterを読み、更新中のSQLite行で代替しない。取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
 
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
@@ -525,14 +525,14 @@ uv run baibai-engine tradingview rebuild --sqlite /tmp/market-rebuild.sqlite \
 
 既存のdue taskを使い、同じ期限・対象・問いのopen taskを重複登録しない。実行後は完了を記録し、必要な次回分だけ作る。開発変更はGitHub Issueで管理する。
 
-calibrationは月初、前月の完全月末まで同じrulesでbuild→evaluateする。forceは全再構築の時だけ使う。
+旧ER/FV・四Approachのcalibrationは、評価する仮説・対象期間・利用先を明示した研究/保守で必要な時だけbuild→evaluateする。新しい五モデル・Y/M二viewの通常運用に月次再構築や旧contextの期限更新を要求しない。月次比較を計画する場合は前月までの対象を同じrulesで扱い、forceは全再構築の時だけ使う。
 
 ```bash
 uv run baibai-engine screening calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 uv run baibai-engine screening calibration-evaluate --out /tmp/calibration-evaluation.yaml
 ```
 
-判断面の文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
+保存済み旧Selectionに対応する較正文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
 
 ```bash
 uv run baibai-engine screening calibration-evaluate \

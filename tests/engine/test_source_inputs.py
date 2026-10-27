@@ -2,6 +2,7 @@ from contextlib import closing
 from datetime import date
 
 from baibai_engine.data_collection.edinet.archives import retain_source_archive
+from baibai_engine.market.master_snapshot import master_coverage_key
 from baibai_engine.market.source_inputs import export_source_input
 from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.schema import open_connection
@@ -62,12 +63,25 @@ def test_tradingview_input_uses_calendar_basis_even_with_a_weekend_master(tmp_pa
             "INSERT INTO jquants_master_snapshots SELECT ?, security_code, record_json FROM jquants_master_snapshots",
             (saturday.isoformat(),),
         )
+        for day in (DAY, saturday):
+            record_source_coverage(
+                conn,
+                source="jquants_master_snapshots",
+                coverage_key=master_coverage_key(day),
+                coverage_start=day.isoformat(),
+                coverage_end=day.isoformat(),
+                record_count=2,
+            )
     scoped = tmp_path / "scoped.sqlite"
     export_source_input(canonical, scoped, group="tradingview", asof=saturday)
     with closing(open_connection(scoped)) as conn:
         assert conn.execute(
             "SELECT DISTINCT snapshot_date FROM jquants_master_snapshots"
         ).fetchall() == [(DAY.isoformat(),)]
+        assert conn.execute(
+            "SELECT coverage_key FROM source_coverage WHERE source = ?",
+            ("jquants_master_snapshots",),
+        ).fetchall() == [(master_coverage_key(DAY),)]
         assert conn.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0
 
 

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 from botocore.exceptions import ClientError, ReadTimeoutError
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.lake import models as lake_models

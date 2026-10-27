@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 from mcp.types import CallToolResult
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
 from baibai_engine.data_collection.tradingview.receipts import (
     TradingViewReceiptError,

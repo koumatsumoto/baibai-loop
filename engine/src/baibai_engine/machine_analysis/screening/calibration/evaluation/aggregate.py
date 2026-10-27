@@ -206,8 +206,8 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
 
     The blocked side is the small one: it is the deteriorating names inside a value axis's
     best decile, which can be a handful. A cohort speaks only when that side reaches the
-    same floor the threshold coordinate uses, and the rest are counted apart, so a gate
-    nobody can measure reports no effect rather than one drawn from a few names.
+    same floor the threshold coordinate uses, and the rest are counted apart, so an unmeasurable
+    gate has no estimate rather than a zero effect or one drawn from a few names.
     """
     result: dict[str, object] = {}
     for axis_name in GATE_BASE_AXES:

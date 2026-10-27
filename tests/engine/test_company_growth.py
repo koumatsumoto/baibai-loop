@@ -10,7 +10,7 @@ from hashlib import sha256
 import pytest
 import yaml
 from tests.helpers.db_seed import seed_historical_operation
-from tests.helpers.l1_release import publish_market_fixture
+from tests.helpers.lake_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import historical_operation, selection
 from tests.helpers.screening_sqlite import insert_financial_record

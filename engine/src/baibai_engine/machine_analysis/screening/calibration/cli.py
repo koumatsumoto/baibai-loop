@@ -61,6 +61,7 @@ from .panel import (
 )
 from .store import (
     CACHE_SCHEMA_VERSION,
+    CURRENT_SNAPSHOT_NAME,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     copy_current_snapshot,
@@ -334,6 +335,19 @@ def calibration_evaluate_command(
             )
             return 1
     try:
+        input_path = calibration_dir / CURRENT_SNAPSHOT_NAME
+        for destination in (output_path, context_output_path):
+            if destination is not None and (
+                destination.resolve() == input_path.resolve()
+                or (
+                    destination.exists()
+                    and input_path.exists()
+                    and destination.samefile(input_path)
+                )
+            ):
+                raise CalibrationCacheError(
+                    "report output must not replace the calibration snapshot"
+                )
         with fixed_current_snapshot(calibration_dir) as snapshot:
             all_asofs = published_cohorts(snapshot)
             asofs = sorted(

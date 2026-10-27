@@ -1,4 +1,7 @@
-"""Carry an explicit TradingView Retry-After between Actions runs under the lease."""
+"""Carry explicit TradingView Retry-After between Actions runs with object ETag CAS.
+
+This source-local coordination does not acquire the common publication lease.
+"""
 
 from __future__ import annotations
 

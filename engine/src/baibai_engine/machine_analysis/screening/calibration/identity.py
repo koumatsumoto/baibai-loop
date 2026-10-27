@@ -1,4 +1,4 @@
-"""Lightweight semantic identity for calibration and current screening rules."""
+"""Semantic identity for legacy-run rules and their calibration replay."""
 
 from __future__ import annotations
 

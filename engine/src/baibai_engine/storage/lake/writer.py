@@ -294,7 +294,7 @@ def export_market_snapshot(
             raise LakeBuildError(f"sealed SQLite store origin is invalid: {exc}") from exc
         if store_origin != expected_store_origin:
             raise LakeBuildError(
-                "sealed SQLite store origin differs from the serving L1 release; "
+                "sealed SQLite store origin differs from the serving lake release; "
                 "hydrate from current before publishing"
             )
         # Empty source tables produce no partition. Omit them here without claiming

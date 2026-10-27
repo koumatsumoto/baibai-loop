@@ -94,9 +94,9 @@ def test_other_csv_basis_label_does_not_hide_financial_statement_context():
     record = _parse(
         "120",
         [
-            ("issuer:CashAndCashEquivalents", "CurrentYearInstant", "その他", "100"),
+            ("jppfs_cor:CashAndCashEquivalents", "CurrentYearInstant", "その他", "100"),
             (
-                "issuer:CashAndCashEquivalents",
+                "jppfs_cor:CashAndCashEquivalents",
                 "CurrentYearInstant_NonConsolidatedMember",
                 "その他",
                 "900",
@@ -105,6 +105,53 @@ def test_other_csv_basis_label_does_not_hide_financial_statement_context():
     )
     assert record.cash == 100
     assert record.consolidation_basis == "consolidated"
+
+
+@pytest.mark.parametrize(
+    ("element", "context", "field"),
+    [
+        ("issuer:CashAndDeposits", "CurrentYearInstant", "cash"),
+        ("issuer:CashAndCashEquivalents", "CurrentYearInstant", "cash"),
+        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "cash"),
+        ("jppfs_cor:Cash-AndDeposits", "CurrentYearInstant", "cash"),
+        ("jppfs_cor:cashanddeposits", "CurrentYearInstant", "cash"),
+        ("CashAndDeposits", "CurrentYearInstant", "cash"),
+        ("issuer:NetSales", "CurrentYearDuration", "sales_ttm"),
+        ("issuer:ShortTermLoansPayable", "CurrentYearInstant", "debt"),
+        ("issuer:InvestmentSecurities", "CurrentYearInstant", "investment_securities"),
+        (
+            "issuer:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF",
+            "CurrentYearDuration",
+            "capex_ttm",
+        ),
+    ],
+)
+def test_only_exact_qualified_standard_concepts_supply_metrics(element, context, field):
+    record = _parse(
+        "120",
+        [
+            ("jppfs_cor:NetAssets", "CurrentYearInstant", "連結", "50"),
+            (element, context, "連結", "999"),
+        ],
+    )
+    assert getattr(record, field) is None
+    assert record.equity == 50
+    assert record.consolidation_basis == "consolidated"
+
+
+def test_issuer_homonyms_do_not_conflict_with_standard_statement_amounts():
+    record = _parse(
+        "120",
+        [
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "連結", "100"),
+            ("issuer:CashAndDeposits", "CurrentYearInstant", "連結", "999"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "連結", "30"),
+            ("issuer:ShortTermLoansPayable", "CurrentYearInstant", "連結", "888"),
+        ],
+    )
+    assert record.cash == 100
+    assert record.debt == 30
+    assert record.net_cash == 70
 
 
 def test_prior_consolidated_fact_does_not_hide_current_individual_statement():

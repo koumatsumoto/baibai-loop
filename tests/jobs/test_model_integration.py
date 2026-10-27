@@ -103,7 +103,7 @@ def integration(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("growth_start", [None, date(2023, 10, 23)])
-def test_models_policy_and_l1_share_the_same_fixed_inputs_without_web(integration, growth_start):
+def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integration, growth_start):
     arguments, events = integration
     arguments["growth_start"] = growth_start
     result = job.integrate_models(**arguments)

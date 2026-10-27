@@ -1,4 +1,4 @@
-"""固定入力からモデルと候補を生成し、同じL1 releaseを公開する。Web生成は行わない。"""
+"""固定入力からモデルと候補を生成し、同じlake releaseを公開する。Web生成は行わない。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from baibai_engine.job_api import (
     select_saved_generation,
     sha256_file,
 )
-from baibai_jobs.observability.discord import write_json_atomic
+from baibai_jobs.storage.json_io import write_json_atomic
 from baibai_jobs.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_jobs.storage.publication_lease import _load_handle, verify_held
 from baibai_jobs.storage.publish_market_lake import (

@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 import pytest
 from tests.helpers.http_doubles import FakeSession, html_response, response
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
 from baibai_engine.data_collection.jpx.receipts import read_bundle, read_complete_bundle
 from baibai_engine.market.delistings import (

@@ -266,3 +266,77 @@ def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions(
         assert any(
             item["summary"] == source["counter_evidence"] for item in projection["counter_evidence"]
         )
+
+
+@pytest.mark.parametrize("unused", ["older", "future_publication", "future_asof", "unsupported"])
+def test_latest_does_not_decode_unselected_bodies(tmp_path, unused):
+    db = tmp_path / "app.sqlite"
+    chosen = document()
+    AssessmentService(db).publish(chosen, expected_head=AssessmentService(db).head_id())
+    other = chosen.payload()
+    other["context_id"] = "market-context-assessment-2026-07-17-other"
+    other["published_at"] = "2026-07-17T18:00:00+00:00"
+    if unused == "future_publication":
+        other["published_at"] = "2026-07-18T13:00:00+00:00"
+    elif unused == "future_asof":
+        other["as_of"] = "2026-07-19"
+    elif unused == "unsupported":
+        other["schema_version"] = 99
+    seed_history(db, other)
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.execute(
+            "UPDATE market_context_assessment SET payload='[]' WHERE context_id=?",
+            (other["context_id"],),
+        )
+    result = latest_assessment(
+        db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, 12, tzinfo=UTC)
+    )
+    assert result.document == chosen.payload()
+    with pytest.raises(ValueError, match="assessment payload must be an object"):
+        assessment_by_id(db, context_id=other["context_id"])
+
+
+def test_latest_broken_selected_body_does_not_fall_back(tmp_path):
+    db = tmp_path / "app.sqlite"
+    older = document(
+        context_id="market-context-assessment-2026-07-17-older",
+        published_at="2026-07-17T18:00:00+00:00",
+    )
+    AssessmentService(db).publish(older, expected_head=None)
+    chosen = document()
+    AssessmentService(db).publish(chosen, expected_head=AssessmentService(db).head_id())
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.execute(
+            "UPDATE market_context_assessment SET payload='[]' WHERE context_id=?",
+            (chosen.context_id,),
+        )
+    with pytest.raises(ValueError, match="assessment payload must be an object"):
+        latest_assessment(
+            db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, 12, tzinfo=UTC)
+        )
+
+
+def test_latest_orders_offset_and_microsecond_publications_like_pure_selector(tmp_path):
+    db = tmp_path / "app.sqlite"
+    documents = [
+        document(
+            context_id="market-context-assessment-2026-07-17-offset",
+            published_at="2026-07-17T16:00:00+09:00",
+        ),
+        document(
+            context_id="market-context-assessment-2026-07-17-first",
+            published_at="2026-07-17T08:00:00.000001+00:00",
+        ),
+        document(
+            context_id="market-context-assessment-2026-07-17-second",
+            published_at="2026-07-17T08:00:00.000002+00:00",
+        ),
+    ]
+    for item in documents:
+        AssessmentService(db).publish(item, expected_head=AssessmentService(db).head_id())
+    for cutoff in ("2026-07-17T08:00:00.000001+00:00", "2026-07-17T08:00:00.000002+00:00"):
+        known_at = datetime.fromisoformat(cutoff)
+        expected = select_assessment(
+            [stored(item) for item in documents], as_of=date(2026, 7, 17), known_at=known_at
+        )
+        assert latest_assessment(db, as_of=date(2026, 7, 17), known_at=known_at) == expected

@@ -30,7 +30,7 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
         doc_type_code="120",
         content=_edinet_csv_zip(
             [
-                ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
+                ("jppfs_cor:NetSales", "CurrentYearDuration", "1000"),
                 (
                     "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
                     "CurrentYearDuration",
@@ -48,7 +48,7 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
                     "-40",
                 ),
                 ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
-                ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
+                ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "300"),
                 ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
                 ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
                 ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),

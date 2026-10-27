@@ -262,7 +262,7 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                             )
                         except Exception:
                             print(
-                                "TradingView L1 publication failed; category=storage",
+                                "TradingView lake publication failed; category=storage",
                                 file=sys.stderr,
                             )
                     raise

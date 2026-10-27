@@ -76,6 +76,7 @@ def read_edinet_metric_baseline(
         return None
     conn.row_factory = sqlite3.Row
     try:
+        conn.execute("BEGIN")
         coverage_rows = conn.execute(
             "SELECT coverage_key, coverage_start, coverage_end, record_count, status, error, "
             "fetched_at_utc "
@@ -216,6 +217,7 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not date_covered(conn, "edinet_documents", on_date):
             return None
         return read_stored_documents(conn, through=on_date, start=on_date)
@@ -254,6 +256,7 @@ def read_edinet_metrics(
         return None
     conn.row_factory = sqlite3.Row
     try:
+        conn.execute("BEGIN")
         if not date_covered(conn, "edinet_metrics", asof_date):
             return None
         rows = conn.execute(

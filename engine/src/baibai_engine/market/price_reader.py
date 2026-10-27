@@ -25,6 +25,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not range_covered(conn, "jquants_daily_bars", start, end):
             return None
         rows = conn.execute(
@@ -95,6 +96,7 @@ def read_adjustment_factor_bars(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not range_covered(conn, "jquants_daily_bars", start, end):
             return None
         rows = conn.execute(
@@ -155,6 +157,7 @@ def read_daily_bars_for_tickers(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         return _read_ticker_bars(conn, tickers, start, end)
     finally:
         conn.close()

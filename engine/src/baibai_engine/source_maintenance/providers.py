@@ -8,15 +8,6 @@ from datetime import date
 from typing import Any, Protocol
 
 from baibai_engine.market.jpx_models import JPXEarningsCalendarSnapshot, JPXRegulationSnapshot
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
-
-
-class JQuantsRead(Protocol):
-    def get_adjustment_factor_bars_range(
-        self, start: date, end: date
-    ) -> list[JQuantsAdjustmentFactorEvent]: ...
-    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
 
 
 class JQuantsMaintenance(Protocol):
@@ -72,7 +63,6 @@ class JPXMaintenance(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ProviderBundle:
-    jquants: JQuantsRead
     jquants_refresh: JQuantsMaintenance | None = None
     edinet_refresh: EDINETMaintenance | None = None
     jpx_refresh: JPXMaintenance | None = None

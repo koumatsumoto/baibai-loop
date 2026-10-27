@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_build_parser = subparsers.add_parser(
         "calibration-build",
         help=(
-            "build point-in-time monthly panels and forward returns for "
+            "build retrospective monthly panels and forward returns for "
             "estimate calibration (local cache only)"
         ),
     )

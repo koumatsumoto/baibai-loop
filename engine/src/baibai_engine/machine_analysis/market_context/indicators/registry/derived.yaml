@@ -17,7 +17,7 @@ series:
     notes: (FRB総資産 − TGA週平均)/1000 − RRP。資産とTGAは百万USD、RRPは10億USD。水曜時点の資産・日次RRPとTGA週平均の混合であり、同時点の厳密な準備残高や投資可能資金ではない
     aliases: [ネット流動性, net liquidity, US net liquidity]
   - series_id: us.erp
-    name: 米株式リスクプレミアム
+    name: 米株益回り・10Y国債利回り差
     category: valuation
     geography: us
     frequency: monthly
@@ -59,7 +59,7 @@ series:
     notes: 米2Y − FF目標レンジ中点。目標レンジの中点と国債利回りの観測差で、実効FF金利との差でも政策変更幅・確率の推計でもない
     aliases: [米政策経路ギャップ, US policy path gap, 2Y-FF spread]
   - series_id: jp.policy_path_gap
-    name: 日本政策経路ギャップ(2Y−政策金利)
+    name: 日本2Y・実効コールO/N金利差
     category: rates
     geography: japan
     frequency: daily
@@ -101,7 +101,7 @@ series:
     notes: 金先物 / 銅先物の価格比。入力の価格単位に依存し、この比率だけでrisk-offや景気減速を断定しない
     aliases: [金銅比, gold copper ratio]
   - series_id: jp.erp
-    name: 日本株式リスクプレミアム
+    name: 日本株益回り・10Y国債利回り差
     category: valuation
     geography: japan
     frequency: daily

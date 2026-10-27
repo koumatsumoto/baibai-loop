@@ -423,7 +423,7 @@ def publish_release(
         for partition in manifest.partitions:
             for source in partition.sources:
                 if not isinstance(source, LakeSQLiteSnapshotSourceRef):
-                    raise LakePublishError("L1 graph contains an unsupported source reference")
+                    raise LakePublishError("lake graph contains an unsupported source reference")
             for item in partition.objects:
                 object_path = _mirror_path(mirror_root, item.key)
                 if _sha256(object_path) != item.sha256 or object_path.stat().st_size != item.bytes:
@@ -505,7 +505,7 @@ def publish_release(
         manifest_key=expected_release_key,
         manifest_sha256=release_sha256,
     )
-    with tempfile.NamedTemporaryFile(prefix="baibai-l1-pointer-", suffix=".json") as temporary:
+    with tempfile.NamedTemporaryFile(prefix="baibai-lake-pointer-", suffix=".json") as temporary:
         temporary.write(canonical_lake_model_bytes(pointer))
         temporary.flush()
         pointer_payload = Path(temporary.name).read_bytes()
@@ -555,15 +555,15 @@ def _reconcile_pointer_switch(
     try:
         remote = publication.head(key)
         if remote is None:
-            raise LakePublishError("L1 pointer is absent after an ambiguous switch")
+            raise LakePublishError("lake pointer is absent after an ambiguous switch")
         actual = publication.read_pointer(key, remote)
     except LakePublishError as reconciliation_error:
         raise LakePublishError(
-            "L1 current pointer switch outcome is unknown; resolve current before retrying"
+            "lake current pointer switch outcome is unknown; resolve current before retrying"
         ) from reconciliation_error
     if actual == expected:
         return remote
-    raise LakeCASConflict("L1 current pointer moved to a different release") from cause
+    raise LakeCASConflict("lake current pointer moved to a different release") from cause
 
 
 def _ensure_immutable(

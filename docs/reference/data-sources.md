@@ -32,7 +32,7 @@ JPXの規制・決算予定・資本政策・上場廃止は完了済みsource b
 
 margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日。後日訂正は公表・受領の文脈を保ち、公表前の当日残高を要求しない。subsetにないtickerを残高0にせず、全銘柄とunionして穴埋めしない。
 
-PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公表日より後のas-ofから使い、公表日当日は含めない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[市場環境](market-context.md#margin)に従う。
+PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公表日より後のas-ofから使い、公表日当日は含めない。全銘柄日次の既知PubDateは行ごとに適用し、同じ残高日の別銘柄が利用可能でも後発訂正を混ぜない。PubDateが未収録の場合だけ既存の営業日lag規約を使う。取得用の保存行読取と判断時点の選択は分け、訂正前vintageの復元を保証しない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[市場環境](market-context.md#margin)に従う。
 
 ## 経済原本
 
@@ -54,6 +54,8 @@ PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公�
 ## EDINET
 
 一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Valuationのtype=5 CSV経路とCompany Research factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
+
+archiveは同じdocID/typeの最初のbytesを保持する。通常refreshは保存済みZIPを再利用し、文書editや抽出失敗の再処理が同一archiveのfresh再取得を意味するわけではない。provider側で同一文書のbytesが修復された場合の差替えは、隔離取得と差分確認を伴う別の明示操作として扱う。現在の通常経路にその自動修復はなく、抽出testへ修復済みbytesを渡した成功を取得経路の修復保証にしない。
 
 <a id="edinet-metric-revision"></a>
 ### 抽出意味revision

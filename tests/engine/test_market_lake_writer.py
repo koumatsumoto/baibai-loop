@@ -11,9 +11,9 @@ from types import SimpleNamespace
 
 import pyarrow.parquet as pq
 import pytest
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
-from tools.diagnostics.benchmark_l1_export import benchmark
+from tests.helpers.lake_release import market_store
+from tools.diagnostics.benchmark_lake_export import benchmark
 
 from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.lake import identity as identity_module
@@ -576,7 +576,7 @@ def test_git_identity_rejects_dirty_or_unknown_source(
         identity_module.verified_git_commit()
 
 
-def test_l1_manifest_digest_is_part_of_the_gc_root(
+def test_lake_manifest_digest_is_part_of_the_gc_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
@@ -610,7 +610,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
     assert pointer.manifest_key not in plan.reachable
 
 
-def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_path: Path) -> None:
+def test_lake_export_benchmark_records_full_export_and_correction_transfer(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
     connection = open_connection(sqlite_path)
     write_lake_store_origin(
@@ -632,12 +632,29 @@ def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_pat
     )
 
     assert report["status"] == "measured"
-    assert report["kind"] == "l1_full_history_export_benchmark"
+    assert report["kind"] == "lake_full_history_export_benchmark"
     assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
     assert report["correction"]["new_object_count"] == 1  # type: ignore[index]
     assert report_path.is_file()
     assert report["producer_git_commit"] == _COMMIT
     assert sqlite_path.read_bytes() == source_before
+
+
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+def test_lake_benchmark_report_cannot_replace_input_store(tmp_path: Path, alias: str) -> None:
+    source = market_store(tmp_path / "market.sqlite")
+    before = source.read_bytes()
+    report = source
+    if alias != "direct":
+        report = tmp_path / "alias.sqlite"
+        if alias == "symlink":
+            report.symlink_to(source)
+        else:
+            report.hardlink_to(source)
+    with pytest.raises(ValueError, match="must not replace the input market store"):
+        benchmark(sqlite_path=source, report_path=report, producer_commit=_COMMIT)
+    assert source.read_bytes() == before
+    assert report.read_bytes() == before
 
 
 def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path) -> None:

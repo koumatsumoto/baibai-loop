@@ -1,4 +1,4 @@
-"""L1 export工程でobjectの同一性検証に使うdigestを産む。"""
+"""lake export工程でobjectの同一性検証に使うdigestを産む。"""
 
 from __future__ import annotations
 

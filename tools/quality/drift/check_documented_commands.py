@@ -24,7 +24,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import cast
 
-# CI は各 gate を script として起動するので、隣の gate は絶対 import で引く。
+# CI は各 gate を module として起動し、共通のparser解決を再利用する。
 from tools.quality.drift.check_cli_help import DELEGATED_GROUPS, build_parser
 
 _SCAN_DIRECTORIES = (".agents/skills",)

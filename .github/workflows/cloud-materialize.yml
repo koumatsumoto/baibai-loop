@@ -62,7 +62,7 @@ jobs:
       # published row counts, so a fill that silently did nothing cannot reach the export
       # as an empty market. Without it this workflow would republish the portfolio
       # without prices behind its holdings.
-      - name: Hydrate market store from the L1 release
+      - name: Hydrate market store from the lake release
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

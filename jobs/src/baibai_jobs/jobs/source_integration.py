@@ -25,8 +25,8 @@ from baibai_engine.job_api import (
 )
 from baibai_jobs.jobs.external_assessment_integration import merge_ready, verify_and_seal
 from baibai_jobs.jobs.source_handoff import _replay, complete
-from baibai_jobs.observability.discord import write_json_atomic
 from baibai_jobs.storage.external_assessment_ready import available_ready
+from baibai_jobs.storage.json_io import write_json_atomic
 from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
 from baibai_jobs.storage.merge_economic_store import merge_stores, verify_stores
 from baibai_jobs.storage.publication_lease import _load_handle, verify_held

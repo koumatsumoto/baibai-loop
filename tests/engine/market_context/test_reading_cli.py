@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -115,3 +116,28 @@ def _yield_observation(value: float, second: int) -> ObservationRecord:
         vintage_at=datetime(2026, 7, 15, 12, 0, second, tzinfo=UTC),
         source_url="https://example.com/yield",
     )
+
+
+def test_table_preserves_definition_and_unreadable_source_notes_in_one_cell(capsys):
+    definition = series_definition(frequency="daily")
+    snapshot = compute_reading(
+        series=[definition],
+        reader=store_reader(()),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=date(2026, 7, 15),
+    )
+    reading = replace(
+        snapshot.series[0],
+        flags=("source_unreadable",),
+        notes=("definition: volatility points, not premium", "source:\tmissing\nheader"),
+    )
+    cli._print_table(replace(snapshot, series=(reading,)))
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 3
+    row = dict(zip(lines[1].split("\t"), lines[2].split("\t"), strict=True))
+    assert "definition: volatility points, not premium" in row["notes"]
+    assert "source: missing header" in row["notes"]
+    assert "source_unreadable" in row["notes"]
+    assert "insufficient_history" in row["notes"]
+    assert row["latest"] == "-"

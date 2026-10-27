@@ -345,23 +345,13 @@ def weekly_margin_candidate_dates(
     for day in (candidate for candidate in trading_days if candidate <= balance_end):
         year, week, _ = day.isocalendar()
         last_of_week[(year, week)] = day
-    # A week that is still running has a last stored trading day that moves forward
-    # each day, so proposing it spends one call per run on a date that is not a
-    # balance date; nothing is lost by waiting, because the publication lag means a
-    # balance date is not usable until two trading days after the week closes. The
-    # week is in progress only when `end` reaches the newest day the store knows —
-    # a window that ends in the past has a complete final week and must keep it.
-    newest = max(last_of_week.values(), default=None)
-    stored_latest = _latest_stored_trading_day(conn_path=sqlite_path)
-    if (
-        newest is not None
-        and stored_latest is not None
-        and balance_end.isocalendar()[:2] == stored_latest.isocalendar()[:2]
-    ):
-        last_of_week.pop(newest.isocalendar()[:2], None)
     candidates = sorted(last_of_week.values())
     if publication_asof is None:
+        # A bounded historical store can end on a long-published balance date.
+        # Its cache frontier is not the clock of an in-progress trading week.
         return candidates
+    # Daily callers supply their publication cutoff. The latest in-progress
+    # week's candidate has no two later trading days by that cutoff and waits.
     return [
         candidate
         for candidate in candidates
@@ -448,19 +438,3 @@ def all_issues_daily_margin_backfill_candidate_dates(
     finally:
         conn.close()
     return [day for day in trading_days if all_issues_daily_margin_coverage_key(day) not in covered]
-
-
-def _latest_stored_trading_day(*, conn_path: Path) -> date | None:
-    conn = connect_current(conn_path)
-    if conn is None:
-        return None
-    try:
-        row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
-    finally:
-        conn.close()
-    if row is None or row[0] is None:
-        return None
-    try:
-        return date.fromisoformat(str(row[0]))
-    except ValueError:
-        return None

@@ -16,6 +16,7 @@ from baibai_engine.machine_analysis.company_valuation.metrics.periods import (
     _latest_consistent_actual,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.market.financial_documents import latest_disclosure_candidates
 from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents
@@ -39,7 +40,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v8"
+FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v9"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -670,9 +671,24 @@ def _load_fy_dividends(
         candidates = [row for row in rows if row.dps_actual_annual is not None]
         selected = _latest_consistent_actual(candidates, ("dps_actual_annual",))
         if selected is None:
-            # Retain the fiscal year as unresolved, rather than dropping its dividend.
+            # Missing/conflicting DPS does not erase an independently known FY
+            # boundary: a successor can still prove an omitted completed period.
+            boundaries = [
+                row for row in rows if row.period_start is not None and row.period_end is not None
+            ]
+            latest = latest_disclosure_candidates(boundaries)
+            starts = (
+                {row.period_start for row in latest}
+                if all(row.period_end == year and period_days(row) is not None for row in latest)
+                else set()
+            )
             observations.append(
-                _FYDividendObservation(year, max(row.disclosed_at for row in rows), None)
+                _FYDividendObservation(
+                    year,
+                    max(row.disclosed_at for row in rows),
+                    None,
+                    next(iter(starts)) if len(starts) == 1 else None,
+                )
             )
             continue
         observations.append(
@@ -746,6 +762,25 @@ def _resolve_total_return(
         ):
             return None, 0, None, "unresolved_dividend_period_gap"
         previous_end = observation.fiscal_year_end
+
+    # A successor FY can prove that a completed period inside the exit window
+    # was omitted. Use only its period boundary, never its future dividend.
+    # Without this evidence, do not invent a twelve-month fiscal-year schedule.
+    successors = [
+        observation for observation in observations if observation.fiscal_year_end > exit_date
+    ]
+    if successors:
+        first_end = min(observation.fiscal_year_end for observation in successors)
+        first = [
+            observation for observation in successors if observation.fiscal_year_end == first_end
+        ]
+        successor = max(first, key=lambda observation: observation.disclosed_at)
+        if (
+            successor.period_start is not None
+            and previous_end + timedelta(days=1) < successor.period_start
+            and successor.period_start <= exit_date + timedelta(days=1)
+        ):
+            return None, 0, None, "unresolved_dividend_period_gap"
 
     basis_date = price_basis_date or bars[-1].traded_at
     dividend_sum = 0.0

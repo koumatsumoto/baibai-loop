@@ -104,3 +104,41 @@ def test_historical_reader_does_not_load_current_candidate_calculation_or_rules(
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("command", ["run-show", "candidates"])
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+@pytest.mark.parametrize("path_source", ["argument", "environment", "default"])
+def test_forced_export_cannot_replace_input_run_store(
+    tmp_path, monkeypatch, capsys, command, alias, path_source
+):
+    path = tmp_path / "runs.sqlite"
+    _publish(path, revision="run-fixed")
+    before = path.read_bytes()
+    output = path
+    if alias != "direct":
+        output = tmp_path / "alias.sqlite"
+        if alias == "symlink":
+            output.symlink_to(path)
+        else:
+            output.hardlink_to(path)
+    argv = [command]
+    if command == "candidates":
+        argv.append("show")
+    if path_source == "argument":
+        argv += ["--runs-db", str(path)]
+    elif path_source == "environment":
+        monkeypatch.setenv("BAIBAI_RUNS_DB", str(path))
+    else:
+        from baibai_engine.storage import machine_analysis
+
+        monkeypatch.delenv("BAIBAI_RUNS_DB", raising=False)
+        monkeypatch.setattr(machine_analysis, "DEFAULT_RUN_STORE_PATH", path)
+    argv += ["--run-revision-id", "run-fixed", "--output-path", str(output), "--force"]
+    assert screening_main(argv) == 1
+    result = capsys.readouterr()
+    assert "must not replace the input run store" in result.err
+    assert result.out == ""
+    assert path.read_bytes() == before
+    assert output.read_bytes() == before
+    assert ScreeningRunReader(path).get_run("run-fixed") is not None

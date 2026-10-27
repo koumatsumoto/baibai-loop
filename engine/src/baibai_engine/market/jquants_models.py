@@ -45,6 +45,7 @@ class JQuantsAllIssuesDailyMargin:
     short_std_vol: float | None = None
     short_neg_vol: float | None = None
     issue_type: str | None = None
+    publication_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)

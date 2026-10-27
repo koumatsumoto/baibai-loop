@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 
 import pytest
 from tests.engine.test_edinet_research_facts import facts
-from tests.helpers.l1_release import lake as lake
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import lake as lake
 
 from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.market.edinet_facts.store import store_facts

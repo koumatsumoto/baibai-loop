@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 from baibai_engine.data_collection.economic.acquisition import (
-    DEFAULT_LATEST_LOOKBACK_DAYS,
-    LATEST_FETCH_LOOKBACK_DAYS,
-)
-from baibai_engine.data_collection.economic.acquisition import (
     SourceRefreshFailure as EconomicSourceRefreshFailure,
 )
 from baibai_engine.data_collection.economic.acquisition import (
@@ -233,7 +229,6 @@ from baibai_engine.storage.observations.snapshot import create_snapshot as creat
 
 __all__ = [
     "DEFAULT_ECONOMIC_DB_PATH",
-    "DEFAULT_LATEST_LOOKBACK_DAYS",
     "DEFAULT_TTM_RULES",
     "ECONOMIC_RECEIPT_KEYS",
     "EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET",
@@ -242,7 +237,6 @@ __all__ = [
     "EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET",
     "JQUANTS_FINANCIAL_SOURCES",
     "JQUANTS_MARKET_SOURCES",
-    "LATEST_FETCH_LOOKBACK_DAYS",
     "MARKET_DB_PATH",
     "MARKET_SCHEMA_VERSION",
     "RUNS_DB_PATH",

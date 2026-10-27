@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
 from baibai_engine.storage.lake import models as lake_models
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
@@ -148,7 +148,7 @@ def _tiny_market(path: Path) -> Path:
     )
 
 
-def _download_l1_closure(store: Boto3R2Store, mirror: Path) -> None:
+def _download_lake_closure(store: Boto3R2Store, mirror: Path) -> None:
     def download(key: str) -> bytes:
         path = mirror / key
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,7 +214,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
     assert json.loads(store.get_bytes(key))["generation"] == "second"
 
 
-def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
+def test_actual_r2_lake_publish_and_read_back_into_a_market_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
@@ -243,7 +243,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     )
     assert immediate_pointer.release_id == first.release_id
     remote_mirror = tmp_path / "remote-reader"
-    _download_l1_closure(store, remote_mirror)
+    _download_lake_closure(store, remote_mirror)
 
     mirrored_store = _emptied_market(sqlite_path, tmp_path / "mirrored.sqlite")
     with open_lake(mirror=remote_mirror) as (session, cache):

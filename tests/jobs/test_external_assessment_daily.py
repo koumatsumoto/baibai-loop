@@ -257,7 +257,7 @@ def test_new_plan_requires_cache_and_existing_release_before_master_or_plan_writ
     store = MemoryR2Store()
     with pytest.raises(ValueError, match="master cache directory"):
         daily.initialize(store, run_id="missing-cache", master_asof=ASOF, mirror=None)
-    with pytest.raises(ValueError, match="existing L1 release"):
+    with pytest.raises(ValueError, match="existing lake release"):
         daily.initialize(
             store, run_id="missing-release", master_asof=ASOF, mirror=tmp_path / "cache"
         )

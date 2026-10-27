@@ -347,7 +347,7 @@ class ScreeningProviderTests(unittest.TestCase):
             cached = cache / "edinet/csv_zips/S100TEST.zip"
             cached.parent.mkdir(parents=True)
             cached.write_text('{"StatusCode":"429","message":"Too Many Requests"}')
-            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
+            expected = _edinet_csv_zip([("jppfs_cor:NetSales", "CurrentYearDuration", "1000")])
             provider = EDINETRefresh(
                 "key",
                 sqlite_path=Path(tmp) / "market.sqlite",
@@ -367,7 +367,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_retries_json_rate_limit_without_local_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
+            expected = _edinet_csv_zip([("jppfs_cor:NetSales", "CurrentYearDuration", "1000")])
             provider = EDINETRefresh(
                 "key",
                 sqlite_path=Path(tmp) / "market.sqlite",
@@ -391,7 +391,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
+            expected = _edinet_csv_zip([("jppfs_cor:NetSales", "CurrentYearDuration", "1000")])
             session = _TransientThenBytesSession(content=expected)
             provider = EDINETRefresh(
                 "key", sqlite_path=Path(tmp) / "market.sqlite", session=session
@@ -1163,7 +1163,7 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_extracts_net_cash_and_fcf(self) -> None:
         rows = [
-            ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
+            ("jppfs_cor:NetSales", "CurrentYearDuration", "1000"),
             (
                 "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
                 "CurrentYearDuration",
@@ -1177,7 +1177,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "-40",
             ),
             ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
-            ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "300"),
             ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
             ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
             ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),
