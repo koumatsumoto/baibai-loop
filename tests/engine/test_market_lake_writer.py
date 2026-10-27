@@ -13,7 +13,7 @@ import pyarrow.parquet as pq
 import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
-from tools.diagnostics.benchmark_l1_export import benchmark
+from tools.diagnostics.benchmark_lake_export import benchmark
 
 from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.lake import identity as identity_module
@@ -576,7 +576,7 @@ def test_git_identity_rejects_dirty_or_unknown_source(
         identity_module.verified_git_commit()
 
 
-def test_l1_manifest_digest_is_part_of_the_gc_root(
+def test_lake_manifest_digest_is_part_of_the_gc_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
@@ -610,7 +610,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
     assert pointer.manifest_key not in plan.reachable
 
 
-def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_path: Path) -> None:
+def test_lake_export_benchmark_records_full_export_and_correction_transfer(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
     connection = open_connection(sqlite_path)
     write_lake_store_origin(
@@ -632,7 +632,7 @@ def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_pat
     )
 
     assert report["status"] == "measured"
-    assert report["kind"] == "l1_full_history_export_benchmark"
+    assert report["kind"] == "lake_full_history_export_benchmark"
     assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
     assert report["correction"]["new_object_count"] == 1  # type: ignore[index]
     assert report_path.is_file()
