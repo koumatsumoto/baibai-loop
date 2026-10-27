@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
 from baibai_engine.data_collection.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP

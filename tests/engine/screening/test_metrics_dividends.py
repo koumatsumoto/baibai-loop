@@ -305,8 +305,7 @@ class DividendCarryResolverTests(unittest.TestCase):
         self.assertIsNone(carry.dividend_yield)
 
     def test_a_year_with_no_dividend_is_answered_even_across_a_split(self) -> None:
-        # 0 円は何倍しても 0 円なので、無配の年度に確定すべき株式基準は無い。ここを拒否に
-        # 倒すと、分割を出す無配銘柄が利回りだけでなく E[r] ごと判断面から消える。
+        # 明示された0円は分割後も0円。未観測DPSや基準不明の正のDPSとは区別する。
         summaries = [
             _summary(
                 "7369",
@@ -421,7 +420,7 @@ class TradableShareChangeTest(unittest.TestCase):
         return result.financials["130A"]
 
     def test_a_buyback_year_moves_only_the_treasury_excluded_count(self) -> None:
-        """自己株を 10% 積んだ年。発行済は動かないので現行の carry 項は 0 になる。"""
+        """自己株を 10% 積んだ年。発行済は動かないので旧推計の carry 項は 0 になる。"""
 
         financial = self._snapshot(
             prior_issued=400_000_000.0,
@@ -436,7 +435,7 @@ class TradableShareChangeTest(unittest.TestCase):
         self.assertAlmostEqual(financial.tradable_share_change_yoy, -0.10, places=9)
 
     def test_a_cancellation_year_moves_only_the_issued_count(self) -> None:
-        """積んだ自己株を消却した年。現金は動かないのに現行の carry 項だけが符号を持つ。"""
+        """積んだ自己株を消却した年。現金は動かないのに旧推計の carry 項だけが符号を持つ。"""
 
         financial = self._snapshot(
             prior_issued=400_000_000.0,

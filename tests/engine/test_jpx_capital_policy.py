@@ -12,8 +12,8 @@ from unittest.mock import patch
 import openpyxl
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
 from baibai_engine.data_collection.jpx.models import JPXResponse
 from baibai_engine.data_collection.jpx.receipts import (

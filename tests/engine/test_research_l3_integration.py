@@ -16,7 +16,7 @@ import pytest
 import yaml
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.l1_release import publish_market_fixture
+from tests.helpers.lake_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
 from tests.helpers.proposal import PREPARED, PROPOSAL_ID, PUBLISHED, bind_review
 from tests.helpers.research_selection import selected_target

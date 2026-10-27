@@ -274,9 +274,8 @@ def _raise_for_response(response: requests.Response, url: str) -> None:
         if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
             raise ProviderRateLimitError(f"source rate-limited {url}") from exc
         if response.status_code == HTTPStatus.FORBIDDEN:
-            # An edge bot-mitigation says "not you" this way as readily as it
-            # says it with an empty body, so a provider that can try another
-            # route gets to recognise both as the same situation.
+            # Keep the existing response category without inferring the reason
+            # for the refusal or permission to use another route.
             raise SourceWithheldError(f"source withheld {url}: {exc}") from exc
         raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
 
