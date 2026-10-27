@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -15,7 +15,7 @@ from baibai_engine.machine_analysis.screening.calibration.grid import (
     month_end_asof_grid,
 )
 from baibai_engine.machine_analysis.screening.calibration.panel import _coverage_floors
-from baibai_engine.market import jpx_reader, jquants_reader, price_reader
+from baibai_engine.market import jpx_reader, jquants_reader, margin_reader, price_reader
 from baibai_engine.market.edinet_metrics import store as edinet_store
 from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market.jquants_decode import JQuantsProviderError
@@ -207,7 +207,8 @@ def test_price_coverage_and_rows_share_a_read_snapshot(tmp_path, monkeypatch, re
         return read_daily_bars(path, day, day)
 
     rows = read()
-    assert rows is not None and len(rows) == 1
+    assert rows is not None
+    assert len(rows) == 1
     assert rows[0].adjustment_factor == 0.5
     if reader_kind != "actions":
         assert rows[0].close == 100
@@ -258,5 +259,137 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
         else jquants_reader.read_market_calendar
     )
     rows = reader(path, day, day)
-    assert rows is not None and len(rows) == 1
+    assert rows is not None
+    assert len(rows) == 1
     assert reader(path, day, day) is None
+
+
+@pytest.mark.parametrize(
+    ("source", "table", "day", "reader_name"),
+    [
+        ("margin_interest", "jquants_weekly_margin", "2026-09-18", "read_weekly_margin"),
+        (
+            "margin_interest",
+            "jquants_all_issues_daily_margin",
+            "2026-10-02",
+            "read_all_issues_daily_margin",
+        ),
+        ("margin_alerts", "jquants_margin_alerts", "2026-10-02", "read_margin_alerts"),
+        ("margin_interest", "jquants_weekly_margin", "2026-09-18", "published_margin_week_ends"),
+        (
+            "margin_interest",
+            "jquants_all_issues_daily_margin",
+            "2026-10-02",
+            "_published_all_issues_daily_balance_dates",
+        ),
+        (
+            "short_sale_reports",
+            "jquants_short_sale_reports",
+            "2026-10-02",
+            "read_short_sale_reports",
+        ),
+    ],
+)
+def test_margin_coverage_and_observations_share_a_snapshot(
+    tmp_path, monkeypatch, source, table, day, reader_name
+):
+    from tests.engine.test_jquants_projection import FIRST_AT, body, receive, source_record
+
+    from baibai_engine.market.jquants_projection import project_request
+
+    path = tmp_path / "market.sqlite"
+    query = {"disc_date" if source == "short_sale_reports" else "date": day}
+    request_id = receive(path, source, query, body([source_record(source, day)]), FIRST_AT)
+    project_request(path, request_id)
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
+    if "published" in reader_name:
+        with closing(sqlite3.connect(path)) as conn, conn:
+            conn.executemany(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', ?, 100)",
+                [
+                    ((date.fromisoformat(day) + timedelta(days=offset)).isoformat(),)
+                    for offset in range(1, 8)
+                ],
+            )
+    original_connect = margin_reader.connect_current
+    changed = False
+
+    class ConcurrentRead:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def execute(self, sql, parameters=()):
+            nonlocal changed
+            if not changed and f"FROM {table} " in sql:
+                changed = True
+                with closing(sqlite3.connect(path)) as writer, writer:
+                    writer.execute(f"DELETE FROM {table}")
+                    writer.execute("UPDATE source_coverage SET status = 'partial'")
+            return self.conn.execute(sql, parameters)
+
+        def close(self):
+            self.conn.close()
+
+    monkeypatch.setattr(
+        margin_reader, "connect_current", lambda path: ConcurrentRead(original_connect(path))
+    )
+    reader = getattr(margin_reader, reader_name)
+    on_date = date.fromisoformat(day)
+    args = (
+        (path, on_date, on_date)
+        if source in {"margin_alerts", "short_sale_reports"}
+        else (path, on_date)
+    )
+    if "published" in reader_name:
+        args = (path, on_date + timedelta(days=7))
+    rows = reader(*args)
+    assert changed
+    assert rows is not None
+    assert len(rows) == 1
+    if "published" in reader_name:
+        assert rows == [on_date]
+        assert reader(*args) == []
+    else:
+        assert rows[0].ticker == "1301"
+        assert reader(*args) is None
+
+
+@pytest.mark.parametrize("reader_kind", ["baseline", "metrics", "documents"])
+def test_edinet_coverage_and_rows_share_a_snapshot(tmp_path, monkeypatch, reader_kind):
+    from tests.engine.test_edinet_metric_eligibility import BASE, _seed
+
+    path = tmp_path / "market.sqlite"
+    _seed(path)
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
+    changed = False
+    table = "edinet_documents" if reader_kind == "documents" else "edinet_metrics"
+
+    class ConcurrentRead(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            nonlocal changed
+            if not changed and f"FROM {table} " in sql:
+                changed = True
+                with closing(sqlite3.connect(path)) as writer, writer:
+                    writer.execute(f"DELETE FROM {table}")
+                    writer.execute("UPDATE source_coverage SET status = 'failed'")
+            return super().execute(sql, parameters)
+
+    monkeypatch.setattr(
+        edinet_store,
+        "connect_current",
+        lambda path: sqlite3.connect(
+            path.resolve().as_uri() + "?mode=ro", uri=True, factory=ConcurrentRead
+        ),
+    )
+    reader = getattr(
+        edinet_store,
+        "read_edinet_metric_baseline" if reader_kind == "baseline" else f"read_edinet_{reader_kind}",
+    )
+    result = reader(path, BASE)
+    assert changed
+    assert result is not None
+    rows = result.rows if reader_kind == "baseline" else result
+    assert len(rows) == 2
+    assert reader(path, BASE) is None

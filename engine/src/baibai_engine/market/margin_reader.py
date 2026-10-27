@@ -42,6 +42,7 @@ def read_short_sale_reports(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not range_covered(conn, SHORT_SALE_REPORT_SOURCE, start, end):
             return None
         rows = conn.execute(
@@ -97,6 +98,7 @@ def read_weekly_margin(sqlite_path: Path, week_end: date) -> list[JQuantsWeeklyM
         return None
     iso = week_end.isoformat()
     try:
+        conn.execute("BEGIN")
         coverage = conn.execute(
             "SELECT status FROM source_coverage WHERE source = ? AND coverage_key = ?",
             (WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key(week_end)),
@@ -137,6 +139,7 @@ def read_margin_alerts(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not range_covered(conn, MARGIN_ALERT_SOURCE, start, end):
             return None
         rows = conn.execute(
@@ -193,6 +196,7 @@ def read_all_issues_daily_margin(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         coverage = conn.execute(
             "SELECT status, record_count FROM source_coverage "
             "WHERE source = ? AND coverage_key = ?",
@@ -267,6 +271,7 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
     if conn is None:
         return []
     try:
+        conn.execute("BEGIN")
         # Only balance dates the reader can actually serve. `read_weekly_margin`
         # refuses a date whose coverage is not `ok`, so listing one here would put
         # an unreadable date at the head of the list and blank the whole cohort
@@ -344,6 +349,7 @@ def _published_all_issues_daily_balance_dates(sqlite_path: Path, asof: date) -> 
     if conn is None:
         return []
     try:
+        conn.execute("BEGIN")
         readable = {
             str(row[0])
             for row in conn.execute(
