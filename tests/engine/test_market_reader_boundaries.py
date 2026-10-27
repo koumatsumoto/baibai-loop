@@ -385,7 +385,9 @@ def test_edinet_coverage_and_rows_share_a_snapshot(tmp_path, monkeypatch, reader
     )
     reader = getattr(
         edinet_store,
-        "read_edinet_metric_baseline" if reader_kind == "baseline" else f"read_edinet_{reader_kind}",
+        "read_edinet_metric_baseline"
+        if reader_kind == "baseline"
+        else f"read_edinet_{reader_kind}",
     )
     result = reader(path, BASE)
     assert changed

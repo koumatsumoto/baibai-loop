@@ -22,8 +22,8 @@ from baibai_engine.job_api import (
     ExternalAssessmentSource,
     external_assessment_parse_failure_reasons,
 )
-from baibai_jobs.storage.canonical_json import canonical_json
 from baibai_jobs.storage.external_assessment_identity import PLAN_FORMAT
+from baibai_jobs.storage.json_io import canonical_json
 
 MAX_COHORT_TICKERS = 50
 DEFAULT_COHORT_TICKERS = 50

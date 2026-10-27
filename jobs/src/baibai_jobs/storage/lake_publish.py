@@ -505,7 +505,7 @@ def publish_release(
         manifest_key=expected_release_key,
         manifest_sha256=release_sha256,
     )
-    with tempfile.NamedTemporaryFile(prefix="baibai-l1-pointer-", suffix=".json") as temporary:
+    with tempfile.NamedTemporaryFile(prefix="baibai-lake-pointer-", suffix=".json") as temporary:
         temporary.write(canonical_lake_model_bytes(pointer))
         temporary.flush()
         pointer_payload = Path(temporary.name).read_bytes()

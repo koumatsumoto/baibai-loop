@@ -22,12 +22,10 @@ that publication never happened; failures can also occur after a pointer switch.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import re
 import sys
-import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -131,23 +129,6 @@ def sanitize_one_line(value: object, max_chars: int = _SCALAR_MAX_CHARS) -> str:
     text = re.sub(r"\s+", " ", str(value)).strip()
     text = text.replace("{", "").replace("}", "")
     return text[:max_chars]
-
-
-def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
-    """Write JSON via a temp file + rename so a reader never sees a partial file."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-        tmp_path.replace(path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            tmp_path.unlink()
-        raise
 
 
 def prepare_webhook_url(raw_url: str) -> str:
