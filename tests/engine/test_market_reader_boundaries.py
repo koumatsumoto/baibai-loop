@@ -15,7 +15,7 @@ from baibai_engine.machine_analysis.screening.calibration.grid import (
     month_end_asof_grid,
 )
 from baibai_engine.machine_analysis.screening.calibration.panel import _coverage_floors
-from baibai_engine.market import jpx_reader, jquants_reader
+from baibai_engine.market import jpx_reader, jquants_reader, price_reader
 from baibai_engine.market.edinet_metrics import store as edinet_store
 from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market.jquants_decode import JQuantsProviderError
@@ -158,3 +158,58 @@ def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeyp
         jquants_reader.read_eq_master_exact(path, date(2026, 10, 15))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         conn.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("reader_kind", ["all", "scoped", "actions"])
+def test_price_coverage_and_rows_share_a_read_snapshot(tmp_path, monkeypatch, reader_kind):
+    path = tmp_path / "market.sqlite"
+    day = date(2026, 1, 30)
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_factor) "
+            "VALUES ('1301', ?, 100, 0.5)",
+            (day.isoformat(),),
+        )
+        record_range_source_coverage(
+            conn,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=day,
+            requested_end=day,
+            status="ok",
+            error=None,
+        )
+    original = price_reader.range_covered
+    changed = False
+
+    def covered_then_refresh(conn, source, start, end):
+        nonlocal changed
+        result = original(conn, source, start, end)
+        if not changed:
+            changed = True
+            with closing(sqlite3.connect(path)) as writer, writer:
+                writer.execute(
+                    "UPDATE jquants_daily_bars SET close = 200, adjustment_factor = 0.25"
+                )
+                writer.execute("UPDATE source_coverage SET status = 'partial'")
+        return result
+
+    monkeypatch.setattr(price_reader, "range_covered", covered_then_refresh)
+
+    def read():
+        if reader_kind == "actions":
+            return price_reader.read_adjustment_factor_bars(path, day, day)
+        if reader_kind == "scoped":
+            return read_daily_bars_for_tickers(path, ("1301",), day, day)
+        return read_daily_bars(path, day, day)
+
+    rows = read()
+    assert rows is not None and len(rows) == 1
+    assert rows[0].adjustment_factor == 0.5
+    if reader_kind != "actions":
+        assert rows[0].close == 100
+    # The next call sees the new incomplete acquisition, not the old successful coverage.
+    assert read() is None
