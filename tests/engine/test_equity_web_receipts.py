@@ -1,4 +1,4 @@
-"""Public HTML receipt identity, byte retention and fixed L1 release behavior."""
+"""Public HTML receipt identity, byte retention and fixed lake release behavior."""
 
 from __future__ import annotations
 

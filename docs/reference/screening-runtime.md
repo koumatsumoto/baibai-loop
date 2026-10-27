@@ -5,7 +5,7 @@
 <a id="rule-purpose"></a>
 ## 候補抽出の意味
 
-初期政策は二つのviewを使う。Yは符号付きの実績年間利益／時価総額、Mは共通取引日を端点とする12–1か月価格変化。Y降順と、S = 0.6 × Y/(0.10+|Y|) + 0.4 × M/(0.50+|M|) の降順をそれぞれ20件取り、重複を補充せずunionする。これは調査入口の有限容量であり、投資枠や採用件数ではない。式・tie-break・保存政策の正本は[views.py](../../engine/src/baibai_engine/machine_analysis/screening/views.py)。
+初期政策は、報告利益と価格の座標Yを使うviewと、Yに中期価格変化Mを組み合わせるviewのunionを調査入口にする。抽出枠は有限の調査容量であり、投資枠や採用件数ではない。順位算式・tie-breakと政策型は[views.py](../../engine/src/baibai_engine/machine_analysis/screening/views.py)、観測窓はモデル側の実装を正本とする。重複候補を二票として扱わない。
 
 候補理由はview別rankとして保持し、union全体の投資順位を作らない。Yは期待収益率ではなく、Mは配当込みreturnではない。同じ価格を含む二つの座標を独立した証拠票にしない。未知を0へ置換せず、Yのみ既知ならY viewだけへ参加できる。負利益を一律排除せず、極端な利益利回りを持続する現金創出の証拠にしない。
 
@@ -24,6 +24,6 @@
 
 ModelGenerationは入力identity・計算revision・モデルを一組として保存する。ScreeningSelectionは別identityで、元generation・対象母集団・政策・結果を保存する。既存identityへの別内容の上書きは拒否し、再送で初回の公開時刻を変更しない。候補0件も正常な公開結果であり、過去の非空候補へ戻さない。
 
-既定読取はresearch日以下の基準日を優先し、同日は公開時刻で選ぶ。generation評価時刻と候補公開時刻の両方がknown_at以下でなければならない。explicitの未知・未来identityをlatestへ差し替えない。Selectionは必要なモデル断面と政策結果をapplication DBへ複写し、再開は保存入力だけを読む。日次の再生成cacheは政策公開順の異なる3世代を優先し、今回の明示生成も保持する。過去日手動生成では最大4世代となり、政策のない生成は後順位で期限切れになり得る。削除は同じreleaseの公開成功後に限り、保存済み評価・提案・台帳・原本・較正とは別である。
+既定読取はresearch日以下の基準日を優先し、同日は公開時刻で選ぶ。generation評価時刻と候補公開時刻の両方がknown_at以下でなければならない。explicitの未知・未来identityをlatestへ差し替えない。Selectionは必要なモデル断面と政策結果をapplication DBへ複写し、再開は保存入力だけを読む。日次の再生成cacheは最近の公開政策に必要な世代と今回の明示生成を優先して有限に保持する。保持数・順序は[所有実装](../../engine/src/baibai_engine/machine_analysis/generation_store.py)を見る。削除は同じreleaseの公開成功後に限り、保存済み評価・提案・台帳・原本・較正とは別である。
 
 取得・retry・受領反映・発行順は[OPERATIONS](../../jobs/OPERATIONS.md)が所有する。意味を変えない配置変更だけで計算revisionを更新しない。
