@@ -42,6 +42,54 @@ def test_short_fiscal_year_with_contiguous_periods_is_not_a_gap():
     assert row.realized_dividend_sum == 100.0
 
 
+@pytest.mark.parametrize("dps", [0.0, 50.0])
+@pytest.mark.parametrize("successor_dps", [None, 0.0, 999.0])
+def test_successor_period_proves_missing_last_completed_fy(dps, successor_dps):
+    observations = [
+        _FYDividendObservation(date(year, 3, 31), date(year, 5, 15), dps, date(year - 1, 4, 1))
+        for year in (2020, 2021)
+    ]
+    observations.append(
+        _FYDividendObservation(
+            date(2023, 3, 31), date(2023, 5, 15), successor_dps, date(2022, 4, 1)
+        )
+    )
+    row = _row(observations)
+    assert row.price_return == pytest.approx(0.2)
+    assert row.total_return_status == "unresolved_dividend_period_gap"
+    assert row.realized_dividend_sum is None
+    assert row.total_return is None
+
+
+@pytest.mark.parametrize("successor_start", [None, date(2022, 4, 1), date(2023, 2, 2)])
+def test_successor_does_not_invent_gap_or_add_future_dividend(successor_start):
+    observations = [
+        _FYDividendObservation(date(year, 3, 31), date(year, 5, 15), 10.0, date(year - 1, 4, 1))
+        for year in (2020, 2021, 2022)
+    ]
+    observations.append(
+        _FYDividendObservation(date(2023, 3, 31), date(2023, 5, 15), 999.0, successor_start)
+    )
+    row = _row(observations)
+    assert row.total_return_status == "resolved"
+    assert row.realized_dividend_fy_count == 3
+    assert row.realized_dividend_sum == 30.0
+    assert row.total_return == pytest.approx(0.23)
+
+
+def test_exit_next_day_period_start_proves_missing_short_fy():
+    row = _row(
+        [
+            _FYDividendObservation(date(2020, 3, 31), date(2020, 5, 15), 10.0, date(2019, 4, 1)),
+            _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 15), 10.0, date(2020, 4, 1)),
+            _FYDividendObservation(date(2022, 3, 31), date(2022, 5, 15), 10.0, date(2021, 4, 1)),
+            _FYDividendObservation(date(2023, 3, 31), date(2023, 5, 15), 999.0, date(2023, 2, 1)),
+        ]
+    )
+    assert row.total_return_status == "unresolved_dividend_period_gap"
+    assert row.total_return is None
+
+
 def _row(observations):
     return _ticker_forward_rows(
         "1000",

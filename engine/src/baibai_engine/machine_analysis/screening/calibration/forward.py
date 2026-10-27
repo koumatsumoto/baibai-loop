@@ -39,7 +39,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v8"
+FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v9"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -746,6 +746,25 @@ def _resolve_total_return(
         ):
             return None, 0, None, "unresolved_dividend_period_gap"
         previous_end = observation.fiscal_year_end
+
+    # A successor FY can prove that a completed period inside the exit window
+    # was omitted. Use only its period boundary, never its future dividend.
+    # Without this evidence, do not invent a twelve-month fiscal-year schedule.
+    successors = [
+        observation for observation in observations if observation.fiscal_year_end > exit_date
+    ]
+    if successors:
+        first_end = min(observation.fiscal_year_end for observation in successors)
+        first = [
+            observation for observation in successors if observation.fiscal_year_end == first_end
+        ]
+        successor = max(first, key=lambda observation: observation.disclosed_at)
+        if (
+            successor.period_start is not None
+            and previous_end + timedelta(days=1) < successor.period_start
+            and successor.period_start <= exit_date + timedelta(days=1)
+        ):
+            return None, 0, None, "unresolved_dividend_period_gap"
 
     basis_date = price_basis_date or bars[-1].traded_at
     dividend_sum = 0.0
