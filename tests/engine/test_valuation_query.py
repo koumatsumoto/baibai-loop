@@ -103,15 +103,10 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     )
     before = path.read_bytes()
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    inputs = _project_inputs(
+    inputs = _project_saved_legacy_inputs(
         tickers=("1234", "9999"),
-        as_of=CUTOFF,
-        cutoff=now,
         known_at=now,
-        market_path=tmp_path / "absent-market",
         runs_path=path,
-        indicators_path=tmp_path / "absent-indicators",
-        app_path=tmp_path / "absent-app",
         run_revision_id="cf-fixed",
     )
     security = inputs["securities"]["1234"]
@@ -364,15 +359,10 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
     assert "not observed zero" in valuation.carry_missing_assumption
     assert valuation.assumptions == estimate.assumptions
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    research = _project_inputs(
+    research = _project_saved_legacy_inputs(
         tickers=("1234",),
-        as_of=CUTOFF,
-        cutoff=now,
         known_at=now,
-        market_path=tmp_path / "absent-market",
         runs_path=path,
-        indicators_path=tmp_path / "absent-indicators",
-        app_path=tmp_path / "absent-app",
     )["securities"]["1234"]["machine_valuation"]["estimate"]
     for key in (
         "dividend_yield",
@@ -436,7 +426,7 @@ def test_saved_dps_reaches_research_without_changing_candidates_or_raw_values(
     )
     saved = type(selected).model_validate_json(selected.model_dump_json())
     snapshot_before = saved.model_dump(mode="json")
-    # Normal Research reads the frozen analysis, even after its mutable run store is gone.
+    # Retained legacy Selection reads its frozen analysis after the old run store is gone.
     path.unlink()
     projected = project_research_inputs(saved)["securities"]
     recorded = projected["1234"]["machine_valuation"]["estimate"]
@@ -566,18 +556,14 @@ assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_eng
     )
 
 
-def _project_inputs(
+def _project_saved_legacy_inputs(
     *,
     tickers,
-    as_of,
-    cutoff,
     known_at,
-    market_path,
     runs_path,
-    indicators_path,
-    app_path,
     run_revision_id=None,
 ):
+    """Build a retained legacy snapshot, not the current generated-model Research input."""
     revision = run_revision_id or "carry-inputs"
     gaps = tuple(
         InputGap(

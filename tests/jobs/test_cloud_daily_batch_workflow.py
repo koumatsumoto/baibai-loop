@@ -1,4 +1,4 @@
-"""共通統合はモデルとL1を固定して公開し、Web生成に成功条件を委ねない。"""
+"""共通統合はモデルとlake releaseを固定して公開し、Web生成に成功条件を委ねない。"""
 
 import os
 import subprocess

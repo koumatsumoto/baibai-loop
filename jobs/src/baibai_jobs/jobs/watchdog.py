@@ -1,20 +1,11 @@
-"""Schedule-gap watchdog for the cloud daily batch.
+"""市場・経済取得と共通統合の実行欠落を、対象日とrun結果から通知する。
 
-``cloud-daily-batch`` reports its own outcome to Discord, so every failure mode it
-can observe arrives as a push message. A run that never starts observes nothing:
-no ``[OK]``, no ``[FAILED]``, no message at all. GitHub drops scheduled runs under
-load, and a merge landing seconds before the cron replaces the schedule for that
-day, so the gap is a recurring shape rather than a one-off. Absence of a message
-is exactly what a human is worst at noticing, and the UI as-of and the workflow
-history only answer when someone goes looking.
+各jobの通知だけでは起動しなかった実行を検出できないため、gh APIの履歴を読む。
+確認範囲に対象日の成功も進行中runもなければ同じ#batch-runsへ通知する。
+成功と進行中は区別し、遅延・欠落の原因や通知配送の成功を推定しない。
+取得・再実行・公開は行わず、healthy/in_flight時は重複した正常通知を送らない。
 
-This adapter turns that silence into a message. It reads a ``gh api`` workflow-run
-listing and posts to the same ``#batch-runs`` webhook only when the recent window
-holds neither a successful run nor one still in flight. A healthy day sends nothing,
-so a second daily ``[OK]`` never trains the reader to ignore the channel.
-
-Dependency-free by design: only the Python standard library and no 3.13+ syntax,
-so the watchdog job runs on the runner's system ``python3`` without ``uv``.
+runnerのsystem python3でuvなしに動くよう、標準libraryだけで3.13+構文を使わない。
 """
 
 from __future__ import annotations
@@ -120,11 +111,11 @@ STATE_MISSING = "missing"
 class Verdict:
     """What the window holds, and therefore whether the batch is missing.
 
-    ``in_flight`` is a separate answer from ``missing`` because a batch that started
-    late is not a gap: it will report its own outcome when it finishes, including a
-    ``[CANCELLED]`` if it hits the job timeout. Folding it into ``missing`` would send
-    a false alarm every time the schedule queue runs long enough to push the batch past
-    the watchdog, and a channel that cries wolf stops being read.
+    ``in_flight`` is separate from ``missing``: a late-started batch is not absent.
+    This observation does not prove eventual completion or notification delivery;
+    cancellation, timeout or transport failure can prevent a terminal notice.
+    Treating every running batch as missing would create false alarms whenever
+    the schedule queue delays integration past the watchdog.
     """
 
     state: str
