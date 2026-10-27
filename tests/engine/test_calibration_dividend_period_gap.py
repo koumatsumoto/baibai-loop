@@ -2,7 +2,6 @@ from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
-
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.machine_analysis.screening.calibration.forward import (
