@@ -16,6 +16,7 @@ from baibai_engine.machine_analysis.company_valuation.metrics.periods import (
     _latest_consistent_actual,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.market.financial_documents import latest_disclosure_candidates
 from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.jquants_reader import read_financial_documents
@@ -670,9 +671,24 @@ def _load_fy_dividends(
         candidates = [row for row in rows if row.dps_actual_annual is not None]
         selected = _latest_consistent_actual(candidates, ("dps_actual_annual",))
         if selected is None:
-            # Retain the fiscal year as unresolved, rather than dropping its dividend.
+            # Missing/conflicting DPS does not erase an independently known FY
+            # boundary: a successor can still prove an omitted completed period.
+            boundaries = [
+                row for row in rows if row.period_start is not None and row.period_end is not None
+            ]
+            latest = latest_disclosure_candidates(boundaries)
+            starts = (
+                {row.period_start for row in latest}
+                if all(row.period_end == year and period_days(row) is not None for row in latest)
+                else set()
+            )
             observations.append(
-                _FYDividendObservation(year, max(row.disclosed_at for row in rows), None)
+                _FYDividendObservation(
+                    year,
+                    max(row.disclosed_at for row in rows),
+                    None,
+                    next(iter(starts)) if len(starts) == 1 else None,
+                )
             )
             continue
         observations.append(

@@ -1,13 +1,18 @@
+from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
 
+from tests.helpers.screening_sqlite import insert_financial_record
+
 from baibai_engine.machine_analysis.screening.calibration.forward import (
     HORIZONS,
     _FYDividendObservation,
+    _load_fy_dividends,
     _ticker_forward_rows,
 )
 from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.storage.observations.schema import open_connection
 
 
 @pytest.mark.parametrize("missing", [2020, 2021, None])
@@ -144,3 +149,97 @@ def test_fiscal_year_end_entry_accepts_next_day_but_not_a_missing_day(
         assert row.total_return_status == "unresolved_dividend_period_gap"
         assert row.realized_dividend_sum is None
         assert row.total_return is None
+
+
+@pytest.mark.parametrize(
+    "successor_case", ["missing", "conflict", "zero", "positive", "later_partial"]
+)
+def test_saved_successor_boundary_survives_missing_or_conflicting_dps(tmp_path, successor_case):
+    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
+        for year in (2020, 2021, 2023):
+            amounts = [10.0]
+            if year == 2023:
+                amounts = {
+                    "missing": [None],
+                    "later_partial": [None],
+                    "conflict": [10.0, 20.0],
+                    "zero": [0.0],
+                    "positive": [999.0],
+                }[successor_case]
+            for index, amount in enumerate(amounts):
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "10000",
+                        "DiscNo": f"{year}-{index}",
+                        "DiscDate": f"{year}-05-15",
+                        "DiscTime": "15:00",
+                        "CurPerType": "FY",
+                        "CurFYEn": f"{year}-03-31",
+                        "CurPerSt": f"{year - 1}-04-01",
+                        "CurPerEn": f"{year}-03-31",
+                        "DivAnn": amount,
+                    },
+                )
+        if successor_case == "later_partial":
+            insert_financial_record(
+                conn,
+                {
+                    "Code": "10000",
+                    "DiscNo": "2023-partial",
+                    "DiscDate": "2023-05-16",
+                    "CurPerType": "FY",
+                    "CurFYEn": "2023-03-31",
+                    "DivAnn": None,
+                },
+            )
+        observations = _load_fy_dividends(conn, "1000", cutoff=date(2023, 6, 30))
+    assert observations[-1].period_start == date(2022, 4, 1)
+    if successor_case in {"missing", "conflict", "later_partial"}:
+        assert observations[-1].dps_actual_annual is None
+    row = _row(observations)
+    assert row.price_return == pytest.approx(0.2)
+    assert row.total_return_status == "unresolved_dividend_period_gap"
+    assert row.total_return is None
+
+
+@pytest.mark.parametrize("starts", [[None], ["2022-04-01", "2022-05-01"], ["2024-04-01"]])
+def test_missing_dps_does_not_invent_an_unknown_or_conflicting_boundary(tmp_path, starts):
+    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
+        for index, start in enumerate(starts):
+            insert_financial_record(
+                conn,
+                {
+                    "Code": "10000",
+                    "DiscNo": f"2023-{index}",
+                    "DiscDate": "2023-05-15",
+                    "DiscTime": "15:00",
+                    "CurPerType": "FY",
+                    "CurFYEn": "2023-03-31",
+                    "CurPerSt": start,
+                    "CurPerEn": "2023-03-31",
+                    "DivAnn": None,
+                },
+            )
+        observations = _load_fy_dividends(conn, "1000", cutoff=date(2023, 6, 30))
+    assert observations[0].period_start is None
+
+
+def test_explicit_invalid_boundary_revision_does_not_restore_old_boundary(tmp_path):
+    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
+        for day, start in [("2023-05-15", "2022-04-01"), ("2023-05-16", "2024-04-01")]:
+            insert_financial_record(
+                conn,
+                {
+                    "Code": "10000",
+                    "DiscNo": day,
+                    "DiscDate": day,
+                    "CurPerType": "FY",
+                    "CurFYEn": "2023-03-31",
+                    "CurPerSt": start,
+                    "CurPerEn": "2023-03-31",
+                    "DivAnn": None,
+                },
+            )
+        observations = _load_fy_dividends(conn, "1000", cutoff=date(2023, 6, 30))
+    assert observations[0].period_start is None
