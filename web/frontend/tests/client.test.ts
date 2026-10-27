@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, fetchJson } from '../src/api/client'
-import { bootstrapSharedAccess, getSharedToken, getViewPassword, setViewPassword, subscribeAuthRequired } from '../src/api/auth'
+import { bootstrapSharedAccess, clearViewPassword, getSharedToken, getViewPassword, setViewPassword, subscribeAuthRequired } from '../src/api/auth'
 
 function createLocalStorage(): Storage {
   const store = new Map<string, string>()
@@ -38,6 +38,8 @@ function requestHeaders(): Headers {
 beforeEach(() => {
   vi.stubGlobal('localStorage', createLocalStorage())
   vi.stubGlobal('sessionStorage', createLocalStorage())
+  setViewPassword('')
+  clearViewPassword()
   fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -215,5 +217,36 @@ describe('obsolete 401 responses', () => {
     } finally {
       unsubscribe()
     }
+  })
+})
+
+
+describe('auth signal before the password gate subscribes', () => {
+  it('replays a synchronous invalid-header rejection after initial mounting', async () => {
+    setViewPassword('ひみつ')
+    await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
+    expect(fetchMock).not.toHaveBeenCalled()
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    try {
+      expect(listener).toHaveBeenCalledExactlyOnceWith('rejected')
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('keeps a required prompt through resubscription, but clears it for a new submit', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}, 401))
+    await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
+    const first = vi.fn()
+    subscribeAuthRequired(first)()
+    expect(first).toHaveBeenCalledExactlyOnceWith('required')
+    const second = vi.fn()
+    subscribeAuthRequired(second)()
+    expect(second).toHaveBeenCalledExactlyOnceWith('required')
+    setViewPassword('new-view-secret')
+    const afterSubmit = vi.fn()
+    subscribeAuthRequired(afterSubmit)()
+    expect(afterSubmit).not.toHaveBeenCalled()
   })
 })
