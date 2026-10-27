@@ -11,6 +11,7 @@ from unittest.mock import patch
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
 from baibai_engine.machine_analysis.market_context.snapshot_cli import (
@@ -198,7 +199,7 @@ class MarketSnapshotCliTests(unittest.TestCase):
             with patch(
                 "baibai_engine.machine_analysis.market_context.snapshot_cli.datetime"
             ) as clock:
-                clock.now.return_value = datetime(2026, 10, 27)
+                clock.now.return_value = datetime(2026, 10, 27, tzinfo=JST)
                 exit_code = market_snapshot_command(
                     asof=None, weeks=1, sqlite_path=sqlite_path, stdout=buffer
                 )
