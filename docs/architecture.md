@@ -38,6 +38,8 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 | `position/`・`tasks/` | 確認済み取引・保有・資本と運用上の進行状態 |
 | `storage/`・`foundation/` | 接続、schema、transaction、lakeと汎用基盤 |
 
+現在のモデル数は五つだが、責務分離は五つに固定するための設計ではない。追加の観測を候補抽出へ活かす設計は[別企画 #1633](https://github.com/koumatsumoto/baibai-loop/issues/1633)で扱い、現行二viewが全モデルを使うとは説明しない。
+
 五モデルはScreening専用の中間データではない。Investment Judgmentは保存モデルと一次資料を統合し、候補外の企業も調査できる。現行のCompany Valuationは財務観測と利益・価格の座標を渡し、機械ER/FVは新Selectionの入力に含めない。同domainに残る機械ER/FVと較正は旧runの読取・保守用である。企業価値の評価はL3、最終買付採否は人間が担い、Screeningはどちらも確定しない。
 
 統合判断の採否基準は[doctrine](doctrine.md#fact-analysis-separation)、五モデルを企業仮定へ接続する方法は[銘柄評価](reference/stock-assessment.md#analysis-domain-integration)が所有する。
@@ -58,7 +60,9 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 ジョブは一つの目的を持つ実行・成功失敗・再実行の単位、ワークフローはその順序・並行実行・依存関係を定めるもの。GitHub Actionsのjobと業務ジョブは常に一対一ではない。バッチ処理は非対話でまとまったデータを処理する方式を指す。
 
-意味・採否は本書・doctrine・各reference、開始・操作・完了/再開はskills・OPERATIONSが所有する。生成scaffoldは編集欄と短い注意・参照先を持ち、一回限りの計画・実験はIssueと固定commitへ残す。
+現状のmarket・lake・foundation等の混在は目標構造そのものではない。意味と配置を一致させる整理は[後続 #1632](https://github.com/koumatsumoto/baibai-loop/issues/1632)で行う。物理保存単位と意味層を無理に同一視せず、必要な合成境界を含めて所有者を明確にする。
+
+文書の責務・統合・削減は[文書ルール](documentation.md)に従う。
 
 ## 判断と進行
 
