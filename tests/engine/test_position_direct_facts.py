@@ -9,7 +9,12 @@ from baibai_engine.position.broker_fact_recording import BrokerFactRecordingErro
 from baibai_engine.position.cli import main
 from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft, load_draft
-from baibai_engine.position.ledger import ExecutionEvent, ReservationEvent, replay_events_through
+from baibai_engine.position.ledger import (
+    ExecutionEvent,
+    PortfolioLedgerError,
+    ReservationEvent,
+    replay_events_through,
+)
 
 
 def unavailable(_reference):
@@ -116,6 +121,37 @@ def test_existing_order_open_retry_keeps_reference_before_generating_uuid(tmp_pa
     assert open_direct(service) == (None, ())
     with pytest.raises(ValueError, match="conflicts"):
         open_direct(service, decision_reference="manual-fact-00000000-0000-4000-8000-000000000009")
+
+
+@pytest.mark.parametrize(
+    "reference", [None, "manual-fact-00000000-0000-4000-8000-000000000009"]
+)
+def test_apply_rejects_edited_buy_fill_reference_without_changing_ledger(tmp_path, reference):
+    service, _ = _service(tmp_path)
+    opened, _ = open_direct(service)
+    apply_draft(service, opened, human_confirmed=True)
+    draft, _ = fill_direct(service)
+    assert draft is not None
+    fill = draft.replacement.events[-1]
+    assert isinstance(fill, ExecutionEvent)
+    edited = draft.model_copy(
+        update={
+            "replacement": draft.replacement.model_copy(
+                update={
+                    "events": (
+                        *draft.replacement.events[:-1],
+                        fill.model_copy(update={"decision_reference": reference}),
+                    )
+                }
+            )
+        }
+    )
+    before, head = service.load_with_head()
+
+    with pytest.raises(PortfolioLedgerError, match="buy execution decision reference must match"):
+        apply_draft(service, edited, human_confirmed=True)
+
+    assert service.load_with_head() == (before, head)
 
 
 def test_existing_fill_with_wrong_order_is_conflict(tmp_path):

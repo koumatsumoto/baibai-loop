@@ -9,6 +9,8 @@ description: 人間の明示開始から有限対象を選び、Company Research
 
 既存Operationの続きは[完了と再開](#完了と再開)へ進み、新しいSelectionを作らない。旧形式の保存済みOperationもIDから再開する。旧draftや旧runを渡して新規開始しない。
 
+クラウド正本へ反映する作業は、開始前に[application作業コピーの準備](../../../jobs/OPERATIONS.md#application-db-を反映する)を行い、DBと取得ETagを揃える。既存作業の再開ではその組を保持する。machineのpullはapplicationを含まない。
+
 通常の「売買提案して」は`discover_new`、候補外も含む銘柄指定は`specified_stocks`、保有見直しは`review_positions`。同じ依頼で選定から具体提案まで進め、全候補Triageや人間による事前銘柄選択は要求しない。newとholdingを混ぜず、追加買付依頼は[現行方針](../../../docs/doctrine.md#investment-strategy)と照合する。
 
 ```bash
@@ -32,7 +34,7 @@ uv run baibai-engine investment-judgment selection-context \
 
 低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。候補抽出の名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
 
-企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。必要なら同じ固定入力から必要期間を再生成し、別generationとして明示する。prepare中に範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
+企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。通常生成は全保持範囲であり、長期の読取は下記の表示期数と完全結果を使う。prepare中に生成範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
 
 新規draftはschema_version=2とし、contextのgeneration_id・screening_selection_id・Investment Judgment日・cutoff・requestを引き継ぐ。対象と問い、選定理由、比較した代替と未確認の範囲を記し、全社モデルをLLMへ一括投入しない。指定/保有は候補外でも調べられ、候補内membershipを購入資格にしない。
 

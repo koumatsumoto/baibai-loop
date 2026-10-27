@@ -1539,14 +1539,14 @@ class SourceMaintenanceCliTests(unittest.TestCase):
 
 def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     rows = [
-        ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
+        ("jppfs_cor:NetSales", "CurrentYearDuration", "1000"),
         (
-            "jpcrp_cor:NetCashProvidedByUsedInOperatingActivities",
+            "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
             "CurrentYearDuration",
             "900",
         ),
         ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "150"),
-        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
         (
             "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
             "CurrentYearDuration",

@@ -92,6 +92,11 @@ def compute_time_weighted_return(
         if current.valuation_date <= previous.valuation_date:
             raise PortfolioOutcomeError("valuation dates must be strictly increasing")
         denominator = previous.nav_yen + current.external_flow_yen
+        # A positive opening NAV and the funded-base check below establish that
+        # an unchanged zero continues a total loss already observed in this period.
+        if previous.nav_yen == current.nav_yen == 0 and current.external_flow_yen == 0:
+            previous = current
+            continue
         # A positive funded base falling to zero is an observed -100% return.
         # A zero base (for example after a full withdrawal) is undefined instead.
         if denominator <= 0 or current.nav_yen < 0:

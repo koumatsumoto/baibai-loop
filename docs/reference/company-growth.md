@@ -37,7 +37,7 @@ PERとpeerはこの版では **未提供**。PERは価格・期末自己株式�
 
 ## Investment Judgmentへの接続
 
-新しいSelectionは保存済みgenerationの成長モデル全体を他モデルと一緒にapplication DBへ複写する。prepare時に再計算せず、generation内のrequested_start/end・release・方法・不足を保持する。共通生成の未指定startは全保持範囲であり、明示的な範囲指定とL3の表示期数を区別する。長い期間が必要なら同じ固定原本から別generationとして生成し、既存Selectionへ追補しない。入力準備は[運用手順](../../jobs/OPERATIONS.md#research-input-preparation)に従う。
+新しいSelectionは保存済みgenerationの成長モデル全体を他モデルと一緒にapplication DBへ複写する。prepare時に再計算せず、generation内のrequested_start/end・release・方法・不足を保持する。共通生成の未指定startは全保持範囲であり、明示的な範囲指定とL3の表示期数を区別する。長い表示が必要なら下記の表示切替と完全結果を使う。保存モデル自体の範囲不足は表示切替で補えず、固定旧入力から別generationを生成・保存する専用CLIは現状未提供である。既存Selectionへ追補せず、入力準備は[運用手順](../../jobs/OPERATIONS.md#research-input-preparation)に従う。
 
 保存済み旧V2 Selectionでは成長は`securities_context[ticker].company_growth`にある。旧入力の欠測とhashはその形式のまま読み、新しいgenerationへ再解釈しない。新旧とも再開は保存結果のみから行い、原本の更新や再計算へ付け替えない。
 

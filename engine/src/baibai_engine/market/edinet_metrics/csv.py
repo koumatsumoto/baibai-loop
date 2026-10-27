@@ -158,6 +158,53 @@ _IFRS_ALIASES = {
     "jpigp_cor:PurchaseOfIntangibleAssetsInvCFIFRS": "purchaseofintangibleassetsinvcf",
 }
 
+# Qualified standard concepts, with exact spelling. A matching local name in an
+# issuer namespace does not establish the same financial-statement meaning.
+_JGAAP_ALIASES = {
+    "jppfs_cor:NetSales": "netsales",
+    "jpcrp_cor:RevenuesFromExternalCustomers": "revenuesfromexternalcustomers",
+    "jppfs_cor:NetCashProvidedByUsedInOperatingActivities": (
+        "netcashprovidedbyusedinoperatingactivities"
+    ),
+    "jppfs_cor:OperatingIncome": "operatingincome",
+    "jppfs_cor:CashAndDeposits": "cashanddeposits",
+    "jppfs_cor:CashAndCashEquivalents": "cashandcashequivalents",
+    "jppfs_cor:InvestmentSecurities": "investmentsecurities",
+    "jppfs_cor:NetAssets": "netassets",
+    "jppfs_cor:Assets": "assets",
+    "jppfs_cor:ShortTermLoansPayable": "shorttermloanspayable",
+    "jppfs_cor:CurrentPortionOfLongTermLoansPayable": "currentportionoflongtermloanspayable",
+    "jppfs_cor:CurrentPortionOfBonds": "currentportionofbonds",
+    "jppfs_cor:BondsPayable": "bondspayable",
+    "jppfs_cor:ConvertibleBondTypeBondsWithSubscriptionRightsToShares": (
+        "convertiblebondtypebondswithsubscriptionrightstoshares"
+    ),
+    "jppfs_cor:LongTermLoansPayable": "longtermloanspayable",
+    "jppfs_cor:LeaseObligationsCL": "leaseobligationscl",
+    "jppfs_cor:LeaseObligationsNCL": "leaseobligationsncl",
+    "jppfs_cor:DepreciationAndAmortizationOpeCF": "depreciationandamortizationopecf",
+    "jppfs_cor:AmortizationOfGoodwillOpeCF": "amortizationofgoodwillopecf",
+    "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF": (
+        "purchaseofpropertyplantandequipmentandintangibleassetsinvcf"
+    ),
+    "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF": "purchaseofpropertyplantandequipmentinvcf",
+    "jppfs_cor:PurchaseOfIntangibleAssetsInvCF": "purchaseofintangibleassetsinvcf",
+    "jppfs_cor:DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF": (
+        "decreaseincreaseinnotesandaccountsreceivabletradeopecf"
+    ),
+    "jppfs_cor:DecreaseIncreaseInInventoriesOpeCF": "decreaseincreaseininventoriesopecf",
+    "jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF": (
+        "increasedecreaseinnotesandaccountspayabletradeopecf"
+    ),
+    "jppfs_cor:IncreaseDecreaseInContractLiabilitiesOpeCF": (
+        "increasedecreaseincontractliabilitiesopecf"
+    ),
+    "jppfs_cor:IncreaseDecreaseInAdvancesReceivedOpeCF": "increasedecreaseinadvancesreceivedopecf",
+    "jppfs_cor:IncreaseDecreaseInAccountsPayableOtherOpeCF": (
+        "increasedecreaseinaccountspayableotheropecf"
+    ),
+}
+
 
 _TAGS: dict[str, tuple[str, ...]] = {
     "sales": (
@@ -343,7 +390,7 @@ def _metric_values(
 ) -> dict[str, float | None]:
     grouped: dict[str, set[float | None]] = {}
     for row in rows:
-        name = _local_element(_row_element(row))
+        name = _metric_alias(_row_element(row))
         if name not in tags:
             continue
         values = grouped.setdefault(name, set())
@@ -413,14 +460,12 @@ def _row_context(row: Mapping[str, str]) -> str:
     return row.get("コンテキストID", "")
 
 
-def _local_element(value: str) -> str:
-    if value in _IFRS_ALIASES:
-        return _IFRS_ALIASES[value]
-    return "".join(char for char in value.rsplit(":", 1)[-1].lower() if char.isalnum())
+def _metric_alias(value: str) -> str:
+    return _IFRS_ALIASES.get(value, _JGAAP_ALIASES.get(value, ""))
 
 
 def _element_matches(element: str, tags: tuple[str, ...]) -> bool:
-    return _local_element(element) in tags
+    return _metric_alias(element) in tags
 
 
 def _csv_value(raw: str | None) -> float | None:

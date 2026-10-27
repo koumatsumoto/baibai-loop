@@ -603,6 +603,10 @@ def replay_events_through(
                         raise PortfolioLedgerError("buy execution requires an active buy order")
                     if event.ticker != reservation.ticker:
                         raise PortfolioLedgerError("execution ticker must match reservation ticker")
+                    if event.decision_reference != reservation.decision_reference:
+                        raise PortfolioLedgerError(
+                            "buy execution decision reference must match order"
+                        )
                     if event.quantity > reservation.remaining_quantity:
                         raise PortfolioLedgerError("execution quantity exceeds reserved quantity")
                     if event.price_yen > reservation.price_guard_yen:

@@ -28,7 +28,7 @@ carryはグロス株数変化を維持する。自己株控除後の変化は別
 
 機械Forward PERは会社予想EPSを使い、外部consensusとは分ける。数値の有無より先に適用する会計期間と連結/単体basisを決め、当期・翌期、利益と配当のsourceを識別する。新しい期の欠測を古い期で埋めず、過年度訂正で現在区分を巻き戻さない。連結会社の単体補足を連結予想へ混ぜない。
 
-文書番号の大小や投入順はrevision順ではない。開示時刻不明も同日の既知時刻より古いとは決めず、順序を確定できない矛盾はfield単位で未解決にする。EPS等が一致する他項目まで落とさない。空欄は非掲載であり撤回の確認とは限らない。原典の対象期・basis・statusは保存モデルのfinancial.forecast_sources（旧runではStock Analysis）から辿る。
+文書番号の大小や投入順はrevision順ではない。開示時刻不明も同日の既知時刻より古いとは決めず、順序を確定できない矛盾はfield単位で未解決にする。EPS等が一致する他項目まで落とさない。空欄は非掲載であり撤回の確認とは限らない。原典の対象期・basis・statusは保存モデルの`financial.earnings_forecast_source`と`financial.dividend_forecast_source`（旧runではStock Analysisの`metrics`内の同名field）から辿る。
 
 予想純利益が経常利益を上回る注記は大小関係で、特別利益の発生・原因・持続性を確定しない。赤字予想注記も一時損失と構造的衰退を判別せず、単独の除外や減衰にしない。赤字のEPSや実際に使うanchorは個別入力から読む。
 
