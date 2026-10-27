@@ -1,1 +1,1 @@
-"""Source-level EDINET facts for research; no screening estimates or decisions."""
+"""保存EDINET原本から抽出したL2観測。原本そのものや投資判断ではない。"""

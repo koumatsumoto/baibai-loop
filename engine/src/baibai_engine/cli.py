@@ -73,7 +73,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "operation": Domain(
         module="baibai_engine.investment_judgment.operation.cli",
-        summary="operation sessions: one active session per trigger, with completion gates",
+        summary="operation sessions: one active workflow at a time, with completion checks",
     ),
     "position": Domain(
         module="baibai_engine.position.cli",
