@@ -142,6 +142,7 @@ def test_snapshot_query_failure_is_not_a_cache_miss(
                 "2026-10-15T00:00:00+00:00",
             ),
         )
+    conn.commit()  # A fresh read connection has no pending fixture-writing transaction.
     # Inject a query failure after schema connection, for both coverage and data reads.
     monkeypatch.setattr(module, "connect_current", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):

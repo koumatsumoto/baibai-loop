@@ -319,9 +319,7 @@ def test_jpx_snapshot_keeps_one_generation_across_concurrent_refresh(
 
         def execute(self, sql, parameters=()):
             cursor = self.connection.execute(sql, parameters)
-            trigger = (
-                "FROM source_coverage" if kind == "earnings" else "FROM jpx_regulation_flags"
-            )
+            trigger = "FROM source_coverage" if kind == "earnings" else "FROM jpx_regulation_flags"
             return Cursor(cursor) if trigger in sql else cursor
 
         def close(self):
