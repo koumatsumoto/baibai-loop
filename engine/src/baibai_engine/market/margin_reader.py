@@ -355,7 +355,8 @@ def _published_all_issues_daily_balance_dates(sqlite_path: Path, asof: date) -> 
         publications = [
             (date.fromisoformat(str(row[0])), optional_date(row[1]))
             for row in conn.execute(
-                "SELECT DISTINCT balance_date, publication_date FROM jquants_all_issues_daily_margin "
+                "SELECT DISTINCT balance_date, publication_date "
+                "FROM jquants_all_issues_daily_margin "
                 "WHERE balance_date <= ? ORDER BY balance_date",
                 (asof.isoformat(),),
             )
