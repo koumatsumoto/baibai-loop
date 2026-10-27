@@ -89,8 +89,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
             by_id["jp.cpi.services"].reading_key,
             "0004052037?cdCat01=0220&cdArea=00000&cdTab=1",
         )
-        # The narrowing codes select L2 values from one saved e-Stat table;
-        # changing them changes the reading, not the acquired source.
+        # The narrowing codes are part of the Collection request identity.
+        # L2 binds to that selected native series; it does not narrow a full table.
         self.assertEqual(
             by_id["jp.machinery_orders"].reading_key,
             "0003355222?cdCat01=160&cdCat02=100&cdTab=100",
