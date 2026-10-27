@@ -56,7 +56,7 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 
 1. `investment-judgment stock-assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。[直近ニュース・カタリストの確認](../../../docs/reference/stock-assessment.md#recent-news-research)をCompany Researchの基本手順として行う。
 
-   既存候補・明示対象では、selected固定modelの価格context・同端点市場比較から重要期間と競合仮説を選び、好悪ニュース・原典、利益/cash/必要資本/回復期間、再確認条件へつなぐ。[五モデルの統合](../../../docs/reference/stock-assessment.md#analysis-domain-integration)を正準とし、価格注記から自動起動したり全件の追加調査を義務にしない。
+   [五モデルの統合](../../../docs/reference/stock-assessment.md#analysis-domain-integration)に従い、重要な支持・相反・不足を個社の仮定へ接続する。価格contextもその一材料であり、必要なら同端点の市場比較とニュースを照合する。価格注記だけを調査の起点に固定せず、全シグナルの追加調査を義務にしない。
 2. [条件付き価値](../../../docs/reference/stock-assessment.md#scenario-arithmetic)を組み立て、数値計算には`investment-judgment calculate <INPUTS>`を使える。PDFの抽出が空・崩れた場合は原ページへ戻り、記載なしやゼロとしない。
 3. `investment-judgment stock-assessment-evaluate <DRAFT>`で確認する。`investment-judgment independent-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`からReviewを準備し、作者と別の作業者が原典・仮定・算術・反証を検討する。作者の入力や出力のコピーを独立検算としない。[不確実性の受容](../../../docs/reference/stock-assessment.md#uncertainty-and-decision)に従い、未知を一律保留にせず、受けるリスクと見返りの根拠を確認する。
 4. `investment-judgment stock-assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`investment-judgment stock-assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。

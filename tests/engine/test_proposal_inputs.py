@@ -184,6 +184,24 @@ def test_expired_active_sell_reservation_is_retained(tmp_path):
     assert inputs.available_cash_yen == Decimal(210000)
 
 
+def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_path):
+    case = backend_case(tmp_path)
+    raw = scaffold_proposal(
+        operation_id=case.operation.operation_id,
+        proposal_id=PROPOSAL_ID,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PREPARED,
+    )
+    item = raw["items"][0]
+    assert item["action"] == "defer"
+    assert item["assessment_ref"]["assessment_id"] == case.pair.assessment_id
+    assert [reason["code"] for reason in item["blockers"]] == ["proposal_content_requires_review"]
+    assert "モデル観測・一次資料" in item["rationale"]
+    assert any("全シグナルのコメントは要求しない" in text for text in item["review_conditions"])
+    assert raw["review"]["draft_sha256"] == "0" * 64
+
+
 def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_path):
     case = backend_case(tmp_path, cash_yen=95000)
     with closing(sqlite3.connect(case.market)) as connection, connection:
