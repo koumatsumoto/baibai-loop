@@ -66,6 +66,10 @@ def _inject_one_month_correction(sqlite_path: Path) -> str:
 
 
 def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> dict[str, object]:
+    if report_path.resolve() == sqlite_path.resolve() or (
+        report_path.exists() and sqlite_path.exists() and report_path.samefile(sqlite_path)
+    ):
+        raise ValueError("benchmark report must not replace the input market store")
     with tempfile.TemporaryDirectory(prefix="baibai-lake-export-acceptance-") as temporary:
         root = Path(temporary)
         working_sqlite = root / "market.sqlite"

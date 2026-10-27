@@ -640,6 +640,23 @@ def test_lake_export_benchmark_records_full_export_and_correction_transfer(tmp_p
     assert sqlite_path.read_bytes() == source_before
 
 
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+def test_lake_benchmark_report_cannot_replace_input_store(tmp_path: Path, alias: str) -> None:
+    source = market_store(tmp_path / "market.sqlite")
+    before = source.read_bytes()
+    report = source
+    if alias != "direct":
+        report = tmp_path / "alias.sqlite"
+        if alias == "symlink":
+            report.symlink_to(source)
+        else:
+            report.hardlink_to(source)
+    with pytest.raises(ValueError, match="must not replace the input market store"):
+        benchmark(sqlite_path=source, report_path=report, producer_commit=_COMMIT)
+    assert source.read_bytes() == before
+    assert report.read_bytes() == before
+
+
 def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path) -> None:
     """A seal is the size of the whole legacy store and one is taken per operation.
 
