@@ -441,18 +441,6 @@ def _bootstrap_market_cache(
         file=out,
         flush=True,
     )
-    print(
-        "bootstrap-cache jquants split_normalization_bars: "
-        f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
-        file=out,
-        flush=True,
-    )
-    split_bars = providers.jquants.get_adjustment_factor_bars_range(normalized_start, asof_date)
-    print(
-        f"bootstrap-cache jquants split_normalization_bars: {len(split_bars)} row(s)",
-        file=out,
-        flush=True,
-    )
     calendar_start = asof_date - timedelta(days=_CALENDAR_BOOTSTRAP_BACKWARD_DAYS)
     calendar_end = asof_date + timedelta(days=_CALENDAR_BOOTSTRAP_FORWARD_DAYS)
     print(
@@ -563,8 +551,8 @@ def _bootstrap_financial_cache(
         flush=True,
     )
     # The trailing window is re-read here and nowhere else in the run: the
-    # normalized-profit call below shares this source, and asking it there too
-    # would buy the same week twice.
+    # longer normalized-profit window shares this source and must not trigger
+    # a second acquisition or a full row load just to report its count.
     summary_rows = refresh.refresh_fin_summaries(
         shared_fin_start,
         asof_date,
@@ -578,18 +566,6 @@ def _bootstrap_financial_cache(
     )
     print(
         f"bootstrap-cache jquants fin_summaries: {summary_rows} row(s)",
-        file=out,
-        flush=True,
-    )
-    print(
-        "bootstrap-cache jquants normalized_profit_fy_summaries: "
-        f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
-        file=out,
-        flush=True,
-    )
-    fy_summaries = providers.jquants.get_fy_summary_range(normalized_start, asof_date)
-    print(
-        f"bootstrap-cache jquants normalized_profit_fy_summaries: {len(fy_summaries)} row(s)",
         file=out,
         flush=True,
     )

@@ -132,10 +132,6 @@ class FakeJQuantsProvider:
         self.calls.append(("ensure_eq_bars_daily_range", start, end))
         return len(self.get_eq_bars_daily_range(start, end))
 
-    def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
-        self.calls.append(("get_adjustment_factor_bars_range", start, end))
-        return []
-
     def refresh_fin_summary_range(
         self,
         start: date,
@@ -190,21 +186,6 @@ class FakeJQuantsProvider:
                 ordinary_profit=None,
                 profit=None,
             ),
-        ]
-
-    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
-        self.calls.append(("get_fy_summary_range", start, end))
-        return [
-            JQuantsFinancialSummary(
-                ticker="130A",
-                disclosed_at=date(year, 5, 15),
-                cumulative_eps=eps,
-                fiscal_period="FY",
-                fiscal_year_end=date(year, 3, 31),
-                period_start=date(year - 1, 4, 1),
-                period_end=date(year, 3, 31),
-            )
-            for year, eps in ((2023, 10.0), (2024, 20.0), (2025, 30.0))
         ]
 
     def ensure_master(self, day: date) -> int:
@@ -397,7 +378,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(fail_bootstrap=True),
                     jquants_refresh=jquants,
@@ -415,7 +395,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
@@ -436,7 +415,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         exit_code = bootstrap_cache_command(
             asof_date=asof,
             providers=ProviderBundle(
-                jquants=jquants,
                 edinet_refresh=edinet,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
@@ -460,18 +438,8 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             jquants.calls.count(("refresh_fin_summary_range", asof - timedelta(days=2200), asof)),
             1,
         )
-        self.assertIn(
-            (
-                "get_adjustment_factor_bars_range",
-                asof - timedelta(days=2200),
-                asof,
-            ),
-            jquants.calls,
-        )
-        self.assertIn(
-            ("get_fy_summary_range", asof - timedelta(days=2200), asof),
-            jquants.calls,
-        )
+        self.assertNotIn("get_adjustment_factor_bars_range", [call[0] for call in jquants.calls])
+        self.assertNotIn("get_fy_summary_range", [call[0] for call in jquants.calls])
         # The calendar bootstrap fetches a forward window so the unattended daily
         # batch can read the current (and upcoming) business-day rows.
         self.assertIn(
@@ -510,7 +478,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=asof,
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
@@ -562,7 +529,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=asof,
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
@@ -586,7 +552,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=dates,
-                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
+                providers=ProviderBundle(jquants_refresh=jquants),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -607,7 +573,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr), tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
-                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
+                providers=ProviderBundle(jquants_refresh=jquants),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -1622,7 +1588,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2026, 9, 24),
                 end=date(2026, 9, 28),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
             )
@@ -1648,7 +1614,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2018, 3, 1),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1684,7 +1650,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2026, 7, 20),
                 end=date(2026, 7, 24),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1706,7 +1672,6 @@ class BackfillHistoryTests(unittest.TestCase):
                     start=date(2026, 7, 25),
                     end=date(2026, 7, 26),
                     providers=ProviderBundle(
-                        jquants=provider,
                         jquants_refresh=provider,
                     ),
                     sqlite_path=sqlite_path,
@@ -1730,7 +1695,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2016, 8, 31),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=Path("stores/market/market.sqlite"),
                 stdout=io.StringIO(),
             )
@@ -1753,7 +1718,6 @@ def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_p
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
-                jquants=jquants,
                 edinet_refresh=edinet,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
@@ -1777,7 +1741,6 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
-                jquants=jquants,
                 edinet_refresh=edinet,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
@@ -1789,5 +1752,5 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
     )
     names = [call[0] for call in jquants.calls]
     assert names.count("refresh_fin_summary_range") == 1
-    assert names.count("get_fy_summary_range") == 1
+    assert "get_fy_summary_range" not in names
     assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1
