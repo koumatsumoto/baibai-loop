@@ -41,6 +41,8 @@ uv run baibai-engine market-context snapshot --asof <YYYY-MM-DD> --format json
 uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 
+指標CLIの`--latest`は保存入力から得られる最後の観測を元の日付で返す。今日の値や鮮度の保証ではなく、当日rangeの欠測を補完しない。
+
 percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latestやtrendまでyoyへ変わるわけではない。実効窓・観測数・sampling頻度を揃え、疎な系列を密な日次履歴と同列に比較しない。履歴不足でも最新値そのものが誤りとは限らず、stale・取得失敗・分布の端を区別する。next_print_estimateはcadence/lagの推定で公式calendarではない。
 
 ネット流動性は入力の単位を揃えるが、WALCLの水曜残高、WTREGENの週平均、日次RRPを組み合わせる近似であり、同時点の厳密な残高や投資可能資金ではない。月次整列の代表日や採用入力vintageも実公表時刻ではない。
