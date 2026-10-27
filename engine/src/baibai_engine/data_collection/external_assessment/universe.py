@@ -45,7 +45,8 @@ def frozen_universe(database: Path, master_asof: date) -> tuple[tuple[str, ...],
         or origin is None
     ):
         raise ValueError(
-            "external assessment universe requires a complete exact saved master and fixed lake origin"
+            "external assessment universe requires a complete exact saved master "
+            "and fixed lake origin"
         )
     tickers = _common_stock_tickers(snapshot.masters)
     return tickers, _binding(
