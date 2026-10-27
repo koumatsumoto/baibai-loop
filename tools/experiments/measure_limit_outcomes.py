@@ -336,7 +336,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="inclusive observation cutoff for ledger events and market bars",
     )
-    parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--out", type=Path, help="new report path; existing files are never overwritten"
+    )
     return parser
 
 
@@ -349,10 +351,16 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
         print(f"error: {error}", file=sys.stderr)
         return 1
     text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
-    if args.out is not None:
-        args.out.write_text(text, encoding="utf-8")
-    else:
-        print(text, file=stdout or sys.stdout, end="")
+    try:
+        if args.out is not None:
+            # A report destination must not truncate an input store, including aliases.
+            with args.out.open("x", encoding="utf-8") as output:
+                output.write(text)
+        else:
+            print(text, file=stdout or sys.stdout, end="")
+    except OSError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     return 0
 
 

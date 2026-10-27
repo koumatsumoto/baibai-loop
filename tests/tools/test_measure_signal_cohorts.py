@@ -416,3 +416,20 @@ def test_positive_per_group_does_not_claim_an_observed_earnings_anchor() -> None
     observed = next(group for group in groups if group["group"] == "positive_per_at_cap")
     assert observed["resolved_rows"] == 1
     assert all("anchor" not in group["group"] for group in groups)
+
+
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+def test_cli_never_overwrites_a_calibration_input(tmp_path: Path, alias: str) -> None:
+    directory = _both_bases_calibration_root(tmp_path)
+    originals = {path: path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+    source = directory / "current.sqlite"
+    out = source
+    if alias != "direct":
+        out = tmp_path / "report.yaml"
+        if alias == "symlink":
+            out.symlink_to(source)
+        else:
+            out.hardlink_to(source)
+
+    assert main(["--calibration-dir", str(directory), "--horizon", "1y", "--out", str(out)]) == 1
+    assert {path: path.read_bytes() for path in originals} == originals

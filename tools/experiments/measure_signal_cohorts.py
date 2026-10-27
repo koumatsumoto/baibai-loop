@@ -466,7 +466,9 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
     )
     parser.add_argument("--asof-from", help="この as-of 以降の panel だけを使う (YYYY-MM-DD)")
     parser.add_argument("--asof-to", help="この as-of 以前の panel だけを使う (YYYY-MM-DD)")
-    parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--out", type=Path, help="new report path; existing files are never overwritten"
+    )
     args = parser.parse_args(argv)
 
     horizons = tuple(args.horizons) if args.horizons else DEFAULT_HORIZONS
@@ -483,10 +485,16 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
         print(f"error: {error}", file=sys.stderr)
         return 1
     text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
-    if args.out is not None:
-        args.out.write_text(text, encoding="utf-8")
-    else:
-        print(text, file=stdout or sys.stdout, end="")
+    try:
+        if args.out is not None:
+            # A report destination must not truncate an input store, including aliases.
+            with args.out.open("x", encoding="utf-8") as output:
+                output.write(text)
+        else:
+            print(text, file=stdout or sys.stdout, end="")
+    except OSError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     return 0
 
 
