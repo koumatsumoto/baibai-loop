@@ -42,13 +42,13 @@ def _last_balance_date_of_each_week(
 
 
 def _read_margin_balances(
-    sqlite_path: Path, balance_date: date, cadence: MarginCadence
+    sqlite_path: Path, balance_date: date, cadence: MarginCadence, *, asof: date
 ) -> dict[str, MarginBalance]:
     """One balance date's rows as the axis sees them, from whichever series holds it."""
     rows: list[JQuantsWeeklyMargin] | list[JQuantsAllIssuesDailyMargin] | None = (
         read_weekly_margin(sqlite_path, balance_date)
         if cadence == "weekly"
-        else read_all_issues_daily_margin(sqlite_path, balance_date)
+        else read_all_issues_daily_margin(sqlite_path, balance_date, publication_asof=asof)
     )
     return {
         row.ticker: MarginBalance(
@@ -80,9 +80,11 @@ def read_margin_supply_demand_inputs(
     published = published_margin_balance_dates(sqlite_path, asof)
     if not published or (asof - published[-1][0]).days > MARGIN_MAX_STALE_DAYS:
         return {}, {}
-    latest = _read_margin_balances(sqlite_path, *published[-1])
+    latest = _read_margin_balances(sqlite_path, *published[-1], asof=asof)
     prior: dict[str, MarginBalance] = {}
     weekly_steps = _last_balance_date_of_each_week(published)
     if len(weekly_steps) > MARGIN_DELTA_WEEKS:
-        prior = _read_margin_balances(sqlite_path, *weekly_steps[-1 - MARGIN_DELTA_WEEKS])
+        prior = _read_margin_balances(
+            sqlite_path, *weekly_steps[-1 - MARGIN_DELTA_WEEKS], asof=asof
+        )
     return latest, prior

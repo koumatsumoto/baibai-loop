@@ -54,14 +54,22 @@ def _publication_trading_day(
 
 
 def _publication_has_happened(
-    trading_days: list[date], balance_date: date, *, asof: date, trading_day_lag: int
+    trading_days: list[date],
+    balance_date: date,
+    *,
+    asof: date,
+    trading_day_lag: int,
+    publication_date: date | None = None,
 ) -> bool:
-    """Whether the balance date's publication day is a trading day strictly before `asof`.
+    """Whether the publication day is strictly before `asof`.
 
     Same comparison for both cadences: the publication lands in the late afternoon
     while a decision prices at the close, so a balance published on `asof` is not
-    yet usable at `asof`'s price.
+    yet usable at `asof`'s price. A known provider publication date takes precedence;
+    only its absence uses the existing trading-day-lag approximation.
     """
+    if publication_date is not None:
+        return publication_date < asof
     publication_day = _publication_trading_day(
         trading_days, balance_date, trading_day_lag=trading_day_lag
     )

@@ -23,7 +23,7 @@ from datetime import date
 from baibai_engine.market.price_basis import cumulative_share_unit_factor_after
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
-MARKET_CONTEXT_CALCULATION_REVISION = "native-master-and-margin-basis-v4"
+MARKET_CONTEXT_CALCULATION_REVISION = "native-master-and-margin-publication-v5"
 
 # A 信用銘柄 carries no stock lending, so it has no margin short balance to speak
 # of. Its long side cannot be placed on a crowding scale that is defined by the

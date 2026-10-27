@@ -180,9 +180,13 @@ def read_margin_alerts(
 
 
 def read_all_issues_daily_margin(
-    sqlite_path: Path, balance_date: date
+    sqlite_path: Path, balance_date: date, *, publication_asof: date | None = None
 ) -> list[JQuantsAllIssuesDailyMargin] | None:
-    """Read one all-issues daily balance, distinct from legacy weekly history."""
+    """Read stored daily balances, optionally limited by the actual use cutoff.
+
+    Acquisition reads all saved rows. Analysis supplies publication_asof so a
+    later-published correction cannot enter through another ticker's usable date.
+    """
     if not sqlite_path.exists():
         return None
     conn = connect_current(sqlite_path)
@@ -201,10 +205,22 @@ def read_all_issues_daily_margin(
             return None
         rows = conn.execute(
             "SELECT ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
-            "short_std_vol, short_neg_vol, issue_type "
+            "short_std_vol, short_neg_vol, issue_type, publication_date "
             "FROM jquants_all_issues_daily_margin WHERE balance_date = ? ORDER BY ticker",
             (balance_date.isoformat(),),
         ).fetchall()
+        trading_days = (
+            []
+            if publication_asof is None
+            else [
+                date.fromisoformat(str(row[0]))
+                for row in conn.execute(
+                    "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                    "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
+                    (balance_date.isoformat(), publication_asof.isoformat()),
+                )
+            ]
+        )
     finally:
         conn.close()
     return [
@@ -218,8 +234,17 @@ def read_all_issues_daily_margin(
             short_std_vol=_opt_float_value(row[5]),
             short_neg_vol=_opt_float_value(row[6]),
             issue_type=str(row[7]) if row[7] is not None else None,
+            publication_date=optional_date(row[8]),
         )
         for row in rows
+        if publication_asof is None
+        or _publication_has_happened(
+            trading_days,
+            balance_date,
+            asof=publication_asof,
+            trading_day_lag=ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS,
+            publication_date=optional_date(row[8]),
+        )
     ]
 
 
@@ -312,7 +337,7 @@ def published_margin_balance_dates(
 
 
 def _published_all_issues_daily_balance_dates(sqlite_path: Path, asof: date) -> list[date]:
-    """Daily balance dates whose next-business-day publication is already past."""
+    """Dates with a usable row: known publication first, inferred lag when absent."""
     if not sqlite_path.exists():
         return []
     conn = connect_current(sqlite_path)
@@ -327,34 +352,37 @@ def _published_all_issues_daily_balance_dates(sqlite_path: Path, asof: date) -> 
                 (ALL_ISSUES_DAILY_MARGIN_SOURCE,),
             )
         }
-        balance_dates = [
-            date.fromisoformat(str(row[0]))
+        publications = [
+            (date.fromisoformat(str(row[0])), optional_date(row[1]))
             for row in conn.execute(
-                "SELECT DISTINCT balance_date FROM jquants_all_issues_daily_margin "
+                "SELECT DISTINCT balance_date, publication_date FROM jquants_all_issues_daily_margin "
                 "WHERE balance_date <= ? ORDER BY balance_date",
                 (asof.isoformat(),),
             )
             if all_issues_daily_margin_coverage_key(date.fromisoformat(str(row[0]))) in readable
         ]
-        if not balance_dates:
+        if not publications:
             return []
         trading_days = [
             date.fromisoformat(str(row[0]))
             for row in conn.execute(
                 "SELECT DISTINCT traded_at FROM jquants_daily_bars "
                 "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
-                (balance_dates[0].isoformat(), asof.isoformat()),
+                (publications[0][0].isoformat(), asof.isoformat()),
             )
         ]
     finally:
         conn.close()
-    return [
-        balance_date
-        for balance_date in balance_dates
-        if _publication_has_happened(
-            trading_days,
-            balance_date,
-            asof=asof,
-            trading_day_lag=ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS,
-        )
-    ]
+    return sorted(
+        {
+            balance_date
+            for balance_date, publication_date in publications
+            if _publication_has_happened(
+                trading_days,
+                balance_date,
+                asof=asof,
+                trading_day_lag=ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS,
+                publication_date=publication_date,
+            )
+        }
+    )
