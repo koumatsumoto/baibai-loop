@@ -1286,7 +1286,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             assert incremental is not None
             self.assertNotIn("9682", incremental)
 
-    def test_extract_edinet_metrics_document_edit_event_forces_download(self) -> None:
+    def test_extract_edinet_metrics_document_edit_event_forces_reextraction(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
             original = _edinet_document(ticker="96820", doc_id="S100SAME")
@@ -1326,7 +1326,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             )
             self.assertEqual(second.read_calls, ["S100SAME"])
 
-    def test_extract_edinet_metrics_empty_csv_is_failed_and_retried(self) -> None:
+    def test_extract_edinet_metrics_empty_csv_can_recover_with_repaired_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
             document = _edinet_document(ticker="96820", doc_id="S100EMPTY")
@@ -1353,6 +1353,8 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             )
             self.assertIsNone(read_edinet_metrics(sqlite_path, date(2026, 4, 24)))
 
+            # This supplies repaired bytes explicitly. It verifies re-extraction,
+            # not that ordinary acquisition replaces a retained same-ID archive.
             second = FakeEDINETMetricReader(
                 documents=[document],
                 zip_by_doc_id={"S100EMPTY": _edinet_csv_zip()},

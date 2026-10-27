@@ -44,7 +44,6 @@ def _offline_only(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(app, "EDINETRefresh", forbidden)
     monkeypatch.setattr(app, "JQuantsRefresh", forbidden)
-    monkeypatch.setattr(app, "JQuantsReader", forbidden)
     monkeypatch.setattr(requests, "Session", forbidden)
 
 

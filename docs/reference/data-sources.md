@@ -55,6 +55,8 @@ PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公�
 
 一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Valuationのtype=5 CSV経路とCompany Research factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
 
+archiveは同じdocID/typeの最初のbytesを保持する。通常refreshは保存済みZIPを再利用し、文書editや抽出失敗の再処理が同一archiveのfresh再取得を意味するわけではない。provider側で同一文書のbytesが修復された場合の差替えは、隔離取得と差分確認を伴う別の明示操作として扱う。現在の通常経路にその自動修復はなく、抽出testへ修復済みbytesを渡した成功を取得経路の修復保証にしない。
+
 <a id="edinet-metric-revision"></a>
 ### 抽出意味revision
 

@@ -1,4 +1,4 @@
-"""Saved Screening inputs, independently of the latest acquisition result."""
+"""Eligible saved EDINET metrics, independently of the latest acquisition result."""
 
 from __future__ import annotations
 
