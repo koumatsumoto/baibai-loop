@@ -34,12 +34,11 @@ class SourceMaintenanceConfig(BaseModel):
         source = env if env is not None else os.environ
         # sqlite_cache_dir は repo 内の運用規約に固定する。
         # env override は作業者ごとの local store 分岐を生むため受け付けない。
-        sqlite_cache_dir_value = str(DEFAULT_SQLITE_CACHE_DIR)
         try:
             return cls(
                 jquants_api_key=source.get("JQUANTS_API_KEY") or None,
                 edinet_api_key=source.get("EDINET_API_KEY") or None,
-                sqlite_cache_dir=sqlite_cache_dir_value,
+                sqlite_cache_dir=DEFAULT_SQLITE_CACHE_DIR,
             )
         except ValidationError as exc:
             raise ConfigError(str(exc)) from exc
