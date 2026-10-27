@@ -16,6 +16,8 @@ class SourceMaintenanceConfigTests(unittest.TestCase):
         )
 
         self.assertEqual(config.sqlite_cache_dir, MARKET_DB_PATH.parent)
+        self.assertEqual(config.jquants_api_key, "token")
+        self.assertEqual(config.edinet_api_key, "key")
 
     def test_local_configuration_does_not_require_provider_credentials(self) -> None:
         config = SourceMaintenanceConfig.from_env({})

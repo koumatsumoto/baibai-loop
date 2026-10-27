@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -20,19 +19,6 @@ class SourceMaintenanceConfig(BaseModel):
     jquants_api_key: str | None = Field(default=None, min_length=1)
     edinet_api_key: str | None = None
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
-
-    def __init__(
-        self,
-        jquants_api_key: str | None = None,
-        edinet_api_key: str | None = None,
-        /,
-        **data: Any,
-    ) -> None:
-        if jquants_api_key is not None:
-            data["jquants_api_key"] = jquants_api_key
-        if edinet_api_key is not None:
-            data["edinet_api_key"] = edinet_api_key
-        super().__init__(**data)
 
     @field_validator("sqlite_cache_dir", mode="before")
     @classmethod
