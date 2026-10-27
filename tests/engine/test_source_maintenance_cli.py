@@ -1672,14 +1672,14 @@ class BackfillHistoryTests(unittest.TestCase):
         self.assertEqual(by_source["get_mkt_calendar"], [(date(2016, 8, 1), date(2018, 3, 1))])
         self.assertIn("backfill-history done", output.getvalue())
 
-    def test_a_historical_window_keeps_its_own_final_week(self) -> None:
+    def test_a_historical_window_keeps_its_final_week_without_later_cached_bars(self) -> None:
         # `end` here is a named past boundary, not today, so its week is complete
         # and holds a real balance date. Treating it as in-progress would drop the
         # only candidate and report a backfill that fetched nothing as success.
         provider = FakeJQuantsProvider()
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 31))
+            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 24))
             output = io.StringIO()
             code = backfill_history_command(
                 start=date(2026, 7, 20),
@@ -1695,7 +1695,7 @@ class BackfillHistoryTests(unittest.TestCase):
         ]
         self.assertEqual(weeks, [date(2026, 7, 24)])
 
-    def test_a_window_with_no_complete_week_fails_rather_than_reporting_success(self) -> None:
+    def test_a_window_with_no_trading_days_fails_rather_than_reporting_success(self) -> None:
         provider = FakeJQuantsProvider()
         errors = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:

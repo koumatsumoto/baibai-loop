@@ -401,11 +401,11 @@ def test_main_backfill_history_covers_every_range_source_over_the_argv_window() 
     window = (date(2026, 1, 5), date(2026, 1, 30))
     for source in ("get_eq_bars_daily_range", "get_fin_summary_range", "get_mkt_calendar"):
         assert [call[1:] for call in jquants.calls if call[0] == source] == [window]
-    # The window's own final week is still open at `end`, so the three completed
-    # weeks are the balance dates the argv window resolves to.
+    # This is a historical acquisition window, not the publication clock.
+    # Its final Friday remains eligible without a later week in the cache.
     assert [
         week_end for name, week_end, _ in jquants.calls if name == "get_mkt_margin_interest_week"
-    ] == [date(2026, 1, 9), date(2026, 1, 16), date(2026, 1, 23)]
+    ] == [date(2026, 1, 9), date(2026, 1, 16), date(2026, 1, 23), date(2026, 1, 30)]
     assert "backfill-history done: 2026-01-05..2026-01-30" in result.stdout
 
 

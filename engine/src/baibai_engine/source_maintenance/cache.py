@@ -213,7 +213,7 @@ def backfill_history_command(
             if not weeks:
                 raise JQuantsProviderError(
                     f"no weekly margin balance date candidates in {window}; "
-                    "the window holds no complete week of stored trading days"
+                    "the window holds no eligible stored trading days"
                 )
             margin_rows = sum(refresh.ensure_weekly_margin(week) for week in weeks)
         except (
