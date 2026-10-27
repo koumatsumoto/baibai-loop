@@ -213,3 +213,50 @@ def test_price_coverage_and_rows_share_a_read_snapshot(tmp_path, monkeypatch, re
         assert rows[0].close == 100
     # The next call sees the new incomplete acquisition, not the old successful coverage.
     assert read() is None
+
+
+@pytest.mark.parametrize("source", ["jquants_fin_summaries", "jquants_market_calendar"])
+def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeypatch, source):
+    path = tmp_path / "market.sqlite"
+    day = date(2026, 1, 30)
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute("PRAGMA journal_mode = WAL")
+        insert_financial_record(
+            conn, {"Code": "13010", "DiscDate": day.isoformat(), "DiscNo": "statement"}
+        )
+        conn.execute(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, '1')",
+            (day.isoformat(),),
+        )
+        record_source_coverage(
+            conn,
+            source=source,
+            coverage_key="test-range",
+            coverage_start=day.isoformat(),
+            coverage_end=day.isoformat(),
+            fetched_at_utc="2026-01-30T00:00:00Z",
+            record_count=1,
+        )
+    original = jquants_reader.range_covered
+    changed = False
+
+    def covered_then_refresh(conn, selected_source, start, end):
+        nonlocal changed
+        result = original(conn, selected_source, start, end)
+        if not changed:
+            changed = True
+            with closing(sqlite3.connect(path)) as writer, writer:
+                writer.execute("DELETE FROM jquants_fin_summaries")
+                writer.execute("DELETE FROM jquants_market_calendar")
+                writer.execute("UPDATE source_coverage SET status = 'partial'")
+        return result
+
+    monkeypatch.setattr(jquants_reader, "range_covered", covered_then_refresh)
+    reader = (
+        jquants_reader.read_fin_summaries
+        if source == "jquants_fin_summaries"
+        else jquants_reader.read_market_calendar
+    )
+    rows = reader(path, day, day)
+    assert rows is not None and len(rows) == 1
+    assert reader(path, day, day) is None

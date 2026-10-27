@@ -13,6 +13,7 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.market.calendar_context import observation_calendar_context as calendar_context
+from baibai_engine.market.master_snapshot import master_coverage_key
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 _MARKET = (
@@ -76,6 +77,7 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             before = target.total_changes
             target.executemany(f"INSERT INTO {table} VALUES ({placeholders})", cursor)  # nosec B608
             rows_by_table[table] = target.total_changes - before
+        master_key = master_coverage_key(date.fromisoformat(basis)) if basis is not None else None
         coverage = tuple(
             table
             for table in tables
@@ -88,7 +90,7 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
                 "SELECT * FROM source_coverage WHERE source = ? "
                 "AND (? != 'tradingview' OR source != 'jquants_master_snapshots' "
                 "OR coverage_key = ?)",
-                (name, group, basis),
+                (name, group, master_key),
             )
             target.executemany("INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
         source_type = 5 if group == "edinet-metrics" else 1
