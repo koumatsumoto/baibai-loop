@@ -107,7 +107,51 @@ def _stored_assessment(row: sqlite3.Row) -> StoredAssessment:
 def latest_assessment(
     path: Path | None, *, as_of: date, known_at: datetime
 ) -> StoredAssessment | None:
-    return select_assessment(assessment_history(path), as_of=as_of, known_at=known_at)
+    """Select by publication metadata, then validate only the selected body.
+
+    Unused historical/future bodies are not prerequisites for a current Research
+    input. A broken selected body still fails; never fall back to an older judgment.
+    """
+    require_aware(known_at)
+    resolved = database_path(path)
+    if not resolved.is_file():
+        return None
+    connection = connect_read_only(resolved)
+    try:
+        connection.execute("BEGIN")
+        try:
+            rows = connection.execute(
+                "SELECT context_id,as_of,published_at FROM market_context_assessment "
+                "WHERE schema_version IN (3,4,5,6) AND as_of<=?",
+                (as_of.isoformat(),),
+            ).fetchall()
+        except sqlite3.OperationalError as error:
+            if is_unwritten_store(error, resolved):
+                return None
+            raise
+        eligible: list[tuple[datetime, date, str]] = []
+        for row in rows:
+            published = require_aware(datetime.fromisoformat(str(row["published_at"])))
+            if published.astimezone(UTC) <= known_at.astimezone(UTC):
+                eligible.append(
+                    (
+                        published.astimezone(UTC),
+                        date.fromisoformat(str(row["as_of"])),
+                        str(row["context_id"]),
+                    )
+                )
+        if not eligible:
+            return None
+        selected_id = max(eligible)[2]
+        selected = connection.execute(
+            "SELECT context_id,schema_version,as_of,published_at,payload "
+            "FROM market_context_assessment WHERE context_id=?",
+            (selected_id,),
+        ).fetchone()
+        assert selected is not None  # The metadata and body share one read snapshot.
+        return _stored_assessment(selected)
+    finally:
+        connection.close()
 
 
 def assessment_payload(path: Path | None, *, context_id: str) -> dict[str, Any]:
