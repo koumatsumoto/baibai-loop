@@ -1,4 +1,4 @@
-"""Bind a hydrated market store to the exact L1 release it contains."""
+"""Bind a hydrated market store to the exact lake release it contains."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class LakeStoreOriginError(RuntimeError):
-    """The market store cannot prove or advance its L1 origin."""
+    """The market store cannot prove or advance its lake origin."""
 
 
 @dataclass(frozen=True, slots=True)

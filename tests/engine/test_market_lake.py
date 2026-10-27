@@ -603,7 +603,7 @@ def test_new_generation_uses_declared_observations_not_historical_size(
 
 
 def test_a_release_reference_is_not_admissible_as_partition_lineage() -> None:
-    # An L1 release is a read reference, not a lineage source: reproducing it needs its
+    # A lake release is a read reference, not a lineage source: reproducing it needs its
     # dataset manifests and objects kept whole, and nothing here walks that closure yet.
     # A partition that claimed it would name a lineage no publisher, reader, or
     # retention plan keeps.
@@ -856,7 +856,7 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
 
     先だけを持つ calendar の最古の行は今日より後ろにある。2026-08-17 の日次バッチは
     `coverage starts 2026-07-03, later than the profile boundary 2026-06-19` で止まり、
-    その日の L1 release が 3 回とも publish されなかった。境界を持つ dataset では同じ
+    その日の lake release が 3 回とも publish されなかった。境界を持つ dataset では同じ
     manifest が今も拒まれることを併せて固定し、通ったのが検査の不在ではないことを示す。
     """
 

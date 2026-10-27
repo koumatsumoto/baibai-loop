@@ -1,4 +1,4 @@
-"""固定入力からモデルと候補を生成し、同じL1 releaseを公開する。Web生成は行わない。"""
+"""固定入力からモデルと候補を生成し、同じlake releaseを公開する。Web生成は行わない。"""
 
 from __future__ import annotations
 

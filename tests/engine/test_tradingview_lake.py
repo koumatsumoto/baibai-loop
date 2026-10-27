@@ -113,7 +113,7 @@ def test_raw_only_failed_acquisition_receipt_survives_fixed_release(tmp_path, mo
 
 
 @pytest.mark.parametrize("manual_observation", [False, True])
-def test_l1_only_publish_restores_snapshot_without_market_push(
+def test_lake_only_publish_restores_snapshot_without_market_push(
     tmp_path, monkeypatch, manual_observation
 ):
     datasets = (
@@ -236,7 +236,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
     current, current_cache = publish("current-tv-release")
     assert current.data_as_of == DAY
 
-    # The remote market object remains the prior dehydrated copy: only L1 advanced.
+    # The remote market object remains the prior dehydrated copy: only the lake release advanced.
     with closing(sqlite3.connect(remote)) as conn:
         assert (
             conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0

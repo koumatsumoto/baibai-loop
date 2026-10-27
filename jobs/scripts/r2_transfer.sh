@@ -497,7 +497,7 @@ _push_keys() {
     started="${SECONDS}"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
-    # once the lake holds anything. An L1 release pointer is where that authority is
+    # once the lake holds anything. A lake release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an
     # empty bucket being seeded) the store is still the only copy of those rows, and
     # after it the emptying is mandatory rather than best-effort.

@@ -112,7 +112,7 @@ def initialize(
     mirror.chmod(0o700)
     pointer = _serving_pointer(store).pointer
     if pointer is None:
-        raise ValueError("external assessment plan requires an existing L1 release")
+        raise ValueError("external assessment plan requires an existing lake release")
     release = _resolve_serving_release(store, mirror, pointer)
     with lake_session() as session:
         cache = LakeObjectCache(root=mirror, source=_MasterSource(store))

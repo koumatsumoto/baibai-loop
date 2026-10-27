@@ -93,6 +93,8 @@ Company Research（企業調査）は一次資料から事業・財務・競争�
 | runs SQLite（`runs.sqlite`） | 再生成可能な五モデル・候補抽出政策と結果、および旧runが同居するDB |
 | calibration directory | 再生成可能なローカル較正snapshot。`runs.sqlite`とは別に保存する |
 
+lake releaseは保存・公開の単位であり、L1という意味層の別名ではない。release内のdatasetは`layer=l1_source`（原本・受領）と`layer=l2_processed`（再現可能な投影）を区別する。公開pointerやhydrate元のoriginが示すのは、この両者を含む固定releaseである。
+
 通常の独立Actionsによるsource取得は、担当範囲の再生成可能なread-only inputから原受領handoffを作り、正本を直接更新しない。共通統合は開始時に存在するimmutable受領を固定し、取得全体の完了を待たず、最新正本へ各domainのprojection/rebuildを適用して一回の固定market snapshotからfull lake releaseを用意し、同じ入力でL2生成・候補保存後にそのreleaseを公開する。source-local SQLiteは担当sourceだけの部分データであり、全体releaseを復元した実行コピーではない。そのため全体releaseへの所属を示すorigin情報を付けない。明示的に認可された[ローカルTradingView運用](../jobs/OPERATIONS.md#local-tradingview-runtime)は、取得とlake公開を同じlease内で行う別経路である。
 
 通常の経済取得は一時受領に実取得の同値も保持し、正本への変更時追記・同値no-opは最新正本との比較で決める。明示CLI回復は並行更新・未統合受領との順序を保つため同値の実受領も発行し、対象source・期間を限定する。

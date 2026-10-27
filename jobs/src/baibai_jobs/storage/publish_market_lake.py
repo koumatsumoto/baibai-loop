@@ -181,7 +181,7 @@ def publish_prepared_market_lake(
         )
     except LakeStoreOriginError as exc:
         raise LakePublishError(
-            f"the L1 pointer advanced but the local market store origin did not: {exc}; "
+            f"the lake pointer advanced but the local market store origin did not: {exc}; "
             "hydrate the store from current before publishing again"
         ) from exc
     print(
