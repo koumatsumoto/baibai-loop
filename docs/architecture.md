@@ -40,7 +40,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 五モデルはScreening専用の中間データではない。Investment Judgmentは保存モデルと一次資料を統合し、候補外の企業も調査できる。現行のCompany Valuationは財務観測と利益・価格の座標を渡し、機械ER/FVは新Selectionの入力に含めない。同domainに残る機械ER/FVと較正は旧runの読取・保守用である。企業価値の評価はL3、最終買付採否は人間が担い、Screeningはどちらも確定しない。
 
-統合評価は企業価値・成長・市場・外部評価・多様なテクニカルの間を問いに応じて往復する。急落はテクニカルの一観点であり、「価格変化→Research」だけを固定の入口にしない。シグナルの多数決や同じ価格加工の独立票化を判断へ持ち込まない。
+統合判断の採否基準は[doctrine](doctrine.md#fact-analysis-separation)、五モデルを企業仮定へ接続する方法は[銘柄評価](reference/stock-assessment.md#analysis-domain-integration)が所有する。
 
 五モデルは固定market releaseと独立economic snapshotから[共通生成](../engine/src/baibai_engine/machine_analysis/generation_reader.py)し、候補抽出より先に[一つのtransactionで保存](../engine/src/baibai_engine/machine_analysis/generation_store.py)する。対象全社の保持履歴を扱う生成結果は順次圧縮し、途中失敗では生成を公開しない。共通の読取・モデル合成・保存は`machine_analysis/`直下、個別モデルの計算は各domainが所有する。Jobsの[model_integration](../jobs/src/baibai_jobs/jobs/model_integration.py)は生成・候補抽出・同じreleaseの公開という実行順を合成する。Screeningは保存済みのCompany ValuationとTechnical Analysisだけを読み、[二つのview](reference/screening-runtime.md#rule-purpose)で候補と抽出理由を作る。
 
@@ -100,8 +100,6 @@ lake releaseは保存・公開の単位であり、L1という意味層の別名
 通常の経済取得は一時受領に実取得の同値も保持し、正本への変更時追記・同値no-opは最新正本との比較で決める。明示CLI回復は並行更新・未統合受領との順序を保つため同値の実受領も発行し、対象source・期間を限定する。
 
 クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/foundation/repository_layout.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
-
-新Screeningは[views.py](../engine/src/baibai_engine/machine_analysis/screening/views.py)の算式と`TwoViewPolicy`を使い、使用した政策本文を候補結果と一緒に保存する。この経路はdated YAMLを読まない。
 
 dated規則の[screening/rules/](../engine/src/baibai_engine/machine_analysis/screening/rules/)は旧run・較正用、[market_context/reading/rules/](../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)は現在のReading用で、それぞれのloaderが既定revisionを読む。採用中の版だけを配置し、旧版は[Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/method)に残す。保存結果の閲覧に旧版を再配置せず、過去計算の再現には当時のコードと入力も用意する。dated規則の意味変更は新revisionとし、配置変更だけで内容・識別子・保存判断を変えない。較正の配布artifactは[`machine_analysis/company_valuation/calibration/published/`](../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)に置く。
 
