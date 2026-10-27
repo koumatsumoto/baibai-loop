@@ -29,13 +29,11 @@ PmaxはBaseの条件付き年率が要求率を満たす価格上限で、期待
 
 許容価格域の中で、見返り・単元数/cash・既知イベントによって判断が変わる少数のlimit候補を、現金維持や他の完成案と比較する。高い上限、低い指値待ち、見送りのいずれも選べ、全呼値の探索や固定数の候補を要求しない。採用理由と、採らない案の重要な差・選択が反転する条件を既存rationale・comparison・forgoneへ記し、同文を各欄へ複写しない。
 
-候補別算術の入口はPythonの[`trade_proposal_inputs.build_proposal_context`](../../engine/src/baibai_engine/investment_judgment/trade_proposal_inputs.py)。`baibai_engine.investment_judgment.trade_proposal_inputs`からimportし、`operation_id`（activeなOperation ID）、`db_path`（application DBの`Path`）、`sqlite_path`（market SQLiteの`Path`）、`now`（timezone付き`datetime`）をkeyword引数で一度渡す。既にIDを固定した提案の比較では任意の`proposal_id`にもそのIDを渡す。
-
-対象Assessment IDの`context.assessments`内pair、`context.inputs`、context構築時の`now`・`sqlite_path`を[`trade_proposal_conditions.buy_evaluation`](../../engine/src/baibai_engine/investment_judgment/trade_proposal_conditions.py)へ渡し、`latest`はそのtickerの`context.latest_assessment_ids`とpairのIDの一致で求める。比較中は`Decimal`型の`proposed_limit_yen`だけ変え、内部の`evaluate_buy_terms`が返すblocker・数量・quote/limit別returnと、数量×limitの支出上限・残余cashを比べる。basisは同じpathから再確認されるため、評価・市場入力が変わればcontextから比較を取り直す。contextのquote/Pmaxでの計算だけを任意limitでの計算とせず、算式を複製しない。観測価格・鮮度はquote、支出上限・提案利回りはlimitに保つ。
+候補比較は[同じ提案context](../../engine/src/baibai_engine/investment_judgment/trade_proposal_inputs.py)から[正準の購入算術](../../engine/src/baibai_engine/investment_judgment/trade_proposal_conditions.py)へ渡し、limitだけを変える。引数・型・戻り値は実装を見る。観測価格と鮮度はquote、支出上限と提案利回りはlimitであり、quote/Pmaxの計算を任意limitの計算としない。株式basisは市場入力から再確認されるため、入力が変わればcontextから比較を取り直す。算式の複製や比較途中の異なる入力混在を避ける。
 
 未約定で失い得る利益だけでなく、保持cash・他の投資機会・回避できる損失と、待って得られる情報を比べる。悪材料の時だけ指値が成立する逆選択やevent gapも考え、約定率×Base利益だけで選ばない。同じ毀損を価値と別penaltyで二重控除せず、機会損失を未約定後の最高値で事後定義しない。ADVや日足から板・queue・価格impact・精密な約定確率を創作せず、`low <= limit`も約定保証にしない。精密確率や全リスク解消を要件にせず、推定を使う場合は[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
 
-対象sessionはterms.target_session、limitを適用する前提・既知イベントはterms.conditions、未約定・部分約定・新情報の後に何をいつ確認するかはreview_conditionsへ記す。事実・仮説が変われば評価やsnapshotへ戻り、新しい内容Reviewへ束縛する。部分約定後は確認済み保有・残注文・cashと既保有追加禁止を含む現行policyで判断し、残数を自動で再提案しない。未約定を理由に上限超へ追随したり、自動で引上げ・延長したりしない。
+対象session・limitの前提と既知イベント、未約定・部分約定・新情報の後に何をいつ確認するかを記す。事実・仮説が変われば評価やsnapshotへ戻り、新しい内容Reviewへ束縛する。部分約定後は確認済み保有・残注文・cashと既保有追加禁止を含む現行policyで判断し、残数を自動で再提案しない。未約定を理由に上限超へ追随したり、自動で引上げ・延長したりしない。
 
 <a id="price-grid"></a>
 ### 具体条件

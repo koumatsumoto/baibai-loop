@@ -44,19 +44,17 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 統合判断の採否基準は[doctrine](doctrine.md#fact-analysis-separation)、五モデルを企業仮定へ接続する方法は[銘柄評価](reference/stock-assessment.md#analysis-domain-integration)が所有する。
 
-五モデルは固定market releaseと独立economic snapshotから[共通生成](../engine/src/baibai_engine/machine_analysis/generation_reader.py)し、候補抽出より先に[一つのtransactionで保存](../engine/src/baibai_engine/machine_analysis/generation_store.py)する。対象全社の保持履歴を扱う生成結果は順次圧縮し、途中失敗では生成を公開しない。共通の読取・モデル合成・保存は`machine_analysis/`直下、個別モデルの計算は各domainが所有する。Jobsの[model_integration](../jobs/src/baibai_jobs/jobs/model_integration.py)は生成・候補抽出・同じreleaseの公開という実行順を合成する。Screeningは保存済みのCompany ValuationとTechnical Analysisだけを読み、[二つのview](reference/screening-runtime.md#rule-purpose)で候補と抽出理由を作る。
+共通モデル生成は、固定market releaseと独立economic snapshotから各domainの計算を合成し、候補抽出より先に全対象の結果を一つの世代として保存する。途中失敗した世代は公開しない。この順序により、候補政策を変えても元の観測を失わず、候補外の調査も同じ入力に基づける。Screeningは現在、保存済みのCompany ValuationとTechnical Analysisから[二つのview](reference/screening-runtime.md#rule-purpose)を作る。Jobsは生成・抽出・同じreleaseの公開順を所有する。
 
-投資判断を始めるSelectionは、必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。新規Operationはこの生成済み入力だけを受け付け、旧runと可変storeからの新規収集経路は持たない。保存済み旧Selectionは元のhash・入力を保ち、Operation IDから再開する。具体的な算式・入力・候補規則は各実装とreferenceが所有する。
+投資判断を始めるSelectionは、必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。新規Operationはこの生成済み入力だけを受け付け、旧runと可変storeからの新規収集経路は持たない。保存済み旧Selectionは元のhash・入力を保ち、Operation IDから再開する。算式・field・分岐は実装、結果を解釈するうえで必要な経済的意味は各referenceが所有する。
 
-`market/`は共通観測の読取・正規化・価格/財務算術に加え、source取得・原受領handoff・最新正本への投影を合成する、L1/L2をまたぐ境界である。共通価格は`market/price_reader.py`が原価格・action・coverage、`adjusted_prices.py`が分析用価格、`price_basis.py`が純粋な換算を所有する。価格調整と株数単位の変更は異なる契約である。
+現在の`market/`は共通観測の読取・正規化・価格/財務算術に加え、source取得・原受領handoff・最新正本への投影を合成し、L1/L2をまたぐ。source通信と受領はData Collection、通信のない観測と計算はMachine Analysisへ分けるのが目標だが、TradingViewの保存原本からのrebuild等には既存の合成境界が残る。原本を保存したことと、正しいL2へ投影できたことを一つの成功状態にしない。
 
-外部評価の取得は`data_collection/external_assessment/`、TradingView通信合成は`data_collection/tradingview/`に置く。CLI・collector・handoffは取得と解析・保存を合成し、原本保持とL2投影を区別する。通信のない正規化・観測・読取はMachine Analysisが所有する。ただし、保存原本からL2行を置換するTradingViewのrebuildと、取得を起動するsource_maintenanceのCLIは既存の合成境界として残る。
-
-仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Positionも使う有限数の変換は`foundation/numbers.py`に置き、PositionからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Positionは人間の確認済み事実を保存する。
+仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Positionも使う汎用数値変換を共通基盤へ分け、PositionからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Positionは人間の確認済み事実を保存する。
 
 `jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。`read_api`は内部Python境界でありHTTP公開APIではない。Webは資産・損益・保有銘柄、運用成績、タスクだけを保持する。旧調査提案・候補一覧・マクロ一覧・前回差分と外部データ取得APIは撤去し、コアの成功条件に含めない。Webは所有domainの読取を合成し、旧screening互換に依存しない。最新売買提案レポートの再設計はIssue #1615で扱う。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
 
-`data-collection market`の実装は`source_maintenance/`が所有し、原本取得・保存原本の投影・保守を合成する。公開dispatcherは`data_collection_cli.py`に置き、純粋なsource通信・受領packageへL2や判断の依存を入れない。Screeningの旧生成入口とsource保守入口は撤去し、旧run読取・較正だけを残す。旧ticker-profileは撤去し、市場snapshotはMarket ContextのCLIへ置く。取得窓の共有定数は`market/input_windows.py`に置くが、新五モデルの保存履歴読取を制限しない。
+source取得・保存原本の投影・保守を合成する入口は`source_maintenance/`に残る。純粋なsource通信・受領packageへL2や判断の依存を入れず、通常取得と旧runの較正保守を別経路にする。旧ticker-profileや旧Screeningからの取得起動は撤去済みである。
 
 ジョブは一つの目的を持つ実行・成功失敗・再実行の単位、ワークフローはその順序・並行実行・依存関係を定めるもの。GitHub Actionsのjobと業務ジョブは常に一対一ではない。バッチ処理は非対話でまとまったデータを処理する方式を指す。
 
