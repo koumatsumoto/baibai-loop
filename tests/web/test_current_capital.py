@@ -16,6 +16,7 @@ from baibai_engine.position.drafts import apply_draft, build_sell_execution_draf
 from baibai_engine.position.store import LedgerStoreService
 from baibai_web.readmodel.builders import dashboard
 from baibai_web.readmodel.builders.dashboard import build_dashboard
+from baibai_web.readmodel.builders.presentation import percentage
 from baibai_web.sources import db_sources
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
@@ -23,6 +24,16 @@ from baibai_web.sources.db_sources import (
 )
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
+
+
+@pytest.mark.parametrize(
+    ("numerator", "denominator", "expected"),
+    [(0, 0, None), (100, 0, None), (None, 100, None), (0, 100, 0.0), (10, 100, 10.0)],
+)
+def test_display_percentage_keeps_undefined_denominator_distinct_from_zero(
+    numerator, denominator, expected
+):
+    assert percentage(numerator, denominator, digits=2) == expected
 
 
 @pytest.fixture
