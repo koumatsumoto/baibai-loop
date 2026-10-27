@@ -272,7 +272,7 @@ def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions(
 def test_latest_does_not_decode_unselected_bodies(tmp_path, unused):
     db = tmp_path / "app.sqlite"
     chosen = document()
-    seed_history(db, chosen.payload())
+    AssessmentService(db).publish(chosen, expected_head=AssessmentService(db).head_id())
     other = chosen.payload()
     other["context_id"] = "market-context-assessment-2026-07-17-other"
     other["published_at"] = "2026-07-17T18:00:00+00:00"
@@ -285,14 +285,14 @@ def test_latest_does_not_decode_unselected_bodies(tmp_path, unused):
     seed_history(db, other)
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute(
-            "UPDATE market_context_assessment SET payload='not JSON' WHERE context_id=?",
+            "UPDATE market_context_assessment SET payload='[]' WHERE context_id=?",
             (other["context_id"],),
         )
     result = latest_assessment(
         db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, 12, tzinfo=UTC)
     )
     assert result.document == chosen.payload()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="assessment payload must be an object"):
         assessment_by_id(db, context_id=other["context_id"])
 
 
@@ -302,15 +302,15 @@ def test_latest_broken_selected_body_does_not_fall_back(tmp_path):
         context_id="market-context-assessment-2026-07-17-older",
         published_at="2026-07-17T18:00:00+00:00",
     )
-    seed_history(db, older.payload())
+    AssessmentService(db).publish(older, expected_head=None)
     chosen = document()
-    seed_history(db, chosen.payload())
+    AssessmentService(db).publish(chosen, expected_head=AssessmentService(db).head_id())
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute(
-            "UPDATE market_context_assessment SET payload='not JSON' WHERE context_id=?",
+            "UPDATE market_context_assessment SET payload='[]' WHERE context_id=?",
             (chosen.context_id,),
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="assessment payload must be an object"):
         latest_assessment(
             db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, 12, tzinfo=UTC)
         )
@@ -333,7 +333,7 @@ def test_latest_orders_offset_and_microsecond_publications_like_pure_selector(tm
         ),
     ]
     for item in documents:
-        seed_history(db, item.payload())
+        AssessmentService(db).publish(item, expected_head=AssessmentService(db).head_id())
     for cutoff in ("2026-07-17T08:00:00.000001+00:00", "2026-07-17T08:00:00.000002+00:00"):
         known_at = datetime.fromisoformat(cutoff)
         expected = select_assessment(
