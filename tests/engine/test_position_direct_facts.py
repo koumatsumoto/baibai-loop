@@ -123,10 +123,7 @@ def test_existing_order_open_retry_keeps_reference_before_generating_uuid(tmp_pa
         open_direct(service, decision_reference="manual-fact-00000000-0000-4000-8000-000000000009")
 
 
-@pytest.mark.parametrize(
-    "reference", [None, "manual-fact-00000000-0000-4000-8000-000000000009"]
-)
-def test_apply_rejects_edited_buy_fill_reference_without_changing_ledger(tmp_path, reference):
+def test_apply_rejects_edited_buy_fill_reference_without_changing_ledger(tmp_path):
     service, _ = _service(tmp_path)
     opened, _ = open_direct(service)
     apply_draft(service, opened, human_confirmed=True)
@@ -134,13 +131,14 @@ def test_apply_rejects_edited_buy_fill_reference_without_changing_ledger(tmp_pat
     assert draft is not None
     fill = draft.replacement.events[-1]
     assert isinstance(fill, ExecutionEvent)
+    other_reference = "manual-fact-00000000-0000-4000-8000-000000000009"
     edited = draft.model_copy(
         update={
             "replacement": draft.replacement.model_copy(
                 update={
                     "events": (
                         *draft.replacement.events[:-1],
-                        fill.model_copy(update={"decision_reference": reference}),
+                        fill.model_copy(update={"decision_reference": other_reference}),
                     )
                 }
             )
@@ -152,6 +150,29 @@ def test_apply_rejects_edited_buy_fill_reference_without_changing_ledger(tmp_pat
         apply_draft(service, edited, human_confirmed=True)
 
     assert service.load_with_head() == (before, head)
+
+
+def test_reserved_buy_replays_legacy_execution_without_a_recorded_reference(tmp_path):
+    service, _ = _service(tmp_path)
+    opened, _ = open_direct(service)
+    apply_draft(service, opened, human_confirmed=True)
+    draft, _ = fill_direct(service)
+    assert draft is not None
+    fill = draft.replacement.events[-1]
+    assert isinstance(fill, ExecutionEvent)
+    legacy = draft.replacement.model_copy(
+        update={
+            "events": (
+                *draft.replacement.events[:-1],
+                fill.model_copy(update={"decision_reference": None}),
+            )
+        }
+    )
+
+    state = replay_events_through(legacy.events, legacy.as_of)
+
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 100
+    assert state.reserved_cash_yen == 100_000
 
 
 def test_existing_fill_with_wrong_order_is_conflict(tmp_path):

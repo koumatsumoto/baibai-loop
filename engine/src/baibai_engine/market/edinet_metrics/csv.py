@@ -142,107 +142,71 @@ def parse_csv_zip_metric_record(
 # not inferred. In particular, bonds/borrowings alone do not establish complete
 # financial debt, and other financial assets are not investment securities.
 _IFRS_ALIASES = {
-    "jpigp_cor:RevenueIFRS": "netsales",
-    "jpigp_cor:NetSalesIFRS": "netsales",
+    "jpigp_cor:RevenueIFRS": "jppfs_cor:NetSales",
+    "jpigp_cor:NetSalesIFRS": "jppfs_cor:NetSales",
     "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS": (
-        "netcashprovidedbyusedinoperatingactivities"
+        "jppfs_cor:NetCashProvidedByUsedInOperatingActivities"
     ),
-    "jpigp_cor:OperatingProfitLossIFRS": "operatingincome",
-    "jpigp_cor:CashAndCashEquivalentsIFRS": "cashandcashequivalents",
-    "jpigp_cor:EquityIFRS": "netassets",
-    "jpigp_cor:AssetsIFRS": "assets",
-    "jpigp_cor:DepreciationAndAmortizationOpeCFIFRS": "depreciationandamortizationopecf",
+    "jpigp_cor:OperatingProfitLossIFRS": "jppfs_cor:OperatingIncome",
+    "jpigp_cor:CashAndCashEquivalentsIFRS": "jppfs_cor:CashAndCashEquivalents",
+    "jpigp_cor:EquityIFRS": "jppfs_cor:NetAssets",
+    "jpigp_cor:AssetsIFRS": "jppfs_cor:Assets",
+    "jpigp_cor:DepreciationAndAmortizationOpeCFIFRS": "jppfs_cor:DepreciationAndAmortizationOpeCF",
     "jpigp_cor:PurchaseOfPropertyPlantAndEquipmentInvCFIFRS": (
-        "purchaseofpropertyplantandequipmentinvcf"
+        "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
     ),
-    "jpigp_cor:PurchaseOfIntangibleAssetsInvCFIFRS": "purchaseofintangibleassetsinvcf",
-}
-
-# Qualified standard concepts, with exact spelling. A matching local name in an
-# issuer namespace does not establish the same financial-statement meaning.
-_JGAAP_ALIASES = {
-    "jppfs_cor:NetSales": "netsales",
-    "jpcrp_cor:RevenuesFromExternalCustomers": "revenuesfromexternalcustomers",
-    "jppfs_cor:NetCashProvidedByUsedInOperatingActivities": (
-        "netcashprovidedbyusedinoperatingactivities"
-    ),
-    "jppfs_cor:OperatingIncome": "operatingincome",
-    "jppfs_cor:CashAndDeposits": "cashanddeposits",
-    "jppfs_cor:CashAndCashEquivalents": "cashandcashequivalents",
-    "jppfs_cor:InvestmentSecurities": "investmentsecurities",
-    "jppfs_cor:NetAssets": "netassets",
-    "jppfs_cor:Assets": "assets",
-    "jppfs_cor:ShortTermLoansPayable": "shorttermloanspayable",
-    "jppfs_cor:CurrentPortionOfLongTermLoansPayable": "currentportionoflongtermloanspayable",
-    "jppfs_cor:CurrentPortionOfBonds": "currentportionofbonds",
-    "jppfs_cor:BondsPayable": "bondspayable",
-    "jppfs_cor:ConvertibleBondTypeBondsWithSubscriptionRightsToShares": (
-        "convertiblebondtypebondswithsubscriptionrightstoshares"
-    ),
-    "jppfs_cor:LongTermLoansPayable": "longtermloanspayable",
-    "jppfs_cor:LeaseObligationsCL": "leaseobligationscl",
-    "jppfs_cor:LeaseObligationsNCL": "leaseobligationsncl",
-    "jppfs_cor:DepreciationAndAmortizationOpeCF": "depreciationandamortizationopecf",
-    "jppfs_cor:AmortizationOfGoodwillOpeCF": "amortizationofgoodwillopecf",
-    "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF": (
-        "purchaseofpropertyplantandequipmentandintangibleassetsinvcf"
-    ),
-    "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF": "purchaseofpropertyplantandequipmentinvcf",
-    "jppfs_cor:PurchaseOfIntangibleAssetsInvCF": "purchaseofintangibleassetsinvcf",
-    "jppfs_cor:DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF": (
-        "decreaseincreaseinnotesandaccountsreceivabletradeopecf"
-    ),
-    "jppfs_cor:DecreaseIncreaseInInventoriesOpeCF": "decreaseincreaseininventoriesopecf",
-    "jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF": (
-        "increasedecreaseinnotesandaccountspayabletradeopecf"
-    ),
-    "jppfs_cor:IncreaseDecreaseInContractLiabilitiesOpeCF": (
-        "increasedecreaseincontractliabilitiesopecf"
-    ),
-    "jppfs_cor:IncreaseDecreaseInAdvancesReceivedOpeCF": "increasedecreaseinadvancesreceivedopecf",
-    "jppfs_cor:IncreaseDecreaseInAccountsPayableOtherOpeCF": (
-        "increasedecreaseinaccountspayableotheropecf"
-    ),
+    "jpigp_cor:PurchaseOfIntangibleAssetsInvCFIFRS": "jppfs_cor:PurchaseOfIntangibleAssetsInvCF",
 }
 
 
+# Exact qualified standard concepts. Issuer local-name homonyms are not aliases.
 _TAGS: dict[str, tuple[str, ...]] = {
     "sales": (
-        "netsales",
-        "revenuesfromexternalcustomers",
+        "jppfs_cor:NetSales",
+        "jpcrp_cor:RevenuesFromExternalCustomers",
     ),
-    "ocf": ("netcashprovidedbyusedinoperatingactivities",),
-    "operating_profit": ("operatingincome",),
+    "ocf": ("jppfs_cor:NetCashProvidedByUsedInOperatingActivities",),
+    "operating_profit": ("jppfs_cor:OperatingIncome",),
     "cash": (
-        "cashanddeposits",
-        "cashandcashequivalents",
+        "jppfs_cor:CashAndDeposits",
+        "jppfs_cor:CashAndCashEquivalents",
     ),
-    "investment_securities": ("investmentsecurities",),
-    "equity": ("netassets",),
-    "total_assets": ("assets",),
+    "investment_securities": ("jppfs_cor:InvestmentSecurities",),
+    "equity": ("jppfs_cor:NetAssets",),
+    "total_assets": ("jppfs_cor:Assets",),
     "debt_components": (
-        "shorttermloanspayable",
-        "currentportionoflongtermloanspayable",
-        "currentportionofbonds",
-        "bondspayable",
-        "convertiblebondtypebondswithsubscriptionrightstoshares",
-        "longtermloanspayable",
-        "leaseobligationscl",
-        "leaseobligationsncl",
+        "jppfs_cor:ShortTermLoansPayable",
+        "jppfs_cor:CurrentPortionOfLongTermLoansPayable",
+        "jppfs_cor:CurrentPortionOfBonds",
+        "jppfs_cor:BondsPayable",
+        "jppfs_cor:ConvertibleBondTypeBondsWithSubscriptionRightsToShares",
+        "jppfs_cor:LongTermLoansPayable",
+        "jppfs_cor:LeaseObligationsCL",
+        "jppfs_cor:LeaseObligationsNCL",
     ),
     "depreciation": (
-        "depreciationandamortizationopecf",
-        "amortizationofgoodwillopecf",
+        "jppfs_cor:DepreciationAndAmortizationOpeCF",
+        "jppfs_cor:AmortizationOfGoodwillOpeCF",
     ),
-    "capex_total": ("purchaseofpropertyplantandequipmentandintangibleassetsinvcf",),
-    "capex_tangible": ("purchaseofpropertyplantandequipmentinvcf",),
-    "capex_intangible": ("purchaseofintangibleassetsinvcf",),
-    "ocf_receivables_cash_effect": ("decreaseincreaseinnotesandaccountsreceivabletradeopecf",),
-    "ocf_inventories_cash_effect": ("decreaseincreaseininventoriesopecf",),
-    "ocf_payables_cash_effect": ("increasedecreaseinnotesandaccountspayabletradeopecf",),
-    "ocf_contract_liabilities_cash_effect": ("increasedecreaseincontractliabilitiesopecf",),
-    "ocf_advances_received_cash_effect": ("increasedecreaseinadvancesreceivedopecf",),
-    "ocf_other_payables_cash_effect": ("increasedecreaseinaccountspayableotheropecf",),
+    "capex_total": ("jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF",),
+    "capex_tangible": ("jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",),
+    "capex_intangible": ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF",),
+    "ocf_receivables_cash_effect": (
+        "jppfs_cor:DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF",
+    ),
+    "ocf_inventories_cash_effect": ("jppfs_cor:DecreaseIncreaseInInventoriesOpeCF",),
+    "ocf_payables_cash_effect": (
+        "jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF",
+    ),
+    "ocf_contract_liabilities_cash_effect": (
+        "jppfs_cor:IncreaseDecreaseInContractLiabilitiesOpeCF",
+    ),
+    "ocf_advances_received_cash_effect": (
+        "jppfs_cor:IncreaseDecreaseInAdvancesReceivedOpeCF",
+    ),
+    "ocf_other_payables_cash_effect": (
+        "jppfs_cor:IncreaseDecreaseInAccountsPayableOtherOpeCF",
+    ),
 }
 
 
@@ -390,7 +354,7 @@ def _metric_values(
 ) -> dict[str, float | None]:
     grouped: dict[str, set[float | None]] = {}
     for row in rows:
-        name = _metric_alias(_row_element(row))
+        name = _metric_element(_row_element(row))
         if name not in tags:
             continue
         values = grouped.setdefault(name, set())
@@ -417,8 +381,8 @@ def _sum_metric(rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]) -> flo
 
 def _depreciation_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
     values = _metric_values(rows, _TAGS["depreciation"])
-    depreciation = values.get("depreciationandamortizationopecf")
-    goodwill = values.get("amortizationofgoodwillopecf", 0.0)
+    depreciation = values.get("jppfs_cor:DepreciationAndAmortizationOpeCF")
+    goodwill = values.get("jppfs_cor:AmortizationOfGoodwillOpeCF", 0.0)
     # Goodwill amortization alone cannot stand in for depreciation. Add it when
     # reported; this does not establish completeness of all amortization charges.
     return depreciation + goodwill if depreciation is not None and goodwill is not None else None
@@ -460,12 +424,12 @@ def _row_context(row: Mapping[str, str]) -> str:
     return row.get("コンテキストID", "")
 
 
-def _metric_alias(value: str) -> str:
-    return _IFRS_ALIASES.get(value, _JGAAP_ALIASES.get(value, ""))
+def _metric_element(value: str) -> str:
+    return _IFRS_ALIASES.get(value, value)
 
 
 def _element_matches(element: str, tags: tuple[str, ...]) -> bool:
-    return _metric_alias(element) in tags
+    return _metric_element(element) in tags
 
 
 def _csv_value(raw: str | None) -> float | None:

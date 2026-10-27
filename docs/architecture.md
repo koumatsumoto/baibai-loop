@@ -40,6 +40,8 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 五モデルはScreening専用の中間データではない。Investment Judgmentは保存モデルと一次資料を統合し、候補外の企業も調査できる。現行のCompany Valuationは財務観測と利益・価格の座標を渡し、機械ER/FVは新Selectionの入力に含めない。同domainに残る機械ER/FVと較正は旧runの読取・保守用である。企業価値の評価はL3、最終買付採否は人間が担い、Screeningはどちらも確定しない。
 
+統合評価は企業価値・成長・市場・外部評価・多様なテクニカルの間を問いに応じて往復する。急落はテクニカルの一観点であり、「価格変化→Research」だけを固定の入口にしない。シグナルの多数決や同じ価格加工の独立票化を判断へ持ち込まない。
+
 五モデルは固定market releaseと独立economic snapshotから[共通生成](../engine/src/baibai_engine/machine_analysis/generation_reader.py)し、候補抽出より先に[一つのtransactionで保存](../engine/src/baibai_engine/machine_analysis/generation_store.py)する。対象全社の保持履歴を扱う生成結果は順次圧縮し、途中失敗では生成を公開しない。共通の読取・モデル合成・保存は`machine_analysis/`直下、個別モデルの計算は各domainが所有する。Jobsの[model_integration](../jobs/src/baibai_jobs/jobs/model_integration.py)は生成・候補抽出・同じreleaseの公開という実行順を合成する。Screeningは保存済みのCompany ValuationとTechnical Analysisだけを読み、[二つのview](reference/screening-runtime.md#rule-purpose)で候補と抽出理由を作る。
 
 投資判断を始めるSelectionは、必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。新規Operationはこの生成済み入力だけを受け付け、旧runと可変storeからの新規収集経路は持たない。保存済み旧Selectionは元のhash・入力を保ち、Operation IDから再開する。具体的な算式・入力・候補規則は各実装とreferenceが所有する。
