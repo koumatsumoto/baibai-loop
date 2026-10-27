@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import pytest
 import yaml
 from tests.helpers.calibration_store import (
     forward_row,
@@ -2192,6 +2193,39 @@ def test_the_half_split_needs_thirty_pairs_before_it_reports_a_difference() -> N
     assert withheld["median_excess_delta"] is None
     assert withheld["cheap_median_excess"] is None
     assert withheld["expensive_median_excess"] is None
+
+
+@pytest.mark.parametrize("output_option", ["output_path", "context_output_path"])
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+def test_evaluation_report_cannot_replace_its_input_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, output_option: str, alias: str
+) -> None:
+    from baibai_engine.machine_analysis.screening.calibration import cli
+    from baibai_engine.machine_analysis.screening.calibration.store import CURRENT_SNAPSHOT_NAME
+
+    write_panel(tmp_path, date.fromisoformat(_ASOF), [_panel_row("1111")], _panel_diagnostics())
+    write_forward(tmp_path, date.fromisoformat(_ASOF), [_forward_row("1111", 0.1)])
+    snapshot = tmp_path / CURRENT_SNAPSHOT_NAME
+    destination = snapshot
+    if alias != "direct":
+        destination = tmp_path / "report.yaml"
+        if alias == "symlink":
+            destination.symlink_to(snapshot)
+        else:
+            destination.hardlink_to(snapshot)
+    before = snapshot.read_bytes()
+    # This test owns output safety, not the separate context-evidence calculation.
+    monkeypatch.setattr(cli, "build_er_distribution_context", lambda *args: {"synthetic": True})
+    assert (
+        calibration_evaluate_command(
+            calibration_dir=tmp_path,
+            horizons=["6m"],
+            stdout=StringIO(),
+            **{output_option: destination},
+        )
+        == 1
+    )
+    assert snapshot.read_bytes() == before
 
 
 if __name__ == "__main__":
