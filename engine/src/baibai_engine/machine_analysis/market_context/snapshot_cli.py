@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import TextIO
 
@@ -24,7 +24,7 @@ def _query_asof(asof: str | None, sqlite_path: Path) -> date | None:
     if asof is not None:
         return _parse_iso_date(asof)
     today = datetime.now(JST).date()
-    resolved = latest_daily_bar_date(sqlite_path, today - timedelta(days=30), today)
+    resolved = latest_daily_bar_date(sqlite_path, date.min, today)
     if resolved is None:
         print(f"no cached daily bars found to resolve --asof: {sqlite_path}", file=sys.stderr)
     return resolved
