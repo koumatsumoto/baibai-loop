@@ -227,6 +227,32 @@ def _annual_earnings_revision(record: Mapping[str, Any], keys: tuple[str, ...]) 
     )
 
 
+def _ambiguous_short_period_revision(
+    record: Mapping[str, Any], keys: tuple[str, ...], *, slot: str
+) -> bool:
+    # Some Q1/Q3 revisions put their short-period values in annual-named F*.
+    # The same disclosure can also revise FY guidance omitted from that record;
+    # ignoring it would silently retain stale FY guidance. Q statements and
+    # mixed half-year/FY revisions have legitimate annual fields and are distinct.
+    if (
+        slot != "current"
+        or record.get("DocType") != "EarnForecastRevision"
+        or record.get("CurPerType") not in {"1Q", "3Q"}
+        or not any(to_float(record.get(key)) is not None for key in keys)
+    ):
+        return False
+    fiscal = _period(record, "current")
+    start = parse_optional_date(record.get("CurPerSt"))
+    end = parse_optional_date(record.get("CurPerEn"))
+    return bool(
+        fiscal is not None
+        and start is not None
+        and end is not None
+        and fiscal[0] <= start <= end <= fiscal[1]
+        and (start, end) != fiscal
+    )
+
+
 def project_financial_documents(
     summaries: Sequence[JQuantsFinancialSummary], asof_date: date
 ) -> list[JQuantsFinancialSummary]:
@@ -279,6 +305,7 @@ def project_financial_documents(
                 None,
             )
             field_sources: list[tuple[str, tuple[str, ...]]] = []
+            scope_conflict_sources: tuple[str, ...] = ()
             source_basis = _primary_source_basis(row, statements)
             eps = profit = ordinary = dps = None
             earnings_status = dividend_status = "not_applicable"
@@ -298,19 +325,27 @@ def project_financial_documents(
                 if source_basis != target_basis or target_basis == "basis_unresolved":
                     earnings_status = "basis_mismatch"
                 else:
+                    scope_conflict = _ambiguous_short_period_revision(
+                        record, keys, slot=selected_slot
+                    )
                     earnings_status = (
                         "confirmed"
                         if any(has_period_slot(record, key) for key in keys)
                         else "missing"
                     )
-                    unresolved_revision = (
+                    unresolved_revision = scope_conflict or (
                         selected_slot == "current"
                         and earnings_status == "missing"
                         and _annual_earnings_revision(record, keys)
                     )
                     if unresolved_revision:
                         earnings_status = "unresolved"
-                    eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
+                    if scope_conflict:
+                        scope_conflict_sources = (
+                            (row.disclosure_number,) if row.disclosure_number else ()
+                        )
+                    else:
+                        eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
                     for field, key in zip(
                         ("forecast_eps", "forecast_profit", "forecast_ordinary_profit"),
                         keys,
@@ -346,6 +381,7 @@ def project_financial_documents(
                     forecast_basis=source_basis,
                     forecast_target_basis=target_basis,
                     forecast_field_sources=tuple(field_sources),
+                    forecast_scope_conflict_sources=scope_conflict_sources,
                     forecast_status=earnings_status,
                     dividend_forecast_status=dividend_status,
                 )
@@ -364,6 +400,42 @@ def latest_forecast_source(
     if not candidates:
         return None
     latest = latest_disclosure_candidates(candidates)
+    if not dividend:
+        # A simultaneous, explicit FY revision resolves the scope of a separate
+        # Q速報. Unknown times cannot establish this relationship, and genuine FY
+        # conflicts/withdrawals must still participate in value reconciliation.
+        annual_keys = {
+            (
+                row.ticker,
+                row.disclosed_at,
+                row.disclosed_time,
+                row.forecast_period_start,
+                row.forecast_period_end,
+                row.forecast_basis,
+            )
+            for row in latest
+            if row.disclosed_time is not None
+            and row.document_type == "EarnForecastRevision"
+            and row.fiscal_period == "FY"
+            and row.forecast_status == "confirmed"
+            and not row.forecast_scope_conflict_sources
+            and row.period_start == row.forecast_period_start
+            and row.period_end == row.forecast_period_end
+        }
+        latest = [
+            row
+            for row in latest
+            if not row.forecast_scope_conflict_sources
+            or (
+                row.ticker,
+                row.disclosed_at,
+                row.disclosed_time,
+                row.forecast_period_start,
+                row.forecast_period_end,
+                row.forecast_basis,
+            )
+            not in annual_keys
+        ]
     fields = (
         ("dps_forecast_annual",)
         if dividend
@@ -418,6 +490,9 @@ def latest_forecast_source(
             source,
             document_payload=None,
             forecast_field_sources=tuple(field_sources),
+            forecast_scope_conflict_sources=tuple(
+                sorted({key for row in latest for key in row.forecast_scope_conflict_sources})
+            ),
         )
     if dividend:
         source = replace(source, dps_forecast_annual=agreed["dps_forecast_annual"])
@@ -468,6 +543,15 @@ def forecast_source_trace(
     }
     if row.forecast_source_documents:
         trace["candidate_disclosure_numbers"] = ",".join(row.forecast_source_documents)
+    if not dividend and row.forecast_scope_conflict_sources:
+        trace["reason"] = "ambiguous_short_period_revision"
+        trace["scope_conflict_source_records"] = ",".join(row.forecast_scope_conflict_sources)
+        if row.document_payload is not None:
+            trace["reported_period_type"] = row.fiscal_period
+            trace["reported_period_start"] = (
+                row.period_start.isoformat() if row.period_start else None
+            )
+            trace["reported_period_end"] = row.period_end.isoformat() if row.period_end else None
     for field, records in row.forecast_field_sources:
         if (field == "dps_forecast_annual") != dividend:
             continue

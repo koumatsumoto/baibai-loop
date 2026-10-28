@@ -59,7 +59,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v44"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v45"
 
 
 def build_financial_snapshot(
