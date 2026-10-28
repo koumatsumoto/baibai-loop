@@ -6,7 +6,7 @@ import pytest
 import requests
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
-from baibai_engine.data_collection.equity_web import http as source_http
+import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
 
 MONEX = "https://scouter.monex.co.jp/report/theoryDps/7203"

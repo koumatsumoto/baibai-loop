@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.edinet.archives import read_source_archive, retain_source_archive
-from baibai_engine.data_collection.edinet.http import EDINETHTTP
-from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
-from baibai_engine.data_collection.edinet.receipts import read_list_responses, retain_list_response
+from baibai_engine.data_collection.providers.edinet.archives import read_source_archive, retain_source_archive
+from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
+from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
+from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses, retain_list_response
 from baibai_engine.market.edinet_decode import safe_error_value, text_or_none
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import parse_doc_id
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import rebuild_edinet_document_day

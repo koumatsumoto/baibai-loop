@@ -14,19 +14,17 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _StaticSession,
 )
 
-from baibai_engine.data_collection.economic.providers import (
-    IndicatorsProviderError,
-    parse_fred_csv,
-    parse_h15_csv,
-)
-from baibai_engine.data_collection.economic.providers.base import (
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
+from baibai_engine.data_collection.providers.fred import parse_fred_csv
+from baibai_engine.data_collection.providers.federal_reserve.h15 import parse_h15_csv
+from baibai_engine.data_collection.transport.context import (
     MAX_CSV_RESPONSE_BYTES,
     BrowserUnavailableError,
     HttpSession,
 )
-from baibai_engine.data_collection.economic.providers.frb_h15 import FrbH15Source
-from baibai_engine.data_collection.economic.providers.umich_sca import parse_umich_table
-from baibai_engine.data_collection.economic.sources import require_source
+from baibai_engine.data_collection.providers.federal_reserve.h15 import FrbH15Source
+from baibai_engine.data_collection.providers.university_of_michigan.sentiment import parse_umich_table
+from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 
 

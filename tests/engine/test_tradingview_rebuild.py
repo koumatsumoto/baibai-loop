@@ -20,7 +20,7 @@ from baibai_jobs.acquisition.tradingview.collector import (
     SourceDataError,
     collect,
 )
-from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_jobs.observability.tradingview import (
     failure_category,
 )
@@ -28,7 +28,7 @@ from baibai_jobs.maintenance.tradingview_rebuild import (
     RebuildError,
     rebuild_from_receipts,
 )
-from baibai_engine.data_collection.tradingview.receipts import read_tool_results, retain_tool_result
+from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results, retain_tool_result
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import COLUMNS
 from baibai_engine.storage.observations.schema import open_connection
 

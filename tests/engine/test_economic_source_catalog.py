@@ -5,25 +5,25 @@ from importlib.resources import files
 
 import pytest
 
-from baibai_engine.data_collection.economic.sources import SourceDefinition, load_sources
+from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
 
 
 def test_relocated_economic_resources_resolve_from_their_owner_packages():
-    from baibai_engine.data_collection.economic.providers.spglobal_pmi import MANIFEST_PATH
-    from baibai_engine.data_collection.economic.sources import SOURCE_CATALOG
-    from baibai_engine.data_collection.economic.store import SCHEMA_PATH
+    from baibai_engine.data_collection.providers.spglobal.pmi import MANIFEST_PATH
+    from baibai_engine.data_collection.catalog import SOURCE_CATALOG
+    from baibai_engine.data_collection.receipts.native_sources.store import SCHEMA_PATH
 
     assert (
         SOURCE_CATALOG.read_bytes()
-        == files("baibai_engine.data_collection.economic").joinpath("sources.yaml").read_bytes()
+        == files("baibai_engine.data_collection").joinpath("catalog.yaml").read_bytes()
     )
     assert (
         SCHEMA_PATH.read_bytes()
-        == files("baibai_engine.data_collection.economic").joinpath("store.sql").read_bytes()
+        == files("baibai_engine.data_collection.receipts.native_sources").joinpath("store.sql").read_bytes()
     )
     assert (
         MANIFEST_PATH.read_bytes()
-        == files("baibai_engine.data_collection.economic.providers")
+        == files("baibai_engine.data_collection.providers.spglobal")
         .joinpath("pmi_release_urls.yaml")
         .read_bytes()
     )
@@ -80,8 +80,8 @@ def test_derived_source_is_rejected(tmp_path):
 def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
     from datetime import date
 
-    from baibai_engine.data_collection.economic.providers.mof_jgb import parse_mof_jgb_csv
-    from baibai_engine.data_collection.economic.sources import require_source
+    from baibai_engine.data_collection.providers.mof.jgb import parse_mof_jgb_csv
+    from baibai_engine.data_collection.catalog import require_source
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
@@ -103,8 +103,8 @@ def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
 def test_umich_acquisition_preserves_other_columns_before_l2_selection():
     from datetime import date
 
-    from baibai_engine.data_collection.economic.providers.umich_sca import parse_umich_table
-    from baibai_engine.data_collection.economic.sources import load_sources
+    from baibai_engine.data_collection.providers.university_of_michigan.sentiment import parse_umich_table
+    from baibai_engine.data_collection.catalog import load_sources
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
@@ -125,9 +125,9 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
     from contextlib import closing
     from datetime import date
 
-    from baibai_engine.data_collection.economic import acquisition as economic_acquisition
-    from baibai_engine.data_collection.economic import store as economic_store
-    from baibai_engine.data_collection.economic.records import read_snapshots
+    import baibai_engine.data_collection.acquisition.refresh as economic_acquisition
+    from baibai_engine.data_collection.receipts.native_sources import store as economic_store
+    from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
     import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,

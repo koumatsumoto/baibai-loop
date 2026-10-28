@@ -15,7 +15,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
-from baibai_engine.data_collection.tradingview.receipts import retain_tool_result
+from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
 )

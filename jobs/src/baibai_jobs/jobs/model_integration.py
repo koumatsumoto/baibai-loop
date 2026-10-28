@@ -10,7 +10,7 @@ import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.data_collection.economic.store import DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH
+from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.paths import RUNS_DB_PATH

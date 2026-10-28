@@ -14,8 +14,8 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.data_collection.equity_web.receipts import (
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.receipts import (
     EquityWebReceiptError,
     read_responses,
     retain_response,

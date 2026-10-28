@@ -9,7 +9,7 @@ from datetime import date
 from math import isfinite
 from urllib.parse import urljoin
 
-from baibai_engine.data_collection.economic.records import read_snapshots
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
 

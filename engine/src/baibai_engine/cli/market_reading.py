@@ -10,8 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.data_collection.economic import store as economic_store
-from baibai_engine.data_collection.economic.store import DEFAULT_DB_PATH, EconomicSchemaError
+from baibai_engine.data_collection.receipts.native_sources import store as economic_store
+from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH, EconomicSchemaError
 from baibai_engine.machine_analysis.generation.runners.market_reading import (
     read_store_snapshot,
     store_snapshot_payload,

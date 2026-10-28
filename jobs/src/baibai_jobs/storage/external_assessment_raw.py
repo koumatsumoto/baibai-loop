@@ -19,8 +19,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.data_collection.equity_web.receipts import validate_response as equity_web_validate_response
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.receipts import validate_response as equity_web_validate_response
 from baibai_jobs.storage.external_assessment_identity import RAW_BUNDLE_FORMAT, RAW_PREFIX
 from baibai_jobs.storage.external_assessment_staging import prefix
 from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore

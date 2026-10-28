@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from baibai_engine.data_collection.economic.providers.base import (
+from baibai_engine.data_collection.transport.context import (
     IndicatorsProviderError,
     SourceWithheldError,
 )

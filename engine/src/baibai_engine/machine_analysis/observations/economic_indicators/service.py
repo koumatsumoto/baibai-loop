@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.economic.store import DEFAULT_DB_PATH, open_read_only_connection
+from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH, open_read_only_connection
 
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord

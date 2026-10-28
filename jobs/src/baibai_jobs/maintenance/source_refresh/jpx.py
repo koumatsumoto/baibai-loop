@@ -8,9 +8,9 @@ from pathlib import Path
 
 import requests
 
-from baibai_engine.data_collection.jpx.http import JPXHTTP
-from baibai_engine.data_collection.jpx.models import JPXAcquisitionError
-from baibai_engine.data_collection.jpx.receipts import (
+from baibai_engine.data_collection.providers.jpx.http import JPXHTTP
+from baibai_engine.data_collection.providers.jpx.models import JPXAcquisitionError
+from baibai_engine.data_collection.providers.jpx.receipts import (
     JPXBundleError,
     complete_bundle,
     create_bundle,

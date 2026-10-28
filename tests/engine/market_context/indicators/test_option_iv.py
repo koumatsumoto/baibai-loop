@@ -9,21 +9,21 @@ from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.economic import acquisition as acquisition
-from baibai_engine.data_collection.economic.providers import jquants_options
-from baibai_engine.data_collection.economic.providers.base import (
+import baibai_engine.data_collection.acquisition.refresh as acquisition
+import baibai_engine.data_collection.providers.jquants.options as jquants_options
+from baibai_engine.data_collection.transport.context import (
     FetchContext,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
 )
-from baibai_engine.data_collection.economic.providers.jquants_options import OptionChainSource
-from baibai_engine.data_collection.economic.records import (
+from baibai_engine.data_collection.providers.jquants.options import OptionChainSource
+from baibai_engine.data_collection.receipts.native_sources.records import (
     read_snapshots,
     store_snapshot,
     stored_days,
 )
-from baibai_engine.data_collection.economic.sources import require_source
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.catalog import require_source
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
@@ -750,7 +750,6 @@ class OptionSourceContractTest(unittest.TestCase):
         # Without this the run reaches the API and comes back with an auth error that
         # says nothing about which credential the operator forgot.
         with (
-            mock.patch.object(jquants_options, "load_project_env"),
             mock.patch.dict(jquants_options.os.environ, {"JQUANTS_API_KEY": ""}, clear=False),
             self.assertRaises(IndicatorsProviderError) as caught,
         ):

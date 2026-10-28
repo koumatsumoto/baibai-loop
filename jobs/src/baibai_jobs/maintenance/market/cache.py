@@ -9,8 +9,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
-from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError
+from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
+from baibai_engine.data_collection.providers.jquants.http import JQuantsAcquisitionError
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.input_windows import (
     BARS_INPUT_WINDOW_DAYS,

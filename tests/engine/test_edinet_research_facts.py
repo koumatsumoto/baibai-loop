@@ -12,8 +12,8 @@ from unittest.mock import Mock, patch
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
-from baibai_engine.data_collection.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.market.edinet_facts.extract import extract_facts
 from baibai_engine.market.edinet_facts.models import ExtractedFacts, filing_identity
 from baibai_engine.market.edinet_facts.selection import (
@@ -586,7 +586,7 @@ def test_retained_annual_family_receives_later_corrections():
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
     provider = EDINETRefresh("test-key", sqlite_path=tmp_path / "market.sqlite", session=session)
-    monkeypatch.setattr("baibai_engine.data_collection.edinet.http.time.sleep", lambda _: None)
+    monkeypatch.setattr("baibai_engine.data_collection.providers.edinet.http.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data
     assert len(session.calls) == 2

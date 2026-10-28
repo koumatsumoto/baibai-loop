@@ -81,14 +81,14 @@ packages = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml" = "baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml"
-"engine/src/baibai_engine/data_collection/economic/sources.yaml" = "baibai_engine/data_collection/economic/sources.yaml"
+"engine/src/baibai_engine/data_collection/catalog.yaml" = "baibai_engine/data_collection/catalog.yaml"
 "engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
-"engine/src/baibai_engine/data_collection/economic/store.sql" = "baibai_engine/data_collection/economic/store.sql"
+"engine/src/baibai_engine/data_collection/receipts/native_sources/store.sql" = "baibai_engine/data_collection/receipts/native_sources/store.sql"
 "engine/src/baibai_engine/machine_analysis/observations/economic_indicators/registry/us.yaml" = "baibai_engine/machine_analysis/observations/economic_indicators/registry/us.yaml"
 "engine/src/baibai_engine/machine_analysis/observations/economic_indicators/registry/japan.yaml" = "baibai_engine/machine_analysis/observations/economic_indicators/registry/japan.yaml"
 "engine/src/baibai_engine/machine_analysis/observations/economic_indicators/registry/global.yaml" = "baibai_engine/machine_analysis/observations/economic_indicators/registry/global.yaml"
 "engine/src/baibai_engine/machine_analysis/observations/economic_indicators/registry/derived.yaml" = "baibai_engine/machine_analysis/observations/economic_indicators/registry/derived.yaml"
-"engine/src/baibai_engine/data_collection/economic/providers/pmi_release_urls.yaml" = "baibai_engine/data_collection/economic/providers/pmi_release_urls.yaml"
+"engine/src/baibai_engine/data_collection/providers/spglobal/pmi_release_urls.yaml" = "baibai_engine/data_collection/providers/spglobal/pmi_release_urls.yaml"
 "web/backend/src/baibai_web/py.typed" = "baibai_web/py.typed"
 "jobs/src/baibai_jobs/py.typed" = "baibai_jobs/py.typed"
 
@@ -222,7 +222,7 @@ root_packages = ["baibai_engine", "baibai_web", "baibai_jobs", "tools"]
 [[tool.importlinter.contracts]]
 name = "shared primitives are an import sink"
 type = "forbidden"
-source_modules = ["baibai_engine.foundation"]
+source_modules = ["baibai_engine.primitives"]
 forbidden_modules = [
   "baibai_engine.machine_analysis.screening",
   "baibai_engine.machine_analysis.models.company_financials",
@@ -237,7 +237,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "application database infrastructure only depends on foundation"
+name = "application database infrastructure only depends on primitives"
 type = "forbidden"
 source_modules = ["baibai_engine.storage.application"]
 forbidden_modules = [
@@ -252,7 +252,7 @@ forbidden_modules = [
   ]
 
 [[tool.importlinter.contracts]]
-name = "tasks only depends on application database and foundation"
+name = "tasks only depends on application database and primitives"
 type = "forbidden"
 source_modules = ["baibai_engine.tasks"]
 forbidden_modules = [
@@ -280,7 +280,7 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.observations.external_assessments.reader",
   "baibai_engine.machine_analysis.generation.runners.external_assessment",
   "baibai_jobs.acquisition.tradingview.collector",
-  "baibai_engine.data_collection.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.client",
   "baibai_jobs.acquisition.tradingview.cli",
 
   "baibai_engine.portfolio",
@@ -304,7 +304,7 @@ type = "forbidden"
 # Research composes decision packets with portfolio state. Forbid reverse edges
 # to keep the DAG acyclic.
 source_modules = [
-  "baibai_engine.foundation",
+  "baibai_engine.primitives",
   "baibai_engine.market",
 
   "baibai_engine.machine_analysis.screening",
@@ -365,15 +365,15 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild", "baibai_engine.market.edinet_metrics.write",
   "baibai_engine.storage.application.write",
   "baibai_engine.cli.app",
-  "baibai_engine.data_collection.economic.providers",
-  "baibai_engine.data_collection.economic.acquisition",
-  "baibai_engine.data_collection.jquants.http",
-  "baibai_engine.data_collection.edinet.http",
-  "baibai_engine.data_collection.jpx.http",
-  "baibai_engine.data_collection.equity_web.http",
-  "baibai_engine.data_collection.tradingview.client",
-  "baibai_engine.data_collection.tradingview.auth",
-  "baibai_engine.data_collection.tradingview.authorize",
+  "baibai_engine.data_collection.providers",
+  "baibai_engine.data_collection.acquisition.refresh",
+  "baibai_engine.data_collection.providers.jquants.http",
+  "baibai_engine.data_collection.providers.edinet.http",
+  "baibai_engine.data_collection.providers.jpx.http",
+  "baibai_engine.data_collection.transport.public_pages",
+  "baibai_engine.data_collection.providers.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.auth",
+  "baibai_engine.data_collection.providers.tradingview.authorize",
   "baibai_engine.cli.portfolio",
   "baibai_engine.investment_judgment.trade_proposal.service",
   "baibai_engine.cli.stock_assessment",
@@ -417,9 +417,9 @@ forbidden_modules = [
   "baibai_engine.data_collection.external_assessment",
   "baibai_engine.storage",
   "baibai_engine.market.edinet_metrics.csv",
-  "baibai_engine.data_collection.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.client",
   "baibai_jobs.acquisition.tradingview.collector",
-  "baibai_engine.data_collection.tradingview.auth",
+  "baibai_engine.data_collection.providers.tradingview.auth",
 ]
 
 [[tool.importlinter.contracts]]
@@ -434,7 +434,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "valuation depends only on its inputs and foundation"
+name = "valuation depends only on its inputs and primitives"
 type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.models.company_financials"]
 forbidden_modules = [
@@ -460,7 +460,7 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.models.company_growth",
   "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment",
   "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.storage.application.write", "baibai_engine.cli.market_reading",
-  "baibai_engine.machine_analysis.observations.economic_indicators.service", "baibai_engine.data_collection.economic.providers",
+  "baibai_engine.machine_analysis.observations.economic_indicators.service", "baibai_engine.data_collection.providers",
 ]
 
 [[tool.importlinter.contracts]]
@@ -519,9 +519,9 @@ forbidden_modules = [
   "baibai_engine.data_collection.external_assessment", "baibai_engine.machine_analysis.observations.external_assessments.store",
   "baibai_engine.machine_analysis.models.external_assessment.analysis", "baibai_engine.machine_analysis.observations.external_assessments.reader",
   "baibai_engine.machine_analysis.generation.runners.external_assessment", "baibai_engine.cli.external_assessment",
-  "baibai_engine.data_collection.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.client",
   "baibai_jobs.acquisition.tradingview.collector",
-  "baibai_engine.data_collection.tradingview.auth",
+  "baibai_engine.data_collection.providers.tradingview.auth",
   "baibai_jobs.acquisition.tradingview.cli",
   "baibai_jobs", "tools",
 ]
@@ -533,9 +533,9 @@ source_modules = ["baibai_engine.machine_analysis.observations.external_assessme
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.edinet_metrics.csv",
   "baibai_engine.data_collection.external_assessment", "baibai_engine.machine_analysis.observations.external_assessments.store",
-  "baibai_engine.data_collection.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.client",
   "baibai_jobs.acquisition.tradingview.collector",
-  "baibai_engine.data_collection.tradingview.auth",
+  "baibai_engine.data_collection.providers.tradingview.auth",
   "baibai_jobs.acquisition.tradingview.cli",
   "baibai_jobs", "tools",
 ]
@@ -582,8 +582,8 @@ source_modules = [
   "baibai_engine.machine_analysis.observations.economic_indicators.derived", "baibai_engine.machine_analysis.observations.economic_indicators.formulas",
 ]
 forbidden_modules = [
-  "baibai_engine.data_collection.economic.store", "baibai_engine.machine_analysis.observations.economic_indicators.service",
-  "baibai_engine.data_collection.economic.providers", "baibai_engine.cli.economic_indicators",
+  "baibai_engine.data_collection.receipts.native_sources.store", "baibai_engine.machine_analysis.observations.economic_indicators.service",
+  "baibai_engine.data_collection.providers", "baibai_engine.cli.economic_indicators",
   "baibai_engine.machine_analysis.observations.economic_indicators.reader", "baibai_engine.cli.market_reading",
   "baibai_engine.storage", "baibai_engine.investment_judgment.market_assessment", ]
 
@@ -629,15 +629,15 @@ name = "source transports and receipts do not depend on calculations or judgment
 type = "forbidden"
 source_modules = [
   "baibai_engine.primitives.stocks",
-  "baibai_engine.data_collection.read_http", "baibai_engine.data_collection.economic",
-  "baibai_engine.data_collection.edinet", "baibai_engine.data_collection.equity_web",
-  "baibai_engine.data_collection.jpx", "baibai_engine.data_collection.jquants",
-  "baibai_engine.data_collection.tradingview.auth",
-  "baibai_engine.data_collection.tradingview.authorize",
-  "baibai_engine.data_collection.tradingview.client",
-  "baibai_engine.data_collection.tradingview.contract",
-  "baibai_engine.data_collection.tradingview.models",
-  "baibai_engine.data_collection.tradingview.receipts",
+  "baibai_engine.data_collection.transport.http", "baibai_engine.data_collection.receipts.native_sources",
+  "baibai_engine.data_collection.providers.edinet", "baibai_engine.data_collection.receipts.public_pages",
+  "baibai_engine.data_collection.providers.jpx", "baibai_engine.data_collection.providers.jquants",
+  "baibai_engine.data_collection.providers.tradingview.auth",
+  "baibai_engine.data_collection.providers.tradingview.authorize",
+  "baibai_engine.data_collection.providers.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.contract",
+  "baibai_engine.data_collection.providers.tradingview.models",
+  "baibai_engine.data_collection.providers.tradingview.receipts",
 ]
 forbidden_modules = [
   "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context", "baibai_engine.machine_analysis.models.technical_analysis", "baibai_engine.machine_analysis.models.company_growth", "baibai_engine.investment_judgment",
@@ -655,7 +655,7 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.generation.runners.external_assessment", "baibai_engine.data_collection.external_assessment",
   "baibai_engine.machine_analysis.observations.external_assessments.store", "baibai_engine.storage.application.write",
   "baibai_engine.market.jquants_writer", "baibai_jobs.maintenance.source_refresh.jquants",
-  "baibai_engine.data_collection.jquants.http", ]
+  "baibai_engine.data_collection.providers.jquants.http", ]
 
 [[tool.importlinter.contracts]]
 name = "company growth and common financial arithmetic are pure"

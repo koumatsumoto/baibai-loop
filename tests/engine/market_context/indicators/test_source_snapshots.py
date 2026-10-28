@@ -3,12 +3,12 @@
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
-from baibai_engine.data_collection.economic.records import (
+from baibai_engine.data_collection.receipts.native_sources.records import (
     read_snapshots,
     store_snapshot,
     stored_days,
 )
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 
 
 def test_source_identity_isolates_same_date_vintages_and_empty_responses(tmp_path):

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from mcp.types import CallToolResult
 
-from baibai_engine.data_collection.tradingview.receipts import retain_tool_result
+from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
 from baibai_engine.storage.observations.schema import SQLiteSchemaError as MarketSchemaError
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_jobs.jobs import tradingview as runner

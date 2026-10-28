@@ -13,8 +13,8 @@ from typing import cast
 
 import requests
 
-from baibai_engine.data_collection.equity_web.http import HostRateLimiter as ExternalAssessmentHostRateLimiter
-from baibai_engine.data_collection.equity_web.models import Source as ExternalAssessmentSource
+from baibai_engine.data_collection.transport.public_pages import HostRateLimiter as ExternalAssessmentHostRateLimiter
+from baibai_engine.data_collection.receipts.public_pages.models import Source as ExternalAssessmentSource
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.jobs.external_assessment_cohorts import RunPlan, summarize
 from baibai_jobs.jobs.schedule import external_assessment_target_date

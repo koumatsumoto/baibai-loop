@@ -12,8 +12,8 @@ import pytest
 from tests.helpers.http_doubles import FakeResponse, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.data_collection.edinet import http
-from baibai_engine.data_collection.edinet.receipts import (
+from baibai_engine.data_collection.providers.edinet import http
+from baibai_engine.data_collection.providers.edinet.receipts import (
     read_list_response,
     read_list_responses,
     retain_list_response,

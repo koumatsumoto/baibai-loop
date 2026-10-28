@@ -13,7 +13,7 @@ from tests.helpers.http_doubles import FakeSession, html_response, response
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.jpx.receipts import read_bundle, read_complete_bundle
+from baibai_engine.data_collection.providers.jpx.receipts import read_bundle, read_complete_bundle
 from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     JPX_DELISTING_INDEX_URL,
     DelistingRecord,
@@ -270,8 +270,8 @@ def test_malformed_date_in_target_table_keeps_previous_view(tmp_path: Path) -> N
 
 
 def test_retained_manifest_must_match_index_links(tmp_path: Path) -> None:
-    from baibai_engine.data_collection.jpx.models import JPXResponse
-    from baibai_engine.data_collection.jpx.receipts import (
+    from baibai_engine.data_collection.providers.jpx.models import JPXResponse
+    from baibai_engine.data_collection.providers.jpx.receipts import (
         complete_bundle,
         create_bundle,
         retain_bundle_response,

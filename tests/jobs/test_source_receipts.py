@@ -4,7 +4,7 @@ from contextlib import closing
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_jobs.storage.economic_staging import save_handoff
 from baibai_jobs.storage.lake_publish import LakePublishError
 from baibai_jobs.storage.source_receipts import (
@@ -29,7 +29,7 @@ def stage(
     directory.mkdir()
     from datetime import date, datetime
 
-    from baibai_engine.data_collection.economic.records import store_snapshot
+    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 
     with closing(initialize_database(directory / "receipts.sqlite")) as conn, conn:
         if value is not None:
@@ -105,8 +105,8 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
 ):
     from datetime import UTC, date, datetime
 
-    from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
-    from baibai_engine.data_collection.economic.handoff import accept_rechecks
+    from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
+    from baibai_engine.data_collection.receipts.native_sources.handoff import accept_rechecks
     from baibai_engine.storage.observations.schema import open_connection
     from baibai_jobs.jobs.source_integration import apply
     from baibai_jobs.storage.merge_economic_store import merge_stores

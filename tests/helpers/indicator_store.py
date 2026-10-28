@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 
-from baibai_engine.data_collection.economic.records import store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
     load_definitions,

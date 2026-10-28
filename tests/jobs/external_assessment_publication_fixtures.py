@@ -17,7 +17,7 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_response_fixtures import response
 
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Source
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse, Source
 from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation
 from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
 from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation

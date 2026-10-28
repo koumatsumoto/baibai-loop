@@ -9,7 +9,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.data_collection.equity_web.receipts import read_responses
+from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
 from baibai_engine.machine_analysis.observations.external_assessments.rows import observation_row
 from baibai_engine.storage.observations.schema import validate_current_schema

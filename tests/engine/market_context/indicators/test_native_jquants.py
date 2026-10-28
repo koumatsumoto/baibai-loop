@@ -6,11 +6,12 @@ from unittest.mock import Mock
 
 import pytest
 
-from baibai_engine.data_collection.economic import store as db
-from baibai_engine.data_collection.economic.providers import jquants_flows, jquants_indices
-from baibai_engine.data_collection.economic.providers.base import ProviderFetchStoppedError
-from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.data_collection.economic.sources import require_source
+from baibai_engine.data_collection.receipts.native_sources import store as db
+import baibai_engine.data_collection.providers.jquants.flows as jquants_flows
+import baibai_engine.data_collection.providers.jquants.indices as jquants_indices
+from baibai_engine.data_collection.transport.context import ProviderFetchStoppedError
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,

@@ -1,7 +1,7 @@
 from contextlib import closing
 from datetime import date
 
-from baibai_engine.data_collection.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import master_coverage_key
 from baibai_jobs.acquisition.inputs import export_source_input
 from baibai_engine.storage.observations.coverage import record_source_coverage

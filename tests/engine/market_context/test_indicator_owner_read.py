@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
-from baibai_engine.data_collection.economic.records import store_snapshot
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
@@ -254,7 +254,7 @@ def test_document_revision_replaces_observed_periods_without_old_fallback(tmp_pa
     import json
     from dataclasses import replace
 
-    from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
+    from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument, store_document
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )

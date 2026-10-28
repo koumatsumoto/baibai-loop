@@ -16,10 +16,10 @@ from pathlib import Path
 
 import requests
 
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_jobs.acquisition.external_assessments.collection import CollectionResult as ExternalAssessmentCollectionResult
-from baibai_engine.data_collection.equity_web.http import HostRateLimiter as ExternalAssessmentHostRateLimiter
-from baibai_engine.data_collection.equity_web.models import Source as ExternalAssessmentSource
+from baibai_engine.data_collection.transport.public_pages import HostRateLimiter as ExternalAssessmentHostRateLimiter
+from baibai_engine.data_collection.receipts.public_pages.models import Source as ExternalAssessmentSource
 from baibai_engine.storage.lake.objects import LakeObjectCache
 from baibai_jobs.acquisition.external_assessments.universe import calendar_master_asof as external_assessment_calendar_master_asof
 from baibai_jobs.acquisition.external_assessments.collection import collect_pair as external_assessment_collect_pair

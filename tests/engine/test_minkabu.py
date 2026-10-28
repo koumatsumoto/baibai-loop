@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from baibai_engine.data_collection.equity_web.receipts import retain_response
+from baibai_engine.data_collection.receipts.public_pages.receipts import retain_response
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystForecastHistory,
@@ -178,7 +178,7 @@ def no_coverage_html(ticker="130A", *, linked=False):
 
 @pytest.mark.parametrize("linked", [False, True])
 def test_explicit_identified_no_coverage_is_not_zero_or_an_http_error(tmp_path, linked):
-    from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
+    from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
     from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
         decode_attempt,
     )

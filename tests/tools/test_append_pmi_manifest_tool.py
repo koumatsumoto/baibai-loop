@@ -19,11 +19,11 @@ from tools.pmi_manifest import (
     verified_value,
 )
 
-from baibai_engine.data_collection.economic.providers.base import (
+from baibai_engine.data_collection.transport.context import (
     FetchContext,
     IndicatorsProviderError,
 )
-from baibai_engine.data_collection.economic.providers.spglobal_pmi import (
+from baibai_engine.data_collection.providers.spglobal.pmi import (
     MANIFEST_PATH,
     load_manifest,
 )

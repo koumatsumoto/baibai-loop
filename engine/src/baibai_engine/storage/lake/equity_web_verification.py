@@ -11,8 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.data_collection.equity_web.receipts import validate_response
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.receipts import validate_response
 from baibai_engine.storage.lake.datasets import EQUITY_WEB_SOURCE_RESPONSES
 from baibai_engine.storage.lake.duck import LakeSession
 from baibai_engine.storage.lake.objects import LakeObjectCache

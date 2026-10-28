@@ -13,7 +13,7 @@ from tests.engine.test_external_assessment_sources import (
 from tests.engine.test_kabumap import html as kabumap_html
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
 
-from baibai_engine.data_collection.equity_web import http as source_http
+import baibai_engine.data_collection.transport.public_pages as source_http
 from baibai_jobs.acquisition.external_assessments.collection import collect_pair as external_assessment_collect_pair
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.storage import external_assessment_staging as staging

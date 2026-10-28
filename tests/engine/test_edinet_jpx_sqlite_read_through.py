@@ -10,7 +10,7 @@ from unittest.mock import patch
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import add_source_coverage
 
-from baibai_engine.data_collection.edinet.receipts import retain_list_response
+from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
@@ -260,7 +260,7 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
             provider = EDINETRefresh("api-key", sqlite_path=sqlite_path)
 
             with patch(
-                "baibai_engine.data_collection.edinet.http.requests.Session",
+                "baibai_engine.data_collection.providers.edinet.http.requests.Session",
                 side_effect=AssertionError("offline replay attempted HTTP"),
             ):
                 docs = provider.list_documents(date(2026, 4, 24))

@@ -7,8 +7,8 @@ from tests.engine.test_jquants_handoff import calendar
 from tests.engine.test_jquants_projection import FIRST_AT, body, receive
 from tests.jobs.test_source_receipts import Store, stage
 
-from baibai_engine.data_collection.economic.records import read_snapshots
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.market.jquants_handoff import MARKET_SOURCES, export_handoff
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.storage.observations.schema import open_connection

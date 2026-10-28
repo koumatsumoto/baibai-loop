@@ -11,11 +11,11 @@ from typing import cast
 
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import FetchError as TradingViewFetchError
-from baibai_engine.data_collection.economic.refresh_policy import acquisition_groups as economic_acquisition_groups
-from baibai_engine.data_collection.economic.refresh_policy import source_policy as economic_source_policy
-from baibai_engine.data_collection.economic.handoff import export_receipts as export_economic_receipts
+from baibai_engine.data_collection.acquisition.policy import acquisition_groups as economic_acquisition_groups
+from baibai_engine.data_collection.acquisition.policy import source_policy as economic_source_policy
+from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts as export_economic_receipts
 from baibai_jobs.acquisition.inputs import export_source_input as export_market_source_input
-from baibai_engine.data_collection.economic.sources import load_sources as load_economic_sources
+from baibai_engine.data_collection.catalog import load_sources as load_economic_sources
 from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
 from baibai_jobs.storage.external_assessment_staging import put_private, read_private
 from baibai_jobs.storage.json_io import write_json_atomic

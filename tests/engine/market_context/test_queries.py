@@ -13,7 +13,7 @@ from tests.helpers.assessment_history import historical_context_payload, seed_hi
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.investment_judgment.market_assessment.models import StoredAssessment
 from baibai_engine.investment_judgment.market_assessment.query import (
     assessment_payload as read_context,
@@ -292,7 +292,7 @@ def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tm
 import sys
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.security import build_security_market_context
-assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.economic.providers")) for name in sys.modules)
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
 assert "baibai_engine.investment_judgment.market_assessment.service" not in sys.modules
 """,

@@ -13,9 +13,9 @@ import requests
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
-from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.data_collection.jquants.receipts import (
+from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
+from baibai_engine.data_collection.providers.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
+from baibai_engine.data_collection.providers.jquants.receipts import (
     acquire_request,
     read_complete_request,
     read_request_pages,

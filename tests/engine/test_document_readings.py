@@ -6,20 +6,20 @@ from datetime import UTC, date, datetime
 import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse, _StaticSession
 
-from baibai_engine.data_collection.economic import acquisition as acquisition
-from baibai_engine.data_collection.economic import store as db
-from baibai_engine.data_collection.economic.documents import (
+import baibai_engine.data_collection.acquisition.refresh as acquisition
+from baibai_engine.data_collection.receipts.native_sources import store as db
+from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-from baibai_engine.data_collection.economic.providers import spglobal_pmi
-from baibai_engine.data_collection.economic.providers.base import (
+import baibai_engine.data_collection.providers.spglobal.pmi as spglobal_pmi
+from baibai_engine.data_collection.transport.context import (
     FetchContext,
     IndicatorsProviderError,
 )
-from baibai_engine.data_collection.economic.providers.tsr_bankruptcies import TsrBankruptciesSource
-from baibai_engine.data_collection.economic.sources import require_source
+from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
+from baibai_engine.data_collection.catalog import require_source
 import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 import baibai_engine.machine_analysis.observations.economic_indicators.pmi as pmi

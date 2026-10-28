@@ -14,20 +14,18 @@ from tests.helpers.indicator_store import (
     series_definition,
 )
 
-from baibai_engine.data_collection.economic.providers import (
-    parse_estat_json,
-)
-from baibai_engine.data_collection.economic.providers.base import (
+from baibai_engine.data_collection.providers.estat.api import parse_estat_json
+from baibai_engine.data_collection.transport.context import (
     FetchContext,
 )
-from baibai_engine.data_collection.economic.providers.estat_dashboard import (
+from baibai_engine.data_collection.providers.estat.dashboard import (
     parse_dashboard_json,
 )
-from baibai_engine.data_collection.economic.providers.spglobal_pmi import (
+from baibai_engine.data_collection.providers.spglobal.pmi import (
     Release,
     _parse_stream,
 )
-from baibai_engine.data_collection.economic.sources import SourceDefinition
+from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
 )
@@ -38,7 +36,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.validation 
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
     # onto the import path of the whole suite, which the lazy launch avoids.
-    from baibai_engine.data_collection.economic.providers.browser import BrowserFetcher
+    from baibai_engine.data_collection.transport.browser import BrowserFetcher
 
 
 def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None) -> str:

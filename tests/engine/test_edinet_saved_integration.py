@@ -10,7 +10,7 @@ from tests.engine.test_edinet_research_facts import source_zip
 from tests.engine.test_source_maintenance_cli import _edinet_csv_zip
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.data_collection.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.market.edinet_facts.store import record_initialized
 from baibai_engine.market.edinet_integration import extract_saved_edinet
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError, read_edinet_metrics

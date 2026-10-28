@@ -23,7 +23,7 @@ from baibai_engine.storage.lake.release import LakeReleasePointer
 from baibai_engine.storage.lake.objects import LocalMirrorSource
 from baibai_engine.storage.lake.equity_web_verification import history_digests as equity_web_history_digests
 from baibai_engine.storage.observations.equity_web_import import import_responses as equity_web_import_responses
-from baibai_engine.data_collection.equity_web.receipts import read_responses as equity_web_read_responses
+from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses as equity_web_read_responses
 from baibai_engine.storage.lake.equity_web_verification import response_digest as equity_web_response_digest
 from baibai_engine.storage.lake.equity_web_verification import verify_release_history as equity_web_verify_release_history
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt

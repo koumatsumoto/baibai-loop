@@ -10,14 +10,14 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse, _StaticSession
 
-from baibai_engine.data_collection.economic import acquisition as acquisition
-from baibai_engine.data_collection.economic.providers.base import FetchContext
-from baibai_engine.data_collection.economic.providers.cftc import CftcSource
-from baibai_engine.data_collection.economic.providers.ecb_fx import EcbFxSource
-from baibai_engine.data_collection.economic.providers.estat_dashboard import EStatDashboardSource
-from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.data_collection.economic.sources import require_source
-from baibai_engine.data_collection.economic.store import initialize_database
+import baibai_engine.data_collection.acquisition.refresh as acquisition
+from baibai_engine.data_collection.transport.context import FetchContext
+from baibai_engine.data_collection.providers.cftc import CftcSource
+from baibai_engine.data_collection.providers.ecb.fx import EcbFxSource
+from baibai_engine.data_collection.providers.estat.dashboard import EStatDashboardSource
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.catalog import require_source
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
 from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions

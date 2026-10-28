@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
-from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_metrics.service import EdinetMetricReader, prepare_edinet_metric_plan, extract_edinet_metrics_from_plan
 from baibai_engine.market.edinet_facts.service import XbrlReader, prepare_edinet_facts, process_edinet_fact_item, finish_edinet_facts

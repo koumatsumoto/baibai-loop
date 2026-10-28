@@ -9,7 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
+from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
 from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError

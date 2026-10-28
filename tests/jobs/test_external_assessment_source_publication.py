@@ -23,7 +23,7 @@ from tests.jobs.external_assessment_publication_fixtures import publication as p
 from tests.jobs.test_external_assessment_raw import Session
 from tests.jobs.test_external_assessment_raw import connect as connect
 
-from baibai_engine.data_collection.equity_web.receipts import read_responses
+from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
 from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
 from baibai_engine.storage.lake.equity_web_verification import history_digests as equity_web_history_digests
 from baibai_engine.storage.observations.equity_web_import import import_responses as equity_web_import_responses

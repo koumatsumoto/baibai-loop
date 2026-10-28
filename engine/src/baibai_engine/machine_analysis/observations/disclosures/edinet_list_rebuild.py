@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, TextIO
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.edinet.receipts import read_list_responses
+from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_projection import (
     DocumentListProjection,
     document_list_rechecked_asof,

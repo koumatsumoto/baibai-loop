@@ -4,7 +4,7 @@ from tests.engine.test_tradingview_collector import DAY
 from tests.engine.test_tradingview_collector import store as market_store
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_jobs.storage.source_inputs import input_key, load_input, publish_inputs
 

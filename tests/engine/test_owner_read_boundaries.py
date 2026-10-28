@@ -12,7 +12,7 @@ import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 from tests.helpers.screening_run import seed_saved_run
 
-from baibai_engine.data_collection.economic.store import (
+from baibai_engine.data_collection.receipts.native_sources.store import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.storage.sqlite.read import read_rows

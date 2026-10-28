@@ -8,9 +8,9 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.data_collection.economic.store import RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS
-from baibai_engine.data_collection.economic.store import EconomicSchemaError
-from baibai_engine.data_collection.economic.store import validate_current_schema
+from baibai_engine.data_collection.receipts.native_sources.store import RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS
+from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
+from baibai_engine.data_collection.receipts.native_sources.store import validate_current_schema
 from baibai_jobs.storage.store_merge import (
     MergeError,
     MergeReport,

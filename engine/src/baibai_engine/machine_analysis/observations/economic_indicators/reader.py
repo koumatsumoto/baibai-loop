@@ -13,7 +13,7 @@ import sqlite3
 from collections.abc import Sequence
 from datetime import date
 
-from baibai_engine.data_collection.economic.sources import DOCUMENT_PROVIDERS
+from baibai_engine.data_collection.catalog import DOCUMENT_PROVIDERS
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
 from baibai_engine.machine_analysis.observations.economic_indicators.read_contracts import (

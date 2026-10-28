@@ -13,8 +13,8 @@ import pandas as pd
 import pytest
 from tests.helpers.http_doubles import FakeSession, html_response, response
 
-from baibai_engine.data_collection.jpx.models import JPXResponse
-from baibai_engine.data_collection.jpx.receipts import (
+from baibai_engine.data_collection.providers.jpx.models import JPXResponse
+from baibai_engine.data_collection.providers.jpx.receipts import (
     complete_bundle,
     create_bundle,
     read_bundle,
@@ -47,7 +47,7 @@ def _calendar_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_at = datetime(2026, 10, 15, tzinfo=UTC)
     clock = SimpleNamespace(now=lambda zone: captured_at.astimezone(zone))
     monkeypatch.setattr("baibai_jobs.maintenance.source_refresh.jpx.datetime", clock)
-    monkeypatch.setattr("baibai_engine.data_collection.jpx.http.datetime", clock)
+    monkeypatch.setattr("baibai_engine.data_collection.providers.jpx.http.datetime", clock)
 
 
 def _regulation_session(*, broken: str | None = None) -> FakeSession:
@@ -431,7 +431,7 @@ def test_refresh_closes_only_its_owned_lazy_session(tmp_path: Path) -> None:
     owned = Mock()
     owned.get.return_value.status_code = 503
     with patch(
-        "baibai_engine.data_collection.jpx.http.requests.Session", return_value=owned
+        "baibai_engine.data_collection.providers.jpx.http.requests.Session", return_value=owned
     ) as factory:
         refresh = JPXRefresh(sqlite_path=tmp_path / "owned.sqlite")
         refresh.close()

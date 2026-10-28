@@ -7,10 +7,10 @@ import pytest
 import yaml
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.economic import acquisition
-from baibai_engine.data_collection.economic.handoff import export_receipts
-from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.data_collection.economic.store import initialize_database
+import baibai_engine.data_collection.acquisition.refresh as acquisition
+from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_jobs.jobs.economic import acquire, receive
 from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
 from baibai_jobs.storage.lake_publish import LakePublishError
@@ -180,8 +180,8 @@ def test_common_integration_is_independently_scheduled_and_includes_weekends():
 def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(
     tmp_path, monkeypatch
 ):
-    from baibai_engine.data_collection.economic.providers import base
-    from baibai_engine.data_collection.read_http import AcquisitionDeadlineExceeded
+    import baibai_engine.data_collection.transport.context as base
+    from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 
     expired = False
 

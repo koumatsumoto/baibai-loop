@@ -9,8 +9,8 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.data_collection.equity_web.capture import LegacyCaptureError
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.capture import LegacyCaptureError
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 
@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None, /) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "collect":
-            from baibai_engine.data_collection.equity_web.capture import (
+            from baibai_engine.data_collection.receipts.public_pages.capture import (
                 EquityWebCapture,
                 save_capture,
             )
@@ -82,8 +82,8 @@ def main(argv: list[str] | None = None, /) -> int:
                 and all(item.status == "observed" for item in result.outcomes)
                 else 1
             )
-        from baibai_engine.data_collection.equity_web.capture import load_capture
-        from baibai_engine.data_collection.equity_web.receipts import read_responses
+        from baibai_engine.data_collection.receipts.public_pages.capture import load_capture
+        from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
         from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
             decode_attempt,
         )

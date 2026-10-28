@@ -4,10 +4,10 @@ import json
 from contextlib import closing
 from datetime import date
 
-from baibai_engine.data_collection.economic import acquisition as acquisition
-from baibai_engine.data_collection.economic import store as db
-from baibai_engine.data_collection.economic.providers import boj_timeseries
-from baibai_engine.data_collection.economic.records import read_snapshots
+import baibai_engine.data_collection.acquisition.refresh as acquisition
+from baibai_engine.data_collection.receipts.native_sources import store as db
+import baibai_engine.data_collection.providers.boj.timeseries as boj_timeseries
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (

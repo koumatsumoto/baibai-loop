@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp.types import CallToolResult, TextContent
 
-from baibai_engine.data_collection.tradingview.client import fetch_batch
-from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.client import fetch_batch
+from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
 
 SCANNER_ERROR = (

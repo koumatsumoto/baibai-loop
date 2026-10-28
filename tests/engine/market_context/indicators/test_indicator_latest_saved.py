@@ -5,8 +5,8 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.data_collection.economic.records import store_snapshot
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 

@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.economic.documents import SourceDocument
+from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
 

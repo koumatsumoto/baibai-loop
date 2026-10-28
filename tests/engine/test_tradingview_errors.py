@@ -8,7 +8,7 @@ from mcp.shared.exceptions import MCPError
 
 import baibai_jobs.acquisition.tradingview.cli as cli
 import baibai_jobs.observability.tradingview as diagnostics
-from baibai_engine.data_collection.tradingview.auth import (
+from baibai_engine.data_collection.providers.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )

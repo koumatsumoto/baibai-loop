@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from baibai_engine.data_collection.jpx.receipts import JPXSourceBundle, read_complete_bundle
+from baibai_engine.data_collection.providers.jpx.receipts import JPXSourceBundle, read_complete_bundle
 from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     DelistingRecord,
     DelistingSourceError,

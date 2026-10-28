@@ -35,8 +35,8 @@ from tests.engine.test_source_maintenance_cli import (
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
-from baibai_engine.data_collection.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.market.input_windows import (

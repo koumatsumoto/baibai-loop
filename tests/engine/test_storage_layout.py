@@ -7,8 +7,8 @@ import sys
 def test_collection_http_and_mcp_adapters_do_not_load_analysis_domains():
     code = """
 import sys
-from baibai_engine.data_collection.equity_web import http as equity_http
-from baibai_engine.data_collection.tradingview import auth, authorize, client
+from baibai_engine.data_collection.receipts.public_pages import http as equity_http
+from baibai_engine.data_collection.providers.tradingview import auth, authorize, client
 for prefix in (
     'baibai_engine.machine_analysis.models.external_assessment',
     'baibai_engine.market',
@@ -38,8 +38,8 @@ for prefix in (
     'baibai_engine.data_collection.external_assessment',
     'baibai_engine.machine_analysis.observations.external_assessments.store',
     'baibai_jobs.acquisition.tradingview.collector',
-    'baibai_engine.data_collection.tradingview.client',
-    'baibai_engine.data_collection.tradingview.auth',
+    'baibai_engine.data_collection.providers.tradingview.client',
+    'baibai_engine.data_collection.providers.tradingview.auth',
     'baibai_engine.storage.observations',
     'baibai_engine.storage.lake.writer',
 ):

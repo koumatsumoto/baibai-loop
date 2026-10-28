@@ -12,13 +12,11 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _StaticSession,
 )
 
-from baibai_engine.data_collection.economic.providers import (
-    IndicatorsProviderError,
-)
-from baibai_engine.data_collection.economic.providers.base import (
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
+from baibai_engine.data_collection.transport.context import (
     HttpSession,
 )
-from baibai_engine.data_collection.economic.providers.spglobal_pmi import (
+from baibai_engine.data_collection.providers.spglobal.pmi import (
     MANIFEST_PATH,
     SpGlobalPmiSource,
     _parse_stream,

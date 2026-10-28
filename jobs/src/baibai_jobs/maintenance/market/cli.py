@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
-from baibai_engine.foundation.env import load_project_env
+from baibai_engine.cli.environment import load_project_env
 from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.observations.prices.calendar_context import market_calendar_business_day
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError

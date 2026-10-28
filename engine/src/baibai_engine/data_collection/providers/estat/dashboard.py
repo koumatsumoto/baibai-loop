@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import json
+from collections import defaultdict
+from collections.abc import Mapping
+from datetime import date
+from typing import cast
+from urllib.parse import parse_qsl, urlsplit
+
+from baibai_engine.data_collection.provider_contracts import ProviderSpec
+from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
+from baibai_engine.data_collection.catalog import SourceDefinition
+
+from baibai_engine.data_collection.transport.context import (
+    MAX_CSV_RESPONSE_BYTES,
+    FetchContext,
+    HttpSession,
+    IndicatorsProviderError,
+    fetch_text,
+)
+
+# Selectors a registry entry must pin, because one IndicatorCode serves several
+# series at once: monthly / quarterly / annual cycles crossed with raw and
+# seasonally adjusted forms. A request without them returns all of those in one
+# list, so the selectors are required rather than defaulted.
+_REQUIRED_SELECTORS = ("Cycle", "IsSeasonalAdjustment", "RegionCode")
+_SOURCE_URL_KEYS = frozenset({"Lang", "IndicatorCode", *_REQUIRED_SELECTORS})
+
+# Only the monthly cycle is read. Quarterly and annual codes exist in the same
+# API, but nothing is registered against them and their time codes need their own
+# parsing, so an unregistered cycle fails instead of being guessed at.
+_MONTHLY_CYCLE = "1"
+
+# Every request opens at this floor even when a narrower window is asked for. The
+# API answers "no data" with the same status and message it uses for an unknown
+# IndicatorCode or an invalid selector, so a request that can legitimately come back
+# empty would make a mis-pinned series indistinguishable from a quiet one. A
+# registered series always has observations from the floor, which keeps that status a
+# real failure. The published history of one indicator is a few hundred KB.
+_HISTORY_FLOOR = date(1948, 1, 1)
+
+
+class EStatDashboardSource:
+    """統計ダッシュボード getData JSON (no credential). Japanese official monthly series.
+
+    The dashboard is operated by 総務省統計局 and mirrors ministry statistics with a
+    stable IndicatorCode, which makes it readable where the publishing ministry
+    offers only per-release files. ``source_url`` carries the IndicatorCode plus the
+    selectors that pin one series out of the code's cycle / seasonal-adjustment
+    family, so each native snapshot names the upstream series it came from. A corrected
+    selector has a different source identity and cannot read the previous one. Every
+    returned row is checked against those selectors, so a filter the API ignores
+    fails the fetch instead of mixing two series into one.
+
+    An index the publisher rebases keeps its selectors, so a windowed refresh would
+    write recent months on the new base while older months stay on the old one. A
+    rebase is therefore refreshed with ``--all-history``, which rewrites the whole
+    series on one base.
+    """
+
+    spec = ProviderSpec(name="estat_dashboard", all_history_start=_HISTORY_FLOOR)
+    name = spec.name
+
+    def fetch_records(
+        self,
+        series: SourceDefinition,
+        *,
+        start: date,
+        end: date,
+        session: HttpSession,
+        context: FetchContext | None = None,
+    ) -> NativeRecords:
+        selectors = source_url_selectors(series)
+        text = fetch_text(
+            session,
+            series.source_url,
+            # The source URL already carries the series identity; only the window
+            # rides on the request, and it always opens at the history floor.
+            params={
+                "TimeFrom": _monthly_time_code(_HISTORY_FLOOR),
+                "TimeTo": _monthly_time_code(end),
+            },
+            max_bytes=MAX_CSV_RESPONSE_BYTES,
+            context=context,
+        )
+        return parse_dashboard_json(
+            text,
+            start=start,
+            end=end,
+            selectors=selectors,
+        )
+
+
+def source_url_selectors(series: SourceDefinition) -> Mapping[str, str]:
+    """Read the series identity out of the source URL, or fail.
+
+    The URL is the provenance recorded on every observation, so it has to be the
+    one place the identity lives: a selector kept anywhere else would let the
+    recorded provenance and the fetched series drift apart.
+    """
+
+    if series.frequency != "monthly":
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard serves monthly series only: {series.source_id} is {series.frequency}"
+        )
+    query = urlsplit(series.source_url).query
+    try:
+        pairs = parse_qsl(query, strict_parsing=True, keep_blank_values=True)
+    except ValueError as exc:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard source URL has an unreadable query: {series.source_url}"
+        ) from exc
+    selectors: dict[str, str] = {}
+    for key, value in pairs:
+        if key not in _SOURCE_URL_KEYS:
+            raise IndicatorsProviderError(f"unsupported e-Stat dashboard selector: {key}")
+        if key in selectors:
+            raise IndicatorsProviderError(f"e-Stat dashboard selector is repeated: {key}")
+        if not value:
+            raise IndicatorsProviderError(f"e-Stat dashboard selector is empty: {key}")
+        selectors[key] = value
+    missing = [key for key in sorted(_SOURCE_URL_KEYS) if key not in selectors]
+    if missing:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard source URL is missing selector(s): {', '.join(missing)}"
+        )
+    if selectors["IndicatorCode"] != series.provider_series_id:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard source URL requests {selectors['IndicatorCode']} "
+            f"for series {series.provider_series_id}"
+        )
+    if selectors["Cycle"] != _MONTHLY_CYCLE:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard reads the monthly cycle only: Cycle={selectors['Cycle']}"
+        )
+    return selectors
+
+
+def parse_dashboard_json(
+    text: str,
+    *,
+    start: date,
+    end: date,
+    selectors: Mapping[str, str],
+) -> NativeRecords:
+    by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
+    for entry in _extract_value_entries(text):
+        _require_requested_series(entry, selectors=selectors)
+        observed_at = _parse_dashboard_month(entry.get("@time"))
+        if start <= observed_at <= end:
+            # Keep every returned native attribute, including preliminary prints,
+            # null markers and publisher units. L2 decides which values to use.
+            by_date[observed_at].append(dict(entry))
+    return dict(by_date)
+
+
+def _extract_value_entries(text: str) -> list[Mapping[str, object]]:
+    try:
+        payload: object = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard response is not valid JSON: {exc}"
+        ) from exc
+    root = _require_mapping(payload, "response root")
+    get_stats = _require_mapping(root.get("GET_STATS"), "GET_STATS")
+    result = _require_mapping(get_stats.get("RESULT"), "RESULT")
+    status = result.get("status")
+    if status != "0":
+        message = result.get("errorMsg")
+        raise IndicatorsProviderError(f"e-Stat dashboard returned status {status}: {message}")
+    statistical_data = _require_mapping(get_stats.get("STATISTICAL_DATA"), "STATISTICAL_DATA")
+    data_inf = _require_mapping(statistical_data.get("DATA_INF"), "DATA_INF")
+    data_obj = data_inf.get("DATA_OBJ")
+    if isinstance(data_obj, dict):
+        rows: list[object] = [data_obj]
+    elif isinstance(data_obj, list):
+        rows = cast(list[object], data_obj)
+    else:
+        raise IndicatorsProviderError("e-Stat dashboard response missing DATA_INF.DATA_OBJ list")
+    _require_complete_result(statistical_data, returned=len(rows))
+    return [
+        _require_mapping(_require_mapping(row, "DATA_OBJ").get("VALUE"), "VALUE") for row in rows
+    ]
+
+
+def _require_complete_result(statistical_data: Mapping[str, object], *, returned: int) -> None:
+    """Fail when the response carries fewer rows than it reports holding.
+
+    A truncated page reads as a shorter history rather than as an error, which
+    would silently move a percentile window, so the declared total must match.
+    """
+
+    result_inf = _require_mapping(statistical_data.get("RESULT_INF"), "RESULT_INF")
+    raw_total = result_inf.get("TOTAL_NUMBER")
+    try:
+        total = int(str(raw_total))
+    except ValueError as exc:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard reported a non-numeric TOTAL_NUMBER: {raw_total!r}"
+        ) from exc
+    if total != returned:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard returned {returned} rows for a declared total of {total}"
+        )
+
+
+def _require_requested_series(
+    entry: Mapping[str, object],
+    *,
+    selectors: Mapping[str, str],
+) -> None:
+    """Reject a row the request did not ask for.
+
+    The selectors carry the series identity, so a row that answers a different
+    cycle, adjustment, indicator, or region means the filter did not apply. Mixing
+    those into one series is worse than failing the refresh. ``@isProvisional`` is
+    not filtered here: preliminary and final rows both belong to the requested
+    series. Their publication states remain native inputs for the Reading policy.
+    """
+
+    expected = (
+        ("@indicator", selectors["IndicatorCode"]),
+        ("@cycle", selectors["Cycle"]),
+        ("@isSeasonal", selectors["IsSeasonalAdjustment"]),
+        ("@regionCode", selectors["RegionCode"]),
+    )
+    for attribute, wanted in expected:
+        actual = entry.get(attribute)
+        if actual != wanted:
+            raise IndicatorsProviderError(
+                f"e-Stat dashboard returned {attribute}={actual!r} for requested {wanted!r}"
+            )
+
+
+def _require_mapping(node: object, label: str) -> Mapping[str, object]:
+    if not isinstance(node, dict):
+        raise IndicatorsProviderError(f"e-Stat dashboard response missing {label} object")
+    return cast(Mapping[str, object], node)
+
+
+def _monthly_time_code(value: date) -> str:
+    return f"{value.year:04d}{value.month:02d}00"
+
+
+def _parse_dashboard_month(raw: object) -> date:
+    # Monthly time codes are the 4-digit year, the 2-digit month, then "00"
+    # (e.g. "20260500" -> May 2026). An unreadable code is an error rather than a
+    # skipped row, so a changed time axis cannot pass as a shorter history.
+    if not isinstance(raw, str) or len(raw) != 8 or not raw.isdigit():
+        raise IndicatorsProviderError(f"e-Stat dashboard monthly time code is unreadable: {raw!r}")
+    month = int(raw[4:6])
+    if not 1 <= month <= 12 or raw[6:] != "00":
+        raise IndicatorsProviderError(f"e-Stat dashboard monthly time code is unreadable: {raw!r}")
+    return date(int(raw[:4]), month, 1)

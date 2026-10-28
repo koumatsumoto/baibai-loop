@@ -16,11 +16,11 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
-from baibai_engine.data_collection.edinet.contract import EDINET_LIST_RESPONSES_DDL
-from baibai_engine.data_collection.equity_web.contract import EQUITY_WEB_SOURCE_RESPONSES_DDL
-from baibai_engine.data_collection.jpx.contract import JPX_SOURCE_BUNDLES_DDL
-from baibai_engine.data_collection.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
-from baibai_engine.data_collection.tradingview.contract import TRADINGVIEW_SOURCE_RECEIPTS_DDL
+from baibai_engine.data_collection.providers.edinet.contract import EDINET_LIST_RESPONSES_DDL
+from baibai_engine.data_collection.receipts.public_pages.contract import EQUITY_WEB_SOURCE_RESPONSES_DDL
+from baibai_engine.data_collection.providers.jpx.contract import JPX_SOURCE_BUNDLES_DDL
+from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
+from baibai_engine.data_collection.providers.tradingview.contract import TRADINGVIEW_SOURCE_RECEIPTS_DDL
 from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_FORECAST_DDL,
     ANALYST_RATING_DDL,

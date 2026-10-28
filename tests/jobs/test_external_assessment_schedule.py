@@ -20,7 +20,7 @@ from tests.jobs.test_external_assessment_daily import (
     wire_success,
 )
 
-from baibai_engine.data_collection.equity_web import http as source_http
+import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_jobs.jobs import external_assessment_daily as daily

@@ -14,8 +14,8 @@ from datetime import datetime
 import requests
 from pydantic import ValidationError
 
-from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Role, Source
+import baibai_engine.data_collection.transport.public_pages as source_http
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse, Role, Source
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,

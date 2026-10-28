@@ -19,7 +19,7 @@ from baibai_engine.market.edinet_handoff import archive_keys as edinet_archive_k
 from baibai_engine.market.edinet_handoff import export_handoff as export_edinet_handoff
 from baibai_engine.market.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_engine.market.jquants_handoff import export_handoff as export_jquants_handoff
-from baibai_engine.data_collection.jquants.dependencies import export_dependencies as export_master_calendar_dependencies
+from baibai_engine.data_collection.providers.jquants.dependencies import export_dependencies as export_master_calendar_dependencies
 from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
 from baibai_engine.market.edinet_handoff import import_handoff as import_edinet_handoff
 from baibai_engine.market.jpx_handoff import import_handoff as import_jpx_handoff

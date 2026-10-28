@@ -14,15 +14,15 @@ from tests.engine.test_external_assessment_sources import monex_html, official_h
 from tests.engine.test_kabumap import html as kabumap_html
 from tests.jobs.external_assessment_publication_fixtures import pair_responses
 
-from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.equity_web.capture import (
+import baibai_engine.data_collection.transport.public_pages as source_http
+from baibai_engine.data_collection.receipts.public_pages.capture import (
     EquityWebCapture,
     LegacyCaptureError,
     load_capture,
     save_capture,
 )
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.data_collection.equity_web.receipts import read_responses
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
 import baibai_jobs.acquisition.external_assessments.cli as cli
 import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import rakuten

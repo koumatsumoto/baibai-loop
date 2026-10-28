@@ -10,19 +10,19 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.data_collection.jquants.receipts import read_complete_request
+from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request
 from baibai_jobs.acquisition.tradingview.collector import (
     calendar_context,
     preflight_snapshot,
     universe,
     validate_time,
 )
-from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_jobs.observability.tradingview import (
     SourceDataError,
     failure_category,
 )
-from baibai_engine.data_collection.tradingview.receipts import read_tool_results
+from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (

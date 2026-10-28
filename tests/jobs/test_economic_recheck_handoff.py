@@ -3,19 +3,19 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-import baibai_engine.data_collection.economic.acquisition as acquisition
+import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_jobs.acquisition.economic_cli as cli
-from baibai_engine.data_collection.economic.documents import (
+from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-from baibai_engine.data_collection.economic.handoff import export_receipts
-from baibai_engine.data_collection.economic.receipt_policy import retain_rechecks
-from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.data_collection.economic.sources import SourceDefinition
-from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_engine.data_collection.economic.handoff import accept_rechecks
+from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts
+from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_rechecks
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.catalog import SourceDefinition
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.handoff import accept_rechecks
 from baibai_jobs.storage.merge_economic_store import merge_stores, verify_stores
 
 DAY = date(2026, 10, 15)

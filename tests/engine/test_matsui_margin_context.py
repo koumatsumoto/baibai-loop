@@ -8,15 +8,16 @@ import pytest
 import requests
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse
 
-from baibai_engine.data_collection.economic import acquisition, store
-from baibai_engine.data_collection.economic.documents import (
+import baibai_engine.data_collection.acquisition.refresh as acquisition
+import baibai_engine.data_collection.receipts.native_sources.store as store
+from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-from baibai_engine.data_collection.economic.providers import matsui_margin
-from baibai_engine.data_collection.economic.providers.base import FetchContext
-from baibai_engine.data_collection.economic.sources import load_sources, require_source
+import baibai_engine.data_collection.providers.matsui.margin as matsui_margin
+from baibai_engine.data_collection.transport.context import FetchContext
+from baibai_engine.data_collection.catalog import load_sources, require_source
 from baibai_engine.cli.economic_indicators import main as indicator_main
 from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions

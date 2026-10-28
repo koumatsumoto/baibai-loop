@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
-from baibai_engine.foundation.env import load_project_env
+from baibai_engine.cli.environment import load_project_env
 from baibai_engine.machine_analysis.historical_evaluation.cli import (
     calibration_build_command,
     calibration_evaluate_command,

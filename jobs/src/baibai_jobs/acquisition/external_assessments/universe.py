@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 
-from baibai_engine.data_collection.jquants.dependencies import read_dependency
+from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
 )

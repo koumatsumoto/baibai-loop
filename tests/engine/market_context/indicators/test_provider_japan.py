@@ -22,18 +22,16 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _source,
 )
 
-from baibai_engine.data_collection.economic.providers import (
-    IndicatorsProviderError,
-    parse_boj_timeseries_json,
-    parse_boj_xlsx,
-    parse_mof_jgb_csv,
-)
-from baibai_engine.data_collection.economic.providers.estat import parse_estat_json
-from baibai_engine.data_collection.economic.providers.estat_dashboard import (
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
+from baibai_engine.data_collection.providers.boj.timeseries import parse_boj_timeseries_json
+from baibai_engine.data_collection.providers.boj.workbooks import parse_boj_xlsx
+from baibai_engine.data_collection.providers.mof.jgb import parse_mof_jgb_csv
+from baibai_engine.data_collection.providers.estat.api import parse_estat_json
+from baibai_engine.data_collection.providers.estat.dashboard import (
     EStatDashboardSource,
     parse_dashboard_json,
 )
-from baibai_engine.data_collection.economic.sources import SourceDefinition, require_source
+from baibai_engine.data_collection.catalog import SourceDefinition, require_source
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
     load_definitions,
@@ -967,7 +965,7 @@ class IndicatorsProviderParserTests(TestCase):
                 )
 
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
-        from baibai_engine.data_collection.economic.providers.estat import _split_stats_data_id
+        from baibai_engine.data_collection.providers.estat.api import _split_stats_data_id
 
         stats_id, narrowing = _split_stats_data_id("0003427113?cdCat01=0001&cdArea=00000&cdTab=1")
 
@@ -975,6 +973,6 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual(narrowing, {"cdCat01": "0001", "cdArea": "00000", "cdTab": "1"})
 
     def test_split_stats_data_id_without_query_returns_empty_params(self) -> None:
-        from baibai_engine.data_collection.economic.providers.estat import _split_stats_data_id
+        from baibai_engine.data_collection.providers.estat.api import _split_stats_data_id
 
         self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))

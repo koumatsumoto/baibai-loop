@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from mcp.types import CallToolResult
 
-from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_jobs.observability.tradingview import (
     CollectionFailure as CollectionFailure,
 )
@@ -32,7 +32,7 @@ from baibai_jobs.observability.tradingview import (
     failure_category,
     failure_line,
 )
-from baibai_engine.data_collection.tradingview.receipts import read_tool_results, retain_tool_result
+from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results, retain_tool_result
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
