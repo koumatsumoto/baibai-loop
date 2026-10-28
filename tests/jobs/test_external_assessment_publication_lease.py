@@ -3,9 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.jobs.external_assessment_publication_fixtures import (
-    integrate_ready_plans,
-)
+from tests.jobs.external_assessment_publication_fixtures import integrate_ready_plans
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
 import baibai_jobs.publication.lease as publication_lease

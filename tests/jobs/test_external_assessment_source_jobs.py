@@ -12,11 +12,9 @@ import yaml
 from tests.engine.test_external_assessment_host_rate import Clock, Session
 from tests.engine.test_external_assessment_sources import official_html, rakuten_html
 from tests.jobs.external_assessment_publication_fixtures import (
-    integrate_ready_plans,
-)
-from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,
 )
+from tests.jobs.external_assessment_publication_fixtures import integrate_ready_plans
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, completed_pair, plan
 

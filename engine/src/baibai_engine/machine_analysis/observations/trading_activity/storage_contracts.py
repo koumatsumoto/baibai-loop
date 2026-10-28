@@ -1,6 +1,7 @@
 """Owner-declared SQLite table semantics; assembled into the shared physical cache."""
 
-JQUANTS_WEEKLY_MARGIN_DDL = """-- Margin balances the exchange publishes once a week, as of that week's balance
+JQUANTS_WEEKLY_MARGIN_DDL = """\
+-- Margin balances the exchange publishes once a week, as of that week's balance
 -- date. `issue_type` is kept because it decides whether a short balance is even
 -- possible: a 信用銘柄 (1) has no stock lending, so its zero short balance is a
 -- property of the instrument rather than an observation about positioning, and
@@ -25,7 +26,8 @@ CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker
 
 """
 
-JQUANTS_MARGIN_ALERTS_DDL = """-- Daily balances for the limited set of 日々公表銘柄. This source includes the
+JQUANTS_MARGIN_ALERTS_DDL = """\
+-- Daily balances for the limited set of 日々公表銘柄. This source includes the
 -- exchange's margin-regulation classification and remains distinct from both
 -- the legacy weekly all-issues series and its daily all-issues replacement.
 CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
@@ -58,7 +60,8 @@ CREATE INDEX IF NOT EXISTS idx_jquants_margin_alerts_ticker
 
 """
 
-JQUANTS_ALL_ISSUES_DAILY_MARGIN_DDL = """-- All-issues daily balances beginning with the 2026-09-25 balance. A separate
+JQUANTS_ALL_ISSUES_DAILY_MARGIN_DDL = """\
+-- All-issues daily balances beginning with the 2026-09-25 balance. A separate
 -- table is a semantic boundary: these rows must never be read as weekly history.
 CREATE TABLE IF NOT EXISTS jquants_all_issues_daily_margin(
   balance_date TEXT NOT NULL CHECK (balance_date >= '2026-09-25'),
@@ -85,7 +88,8 @@ CREATE INDEX IF NOT EXISTS idx_jquants_all_issues_daily_margin_ticker
 
 """
 
-JQUANTS_SHORT_SALE_REPORTS_DDL = """-- Investor-level positions disclosed under the 0.5% short-position reporting
+JQUANTS_SHORT_SALE_REPORTS_DDL = """\
+-- Investor-level positions disclosed under the 0.5% short-position reporting
 -- rule. Names remain the provider's exact reporter identity fields: guessing
 -- corporate identity across spelling changes would turn source facts into an
 -- entity-resolution estimate. Disclosure and calculation dates are separate so

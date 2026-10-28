@@ -36,9 +36,7 @@ from baibai_jobs.integration.jquants_handoff import FINANCIAL_SOURCES as JQUANTS
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import export_handoff as export_jquants_handoff
 from baibai_jobs.integration.jquants_handoff import import_handoff as import_jquants_handoff
-from baibai_jobs.integration.tradingview_handoff import (
-    TradingViewHandoff,
-)
+from baibai_jobs.integration.tradingview_handoff import TradingViewHandoff
 from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
 from baibai_jobs.integration.tradingview_handoff import import_handoff as import_tradingview_handoff
 

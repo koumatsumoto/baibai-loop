@@ -594,17 +594,11 @@ class TestFixedRelease:
                 manifest_sha256=_release_digest(lake.mirror, "release-broken"),
             )
 
-    def test_a_dataset_outside_the_contract_allowlist_is_not_readable(self, lake: Lake) -> None:
-        release = resolve_current_release(
-            LocalMirrorSource(lake.mirror),
-            catalog=LAKE_DATASETS,
-            policy=release_policy_for_profile("production"),
-        )
+    def test_a_dataset_outside_the_publication_catalog_is_rejected(self) -> None:
+        from baibai_jobs.publication.datasets import require_lake_dataset
 
         with pytest.raises(ValueError, match="unsupported lake dataset"):
-            from baibai_jobs.publication.datasets import require_lake_dataset
-
-        require_lake_dataset("jquants.daily_bars_v2")
+            require_lake_dataset("jquants.daily_bars_v2")
 
     def test_a_dataset_manifest_replaced_under_the_same_key_fails_closed(
         self, lake: Lake, tmp_path: Path

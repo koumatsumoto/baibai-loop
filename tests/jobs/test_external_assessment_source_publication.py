@@ -8,10 +8,8 @@ from contextlib import closing
 
 import pytest
 from tests.engine.test_external_assessment_sources import monex_html
-from tests.engine.test_minkabu import (
-    no_coverage_html,
-)
 from tests.engine.test_minkabu import html as minkabu_html
+from tests.engine.test_minkabu import no_coverage_html
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     integrate_ready_plans,
@@ -22,9 +20,7 @@ from tests.jobs.external_assessment_publication_fixtures import (
 from tests.jobs.external_assessment_publication_fixtures import _plan as _plan
 from tests.jobs.external_assessment_publication_fixtures import _stage as _stage
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
-from tests.jobs.test_external_assessment_raw import (
-    Session,
-)
+from tests.jobs.test_external_assessment_raw import Session
 from tests.jobs.test_external_assessment_raw import connect as connect
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
@@ -409,12 +405,11 @@ def test_readback_checks_owner_contract_before_materializing(owner, mutation):
         dataset_manifests={descriptor.name: manifest},
         dataset_manifest=lambda _name: manifest,
     )
-    with pytest.raises(LakeReadError, match="layer|partition layout"):
-        if owner == "original":
-            public_page_verification.verify_release_history(
-                None, release=release, cache=None, expected_history={}, selected_digests={}
-            )
-        else:
-            external_assessment_verification.verify_release_history(
-                None, release=release, cache=None, expected_history={}, observations=()
-            )
+    verifier = (
+        public_page_verification.verify_release_history
+        if owner == "original"
+        else external_assessment_verification.verify_release_history
+    )
+    owner_inputs = {"selected_digests": {}} if owner == "original" else {"observations": ()}
+    with pytest.raises(LakeReadError, match=r"layer|partition layout"):
+        verifier(None, release=release, cache=None, expected_history={}, **owner_inputs)

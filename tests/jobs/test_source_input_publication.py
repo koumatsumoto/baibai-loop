@@ -1,8 +1,6 @@
 from contextlib import closing
 
-from tests.engine.test_tradingview_collector import (
-    DAY,
-)
+from tests.engine.test_tradingview_collector import DAY
 from tests.engine.test_tradingview_collector import store as market_store
 from tests.helpers.r2_store import MemoryR2Store
 

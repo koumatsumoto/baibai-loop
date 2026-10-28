@@ -175,7 +175,6 @@ def export_dataset_snapshot(
     generation could disagree with this one.
     """
 
-    dataset_name = dataset.name
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")

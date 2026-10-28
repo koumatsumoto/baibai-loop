@@ -13,13 +13,13 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
     ResearchTarget,
     parse_selection,
     selection_sha256,
     selection_targets,
-)
-from baibai_engine.investment_judgment.workflow.selection import (
-    ResearchSelectionRecord as ResearchSelection,
 )
 
 

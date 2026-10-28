@@ -22,9 +22,7 @@ from tests.helpers.calibration_store import (
 
 ROOT = Path(__file__).resolve().parents[4]
 
-from baibai_engine.cli.historical_calibration import (
-    _required_metric_statuses,
-)
+from baibai_engine.cli.historical_calibration import _required_metric_statuses
 from baibai_engine.cli.historical_calibration import (
     calibration_evaluate_command as _calibration_evaluate_command,
 )
@@ -35,9 +33,7 @@ from baibai_engine.machine_analysis.historical_evaluation.context.builder import
 from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     ErCalibrationContextArtifact,
 )
-from baibai_engine.machine_analysis.historical_evaluation.evaluation import (
-    MIN_AXIS_SAMPLE,
-)
+from baibai_engine.machine_analysis.historical_evaluation.evaluation import MIN_AXIS_SAMPLE
 from baibai_engine.machine_analysis.historical_evaluation.evaluation import (
     evaluate_cohorts as _evaluate_cohorts,
 )

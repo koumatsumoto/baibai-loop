@@ -15,11 +15,9 @@ from baibai_engine.data_collection.receipts.native_sources.handoff import (
     accept_rechecks as accept_economic_rechecks,
 )
 from baibai_engine.data_collection.receipts.native_sources.store import (
-    EconomicSchemaError,
-)
-from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
+from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
 from baibai_engine.data_collection.receipts.native_sources.store import (
     validate_current_schema as validate_economic_schema,
 )

@@ -7,9 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
-from hypothesis import (
-    given,
-)
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
 from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot

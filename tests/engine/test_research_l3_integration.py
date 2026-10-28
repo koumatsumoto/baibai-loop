@@ -638,7 +638,7 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     }
     case.runs.unlink()
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_model_inputs",
+        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
         lambda *_a, **_kw: pytest.fail("resume recollected mutable inputs"),
     )
     monkeypatch.setattr(

@@ -17,11 +17,9 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.investment_judgment.market_assessment.models import StoredAssessment
 from baibai_engine.investment_judgment.market_assessment.query import (
-    latest_assessment_payload,
-)
-from baibai_engine.investment_judgment.market_assessment.query import (
     assessment_payload as read_context,
 )
+from baibai_engine.investment_judgment.market_assessment.query import latest_assessment_payload
 from baibai_engine.machine_analysis.generation.runners.benchmark import (
     compute_benchmark_trend,
 )

@@ -16,9 +16,7 @@ from pathlib import Path
 
 import requests
 
-from baibai_engine.data_collection.receipts.public_pages.models import (
-    EquityWebSourceResponse,
-)
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.data_collection.receipts.public_pages.models import (
     Source as ExternalAssessmentSource,
 )

@@ -11,11 +11,11 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
     require_coverage,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    ResearchTarget,
-    selection_targets,
+    ResearchSelectionRecord as ResearchSelection,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    ResearchSelectionRecord as ResearchSelection,
+    ResearchTarget,
+    selection_targets,
 )
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document

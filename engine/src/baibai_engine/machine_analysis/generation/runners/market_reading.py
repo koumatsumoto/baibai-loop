@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import cast
 
 from baibai_engine.machine_analysis.generation.runners.reading_rules import (
-    load_reading_rules,
-    rules_revision,
+    DEFAULT_RULES_PATH as READING_RULES_PATH,
 )
 from baibai_engine.machine_analysis.generation.runners.reading_rules import (
-    DEFAULT_RULES_PATH as READING_RULES_PATH,
+    load_reading_rules,
+    rules_revision,
 )
 from baibai_engine.machine_analysis.models.market_context.reading.compute import (
     compute_reading,

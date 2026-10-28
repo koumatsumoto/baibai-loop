@@ -144,7 +144,7 @@ def test_each_provider_saves_receipts_without_full_db_or_integration_wait():
         "publication_lease",
     ):
         assert forbidden not in text
-    assert "economic_cli input --group" in text
+    assert "integration.economic_handoff input --group" in text
     assert "baibai-jobs model-integration" in str(workflow("cloud-daily-batch.yml"))
 
 

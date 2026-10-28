@@ -6,9 +6,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.jquants_decode import (
-    JQuantsProviderError,
-)
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_decode import (
     is_missing_scalar as _is_missing_scalar,
 )

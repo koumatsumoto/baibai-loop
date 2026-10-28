@@ -14,11 +14,9 @@ from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric
 )
 
 from baibai_engine.machine_analysis.historical_evaluation.forward import (
-    _FYDividendObservation,
-)
-from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _asof_basis_dividend as _forward_asof_basis_dividend,
 )
+from baibai_engine.machine_analysis.historical_evaluation.forward import _FYDividendObservation
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
     build_metrics,
 )

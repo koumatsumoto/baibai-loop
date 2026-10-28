@@ -34,14 +34,12 @@ from baibai_engine.data_collection.receipts.native_sources.receipt_policy import
     retain_rechecks as retain_economic_rechecks,
 )
 from baibai_engine.data_collection.receipts.native_sources.store import (
-    EconomicSchemaError,
-)
-from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
 from baibai_engine.data_collection.receipts.native_sources.store import (
     RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS,
 )
+from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
 from baibai_engine.data_collection.receipts.native_sources.store import (
     validate_current_schema as validate_economic_schema,
 )

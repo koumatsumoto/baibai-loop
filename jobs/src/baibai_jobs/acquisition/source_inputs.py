@@ -27,9 +27,7 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
-from baibai_jobs.acquisition.inputs import (
-    SOURCE_INPUT_GROUPS,
-)
+from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.inputs import export_source_input as export_market_source_input
 
 

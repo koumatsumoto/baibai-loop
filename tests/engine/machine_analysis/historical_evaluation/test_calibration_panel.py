@@ -1199,9 +1199,7 @@ class DerivedCacheIdentityTests(unittest.TestCase):
     """列や宣言済み計算 revision の変更がキャッシュ版へ反映されることを確認する。"""
 
     def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
-        from baibai_engine.machine_analysis.historical_evaluation import (
-            evaluation,
-        )
+        from baibai_engine.machine_analysis.historical_evaluation import evaluation
         from baibai_engine.machine_analysis.historical_evaluation import store as calibration_store
 
         Patch = Callable[[], AbstractContextManager[object]]

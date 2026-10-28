@@ -44,14 +44,14 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
-from baibai_jobs.observability.tradingview import (
-    failure_category,
-    failure_line,
-)
 from baibai_jobs.observability.tradingview import CollectionFailure as CollectionFailure
 from baibai_jobs.observability.tradingview import CollectionProgress as CollectionProgress
 from baibai_jobs.observability.tradingview import SourceDataError as SourceDataError
 from baibai_jobs.observability.tradingview import TimeGuardError as TimeGuardError
+from baibai_jobs.observability.tradingview import (
+    failure_category,
+    failure_line,
+)
 
 JST = ZoneInfo("Asia/Tokyo")
 SOFT_BUDGET_SECONDS = 25 * 60

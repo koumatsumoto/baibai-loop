@@ -33,10 +33,8 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_offer import
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.market import (
-    delisting_cli,
-)
 from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.market import delisting_cli
 
 _PRICE = "jptoo-ton_cor:PriceOfPurchaseEtcTextBlock"
 _FUNDING = "jptoo-ton_cor:FundEtcForPurchaseEtcTextBlock"
