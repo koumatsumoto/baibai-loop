@@ -30,11 +30,11 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
         )
     ]
     mocker.patch(
-        "baibai_engine.machine_analysis.models.market_context.security.read_price_bars",
+        "baibai_engine.machine_analysis.generation.runners.security_context.read_price_bars",
         side_effect=AssertionError("must reuse shared prices"),
     )
     mocker.patch(
-        "baibai_engine.machine_analysis.models.market_context.snapshot.read_price_bars",
+        "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_price_bars",
         side_effect=AssertionError("must reuse shared prices"),
     )
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:

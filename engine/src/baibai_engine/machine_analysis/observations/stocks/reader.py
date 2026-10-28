@@ -1,8 +1,8 @@
 """保存済み観測の責務別読取。取得・公開は行わない。"""
 
 from __future__ import annotations
-from dataclasses import dataclass
 from datetime import date
+from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot, MasterSnapshotRead
 from pathlib import Path
 from baibai_engine.storage.sqlite.read import read_rows
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_contract
@@ -12,13 +12,6 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
-@dataclass(frozen=True, slots=True)
-class MasterSnapshotRead:
-    """A point-in-time security-master read with its source snapshot status."""
-
-    masters: tuple[SecurityMaster, ...]
-    snapshot_date: date | None
-    status: str
 
 
 def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
@@ -106,10 +99,6 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
     return masters
 
 
-@dataclass(frozen=True, slots=True)
-class MasterSnapshot:
-    as_of: date
-    securities: dict[str, dict[str, object]]
 
 
 def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:

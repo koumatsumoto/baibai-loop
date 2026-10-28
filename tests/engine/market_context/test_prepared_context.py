@@ -9,11 +9,11 @@ import pytest
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.machine_analysis.models.market_context.security import (
+from baibai_engine.machine_analysis.generation.runners.security_context import (
     build_security_market_context,
     build_security_market_contexts,
 )
-from baibai_engine.machine_analysis.models.market_context.snapshot import (
+from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
     prepare_market_context_from_bars,
     prepare_market_context_inputs,
@@ -116,7 +116,7 @@ def test_shared_security_reads_only_its_long_history(context_store: Path, mocker
     assert securities.items.call_count == 1
     read = mocker.spy(
         __import__(
-            "baibai_engine.machine_analysis.models.market_context.security", fromlist=["read_price_bars"]
+            "baibai_engine.machine_analysis.generation.runners.security_context", fromlist=["read_price_bars"]
         ),
         "read_price_bars",
     )
@@ -254,10 +254,10 @@ def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_stor
         raise AssertionError("generation must reuse its shared price input")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.models.market_context.snapshot.read_price_bars", forbidden
+        "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_price_bars", forbidden
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.models.market_context.security.read_price_bars", forbidden
+        "baibai_engine.machine_analysis.generation.runners.security_context.read_price_bars", forbidden
     )
     prepared = prepare_market_context_from_bars(
         sqlite_path=context_store,
@@ -297,3 +297,21 @@ def test_common_market_window_does_not_expand_with_sparse_selected_subjects(cont
         )
     assert snapshots[0] == snapshots[1]
     assert all(point["benchmark_return_20d"] is None for point in snapshots[1]["points"])
+
+
+def test_market_calculation_modules_do_not_import_storage_or_generation():
+    """入力の読取をモデル計算のimport副作用へ戻さない。"""
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; "
+            "from baibai_engine.machine_analysis.models.market_context import benchmark, snapshot, security; "
+            "assert not any(name.startswith(('baibai_engine.storage', "
+            "'baibai_engine.machine_analysis.generation', 'baibai_jobs')) for name in sys.modules)",
+        ],
+        check=True,
+    )

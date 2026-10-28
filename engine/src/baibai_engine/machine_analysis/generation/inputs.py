@@ -38,8 +38,13 @@ from baibai_engine.machine_analysis.generation.assembly import CompanyModelInput
 from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.machine_analysis.models.market_context.price_path import compare_price_path
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
-from baibai_engine.machine_analysis.models.market_context.security import build_security_market_contexts
-from baibai_engine.machine_analysis.models.market_context.snapshot import build_market_snapshot, prepare_market_context_from_bars
+from baibai_engine.machine_analysis.generation.runners.security_context import (
+    build_security_market_contexts,
+)
+from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
+    build_market_snapshot,
+    prepare_market_context_from_bars,
+)
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGenerationStream
 from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
 

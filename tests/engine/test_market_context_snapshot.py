@@ -13,7 +13,9 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.yaml import safe_load
-from baibai_engine.machine_analysis.models.market_context.snapshot import build_market_snapshot
+from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
+    build_market_snapshot,
+)
 from baibai_engine.cli.market_snapshot import (
     build_parser,
     market_snapshot_command,

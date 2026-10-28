@@ -18,22 +18,18 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
-from baibai_engine.machine_analysis.observations.stocks.reader import (
+from baibai_engine.machine_analysis.observations.stocks.contracts import (
     MasterSnapshot,
-    read_master_snapshot,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
     _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
     BREADTH_MA_WINDOW_BARS,
-    DEFAULT_MIN_BREADTH_SAMPLE,
     LONG_TREND_WINDOW_BARS,
     NIKKEI225_ETF_PROXY,
     TREND_WINDOW_BARS,
     BenchmarkTrendSnapshot,
-    _load_benchmark_series,
     benchmark_trend_from_series,
     classify_benchmark_trend,
 )
@@ -78,48 +74,13 @@ class PreparedMarketContext:
     start: date
     master: MasterSnapshot | None
     common_stock_tickers_by_sector: dict[str, tuple[str, ...]]
-    series_by_ticker: dict[str, _Series]
+    series_by_ticker: Mapping[str, _Series]
     benchmark_ticker: str
     benchmark_start: date
     benchmark_prices: dict[date, float]
     benchmark_trend: BenchmarkTrendSnapshot | None
 
 
-def prepare_market_context_inputs(
-    *,
-    sqlite_path: Path,
-    asof_date: date,
-    master: MasterSnapshot | None,
-    history_weeks: int = DEFAULT_HISTORY_WEEKS,
-    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
-) -> PreparedMarketContext:
-    """既存masterを引き継ぎ、同じ生成の全体/個別viewへ渡す。永続cacheなし。"""
-    start = asof_date - timedelta(days=7 * (history_weeks - 1) + _POINT_LOOKBACK_CALENDAR_DAYS)
-    benchmark_series = _load_benchmark_series(sqlite_path, asof_date, ticker=benchmark_ticker)
-    sector_tickers: dict[str, list[str]] = {}
-    if master is not None:
-        for ticker, security in master.securities.items():
-            sector = security["sector_33"]
-            if security["is_common_stock"] and isinstance(sector, str):
-                sector_tickers.setdefault(sector, []).append(ticker)
-    return PreparedMarketContext(
-        sqlite_path=sqlite_path.resolve(),
-        asof_date=asof_date,
-        history_weeks=history_weeks,
-        start=start,
-        master=master,
-        common_stock_tickers_by_sector={
-            sector: tuple(tickers) for sector, tickers in sector_tickers.items()
-        },
-        series_by_ticker=_load_series(sqlite_path, start=start, end=asof_date),
-        benchmark_ticker=benchmark_ticker,
-        # Keep the original benchmark loader's window, including sparse histories.
-        benchmark_start=asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS),
-        benchmark_prices=dict(benchmark_series),
-        benchmark_trend=benchmark_trend_from_series(
-            benchmark_series, asof_date=asof_date, benchmark_ticker=benchmark_ticker
-        ),
-    )
 
 
 def prepare_market_context_from_bars(
@@ -163,7 +124,7 @@ def prepare_market_context_from_bars(
     ]
     trend_start = asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS)
     return PreparedMarketContext(
-        sqlite_path=sqlite_path.resolve(),
+        sqlite_path=sqlite_path,
         asof_date=asof_date,
         history_weeks=history_weeks,
         start=start,
@@ -181,99 +142,13 @@ def prepare_market_context_from_bars(
     )
 
 
-def build_market_snapshot(
-    *,
-    sqlite_path: Path,
-    asof_date: date,
-    history_weeks: int = DEFAULT_HISTORY_WEEKS,
-    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
-    min_breadth_sample: int = DEFAULT_MIN_BREADTH_SAMPLE,
-    prepared: PreparedMarketContext | None = None,
-) -> dict[str, object]:
-    """Assemble the market snapshot as of ``asof_date``.
-
-    ``points`` walks weekly evaluation dates from oldest to ``asof_date`` so a
-    reader sees how trend and breadth evolved; ``sectors``
-    aggregates per-sector returns and breadth at ``asof_date`` only. Breadth
-    uses common-stock membership from the latest master available at each point;
-    ETFs and later master constituents cannot enter a historical stock sample.
-    """
-    point_dates = [
-        asof_date - timedelta(days=7 * offset) for offset in range(history_weeks - 1, -1, -1)
-    ]
-    start = point_dates[0] - timedelta(days=_POINT_LOOKBACK_CALENDAR_DAYS)
-    if prepared is not None and (
-        prepared.sqlite_path != sqlite_path.resolve()
-        or prepared.asof_date != asof_date
-        or prepared.history_weeks != history_weeks
-        or prepared.benchmark_ticker != benchmark_ticker
-    ):
-        raise ValueError("prepared market context does not match the requested scope")
-    series_by_ticker = (
-        _load_series(sqlite_path, start=start, end=asof_date)
-        if prepared is None
-        else {
-            ticker: series.since(start)
-            for ticker, series in prepared.series_by_ticker.items()
-            if series.dates and series.dates[-1] >= start
-        }
-    )
-    master = (
-        read_master_snapshot(sqlite_path, as_of=asof_date) if prepared is None else prepared.master
-    )
-    sector_by_ticker = (
-        {}
-        if master is None
-        else {
-            ticker: str(row["sector_33"])
-            for ticker, row in master.securities.items()
-            if row["is_common_stock"]
-        }
-    )
-    benchmark = series_by_ticker.get(benchmark_ticker)
-    points = []
-    for point_date in point_dates:
-        point_master = (
-            master
-            if point_date == asof_date
-            else read_master_snapshot(sqlite_path, as_of=point_date)
-        )
-        breadth_tickers = (
-            set()
-            if point_master is None
-            else {
-                ticker for ticker, row in point_master.securities.items() if row["is_common_stock"]
-            }
-        )
-        points.append(
-            _point(
-                point_date,
-                benchmark=benchmark,
-                series_by_ticker=series_by_ticker,
-                breadth_tickers=breadth_tickers,
-                min_breadth_sample=min_breadth_sample,
-            )
-        )
-    return {
-        "as_of": asof_date.isoformat(),
-        "benchmark_ticker": benchmark_ticker,
-        "history_weeks": history_weeks,
-        "master_snapshot_date": None if master is None else master.as_of.isoformat(),
-        "points": points,
-        "sectors": _sector_table(
-            series_by_ticker,
-            sector_by_ticker=sector_by_ticker,
-            asof_date=asof_date,
-            benchmark_ticker=benchmark_ticker,
-        ),
-    }
 
 
 def _point(
     point_date: date,
     *,
     benchmark: _Series | None,
-    series_by_ticker: dict[str, _Series],
+    series_by_ticker: Mapping[str, _Series],
     breadth_tickers: set[str],
     min_breadth_sample: int,
 ) -> dict[str, object]:
@@ -300,7 +175,7 @@ def _point(
 
 
 def _breadth(
-    series_by_ticker: dict[str, _Series],
+    series_by_ticker: Mapping[str, _Series],
     *,
     observation_date: date | None,
     upto: date,
@@ -327,7 +202,7 @@ def _breadth(
 
 
 def _sector_table(
-    series_by_ticker: dict[str, _Series],
+    series_by_ticker: Mapping[str, _Series],
     *,
     sector_by_ticker: dict[str, str],
     asof_date: date,
@@ -392,8 +267,61 @@ def _sector_sort_key(row: dict[str, object]) -> float:
     return float(value) if isinstance(value, int | float) else 0.0
 
 
-def _load_series(sqlite_path: Path, *, start: date, end: date) -> dict[str, _Series]:
+
+
+def calculate_market_snapshot(
+    *,
+    asof_date: date,
+    history_weeks: int,
+    benchmark_ticker: str,
+    min_breadth_sample: int,
+    master: MasterSnapshot | None,
+    masters_by_date: Mapping[date, MasterSnapshot | None],
+    series_by_ticker: Mapping[str, _Series],
+) -> dict[str, object]:
+    """各評価日の固定masterと価格だけからbreadth・業種比較を計算する。"""
+    point_dates = [
+        asof_date - timedelta(days=7 * offset) for offset in range(history_weeks - 1, -1, -1)
+    ]
+    sector_by_ticker = (
+        {}
+        if master is None
+        else {
+            ticker: str(row["sector_33"])
+            for ticker, row in master.securities.items()
+            if row["is_common_stock"]
+        }
+    )
+    benchmark = series_by_ticker.get(benchmark_ticker)
+    points = []
+    for point_date in point_dates:
+        point_master = masters_by_date.get(point_date)
+        breadth_tickers = (
+            set()
+            if point_master is None
+            else {
+                ticker for ticker, row in point_master.securities.items() if row["is_common_stock"]
+            }
+        )
+        points.append(
+            _point(
+                point_date,
+                benchmark=benchmark,
+                series_by_ticker=series_by_ticker,
+                breadth_tickers=breadth_tickers,
+                min_breadth_sample=min_breadth_sample,
+            )
+        )
     return {
-        ticker: _Series(dates=[bar.traded_at for bar in bars], prices=[bar.price for bar in bars])
-        for ticker, bars in read_price_bars(sqlite_path, start=start, end=end).items()
+        "as_of": asof_date.isoformat(),
+        "benchmark_ticker": benchmark_ticker,
+        "history_weeks": history_weeks,
+        "master_snapshot_date": None if master is None else master.as_of.isoformat(),
+        "points": points,
+        "sectors": _sector_table(
+            series_by_ticker,
+            sector_by_ticker=sector_by_ticker,
+            asof_date=asof_date,
+            benchmark_ticker=benchmark_ticker,
+        ),
     }

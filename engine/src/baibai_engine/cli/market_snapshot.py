@@ -17,7 +17,9 @@ from baibai_engine.primitives.time import JST
 from baibai_engine.storage.yaml import NoAliasSafeDumper as _NoAliasDumper
 from baibai_engine.machine_analysis.observations.prices.price_reader import latest_daily_bar_date
 
-from baibai_engine.machine_analysis.models.market_context.snapshot import build_market_snapshot
+from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
+    build_market_snapshot,
+)
 
 
 def _query_asof(asof: str | None, sqlite_path: Path) -> date | None:

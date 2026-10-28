@@ -672,3 +672,13 @@ name = "retained Web is independent of Screening and investment authoring"
 type = "forbidden"
 source_modules = ["baibai_web"]
 forbidden_modules = ["baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_jobs", "tools"]
+
+[[tool.importlinter.contracts]]
+name = "market model calculations take fixed values without IO or generation callbacks"
+type = "forbidden"
+source_modules = [
+  "baibai_engine.machine_analysis.models.market_context.benchmark",
+  "baibai_engine.machine_analysis.models.market_context.snapshot",
+  "baibai_engine.machine_analysis.models.market_context.security",
+]
+forbidden_modules = ["baibai_engine.storage", "baibai_engine.data_collection", "baibai_engine.machine_analysis.generation", "baibai_jobs"]
