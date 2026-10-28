@@ -11,7 +11,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.dividends 
     build_shareholder_return_change_signals,
 )
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 
 class ScreeningMetricsTests(SnapshotFixtures):

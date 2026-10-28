@@ -22,10 +22,10 @@ from math import isfinite
 from statistics import mean
 
 from baibai_engine.machine_analysis.screening.schema import UniverseSnapshot
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.price_basis import asof_basis_closes
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.market.universe import ELIGIBLE_MARKETS as ELIGIBLE_MARKETS
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_closes
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS as ELIGIBLE_MARKETS
 
 from .rule_config import ScreeningRules
 

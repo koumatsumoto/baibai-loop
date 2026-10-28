@@ -12,7 +12,7 @@ import pytest
 from pydantic import TypeAdapter
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
-from baibai_engine.market.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -73,8 +73,8 @@ def test_market_context_calculation_cold_import_does_not_load_composition_or_io(
         "baibai_engine.investment_judgment",
         "baibai_engine.storage",
         "baibai_engine.market.edinet_metrics.csv",
-        "baibai_engine.market.price_reader",
-        "baibai_engine.market.adjusted_prices",
+        "baibai_engine.machine_analysis.observations.prices.price_reader",
+        "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
     )
     assert not [name for name in modules if name.startswith(forbidden)]
 

@@ -14,7 +14,9 @@ from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
 from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
 
 
 def _periods(quarter):

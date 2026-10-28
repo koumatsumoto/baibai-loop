@@ -14,14 +14,16 @@ from zoneinfo import ZoneInfo
 import duckdb
 
 from baibai_engine.data_collection.jquants.dependencies import read_dependency
-from baibai_engine.market.jquants_reader import read_eq_master_asof
-from baibai_engine.market.master_snapshot import (
+from baibai_engine.machine_analysis.observations.stocks.reader import (
+    read_eq_master_asof,
+)
+from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     MIN_COMMON_STOCK_MASTER_ROWS,
     masters_from_payloads,
     validate_master_snapshot,
 )
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.lake.duck import LakeSession
 from baibai_engine.storage.lake.objects import LakeObjectCache
 from baibai_engine.storage.lake.reader import (

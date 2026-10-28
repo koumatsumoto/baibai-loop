@@ -7,7 +7,7 @@ import pytest
 
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_writer import store_jquants_short_sale_reports
-from baibai_engine.market.margin_reader import read_short_sale_reports
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import read_short_sale_reports
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 
 

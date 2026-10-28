@@ -49,7 +49,7 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
 from baibai_engine.investment_judgment.trade_proposal.policy import validate_proposal_policy
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
-from baibai_engine.market.sessions import latest_eligible_close_date
+from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.portfolio.holdings.market_observations import next_order_session
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.storage.application.read import connect_read_only

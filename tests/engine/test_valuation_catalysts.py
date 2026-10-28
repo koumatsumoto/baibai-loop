@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 import openpyxl
 
-from baibai_engine.market.valuation_catalysts import (
+from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     ValuationCatalystError,
     edinet_code_to_ticker,
     parse_tse_capital_policy_workbook,

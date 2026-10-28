@@ -24,7 +24,7 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _FYDividendObservation,
 )
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 
 class DividendCarryResolverTests(unittest.TestCase):
@@ -645,7 +645,9 @@ def test_unrelated_payment_and_share_disagreements_do_not_veto_annual_dps(tmp_pa
     from contextlib import closing
 
     from baibai_engine.machine_analysis.historical_evaluation.forward import _load_fy_dividends
-    from baibai_engine.market.jquants_reader import read_financial_documents
+    from baibai_engine.machine_analysis.observations.financials.reader import (
+        read_financial_documents,
+    )
     from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 
     day = date(2026, 5, 15)

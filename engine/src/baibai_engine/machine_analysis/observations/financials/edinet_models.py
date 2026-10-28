@@ -7,7 +7,7 @@ from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 
 class EDINETProviderError(RuntimeError):

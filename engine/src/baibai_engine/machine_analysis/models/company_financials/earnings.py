@@ -7,14 +7,16 @@ from dataclasses import dataclass
 from datetime import date
 from math import isfinite
 
-from baibai_engine.market.financial_documents import (
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     accounting_period_identity,
     latest_disclosure_candidates,
     project_financial_documents,
     statement_basis,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.price_models import (
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
     PriceBar,

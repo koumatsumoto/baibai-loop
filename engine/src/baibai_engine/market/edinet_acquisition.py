@@ -11,7 +11,7 @@ from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, 
 from baibai_engine.market.edinet_facts.planning import plan_fact_item
 from baibai_engine.market.edinet_facts.service import prepare_edinet_facts
 from baibai_engine.market.edinet_metrics.service import prepare_edinet_metric_plan
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from baibai_engine.market.edinet_metrics.eligibility import read_eligible_edinet_metrics
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 from .shared import CacheCoverageIssue
 

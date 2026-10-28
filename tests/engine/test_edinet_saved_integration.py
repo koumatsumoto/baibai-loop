@@ -14,7 +14,7 @@ from baibai_engine.data_collection.edinet.archives import retain_source_archive
 from baibai_engine.market.edinet_facts.store import record_initialized
 from baibai_engine.market.edinet_integration import extract_saved_edinet
 from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError, read_edinet_metrics
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.storage.observations.schema import open_connection
 

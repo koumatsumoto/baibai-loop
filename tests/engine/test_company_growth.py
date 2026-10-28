@@ -33,8 +33,8 @@ from baibai_engine.machine_analysis.models.company_growth.models import CompanyG
 from baibai_engine.machine_analysis.generation.runners.company_growth import (
     company_growth as public_company_growth,
 )
-from baibai_engine.market.financial_documents import normalize_financial_summary
-from baibai_engine.market.financial_periods import prior_year_period_matches
+from baibai_engine.machine_analysis.observations.financials.financial_documents import normalize_financial_summary
+from baibai_engine.machine_analysis.observations.financials.financial_periods import prior_year_period_matches
 from baibai_engine.storage.lake.keys import release_manifest_key
 from baibai_engine.storage.lake.models import ReleaseManifest
 from baibai_engine.storage.observations.lake_origin import (
@@ -724,7 +724,7 @@ def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
 def test_shared_population_and_individual_generation_use_the_same_fixed_documents(tmp_path):
     from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
     from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-    from baibai_engine.market.fixed_financial_reader import read_fixed_financial_population
+    from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import read_fixed_financial_population
 
     path = market_store(
         tmp_path,

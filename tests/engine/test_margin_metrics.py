@@ -188,7 +188,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # A store filled past the decision date holds balance dates the market has not
         # reached. Listing one would put a future week at the head of the cohort, which
         # is the point-in-time break this reader exists to prevent.
-        from baibai_engine.market.margin_reader import published_margin_week_ends
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_week_ends
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -215,7 +215,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         from baibai_engine.machine_analysis.screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
-        from baibai_engine.market.margin_reader import published_margin_week_ends
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_week_ends
         from baibai_engine.storage.observations.schema import open_connection
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -361,7 +361,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_a_daily_balance_is_unusable_until_its_publication_day_has_closed(self) -> None:
         """Next business day, and not at that day's own close."""
-        from baibai_engine.market.margin_reader import published_margin_balance_dates
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_balance_dates
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

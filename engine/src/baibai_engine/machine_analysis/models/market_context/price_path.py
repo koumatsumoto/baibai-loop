@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from math import isfinite
 
-from baibai_engine.market.price_observation import PriceComparisonPair
+from baibai_engine.machine_analysis.observations.prices.price_observation import PriceComparisonPair
 
 
 def compare_price_path(

@@ -22,7 +22,7 @@ from baibai_engine.market.edinet_metrics.service import (
 )
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
-from baibai_engine.market.edinet_selection import select_document_candidates
+from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 

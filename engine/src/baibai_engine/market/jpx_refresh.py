@@ -17,23 +17,23 @@ from baibai_engine.data_collection.jpx.receipts import (
     declare_bundle_resources,
     retain_bundle_response,
 )
-from baibai_engine.market.delistings import (
+from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     JPX_DELISTING_INDEX_URL,
     DelistingRecord,
     resolve_delisting_archive_urls,
 )
-from baibai_engine.market.jpx_decode import resolve_earnings_calendar_urls
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import resolve_earnings_calendar_urls
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.jpx_sources import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
     JPX_EARNINGS_CALENDAR_INDEX_URL,
     JPX_REGULATION_URLS,
 )
-from baibai_engine.market.valuation_catalysts import (
+from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TSE_CAPITAL_POLICY_URL,
     TSECapitalPolicyRefreshSummary,
 )

@@ -260,7 +260,7 @@ def test_portfolio_summary_uses_the_replayed_instant(holding_case, valuation_at)
     ],
 )
 def test_close_date_cutoff_is_not_a_source_observation_timestamp(instant, expected):
-    from baibai_engine.market.sessions import latest_eligible_close_date
+    from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 
     assert latest_eligible_close_date(datetime.fromisoformat(instant)).isoformat() == expected
 

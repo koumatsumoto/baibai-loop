@@ -49,7 +49,7 @@ payloadとcash・予約・holdingの差分を人間に確認し、`position appl
 
 ## Historical Outcome
 
-Outcomeが依頼された場合は[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)の比較basisに従い、同期間のJPX TOPIX gross total returnを確認した[BenchmarkObservation](../../../engine/src/baibai_engine/market/benchmark_observation.py)形式のYAMLを用意する。[fixture](../../../tests/fixtures/benchmark-observation/topix-1y.yaml)は形式例であり、実績観測として流用しない。期間・horizon・公表日・受領時刻・公式sourceを揃え、1yの年率はnull、3y/5yは累積returnと整合する年率を記す。
+Outcomeが依頼された場合は[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)の比較basisに従い、同期間のJPX TOPIX gross total returnを確認した[BenchmarkObservation](../../../engine/src/baibai_engine/machine_analysis/observations/prices/benchmark_observation.py)形式のYAMLを用意する。[fixture](../../../tests/fixtures/benchmark-observation/topix-1y.yaml)は形式例であり、実績観測として流用しない。期間・horizon・公表日・受領時刻・公式sourceを揃え、1yの年率はnull、3y/5yは累積returnと整合する年率を記す。
 
 ```bash
 uv run baibai-engine portfolio outcome --db stores/application/baibai.sqlite \

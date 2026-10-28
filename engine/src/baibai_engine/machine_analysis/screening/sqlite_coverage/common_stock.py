@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 
 _MARKETS = tuple(sorted(ELIGIBLE_MARKETS))
 COMMON_STOCK_SNAPSHOT_SQL = (

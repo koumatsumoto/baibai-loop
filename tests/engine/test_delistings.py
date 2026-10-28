@@ -14,7 +14,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
 from baibai_engine.data_collection.jpx.receipts import read_bundle, read_complete_bundle
-from baibai_engine.market.delistings import (
+from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     JPX_DELISTING_INDEX_URL,
     DelistingRecord,
     DelistingSourceError,
@@ -24,8 +24,8 @@ from baibai_engine.market.delistings import (
     resolve_delisting_archive_urls,
     store_jpx_delistings,
 )
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.market.jpx_refresh import JPXRefresh
 from baibai_engine.source_maintenance import cli as app
 from baibai_engine.source_maintenance.delisting_cli import refresh_jpx_delistings_command

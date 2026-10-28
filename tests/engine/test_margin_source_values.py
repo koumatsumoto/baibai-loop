@@ -13,7 +13,7 @@ from baibai_engine.market.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_weekly_margin,
 )
-from baibai_engine.market.margin_reader import (
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     published_margin_balance_dates,
     read_all_issues_daily_margin,
 )

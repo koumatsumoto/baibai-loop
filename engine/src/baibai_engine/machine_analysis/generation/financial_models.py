@@ -9,9 +9,11 @@ from datetime import date
 
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.market.edinet_models import EdinetMetricRecord
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, PriceBar
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, PriceBar
 
 from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease

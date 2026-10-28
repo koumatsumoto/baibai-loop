@@ -18,7 +18,7 @@ from baibai_engine.data_collection.edinet.receipts import (
     read_list_responses,
     retain_list_response,
 )
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_refresh import EDINETRefresh
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store

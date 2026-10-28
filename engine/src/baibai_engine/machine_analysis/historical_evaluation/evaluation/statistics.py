@@ -17,7 +17,7 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     ForwardReturnRow,
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow
-from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.machine_analysis.observations.prices.benchmark import TOPIX_ETF_PROXY
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

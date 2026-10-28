@@ -6,8 +6,11 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance
-from baibai_engine.market.jquants_models import JQuantsAllIssuesDailyMargin, JQuantsWeeklyMargin
-from baibai_engine.market.margin_reader import (
+from baibai_engine.machine_analysis.observations.trading_activity.models import (
+    JQuantsAllIssuesDailyMargin,
+    JQuantsWeeklyMargin,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     MarginCadence,
     published_margin_balance_dates,
     read_all_issues_daily_margin,

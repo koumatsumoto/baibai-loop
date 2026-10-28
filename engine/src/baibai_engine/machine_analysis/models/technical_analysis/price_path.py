@@ -9,8 +9,8 @@ from datetime import date
 from decimal import Decimal
 from math import isfinite
 
-from baibai_engine.market.price_models import PriceBar
-from baibai_engine.market.price_observation import (
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import (
     PriceCalendar,
     PriceComparisonPair,
     PriceDayState,

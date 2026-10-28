@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.edinet_document_store import read_stored_documents
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_stored_documents
 from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 

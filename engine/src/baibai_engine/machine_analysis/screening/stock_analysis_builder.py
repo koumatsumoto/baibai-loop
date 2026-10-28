@@ -21,7 +21,7 @@ from baibai_engine.machine_analysis.screening.schema import (
     StockAnalysis,
     UniverseSnapshot,
 )
-from baibai_engine.market.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 
 
 def build_stock_analysis(

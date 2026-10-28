@@ -24,11 +24,11 @@ from datetime import date
 from pathlib import Path
 from typing import Protocol
 
-from baibai_engine.market.delistings import DelistingRecord, read_jpx_delistings
+from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingRecord, read_jpx_delistings
 from baibai_engine.market.edinet_decode import is_usable_filing_status
-from baibai_engine.market.edinet_document_store import read_current_filing_documents
-from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.valuation_catalysts import (
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_current_filing_documents
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
     TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE,

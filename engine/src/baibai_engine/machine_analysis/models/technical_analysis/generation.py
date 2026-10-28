@@ -9,7 +9,7 @@ from datetime import date
 
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.market.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
     TECHNICAL_CALCULATION_REVISION,

@@ -16,9 +16,11 @@ from baibai_engine.machine_analysis.screening.universe import (
     build_universe,
     candidate_comparison_population,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
 def _bars(
@@ -484,7 +486,7 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
 
 class NativeProductScopeTests(unittest.TestCase):
     def test_product_category_not_sector_name_decides_ordinary_stock(self) -> None:
-        from baibai_engine.market.master_snapshot import normalize_master_record
+        from baibai_engine.machine_analysis.observations.stocks.master_snapshot import normalize_master_record
 
         for category in ("011", "012", "013", "014", "021", "022", "023", "024"):
             with self.subTest(category=category):
@@ -515,7 +517,7 @@ class NativeProductScopeTests(unittest.TestCase):
                 self.assertIn("130A", result.snapshots)
 
     def test_preferred_issue_is_not_projected_as_the_same_common_ticker(self) -> None:
-        from baibai_engine.market.master_snapshot import normalize_master_record
+        from baibai_engine.machine_analysis.observations.stocks.master_snapshot import normalize_master_record
 
         self.assertIsNone(
             normalize_master_record(

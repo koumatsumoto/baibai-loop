@@ -8,12 +8,14 @@ from datetime import date, timedelta
 from typing import Any
 
 from baibai_engine.primitives.dates import add_months_clamped
-from baibai_engine.market.financial_documents import (
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
     latest_disclosure_candidates,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
 
 ACTUAL_FIELDS = (
     "sales",

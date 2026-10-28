@@ -13,7 +13,7 @@ from baibai_engine.market.jquants_decode import (
     parse_jquants_code_parts,
     provider_record_payload,
 )
-from baibai_engine.market.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 
 MASTER_SOURCE: Final = "jquants_master_snapshots"
 MASTER_OPERATION: Final = "get_eq_master"

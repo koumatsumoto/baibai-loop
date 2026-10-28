@@ -6,9 +6,9 @@ import pytest
 
 from baibai_engine.machine_analysis.models.market_context.price_path import compare_price_path
 from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
-from baibai_engine.market.price_basis import asof_basis_prices
-from baibai_engine.market.price_models import PriceBar
-from baibai_engine.market.price_observation import classify_price_day, price_calendar
+from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_prices
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import classify_price_day, price_calendar
 
 ASOF = date(2026, 10, 26)
 CALENDAR = {ASOF - timedelta(days=n): (ASOF - timedelta(days=n)).weekday() < 5 for n in range(500)}

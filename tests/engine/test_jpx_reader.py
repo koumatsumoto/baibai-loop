@@ -8,19 +8,19 @@ from unittest.mock import patch
 
 import pytest
 
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     index_calendar_announcements,
     next_earnings_dates,
 )
-from baibai_engine.market.jpx_reader import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     JPXReader,
     read_jpx_earnings_calendar_snapshot,
     read_next_earnings_dates,
 )
-from baibai_engine.market.jpx_rebuild import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
 )
@@ -259,7 +259,7 @@ def test_corrupt_file_is_not_unknown(tmp_path: Path) -> None:
 def test_jpx_snapshot_keeps_one_generation_across_concurrent_refresh(
     calendar_path, monkeypatch, kind
 ):
-    from baibai_engine.market import jpx_reader
+    import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
 
     path = calendar_path
     asof = date(2026, 5, 8)

@@ -44,9 +44,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     ProviderPayloadError,
     normalize_batch,
 )
-from baibai_engine.market.calendar_context import observation_calendar_context
-from baibai_engine.market.master_snapshot import masters_from_payloads
-from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.machine_analysis.observations.prices.calendar_context import observation_calendar_context
+from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads
+from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.observations.schema import (
     SQLiteSchemaError,
     open_connection,

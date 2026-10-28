@@ -45,7 +45,7 @@ from baibai_engine.machine_analysis.historical_evaluation.horizons import requir
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow
 from baibai_engine.machine_analysis.screening.discovery.contracts import APPROACH_IDS
 from baibai_engine.machine_analysis.screening.rule_config import CandidateDiscoveryRules
-from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.machine_analysis.observations.prices.benchmark import TOPIX_ETF_PROXY
 
 
 def evaluate_cohorts(

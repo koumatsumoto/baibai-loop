@@ -7,7 +7,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import rebuild_edinet_document_day
 from baibai_engine.market.edinet_metrics.store import read_unrechecked_edinet_document_dates
 from baibai_engine.market.receipt_handoff import copy_originals
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema

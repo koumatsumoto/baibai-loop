@@ -13,7 +13,7 @@ from pathlib import Path
 from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsSource
 from baibai_engine.data_collection.jquants.receipts import import_requests, read_complete_request
 from baibai_engine.market.jquants_projection import project_request
-from baibai_engine.market.margin_publication import LEGACY_WEEKLY_LAST_BALANCE_DATE
+from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import LEGACY_WEEKLY_LAST_BALANCE_DATE
 from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 

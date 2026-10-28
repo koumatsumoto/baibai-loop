@@ -37,7 +37,7 @@ from baibai_engine.storage.observations.schema import open_connection
 
 
 def _verify_screening_sqlite_coverage(*args, **kwargs):
-    with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+    with patch("baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
         return verify_screening_sqlite_coverage(*args, **kwargs)
 
 
@@ -239,7 +239,7 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = self._store_with_a_stale_balance(tmp)
             stream = io.StringIO()
-            with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+            with patch("baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
                 code = verify_cache_coverage_command(
                     sqlite_path=sqlite_path,
                     asof_date=_COMMON_COVERAGE_ASOF,
@@ -1132,7 +1132,7 @@ class SQLiteCoverageTests(unittest.TestCase):
                 conn.commit()
                 issues: list[jquants_coverage.CacheCoverageIssue] = []
                 with patch(
-                    "baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
+                    "baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
                 ):
                     jquants_coverage._append_asof_bar_density_issue(conn, issues, asof_date=asof)
                     jquants_coverage._append_recent_bar_density_issue(conn, issues, asof_date=asof)
@@ -1174,7 +1174,7 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
                 issues: list[jquants_coverage.CacheCoverageIssue] = []
                 with patch(
-                    "baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
+                    "baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
                 ):
                     jquants_coverage._append_daily_history_density_issue(
                         conn, issues, start=start, end=asof

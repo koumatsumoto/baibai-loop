@@ -16,29 +16,34 @@ from typing import Any
 from unittest.mock import patch
 
 from baibai_engine.primitives.time import JST
-from baibai_engine.market.calendar import JQuantsMarketCalendarDay
+from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
-from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary, JQuantsWeeklyMargin
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.models import (
+    JQuantsWeeklyMargin,
+)
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_weekly_margin,
 )
-from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 from baibai_engine.source_maintenance import cli as source_app
 from baibai_engine.source_maintenance.cache import (
     backfill_history_command,

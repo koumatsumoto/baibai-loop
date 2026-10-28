@@ -11,19 +11,19 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.edinet.receipts import read_list_responses
-from baibai_engine.market.edinet_document_store import read_observed_documents
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_observed_documents
 from baibai_engine.market.edinet_facts.planning import plan_fact_item
 from baibai_engine.market.edinet_facts.selection import annual_documents
 from baibai_engine.market.edinet_facts.service import finish_edinet_facts, process_edinet_fact_item
 from baibai_engine.market.edinet_facts.store import extraction_status
 from baibai_engine.market.edinet_handoff import archive_keys
-from baibai_engine.market.edinet_list_projection import project_document_list
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_projection import project_document_list
 from baibai_engine.market.edinet_metrics.planning import make_metric_extraction_plan
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_from_plan
 from baibai_engine.market.edinet_metrics.store import read_edinet_metric_baseline
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_selection import select_document_candidates
+from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.read import connect_read_only
 

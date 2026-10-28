@@ -23,7 +23,7 @@ from baibai_engine.market.edinet_facts.store import (
     record_initialized,
     store_facts,
 )
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 
 class XbrlReader(Protocol):

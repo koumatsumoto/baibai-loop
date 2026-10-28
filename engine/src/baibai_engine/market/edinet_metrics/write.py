@@ -9,7 +9,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.normalization import (
+from baibai_engine.machine_analysis.observations.normalization import (
     normalize_ticker_or_none,
     to_float,
     to_str_or_none,

@@ -8,8 +8,8 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
-from baibai_engine.market.edinet_document_events import _canonicalize_document_events
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import _canonicalize_document_events
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 
 def read_current_filing_documents(

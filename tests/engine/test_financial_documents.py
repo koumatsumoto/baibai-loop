@@ -21,15 +21,20 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.profit imp
     build_normalized_profit_signals,
 )
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.market.financial_documents import (
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     latest_forecast_source,
     normalize_financial_summary,
     project_financial_documents,
 )
-from baibai_engine.market.financial_periods import resolve_actual_conflicts
+from baibai_engine.machine_analysis.observations.financials.financial_periods import resolve_actual_conflicts
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.jquants_reader import read_fin_summaries, read_financial_documents
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.financials.reader import (
+    read_fin_summaries,
+    read_financial_documents,
+)
 from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -518,7 +523,7 @@ def test_conflicting_pre_split_reference_cannot_choose_share_basis(
     from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
         _normalize_summaries_with_status,
     )
-    from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
+    from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent
 
     # Keep the conflicting reference period distinct from the later FY correction.
     # Otherwise that correction resolves the same cohort before reference selection.
@@ -721,7 +726,7 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
         _latest_fy_revisions,
         _resolve_dividend_carry,
     )
-    from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
+    from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent
 
     eps = actual_document("eps-only")
     eps["NP"] = eps["Sales"] = ""
@@ -1147,7 +1152,7 @@ def test_short_fiscal_year_uses_current_statement_basis(new_basis, late_old_corr
 @pytest.mark.parametrize("current_basis", ["Consolidated", "NonConsolidated"])
 def test_ttm_does_not_add_different_statement_bases(different_operand, current_basis):
     from baibai_engine.machine_analysis.models.company_financials.metrics.periods import _ttm_value
-    from baibai_engine.market.metric_quality import TTMQuality
+    from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
     periods = [
         ("prior-quarter", "2025-08-10", "2025-04-01", "2025-06-30", "2026-03-31", "1Q", "20"),

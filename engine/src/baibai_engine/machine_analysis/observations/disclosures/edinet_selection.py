@@ -19,7 +19,7 @@ from baibai_engine.market.edinet_decode import (
     parse_sec_code,
     text_or_none,
 )
-from baibai_engine.market.edinet_document_events import (
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     QuarantinedDocumentEvent,
     _canonicalize_document_events,
     parse_doc_id,

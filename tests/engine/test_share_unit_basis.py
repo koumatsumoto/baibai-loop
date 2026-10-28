@@ -16,8 +16,8 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _FYDividendObservation,
     _resolve_total_return,
 )
-from baibai_engine.market.price_basis import asof_basis_prices, share_unit_factor
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent
+from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_prices, share_unit_factor
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent
 
 
 @pytest.mark.parametrize(

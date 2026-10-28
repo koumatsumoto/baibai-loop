@@ -13,11 +13,11 @@ from tests.helpers.screening_sqlite import add_source_coverage
 from baibai_engine.data_collection.edinet.receipts import retain_list_response
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
 from baibai_engine.market.edinet_refresh import EDINETRefresh
-from baibai_engine.market.edinet_selection import select_document_candidates
-from baibai_engine.market.jpx_reader import has_jpx_regulation_data, read_jpx_regulations
+from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import has_jpx_regulation_data, read_jpx_regulations
 from baibai_engine.storage.observations.schema import open_connection
 
 

@@ -7,14 +7,14 @@ from datetime import date
 
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
-from baibai_engine.market.financial_documents import (
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
     disclosure_revision,
     latest_disclosure_candidates,
     statement_basis,
 )
-from baibai_engine.market.financial_periods import (
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     ACTUAL_FIELDS,
     annual_ttm_start,
     compose_ttm_amount,
@@ -22,8 +22,10 @@ from baibai_engine.market.financial_periods import (
     period_days,
     prior_year_period_matches,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 _AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
 

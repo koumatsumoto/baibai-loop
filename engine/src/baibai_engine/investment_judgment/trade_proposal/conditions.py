@@ -17,7 +17,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     QuoteInput,
     SellItem,
 )
-from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed, next_order_session
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.portfolio.holdings.price_grid import PRICE_GRID_CONFIRMED_AT, PRICE_GRID_VALID_UNTIL

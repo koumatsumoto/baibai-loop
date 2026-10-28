@@ -13,9 +13,9 @@ from unittest.mock import Mock, patch
 
 from baibai_engine.data_collection.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.market.delistings import DelistingRecord, store_jpx_delistings
+from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingRecord, store_jpx_delistings
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.tender_offer import (
+from baibai_engine.machine_analysis.observations.disclosures.tender_offer import (
     TenderOfferExitValue,
     build_tender_offer_exit_values,
     parse_ordinary_share_offer_price,

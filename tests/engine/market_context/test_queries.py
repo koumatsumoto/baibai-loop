@@ -31,9 +31,11 @@ from baibai_engine.machine_analysis.models.market_context.security import build_
 from baibai_engine.machine_analysis.models.market_context.snapshot import build_market_snapshot
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import bollinger_20bar
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
-from baibai_engine.market.adjusted_prices import read_price_bars
-from baibai_engine.market.jquants_reader import read_master_snapshot
-from baibai_engine.market.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.stocks.reader import (
+    read_master_snapshot,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 5, 29)

@@ -7,7 +7,7 @@ import statistics
 from collections.abc import Sequence
 from itertools import pairwise
 
-from baibai_engine.market.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
 TECHNICAL_CALCULATION_REVISION = "sma20-50-200-bb20-wilder-rsi14-price-path-v2"
 

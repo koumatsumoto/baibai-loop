@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.market.jquants_contract import (
+from baibai_engine.machine_analysis.observations.trading_activity.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
     MARGIN_ALERT_SOURCE,
     SHORT_SALE_REPORT_SOURCE,
@@ -14,13 +14,13 @@ from baibai_engine.market.jquants_contract import (
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
 )
-from baibai_engine.market.jquants_models import (
+from baibai_engine.machine_analysis.observations.trading_activity.models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsMarginAlert,
     JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.market.margin_publication import (
+from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS,
     MARGIN_PUBLICATION_TRADING_DAYS,
     _publication_has_happened,

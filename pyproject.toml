@@ -336,9 +336,9 @@ ignore_imports = [
   "baibai_engine.investment_judgment.workflow.operation.service -> baibai_engine.machine_analysis.screening.selection_query",
   "baibai_engine.investment_judgment.workflow.workspace.selected_prepare -> baibai_engine.machine_analysis.screening.selection_query",
   # Pure cash-equity cutoff only; research still cannot import market acquisition.
-  "baibai_engine.investment_judgment.stock_assessment.document -> baibai_engine.market.sessions",
-  "baibai_engine.investment_judgment.trade_proposal.service -> baibai_engine.market.sessions",
-  "baibai_engine.investment_judgment.trade_proposal.conditions -> baibai_engine.market.universe",
+  "baibai_engine.investment_judgment.stock_assessment.document -> baibai_engine.machine_analysis.observations.prices.sessions",
+  "baibai_engine.investment_judgment.trade_proposal.service -> baibai_engine.machine_analysis.observations.prices.sessions",
+  "baibai_engine.investment_judgment.trade_proposal.conditions -> baibai_engine.machine_analysis.observations.stocks.universe",
   # Read the common master input; acquisition remains outside Research.
   "baibai_engine.investment_judgment.trade_proposal.inputs -> baibai_engine.market.jquants_reader",
 ]
@@ -359,10 +359,10 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "calendar reads cannot reach writer or CLI modules"
 type = "forbidden"
-source_modules = ["baibai_engine.market.calendar_context"]
+source_modules = ["baibai_engine.machine_analysis.observations.prices.calendar_context"]
 forbidden_modules = [
-  "baibai_engine.market.jquants_writer", "baibai_engine.market.jpx_rebuild",
-  "baibai_engine.market.edinet_list_rebuild", "baibai_engine.market.edinet_metrics.write",
+  "baibai_engine.market.jquants_writer", "baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild",
+  "baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild", "baibai_engine.market.edinet_metrics.write",
   "baibai_engine.storage.application.write",
   "baibai_engine.cli.app",
   "baibai_engine.data_collection.economic.providers",
@@ -393,7 +393,7 @@ source_modules = [
 ]
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.portfolio", "baibai_engine.market.edinet_metrics.csv",
-  "baibai_engine.market.price_reader", "baibai_engine.market.edinet_metrics",
+  "baibai_engine.machine_analysis.observations.prices.price_reader", "baibai_engine.market.edinet_metrics",
   "baibai_engine.market.edinet_facts", "baibai_engine.investment_judgment.workflow.workspace",
   "baibai_engine.investment_judgment.stock_assessment.store", "baibai_engine.investment_judgment.trade_proposal.service",
 ]
@@ -440,7 +440,7 @@ source_modules = ["baibai_engine.machine_analysis.models.company_financials"]
 forbidden_modules = [
   "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_engine.machine_analysis.models.market_context", "baibai_engine.machine_analysis.models.technical_analysis", "baibai_engine.machine_analysis.models.company_growth",
   "baibai_engine.machine_analysis.models.external_assessment",
-  "baibai_engine.market.edinet_metrics.csv", "baibai_engine.market.price_reader", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.portfolio",
+  "baibai_engine.market.edinet_metrics.csv", "baibai_engine.machine_analysis.observations.prices.price_reader", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.portfolio",
   "baibai_engine.storage", "baibai_engine.tasks",
 ]
 
@@ -451,7 +451,7 @@ source_modules = [
   "baibai_engine.machine_analysis.models.technical_analysis",
   "baibai_engine.machine_analysis.generation.runners.market_reading", "baibai_engine.machine_analysis.models.market_context.snapshot",
   "baibai_engine.machine_analysis.models.market_context.security", "baibai_engine.machine_analysis.models.market_context.benchmark",
-  "baibai_engine.machine_analysis.models.market_context.sector", "baibai_engine.market.adjusted_prices",
+  "baibai_engine.machine_analysis.models.market_context.sector", "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
   "baibai_engine.market.jquants_reader", "baibai_engine.machine_analysis.models.market_context.history",
   "baibai_engine.machine_analysis.models.market_context.margin", "baibai_engine.machine_analysis.observations.economic_indicators.reader",
   "baibai_engine.machine_analysis.models.market_context.reading.compute", "baibai_engine.machine_analysis.models.market_context.reading.models",
@@ -508,11 +508,11 @@ name = "shared storage uses only pure domain contracts and technical helpers"
 type = "forbidden"
 source_modules = ["baibai_engine.storage"]
 forbidden_modules = [
-  "baibai_engine.market.jquants_reader", "baibai_engine.market.jpx_reader",
-  "baibai_engine.market.margin_reader", "baibai_engine.market.price_reader",
-  "baibai_engine.market.adjusted_prices",
-  "baibai_engine.market.jquants_writer", "baibai_engine.market.jpx_rebuild",
-  "baibai_engine.market.edinet_list_rebuild", "baibai_engine.market.edinet_metrics.write",
+  "baibai_engine.market.jquants_reader", "baibai_engine.machine_analysis.observations.disclosures.jpx_reader",
+  "baibai_engine.machine_analysis.observations.trading_activity.margin_reader", "baibai_engine.machine_analysis.observations.prices.price_reader",
+  "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
+  "baibai_engine.market.jquants_writer", "baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild",
+  "baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild", "baibai_engine.market.edinet_metrics.write",
   "baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio",
   "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context", "baibai_engine.machine_analysis.models.technical_analysis", "baibai_engine.machine_analysis.models.company_growth", "baibai_engine.tasks",
   "baibai_engine.market.edinet_metrics.csv", "baibai_engine.market.edinet_metrics",
@@ -543,24 +543,24 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "provider observation models, decoding and selection do not load acquisition or storage"
 type = "forbidden"
-source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.edinet_selection", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode", "baibai_engine.market.price_models", "baibai_engine.market.calendar"]
+source_modules = ["baibai_engine.machine_analysis.observations.financials.edinet_models", "baibai_engine.machine_analysis.observations.disclosures.edinet_selection", "baibai_engine.machine_analysis.observations.disclosures.jpx_models", "baibai_engine.machine_analysis.observations.financials.jquants_models", "baibai_engine.machine_analysis.observations.trading_activity.models", "baibai_engine.market.jquants_decode", "baibai_engine.machine_analysis.observations.prices.price_models", "baibai_engine.machine_analysis.observations.prices.calendar"]
 forbidden_modules = ["baibai_engine.market.edinet_metrics.csv", "baibai_engine.storage", "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_jobs", "tools"]
 
 
 [[tool.importlinter.contracts]]
 name = "financial and price calculations use only pure observation inputs"
 type = "forbidden"
-source_modules = ["baibai_engine.machine_analysis.models.company_financials.metrics", "baibai_engine.machine_analysis.models.market_context.history", "baibai_engine.machine_analysis.models.market_context.margin", "baibai_engine.machine_analysis.models.technical_analysis.calculations", "baibai_engine.machine_analysis.models.technical_analysis.price_path", "baibai_engine.machine_analysis.models.market_context.price_path", "baibai_engine.market.price_observation", "baibai_engine.market.price_basis", "baibai_engine.market.margin_publication"]
+source_modules = ["baibai_engine.machine_analysis.models.company_financials.metrics", "baibai_engine.machine_analysis.models.market_context.history", "baibai_engine.machine_analysis.models.market_context.margin", "baibai_engine.machine_analysis.models.technical_analysis.calculations", "baibai_engine.machine_analysis.models.technical_analysis.price_path", "baibai_engine.machine_analysis.models.market_context.price_path", "baibai_engine.machine_analysis.observations.prices.price_observation", "baibai_engine.machine_analysis.observations.prices.price_basis", "baibai_engine.machine_analysis.observations.trading_activity.margin_publication"]
 forbidden_modules = [
-  "baibai_engine.storage", "baibai_engine.market.edinet_metrics.csv", "baibai_engine.market.price_reader",
-  "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.market.adjusted_prices",
+  "baibai_engine.storage", "baibai_engine.market.edinet_metrics.csv", "baibai_engine.machine_analysis.observations.prices.price_reader",
+  "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
   "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment",
 ]
 
 [[tool.importlinter.contracts]]
 name = "valuation calibration and market observation contracts are pure"
 type = "forbidden"
-source_modules = ["baibai_engine.machine_analysis.historical_evaluation.context.contracts", "baibai_engine.market.benchmark_observation"]
+source_modules = ["baibai_engine.machine_analysis.historical_evaluation.context.contracts", "baibai_engine.machine_analysis.observations.prices.benchmark_observation"]
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.investment_judgment",
   "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.market.*",
@@ -662,11 +662,11 @@ name = "company growth and common financial arithmetic are pure"
 type = "forbidden"
 source_modules = [
   "baibai_engine.machine_analysis.models.company_growth.models", "baibai_engine.machine_analysis.models.company_growth.calculations",
-  "baibai_engine.market.financial_periods",
+  "baibai_engine.machine_analysis.observations.financials.financial_periods",
 ]
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.jquants_reader",
-  "baibai_engine.market.price_reader", "baibai_engine.machine_analysis.generation.runners.company_growth",
+  "baibai_engine.machine_analysis.observations.prices.price_reader", "baibai_engine.machine_analysis.generation.runners.company_growth",
   "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening",
   ]
 

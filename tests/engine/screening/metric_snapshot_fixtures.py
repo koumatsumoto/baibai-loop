@@ -10,9 +10,11 @@ from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summ
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.market.edinet_models import EdinetMetricRecord
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 
 class SnapshotFixtures(unittest.TestCase):

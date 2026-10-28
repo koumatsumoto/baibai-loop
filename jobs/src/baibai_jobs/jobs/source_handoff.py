@@ -25,7 +25,7 @@ from baibai_engine.market.edinet_handoff import import_handoff as import_edinet_
 from baibai_engine.market.jpx_handoff import import_handoff as import_jpx_handoff
 from baibai_engine.market.jquants_handoff import import_handoff as import_jquants_handoff
 from baibai_engine.data_collection.tradingview.handoff import import_handoff as import_tradingview_handoff
-from baibai_engine.market.calendar_context import market_calendar_business_day
+from baibai_engine.machine_analysis.observations.prices.calendar_context import market_calendar_business_day
 from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
 from baibai_jobs.storage.json_io import write_json_atomic
 from baibai_jobs.storage.lake_publish import Boto3R2Store

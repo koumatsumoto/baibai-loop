@@ -38,7 +38,9 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ReservationInput,
     SecurityClassification,
 )
-from baibai_engine.market.jquants_reader import read_master_snapshot
+from baibai_engine.machine_analysis.observations.stocks.reader import (
+    read_master_snapshot,
+)
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     MarketPrice,

@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.market.benchmark_observation import BenchmarkObservation
-from baibai_engine.market.jpx_total_return import (
+from baibai_engine.machine_analysis.observations.prices.benchmark_observation import BenchmarkObservation
+from baibai_engine.machine_analysis.observations.prices.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )

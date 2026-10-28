@@ -10,7 +10,7 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _load_fy_dividends,
     _ticker_forward_rows,
 )
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 from baibai_engine.storage.observations.schema import open_connection
 
 

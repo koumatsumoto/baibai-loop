@@ -21,7 +21,7 @@ from baibai_engine.market.jquants_writer import (
     store_jquants_master,
     store_jquants_short_sale_reports,
 )
-from baibai_engine.market.price_reader import read_daily_bars
+from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -114,9 +114,9 @@ def test_covered_bar_and_financial_ensure_count_without_building_models(database
 
     monkeypatch.setattr(JQuantsReader, "get_eq_bars_daily_range", forbidden)
     monkeypatch.setattr(JQuantsReader, "get_fin_summary_range", forbidden)
-    monkeypatch.setattr("baibai_engine.market.price_reader.JQuantsDailyBar", forbidden)
+    monkeypatch.setattr("baibai_engine.machine_analysis.observations.prices.price_reader.JQuantsDailyBar", forbidden)
     monkeypatch.setattr(
-        "baibai_engine.market.jquants_reader.normalize_financial_summary", forbidden
+        "baibai_engine.machine_analysis.observations.financials.reader.normalize_financial_summary", forbidden
     )
     maintenance = JQuantsRefresh(database, None)
     assert maintenance.ensure_daily_bars(target, target) == 1

@@ -8,7 +8,7 @@ from datetime import date
 from math import isfinite
 from typing import Literal
 
-from baibai_engine.market.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
 
 @dataclass(frozen=True, slots=True)

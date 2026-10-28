@@ -10,7 +10,7 @@ from baibai_engine.market.edinet_decode import (
     is_usable_filing_status,
     parse_sec_code,
 )
-from baibai_engine.market.edinet_document_events import _canonicalize_document_events
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import _canonicalize_document_events
 
 
 def annual_documents(

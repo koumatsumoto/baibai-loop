@@ -21,8 +21,10 @@ from baibai_engine.machine_analysis.screening.rule_config import load_screening_
 from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import OperatingProfitSource, TTMQuality
 
 
 class ScreeningMetricsTests(SnapshotFixtures):

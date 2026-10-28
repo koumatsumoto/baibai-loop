@@ -23,12 +23,14 @@ from baibai_engine.machine_analysis.screening.sqlite_coverage.jquants import (
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_reader import (
     JQuantsReader,
+)
+from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
     read_eq_master_exact,
 )
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
 from baibai_engine.market.jquants_writer import store_jquants_master
-from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
+from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads, validate_master_snapshot
 from baibai_engine.source_maintenance.cache import backfill_master_command, bootstrap_cache_command
 from baibai_engine.source_maintenance.providers import ProviderBundle
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection

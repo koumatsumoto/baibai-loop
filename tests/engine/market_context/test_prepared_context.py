@@ -18,9 +18,11 @@ from baibai_engine.machine_analysis.models.market_context.snapshot import (
     prepare_market_context_from_bars,
     prepare_market_context_inputs,
 )
-from baibai_engine.market.adjusted_prices import read_price_bars
-from baibai_engine.market.jquants_reader import read_master_snapshot
-from baibai_engine.market.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.stocks.reader import (
+    read_master_snapshot,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 5, 30)

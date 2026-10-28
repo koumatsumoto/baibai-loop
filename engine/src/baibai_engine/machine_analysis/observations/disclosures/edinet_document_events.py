@@ -16,7 +16,7 @@ from baibai_engine.market.edinet_decode import (
     safe_error_value,
     text_or_none,
 )
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 _DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")

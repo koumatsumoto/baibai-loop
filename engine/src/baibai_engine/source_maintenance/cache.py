@@ -11,15 +11,17 @@ from typing import TextIO
 
 from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError
-from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.input_windows import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
-from baibai_engine.market.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import read_eq_master_exact
+from baibai_engine.machine_analysis.observations.stocks.reader import (
+    read_eq_master_exact,
+)
 from baibai_engine.market.jquants_refresh import (
     all_issues_daily_margin_backfill_candidate_dates,
     all_issues_daily_margin_candidate_dates,
@@ -27,7 +29,7 @@ from baibai_engine.market.jquants_refresh import (
     weekly_margin_candidate_dates,
     weekly_margin_empty_requires_refresh,
 )
-from baibai_engine.market.margin_publication import (
+from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,

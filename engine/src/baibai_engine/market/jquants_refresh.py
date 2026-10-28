@@ -15,7 +15,7 @@ from pathlib import Path
 from baibai_engine.data_collection.jquants.http import JQuantsHTTP, JQuantsSource
 from baibai_engine.data_collection.jquants.receipts import acquire_request
 from baibai_engine.primitives.time import JST
-from baibai_engine.market.jquants_contract import (
+from baibai_engine.machine_analysis.observations.trading_activity.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
     SHORT_SALE_REPORT_SOURCE,
     WEEKLY_MARGIN_SOURCE,
@@ -26,12 +26,18 @@ from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
 from baibai_engine.market.jquants_reader import (
     JQuantsReader,
+)
+from baibai_engine.machine_analysis.observations.financials.reader import (
     count_fin_summaries,
     fin_summaries_covered,
+)
+from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
+)
+from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     read_market_calendar,
 )
-from baibai_engine.market.margin_publication import (
+from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     MARGIN_PUBLICATION_TRADING_DAYS,
@@ -39,8 +45,8 @@ from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
 )
-from baibai_engine.market.margin_reader import read_all_issues_daily_margin, read_weekly_margin
-from baibai_engine.market.price_reader import (
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import read_all_issues_daily_margin, read_weekly_margin
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
     count_daily_bars,
     daily_bars_covered,
     latest_daily_bar_date,

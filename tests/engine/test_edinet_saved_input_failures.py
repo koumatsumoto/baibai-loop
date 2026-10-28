@@ -14,7 +14,7 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from baibai_engine.data_collection.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.edinet.receipts import retain_list_response
 from baibai_engine.market.edinet_integration import extract_saved_edinet
-from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import rebuild_edinet_document_day
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 from baibai_engine.market.edinet_metrics.revision import DEFERRED_CSV_REASON
 from baibai_engine.market.edinet_metrics.service import prepare_edinet_metric_plan

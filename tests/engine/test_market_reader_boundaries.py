@@ -15,11 +15,16 @@ from baibai_engine.machine_analysis.historical_evaluation.grid import (
     month_end_asof_grid,
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import _coverage_floors
-from baibai_engine.market import jpx_reader, jquants_reader, margin_reader, price_reader
+import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
+from baibai_engine.machine_analysis.observations.stocks import reader as stock_reader
+from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
+from baibai_engine.machine_analysis.observations.prices import calendar_reader
+import baibai_engine.machine_analysis.observations.trading_activity.margin_reader as margin_reader
+import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
 from baibai_engine.market.edinet_metrics import store as edinet_store
-from baibai_engine.market.jpx_reader import read_next_earnings_dates
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_next_earnings_dates
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.price_reader import read_daily_bars, read_daily_bars_for_tickers
+from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars, read_daily_bars_for_tickers
 from baibai_engine.storage.observations.coverage import (
     record_range_source_coverage,
     record_source_coverage,
@@ -155,7 +160,7 @@ def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeyp
     conn = sqlite3.connect(":memory:")
     monkeypatch.setattr(jquants_reader, "connect_current", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        jquants_reader.read_eq_master_exact(path, date(2026, 10, 15))
+        stock_reader.read_eq_master_exact(path, date(2026, 10, 15))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         conn.execute("SELECT 1")
 
@@ -238,7 +243,8 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
             fetched_at_utc="2026-01-30T00:00:00Z",
             record_count=1,
         )
-    original = jquants_reader.range_covered
+    owner = financial_reader if source == "jquants_fin_summaries" else calendar_reader
+    original = owner.range_covered
     changed = False
 
     def covered_then_refresh(conn, selected_source, start, end):
@@ -252,11 +258,11 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
                 writer.execute("UPDATE source_coverage SET status = 'partial'")
         return result
 
-    monkeypatch.setattr(jquants_reader, "range_covered", covered_then_refresh)
+    monkeypatch.setattr(owner, "range_covered", covered_then_refresh)
     reader = (
-        jquants_reader.read_fin_summaries
+        financial_reader.read_fin_summaries
         if source == "jquants_fin_summaries"
-        else jquants_reader.read_market_calendar
+        else calendar_reader.read_market_calendar
     )
     rows = reader(path, day, day)
     assert rows is not None

@@ -7,7 +7,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.history im
     self_range_position,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 
 def _snapshot(price):

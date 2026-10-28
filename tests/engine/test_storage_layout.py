@@ -53,13 +53,17 @@ assert tv_contract.TABLE == 'tradingview_forecast_snapshots'
 def test_market_readers_do_not_load_provider_or_writer_implementations():
     code = """
 import sys
-from baibai_engine.market import edinet_models, jpx_models, jquants_models, jquants_decode
-from baibai_engine.market import jpx_reader, jquants_reader, margin_reader
+from baibai_engine.market import jquants_decode
+from baibai_engine.machine_analysis.observations.financials import jquants_models
+from baibai_engine.machine_analysis.observations.disclosures import jpx_reader, jpx_models
+from baibai_engine.machine_analysis.observations.financials import edinet_models
+from baibai_engine.machine_analysis.observations.trading_activity import margin_reader, models as margin_models
+from baibai_engine.market import jquants_reader
 for prefix in (
     'baibai_engine.market.jquants_writer',
-    'baibai_engine.market.jpx_rebuild',
+    'baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild',
     'baibai_engine.market.edinet_metrics',
-    'baibai_engine.market.edinet_list_rebuild',
+    'baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 assert jpx_reader.JPXEarningsCalendarEntry is jpx_models.JPXEarningsCalendarEntry

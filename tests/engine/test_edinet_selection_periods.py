@@ -6,7 +6,7 @@ import pytest
 
 from baibai_engine.market.edinet_metrics.planning import make_metric_extraction_plan
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.market.edinet_selection import select_document_candidates
+from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 
 
 def _document(doc_id: str, kind: str, submitted: str, year: int = 2025) -> dict[str, str]:

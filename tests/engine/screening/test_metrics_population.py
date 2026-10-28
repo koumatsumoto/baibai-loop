@@ -6,9 +6,11 @@ import unittest
 from datetime import date, timedelta
 
 from baibai_engine.machine_analysis.screening.metric_builder import MetricBuildResult, build_metrics
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 
 class MedianPopulationTests(unittest.TestCase):

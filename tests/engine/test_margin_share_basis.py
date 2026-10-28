@@ -6,7 +6,7 @@ import pytest
 
 from baibai_engine.machine_analysis.models.market_context.history import avg_daily_volume
 from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance, margin_supply_demand
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
 @pytest.mark.parametrize(

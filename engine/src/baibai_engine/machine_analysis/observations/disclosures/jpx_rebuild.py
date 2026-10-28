@@ -10,14 +10,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from baibai_engine.data_collection.jpx.receipts import JPXSourceBundle, read_complete_bundle
-from baibai_engine.market.delistings import (
+from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     DelistingRecord,
     DelistingSourceError,
     build_delisting_snapshot,
     resolve_delisting_archive_urls,
     store_jpx_delistings,
 )
-from baibai_engine.market.jpx_decode import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
     build_earnings_calendar_snapshot,
     build_regulation_snapshot,
     parse_earnings_calendar_excel,
@@ -26,14 +26,14 @@ from baibai_engine.market.jpx_decode import (
     validate_allowed_url,
     validate_earnings_calendar_url,
 )
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
-from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
-from baibai_engine.market.normalization import normalize_ticker_or_none, to_str_or_none
-from baibai_engine.market.valuation_catalysts import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import JPX_REGULATION_URLS
+from baibai_engine.machine_analysis.observations.normalization import normalize_ticker_or_none, to_str_or_none
+from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TSECapitalPolicyRefreshSummary,
     parse_tse_capital_policy_workbook,
     store_tse_capital_policy_rows,

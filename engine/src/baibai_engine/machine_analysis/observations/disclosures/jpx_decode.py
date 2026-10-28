@@ -16,13 +16,13 @@ from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
-from baibai_engine.market.jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
+from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 
 _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"

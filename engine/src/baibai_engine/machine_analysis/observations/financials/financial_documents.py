@@ -18,7 +18,9 @@ from baibai_engine.market.jquants_decode import (
     to_float,
     to_period,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
 
 AccountingPeriodKey = tuple[date, int, date, date, int]
 

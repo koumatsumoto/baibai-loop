@@ -13,7 +13,7 @@
 
 masterはcutoff以下の一つの最新snapshotを選び、その中にないtickerを古いsnapshotから復活させない。普通株とETF等を混ぜず、価格・benchmark・master・要求日の各基準日を示す。peer中央値、市場の業種中央値、旧Screeningの業種平均は別母集団である。
 
-価格は[調整済み価格reader](../../engine/src/baibai_engine/market/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
+価格は[調整済み価格reader](../../engine/src/baibai_engine/machine_analysis/observations/prices/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
 
 既存security contextの`price.return_1d/5d/20d/60d`は個社観測bar差分、`high_52w`は直近252終値の高値で、共通営業日窓へ変更していない。新生成の`price_path_relative`だけがTAの[共通calendar観測](technical-analysis.md#共通calendarの価格context)と同じref・正確な開始/終了日でbenchmarkを比較する。G252は253営業日期間内の観測peak→現在で、旧252終値highとも前年比とも異なる。生成時に既読の長期benchmark系列と日状態を再利用し、端点が欠測・不整合なら当該比較だけを未評価にする。旧MC相対値・peer値の異窓流用や、新しいpeer比較は行わない。
 

@@ -13,7 +13,7 @@ from tests.engine.screening.metric_fixtures import (
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.market.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 
 class ScreeningMetricsTests(SnapshotFixtures):

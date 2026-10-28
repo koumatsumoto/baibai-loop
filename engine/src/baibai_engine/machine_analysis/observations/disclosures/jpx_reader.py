@@ -8,7 +8,7 @@ from pathlib import Path
 from baibai_engine.primitives.dates import weekday_distance
 from baibai_engine.storage.sqlite.read import is_unwritten_database
 from baibai_engine.primitives.time import JST
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,

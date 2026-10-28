@@ -29,7 +29,7 @@ from baibai_engine.primitives.time import JST
 from baibai_engine.storage.yaml import safe_load
 from baibai_engine.investment_judgment.stock_assessment.scenario import project_return, valuation_conditions
 from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
-from baibai_engine.market.sessions import latest_eligible_close_date
+from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 
 from baibai_engine.investment_judgment.contracts import (
     AssessmentError,

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_engine.market.jpx_decode import parse_jpx_code
-from baibai_engine.market.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import parse_jpx_code
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 
 
 @pytest.mark.parametrize(

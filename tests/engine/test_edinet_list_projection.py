@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from baibai_engine.data_collection.edinet.receipts import EdinetListReceipt
-from baibai_engine.market.edinet_list_projection import (
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_projection import (
     document_list_rechecked_asof,
     project_document_list,
 )

@@ -23,10 +23,10 @@ from baibai_engine.data_collection.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.market.jpx_refresh import JPXRefresh
-from baibai_engine.market.valuation_catalysts import (
+from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TSE_CAPITAL_POLICY_URL,
     ValuationCatalystError,
     parse_tse_capital_policy_workbook,

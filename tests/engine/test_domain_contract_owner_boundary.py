@@ -17,7 +17,7 @@ from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     candidate_er_band_context,
     load_er_calibration_context,
 )
-from baibai_engine.market.jpx_total_return import load_benchmark_observation
+from baibai_engine.machine_analysis.observations.prices.jpx_total_return import load_benchmark_observation
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -53,7 +53,7 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
         "baibai_engine.portfolio",
     )
     own_market_modules = (
-        {"baibai_engine.market", "baibai_engine.market.benchmark_observation"}
+        {"baibai_engine.market", "baibai_engine.machine_analysis.observations.prices.benchmark_observation"}
         if module == "market.benchmark_observation"
         else set()
     )

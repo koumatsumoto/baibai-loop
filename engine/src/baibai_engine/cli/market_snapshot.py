@@ -15,7 +15,7 @@ from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.yaml import NoAliasSafeDumper as _NoAliasDumper
-from baibai_engine.market.price_reader import latest_daily_bar_date
+from baibai_engine.machine_analysis.observations.prices.price_reader import latest_daily_bar_date
 
 from baibai_engine.machine_analysis.models.market_context.snapshot import build_market_snapshot
 

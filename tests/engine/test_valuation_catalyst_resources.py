@@ -2,7 +2,7 @@
 
 import pytest
 
-from baibai_engine.market import valuation_catalysts as catalysts
+import baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts as catalysts
 
 
 def test_workbook_is_closed_when_monthly_rows_are_missing(mocker):

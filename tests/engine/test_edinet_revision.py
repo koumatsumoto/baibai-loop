@@ -10,7 +10,7 @@ import pytest
 
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:

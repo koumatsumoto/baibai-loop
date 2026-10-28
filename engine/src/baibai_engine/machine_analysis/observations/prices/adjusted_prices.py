@@ -9,9 +9,9 @@ from itertools import groupby
 from pathlib import Path
 
 from baibai_engine.storage.sqlite.read import read_store_if_written
-from baibai_engine.market import price_models
+import baibai_engine.machine_analysis.observations.prices.price_models as price_models
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.price_basis import asof_basis_prices
+from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_prices
 from baibai_engine.storage.observations.read import connect_read_only
 
 

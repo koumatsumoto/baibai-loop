@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from enum import StrEnum
 from pathlib import Path
 
-from baibai_engine.market.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
 

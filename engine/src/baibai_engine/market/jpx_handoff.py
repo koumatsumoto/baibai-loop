@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.data_collection.jpx.receipts import JPXBundleError, read_complete_bundle
-from baibai_engine.market.delistings import DelistingSourceError
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.market.receipt_handoff import copy_originals
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 

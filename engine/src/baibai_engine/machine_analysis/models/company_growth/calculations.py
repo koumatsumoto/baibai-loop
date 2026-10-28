@@ -6,14 +6,14 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 
 from baibai_engine.primitives.dates import add_months_clamped
-from baibai_engine.market.financial_documents import (
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
     certainly_disclosed_by,
     latest_disclosure_candidates,
     statement_basis,
 )
-from baibai_engine.market.financial_periods import (
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     ACTUAL_FIELDS,
     annual_ttm_start,
     compose_ttm_amount,
@@ -23,7 +23,9 @@ from baibai_engine.market.financial_periods import (
     prior_year_period_matches,
     resolve_actual_conflicts,
 )
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
 
 from baibai_engine.machine_analysis.models.company_growth.models import Change, Metric, Observation, PeriodState, SourceDocument, Value
 
