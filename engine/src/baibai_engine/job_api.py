@@ -116,40 +116,40 @@ from baibai_engine.storage.paths import (
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease as ModelInputRelease
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
-from baibai_engine.machine_analysis.models.external_assessment.normalization.decode import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     decode_attempt as external_assessment_decode_attempt,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     ANALYST_FORECAST_DATASET as EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     ANALYST_RATING_DATASET as EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     MODEL_VALUATION_DATASET as EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     QUANTS_SCORE_DATASET as EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation as ExternalAssessmentModelValuationObservation,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     Observation as ExternalAssessmentObservation,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.models.external_assessment.store import (
+from baibai_engine.machine_analysis.observations.external_assessments.store import (
     save_observations as external_assessment_save_observations,
 )
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     FetchError as TradingViewFetchError,
 )
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models

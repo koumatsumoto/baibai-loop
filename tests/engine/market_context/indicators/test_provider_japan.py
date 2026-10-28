@@ -34,13 +34,13 @@ from baibai_engine.data_collection.economic.providers.estat_dashboard import (
     parse_dashboard_json,
 )
 from baibai_engine.data_collection.economic.sources import SourceDefinition, require_source
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
     load_definitions,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.native import _one_value
-from baibai_engine.machine_analysis.models.market_context.reading.observations import reading_observation
-from baibai_engine.machine_analysis.models.market_context.reading.tsr_bankruptcies import (
+from baibai_engine.machine_analysis.observations.economic_indicators.native import _one_value
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import reading_observation
+from baibai_engine.machine_analysis.observations.economic_indicators.tsr_bankruptcies import (
     parse_tsr_bankruptcies_json,
 )
 
@@ -812,7 +812,7 @@ class IndicatorsProviderParserTests(TestCase):
     def test_tsr_partial_history_is_visible_as_stale_and_insufficient_in_reading(self) -> None:
         from tests.helpers.indicator_store import store_reader
 
-        from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
+        from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
             load_definitions,
         )
         from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading

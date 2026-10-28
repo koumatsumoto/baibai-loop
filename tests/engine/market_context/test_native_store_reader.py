@@ -18,10 +18,10 @@ from baibai_engine.data_collection.economic.providers.estat_dashboard import ESt
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
 from baibai_engine.data_collection.economic.sources import require_source
 from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_engine.machine_analysis.models.market_context import indicator_service
-from baibai_engine.machine_analysis.models.market_context.indicator_service import IndicatorsService
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.models.market_context.reading.reader import (
+import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
+from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
 )
 

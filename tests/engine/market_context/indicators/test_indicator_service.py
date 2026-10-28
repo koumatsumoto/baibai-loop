@@ -20,11 +20,11 @@ from baibai_engine.data_collection.economic.cli import main as economic_main
 from baibai_engine.data_collection.economic.providers import IndicatorsProviderError
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
 from baibai_engine.data_collection.economic.store import initialize_database, open_connection
-from baibai_engine.machine_analysis.models.market_context.indicator_cli import (
+from baibai_engine.cli.economic_indicators import (
     main,
 )
-from baibai_engine.machine_analysis.models.market_context.indicator_service import IndicatorsService
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
 
@@ -194,7 +194,7 @@ def test_derived_read_uses_native_inputs_without_fetch_or_store_mutation(tmp_pat
         ordinary = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
         repeated = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
         with patch(
-            "baibai_engine.machine_analysis.models.market_context.indicator_service._today_jst",
+            "baibai_engine.machine_analysis.observations.economic_indicators.service._today_jst",
             return_value=date(2026, 1, 31),
         ):
             latest = service.get_latest("us.erp")
@@ -374,7 +374,7 @@ def test_latest_read_does_not_reacquire_stale_inputs(tmp_path, monkeypatch):
         calls.append(kwargs)
         return next(replies)
 
-    from baibai_engine.machine_analysis.models.market_context import indicator_service as service_module
+    import baibai_engine.machine_analysis.observations.economic_indicators.service as service_module
 
     monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
     monkeypatch.setattr(service_module, "_today_jst", lambda: today)
@@ -490,7 +490,7 @@ def test_invalid_l2_value_does_not_destroy_received_native_input(tmp_path, monke
 def test_l2_accepts_the_declared_plausible_boundaries(value):
     from dataclasses import replace
 
-    from baibai_engine.machine_analysis.models.market_context.reading.observations import (
+    from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
         reading_observation,
     )
 

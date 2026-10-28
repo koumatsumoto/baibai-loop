@@ -22,7 +22,7 @@ from baibai_engine.investment_judgment.market_context.query import (
     latest_assessment_payload,
 )
 from baibai_engine.machine_analysis.models.market_context.benchmark import compute_benchmark_trend
-from baibai_engine.machine_analysis.models.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.sector import (
     _rank_to_percentiles,
     sector_relative_strength,
@@ -30,7 +30,7 @@ from baibai_engine.machine_analysis.models.market_context.sector import (
 from baibai_engine.machine_analysis.models.market_context.security import build_security_market_context
 from baibai_engine.machine_analysis.models.market_context.snapshot import build_market_snapshot
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import bollinger_20bar
-from baibai_engine.machine_analysis.models.technical_analysis.query import technical_analysis
+from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.market.jquants_reader import read_master_snapshot
 from baibai_engine.market.price_models import PriceBar
@@ -288,7 +288,7 @@ def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tm
             "-c",
             """
 import sys
-from baibai_engine.machine_analysis.models.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.security import build_security_market_context
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.economic.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules

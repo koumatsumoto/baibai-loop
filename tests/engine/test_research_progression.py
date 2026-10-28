@@ -587,7 +587,7 @@ def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypa
     _db, market = case
     insert_daily_bars_from_closes(market, "1234", [100] * 19 + [120], end_date=NOW.date())
     selected = make_selection(now=NOW, tickers=("1234",))
-    from baibai_engine.machine_analysis.models.technical_analysis.query import technical_analysis
+    from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 
     context = dict(selected.inputs.securities_context["1234"])
     context["technical_analysis"] = technical_analysis(market, ticker="1234", as_of=NOW.date())
@@ -607,7 +607,7 @@ def test_bollinger_context_is_frozen_in_research_inputs(case, tmp_path, monkeypa
         pytest.fail("projecting saved research inputs must not recalculate prices")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.models.technical_analysis.query.technical_analysis", no_recompute
+        "baibai_engine.machine_analysis.generation.runners.technical_analysis.technical_analysis", no_recompute
     )
     projected = project_research_inputs(saved)
     assert projected["securities"]["1234"]["technical_analysis"] == expected

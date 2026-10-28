@@ -19,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 
-from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     ANALYST_FORECAST_DATASET,
     ANALYST_RATING_DATASET,
     MODEL_VALUATION_DATASET,

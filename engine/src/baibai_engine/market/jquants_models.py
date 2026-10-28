@@ -7,7 +7,7 @@ from datetime import date
 from pydantic import field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.market.price_models import MODEL_CONFIG, validate_finite
 
 

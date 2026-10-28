@@ -22,16 +22,16 @@ from baibai_engine.data_collection.economic.providers.estat_dashboard import (
     source_url_selectors as estat_dashboard_selectors,
 )
 from baibai_engine.data_collection.economic.sources import require_source
-from baibai_engine.machine_analysis.models.market_context.indicator_cli import (
+from baibai_engine.cli.economic_indicators import (
     main,
 )
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.machine_analysis.models.market_context.indicators.read_contracts import (
+from baibai_engine.machine_analysis.observations.economic_indicators.read_contracts import (
     point_in_time_providers,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.formulas import FORMULAS
+from baibai_engine.machine_analysis.observations.economic_indicators.formulas import FORMULAS
 
 
 class IndicatorsRegistryTests(unittest.TestCase):
@@ -177,7 +177,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
     def test_tradingview_symbol_rejects_invalid_format(self) -> None:
         canonical = Path(
-            "engine/src/baibai_engine/machine_analysis/models/market_context/indicators/registry/us.yaml"
+            "engine/src/baibai_engine/machine_analysis/observations/economic_indicators/registry/us.yaml"
         ).read_text(encoding="utf-8")
         for invalid in ("invalid symbol", ":", "TVC:", ":US10Y", "A:B:C"):
             with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:

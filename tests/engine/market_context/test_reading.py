@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import observations, series_definition, store_reader
 
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
     load_definitions,
 )
-from baibai_engine.machine_analysis.models.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
 from baibai_engine.machine_analysis.models.market_context.reading.compute import (
     MIN_WINDOW_OBSERVATIONS,
     compute_reading,

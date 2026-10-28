@@ -30,8 +30,8 @@ from baibai_engine.data_collection.economic.providers.fred import parse_fred_csv
 from baibai_engine.data_collection.economic.providers.native import fetch_native_records
 from baibai_engine.data_collection.economic.sources import require_source
 from baibai_engine.data_collection.economic.store import open_read_only_connection
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.models.market_context.reading.reader import (
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
 )
 from baibai_jobs.validation.market_context_stores import main as validate_stores

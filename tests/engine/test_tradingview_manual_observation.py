@@ -16,7 +16,7 @@ from baibai_engine.data_collection.tradingview.diagnostics import (
     SourceDataError,
     TimeGuardError,
 )
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import FetchError
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import FetchError
 
 DAY = date(2026, 10, 11)
 MASTER = date(2026, 10, 9)

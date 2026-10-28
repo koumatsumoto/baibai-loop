@@ -206,7 +206,7 @@ def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_receive
 ):
     from tests.engine.test_minkabu import no_coverage_html
 
-    from baibai_engine.machine_analysis.models.external_assessment.normalization.decode import (
+    from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
         decode_attempt,
     )
 

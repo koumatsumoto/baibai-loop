@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from baibai_engine.data_collection.identifiers import SecurityCodeError, parse_security_code_parts
+from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_decode import is_missing_scalar as _is_missing_scalar
 from baibai_engine.market.jquants_decode import to_float as to_float

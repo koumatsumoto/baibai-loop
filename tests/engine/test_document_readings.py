@@ -20,10 +20,10 @@ from baibai_engine.data_collection.economic.providers.base import (
 )
 from baibai_engine.data_collection.economic.providers.tsr_bankruptcies import TsrBankruptciesSource
 from baibai_engine.data_collection.economic.sources import require_source
-from baibai_engine.machine_analysis.models.market_context import indicator_service
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.models.market_context.reading import pmi
-from baibai_engine.machine_analysis.models.market_context.reading.documents import read_document_series
+import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+import baibai_engine.machine_analysis.observations.economic_indicators.pmi as pmi
+from baibai_engine.machine_analysis.observations.economic_indicators.documents import read_document_series
 
 WHEN = datetime(2026, 10, 17, tzinfo=UTC)
 MONTH = date(2026, 6, 1)

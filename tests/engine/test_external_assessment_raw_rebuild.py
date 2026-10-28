@@ -18,18 +18,18 @@ from tests.engine.test_kabumap import html as kabumap_html
 
 from baibai_engine.data_collection.equity_web.receipts import read_responses, retain_response
 from baibai_engine.external_assessment_cli import main as assessment_main
-from baibai_engine.machine_analysis.models.external_assessment.normalization import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     kabumap,
     monex,
     rakuten,
 )
-from baibai_engine.machine_analysis.models.external_assessment.normalization.decode import decode_attempt
-from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     MODEL_VALUATION_TABLE,
 )
-from baibai_engine.machine_analysis.models.external_assessment.rebuild import rebuild_attempts
-from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.observations.external_assessments.rebuild import rebuild_attempts
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 RECEIVED = datetime(2026, 10, 10, 16, 30, 12, 345678, tzinfo=UTC)

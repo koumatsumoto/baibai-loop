@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 
-from baibai_engine.machine_analysis.models.market_context.indicators.observations import ObservationRecord
 
 from baibai_engine.machine_analysis.models.market_context.reading.rules import ReadingStatistic
-
-type ObservationReader = Callable[[str, date, date], Sequence[ObservationRecord]]
 
 type TrendDirection = Literal["up", "down", "flat"]
 
@@ -151,7 +147,6 @@ def _trend_payload(trend: SeriesTrend | None) -> dict[str, object] | None:
 
 
 __all__ = [
-    "ObservationReader",
     "ReadingSnapshot",
     "SeriesReading",
     "SeriesTrend",

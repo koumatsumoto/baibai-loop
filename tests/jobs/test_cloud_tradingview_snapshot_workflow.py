@@ -125,7 +125,7 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
 
     from baibai_engine.data_collection.tradingview.collector import collect
     from baibai_engine.data_collection.tradingview.handoff import export_handoff, import_handoff
-    from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         FetchError,
     )
     from baibai_jobs.storage.economic_staging import load_handoff, save_handoff

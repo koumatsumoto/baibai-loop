@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.market_context.projection import assessment_projection
 from baibai_engine.investment_judgment.market_context.query import latest_assessment

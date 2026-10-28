@@ -60,11 +60,11 @@ DOMAINS: Mapping[str, Domain] = {
         summary="saved legacy runs and calibration diagnostics",
     ),
     "market-context": Domain(
-        module="baibai_engine.machine_analysis.models.market_context.cli",
+        module="baibai_engine.cli.market_context",
         summary="economic observations and mechanical market readings",
     ),
     "technical-analysis": Domain(
-        module="baibai_engine.machine_analysis.models.technical_analysis.cli",
+        module="baibai_engine.cli.technical_analysis",
         summary="read-only SMA, BB, Wilder RSI and common-calendar momentum from saved prices",
     ),
     "data-collection": Domain(

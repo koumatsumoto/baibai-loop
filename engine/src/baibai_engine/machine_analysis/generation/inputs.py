@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.market.calendar_context import price_calendar_basis, read_price_calendar
 from baibai_engine.market.edinet_reader import EDINETReader
@@ -26,11 +26,11 @@ from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.company_financials.metrics.history import VALUATION_HISTORY_SESSIONS
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
-from baibai_engine.machine_analysis.models.external_assessment.reader import read_observation_population
+from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observation_population
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.machine_analysis.models.market_context.price_path import compare_price_path
-from baibai_engine.machine_analysis.models.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.security import build_security_market_contexts
 from baibai_engine.machine_analysis.models.market_context.snapshot import build_market_snapshot, prepare_market_context_from_bars
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGenerationStream

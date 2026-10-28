@@ -7,7 +7,7 @@ from typing import Annotated
 from pydantic import ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False, validate_assignment=False)
 type Ticker = Annotated[str, Field(pattern=r"^[0-9A-Z]{4}$")]

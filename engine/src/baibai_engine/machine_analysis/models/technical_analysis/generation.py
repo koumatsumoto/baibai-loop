@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import date
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.market.price_models import PriceBar
 

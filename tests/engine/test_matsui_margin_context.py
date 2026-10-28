@@ -17,15 +17,15 @@ from baibai_engine.data_collection.economic.documents import (
 from baibai_engine.data_collection.economic.providers import matsui_margin
 from baibai_engine.data_collection.economic.providers.base import FetchContext
 from baibai_engine.data_collection.economic.sources import load_sources, require_source
-from baibai_engine.machine_analysis.models.market_context.indicator_cli import main as indicator_main
-from baibai_engine.machine_analysis.models.market_context.indicator_service import IndicatorsService
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
+from baibai_engine.cli.economic_indicators import main as indicator_main
+from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
-from baibai_engine.machine_analysis.models.market_context.reading.documents import read_document_series
-from baibai_engine.machine_analysis.models.market_context.reading.observations import (
+from baibai_engine.machine_analysis.observations.economic_indicators.documents import read_document_series
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
     UnavailableObservationError,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.reading.rules import load_reading_rules
 
 SERIES_ID = "jp.matsui_margin_long_evaluation_pnl"

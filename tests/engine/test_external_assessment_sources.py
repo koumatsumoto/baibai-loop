@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from baibai_engine.machine_analysis.models.external_assessment.normalization import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     monex,
     rakuten,

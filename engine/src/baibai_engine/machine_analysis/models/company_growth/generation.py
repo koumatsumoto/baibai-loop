@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import date
 from itertools import pairwise
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.market.financial_periods import period_days
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 

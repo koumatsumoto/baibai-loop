@@ -10,11 +10,11 @@ from tests.helpers.indicator_store import store_h15_observations
 
 from baibai_engine.data_collection.economic.records import store_snapshot
 from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_engine.machine_analysis.models.market_context.indicator_service import IndicatorsService
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.models.market_context.indicators.observations import ObservationRecord
-from baibai_engine.machine_analysis.models.market_context.reading import reader as reading_reader
-from baibai_engine.machine_analysis.models.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
+import baibai_engine.machine_analysis.observations.economic_indicators.reader as reading_reader
+from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.reading.rules import ReadingRulesError
 
 
@@ -221,7 +221,7 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     assert readings["jp.nikkei225"]["read_semantics"]["vintage_cutoff"] is None
 
     from baibai_engine.machine_analysis.models.market_context.reading.models import snapshot_payload
-    from baibai_engine.machine_analysis.models.market_context.reading.query import read_store_snapshot
+    from baibai_engine.machine_analysis.generation.runners.market_reading import read_store_snapshot
     from baibai_engine.machine_analysis.models.market_context.reading.rules import DEFAULT_RULES_PATH
 
     with closing(sqlite3.connect(database)) as con:
@@ -255,7 +255,7 @@ def test_document_revision_replaces_observed_periods_without_old_fallback(tmp_pa
     from dataclasses import replace
 
     from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
-    from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
+    from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
 

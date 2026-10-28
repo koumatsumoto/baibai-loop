@@ -59,12 +59,12 @@ from baibai_engine.investment_judgment.workspace import (
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
-from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystForecastObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.models.external_assessment.query import external_assessment
-from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
@@ -636,11 +636,11 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
         lambda *_a, **_kw: pytest.fail("resume recollected mutable inputs"),
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.models.company_growth.query.company_growth",
+        "baibai_engine.machine_analysis.generation.runners.company_growth.company_growth",
         lambda *_a, **_kw: pytest.fail("resume recalculated Company Growth"),
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.models.technical_analysis.query.technical_analysis",
+        "baibai_engine.machine_analysis.generation.runners.technical_analysis.technical_analysis",
         lambda *_a, **_kw: pytest.fail("resume recalculated Technical Analysis"),
     )
     (case.prepared.workspace / "domain-inputs.yaml").unlink()

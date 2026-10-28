@@ -25,13 +25,13 @@ DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine data-collection market": "baibai_engine.source_maintenance.cli",
     "baibai-engine data-collection economic": "baibai_engine.data_collection.economic.cli",
     "baibai-engine market-context snapshot": (
-        "baibai_engine.machine_analysis.models.market_context.snapshot_cli"
+        "baibai_engine.cli.market_snapshot"
     ),
     "baibai-engine market-context indicators": (
-        "baibai_engine.machine_analysis.models.market_context.indicator_cli"
+        "baibai_engine.cli.economic_indicators"
     ),
     "baibai-engine market-context reading": (
-        "baibai_engine.machine_analysis.models.market_context.reading.cli"
+        "baibai_engine.cli.market_reading"
     ),
     "baibai-engine investment-judgment market-context": (
         "baibai_engine.investment_judgment.market_context.cli"

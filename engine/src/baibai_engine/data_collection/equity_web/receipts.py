@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Role, Source
-from baibai_engine.data_collection.identifiers import SecurityCodeError, normalize_ticker
+from baibai_engine.primitives.stocks import SecurityCodeError, normalize_ticker
 
 
 class EquityWebReceiptError(ValueError):

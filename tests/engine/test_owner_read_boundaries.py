@@ -22,8 +22,8 @@ from baibai_engine.investment_judgment.trade_proposal_query import (
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
-from baibai_engine.machine_analysis.models.market_context.indicator_service import IndicatorsService
-from baibai_engine.machine_analysis.models.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
+from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.screening.run_store import (
     ScreeningRunReader,
     initialize_run_store,

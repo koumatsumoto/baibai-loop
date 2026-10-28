@@ -27,7 +27,7 @@ from baibai_engine.data_collection.economic.providers.base import (
 from baibai_engine.data_collection.economic.providers.frb_h15 import FrbH15Source
 from baibai_engine.data_collection.economic.providers.umich_sca import parse_umich_table
 from baibai_engine.data_collection.economic.sources import require_source
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
 
 
 class IndicatorsProviderParserTests(TestCase):

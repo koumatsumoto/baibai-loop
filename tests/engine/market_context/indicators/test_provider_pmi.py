@@ -25,11 +25,11 @@ from baibai_engine.data_collection.economic.providers.spglobal_pmi import (
     fetch_pdf_bytes,
     load_manifest,
 )
-from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.pmi import extract_pdf_text
-from baibai_engine.machine_analysis.models.market_context.reading.pmi_extraction import (
+from baibai_engine.machine_analysis.observations.economic_indicators.pmi import extract_pdf_text
+from baibai_engine.machine_analysis.observations.economic_indicators.pmi_extraction import (
     PmiExtractionError,
     extract_pmi_value,
 )

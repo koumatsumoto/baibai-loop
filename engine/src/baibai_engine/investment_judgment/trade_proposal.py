@@ -17,7 +17,7 @@ from pydantic import (
     model_validator,
 )
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST

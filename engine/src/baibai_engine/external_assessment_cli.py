@@ -12,7 +12,7 @@ from pathlib import Path
 from baibai_engine.data_collection.external_assessment.cli import add_acquisition_commands
 from baibai_engine.data_collection.external_assessment.cli import main as acquisition_main
 from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.machine_analysis.models.external_assessment.query import external_assessment
+from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 
@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None, /) -> int:
         return acquisition_main(arguments)
     args = build_parser().parse_args(arguments)
     if args.command == "rebuild-raw":
-        from baibai_engine.machine_analysis.models.external_assessment.rebuild import rebuild_attempts
+        from baibai_engine.machine_analysis.observations.external_assessments.rebuild import rebuild_attempts
 
         try:
             rebuilt = rebuild_attempts(args.db, attempt_ids=args.attempt_id)

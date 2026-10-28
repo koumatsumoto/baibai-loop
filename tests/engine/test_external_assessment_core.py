@@ -12,19 +12,19 @@ import pytest
 from pydantic import ValidationError
 
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
-from baibai_engine.machine_analysis.models.external_assessment.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystRatingHistory,
     ModelValuationHistory,
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystForecastObservation,
     AnalystRatingObservation,
     ModelValuationObservation,
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.models.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.models.external_assessment.store import (
+from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
+from baibai_engine.machine_analysis.observations.external_assessments.store import (
     ObservationConflictError,
     save_observations,
 )
@@ -375,10 +375,10 @@ def test_models_and_analysis_reject_unknown_time_or_future_input():
 def test_leaf_contract_import_does_not_import_io_services():
     code = """
 import sys
-from baibai_engine.machine_analysis.models.external_assessment.observations import contract, models, rows
+from baibai_engine.machine_analysis.observations.external_assessments import contract, models, rows
 for name in (
-    'baibai_engine.machine_analysis.models.external_assessment.store',
-    'baibai_engine.machine_analysis.models.external_assessment.reader',
+    'baibai_engine.machine_analysis.observations.external_assessments.store',
+    'baibai_engine.machine_analysis.observations.external_assessments.reader',
     'baibai_engine.data_collection.external_assessment.collection',
     'baibai_engine.storage.observations.schema',
     'baibai_engine.storage.lake.reader',

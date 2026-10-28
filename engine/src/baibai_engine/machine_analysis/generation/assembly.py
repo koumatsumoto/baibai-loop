@@ -7,7 +7,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
@@ -17,7 +17,9 @@ from baibai_engine.machine_analysis.models.company_growth.models import InputRel
 from baibai_engine.machine_analysis.generation.financial_models import generate_financial_and_price_models
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
-from baibai_engine.machine_analysis.models.external_assessment.models import ObservationHistory
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    ObservationHistory,
+)
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,

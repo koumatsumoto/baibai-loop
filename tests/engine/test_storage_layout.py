@@ -32,12 +32,12 @@ assert callable(authorize.authorize)
 def test_pure_observation_and_lake_contracts_do_not_load_io():
     code = """
 import sys
-from baibai_engine.machine_analysis.models.external_assessment.observations import contract, models
-from baibai_engine.machine_analysis.models.external_assessment.tradingview import contract as tv_contract, observations
+from baibai_engine.machine_analysis.observations.external_assessments import contract, models
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import contract as tv_contract, observations
 from baibai_engine.storage.lake import models as lake_models
 for prefix in (
     'baibai_engine.data_collection.external_assessment',
-    'baibai_engine.machine_analysis.models.external_assessment.store',
+    'baibai_engine.machine_analysis.observations.external_assessments.store',
     'baibai_engine.data_collection.tradingview.collector',
     'baibai_engine.data_collection.tradingview.client',
     'baibai_engine.data_collection.tradingview.auth',

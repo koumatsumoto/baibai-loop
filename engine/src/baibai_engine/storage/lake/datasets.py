@@ -7,7 +7,7 @@ from typing import Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from baibai_engine.machine_analysis.models.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_FORECAST_COLUMNS,
     ANALYST_FORECAST_TABLE,
     ANALYST_RATING_COLUMNS,
@@ -17,16 +17,16 @@ from baibai_engine.machine_analysis.models.external_assessment.observations.cont
     QUANTS_SCORE_COLUMNS,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     ANALYST_FORECAST_DATASET,
     ANALYST_RATING_DATASET,
     MODEL_VALUATION_DATASET,
     QUANTS_SCORE_DATASET,
 )
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.contract import (
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     COLUMNS as TV_COLUMNS,
 )
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.contract import (
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     TABLE as TV_TABLE,
 )
 from baibai_engine.storage.lake.keys import LakeLayer

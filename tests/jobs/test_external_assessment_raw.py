@@ -13,13 +13,13 @@ from tests.jobs.external_assessment_response_fixtures import response
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, stage
 
 from baibai_engine.data_collection.external_assessment import collection
-from baibai_engine.machine_analysis.models.external_assessment.normalization import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     monex,
     rakuten,
 )
-from baibai_engine.machine_analysis.models.external_assessment.normalization.decode import decode_attempt
-from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.storage import external_assessment_raw as external_assessment_raw
 from baibai_jobs.storage import external_assessment_staging as staging

@@ -14,9 +14,9 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
     rsi_14bar,
     simple_moving_average,
 )
-from baibai_engine.machine_analysis.models.technical_analysis.cli import main
+from baibai_engine.cli.technical_analysis import main
 from baibai_engine.machine_analysis.models.technical_analysis.generation import generate_technical_analysis
-from baibai_engine.machine_analysis.models.technical_analysis.query import technical_analysis
+from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.market.price_models import PriceBar
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 

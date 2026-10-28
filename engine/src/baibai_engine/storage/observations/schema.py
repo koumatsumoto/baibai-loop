@@ -21,13 +21,13 @@ from baibai_engine.data_collection.equity_web.contract import EQUITY_WEB_SOURCE_
 from baibai_engine.data_collection.jpx.contract import JPX_SOURCE_BUNDLES_DDL
 from baibai_engine.data_collection.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.data_collection.tradingview.contract import TRADINGVIEW_SOURCE_RECEIPTS_DDL
-from baibai_engine.machine_analysis.models.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_FORECAST_DDL,
     ANALYST_RATING_DDL,
     MODEL_VALUATION_DDL,
     QUANTS_SCORE_DDL,
 )
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.contract import DDL as TV_DDL
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import DDL as TV_DDL
 
 SQLITE_SCHEMA_VERSION = 48
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)

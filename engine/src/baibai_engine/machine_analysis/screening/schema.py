@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from pydantic import ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.data_collection.identifiers import normalize_ticker as normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker as normalize_ticker
 from baibai_engine.market.metric_quality import TTMQuality
 
 from .discovery.contracts import StockCandidateContext

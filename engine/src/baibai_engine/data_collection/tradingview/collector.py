@@ -33,12 +33,12 @@ from baibai_engine.data_collection.tradingview.diagnostics import (
     failure_line,
 )
 from baibai_engine.data_collection.tradingview.receipts import read_tool_results, retain_tool_result
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.contract import COLUMNS, TABLE
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.decode import decode_tool_result
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import COLUMNS, TABLE
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     COLUMNS as REQUEST_COLUMNS,
 )
-from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     FIELDS,
     FetchError,
     ProviderPayloadError,

@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.data_collection.identifiers import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
