@@ -11,7 +11,7 @@ from typing import cast
 from baibai_engine.data_collection.economic.documents import SourceDocument
 from baibai_engine.data_collection.economic.provider_specs import ProviderSpec
 from baibai_engine.data_collection.economic.sources import SourceDefinition
-from baibai_engine.foundation.yaml_io import strict_safe_load
+from baibai_engine.storage.yaml import strict_safe_load
 
 from .base import (
     FetchContext,

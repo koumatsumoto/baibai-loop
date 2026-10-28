@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.market_context.projection import assessment_projection
 from baibai_engine.investment_judgment.market_context.query import latest_assessment
 from baibai_engine.investment_judgment.selection import ResearchRequest
 from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.position.ledger import replay_events_through
-from baibai_engine.position.ledger_read import load_ledger_document
+from baibai_engine.portfolio.ledger.events import replay_events_through
+from baibai_engine.portfolio.ledger.read import load_ledger_document
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 
@@ -34,7 +34,7 @@ def load_generated_selection_context(
     from pydantic import TypeAdapter
 
     from baibai_engine.investment_judgment.generated_inputs import project_generated_inputs
-    from baibai_engine.machine_analysis.generation_query import read_model_inputs
+    from baibai_engine.machine_analysis.generation.query import read_model_inputs
     from baibai_engine.machine_analysis.screening.selection_query import (
         read_publication,
     )

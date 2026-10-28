@@ -22,7 +22,7 @@ from tests.helpers.proposal import PREPARED, PROPOSAL_ID, PUBLISHED, bind_review
 from tests.helpers.research_selection import selected_target
 from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
 
-from baibai_engine.foundation.json import canonical_json
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.investment_judgment.inputs import project_research_inputs
 from baibai_engine.investment_judgment.market_context.models import MarketContextAssessment
 from baibai_engine.investment_judgment.market_context.service import AssessmentService
@@ -57,18 +57,18 @@ from baibai_engine.investment_judgment.workspace import (
     promote,
     resume_selected_workspace,
 )
-from baibai_engine.machine_analysis.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.company_valuation.metrics.models import DEFAULT_TTM_RULES
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     AnalystForecastObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
-from baibai_engine.machine_analysis.generation_reader import read_and_generate_models
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.machine_analysis.models.external_assessment.query import external_assessment
+from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.lake.writer import sealed_sqlite_snapshot
 
@@ -636,11 +636,11 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
         lambda *_a, **_kw: pytest.fail("resume recollected mutable inputs"),
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.company_growth.query.company_growth",
+        "baibai_engine.machine_analysis.models.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("resume recalculated Company Growth"),
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.technical_analysis.query.technical_analysis",
+        "baibai_engine.machine_analysis.models.technical_analysis.query.technical_analysis",
         lambda *_a, **_kw: pytest.fail("resume recalculated Technical Analysis"),
     )
     (case.prepared.workspace / "domain-inputs.yaml").unlink()

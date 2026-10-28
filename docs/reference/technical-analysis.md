@@ -1,6 +1,6 @@
 # テクニカル分析
 
-価格の位置・勢い・変動を記述するL2であり、企業価値や反転確率を認定しない。算式・期間・出力fieldは[所有実装](../../engine/src/baibai_engine/machine_analysis/technical_analysis/)を正本とし、本書では解釈を誤りやすい境界だけを扱う。
+価格の位置・勢い・変動を記述するL2であり、企業価値や反転確率を認定しない。算式・期間・出力fieldは[所有実装](../../engine/src/baibai_engine/machine_analysis/models/technical_analysis/)を正本とし、本書では解釈を誤りやすい境界だけを扱う。
 
 ## 入力と解釈
 

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from baibai_engine.position.price_grid import (
+from baibai_engine.portfolio.holdings.price_grid import (
     common_stock_limit_is_valid,
     floor_common_stock_limit,
 )

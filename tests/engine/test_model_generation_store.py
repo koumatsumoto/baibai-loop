@@ -4,11 +4,11 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from baibai_engine.machine_analysis.generation_store import (
+from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
 )
-from baibai_engine.machine_analysis.model_generation import (
+from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,

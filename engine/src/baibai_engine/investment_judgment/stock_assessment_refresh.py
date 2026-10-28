@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.stock_assessment import AssessmentError
 
 if TYPE_CHECKING:

@@ -84,10 +84,10 @@ def main(argv: list[str] | None = None, /) -> int:
             )
         from baibai_engine.data_collection.equity_web.capture import load_capture
         from baibai_engine.data_collection.equity_web.receipts import read_responses
-        from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
+        from baibai_engine.machine_analysis.models.external_assessment.normalization.decode import (
             decode_attempt,
         )
-        from baibai_engine.machine_analysis.external_assessment.store import save_observations
+        from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
         from baibai_engine.storage.observations.equity_web_import import import_responses
 
         capture = load_capture(args.input)

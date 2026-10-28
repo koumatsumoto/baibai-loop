@@ -10,9 +10,9 @@ from statistics import median
 from types import MappingProxyType
 from typing import NamedTuple
 
-from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
-from baibai_engine.foundation.json import canonical_json
-from baibai_engine.machine_analysis.company_valuation.metrics.relative import (
+from baibai_engine.primitives.coerce import metric_map, optional_float, string_or_none
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.machine_analysis.models.company_financials.metrics.relative import (
     MIN_SECTOR_MEDIAN_POPULATION,
     normalized_earnings_sector_gaps,
 )

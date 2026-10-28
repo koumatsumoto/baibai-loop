@@ -19,7 +19,7 @@ from baibai_engine.investment_judgment.trade_proposal import (
     QuoteInput,
     RemainingReward,
 )
-from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 
 JST_MORNING = "2026-10-14T08:30:00+09:00"
 UTC_MORNING = "2026-10-13T23:30:00Z"

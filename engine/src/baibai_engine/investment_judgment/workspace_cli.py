@@ -19,13 +19,13 @@ from typing import TextIO
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.foundation.repository_layout import (
+from baibai_engine.storage.paths import (
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
-from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.yaml import safe_load
 from baibai_engine.investment_judgment.trade_proposal import ProposalConflictError
 
 from .operation.service import OperationConflictError
@@ -230,7 +230,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:
-                    from baibai_engine.foundation.filesystem import write_text_atomic
+                    from baibai_engine.storage.filesystem import write_text_atomic
 
                     write_text_atomic(args.out, content)
                 out.write(content)
@@ -332,7 +332,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
                 out.write(json.dumps(context.payload(), ensure_ascii=False) + "\n")
             case "trade-proposal-scaffold":
-                from baibai_engine.foundation.filesystem import write_text_atomic
+                from baibai_engine.storage.filesystem import write_text_atomic
                 from baibai_engine.investment_judgment.trade_proposal_scaffold import (
                     scaffold_proposal,
                 )

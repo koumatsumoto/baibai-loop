@@ -271,8 +271,8 @@ def test_original_reason_respects_reported_buy_time_precision(
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
-    from baibai_engine.position.ledger import ExecutionEvent, ReservationEvent
-    from baibai_engine.position.store import LedgerStoreService
+    from baibai_engine.portfolio.ledger.events import ExecutionEvent, ReservationEvent
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
     store = LedgerStoreService(case.app)
     ledger, head = store.load_with_head()
@@ -346,7 +346,7 @@ def test_original_reason_respects_reported_buy_time_precision(
 
 @pytest.mark.parametrize(("kind", "unchanged"), [("3", True), ("1", False)])
 def test_holding_quantity_uses_share_units_not_the_price_adjustment(tmp_path, kind, unchanged):
-    from baibai_engine.position.valuation import current_portfolio
+    from baibai_engine.portfolio.holdings.valuation import current_portfolio
 
     case = backend_case(tmp_path, holding=True)
     with closing(sqlite3.connect(case.market)) as connection, connection:

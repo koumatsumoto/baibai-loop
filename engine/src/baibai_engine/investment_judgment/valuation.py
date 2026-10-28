@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.foundation.numbers import finite_decimal
+from baibai_engine.primitives.numbers import finite_decimal
 
 from .scenario import Projection
 

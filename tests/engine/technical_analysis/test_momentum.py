@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.technical_analysis.momentum import price_momentum_12_1
+from baibai_engine.machine_analysis.models.technical_analysis.momentum import price_momentum_12_1
 from baibai_engine.market.price_models import PriceBar
 
 

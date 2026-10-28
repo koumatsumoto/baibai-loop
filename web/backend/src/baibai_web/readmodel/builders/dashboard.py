@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.builders.presentation import (
     holding_view,
     percentage,

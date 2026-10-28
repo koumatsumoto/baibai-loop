@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 
-from baibai_engine.foundation.sqlite_read import is_missing_table_error
+from baibai_engine.storage.sqlite.read import is_missing_table_error
 
 _DELETE_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (

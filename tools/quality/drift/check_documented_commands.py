@@ -154,7 +154,7 @@ def _tool_parser(
 def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, list[str]]:
     rest = list(tokens[2:])  # drop `uv run`
     if rest[:1] == ["baibai-engine"]:
-        from baibai_engine.cli import DOMAINS
+        from baibai_engine.cli.app import DOMAINS
 
         if len(rest) < 2 or rest[1] not in DOMAINS:
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")

@@ -12,8 +12,8 @@ import pytest
 import yaml
 from tests.helpers.er_calibration_context import context_artifact
 
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.machine_analysis.company_valuation.calibration.query import (
+from baibai_engine.storage.yaml import safe_load
+from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     candidate_er_band_context,
     load_er_calibration_context,
 )
@@ -51,7 +51,7 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
         "baibai_engine.read_api",
         "baibai_engine.storage",
         "baibai_engine.market",
-        "baibai_engine.position",
+        "baibai_engine.portfolio",
     )
     own_market_modules = (
         {"baibai_engine.market", "baibai_engine.market.benchmark_observation"}

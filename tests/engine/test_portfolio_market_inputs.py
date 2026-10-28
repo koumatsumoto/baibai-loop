@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import add_source_coverage
 
-from baibai_engine.position import market_source as market_store
-from baibai_engine.position.market_source import market_basis_is_confirmed
+import baibai_engine.portfolio.holdings.market_observations as market_store
+from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import open_connection
 

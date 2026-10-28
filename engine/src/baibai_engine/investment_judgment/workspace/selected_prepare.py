@@ -34,7 +34,7 @@ from baibai_engine.investment_judgment.workspace.files import (
     _load_mapping,
     _write_workspace_file,
 )
-from baibai_engine.machine_analysis.generation_query import read_model_inputs
+from baibai_engine.machine_analysis.generation.query import read_model_inputs
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only

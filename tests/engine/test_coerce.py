@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
+from baibai_engine.primitives.coerce import metric_map, optional_float, string_or_none
 
 
 class OptionalFloatTests(unittest.TestCase):

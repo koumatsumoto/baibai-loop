@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
+from baibai_engine.storage.paths import RUNS_DB_PATH
 
 DEFAULT_RUN_STORE_PATH = RUNS_DB_PATH
 

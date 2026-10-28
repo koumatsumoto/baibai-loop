@@ -11,7 +11,7 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.contract import (
     ANALYST_FORECAST_COLUMNS,
     ANALYST_FORECAST_TABLE,
     ANALYST_RATING_COLUMNS,
@@ -21,14 +21,14 @@ from baibai_engine.machine_analysis.external_assessment.observations.contract im
     QUANTS_SCORE_COLUMNS,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     AnalystForecastObservation,
     AnalystRatingObservation,
     ModelValuationObservation,
     Observation,
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.rows import observation_row
+from baibai_engine.machine_analysis.models.external_assessment.observations.rows import observation_row
 from baibai_engine.storage.lake.datasets import (
     EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS,

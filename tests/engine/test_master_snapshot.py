@@ -16,7 +16,7 @@ import requests
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
 from baibai_engine.data_collection.jquants.http import JQuantsHTTP
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.screening.sqlite_coverage.jquants import (
     _append_master_snapshot_issues,
 )

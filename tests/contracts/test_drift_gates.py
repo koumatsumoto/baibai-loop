@@ -11,7 +11,7 @@ from tools.quality.drift import (
     check_repository_paths,
 )
 
-from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,7 +24,7 @@ def test_repository_path_gate_rejects_runtime_literal_outside_owner(tmp_path: Pa
         (
             "jobs/src/baibai_jobs/job.py:1: repository path "
             "'stores/application/baibai.sqlite' belongs in "
-            "engine/src/baibai_engine/foundation/repository_layout.py"
+            "engine/src/baibai_engine/storage/paths.py"
         )
     ]
 
@@ -336,11 +336,11 @@ def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: 
     [
         "engine/src/baibai_engine/machine_analysis/screening/rules/2026-10-16T133000+0900.yaml",
         "engine/src/baibai_engine/machine_analysis/screening/rules/2099-01-01T000000+0900.yaml",
-        "engine/src/baibai_engine/machine_analysis/market_context/reading/rules/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/2099-01-01T000000+0900.yaml",
     ],
 )
 def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path, method_path):
-    owner = tmp_path / "engine/src/baibai_engine/foundation/repository_layout.py"
+    owner = tmp_path / "engine/src/baibai_engine/storage/paths.py"
     owner.parent.mkdir(parents=True)
     owner.write_text(f"METHOD = {method_path!r}\n", encoding="utf-8")
     assert check_repository_paths.check(tmp_path) == []
@@ -350,7 +350,7 @@ def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path,
     errors = check_repository_paths.check(tmp_path)
     assert len(errors) == 1
     assert repr(method_path) in errors[0]
-    assert "belongs in engine/src/baibai_engine/foundation/repository_layout.py" in errors[0]
+    assert "belongs in engine/src/baibai_engine/storage/paths.py" in errors[0]
 
 
 def test_repository_path_gate_tracks_published_context_in_domain_package(tmp_path):

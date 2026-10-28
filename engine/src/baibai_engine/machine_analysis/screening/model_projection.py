@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pydantic import JsonValue
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
-from baibai_engine.machine_analysis.model_generation import GeneratedModel, ModelGeneration
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, ModelGeneration
 
 from .views import ScreeningCoordinates, TwoViewPolicy, ViewSelection, select_views
 

@@ -8,18 +8,18 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.helpers.calibration_store import panel_row
 
-from baibai_engine.machine_analysis.company_valuation.calibration.contracts import (
+from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     ErCalibrationContextArtifact,
 )
-from baibai_engine.machine_analysis.company_valuation.calibration.query import (
+from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     candidate_er_band_context,
 )
-from baibai_engine.machine_analysis.screening.calibration.context import (
+from baibai_engine.machine_analysis.historical_evaluation.context import (
     CalibrationContextError,
     build_er_distribution_context,
 )
-from baibai_engine.machine_analysis.screening.calibration.forward import ForwardReturnRow
-from baibai_engine.machine_analysis.screening.calibration.horizons import require_horizon
+from baibai_engine.machine_analysis.historical_evaluation.forward import ForwardReturnRow
+from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
 
 
 def inputs(dates=("2020-01-31",), *, complete=True):
@@ -240,7 +240,7 @@ def test_corrupt_coverage_cannot_relabel_missing_as_observed():
     ids=["nan", "positive-infinity", "negative-infinity"],
 )
 def test_unresolved_nonfinite_price_is_corrupt_not_normal_missing(value):
-    from baibai_engine.machine_analysis.screening.calibration.store import forward_row_from_mapping
+    from baibai_engine.machine_analysis.historical_evaluation.store import forward_row_from_mapping
 
     evaluation, panels, forwards = inputs(complete=False)
     row = replace(missing_price(forwards["2020-01-31"][0]), price_return=value)
@@ -254,7 +254,7 @@ def test_unresolved_nonfinite_price_is_corrupt_not_normal_missing(value):
 def test_candidate_context_keeps_both_basis_coverage_and_the_limit(tmp_path):
     import yaml
 
-    from baibai_engine.machine_analysis.company_valuation.calibration.query import (
+    from baibai_engine.machine_analysis.historical_evaluation.context.query import (
         candidate_er_band_context,
         load_er_calibration_context,
     )

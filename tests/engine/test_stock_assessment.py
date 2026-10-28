@@ -16,7 +16,7 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
-from baibai_engine.foundation.json import canonical_json
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.investment_judgment.entry_policy import evaluate_buy_terms
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentRef,

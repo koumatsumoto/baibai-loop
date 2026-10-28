@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.foundation.filesystem import write_bytes_atomic, write_text_atomic
+from baibai_engine.storage.filesystem import write_bytes_atomic, write_text_atomic
 
 
 @pytest.mark.parametrize("text", [False, True])

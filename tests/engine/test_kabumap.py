@@ -14,12 +14,12 @@ from tests.jobs.test_external_assessment_raw import connect as connect
 from baibai_engine.data_collection.external_assessment import collection
 from baibai_engine.data_collection.external_assessment.universe import frozen_universe
 from baibai_engine.data_collection.external_assessment.verification import verify_observations
-from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, kabumap
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.normalization import ParseError, kabumap
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.store import (
+from baibai_engine.machine_analysis.models.external_assessment.reader import read_observations
+from baibai_engine.machine_analysis.models.external_assessment.store import (
     ObservationConflictError,
     save_observations,
 )

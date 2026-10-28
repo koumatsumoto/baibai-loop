@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
 

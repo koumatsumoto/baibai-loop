@@ -31,13 +31,13 @@ from baibai_engine.job_api import (
     external_assessment_decode_attempt,
     external_assessment_history_digests,
 )
-from baibai_engine.machine_analysis.external_assessment.normalization import ParseError
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.models.external_assessment.normalization import ParseError
+from baibai_engine.machine_analysis.models.external_assessment.observations.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.machine_analysis.external_assessment.rebuild import rebuild_attempts
+from baibai_engine.machine_analysis.models.external_assessment.rebuild import rebuild_attempts
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource

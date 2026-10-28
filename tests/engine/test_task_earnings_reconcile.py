@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.storage.yaml import safe_load
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.market.jpx_rebuild import store_jpx_earnings_calendar_snapshot
 from baibai_engine.storage.observations.schema import open_connection

@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import seed_daily_bars
 
-from baibai_engine.foundation.time import JST
-from baibai_engine.position.market_source import (
+from baibai_engine.primitives.time import JST
+from baibai_engine.portfolio.holdings.market_observations import (
     market_basis_is_confirmed,
     next_order_session,
     read_unadjusted_close,

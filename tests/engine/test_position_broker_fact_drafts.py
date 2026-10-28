@@ -13,16 +13,16 @@ import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
-from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
-from baibai_engine.position.cli import main
-from baibai_engine.position.decision_references import resolve_buy_reference
-from baibai_engine.position.drafts import (
+from baibai_engine.portfolio.ledger.broker_facts import BrokerFactRecordingError
+from baibai_engine.cli.portfolio import main
+from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
+from baibai_engine.portfolio.ledger.drafts import (
     apply_draft,
     build_broker_fact_draft,
     build_sell_execution_draft,
     load_draft,
 )
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.storage.application.write import initialize_database
 
 ROOT = Path(__file__).parents[2]
@@ -125,7 +125,7 @@ def test_human_sell_order_persists_without_allocation_or_cash_change(tmp_path: P
     assert stored.events[-1].event_id == event_ids[0]
     assert stored.events[-1].side == "sell"
     assert stored.events[-1].order_id.startswith("repository-order-")
-    from baibai_engine.position.ledger import replay_events_through
+    from baibai_engine.portfolio.ledger.events import replay_events_through
 
     original_cash = replay_events_through(before.events, before.as_of)
     updated_cash = replay_events_through(stored.events, stored.as_of)
@@ -160,7 +160,7 @@ def test_same_day_reserved_buy_fill_uses_reported_date_without_claiming_fill_tim
     apply_draft(ledger, opened, human_confirmed=True)
     before, _ = ledger.load_with_head()
     reservation_id = before.events[-1].reservation_id
-    from baibai_engine.position.ledger import replay_events_through
+    from baibai_engine.portfolio.ledger.events import replay_events_through
 
     before_state = replay_events_through(before.events, before.as_of)
 
@@ -653,7 +653,7 @@ def test_active_and_known_terminal_retries_do_not_resolve_buy_binding(
     assert build_broker_fact_draft(ledger, unavailable_history, **terminal_args) == (None, ())
 
     # CLIもcallableを渡すだけにし、予約済み再試行の前にbindingを先読みしない。
-    monkeypatch.setattr("baibai_engine.position.cli.resolve_buy_reference", unavailable_history)
+    monkeypatch.setattr("baibai_engine.cli.portfolio.resolve_buy_reference", unavailable_history)
     before = db.read_bytes()
     assert (
         main(

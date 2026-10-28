@@ -26,7 +26,7 @@ from baibai_engine.investment_judgment.workspace.selected_prepare import (
     prepare_selected_workspace,
     resume_selected_workspace,
 )
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 
 NOW = datetime(2026, 10, 25, 9, tzinfo=UTC)
 AS_OF = date(2026, 10, 23)

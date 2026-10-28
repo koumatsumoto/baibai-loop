@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.storage.yaml import safe_load
 from baibai_engine.market import benchmark_observation as benchmark
 
 

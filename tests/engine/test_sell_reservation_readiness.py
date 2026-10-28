@@ -20,14 +20,14 @@ from baibai_engine.investment_judgment.trade_proposal_query import (
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
-from baibai_engine.position.decision_references import resolve_buy_reference
-from baibai_engine.position.drafts import (
+from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
+from baibai_engine.portfolio.ledger.drafts import (
     apply_draft,
     build_broker_fact_draft,
     build_sell_execution_draft,
 )
-from baibai_engine.position.ledger import replay_events_through
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.events import replay_events_through
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 SELL_TERMS = {
     "side": "sell",

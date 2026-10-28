@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.machine_analysis.market_context.margin import MarginBalance
+from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance
 from baibai_engine.market.jquants_models import JQuantsAllIssuesDailyMargin, JQuantsWeeklyMargin
 from baibai_engine.market.margin_reader import (
     MarginCadence,

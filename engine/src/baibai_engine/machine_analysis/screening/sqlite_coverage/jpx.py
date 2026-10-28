@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, datetime
 
-from baibai_engine.foundation.date_utils import weekday_distance
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.dates import weekday_distance
+from baibai_engine.primitives.time import JST
 
 from .shared import CacheCoverageIssue
 

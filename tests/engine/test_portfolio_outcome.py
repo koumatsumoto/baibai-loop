@@ -6,17 +6,17 @@ import pytest
 
 from baibai_engine.market.benchmark_observation import BenchmarkObservation
 from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.position.cli import main
-from baibai_engine.position.ledger import PortfolioLedgerDocument, PortfolioLedgerError
-from baibai_engine.position.market_source import market_basis_is_confirmed
-from baibai_engine.position.outcome import (
+from baibai_engine.cli.portfolio import main
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument, PortfolioLedgerError
+from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
+from baibai_engine.portfolio.performance.calculate import (
     DailyNav,
     PortfolioOutcomeError,
     compute_portfolio_outcome,
     compute_time_weighted_return,
     outcome_to_payload,
 )
-from baibai_engine.position.outcome_store import PortfolioOutcomePublication, PortfolioOutcomeStore
+from baibai_engine.portfolio.performance.store import PortfolioOutcomePublication, PortfolioOutcomeStore
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -204,7 +204,7 @@ def test_confirmed_cost_consuming_all_capital_is_resolved_not_missing(loss_day) 
 
 
 def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
-    from baibai_engine.position.outcome import compute_portfolio_outcome
+    from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
 
     result = compute_portfolio_outcome(
         _ledger(),
@@ -228,7 +228,7 @@ def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
 
 @pytest.mark.parametrize("factor", [None, 0.5, 2.0])
 def test_portfolio_outcome_rejects_unresolved_corporate_action(factor) -> None:
-    from baibai_engine.position.outcome import compute_portfolio_outcome
+    from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
 
     result = compute_portfolio_outcome(
         _ledger(),
@@ -351,7 +351,7 @@ def _lapsed_reservation_ledger() -> PortfolioLedgerDocument:
 
 
 def test_outcome_values_a_lapsed_reservation_reported_after_close() -> None:
-    from baibai_engine.position.outcome import compute_portfolio_outcome
+    from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
 
     result = compute_portfolio_outcome(
         _lapsed_reservation_ledger(),
@@ -377,7 +377,7 @@ def test_an_outcome_is_not_published_from_a_ledger_awaiting_a_human_report() -> 
     """The tolerance that lets a prefix replay through a lapse must not reach publish:
     an outcome row cannot be corrected once written."""
 
-    from baibai_engine.position.ledger import replay_events_through, require_resolved_expiries
+    from baibai_engine.portfolio.ledger.events import replay_events_through, require_resolved_expiries
 
     ledger = _unreleased_ledger()
     state = replay_events_through(ledger.events, ledger.as_of)
@@ -387,7 +387,7 @@ def test_an_outcome_is_not_published_from_a_ledger_awaiting_a_human_report() -> 
 
 
 def test_after_close_internal_cashflow_rolls_past_that_close() -> None:
-    from baibai_engine.position.outcome import compute_portfolio_outcome
+    from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
 
     raw = _ledger().model_dump(mode="json")
     # Move the confirmed tax after close; it must not affect this period's NAV.
@@ -640,7 +640,7 @@ def test_outcome_cli_publishes_cash_only_after_unfilled_order_without_price_cove
     import yaml
     from tests.helpers.screening_sqlite import add_source_coverage
 
-    from baibai_engine.position.store import LedgerStoreService
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
     # Exercise the CLI's ticker selection, actual calendar reader, calculation and
     # publication. The confirmed ledger contains a reservation but no acquisition.

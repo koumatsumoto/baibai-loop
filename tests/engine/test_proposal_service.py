@@ -195,9 +195,9 @@ def test_same_id_retry_requires_the_exact_signed_typed_payload(case):
 def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change):
     proposal = reviewed_proposal(case)
     if change == "head":
-        from baibai_engine.position.drafts import apply_draft, build_event_draft
-        from baibai_engine.position.ledger import ContributionEvent
-        from baibai_engine.position.store import LedgerStoreService
+        from baibai_engine.portfolio.ledger.drafts import apply_draft, build_event_draft
+        from baibai_engine.portfolio.ledger.events import ContributionEvent
+        from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
         event = ContributionEvent(
             type="contribution",
@@ -208,7 +208,7 @@ def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change)
         store = LedgerStoreService(case.app)
         apply_draft(store, build_event_draft(store, event), human_confirmed=True)
     elif change == "meta":
-        from baibai_engine.position.store import LedgerStoreService
+        from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
         store = LedgerStoreService(case.app)
         ledger, head = store.load_with_head()

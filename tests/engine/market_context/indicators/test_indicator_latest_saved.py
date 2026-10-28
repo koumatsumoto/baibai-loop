@@ -7,8 +7,8 @@ import pytest
 
 from baibai_engine.data_collection.economic.records import store_snapshot
 from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_engine.machine_analysis.market_context import indicator_service
-from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.models.market_context import indicator_service
+from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
 
 
 @pytest.mark.parametrize("age", [14, 15, 60, 400, 22000])

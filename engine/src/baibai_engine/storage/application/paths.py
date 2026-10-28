@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH
+from baibai_engine.storage.paths import APPLICATION_DB_PATH
 
 DEFAULT_DB_PATH = APPLICATION_DB_PATH
 

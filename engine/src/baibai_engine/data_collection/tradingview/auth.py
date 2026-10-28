@@ -18,7 +18,7 @@ from pathlib import Path
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import BaseModel, ConfigDict
 
-from baibai_engine.foundation.filesystem import write_text_atomic
+from baibai_engine.storage.filesystem import write_text_atomic
 
 # GitHub Secret identifier
 

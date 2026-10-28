@@ -5,8 +5,8 @@ from contextlib import closing
 from datetime import timedelta
 from hashlib import sha256
 
-from baibai_engine.foundation.json import canonical_json
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.selection import (
     GeneratedResearchInputs,
     GeneratedResearchSelection,
@@ -14,8 +14,8 @@ from baibai_engine.investment_judgment.selection import (
     ResearchRequest,
 )
 from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.machine_analysis.model_generation import InputSnapshot, ModelGeneration
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.screening.model_projection import select_generation
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore

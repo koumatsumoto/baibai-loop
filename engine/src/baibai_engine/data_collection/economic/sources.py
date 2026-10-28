@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_engine.foundation.yaml_io import strict_safe_load
+from baibai_engine.storage.yaml import strict_safe_load
 
 DOCUMENT_PROVIDERS = frozenset({"spglobal_pmi", "tsr_bankruptcies", "matsui_margin"})
 

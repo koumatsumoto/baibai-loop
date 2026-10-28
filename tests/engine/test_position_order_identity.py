@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from tests.helpers.db_seed import seed_ledger
 
-from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft
-from baibai_engine.position.ledger import (
+from baibai_engine.portfolio.ledger.drafts import apply_draft, build_broker_fact_draft
+from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     PortfolioLedgerDocument,
     replay_events_through,
 )
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 AT = datetime.fromisoformat("2026-10-20T10:00:00+09:00")
 REFERENCE = "synthetic-buy-reference"

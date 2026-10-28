@@ -9,7 +9,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 
 ASSESSMENT_SCHEMA_VERSION = 6
 ASSESSMENT_STALE_DAYS = 45

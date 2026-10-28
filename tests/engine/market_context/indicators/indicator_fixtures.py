@@ -28,12 +28,12 @@ from baibai_engine.data_collection.economic.providers.spglobal_pmi import (
     _parse_stream,
 )
 from baibai_engine.data_collection.economic.sources import SourceDefinition
-from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+from baibai_engine.machine_analysis.models.market_context.indicators.definitions import (
     SeriesDefinition,
 )
-from baibai_engine.machine_analysis.market_context.indicators.observations import ObservationRecord
-from baibai_engine.machine_analysis.market_context.reading.estat import estat_values
-from baibai_engine.machine_analysis.market_context.reading.observations import reading_observation
+from baibai_engine.machine_analysis.models.market_context.indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.models.market_context.reading.estat import estat_values
+from baibai_engine.machine_analysis.models.market_context.reading.observations import reading_observation
 
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright

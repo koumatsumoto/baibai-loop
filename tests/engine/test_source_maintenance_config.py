@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
+from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.source_maintenance.config import SourceMaintenanceConfig
 
 

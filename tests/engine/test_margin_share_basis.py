@@ -4,8 +4,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.market_context.history import avg_daily_volume
-from baibai_engine.machine_analysis.market_context.margin import MarginBalance, margin_supply_demand
+from baibai_engine.machine_analysis.models.market_context.history import avg_daily_volume
+from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance, margin_supply_demand
 from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
@@ -71,8 +71,8 @@ def test_volume_mean_uses_the_same_asof_share_unit(kind, factor):
 
 
 def test_market_context_calculation_revision_changes_run_and_panel_identity(monkeypatch):
-    from baibai_engine.machine_analysis.market_context import margin
-    from baibai_engine.machine_analysis.screening.calibration import panel, store
+    from baibai_engine.machine_analysis.models.market_context import margin
+    from baibai_engine.machine_analysis.historical_evaluation import panel, store
     from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
     from baibai_engine.machine_analysis.screening.rules_identity import (
         production_rules_contract_hash,

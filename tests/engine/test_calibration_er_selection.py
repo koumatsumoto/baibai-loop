@@ -1,7 +1,7 @@
 import pytest
 from tests.helpers.calibration_store import forward_row, panel_row
 
-from baibai_engine.machine_analysis.screening.calibration.evaluation.cohorts import evaluate_cohorts
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.cohorts import evaluate_cohorts
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 
 

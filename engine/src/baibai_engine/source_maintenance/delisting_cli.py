@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TextIO
 
 from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_engine.market.delistings import DelistingSourceError
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.jpx_models import JPXProviderError

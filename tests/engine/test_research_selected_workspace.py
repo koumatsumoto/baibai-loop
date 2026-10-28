@@ -96,7 +96,7 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.inputs import project_research_inputs
-    from baibai_engine.machine_analysis.company_valuation.query import (
+    from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
         machine_valuation_from_analysis,
     )
     from baibai_engine.machine_analysis.screening.discovery.candidates import (
@@ -401,7 +401,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     from tests.helpers.db_seed import seed_ledger
 
     from baibai_engine.investment_judgment.operation.cli import main as operation_main
-    from baibai_engine.position.ledger import PortfolioLedgerDocument
+    from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research called network"))
     seed_ledger(

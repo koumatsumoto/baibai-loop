@@ -10,16 +10,16 @@ import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
-from baibai_engine.position.cli import main
-from baibai_engine.position.drafts import (
+from baibai_engine.cli.portfolio import main
+from baibai_engine.portfolio.ledger.drafts import (
     apply_draft,
     build_sell_execution_draft,
     load_draft,
 )
-from baibai_engine.position.ledger import (
+from baibai_engine.portfolio.ledger.events import (
     PortfolioLedgerError,
 )
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"

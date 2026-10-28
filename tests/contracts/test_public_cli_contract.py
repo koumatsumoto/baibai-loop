@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_engine.cli import main
+from baibai_engine.cli.app import main
 from baibai_engine.data_collection_cli import main as collection_main
 from baibai_engine.investment_judgment.workspace_cli import build_parser as build_research_parser
 from baibai_engine.machine_analysis.screening.cli.app import build_parser as build_screening_parser

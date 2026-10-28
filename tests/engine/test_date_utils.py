@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.foundation.date_utils import add_months_clamped, weekday_distance
+from baibai_engine.primitives.dates import add_months_clamped, weekday_distance
 
 
 @pytest.mark.parametrize(

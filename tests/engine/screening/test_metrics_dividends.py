@@ -8,19 +8,19 @@ from datetime import date
 import pytest
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _split_bar, _summary
 
-from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_to_asof_basis,
     _normalize_summaries_with_status,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.dividends import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
     _resolve_dividend_carry,
     build_shareholder_return_change_signals,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.screening.calibration.forward import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _asof_basis_dividend as _forward_asof_basis_dividend,
 )
-from baibai_engine.machine_analysis.screening.calibration.forward import (
+from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _FYDividendObservation,
 )
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
@@ -644,7 +644,7 @@ def test_unrelated_payment_and_share_disagreements_do_not_veto_annual_dps(tmp_pa
     import sqlite3
     from contextlib import closing
 
-    from baibai_engine.machine_analysis.screening.calibration.forward import _load_fy_dividends
+    from baibai_engine.machine_analysis.historical_evaluation.forward import _load_fy_dividends
     from baibai_engine.market.jquants_reader import read_financial_documents
     from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 

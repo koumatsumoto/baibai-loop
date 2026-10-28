@@ -103,9 +103,9 @@ lake releaseは保存・公開の単位であり、L1という意味層の別名
 
 通常の経済取得は一時受領に実取得の同値も保持し、正本への変更時追記・同値no-opは最新正本との比較で決める。明示CLI回復は並行更新・未統合受領との順序を保つため同値の実受領も発行し、対象source・期間を限定する。
 
-クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/foundation/repository_layout.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
+クラウド正本のapplication objectは`baibai-stores/baibai.sqlite`。ローカルpathは[repository_layout.py](../engine/src/baibai_engine/storage/paths.py)が所有する。market全体を消してstore-local情報を失わず、空のhydrateから取得成功記録を創作しない。
 
-dated規則の[screening/rules/](../engine/src/baibai_engine/machine_analysis/screening/rules/)は旧run・較正用、[market_context/reading/rules/](../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)は現在のReading用で、それぞれのloaderが既定revisionを読む。採用中の版だけを配置し、旧版は[Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/method)に残す。保存結果の閲覧に旧版を再配置せず、過去計算の再現には当時のコードと入力も用意する。dated規則の意味変更は新revisionとし、配置変更だけで内容・識別子・保存判断を変えない。較正の配布artifactは[`machine_analysis/company_valuation/calibration/published/`](../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)に置く。
+dated規則の[screening/rules/](../engine/src/baibai_engine/machine_analysis/screening/rules/)は旧run・較正用、[market_context/reading/rules/](../engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/)は現在のReading用で、それぞれのloaderが既定revisionを読む。採用中の版だけを配置し、旧版は[Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/method)に残す。保存結果の閲覧に旧版を再配置せず、過去計算の再現には当時のコードと入力も用意する。dated規則の意味変更は新revisionとし、配置変更だけで内容・識別子・保存判断を変えない。較正の配布artifactは[`machine_analysis/company_valuation/calibration/published/`](../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/)、テスト入力は[`tests/fixtures/`](../tests/fixtures/)に置く。
 
 開発計測・移行の記録はIssue/PRと[固定Git履歴](https://github.com/koumatsumoto/baibai-loop/tree/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports)へ委ねる。正式なInvestment Judgment成果は上記application DBへ保存し、過去の開発レポートを現在の判断として再発行しない。
 

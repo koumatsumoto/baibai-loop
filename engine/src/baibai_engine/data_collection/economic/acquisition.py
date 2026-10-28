@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.foundation.redaction import redact_credentials
+from baibai_engine.primitives.redaction import redact_credentials
 
 from . import store
 from .documents import read_documents, store_document

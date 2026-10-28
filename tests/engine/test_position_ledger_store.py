@@ -9,13 +9,13 @@ import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.position.ledger import (
+from baibai_engine.portfolio.ledger.events import (
     ContributionEvent,
     PortfolioLedgerDocument,
     ReservationEvent,
 )
-from baibai_engine.position.ledger_read import LedgerConflictError
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.read import LedgerConflictError
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.storage.application.write import initialize_database
 
 FIXTURE = Path("tests/fixtures/portfolio-ledger/representative.yaml")
@@ -162,7 +162,7 @@ def _store_fixture() -> PortfolioLedgerDocument:
 
 
 def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
-    from baibai_engine.position import store
+    import baibai_engine.portfolio.ledger.store as store
 
     path = tmp_path / "app.sqlite"
     source = _store_fixture()
@@ -191,7 +191,7 @@ def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("unwritten", [True, False], ids=["unwritten", "initialized-unimported"])
 def test_optional_reader_distinguishes_unimported_from_required_ledger(tmp_path, unwritten):
-    from baibai_engine.position.ledger_read import load_ledger_document, load_ledger_in_transaction
+    from baibai_engine.portfolio.ledger.read import load_ledger_document, load_ledger_in_transaction
     from baibai_engine.storage.application.read import connect_read_only
 
     path = tmp_path / "app.sqlite"
@@ -225,7 +225,7 @@ def test_optional_reader_distinguishes_unimported_from_required_ledger(tmp_path,
     ],
 )
 def test_shared_reader_rejects_damaged_canonical_state(tmp_path, damage, error):
-    from baibai_engine.position.ledger_read import load_ledger_document
+    from baibai_engine.portfolio.ledger.read import load_ledger_document
     from baibai_engine.storage.application.read import connect_read_only
 
     path = tmp_path / "app.sqlite"
@@ -249,7 +249,7 @@ def test_ledger_service_uses_shared_reader_validation(tmp_path):
 
 
 def test_reader_preserves_callers_snapshot_while_another_connection_appends(tmp_path):
-    from baibai_engine.position.ledger_read import load_ledger_in_transaction
+    from baibai_engine.portfolio.ledger.read import load_ledger_in_transaction
     from baibai_engine.storage.application.read import connect_read_only
 
     path = tmp_path / "app.sqlite"

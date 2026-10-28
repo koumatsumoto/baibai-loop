@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.foundation.sqlite_read import is_unwritten_store
+from baibai_engine.storage.sqlite.read import is_unwritten_store
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 

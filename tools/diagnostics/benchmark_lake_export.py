@@ -18,7 +18,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from baibai_engine.foundation.filesystem import write_bytes_atomic
+from baibai_engine.storage.filesystem import write_bytes_atomic
 from baibai_engine.storage.lake.identity import verified_git_commit
 from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import LakeExportReport, export_market_store

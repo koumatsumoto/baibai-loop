@@ -9,7 +9,7 @@ from tests.helpers.generated_selection import seed_generated_selection
 
 from baibai_engine.investment_judgment.selection import ResearchRequest
 from baibai_engine.investment_judgment.selection_query import load_generated_selection_context
-from baibai_engine.machine_analysis.model_generation import GeneratedModel
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 

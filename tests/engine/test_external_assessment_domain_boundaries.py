@@ -6,18 +6,18 @@ from datetime import timedelta
 import pytest
 from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
 
-from baibai_engine.machine_analysis.external_assessment import reader
-from baibai_engine.machine_analysis.external_assessment.analysis import analyze
-from baibai_engine.machine_analysis.external_assessment.models import (
+from baibai_engine.machine_analysis.models.external_assessment import reader
+from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
+from baibai_engine.machine_analysis.models.external_assessment.models import (
     AnalystRatingHistory,
     ModelValuationHistory,
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
 )
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
 from baibai_engine.storage.observations.schema import open_connection
 
 

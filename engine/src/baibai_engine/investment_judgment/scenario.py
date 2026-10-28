@@ -12,7 +12,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from baibai_engine.foundation.numbers import finite_decimal
+from baibai_engine.primitives.numbers import finite_decimal
 
 
 class Projection(BaseModel):

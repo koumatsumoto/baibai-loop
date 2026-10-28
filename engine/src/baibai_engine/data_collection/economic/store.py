@@ -7,9 +7,9 @@ import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.foundation.redaction import redact_credentials
-from baibai_engine.foundation.repository_layout import INDICATORS_DB_PATH
-from baibai_engine.foundation.sqlite_read import connect_read_only
+from baibai_engine.primitives.redaction import redact_credentials
+from baibai_engine.storage.paths import INDICATORS_DB_PATH
+from baibai_engine.storage.sqlite.read import connect_read_only
 
 SQLITE_SCHEMA_VERSION = 12
 SCHEMA_PATH = Path(__file__).with_suffix(".sql")

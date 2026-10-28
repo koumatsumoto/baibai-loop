@@ -24,8 +24,8 @@ from baibai_engine.data_collection.equity_web.capture import (
 from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
 from baibai_engine.data_collection.equity_web.receipts import read_responses
 from baibai_engine.data_collection.external_assessment import cli, collection
-from baibai_engine.machine_analysis.external_assessment.normalization import rakuten
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.models.external_assessment.normalization import rakuten
+from baibai_engine.machine_analysis.models.external_assessment.observations.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,

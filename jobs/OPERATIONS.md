@@ -539,7 +539,7 @@ uv run baibai-engine screening calibration-evaluate \
   --run-purpose empirical_change_evidence --decision-subject estimator_policy \
   --required-asof <YYYY-MM-DD> --required-metric er_level_calibration \
   --out /tmp/calibration-evaluation.yaml \
-  --context-out engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml
+  --context-out engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml
 ```
 
 required-asofは事前に選んだ全対象月分を繰り返す。配布前にoperative runのrules/model identity・期限・不足を照合し、Gitでreviewする。[較正の意味](../docs/reference/estimate-calibration.md)に従い、記述context成功をformal evidence成立としない。古いcontextの日付・hashだけを編集しない。

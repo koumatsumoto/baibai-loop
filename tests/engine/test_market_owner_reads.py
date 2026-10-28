@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.machine_analysis.screening.calibration.forward import latest_market_data_date
+from baibai_engine.machine_analysis.historical_evaluation.forward import latest_market_data_date
 from baibai_engine.machine_analysis.screening.sqlite_coverage.core import _connect_readonly
 from baibai_engine.market import jquants_reader
 from baibai_engine.market.adjusted_prices import read_price_bars
@@ -18,7 +18,7 @@ from baibai_engine.market.jpx_models import (
 )
 from baibai_engine.market.jpx_reader import read_next_earnings_dates
 from baibai_engine.market.jpx_rebuild import store_jpx_earnings_calendar_snapshot
-from baibai_engine.position.market_source import (
+from baibai_engine.portfolio.holdings.market_observations import (
     market_basis_is_confirmed,
     next_order_session,
     read_unadjusted_close,

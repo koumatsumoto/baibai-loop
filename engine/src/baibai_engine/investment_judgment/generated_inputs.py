@@ -8,8 +8,8 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.machine_analysis.generation_query import read_model_inputs
-from baibai_engine.machine_analysis.model_generation import ModelInputSlice
+from baibai_engine.machine_analysis.generation.query import read_model_inputs
+from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 
 from .company_growth_projection import project_company_growth
 

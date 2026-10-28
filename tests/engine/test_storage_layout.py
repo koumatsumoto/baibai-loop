@@ -10,13 +10,13 @@ import sys
 from baibai_engine.data_collection.equity_web import http as equity_http
 from baibai_engine.data_collection.tradingview import auth, authorize, client
 for prefix in (
-    'baibai_engine.machine_analysis.external_assessment',
+    'baibai_engine.machine_analysis.models.external_assessment',
     'baibai_engine.market',
-    'baibai_engine.machine_analysis.market_context',
-    'baibai_engine.machine_analysis.technical_analysis',
-    'baibai_engine.machine_analysis.company_valuation',
+    'baibai_engine.machine_analysis.models.market_context',
+    'baibai_engine.machine_analysis.models.technical_analysis',
+    'baibai_engine.machine_analysis.models.company_financials',
     'baibai_engine.machine_analysis.screening',
-    'baibai_engine.position',
+    'baibai_engine.portfolio',
     'baibai_engine.investment_judgment',
     'baibai_engine.read_api',
 ):
@@ -32,12 +32,12 @@ assert callable(authorize.authorize)
 def test_pure_observation_and_lake_contracts_do_not_load_io():
     code = """
 import sys
-from baibai_engine.machine_analysis.external_assessment.observations import contract, models
-from baibai_engine.machine_analysis.external_assessment.tradingview import contract as tv_contract, observations
+from baibai_engine.machine_analysis.models.external_assessment.observations import contract, models
+from baibai_engine.machine_analysis.models.external_assessment.tradingview import contract as tv_contract, observations
 from baibai_engine.storage.lake import models as lake_models
 for prefix in (
     'baibai_engine.data_collection.external_assessment',
-    'baibai_engine.machine_analysis.external_assessment.store',
+    'baibai_engine.machine_analysis.models.external_assessment.store',
     'baibai_engine.data_collection.tradingview.collector',
     'baibai_engine.data_collection.tradingview.client',
     'baibai_engine.data_collection.tradingview.auth',

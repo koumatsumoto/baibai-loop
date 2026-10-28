@@ -6,19 +6,19 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
-from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.history import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     VALUATION_HISTORY_SESSIONS,
     build_valuation_history,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.company_valuation.metrics.relative import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.models.company_financials.metrics.relative import (
     VALUATION_METRICS,
     relative_valuation,
 )
-from baibai_engine.machine_analysis.market_context.history import (
+from baibai_engine.machine_analysis.models.market_context.history import (
     PRICE_HISTORY_WINDOW_DAYS,
     avg_daily_volume,
     gap_from_low,
@@ -27,8 +27,8 @@ from baibai_engine.machine_analysis.market_context.history import (
     realized_volatility,
     turnover_spike,
 )
-from baibai_engine.machine_analysis.market_context.margin import MarginBalance, margin_supply_demand
-from baibai_engine.machine_analysis.market_context.sector import sector_relative_strength
+from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance, margin_supply_demand
+from baibai_engine.machine_analysis.models.market_context.sector import sector_relative_strength
 from baibai_engine.machine_analysis.screening.rule_config import (
     ScreeningRules,
     load_screening_rules,

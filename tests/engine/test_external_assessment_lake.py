@@ -9,13 +9,13 @@ from pathlib import Path
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
-from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.models.external_assessment.query import external_assessment
+from baibai_engine.machine_analysis.models.external_assessment.reader import read_observations
+from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
 from baibai_engine.market.jquants_writer import store_jquants_market_calendar
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store

@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_normalized_profit_signals,
 )
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules

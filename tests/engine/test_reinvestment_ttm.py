@@ -5,7 +5,7 @@ import pytest
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
 from tests.engine.test_candidate_discovery import _analysis, _discover
 
-from baibai_engine.machine_analysis.screening.calibration.panel import rules_content_hash
+from baibai_engine.machine_analysis.historical_evaluation.panel import rules_content_hash
 from baibai_engine.machine_analysis.screening.discovery import candidates as discovery
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
@@ -159,8 +159,8 @@ def test_ttm_changes_quality_eligibility_order_and_union():
 
 
 def test_new_calculation_has_distinct_production_and_calibration_identity(monkeypatch):
-    from baibai_engine.machine_analysis.company_valuation.metrics import financial_snapshot
-    from baibai_engine.machine_analysis.screening.calibration import panel
+    from baibai_engine.machine_analysis.models.company_financials.metrics import financial_snapshot
+    from baibai_engine.machine_analysis.historical_evaluation import panel
 
     rules = load_screening_rules()
     current = production_rules_contract_hash(rules.model_dump_json())
@@ -239,8 +239,8 @@ def test_reinvestment_accepts_zero_debt_and_cash_but_not_nonpositive_capital():
 
 
 def test_offsetting_dividend_actions_have_distinct_calculation_identity(monkeypatch):
-    from baibai_engine.machine_analysis.company_valuation.metrics import financial_snapshot
-    from baibai_engine.machine_analysis.screening.calibration import forward, panel
+    from baibai_engine.machine_analysis.models.company_financials.metrics import financial_snapshot
+    from baibai_engine.machine_analysis.historical_evaluation import forward, panel
 
     rules = load_screening_rules()
     production = production_rules_contract_hash(rules.model_dump_json())

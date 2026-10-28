@@ -10,9 +10,9 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from baibai_engine.foundation.json import canonical_json
-from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.storage.paths import MARKET_DB_PATH
+from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
 from baibai_engine.investment_judgment.operation.research_binding import (
     require_proposal_research_scope,
@@ -50,8 +50,8 @@ from baibai_engine.investment_judgment.trade_proposal_policy import validate_pro
 from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings
 from baibai_engine.market.sessions import latest_eligible_close_date
-from baibai_engine.position.market_source import next_order_session
-from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.portfolio.holdings.market_observations import next_order_session
+from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 

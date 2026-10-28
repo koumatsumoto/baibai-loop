@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.position.outcome_store import (
+from baibai_engine.portfolio.performance.store import (
     PortfolioOutcomeConflictError,
     PortfolioOutcomePublication,
     PortfolioOutcomeStore,

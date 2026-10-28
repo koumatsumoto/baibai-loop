@@ -4,9 +4,9 @@ import sqlite3
 from contextlib import closing
 from datetime import timedelta
 
-from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.machine_analysis.model_generation import (
+from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,

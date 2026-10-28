@@ -11,10 +11,10 @@ from tests.helpers.screening_sqlite import (
     insert_financial_record,
 )
 
-from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_normalized_profit_signals,
 )
-from baibai_engine.machine_analysis.screening.calibration.panel import build_panel
+from baibai_engine.machine_analysis.historical_evaluation.panel import build_panel
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.storage.observations.schema import open_connection

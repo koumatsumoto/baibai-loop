@@ -26,8 +26,8 @@ from baibai_engine.investment_judgment.trade_proposal_query import (
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
-from baibai_engine.position.ledger import ExecutionEvent, ReservationEvent
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.events import ExecutionEvent, ReservationEvent
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.storage.application.read import connect_read_only
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from baibai_engine.machine_analysis.market_context.history import avg_daily_volume
+from baibai_engine.machine_analysis.models.market_context.history import avg_daily_volume
 from baibai_engine.market.price_models import JQuantsDailyBar
 
 

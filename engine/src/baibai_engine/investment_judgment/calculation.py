@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from baibai_engine.foundation.numbers import decimal_to_number, finite_decimal
+from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
 from baibai_engine.investment_judgment.scenario import maximum_entry_price, project_return
 from baibai_engine.investment_judgment.stock_assessment import (
     DerivedMetric,

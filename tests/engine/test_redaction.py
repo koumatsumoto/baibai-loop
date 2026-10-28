@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_engine.foundation.redaction import redact_credentials
+from baibai_engine.primitives.redaction import redact_credentials
 
 
 @pytest.mark.parametrize(

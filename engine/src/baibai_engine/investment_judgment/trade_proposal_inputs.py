@@ -10,9 +10,9 @@ from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from baibai_engine.foundation.json import canonical_json
-from baibai_engine.foundation.numbers import finite_decimal
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.numbers import finite_decimal
+from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.operation.models import OperationSession
 from baibai_engine.investment_judgment.operation.progress import proposal_scope, selection_binding
 from baibai_engine.investment_judgment.selection import (
@@ -39,16 +39,16 @@ from baibai_engine.investment_judgment.trade_proposal import (
     SecurityClassification,
 )
 from baibai_engine.market.jquants_reader import read_master_snapshot
-from baibai_engine.position.ledger import (
+from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     MarketPrice,
     replay_events_through,
     summarize_portfolio,
 )
-from baibai_engine.position.ledger_read import load_ledger_in_transaction
-from baibai_engine.position.market_source import market_basis_is_confirmed, read_unadjusted_close
-from baibai_engine.position.policy import PORTFOLIO_POLICY
-from baibai_engine.position.valuation import holding_episode
+from baibai_engine.portfolio.ledger.read import load_ledger_in_transaction
+from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed, read_unadjusted_close
+from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
+from baibai_engine.portfolio.holdings.valuation import holding_episode
 from baibai_engine.storage.application.read import connect_read_only
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
@@ -366,7 +366,7 @@ def _context_calculations(
         buy_evaluation,
         buy_evaluation_payload,
     )
-    from baibai_engine.position.price_grid import floor_common_stock_limit
+    from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 
     result: dict[str, dict[str, object]] = {}
     for outcome in scope.outcomes:
@@ -447,7 +447,7 @@ def build_proposal_context(
     now: datetime,
     proposal_id: str | None = None,
 ) -> ProposalAuthoringContext:
-    from baibai_engine.position.market_source import next_order_session
+    from baibai_engine.portfolio.holdings.market_observations import next_order_session
 
     with closing(connect_read_only(db_path)) as connection:
         connection.execute("BEGIN")

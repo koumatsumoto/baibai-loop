@@ -11,8 +11,8 @@ from baibai_engine.data_collection.economic.providers import jquants_flows, jqua
 from baibai_engine.data_collection.economic.providers.base import ProviderFetchStoppedError
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
 from baibai_engine.data_collection.economic.sources import require_source
-from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.reading.reader import (
+from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.models.market_context.reading.reader import (
     build_store_observation_reader,
 )
 

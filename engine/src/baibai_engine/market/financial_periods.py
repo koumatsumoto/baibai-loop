@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any
 
-from baibai_engine.foundation.date_utils import add_months_clamped
+from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.market.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,

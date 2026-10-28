@@ -218,7 +218,7 @@ def test_date_only_order_history_does_not_present_replay_time_as_reported_time()
     from zoneinfo import ZoneInfo
 
     from baibai_engine.investment_judgment.price_watch import _reservation_history
-    from baibai_engine.position.ledger import ReservationEvent
+    from baibai_engine.portfolio.ledger.events import ReservationEvent
 
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     original = next(event for event in ledger.events if isinstance(event, ReservationEvent))

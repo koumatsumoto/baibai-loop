@@ -6,12 +6,12 @@ import json
 from collections.abc import Mapping
 from datetime import date
 
-from baibai_engine.machine_analysis.company_valuation.estimates import (
+from baibai_engine.machine_analysis.historical_evaluation.estimates import (
     ExpectedReturnEstimate,
     ExpectedReturnInputs,
     estimate_expected_return,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.models import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
     UNRESOLVED_DIVIDEND_BASIS,
     FinancialSnapshot,

@@ -6,7 +6,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.machine_analysis.company_growth.models import (
+from baibai_engine.machine_analysis.models.company_growth.models import (
     CompanyGrowth,
     Metric,
     Observation,

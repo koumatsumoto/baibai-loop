@@ -63,7 +63,7 @@ def test_public_cli_subprocess_reads_zero_candidates_and_unknown_revision(tmp_pa
     command = [
         sys.executable,
         "-m",
-        "baibai_engine.cli",
+        "baibai_engine.cli.app",
         "screening",
         "candidates",
         "show",

@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 from tests.engine.screening.metric_fixtures import _edinet_metric_record, _security, _summary
 
-from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _closer_share_basis,
     _common_equity_yen,
     _edinet_passes_entity_scale_check,
@@ -18,7 +18,7 @@ from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
     _ShareBasis,
     build_shares_outstanding_index,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.periods import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
     _actual_rows,
     _ttm_value,
 )

@@ -14,7 +14,7 @@ from baibai_engine.investment_judgment.selection import (
     ResearchSelectionRecord,
     selection_targets,
 )
-from baibai_engine.machine_analysis.company_valuation.query import (
+from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
     forecast_sources_from_analysis,

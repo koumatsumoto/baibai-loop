@@ -26,32 +26,32 @@ from tests.helpers.screening_sqlite import (
     insert_financial_record,
 )
 
-from baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.history import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     VALUATION_HISTORY_SESSIONS,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.profit import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_profitability_level_signals,
 )
-from baibai_engine.machine_analysis.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
-from baibai_engine.machine_analysis.screening.calibration.cli import (
+from baibai_engine.machine_analysis.models.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
+from baibai_engine.machine_analysis.historical_evaluation.cli import (
     calibration_build_command,
     calibration_evaluate_command,
 )
-from baibai_engine.machine_analysis.screening.calibration.forward import (
+from baibai_engine.machine_analysis.historical_evaluation.forward import (
     STALE_PRICE_MAX_LAG_DAYS,
     TOTAL_RETURN_BASIS,
     ForwardReturnRow,
 )
-from baibai_engine.machine_analysis.screening.calibration.identity import rules_contract_hash
-from baibai_engine.machine_analysis.screening.calibration.panel import (
+from baibai_engine.machine_analysis.historical_evaluation.identity import rules_contract_hash
+from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PRE2019_SELF_RANGE_POLICY,
     build_panel,
     rules_content_hash,
 )
-from baibai_engine.machine_analysis.screening.calibration.store import (
+from baibai_engine.machine_analysis.historical_evaluation.store import (
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     forward_row_from_mapping,
@@ -305,11 +305,11 @@ class CalibrationPanelTest(unittest.TestCase):
         rules = load_screening_rules()
         with (
             patch(
-                "baibai_engine.machine_analysis.company_valuation.metrics.financial_snapshot.VALUATION_CALCULATION_REVISION",
+                "baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot.VALUATION_CALCULATION_REVISION",
                 "same-profit-basis-yoy-v25",
             ),
             patch(
-                "baibai_engine.machine_analysis.screening.calibration.panel.VALUATION_CALCULATION_REVISION",
+                "baibai_engine.machine_analysis.historical_evaluation.panel.VALUATION_CALCULATION_REVISION",
                 "same-profit-basis-yoy-v25",
             ),
         ):
@@ -326,12 +326,12 @@ class CalibrationPanelTest(unittest.TestCase):
         rules = load_screening_rules()
 
         with patch(
-            "baibai_engine.machine_analysis.screening.calibration.panel.candidate_discovery_method_hash",
+            "baibai_engine.machine_analysis.historical_evaluation.panel.candidate_discovery_method_hash",
             return_value="a" * 64,
         ):
             first = rules_content_hash(rules)
         with patch(
-            "baibai_engine.machine_analysis.screening.calibration.panel.candidate_discovery_method_hash",
+            "baibai_engine.machine_analysis.historical_evaluation.panel.candidate_discovery_method_hash",
             return_value="b" * 64,
         ):
             second = rules_content_hash(rules)
@@ -886,7 +886,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("obsolete",))
 
             with patch(
-                "baibai_engine.machine_analysis.screening.calibration.cli.month_end_asof_grid",
+                "baibai_engine.machine_analysis.historical_evaluation.cli.month_end_asof_grid",
                 return_value=[ASOF],
             ):
                 code = calibration_build_command(
@@ -1187,8 +1187,8 @@ class DerivedCacheIdentityTests(unittest.TestCase):
     """列や宣言済み計算 revision の変更がキャッシュ版へ反映されることを確認する。"""
 
     def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
-        from baibai_engine.machine_analysis.screening.calibration import evaluation
-        from baibai_engine.machine_analysis.screening.calibration import store as calibration_store
+        from baibai_engine.machine_analysis.historical_evaluation import evaluation
+        from baibai_engine.machine_analysis.historical_evaluation import store as calibration_store
 
         Patch = Callable[[], AbstractContextManager[object]]
         # One input per row: what is changed, and whether the derived version has to
@@ -1233,7 +1233,7 @@ class DerivedCacheIdentityTests(unittest.TestCase):
                     self.assertEqual(before, after)
 
     def test_the_identity_is_stable_for_the_same_inputs(self) -> None:
-        from baibai_engine.machine_analysis.screening.calibration import store as calibration_store
+        from baibai_engine.machine_analysis.historical_evaluation import store as calibration_store
 
         self.assertEqual(
             calibration_store._derive_cache_schema_version(),
@@ -1242,7 +1242,7 @@ class DerivedCacheIdentityTests(unittest.TestCase):
 
 
 def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
-    from baibai_engine.foundation.json import canonical_json
+    from baibai_engine.primitives.json import canonical_json
 
     sqlite_path = tmp_path / "market.sqlite"
     build_calibration_fixture_sqlite(sqlite_path)

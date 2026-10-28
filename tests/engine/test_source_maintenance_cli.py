@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
@@ -639,7 +639,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with (
             patch.object(source_app, "market_calendar_business_day", return_value=True),
             patch(
-                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                "baibai_engine.machine_analysis.historical_evaluation.grid.days_with_bars",
                 return_value=set(),
             ),
             patch.object(
@@ -685,7 +685,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with (
             patch.object(source_app, "market_calendar_business_day", return_value=False),
             patch(
-                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                "baibai_engine.machine_analysis.historical_evaluation.grid.days_with_bars",
                 return_value={historical},
             ),
             patch.object(

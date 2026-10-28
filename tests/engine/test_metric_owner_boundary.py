@@ -11,7 +11,7 @@ from datetime import date
 import pytest
 from pydantic import TypeAdapter
 
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
 from baibai_engine.market.adjusted_prices import read_price_bars
 from baibai_engine.storage.observations.schema import open_connection
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 
 
 def latest_eligible_close_date(at: datetime) -> date:

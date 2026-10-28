@@ -10,7 +10,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, MARKET_DB_PATH
+from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.outcomes import build_outcomes
 from baibai_web.readmodel.builders.tasks import build_tasks

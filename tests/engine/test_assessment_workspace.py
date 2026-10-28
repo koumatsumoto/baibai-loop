@@ -451,7 +451,7 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     assert (
         compute_status(prepared.workspace, db_path=db, now=NOW)["workspace_status"] == "published"
     )
-    from baibai_engine.position.store import LedgerStoreService
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
     assert LedgerStoreService(db).load().model_dump(mode="json") == before
     if completed:
@@ -474,7 +474,7 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
             completed_at=NOW + timedelta(seconds=2),
         )
 
-    from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
+    from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
 
     sold_at = NOW + timedelta(days=1)
     ledger_service = LedgerStoreService(db)

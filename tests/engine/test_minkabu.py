@@ -7,15 +7,15 @@ from uuid import uuid4
 import pytest
 
 from baibai_engine.data_collection.equity_web.receipts import retain_response
-from baibai_engine.machine_analysis.external_assessment.analysis import analyze
-from baibai_engine.machine_analysis.external_assessment.models import (
+from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
+from baibai_engine.machine_analysis.models.external_assessment.models import (
     AnalystForecastHistory,
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, minkabu
-from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.rebuild import rebuild_attempts
-from baibai_engine.machine_analysis.external_assessment.store import (
+from baibai_engine.machine_analysis.models.external_assessment.normalization import ParseError, minkabu
+from baibai_engine.machine_analysis.models.external_assessment.reader import read_observations
+from baibai_engine.machine_analysis.models.external_assessment.rebuild import rebuild_attempts
+from baibai_engine.machine_analysis.models.external_assessment.store import (
     ObservationConflictError,
     save_observations,
 )
@@ -179,7 +179,7 @@ def no_coverage_html(ticker="130A", *, linked=False):
 @pytest.mark.parametrize("linked", [False, True])
 def test_explicit_identified_no_coverage_is_not_zero_or_an_http_error(tmp_path, linked):
     from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-    from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
+    from baibai_engine.machine_analysis.models.external_assessment.normalization.decode import (
         decode_attempt,
     )
 
@@ -283,7 +283,7 @@ def test_duplicate_or_conflicting_analyst_cards_do_not_prove_no_coverage(linked,
 def test_no_coverage_cannot_carry_values_and_available_requires_display_date():
     from pydantic import ValidationError
 
-    from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
         AnalystForecastObservation,
     )
 

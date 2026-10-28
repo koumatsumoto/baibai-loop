@@ -19,7 +19,7 @@ from baibai_engine.job_api import (
     ExternalAssessmentModelValuationObservation,
     external_assessment_collector_binding,
 )
-from baibai_engine.machine_analysis.external_assessment.normalization import monex
+from baibai_engine.machine_analysis.models.external_assessment.normalization import monex
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.objects import LakeObjectError
 from baibai_jobs.jobs import external_assessment_daily as daily

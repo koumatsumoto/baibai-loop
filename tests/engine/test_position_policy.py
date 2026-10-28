@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import unittest
 
-from baibai_engine.position.policy import PORTFOLIO_POLICY, validate_policy
+from baibai_engine.portfolio.policy import PORTFOLIO_POLICY, validate_policy
 
 
 class PolicyConfigTests(unittest.TestCase):

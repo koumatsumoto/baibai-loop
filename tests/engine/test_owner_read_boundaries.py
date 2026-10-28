@@ -15,15 +15,15 @@ from tests.helpers.screening_run import seed_saved_run
 from baibai_engine.data_collection.economic.store import (
     initialize_database as initialize_indicator_database,
 )
-from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.storage.sqlite.read import read_rows
 from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal_query import (
     get_investment_proposal,
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
-from baibai_engine.machine_analysis.market_context.indicator_service import IndicatorsService
-from baibai_engine.machine_analysis.market_context.reading.query import reading_snapshot
+from baibai_engine.machine_analysis.models.market_context.indicator_service import IndicatorsService
+from baibai_engine.machine_analysis.models.market_context.reading.query import reading_snapshot
 from baibai_engine.machine_analysis.screening.run_store import (
     ScreeningRunReader,
     initialize_run_store,

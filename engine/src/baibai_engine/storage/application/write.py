@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.application.paths import DEFAULT_DB_PATH as DEFAULT_DB_PATH
 from baibai_engine.storage.application.paths import database_path as database_path
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL

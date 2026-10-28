@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.storage.sqlite.read import read_rows
 from baibai_engine.market import master_snapshot as master_contract
 from baibai_engine.market.calendar import JQuantsMarketCalendarDay
 from baibai_engine.market.financial_documents import (

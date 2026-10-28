@@ -10,9 +10,9 @@ from tests.helpers.indicator_store import observation
 from baibai_engine.data_collection.economic import acquisition as acquisition
 from baibai_engine.data_collection.economic import store as economic_store
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
-from baibai_engine.machine_analysis.market_context import indicator_service as service
-from baibai_engine.machine_analysis.market_context.indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.market_context.reading.reader import (
+from baibai_engine.machine_analysis.models.market_context import indicator_service as service
+from baibai_engine.machine_analysis.models.market_context.indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.models.market_context.reading.reader import (
     build_store_observation_reader,
 )
 

@@ -208,7 +208,7 @@ def test_lake_only_publish_restores_snapshot_without_market_push(
         )
     if not manual_observation:
         store_jquants_master(path, make_master_records(today), requested_asof=today)
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+    from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
         ProviderHTTPError,
     )
 

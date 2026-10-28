@@ -12,17 +12,17 @@ import pytest
 from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
 
 from baibai_engine.external_assessment_cli import main
-from baibai_engine.machine_analysis.external_assessment.analysis import FORECAST_METRICS
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.analysis import FORECAST_METRICS
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
-from baibai_engine.machine_analysis.external_assessment.reader import (
+from baibai_engine.machine_analysis.models.external_assessment.query import external_assessment
+from baibai_engine.machine_analysis.models.external_assessment.reader import (
     read_observation_population,
     read_observations,
 )
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
-from baibai_engine.machine_analysis.external_assessment.tradingview.contract import COLUMNS, TABLE
+from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.models.external_assessment.tradingview.contract import COLUMNS, TABLE
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -232,8 +232,8 @@ def test_domain_import_does_not_start_composition_or_acquisition():
             sys.executable,
             "-c",
             """\nimport sys
-from baibai_engine.machine_analysis.external_assessment.query import external_assessment
-assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.company_valuation", "baibai_engine.machine_analysis.market_context")) for name in sys.modules)
+from baibai_engine.machine_analysis.models.external_assessment.query import external_assessment
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context")) for name in sys.modules)
 assert "baibai_engine.data_collection.external_assessment.collection" not in sys.modules
 assert "baibai_engine.data_collection.tradingview.collector" not in sys.modules
 """,
@@ -311,7 +311,7 @@ args = build_parser().parse_args([
 ])
 assert args.command == "show"
 assert "baibai_engine.data_collection.external_assessment.collection" not in sys.modules
-assert "baibai_engine.machine_analysis.external_assessment.store" not in sys.modules
+assert "baibai_engine.machine_analysis.models.external_assessment.store" not in sys.modules
 """,
         ],
         check=True,

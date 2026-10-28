@@ -10,8 +10,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from baibai_engine.foundation.filesystem import write_text_atomic
-from baibai_engine.foundation.time import JST
+from baibai_engine.storage.filesystem import write_text_atomic
+from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.stock_assessment import (
     AssessmentReview,
     assessment_core_hash,
@@ -34,7 +34,7 @@ from baibai_engine.investment_judgment.workspace.validation import (
     _review_draft_path,
     _validate_editable_drafts,
 )
-from baibai_engine.position.market_source import read_unadjusted_close
+from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 

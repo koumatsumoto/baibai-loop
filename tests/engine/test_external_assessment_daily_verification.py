@@ -21,18 +21,18 @@ from baibai_engine.data_collection.external_assessment.verification import (
     history_digests,
     verify_observations,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.contract import (
     ANALYST_FORECAST_TABLE,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
+from baibai_engine.machine_analysis.models.external_assessment.reader import read_observations
+from baibai_engine.machine_analysis.models.external_assessment.store import save_observations
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.keys import current_release_pointer_key

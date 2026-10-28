@@ -10,12 +10,12 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.er_calibration_context import context_artifact
 
-from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.machine_analysis.company_valuation.calibration.contracts import (
+from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+from baibai_engine.storage.yaml import safe_load
+from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     ErCalibrationContextArtifact,
 )
-from baibai_engine.machine_analysis.company_valuation.calibration.query import (
+from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     load_er_calibration_context,
 )
 
@@ -234,7 +234,7 @@ def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path:
 def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope_revision: str, partial: bool
 ) -> None:
-    from baibai_engine.machine_analysis.company_valuation.metrics import financial_snapshot
+    from baibai_engine.machine_analysis.models.company_financials.metrics import financial_snapshot
     from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
     from baibai_engine.machine_analysis.screening.rules_identity import (
         production_rules_contract_hash,

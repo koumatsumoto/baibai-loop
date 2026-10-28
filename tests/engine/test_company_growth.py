@@ -25,12 +25,12 @@ from baibai_engine.investment_judgment.selection import (
     selection_sha256,
 )
 from baibai_engine.investment_judgment.workspace import resume_selected_workspace
-from baibai_engine.machine_analysis.company_growth.calculations import (
+from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_changes,
     build_period_states,
 )
-from baibai_engine.machine_analysis.company_growth.models import CompanyGrowth
-from baibai_engine.machine_analysis.company_growth.query import (
+from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.models.company_growth.query import (
     company_growth as public_company_growth,
 )
 from baibai_engine.market.financial_documents import normalize_financial_summary
@@ -385,7 +385,7 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
             connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed")
         )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.company_growth.query.company_growth",
+        "baibai_engine.machine_analysis.models.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("growth recomputed"),
     )
     projected = project_research_inputs(saved)["securities"]["1234"]["company_growth"]
@@ -434,7 +434,7 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
     output = workspace / "domain-inputs.yaml"
     output.write_text("damaged projection", encoding="utf-8")
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.company_growth.query.company_growth",
+        "baibai_engine.machine_analysis.models.company_growth.query.company_growth",
         lambda *_a, **_kw: pytest.fail("current method used"),
     )
     resumed = resume_selected_workspace(operation_id=prepared.operation_id, force=True, **arguments)
@@ -472,7 +472,7 @@ def test_same_current_state_keeps_distinct_paths_for_l3():
 
 
 def test_legacy_selection_hash_keeps_its_original_serialized_inputs():
-    from baibai_engine.foundation.json import canonical_json
+    from baibai_engine.primitives.json import canonical_json
 
     old = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
     expected = sha256(canonical_json(old).encode()).hexdigest()
@@ -541,7 +541,7 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
     assert compact["full_result_ref"] == "/inputs/securities_context/1234/company_growth"
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.company_growth.query.company_growth",
+        "baibai_engine.machine_analysis.models.company_growth.query.company_growth",
         lambda **_kw: pytest.fail("inputs recollected"),
     )
     authored = arguments["workspace"] / "assessment-draft.yaml"
@@ -722,8 +722,8 @@ def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
 
 
 def test_shared_population_and_individual_generation_use_the_same_fixed_documents(tmp_path):
-    from baibai_engine.machine_analysis.company_growth.generation import generate_company_growth
-    from baibai_engine.machine_analysis.company_growth.models import InputRelease
+    from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
+    from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
     from baibai_engine.market.fixed_financial_reader import read_fixed_financial_population
 
     path = market_store(
@@ -768,7 +768,7 @@ def test_fixed_reader_os_failure_is_local_to_growth(tmp_path, monkeypatch):
         raise PermissionError("injected existing object failure")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.company_growth.query.read_fixed_financial_documents",
+        "baibai_engine.machine_analysis.models.company_growth.query.read_fixed_financial_documents",
         unreadable,
     )
     result = company_growth(path, ticker="1234", as_of=NOW.date())

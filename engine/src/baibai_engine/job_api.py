@@ -106,55 +106,55 @@ from baibai_engine.data_collection.tradingview.handoff import (
 from baibai_engine.data_collection.tradingview.handoff import (
     import_handoff as import_tradingview_handoff,
 )
-from baibai_engine.foundation.date_utils import add_months_clamped
-from baibai_engine.foundation.repository_layout import (
+from baibai_engine.primitives.dates import add_months_clamped
+from baibai_engine.storage.paths import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     StoreLayoutError,
     reject_noncanonical_store_paths,
     repository_root_error,
 )
-from baibai_engine.machine_analysis.company_growth.models import InputRelease as ModelInputRelease
-from baibai_engine.machine_analysis.company_valuation.metrics.models import DEFAULT_TTM_RULES
-from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease as ModelInputRelease
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
+from baibai_engine.machine_analysis.models.external_assessment.normalization.decode import (
     decode_attempt as external_assessment_decode_attempt,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
     ANALYST_FORECAST_DATASET as EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
     ANALYST_RATING_DATASET as EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
     MODEL_VALUATION_DATASET as EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.identity import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.identity import (
     QUANTS_SCORE_DATASET as EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     ModelValuationObservation as ExternalAssessmentModelValuationObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     Observation as ExternalAssessmentObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.models.external_assessment.observations.models import (
     QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.store import (
+from baibai_engine.machine_analysis.models.external_assessment.store import (
     save_observations as external_assessment_save_observations,
 )
-from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
     FetchError as TradingViewFetchError,
 )
-from baibai_engine.machine_analysis.generation_reader import read_and_generate_models
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.machine_analysis.model_generation import InputSnapshot as ModelInputSnapshot
+from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot as ModelInputSnapshot
 from baibai_engine.machine_analysis.screening.saved_selection import select_saved_generation
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy

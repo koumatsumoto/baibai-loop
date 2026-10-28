@@ -17,7 +17,7 @@ from baibai_engine.data_collection.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
-from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
     COLUMNS,
     FetchError,
     ProviderHTTPError,

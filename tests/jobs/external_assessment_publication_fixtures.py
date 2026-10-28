@@ -26,7 +26,7 @@ from baibai_engine.job_api import (
     external_assessment_decode_attempt,
     external_assessment_save_observations,
 )
-from baibai_engine.machine_analysis.external_assessment.normalization import (
+from baibai_engine.machine_analysis.models.external_assessment.normalization import (
     kabumap,
     minkabu,
     monex,

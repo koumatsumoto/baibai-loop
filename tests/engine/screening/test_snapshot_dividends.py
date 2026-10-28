@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from tests.engine.screening.metric_fixtures import _security, _summary
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.machine_analysis.company_valuation.metrics.dividends import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
     build_shareholder_return_change_signals,
 )
 from baibai_engine.machine_analysis.screening.metric_builder import build_metrics

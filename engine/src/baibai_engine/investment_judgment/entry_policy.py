@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from baibai_engine.foundation.numbers import finite_decimal
+from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.investment_judgment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.stock_assessment import (
     StockAssessmentDocument,

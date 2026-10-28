@@ -6,13 +6,13 @@ from datetime import date
 import pytest
 from tests.engine.screening.metric_fixtures import _summary
 
-from baibai_engine.machine_analysis.company_valuation.metrics.capital import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_with_status,
 )
-from baibai_engine.machine_analysis.company_valuation.metrics.dividends import (
+from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
     _resolve_dividend_carry,
 )
-from baibai_engine.machine_analysis.screening.calibration.forward import (
+from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _FYDividendObservation,
     _resolve_total_return,
 )

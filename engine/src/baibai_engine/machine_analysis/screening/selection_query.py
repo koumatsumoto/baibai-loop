@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from baibai_engine.machine_analysis.model_generation import GenerationMetadata
+from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.storage.machine_analysis import connect_read_only
 
 from .model_projection import ScreeningSelection

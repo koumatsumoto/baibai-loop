@@ -12,7 +12,7 @@ from baibai_engine.data_collection.tradingview.auth import (
     SecretPersistenceError,
 )
 from baibai_engine.data_collection.tradingview.collector import SourceDataError, TimeGuardError
-from baibai_engine.machine_analysis.external_assessment.tradingview.observations import FetchError
+from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import FetchError
 
 
 @pytest.mark.parametrize(
@@ -183,7 +183,7 @@ def test_provider_http_category_through_collection_and_groups(status, category):
         CollectionFailure,
         CollectionProgress,
     )
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+    from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
         ProviderHTTPError,
     )
 
@@ -206,7 +206,7 @@ def test_cli_collection_error_prints_only_safe_diagnostics(monkeypatch, capsys):
         CollectionFailure,
         CollectionProgress,
     )
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+    from baibai_engine.machine_analysis.models.external_assessment.tradingview.observations import (
         ProviderPayloadError,
     )
 

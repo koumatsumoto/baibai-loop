@@ -12,15 +12,15 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.position.ledger import (
+from baibai_engine.storage.yaml import safe_load
+from baibai_engine.portfolio.ledger.events import (
     MarketPrice,
     PortfolioLedgerDocument,
     PortfolioLedgerError,
     replay_events_through,
     snapshot_to_payload,
 )
-from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 
 ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
@@ -166,7 +166,7 @@ def test_expired_reservation_requires_an_explicit_release() -> None:
     assert isinstance(events, list)
     events[:] = [event for event in events if event["event_id"] != "release-2331-expired"]
 
-    from baibai_engine.position.ledger import replay_events_through, require_resolved_expiries
+    from baibai_engine.portfolio.ledger.events import replay_events_through, require_resolved_expiries
 
     document = _document(raw)
     with pytest.raises(PortfolioLedgerError, match="expired reservations require"):

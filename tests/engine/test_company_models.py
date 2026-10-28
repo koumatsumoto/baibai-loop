@@ -3,10 +3,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.company_models import generate_financial_and_price_models
-from baibai_engine.machine_analysis.company_valuation.metrics.models import TTMRules
-from baibai_engine.machine_analysis.model_generation import InputSnapshot, ModelGeneration
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.generation.financial_models import generate_financial_and_price_models
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.screening.model_projection import select_generation
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
 from baibai_engine.market.edinet_models import EdinetMetricRecord

@@ -10,20 +10,20 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_ledger
 
-from baibai_engine.position.decision_references import (
+from baibai_engine.portfolio.ledger.decision_references import (
     DecisionReferenceBinding,
     resolve_buy_reference,
 )
-from baibai_engine.position.drafts import (
+from baibai_engine.portfolio.ledger.drafts import (
     LedgerDraft,
     apply_draft,
     build_broker_fact_draft,
     load_draft,
     write_draft,
 )
-from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.position.ledger_read import LedgerConflictError
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.portfolio.ledger.read import LedgerConflictError
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 NOW = datetime.fromisoformat("2026-10-14T10:00:00+09:00")
 REFERENCE = "manual-fact-00000000-0000-4000-8000-000000000001"
@@ -108,7 +108,7 @@ def test_exception_after_ledger_append_rolls_back_binding_and_events(
     def fail_meta(*_args):
         raise RuntimeError("synthetic failure after append")
 
-    monkeypatch.setattr("baibai_engine.position.store._replace_meta", fail_meta)
+    monkeypatch.setattr("baibai_engine.portfolio.ledger.store._replace_meta", fail_meta)
     with pytest.raises(RuntimeError, match="after append"):
         apply_draft(service, draft, human_confirmed=True)
     assert service.load() == draft.source
@@ -237,7 +237,7 @@ def test_old_saved_draft_requests_reprepare(tmp_path: Path) -> None:
 def test_draft_output_path_accepts_explicit_paths_without_overwriting(
     tmp_path: Path, absolute: bool
 ) -> None:
-    from baibai_engine.position.cli import _root_path
+    from baibai_engine.cli.portfolio import _root_path
 
     service, _ = _service(tmp_path)
     draft = _draft(service)

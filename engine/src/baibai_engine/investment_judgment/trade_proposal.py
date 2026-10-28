@@ -18,12 +18,12 @@ from pydantic import (
 )
 
 from baibai_engine.data_collection.identifiers import normalize_ticker
-from baibai_engine.foundation.json import canonical_json
-from baibai_engine.foundation.numbers import finite_decimal
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.numbers import finite_decimal
+from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.selection import ResearchTarget
 from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
-from baibai_engine.position.price_grid import common_stock_limit_is_valid, floor_common_stock_limit
+from baibai_engine.portfolio.holdings.price_grid import common_stock_limit_is_valid, floor_common_stock_limit
 
 INVESTMENT_PROPOSAL_SCHEMA_VERSION = 3
 _CONFIG = ConfigDict(extra="forbid", frozen=True, strict=True, allow_inf_nan=False)

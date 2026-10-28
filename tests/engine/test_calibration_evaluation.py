@@ -22,52 +22,52 @@ from tests.helpers.calibration_store import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.machine_analysis.company_valuation.calibration.contracts import (
+from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     ErCalibrationContextArtifact,
 )
-from baibai_engine.machine_analysis.screening.calibration.cli import (
+from baibai_engine.machine_analysis.historical_evaluation.cli import (
     _required_metric_statuses,
 )
-from baibai_engine.machine_analysis.screening.calibration.cli import (
+from baibai_engine.machine_analysis.historical_evaluation.cli import (
     calibration_evaluate_command as _calibration_evaluate_command,
 )
-from baibai_engine.machine_analysis.screening.calibration.context import (
+from baibai_engine.machine_analysis.historical_evaluation.context import (
     CalibrationContextError,
     build_er_distribution_context,
 )
-from baibai_engine.machine_analysis.screening.calibration.evaluation import MIN_AXIS_SAMPLE
-from baibai_engine.machine_analysis.screening.calibration.evaluation import (
+from baibai_engine.machine_analysis.historical_evaluation.evaluation import MIN_AXIS_SAMPLE
+from baibai_engine.machine_analysis.historical_evaluation.evaluation import (
     evaluate_cohorts as _evaluate_cohorts,
 )
-from baibai_engine.machine_analysis.screening.calibration.evaluation.axes import (
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.axes import (
     _half_split_effect,
     _stratified_quality_control,
 )
-from baibai_engine.machine_analysis.screening.calibration.evaluation.discovery import (
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.discovery import (
     _evaluate_candidate_discovery,
     _observation_dependence,
 )
-from baibai_engine.machine_analysis.screening.calibration.evaluation.sensitivity import (
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.sensitivity import (
     _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
 )
-from baibai_engine.machine_analysis.screening.calibration.evaluation.statistics import _spearman
-from baibai_engine.machine_analysis.screening.calibration.evidence import (
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.statistics import _spearman
+from baibai_engine.machine_analysis.historical_evaluation.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     ESTIMATOR_POLICY_MANDATORY_METRICS,
     KNOWN_METRICS,
     candidate_discovery_approach_fidelity_metric,
 )
-from baibai_engine.machine_analysis.screening.calibration.forward import ForwardReturnRow
-from baibai_engine.machine_analysis.screening.calibration.horizons import require_horizon
-from baibai_engine.machine_analysis.screening.calibration.panel import (
+from baibai_engine.machine_analysis.historical_evaluation.forward import ForwardReturnRow
+from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
+from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PRODUCTION_PANEL_POLICY,
     PanelDiagnostics,
     PanelRow,
     rules_content_hash,
 )
-from baibai_engine.machine_analysis.screening.calibration.store import write_forward, write_panel
+from baibai_engine.machine_analysis.historical_evaluation.store import write_forward, write_panel
 from baibai_engine.machine_analysis.screening.rule_config import (
     ScreeningRules,
     load_screening_rules,
@@ -632,7 +632,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         self,
     ) -> None:
         with patch(
-            "baibai_engine.machine_analysis.screening.calibration.panel.VALUATION_CALCULATION_REVISION",
+            "baibai_engine.machine_analysis.historical_evaluation.panel.VALUATION_CALCULATION_REVISION",
             "same-profit-basis-yoy-v25",
         ):
             old_hash = rules_content_hash(_RULES, PRODUCTION_PANEL_POLICY)
@@ -2200,8 +2200,8 @@ def test_the_half_split_needs_thirty_pairs_before_it_reports_a_difference() -> N
 def test_evaluation_report_cannot_replace_its_input_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, output_option: str, alias: str
 ) -> None:
-    from baibai_engine.machine_analysis.screening.calibration import cli
-    from baibai_engine.machine_analysis.screening.calibration.store import CURRENT_SNAPSHOT_NAME
+    from baibai_engine.machine_analysis.historical_evaluation import cli
+    from baibai_engine.machine_analysis.historical_evaluation.store import CURRENT_SNAPSHOT_NAME
 
     write_panel(tmp_path, date.fromisoformat(_ASOF), [_panel_row("1111")], _panel_diagnostics())
     write_forward(tmp_path, date.fromisoformat(_ASOF), [_forward_row("1111", 0.1)])

@@ -211,7 +211,7 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                         [
                             sys.executable,
                             "-m",
-                            "baibai_engine.cli",
+                            "baibai_engine.cli.app",
                             "data-collection",
                             "market",
                             "backfill-master",
@@ -227,7 +227,7 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                         [
                             sys.executable,
                             "-m",
-                            "baibai_engine.cli",
+                            "baibai_engine.cli.app",
                             "tradingview",
                             "refresh",
                             "--asof",

@@ -3,8 +3,8 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.company_valuation.earnings import earnings_price
-from baibai_engine.machine_analysis.company_valuation.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_financials.earnings import earnings_price
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.price_models import PriceBar
 
