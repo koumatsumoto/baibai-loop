@@ -1055,6 +1055,172 @@ def test_half_year_only_revision_keeps_annual_earnings(period_type, prefix):
     assert snapshot(decode([old, half_year])).per_forward == 1074 / 20
 
 
+def _scope_forecast_statement(basis: str = "Consolidated") -> dict[str, Any]:
+    return document(
+        "scope-statement",
+        day="2026-08-01",
+        DocType=f"FYFinancialStatements_{basis}_JP",
+        CurFYSt="2025-07-01",
+        CurFYEn="2026-06-30",
+        CurPerSt="2025-07-01",
+        CurPerEn="2026-06-30",
+        NxtFYSt="2026-07-01",
+        NxtFYEn="2027-06-30",
+        NxFEPS="20",
+        NxFNp="100",
+        NxFOdP="90",
+        NxFDivAnn="7",
+    )
+
+
+@pytest.mark.parametrize(("period", "end"), [("1Q", "2026-09-30"), ("3Q", "2027-03-31")])
+@pytest.mark.parametrize(("basis", "prefix"), [("Consolidated", "F"), ("NonConsolidated", "FNC")])
+def test_short_revision_does_not_claim_annual_values(period, end, basis, prefix):
+    records = [
+        _scope_forecast_statement(basis),
+        document(
+            "short-scope",
+            day="2026-10-01",
+            CurPerType=period,
+            CurPerEn=end,
+            FDivAnn="9",
+            **{prefix + "NP": "-30", prefix + "OdP": "-40"},
+        ),
+    ]
+    result = snapshot(decode(records))
+    assert result.forecast_profit_yen is None
+    assert result.forecast_ordinary_profit_yen is None
+    assert result.forecast_eps_yen is None
+    assert result.per_forward is None
+    assert not result.forecast_full_year_loss_flag
+    assert result.dps_forecast_annual == 9
+    trace = result.earnings_forecast_source
+    assert trace is not None
+    assert trace["status"] == "unresolved"
+    assert trace["reason"] == "ambiguous_short_period_revision"
+    assert trace["reported_period_type"] == period
+    assert trace["reported_period_end"] == end
+    assert trace["period_end"] == "2027-06-30"
+    for field in ("forecast_eps", "forecast_profit", "forecast_ordinary_profit"):
+        assert trace[f"{field}_source_records"] == "short-scope"
+    assert "reason" not in result.dividend_forecast_source
+    original = decode(records)
+    projected = project_financial_documents(original, ASOF)
+    assert [row.document_payload for row in projected] == [row.document_payload for row in original]
+
+
+def test_quarter_statement_can_still_supply_annual_guidance():
+    quarter = document(
+        "quarter-annual",
+        day="2026-10-01",
+        DocType="1QFinancialStatements_Consolidated_JP",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        FEPS="30",
+        FNP="150",
+        FOdP="140",
+    )
+    result = snapshot(decode([_scope_forecast_statement(), quarter]))
+    assert result.per_forward == 1074 / 30
+    assert result.forecast_profit_yen == 150
+    assert result.earnings_forecast_source["status"] == "confirmed"
+    assert "reason" not in result.earnings_forecast_source
+
+
+def test_half_year_and_full_year_revision_preserves_distinct_annual_values():
+    mixed = document(
+        "mixed-half-and-full",
+        day="2026-10-01",
+        CurPerType="2Q",
+        CurPerEn="2026-12-31",
+        FEPS="30",
+        FNP="150",
+        FOdP="140",
+        FEPS2Q="8",
+        FNP2Q="40",
+        FOdP2Q="35",
+    )
+    result = snapshot(decode([_scope_forecast_statement(), mixed]))
+    assert result.per_forward == 1074 / 30
+    assert result.forecast_profit_yen == 150
+    assert result.earnings_forecast_source["status"] == "confirmed"
+
+
+def test_annual_scope_barrier_survives_missing_statement_and_explicit_guidance_recovers():
+    short = document(
+        "short-scope",
+        day="2026-10-01",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        FNP="30",
+        FEPS="6",
+    )
+    missing = document(
+        "quarter-missing",
+        day="2026-10-02",
+        DocType="1QFinancialStatements_Consolidated_JP",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        NP="31",
+        EPS="6.2",
+    )
+    records = [_scope_forecast_statement(), short, missing]
+    result = snapshot(decode(records))
+    assert result.per_forward is None
+    assert result.earnings_forecast_source["disclosure_number"] == "short-scope"
+    assert result.earnings_forecast_source["status"] == "unresolved"
+    actual = next(row for row in decode(records) if row.disclosure_number == "quarter-missing")
+    assert actual.profit == 31
+    recovered = snapshot(
+        decode([*records, document("annual-confirmed", day="2026-10-03", FEPS="30", FNP="150")])
+    )
+    assert recovered.per_forward == 1074 / 30
+    assert recovered.earnings_forecast_source["status"] == "confirmed"
+    assert "reason" not in recovered.earnings_forecast_source
+
+
+def test_unknown_time_scope_conflict_keeps_provenance_through_merged_sources():
+    short = document(
+        "short-unknown-time",
+        day="2026-10-01",
+        time="",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        FNP="30",
+    )
+    annual = document(
+        "annual-same-day", day="2026-10-01", time="17:00:00", FEPS="30", FNP="150"
+    )
+    result = snapshot(decode([_scope_forecast_statement(), short, annual]))
+    assert result.per_forward is None
+    trace = result.earnings_forecast_source
+    assert trace["status"] == "unresolved"
+    assert trace["reason"] == "ambiguous_short_period_revision"
+    assert trace["scope_conflict_source_records"] == "short-unknown-time"
+    assert trace["candidate_disclosure_numbers"] == "annual-same-day,short-unknown-time"
+    assert "reported_period_end" not in trace
+
+
+def test_short_current_revision_does_not_poison_explicit_next_year_slot():
+    record = document(
+        "next-year",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        FNP="30",
+        NxtFYSt="2027-07-01",
+        NxtFYEn="2028-06-30",
+        NxFEPS="40",
+        NxFNp="200",
+    )
+    projected = project_financial_documents(decode([record]), date(2027, 8, 1))
+    source = latest_forecast_source(projected)
+    assert source is not None
+    assert source.forecast_eps == 40
+    assert source.forecast_profit == 200
+    assert source.forecast_status == "confirmed"
+    assert not source.forecast_scope_conflict_sources
+
+
 @pytest.mark.parametrize("fields", [{}, {"FDiv2Q": "3"}, {"FDiv2Q": "3", "FDivFY": "4"}])
 def test_dividend_revision_without_annual_value_does_not_invent_or_revive_it(fields):
     old = document("old", day="2026-08-01", FEPS="20", FDivAnn="7")
