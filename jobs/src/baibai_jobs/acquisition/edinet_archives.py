@@ -13,7 +13,7 @@ from baibai_engine.market.edinet_facts.service import prepare_edinet_facts
 from baibai_engine.market.edinet_metrics.service import prepare_edinet_metric_plan
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 
 def acquire_archives(

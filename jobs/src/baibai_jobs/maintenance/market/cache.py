@@ -22,7 +22,7 @@ from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
 )
-from baibai_engine.market.jquants_refresh import (
+from baibai_jobs.maintenance.source_refresh.jquants import (
     all_issues_daily_margin_backfill_candidate_dates,
     all_issues_daily_margin_candidate_dates,
     final_legacy_week_requires_refresh,
@@ -43,7 +43,7 @@ from baibai_engine.storage.observations.coverage import (
 )
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
-from .providers import JQuantsMaintenance, ProviderBundle
+from baibai_jobs.maintenance.market.providers import JQuantsMaintenance, ProviderBundle
 
 
 def _maintenance(providers: ProviderBundle) -> JQuantsMaintenance:

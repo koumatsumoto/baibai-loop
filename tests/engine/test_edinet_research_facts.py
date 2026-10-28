@@ -21,9 +21,11 @@ from baibai_engine.market.edinet_facts.selection import (
     latest_annual_filing,
     usable_document,
 )
+from baibai_jobs.maintenance.edinet_extraction import (
+    refresh_edinet_facts_command,
+)
 from baibai_engine.market.edinet_facts.service import (
     extract_edinet_facts_command,
-    refresh_edinet_facts_command,
 )
 from baibai_engine.market.edinet_facts.store import (
     document_inventory,
@@ -33,8 +35,8 @@ from baibai_engine.market.edinet_facts.store import (
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_refresh import EDINETRefresh
-from baibai_engine.source_maintenance import cli as app
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
+from baibai_jobs.maintenance.market import cli as app
 from baibai_engine.storage.observations.schema import open_connection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"

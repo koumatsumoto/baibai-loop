@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.profit imp
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import build_panel
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_engine.storage.observations.schema import open_connection
 
 

@@ -15,7 +15,7 @@ from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_refresh import JPXRefresh
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 from baibai_engine.machine_analysis.observations.disclosures.tender_offer import (
     TenderOfferDocumentReader,
     TenderOfferError,
@@ -28,7 +28,7 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_offer import
 )
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
-from .providers import EDINETMaintenance
+from baibai_jobs.maintenance.market.providers import EDINETMaintenance
 
 
 def refresh_jpx_delistings_command(*, sqlite_path: Path, stdout: TextIO | None = None) -> int:

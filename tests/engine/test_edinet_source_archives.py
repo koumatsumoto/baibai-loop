@@ -19,7 +19,7 @@ from baibai_engine.data_collection.edinet import http as edinet_http
 from baibai_engine.data_collection.edinet.archives import read_source_archive, retain_source_archive
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.storage.lake.datasets import EDINET_SOURCE_ARCHIVES
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store

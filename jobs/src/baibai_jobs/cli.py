@@ -6,22 +6,21 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from baibai_engine.storage.paths import StoreLayoutError
-from baibai_engine.data_collection.external_assessment.cli import main as external_assessment_acquisition_main
-from baibai_engine.storage.paths import reject_noncanonical_store_paths
-from baibai_jobs.jobs.model_integration import main as model_integration_main
-from baibai_jobs.jobs.tradingview import main as tradingview_main
-from baibai_jobs.validation.market_context_stores import (
-    main as validate_market_context_stores_main,
-)
+from importlib import import_module
+
+from baibai_engine.storage.paths import StoreLayoutError, reject_noncanonical_store_paths
 
 Command = Callable[[list[str] | None], int]
 
-_COMMANDS: dict[str, Command] = {
-    "model-integration": model_integration_main,
-    "external-assessment": external_assessment_acquisition_main,
-    "tradingview": tradingview_main,
-    "validate-market-context-stores": validate_market_context_stores_main,
+# Commands are resolved only after selection. Listing/help never opens unrelated stores or providers.
+_COMMANDS = {
+    "model-integration": "baibai_jobs.jobs.model_integration",
+    "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
+    "tradingview": "baibai_jobs.jobs.tradingview",
+    "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
+    "acquire-economic": "baibai_jobs.acquisition.economic_cli",
+    "maintain-market": "baibai_jobs.maintenance.market.cli",
+    "validate-market-context-stores": "baibai_jobs.validation.market_context_stores",
 }
 
 
@@ -41,7 +40,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         except StoreLayoutError as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
-    return _COMMANDS[args.command](args.arguments)
+    command: Command = import_module(_COMMANDS[args.command]).main
+    return command(args.arguments)
 
 
 if __name__ == "__main__":  # pragma: no cover

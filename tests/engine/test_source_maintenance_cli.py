@@ -36,7 +36,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.trading_activity.models import (
     JQuantsWeeklyMargin,
 )
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 from baibai_engine.market.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_weekly_margin,
@@ -44,13 +44,13 @@ from baibai_engine.market.jquants_writer import (
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
-from baibai_engine.source_maintenance import cli as source_app
-from baibai_engine.source_maintenance.cache import (
+from baibai_jobs.maintenance.market import cli as source_app
+from baibai_jobs.maintenance.market.cache import (
     backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
 )
-from baibai_engine.source_maintenance.providers import ProviderBundle
+from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_engine.storage.observations.schema import open_connection
 
 

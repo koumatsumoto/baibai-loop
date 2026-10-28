@@ -21,7 +21,7 @@ from tests.jobs.test_external_assessment_daily import (
 )
 
 from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
+import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.jobs import external_assessment_sources as sources

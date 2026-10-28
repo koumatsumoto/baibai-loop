@@ -3,7 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.data_collection.economic import acquisition, cli
+import baibai_engine.data_collection.economic.acquisition as acquisition
+import baibai_jobs.acquisition.economic_cli as cli
 from baibai_engine.data_collection.economic.documents import (
     SourceDocument,
     read_documents,

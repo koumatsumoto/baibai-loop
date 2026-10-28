@@ -26,9 +26,9 @@ from baibai_engine.machine_analysis.observations.disclosures.delistings import (
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.jpx_refresh import JPXRefresh
-from baibai_engine.source_maintenance import cli as app
-from baibai_engine.source_maintenance.delisting_cli import refresh_jpx_delistings_command
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.market.delisting_cli import refresh_jpx_delistings_command
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
@@ -340,7 +340,7 @@ def test_rebuild_cli_and_reader_are_offline(
 
 
 def test_refresh_cli_routes_to_jpx_refresh_and_closes(tmp_path: Path) -> None:
-    with patch("baibai_engine.source_maintenance.delisting_cli.JPXRefresh") as factory:
+    with patch("baibai_jobs.maintenance.market.delisting_cli.JPXRefresh") as factory:
         instance = factory.return_value
         instance.refresh_delistings_snapshot.return_value = (_record("1000"),)
         assert refresh_jpx_delistings_command(sqlite_path=tmp_path / "market.sqlite") == 0

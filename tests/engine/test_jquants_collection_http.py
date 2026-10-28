@@ -23,7 +23,7 @@ from baibai_engine.data_collection.jquants.http import (
 )
 from baibai_engine.data_collection.jquants.receipts import read_complete_request, read_request_pages
 from baibai_engine.data_collection.read_http import AcquisitionDeadlineExceeded
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.schema import open_connection
 

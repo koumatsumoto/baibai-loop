@@ -15,8 +15,8 @@ from tests.engine.test_external_assessment_sources import monex_html
 from tests.jobs.external_assessment_response_fixtures import response
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, observation, plan
 
-from baibai_engine.data_collection.external_assessment.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
-from baibai_engine.data_collection.external_assessment.collection import CollectionResult as ExternalAssessmentCollectionResult
+from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
+from baibai_jobs.acquisition.external_assessments.collection import CollectionResult as ExternalAssessmentCollectionResult
 from baibai_jobs.jobs import external_assessment_daily as daily
 from baibai_jobs.storage import external_assessment_raw as external_assessment_raw
 from baibai_jobs.storage import external_assessment_staging as external_assessment_staging

@@ -15,7 +15,7 @@ from tests.jobs.external_assessment_publication_fixtures import (
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
-from baibai_engine.data_collection.external_assessment.verification import history_digests as external_assessment_history_digests
+from baibai_jobs.publication.external_assessment_verification import history_digests as external_assessment_history_digests
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations as external_assessment_save_observations
 from baibai_jobs.jobs.external_assessment_integration import (
     VALUATION_DATASET,

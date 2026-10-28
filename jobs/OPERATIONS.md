@@ -58,7 +58,7 @@ groupと取得範囲は `data-collection economic groups` とData Collectionのs
 `--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗は通知の「全履歴の限定回復待ち」に出し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
 
 ```bash
-uv run baibai-engine data-collection economic groups
+uv run baibai-jobs acquire-economic groups
 gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
 ```
 
@@ -368,8 +368,8 @@ receipt再生成で復旧する場合だけ、対象がbucket直下のmutable ma
 原本が誤っていればsource訂正取得または明示再構築。local DELETEをcloud mergeによる訂正に使わない。系列追加/退役/改名や式変更はL2定義を直し、外部取得条件を変える場合だけData Collectionも直す。原本から再計算できる変更へ再取得・scalar撤回・registry世代台帳を要求しない。
 
 ```bash
-uv run baibai-engine data-collection economic list
-uv run baibai-engine data-collection economic refresh <SOURCE_ID> --all-history --end <YYYY-MM-DD>
+uv run baibai-jobs acquire-economic list
+uv run baibai-jobs acquire-economic refresh <SOURCE_ID> --all-history --end <YYYY-MM-DD>
 uv run baibai-engine market-context reading --asof <YYYY-MM-DD>
 uv run baibai-jobs validate-market-context-stores
 ```
@@ -405,7 +405,7 @@ main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrat
 未初期化storeだけ、整合する隔離marketとdocument inventoryを指定して初期抽出する。
 
 ```bash
-uv run baibai-engine data-collection market refresh-edinet-facts \
+uv run baibai-jobs maintain-market refresh-edinet-facts \
   --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>
 ```
 
@@ -420,8 +420,8 @@ dailyは未初期化をskipし、初期化後の新規年次/訂正を独立処�
 限定collectは明示した少数銘柄の公開HTTPを直列で読み、private captureへ保存する。通常TLS/proxyを使い、403/429でそのsourceを止める。captureの保存先は試行ごとに別名にし、部分captureを再取得で上書きしない。既存のcurrent-schema隔離marketへimportする。
 
 ```bash
-uv run baibai-engine external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/responses.json
-uv run baibai-engine external-assessment import --input /tmp/private-external-assessment/responses.json --db /tmp/private-external-assessment/market.sqlite
+uv run baibai-jobs external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/responses.json
+uv run baibai-jobs external-assessment import --input /tmp/private-external-assessment/responses.json --db /tmp/private-external-assessment/market.sqlite
 ```
 
 importは原本を保持して選択attemptを再解析する。parse失敗時にL1は残り得るがL2を部分追記しない。原本/観測の挿入件数と再投入0を確認し、HTTP・parse・未試行・正常nullを分ける。新規DB初期化や旧schema移行は行わない。
@@ -476,7 +476,7 @@ gh workflow run cloud-tradingview-snapshot.yml --ref main \
 対話commandを起動したまま認証URLを開く。callbackは127.0.0.1:8765で、接続拒否なら待受やWindows/WSLの接続を確認する。stateはrepo外に置く。
 
 ```bash
-uv run baibai-engine tradingview authorize --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
+uv run baibai-jobs tradingview-source authorize --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
 gh secret set TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop --env tradingview-runtime \
   < "$HOME/.cache/baibai-loop/tradingview/oauth.json"
 ```
@@ -493,7 +493,7 @@ tradingview-runtimeはjob開始時に最新のrotating stateを読むためのen
 専用clean runtime checkoutを使い、fresh pull/hydrateで置換されるstoreを編集中のcheckoutと共用しない。既存R2/J-Quants接続、AWS CLI、httpfsを用意する。GitHub stateをコピーせず別fileへ対話認証する。
 
 ```bash
-uv run baibai-engine tradingview authorize --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
+uv run baibai-jobs tradingview-source authorize --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
 uv run baibai-jobs tradingview --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
 ```
 
@@ -510,7 +510,7 @@ Retry-Afterがある場合は期限を守る。Actions cooldownの保存失敗�
 保存L1の一日分だけをoffline再構築する時は、同日・master・tool・Universe・受領時刻のreceiptを指定する。
 
 ```bash
-uv run baibai-engine tradingview rebuild --sqlite /tmp/market-rebuild.sqlite \
+uv run baibai-jobs tradingview-source rebuild --sqlite /tmp/market-rebuild.sqlite \
   --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
 ```
 

@@ -37,7 +37,7 @@ from baibai_engine.storage.lake import models as lake_models
 for prefix in (
     'baibai_engine.data_collection.external_assessment',
     'baibai_engine.machine_analysis.observations.external_assessments.store',
-    'baibai_engine.data_collection.tradingview.collector',
+    'baibai_jobs.acquisition.tradingview.collector',
     'baibai_engine.data_collection.tradingview.client',
     'baibai_engine.data_collection.tradingview.auth',
     'baibai_engine.storage.observations',
@@ -58,7 +58,7 @@ from baibai_engine.machine_analysis.observations.financials import jquants_model
 from baibai_engine.machine_analysis.observations.disclosures import jpx_reader, jpx_models
 from baibai_engine.machine_analysis.observations.financials import edinet_models
 from baibai_engine.machine_analysis.observations.trading_activity import margin_reader, models as margin_models
-from baibai_engine.market import jquants_reader
+from baibai_jobs.maintenance import jquants_inputs as jquants_reader
 for prefix in (
     'baibai_engine.market.jquants_writer',
     'baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild',
@@ -79,7 +79,7 @@ from baibai_engine.market import edinet_decode
 from baibai_engine.market.edinet_metrics import store
 from baibai_engine.market.edinet_metrics import csv as edinet_csv
 for prefix in (
-    'baibai_engine.market.edinet_refresh',
+    'baibai_jobs.maintenance.source_refresh.edinet',
     'requests',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix

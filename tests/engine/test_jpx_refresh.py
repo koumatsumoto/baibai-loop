@@ -25,9 +25,9 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import r
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import JPXReader, read_jpx_regulations
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot, store_jpx_regulations
-from baibai_engine.market.jpx_refresh import JPXRefresh
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import JPX_EARNINGS_CALENDAR_INDEX_URL, JPX_REGULATION_URLS
-from baibai_engine.source_maintenance import cli as app
+from baibai_jobs.maintenance.market import cli as app
 from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 10, 15)
@@ -46,7 +46,7 @@ FILE_B = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/k
 def _calendar_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_at = datetime(2026, 10, 15, tzinfo=UTC)
     clock = SimpleNamespace(now=lambda zone: captured_at.astimezone(zone))
-    monkeypatch.setattr("baibai_engine.market.jpx_refresh.datetime", clock)
+    monkeypatch.setattr("baibai_jobs.maintenance.source_refresh.jpx.datetime", clock)
     monkeypatch.setattr("baibai_engine.data_collection.jpx.http.datetime", clock)
 
 

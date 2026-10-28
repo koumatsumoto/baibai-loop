@@ -16,7 +16,7 @@ from tests.helpers.indicator_store import (
 )
 
 from baibai_engine.data_collection.economic import acquisition as acquisition
-from baibai_engine.data_collection.economic.cli import main as economic_main
+from baibai_jobs.acquisition.economic_cli import main as economic_main
 from baibai_engine.data_collection.economic.providers import IndicatorsProviderError
 from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
 from baibai_engine.data_collection.economic.store import initialize_database, open_connection

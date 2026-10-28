@@ -7,7 +7,7 @@ import pytest
 import requests
 
 from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
+import baibai_jobs.acquisition.external_assessments.collection as collection
 
 
 class Clock:

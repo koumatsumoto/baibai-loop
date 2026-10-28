@@ -16,19 +16,19 @@ from zoneinfo import ZoneInfo
 from mcp.types import CallToolResult
 
 from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     CollectionFailure as CollectionFailure,
 )
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     CollectionProgress as CollectionProgress,
 )
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     SourceDataError as SourceDataError,
 )
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     TimeGuardError as TimeGuardError,
 )
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     failure_category,
     failure_line,
 )

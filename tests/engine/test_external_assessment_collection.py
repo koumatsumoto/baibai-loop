@@ -20,7 +20,8 @@ from baibai_engine.data_collection.equity_web.capture import (
     save_capture,
 )
 from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.data_collection.external_assessment import cli, collection
+import baibai_jobs.acquisition.external_assessments.cli as cli
+import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import ParseError, monex
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation,

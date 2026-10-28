@@ -19,7 +19,7 @@ from baibai_engine.data_collection.edinet.receipts import (
     retain_list_response,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource

@@ -10,9 +10,9 @@ import httpx2
 import pytest
 from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
 
-from baibai_engine.data_collection.tradingview import cli
-from baibai_engine.data_collection.tradingview.collector import collect, preflight_snapshot
-from baibai_engine.data_collection.tradingview.diagnostics import (
+import baibai_jobs.acquisition.tradingview.cli as cli
+from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
+from baibai_jobs.observability.tradingview import (
     SourceDataError,
     TimeGuardError,
 )

@@ -13,7 +13,7 @@ from tests.engine.test_external_assessment_sources import (
 )
 
 from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
+import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex, rakuten
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
 

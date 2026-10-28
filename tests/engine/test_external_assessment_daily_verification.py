@@ -13,11 +13,11 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master import TSE_33_SECTORS, insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.external_assessment.universe import (
+from baibai_jobs.acquisition.external_assessments.universe import (
     frozen_lake_universe,
     frozen_universe,
 )
-from baibai_engine.data_collection.external_assessment.verification import (
+from baibai_jobs.publication.external_assessment_verification import (
     history_digests,
     verify_observations,
 )

@@ -9,8 +9,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.data_collection.external_assessment.cli import add_acquisition_commands
-from baibai_engine.data_collection.external_assessment.cli import main as acquisition_main
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
@@ -19,7 +17,6 @@ from baibai_engine.storage.observations.schema import SQLiteSchemaError
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine external-assessment")
     commands = parser.add_subparsers(dest="command", required=True)
-    add_acquisition_commands(commands)
     rebuild = commands.add_parser(
         "rebuild-raw", help="reparse explicitly retained attempts in an existing market SQLite"
     )
@@ -35,8 +32,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, /) -> int:
     arguments = sys.argv[1:] if argv is None else argv
-    if arguments and arguments[0] in {"collect", "import"}:
-        return acquisition_main(arguments)
     args = build_parser().parse_args(arguments)
     if args.command == "rebuild-raw":
         from baibai_engine.machine_analysis.observations.external_assessments.rebuild import rebuild_attempts

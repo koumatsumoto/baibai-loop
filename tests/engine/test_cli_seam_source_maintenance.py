@@ -43,13 +43,13 @@ from baibai_engine.market.input_windows import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
-from baibai_engine.source_maintenance import cli as app
-from baibai_engine.source_maintenance.cache import (
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.market.cache import (
     FIN_SUMMARY_REVISION_OVERLAP_DAYS,
     refresh_edinet_documents_command,
 )
-from baibai_engine.source_maintenance.providers import ProviderBundle
-from baibai_engine.source_maintenance.valuation_catalyst_cli import backfill_edinet_identity_command
+from baibai_jobs.maintenance.market.providers import ProviderBundle
+from baibai_jobs.maintenance.market.valuation_catalyst_cli import backfill_edinet_identity_command
 from baibai_engine.storage.observations.schema import open_connection
 
 # The store path every command below derives from the working directory.

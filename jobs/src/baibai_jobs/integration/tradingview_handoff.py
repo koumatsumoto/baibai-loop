@@ -11,14 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.jquants.receipts import read_complete_request
-from baibai_engine.data_collection.tradingview.collector import (
+from baibai_jobs.acquisition.tradingview.collector import (
     calendar_context,
     preflight_snapshot,
     universe,
     validate_time,
 )
 from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     SourceDataError,
     failure_category,
 )

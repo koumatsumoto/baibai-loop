@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.source_maintenance.config import SourceMaintenanceConfig
+from baibai_jobs.maintenance.market.config import SourceMaintenanceConfig
 
 
 class SourceMaintenanceConfigTests(unittest.TestCase):

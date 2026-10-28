@@ -374,7 +374,7 @@ def test_visible_history_priority_does_not_infer_hidden_rounding_from_card():
 
 
 def test_conflicting_displayed_forecast_year_is_not_silently_reconciled():
-    from baibai_engine.data_collection.external_assessment.collection import PARSE_FAILURE_REASONS
+    from baibai_jobs.acquisition.external_assessments.collection import PARSE_FAILURE_REASONS
 
     # Equal figures do not establish which of two conflicting period labels is true.
     text = html().replace("2027年3月期", "2026年12月期")

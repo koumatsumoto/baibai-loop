@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.data_collection.edinet import http as edinet_http
 from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.market import edinet_refresh as edinet_refresh_module
+import baibai_jobs.maintenance.source_refresh.edinet as edinet_refresh_module
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import parse_doc_id
 from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
@@ -39,7 +39,7 @@ from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     normalize_financial_summary,

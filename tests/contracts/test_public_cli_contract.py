@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 
 from baibai_engine.cli.app import main
-from baibai_engine.data_collection_cli import main as collection_main
+from baibai_jobs.cli import main as collection_main
 from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
 from baibai_engine.machine_analysis.screening.cli.app import build_parser as build_screening_parser
-from baibai_engine.source_maintenance.cli import build_parser as build_source_parser
+from baibai_jobs.maintenance.market.cli import build_parser as build_source_parser
 
 
 def _choices(parser) -> set[str]:
@@ -151,7 +151,7 @@ def test_screening_provider_protocols_do_not_import_command_implementations():
             "-c",
             """
 import sys
-from baibai_engine.source_maintenance.providers import ProviderBundle
+from baibai_jobs.maintenance.market.providers import ProviderBundle
 for module in ("app", "cache", "run", "query"):
     assert f"baibai_engine.machine_analysis.screening.cli.{module}" not in sys.modules
 """,
@@ -175,7 +175,7 @@ def test_source_maintenance_is_owned_by_collection_not_legacy_screening():
     assert "verify-cache-coverage" not in source
     assert not source.intersection(_choices(build_screening_parser()))
     with pytest.raises(SystemExit) as help_result:
-        collection_main(["market", "--help"])
+        collection_main(["maintain-market", "--help"])
     assert help_result.value.code == 0
     with pytest.raises(SystemExit):
         build_screening_parser().parse_args(["bootstrap-cache", "--asof", "2026-10-23"])

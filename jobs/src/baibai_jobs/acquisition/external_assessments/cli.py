@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None, /) -> int:
                 EquityWebCapture,
                 save_capture,
             )
-            from baibai_engine.data_collection.external_assessment.collection import (
+            from baibai_jobs.acquisition.external_assessments.collection import (
                 DEFAULT_TICKERS,
                 collect,
             )

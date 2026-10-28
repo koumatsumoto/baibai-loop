@@ -25,15 +25,15 @@ from baibai_engine.data_collection.jpx.receipts import (
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.jpx_refresh import JPXRefresh
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TSE_CAPITAL_POLICY_URL,
     ValuationCatalystError,
     parse_tse_capital_policy_workbook,
     store_tse_capital_policy_rows,
 )
-from baibai_engine.source_maintenance import cli as app
-from baibai_engine.source_maintenance.valuation_catalyst_cli import (
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.market.valuation_catalyst_cli import (
     refresh_tse_capital_policy_command,
 )
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
@@ -316,7 +316,7 @@ def test_rebuild_cli_never_acquires(tmp_path: Path, capsys: pytest.CaptureFixtur
 
 
 def test_explicit_refresh_cli_uses_jpx_refresh_and_closes_it(tmp_path: Path) -> None:
-    with patch("baibai_engine.source_maintenance.valuation_catalyst_cli.JPXRefresh") as fake:
+    with patch("baibai_jobs.maintenance.market.valuation_catalyst_cli.JPXRefresh") as fake:
         instance = fake.return_value
         instance.refresh_capital_policy_snapshot.return_value.sheet_count = 2
         instance.refresh_capital_policy_snapshot.return_value.row_count = 3

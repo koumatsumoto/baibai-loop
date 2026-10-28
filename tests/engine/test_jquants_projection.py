@@ -21,7 +21,7 @@ from baibai_engine.data_collection.jquants.receipts import (
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_snapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_projection import project_request
-from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import read_margin_alerts
 from baibai_engine.storage.lake.datasets import JQUANTS_MARGIN_ALERTS
 from baibai_engine.storage.lake.duck import lake_session

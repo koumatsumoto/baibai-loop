@@ -11,9 +11,9 @@ from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, sta
 from tests.jobs.test_external_assessment_raw import Session
 from tests.jobs.test_external_assessment_raw import connect as connect
 
-from baibai_engine.data_collection.external_assessment import collection
-from baibai_engine.data_collection.external_assessment.universe import frozen_universe
-from baibai_engine.data_collection.external_assessment.verification import verify_observations
+import baibai_jobs.acquisition.external_assessments.collection as collection
+from baibai_jobs.acquisition.external_assessments.universe import frozen_universe
+from baibai_jobs.publication.external_assessment_verification import verify_observations
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import ParseError, kabumap
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QuantsScoreObservation,

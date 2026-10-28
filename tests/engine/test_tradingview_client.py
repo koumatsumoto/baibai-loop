@@ -90,7 +90,7 @@ def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
     "error", [SCANNER_ERROR, SCANNER_ERROR_WITH_SUFFIX, "HTTP 429 private-token https://secret"]
 )
 def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, error):
-    from baibai_engine.data_collection.tradingview.cli import failure_line
+    from baibai_jobs.acquisition.tradingview.cli import failure_line
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )

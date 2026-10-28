@@ -17,7 +17,7 @@ from tests.engine.test_external_assessment_sources import (
 from tests.engine.test_kabumap import html as kabumap_html
 
 from baibai_engine.data_collection.equity_web.receipts import read_responses, retain_response
-from baibai_engine.external_assessment_cli import main as assessment_main
+from baibai_engine.cli.external_assessment import main as assessment_main
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     kabumap,

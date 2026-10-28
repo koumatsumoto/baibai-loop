@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
 
-from baibai_engine.external_assessment_cli import main
+from baibai_engine.cli.external_assessment import main
 from baibai_engine.machine_analysis.models.external_assessment.analysis import FORECAST_METRICS
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QuantsScoreObservation,
@@ -234,8 +234,8 @@ def test_domain_import_does_not_start_composition_or_acquisition():
             """\nimport sys
 from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context")) for name in sys.modules)
-assert "baibai_engine.data_collection.external_assessment.collection" not in sys.modules
-assert "baibai_engine.data_collection.tradingview.collector" not in sys.modules
+assert "baibai_jobs.acquisition.external_assessments.collection" not in sys.modules
+assert "baibai_jobs.acquisition.tradingview.collector" not in sys.modules
 """,
         ],
         check=True,
@@ -305,12 +305,12 @@ def test_show_parser_does_not_import_acquisition_or_store_implementations():
             "-c",
             """
 import sys
-from baibai_engine.external_assessment_cli import build_parser
+from baibai_engine.cli.external_assessment import build_parser
 args = build_parser().parse_args([
     "show", "--ticker", "1234", "--cutoff", "2026-10-15T12:00:00+09:00"
 ])
 assert args.command == "show"
-assert "baibai_engine.data_collection.external_assessment.collection" not in sys.modules
+assert "baibai_jobs.acquisition.external_assessments.collection" not in sys.modules
 assert "baibai_engine.machine_analysis.observations.external_assessments.store" not in sys.modules
 """,
         ],

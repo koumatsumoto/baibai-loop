@@ -13,8 +13,8 @@ from tests.helpers.screening_sqlite import make_master_records
 from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
 from baibai_engine.data_collection.jquants.receipts import read_request_pages
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 from baibai_engine.market.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
@@ -399,7 +399,7 @@ def test_daily_backfill_paces_after_31_days_and_reuses_covered_data(database, mo
         {("daily", value.isoformat()): [bar(value.isoformat(), 100.0)] for value in dates},
     )
     waits = []
-    monkeypatch.setattr("baibai_engine.market.jquants_refresh.time.sleep", waits.append)
+    monkeypatch.setattr("baibai_jobs.maintenance.source_refresh.jquants.time.sleep", waits.append)
     assert maintenance.ensure_daily_bars(start, end) == 32
     assert len(session.calls) == 32
     assert waits == [3.0]

@@ -12,7 +12,7 @@ from tests.engine.test_external_assessment_sources import monex_html, official_h
 from tests.jobs.external_assessment_response_fixtures import response
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, stage
 
-from baibai_engine.data_collection.external_assessment import collection
+import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     monex,

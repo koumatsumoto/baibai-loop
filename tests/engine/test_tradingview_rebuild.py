@@ -14,17 +14,17 @@ import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 
-from baibai_engine.data_collection.tradingview import cli
-from baibai_engine.data_collection.tradingview.collector import (
+import baibai_jobs.acquisition.tradingview.cli as cli
+from baibai_jobs.acquisition.tradingview.collector import (
     CollectionFailure,
     SourceDataError,
     collect,
 )
 from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     failure_category,
 )
-from baibai_engine.data_collection.tradingview.rebuild import (
+from baibai_jobs.maintenance.tradingview_rebuild import (
     RebuildError,
     rebuild_from_receipts,
 )

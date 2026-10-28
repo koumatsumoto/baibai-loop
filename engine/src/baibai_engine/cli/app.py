@@ -44,12 +44,8 @@ class Domain:
 # 各 domain の読取・書込責務を、実装のimportなしに一覧できる。
 DOMAINS: Mapping[str, Domain] = {
     "external-assessment": Domain(
-        module="baibai_engine.external_assessment_cli",
-        summary="saved external assessments, bounded acquisition and explicit local stage import",
-    ),
-    "tradingview": Domain(
-        module="baibai_engine.data_collection.tradingview.cli",
-        summary="TradingView OAuth and analyst expectation snapshot acquisition",
+        module="baibai_engine.cli.external_assessment",
+        summary="saved external assessments and explicit offline observation rebuild",
     ),
     "lake": Domain(
         module="baibai_engine.storage.lake.cli",
@@ -66,10 +62,6 @@ DOMAINS: Mapping[str, Domain] = {
     "technical-analysis": Domain(
         module="baibai_engine.cli.technical_analysis",
         summary="read-only SMA, BB, Wilder RSI and common-calendar momentum from saved prices",
-    ),
-    "data-collection": Domain(
-        module="baibai_engine.data_collection_cli",
-        summary="Data Collection: external sources and original receipts",
     ),
     "operation": Domain(
         module="baibai_engine.investment_judgment.workflow.operation.cli",

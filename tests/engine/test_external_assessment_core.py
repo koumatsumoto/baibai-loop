@@ -379,7 +379,7 @@ from baibai_engine.machine_analysis.observations.external_assessments import con
 for name in (
     'baibai_engine.machine_analysis.observations.external_assessments.store',
     'baibai_engine.machine_analysis.observations.external_assessments.reader',
-    'baibai_engine.data_collection.external_assessment.collection',
+    'baibai_jobs.acquisition.external_assessments.collection',
     'baibai_engine.storage.observations.schema',
     'baibai_engine.storage.lake.reader',
 ):

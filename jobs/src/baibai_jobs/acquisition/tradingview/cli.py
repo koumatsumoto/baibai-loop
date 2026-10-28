@@ -30,19 +30,19 @@ from baibai_engine.data_collection.tradingview.client import (
     connect,
     fetch_batch,
 )
-from baibai_engine.data_collection.tradingview.collector import (
+from baibai_jobs.acquisition.tradingview.collector import (
     JST,
     TimeGuardError,
     collect,
     preflight_snapshot,
 )
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     CollectionProgress,
     failure_category,
     failure_line,
     safe_progress,
 )
-from baibai_engine.data_collection.tradingview.rebuild import (
+from baibai_jobs.maintenance.tradingview_rebuild import (
     RebuildError,
     rebuild_from_receipts,
 )
@@ -177,7 +177,7 @@ def credential_storage(state_file: Path | None) -> CredentialStorage:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine tradingview")
+    parser = argparse.ArgumentParser(prog="baibai-jobs tradingview-source")
     sub = parser.add_subparsers(dest="command", required=True)
     login = sub.add_parser("authorize", help="interactive local OAuth bootstrap")
     login.add_argument("--state-file", type=Path, required=True)

@@ -183,4 +183,4 @@ jobs:
         env:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
-        run: uv run baibai-engine tradingview smoke
+        run: uv run baibai-jobs tradingview-source smoke

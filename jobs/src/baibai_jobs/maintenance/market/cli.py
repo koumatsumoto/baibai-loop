@@ -14,53 +14,57 @@ from baibai_engine.foundation.env import load_project_env
 from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.observations.prices.calendar_context import market_calendar_business_day
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
-from baibai_engine.market.edinet_facts.service import (
-    extract_edinet_facts_command,
+from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_facts_command,
 )
+from baibai_engine.market.edinet_facts.service import (
+    extract_edinet_facts_command,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import rebuild_edinet_lists_command
-from baibai_engine.market.edinet_metrics.service import (
-    extract_edinet_metrics_command,
+from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_metrics_command,
 )
+from baibai_engine.market.edinet_metrics.service import (
+    extract_edinet_metrics_command,
+)
 from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.jpx_refresh import JPXRefresh
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TSECapitalPolicyRefreshSummary,
     ValuationCatalystError,
 )
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
-from .cache import (
+from baibai_jobs.maintenance.market.cache import (
     backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
     invalidate_coverage_command,
     refresh_edinet_documents_command,
 )
-from .config import DEFAULT_SQLITE_CACHE_DIR, ConfigError, SourceMaintenanceConfig
-from .delisting_cli import (
+from baibai_jobs.maintenance.market.config import DEFAULT_SQLITE_CACHE_DIR, ConfigError, SourceMaintenanceConfig
+from baibai_jobs.maintenance.market.delisting_cli import (
     build_tender_offer_exits_command,
     refresh_jpx_delistings_command,
     refresh_tender_offer_exits_command,
 )
-from .providers import ProviderBundle
-from .valuation_catalyst_cli import (
+from baibai_jobs.maintenance.market.providers import ProviderBundle
+from baibai_jobs.maintenance.market.valuation_catalyst_cli import (
     backfill_edinet_identity_command,
     refresh_tse_capital_policy_command,
 )
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine data-collection market")
+    parser = argparse.ArgumentParser(prog="baibai-jobs maintain-market")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     bootstrap_parser = subparsers.add_parser(

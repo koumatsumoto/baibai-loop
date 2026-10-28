@@ -17,7 +17,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.edinet.receipts import retain_list_response
-from baibai_engine.source_maintenance import cli as app
+from baibai_jobs.maintenance.market import cli as app
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource

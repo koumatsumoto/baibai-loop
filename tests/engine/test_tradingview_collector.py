@@ -11,7 +11,7 @@ import pytest
 from mcp.types import CallToolResult
 from tests.helpers.master import insert_master_rows
 
-from baibai_engine.data_collection.tradingview.collector import (
+from baibai_jobs.acquisition.tradingview.collector import (
     SourceDataError,
     collect,
     preflight_snapshot,
@@ -317,7 +317,7 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
 
 
 def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
-    from baibai_engine.data_collection.tradingview.collector import CollectionFailure
+    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
 
     path = store(tmp_path / "market.sqlite", 5)
     calls = []
@@ -333,7 +333,7 @@ def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
 
 
 def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) -> None:
-    from baibai_engine.data_collection.tradingview.collector import CollectionFailure
+    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
@@ -575,8 +575,8 @@ class Timer:
 def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
 
-    from baibai_engine.data_collection.tradingview.cli import failure_category
-    from baibai_engine.data_collection.tradingview.collector import CollectionFailure
+    from baibai_jobs.acquisition.tradingview.cli import failure_category
+    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
@@ -685,7 +685,7 @@ def test_missing_fields_uses_first_requested_canonical_field():
 
 @pytest.mark.parametrize("raw", [None, [], "private-body", 42])
 def test_non_dict_row_does_not_blame_a_field(raw):
-    from baibai_engine.data_collection.tradingview.cli import failure_line
+    from baibai_jobs.acquisition.tradingview.cli import failure_line
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderPayloadError,
     )

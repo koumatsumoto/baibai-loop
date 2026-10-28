@@ -8,14 +8,14 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.data_collection.tradingview.collector import (
+from baibai_jobs.acquisition.tradingview.collector import (
     SourceDataError,
     calendar_context,
     universe,
     validate_time,
 )
 from baibai_engine.data_collection.tradingview.contract import BATCH_TOOL
-from baibai_engine.data_collection.tradingview.diagnostics import (
+from baibai_jobs.observability.tradingview import (
     failure_category,
 )
 from baibai_engine.data_collection.tradingview.receipts import read_tool_results

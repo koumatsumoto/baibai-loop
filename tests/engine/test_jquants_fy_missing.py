@@ -6,7 +6,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.profit imp
     build_normalized_profit_signals,
 )
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.market.jquants_reader import JQuantsReader
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
 
 

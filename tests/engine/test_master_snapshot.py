@@ -21,18 +21,18 @@ from baibai_engine.machine_analysis.screening.sqlite_coverage.jquants import (
     _append_master_snapshot_issues,
 )
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import (
+from baibai_jobs.maintenance.jquants_inputs import (
     JQuantsReader,
 )
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
     read_eq_master_exact,
 )
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 from baibai_engine.market.jquants_writer import store_jquants_master
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads, validate_master_snapshot
-from baibai_engine.source_maintenance.cache import backfill_master_command, bootstrap_cache_command
-from baibai_engine.source_maintenance.providers import ProviderBundle
+from baibai_jobs.maintenance.market.cache import backfill_master_command, bootstrap_cache_command
+from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
@@ -624,7 +624,7 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
 
 
 def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
-    from baibai_engine.data_collection.tradingview.diagnostics import (
+    from baibai_jobs.observability.tradingview import (
         failure_category,
     )
 

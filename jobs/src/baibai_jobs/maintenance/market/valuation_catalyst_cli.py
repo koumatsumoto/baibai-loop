@@ -13,11 +13,11 @@ from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError
 from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_refresh import JPXRefresh
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import ValuationCatalystError
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
-from .providers import ProviderBundle
+from baibai_jobs.maintenance.market.providers import ProviderBundle
 
 
 def refresh_tse_capital_policy_command(

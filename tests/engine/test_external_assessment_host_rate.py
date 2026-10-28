@@ -7,7 +7,7 @@ import requests
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
 from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
+import baibai_jobs.acquisition.external_assessments.collection as collection
 
 MONEX = "https://scouter.monex.co.jp/report/theoryDps/7203"
 OFFICIAL = "https://www.rakuten-sec.co.jp/web/market/search/forecast.html?ric=7203.T"

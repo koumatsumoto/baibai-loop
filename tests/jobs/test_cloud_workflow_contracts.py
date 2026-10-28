@@ -150,7 +150,7 @@ def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> Non
         "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
         "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884",
         "uv sync --locked",
-        "uv run baibai-engine tradingview smoke",
+        "uv run baibai-jobs tradingview-source smoke",
     ]
     for job in (quality, smoke):
         assert "TRADINGVIEW_OAUTH_STATE" not in str(job.get("env", {}))

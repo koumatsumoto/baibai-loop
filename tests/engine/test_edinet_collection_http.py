@@ -12,7 +12,7 @@ from tests.helpers.http_doubles import FakeResponse, response
 from baibai_engine.data_collection.edinet import http
 from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
 from baibai_engine.data_collection.read_http import AcquisitionDeadlineExceeded
-from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 KEY = "secret+/key"
 DAY = date(2026, 10, 14)
