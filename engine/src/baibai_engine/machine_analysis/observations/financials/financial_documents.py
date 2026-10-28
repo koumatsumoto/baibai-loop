@@ -400,6 +400,42 @@ def latest_forecast_source(
     if not candidates:
         return None
     latest = latest_disclosure_candidates(candidates)
+    if not dividend:
+        # A simultaneous, explicit FY revision resolves the scope of a separate
+        # Q速報. Unknown times cannot establish this relationship, and genuine FY
+        # conflicts/withdrawals must still participate in value reconciliation.
+        annual_keys = {
+            (
+                row.ticker,
+                row.disclosed_at,
+                row.disclosed_time,
+                row.forecast_period_start,
+                row.forecast_period_end,
+                row.forecast_basis,
+            )
+            for row in latest
+            if row.disclosed_time is not None
+            and row.document_type == "EarnForecastRevision"
+            and row.fiscal_period == "FY"
+            and row.forecast_status == "confirmed"
+            and not row.forecast_scope_conflict_sources
+            and row.period_start == row.forecast_period_start
+            and row.period_end == row.forecast_period_end
+        }
+        latest = [
+            row
+            for row in latest
+            if not row.forecast_scope_conflict_sources
+            or (
+                row.ticker,
+                row.disclosed_at,
+                row.disclosed_time,
+                row.forecast_period_start,
+                row.forecast_period_end,
+                row.forecast_basis,
+            )
+            not in annual_keys
+        ]
     fields = (
         ("dps_forecast_annual",)
         if dividend

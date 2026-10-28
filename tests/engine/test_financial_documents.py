@@ -1169,7 +1169,11 @@ def test_annual_scope_barrier_survives_missing_statement_and_explicit_guidance_r
     assert result.per_forward is None
     assert result.earnings_forecast_source["disclosure_number"] == "short-scope"
     assert result.earnings_forecast_source["status"] == "unresolved"
-    actual = next(row for row in decode(records) if row.disclosure_number == "quarter-missing")
+    actual = next(
+        row
+        for row in project_financial_documents(decode(records), ASOF)
+        if row.disclosure_number == "quarter-missing"
+    )
     assert actual.profit == 31
     recovered = snapshot(
         decode([*records, document("annual-confirmed", day="2026-10-03", FEPS="30", FNP="150")])
@@ -1188,9 +1192,7 @@ def test_unknown_time_scope_conflict_keeps_provenance_through_merged_sources():
         CurPerEn="2026-09-30",
         FNP="30",
     )
-    annual = document(
-        "annual-same-day", day="2026-10-01", time="17:00:00", FEPS="30", FNP="150"
-    )
+    annual = document("annual-same-day", day="2026-10-01", time="17:00:00", FEPS="30", FNP="150")
     result = snapshot(decode([_scope_forecast_statement(), short, annual]))
     assert result.per_forward is None
     trace = result.earnings_forecast_source
@@ -1199,6 +1201,30 @@ def test_unknown_time_scope_conflict_keeps_provenance_through_merged_sources():
     assert trace["scope_conflict_source_records"] == "short-unknown-time"
     assert trace["candidate_disclosure_numbers"] == "annual-same-day,short-unknown-time"
     assert "reported_period_end" not in trace
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_simultaneous_explicit_annual_revision_resolves_short_period_scope(reverse):
+    short = document(
+        "short-same-time",
+        day="2026-10-01",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        FEPS="8",
+        FNP="40",
+    )
+    annual = document("annual-same-time", day="2026-10-01", FEPS="30", FNP="150")
+    revisions = [annual, short] if reverse else [short, annual]
+    result = snapshot(decode([_scope_forecast_statement(), *revisions]))
+    assert result.forecast_profit_yen == 150
+    assert result.per_forward == 1074 / 30
+    assert result.earnings_forecast_source["disclosure_number"] == "annual-same-time"
+    assert "reason" not in result.earnings_forecast_source
+    conflicting = document("other-annual", day="2026-10-01", FEPS="31", FNP="155")
+    conflict = snapshot(decode([_scope_forecast_statement(), *revisions, conflicting]))
+    assert conflict.per_forward is None
+    assert conflict.forecast_profit_yen is None
+    assert conflict.earnings_forecast_source["status"] == "unresolved"
 
 
 def test_short_current_revision_does_not_poison_explicit_next_year_slot():
