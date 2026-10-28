@@ -6,8 +6,10 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
+from tests.helpers.assessment_history import (
+    seed_history,
+)
 from tests.helpers.assessment_history import historical_context_payload as historical_payload
-from tests.helpers.assessment_history import seed_history
 
 from baibai_engine.cli.market_assessment import main
 from baibai_engine.investment_judgment.market_assessment.models import (

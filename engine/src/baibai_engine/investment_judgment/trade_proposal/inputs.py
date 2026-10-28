@@ -35,11 +35,11 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
+    saved_market_assessment,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord as ResearchSelection,
 )
-from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )

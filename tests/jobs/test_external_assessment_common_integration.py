@@ -7,11 +7,11 @@ from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     _plan,
     _stage,
+    pair_responses,
 )
 from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,
 )
-from tests.jobs.external_assessment_publication_fixtures import pair_responses
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
 import baibai_jobs.acquisition.external_assessments.staging as staging

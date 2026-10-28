@@ -8,11 +8,12 @@ from typing import Annotated, Any
 from pydantic import ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
-    StockCandidateContext,
-)
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.primitives.stocks import normalize_ticker as normalize_ticker
+
+from .discovery.contracts import (
+    StockCandidateContext,
+)
 
 _MODEL_CONFIG = ConfigDict(
     strict=True,

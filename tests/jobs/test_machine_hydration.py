@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(
     ("workflow", "job", "pull", "first_reader"),
     [
-        ("cloud-daily-batch.yml", "daily", "pull-machine", "source_integration apply"),
+        ("cloud-daily-batch.yml", "daily", "pull-machine", "integration.sources apply"),
     ],
 )
 def test_machine_pull_and_full_hydrate_precede_first_market_reader(

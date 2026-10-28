@@ -9,7 +9,7 @@ from typing import Any
 
 from mcp.types import CallToolResult
 
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+from .observations import (
     FetchError,
     ProviderHTTPError,
     ProviderPayloadError,

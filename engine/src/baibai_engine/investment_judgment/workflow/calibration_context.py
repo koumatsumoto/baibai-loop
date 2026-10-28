@@ -8,11 +8,11 @@ from pathlib import Path
 
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
+    selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord as ResearchSelection,
 )
-from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     candidate_er_band_context,
     load_er_calibration_context,

@@ -10,17 +10,6 @@ from statistics import median
 from types import MappingProxyType
 from typing import NamedTuple
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
-    APPROACH_IDS,
-    CandidateDiscoveryMethodIdentity,
-    CandidateDiscoveryResult,
-    CandidateReason,
-    StockCandidateContext,
-    ValuationApproachId,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.projection import (
-    reinvestment_coordinates,
-)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     CandidateDiscoveryRules,
 )
@@ -33,6 +22,18 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.relative i
 )
 from baibai_engine.primitives.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.primitives.json import canonical_json
+
+from .contracts import (
+    APPROACH_IDS,
+    CandidateDiscoveryMethodIdentity,
+    CandidateDiscoveryResult,
+    CandidateReason,
+    StockCandidateContext,
+    ValuationApproachId,
+)
+from .projection import (
+    reinvestment_coordinates,
+)
 
 # 金融の資産・調達を非金融の残余資産proxyへ投入しない (#1153)。
 # docs/reference/screening-runtime.md

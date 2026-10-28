@@ -17,10 +17,9 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from tests.helpers.master import insert_master_rows
-
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from tests.helpers.master import insert_master_rows
 
 
 def insert_financial_record(conn: sqlite3.Connection, record: dict[str, Any]) -> None:

@@ -5,8 +5,6 @@ from contextlib import closing
 from datetime import timedelta
 from hashlib import sha256
 
-from tests.helpers.research_selection import selected_target
-
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchInputs,
     GeneratedResearchSelection,
@@ -22,6 +20,7 @@ from baibai_engine.machine_analysis.screening.selection_query import read_public
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
+from tests.helpers.research_selection import selected_target
 
 
 def seed_generated_selection(*, runs, now, tickers=(), scope="discover_new", models=()):

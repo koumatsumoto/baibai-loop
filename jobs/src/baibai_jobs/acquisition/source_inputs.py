@@ -17,8 +17,8 @@ from baibai_engine.data_collection.catalog import load_sources as load_economic_
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     export_receipts as export_economic_receipts,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    FetchError as TradingViewFetchError,
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
 )
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
@@ -27,7 +27,9 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
-from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
+from baibai_jobs.acquisition.inputs import (
+    SOURCE_INPUT_GROUPS,
+)
 from baibai_jobs.acquisition.inputs import export_source_input as export_market_source_input
 
 
@@ -66,7 +68,7 @@ def publish_inputs(
                 generations=generations,
                 group=group,
             )
-        except (ValueError, TradingViewFetchError) as error:
+        except (ValueError, observations_owner.FetchError) as error:
             failed.append({"group": group, "reason": type(error).__name__})
         else:
             updated.append(group)

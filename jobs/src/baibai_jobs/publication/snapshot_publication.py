@@ -28,13 +28,23 @@ from pathlib import Path
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.snapshots.identity import verified_git_commit as lake_verified_git_commit
 from baibai_engine.storage.snapshots.keys import dataset_manifest_key as lake_dataset_manifest_key
+from baibai_engine.storage.snapshots.models import (
+    canonical_lake_model_bytes,
+    load_lake_model_json,
+)
 from baibai_engine.storage.snapshots.models import ReleaseManifest as LakeReleaseManifest
-from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes, load_lake_model_json
-from baibai_engine.storage.snapshots.objects import LocalMirrorSource
+from baibai_engine.storage.snapshots.objects import (
+    LocalMirrorSource,
+)
 from baibai_engine.storage.snapshots.objects import mirror_path as lake_mirror_path
+from baibai_engine.storage.snapshots.reader import (
+    LakeReadError,
+    resolve_release,
+)
 from baibai_engine.storage.snapshots.reader import FixedRelease as LakeFixedRelease
-from baibai_engine.storage.snapshots.reader import LakeReadError, resolve_release
-from baibai_engine.storage.snapshots.release import LakeReleasePointer
+from baibai_engine.storage.snapshots.release import (
+    LakeReleasePointer,
+)
 from baibai_engine.storage.snapshots.release import create_release as create_lake_release
 from baibai_engine.storage.snapshots.writer import (
     LakeBuildError,

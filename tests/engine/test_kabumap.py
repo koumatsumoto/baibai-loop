@@ -8,7 +8,9 @@ import pytest
 from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
 from tests.helpers.master import insert_master_rows
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, stage
-from tests.jobs.test_external_assessment_raw import Session
+from tests.jobs.test_external_assessment_raw import (
+    Session,
+)
 from tests.jobs.test_external_assessment_raw import connect as connect
 
 import baibai_jobs.acquisition.external_assessments.collection as collection

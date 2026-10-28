@@ -20,6 +20,7 @@ from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
+    accepted_dataset,
     iter_partition_rows,
     materialize_partitions,
 )
@@ -127,6 +128,8 @@ def verify_release_history(
     manifest = release.dataset_manifests.get(EQUITY_WEB_SOURCE_RESPONSES.name)
     if expected_history and manifest is None:
         raise ValueError("equity web L1 dataset missing from fixed release")
+    if manifest is not None:
+        accepted_dataset(release, EQUITY_WEB_SOURCE_RESPONSES)
     selected = selected_digests
     found: set[str] = set()
     for year, month in sorted(expected_history):

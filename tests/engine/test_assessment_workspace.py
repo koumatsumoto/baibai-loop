@@ -36,12 +36,10 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     compute_status,
     prepare_selected_workspace,
     promote,
-)
-from baibai_engine.investment_judgment.workflow.workspace import scaffold as scaffold_module
-from baibai_engine.investment_judgment.workflow.workspace import (
     scaffold_assessment,
     scaffold_review,
 )
+from baibai_engine.investment_judgment.workflow.workspace import scaffold as scaffold_module
 
 NOW = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
 

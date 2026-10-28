@@ -193,7 +193,9 @@ def _read_only_main(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from baibai_jobs.publication.snapshot_write_cli import WRITE_COMMANDS
+    from baibai_jobs.publication.snapshot_write_cli import (
+        WRITE_COMMANDS,
+    )
     from baibai_jobs.publication.snapshot_write_cli import main as write_main
 
     arguments = list(sys.argv[1:] if argv is None else argv)

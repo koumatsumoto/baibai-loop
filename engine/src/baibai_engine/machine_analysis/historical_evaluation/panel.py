@@ -30,10 +30,6 @@ from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
-    build_candidate_contexts,
-    candidate_discovery_method_hash,
-)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
     read_margin_supply_demand_inputs,
 )
@@ -48,13 +44,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
     StockAnalysis,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
-    stock_analysis_payload,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
-    build_stock_analysis,
-    expected_return_inputs,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
     POLICY_EXCLUSION_REASONS,
@@ -100,6 +89,18 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
 )
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
+)
+
+from .legacy_screening.discovery.candidates import (
+    build_candidate_contexts,
+    candidate_discovery_method_hash,
+)
+from .legacy_screening.screening_run_serializer import (
+    stock_analysis_payload,
+)
+from .legacy_screening.stock_analysis_builder import (
+    build_stock_analysis,
+    expected_return_inputs,
 )
 
 PanelVariant = Literal["production", "pre2019_self_range_375"]

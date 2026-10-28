@@ -5,7 +5,7 @@ time series of the mechanical benchmark trend and universe breadth, plus a
 sector map (per-sector return medians and breadth) at the evaluation date. It
 also feeds the explicit market context assessment with machine-collected inputs. All
 fields are deterministic transforms of stored market observations. Return windows
-and trend thresholds are shared with :mod:`baibai_engine.machine_analysis.models.market_context.benchmark`;
+and trend thresholds are shared with the benchmark model;
 results also depend on the available history in each requested input window.
 """
 

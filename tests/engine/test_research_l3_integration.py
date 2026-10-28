@@ -564,7 +564,7 @@ def _promote_and_propose(case):
 def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch, scenario):
     case = _prepare_case(tmp_path, monkeypatch, scenario)
     projection = project_research_inputs(case.selected)
-    security = projection["securities"]["1234"]
+    security = projection["securities"]["1234"]["models"]
     assert security["company_valuation"]["earnings_price"]["price_yen"] == case.quote
     assert "machine_valuation" not in security
     assert projection["saved_market_context_assessment"]["context_id"] == CONTEXT_ID

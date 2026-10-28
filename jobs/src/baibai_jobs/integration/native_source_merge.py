@@ -9,11 +9,11 @@ from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.data_collection.receipts.native_sources.store import (
-    RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS,
-)
-from baibai_engine.data_collection.receipts.native_sources.store import (
     EconomicSchemaError,
     validate_current_schema,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS,
 )
 from baibai_engine.storage.sqlite.merge import (
     MergeError,

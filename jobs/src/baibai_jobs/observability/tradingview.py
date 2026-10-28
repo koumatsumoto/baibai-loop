@@ -17,11 +17,8 @@ from baibai_engine.data_collection.providers.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    COLUMNS,
-    FetchError,
-    ProviderHTTPError,
-    ProviderPayloadError,
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
@@ -36,7 +33,7 @@ class CollectionProgress:
     chunks_completed: int = 0
     chunk_index: int | None = None
     chunk_size: int | None = None
-    columns_count: int = len(COLUMNS)
+    columns_count: int = len(observations_owner.COLUMNS)
     interval_seconds: float = 15.0
     response_bytes: int = 0
     provider_elapsed_seconds: float = 0.0
@@ -49,18 +46,18 @@ class CollectionProgress:
     master_asof: str | None = None
 
 
-class CollectionFailure(FetchError):
+class CollectionFailure(observations_owner.FetchError):
     def __init__(self, cause: BaseException, progress: CollectionProgress) -> None:
         self.cause = cause
         self.progress = progress
         super().__init__("TradingView collection failed")
 
 
-class TimeGuardError(FetchError):
+class TimeGuardError(observations_owner.FetchError):
     """Observation is outside the allowed date or close time."""
 
 
-class SourceDataError(FetchError):
+class SourceDataError(observations_owner.FetchError):
     """Required local source data is unavailable or invalid."""
 
 
@@ -91,8 +88,12 @@ def failure_category(exc: BaseException) -> str:
         return "time_guard"
     if isinstance(exc, (SourceDataError, SQLiteSchemaError, JQuantsProviderError, sqlite3.Error)):
         return "storage"
-    if isinstance(exc, (httpx2.HTTPStatusError, ProviderHTTPError)):
-        status = exc.status_code if isinstance(exc, ProviderHTTPError) else exc.response.status_code
+    if isinstance(exc, (httpx2.HTTPStatusError, observations_owner.ProviderHTTPError)):
+        status = (
+            exc.status_code
+            if isinstance(exc, observations_owner.ProviderHTTPError)
+            else exc.response.status_code
+        )
         if status in (401, 403):
             return "auth"
         if status == 429:
@@ -100,7 +101,7 @@ def failure_category(exc: BaseException) -> str:
         return "provider_response"
     if isinstance(exc, (httpx2.TransportError, TimeoutError)):
         return "provider_transport"
-    if isinstance(exc, (FetchError, json.JSONDecodeError)):
+    if isinstance(exc, (observations_owner.FetchError, json.JSONDecodeError)):
         return "provider_response"
     return "internal"
 
@@ -172,14 +173,14 @@ def failure_line(exc: BaseException) -> str:
             f"; {key}={value}" for key, value in safe_progress(asdict(detail.progress)).items()
         )
         detail = _diagnostic_error(detail.cause, category)
-    if isinstance(detail, ProviderHTTPError):
+    if isinstance(detail, observations_owner.ProviderHTTPError):
         line += f"; provider_http_status={detail.status_code}"
     if isinstance(detail, httpx2.HTTPStatusError):
         line += f"; mcp_http_status={detail.response.status_code}"
         retry_at = _retry_not_before(detail.response)
         if retry_at is not None:
             line += f"; retry_not_before_utc={retry_at}"
-    if isinstance(detail, ProviderPayloadError):
+    if isinstance(detail, observations_owner.ProviderPayloadError):
         line += f"; validation_reason={detail.reason}; validation_field={detail.field or '-'}"
     if category == "internal":
         # Identify the selected SDK leaf without its message, data or traceback.

@@ -15,14 +15,16 @@ from baibai_engine.data_collection.receipts.native_sources.handoff import (
     accept_rechecks as accept_economic_rechecks,
 )
 from baibai_engine.data_collection.receipts.native_sources.store import (
+    EconomicSchemaError,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
-from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
 from baibai_engine.data_collection.receipts.native_sources.store import (
     validate_current_schema as validate_economic_schema,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    FetchError as TradingViewFetchError,
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
     extract_saved_edinet,
@@ -115,7 +117,7 @@ def apply(
                 MarketSchemaError,
                 EconomicSchemaError,
                 JQuantsProviderError,
-                TradingViewFetchError,
+                observations_owner.FetchError,
                 sqlite3.IntegrityError,
             ) as error:
                 # Each owner keeps failed projections unchanged/atomic. Originals

@@ -87,8 +87,8 @@ def main(argv: list[str] | None = None, /) -> int:
             )
         from baibai_engine.data_collection.receipts.public_pages.capture import load_capture
         from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
-        from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
-            decode_attempt,
+        from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+            decode as decode_owner,
         )
         from baibai_engine.machine_analysis.observations.external_assessments.store import (
             save_observations,
@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None, /) -> int:
                     for response in capture.responses
                     if response.attempt_id == attempt_id
                 )
-                observations.append(decode_attempt(read_responses(conn, receipt_ids)))
+                observations.append(decode_owner.decode_attempt(read_responses(conn, receipt_ids)))
         inserted = save_observations(args.db, observations)
         print(
             json.dumps(

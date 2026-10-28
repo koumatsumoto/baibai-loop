@@ -12,18 +12,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers.master import insert_master_rows
+from tests.helpers.screening_sqlite import (
+    insert_financial_record,
+)
 from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
-from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.cli.historical_evaluation.cache import verify_cache_coverage_command
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
+    verify_screening_sqlite_coverage,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     core as coverage_core,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     jquants as jquants_coverage,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
-    verify_screening_sqlite_coverage,
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,

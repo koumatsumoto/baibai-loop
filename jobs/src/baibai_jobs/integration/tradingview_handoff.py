@@ -13,19 +13,15 @@ from typing import Any
 from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     COLUMNS,
     TABLE,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
     decode_tool_result,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    COLUMNS as REQUEST_COLUMNS,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    FetchError,
-    normalize_batch,
 )
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.sqlite.source_cache.schema import (
@@ -200,7 +196,7 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
                 receipt.snapshot_date != handoff.snapshot_date
                 or receipt.master_asof != basis
                 or receipt.tool_name != BATCH_TOOL
-                or receipt.requested_columns != tuple(REQUEST_COLUMNS)
+                or receipt.requested_columns != tuple(observations_owner.COLUMNS)
                 or not 1 <= len(receipt.requested_symbols) <= 50
                 or len(set(receipt.requested_symbols)) != len(receipt.requested_symbols)
                 or not set(receipt.requested_symbols) <= set(handoff.symbols)
@@ -212,12 +208,12 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
                 validate_time(
                     handoff.snapshot_date, receipt.received_at_utc, is_business_day=business
                 )
-                rows = normalize_batch(
+                rows = observations_owner.normalize_batch(
                     decode_tool_result(receipt.result_json),
                     list(receipt.requested_symbols),
                     receipt.received_at_utc,
                 )
-            except FetchError as error:
+            except observations_owner.FetchError as error:
                 category = failure_category(error)
                 if category in {"storage", "internal"}:
                     raise

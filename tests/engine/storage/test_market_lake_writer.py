@@ -13,6 +13,7 @@ import pyarrow.parquet as pq
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
+from tools.diagnostics.benchmark_lake_export import benchmark
 
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.snapshots import identity as identity_module
@@ -42,15 +43,16 @@ from baibai_jobs.publication.datasets import (
     require_lake_dataset,
 )
 from baibai_jobs.publication.policy import release_policy_for_profile
-from tools.diagnostics.benchmark_lake_export import benchmark
 
 _COMMIT = "a" * 40
 
 
 def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBuildReport:
     """One whole export operation: seal the store, export from it, release the seal."""
+    dataset = require_lake_dataset(str(kwargs.pop("dataset_name")))
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         return export_dataset_snapshot(
+            dataset=dataset,
             mirror_root=mirror_root,
             source_snapshot=snapshot,
             **kwargs,  # type: ignore[arg-type]

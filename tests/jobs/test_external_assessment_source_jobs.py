@@ -9,12 +9,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.engine.test_external_assessment_host_rate import Clock, Session
 from tests.engine.test_external_assessment_sources import official_html, rakuten_html
+from tests.engine.test_external_assessment_host_rate import Clock, Session
+from tests.jobs.external_assessment_publication_fixtures import (
+    integrate_ready_plans,
+)
 from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,
 )
-from tests.jobs.external_assessment_publication_fixtures import integrate_ready_plans
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, completed_pair, plan
 
@@ -265,7 +267,7 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     assert "always()" in handoff["if"]
     assert "needs.acquire.result" not in handoff["if"]
     ready = next(step for step in handoff["steps"] if step.get("id") == "ready")
-    assert "external_assessment_sources ready" in ready["run"]
+    assert "acquisition.external_assessments.sources ready" in ready["run"]
     assert '--selection-json "$SOURCE_RUNS"' in ready["run"]
     assert '--master-asof "$MASTER_ASOF"' in ready["run"]
     assert "--confirmed-partial" in ready["run"]

@@ -28,7 +28,7 @@ from baibai_engine.cli.historical_calibration import (
 from baibai_engine.cli.historical_calibration import (
     calibration_evaluate_command as _calibration_evaluate_command,
 )
-from baibai_engine.machine_analysis.historical_evaluation.context import (
+from baibai_engine.machine_analysis.historical_evaluation.context.builder import (
     CalibrationContextError,
     build_er_distribution_context,
 )

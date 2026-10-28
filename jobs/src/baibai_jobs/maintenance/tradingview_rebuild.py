@@ -10,19 +10,15 @@ from pathlib import Path
 
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     COLUMNS,
     TABLE,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
     decode_tool_result,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    COLUMNS as REQUEST_COLUMNS,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    FetchError,
-    normalize_batch,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 from baibai_jobs.acquisition.tradingview.collector import (
@@ -65,7 +61,7 @@ def _replace_selected_day(
     symbols = universe(conn, basis)
     allowed = set(symbols)
     receipts = read_tool_results(conn, receipt_ids)
-    columns = tuple(REQUEST_COLUMNS)
+    columns = tuple(observations_owner.COLUMNS)
     for receipt in receipts:
         if receipt.snapshot_date != day or receipt.master_asof != basis:
             raise SourceDataError("TradingView receipt has a different observation context")
@@ -86,10 +82,10 @@ def _replace_selected_day(
         try:
             validate_time(day, receipt.received_at_utc, is_business_day=business)
             payload = decode_tool_result(receipt.result_json)
-            decoded = normalize_batch(
+            decoded = observations_owner.normalize_batch(
                 payload, list(receipt.requested_symbols), receipt.received_at_utc
             )
-        except FetchError as exc:
+        except observations_owner.FetchError as exc:
             rejected.append({"receipt_id": receipt.receipt_id, "reason": failure_category(exc)})
             continue
         valid_receipts += 1

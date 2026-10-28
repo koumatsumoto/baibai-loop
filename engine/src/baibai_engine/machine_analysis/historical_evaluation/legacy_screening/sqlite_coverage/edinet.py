@@ -5,9 +5,6 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.shared import (
-    CacheCoverageIssue,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.eligibility import (
     read_eligible_edinet_metrics,
 )
@@ -15,6 +12,10 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
     EDINETMetricBaselineError,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+
+from .shared import (
+    CacheCoverageIssue,
+)
 
 
 def _append_edinet_metrics_coverage_issues(

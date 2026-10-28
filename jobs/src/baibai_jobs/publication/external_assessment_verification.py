@@ -39,6 +39,7 @@ from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
+    accepted_dataset,
     iter_partition_rows,
     materialize_partitions,
 )
@@ -145,6 +146,8 @@ def verify_release_history(
         names = tuple(column.name for column in dataset.columns)
         digest = hashlib.sha256()
         manifest = release.dataset_manifests.get(dataset.name)
+        if manifest is not None:
+            accepted_dataset(release, dataset)
         paths = (
             materialize_partitions(
                 cache,

@@ -11,7 +11,7 @@ from typing import TextIO, cast
 
 import yaml
 
-from baibai_engine.machine_analysis.historical_evaluation.context import (
+from baibai_engine.machine_analysis.historical_evaluation.context.builder import (
     CalibrationContextError,
     build_er_distribution_context,
 )
@@ -43,9 +43,6 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     read_failure_exits,
 )
 from baibai_engine.machine_analysis.historical_evaluation.grid import month_end_asof_grid
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
-    APPROACH_IDS,
-)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     ScreeningRules,
 )
@@ -85,6 +82,10 @@ from baibai_engine.storage.snapshots.writer import (
     sealed_sqlite_snapshot,
 )
 from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
+
+from ..machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
+    APPROACH_IDS,
+)
 
 
 def calibration_build_command(

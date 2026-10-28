@@ -602,7 +602,9 @@ class TestFixedRelease:
         )
 
         with pytest.raises(ValueError, match="unsupported lake dataset"):
-            accepted_dataset(release, LAKE_DATASETS["jquants.daily_bars_v2"])
+            from baibai_jobs.publication.datasets import require_lake_dataset
+
+        require_lake_dataset("jquants.daily_bars_v2")
 
     def test_a_dataset_manifest_replaced_under_the_same_key_fails_closed(
         self, lake: Lake, tmp_path: Path

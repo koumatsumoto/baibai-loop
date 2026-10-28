@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
+from tools.quality.drift.check_workflow_trust import check_workflow
 
 import baibai_jobs.integration.external_assessments as external_assessment
 import baibai_jobs.publication.snapshot_publication as publisher
@@ -27,7 +28,6 @@ from baibai_jobs.publication.external_assessment_verification import (
 from baibai_jobs.publication.external_assessment_verification import (
     verify_release_history as external_assessment_verify_release_history,
 )
-from tools.quality.drift.check_workflow_trust import check_workflow
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
 
@@ -147,7 +147,7 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     handoff = child["jobs"]["handoff"]
     assert "always()" in handoff["if"]
     runs = [step.get("run", "") for step in handoff["steps"]]
-    assert any("external_assessment_sources ready" in text for text in runs)
+    assert any("acquisition.external_assessments.sources ready" in text for text in runs)
     assert any("--confirmed-partial" in text for text in runs)
     assert not any("hydrate-market" in text or "publication_lease" in text for text in runs)
     common = yaml.load(

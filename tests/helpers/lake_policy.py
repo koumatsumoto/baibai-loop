@@ -10,7 +10,6 @@ from collections.abc import Iterable
 
 import pytest
 
-from baibai_engine.storage.snapshots import models as lake_models
 from baibai_jobs.publication import policy as snapshot_policy
 
 FIXTURE_DATASETS = ("jquants.daily_bars", "jquants.short_sale_reports")

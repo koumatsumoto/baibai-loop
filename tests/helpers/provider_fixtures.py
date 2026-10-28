@@ -9,10 +9,6 @@ from typing import TYPE_CHECKING, cast
 
 import openpyxl
 import requests
-from tests.helpers.indicator_store import (
-    SOURCE_URL,
-    series_definition,
-)
 
 from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.providers.estat.api import parse_estat_json
@@ -35,6 +31,10 @@ from baibai_engine.machine_analysis.observations.economic_indicators.observation
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
     reading_observation,
+)
+from tests.helpers.indicator_store import (
+    SOURCE_URL,
+    series_definition,
 )
 
 if TYPE_CHECKING:

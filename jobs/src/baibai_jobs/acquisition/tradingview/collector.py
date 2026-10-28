@@ -8,7 +8,11 @@ import sqlite3
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
-from datetime import UTC, date, datetime
+from datetime import (
+    UTC,
+    date,
+    datetime,
+)
 from datetime import time as daytime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,21 +24,15 @@ from baibai_engine.data_collection.providers.tradingview.receipts import (
     read_tool_results,
     retain_tool_result,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     COLUMNS,
     TABLE,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
     decode_tool_result,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    COLUMNS as REQUEST_COLUMNS,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    FIELDS,
-    FetchError,
-    ProviderPayloadError,
-    normalize_batch,
 )
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     observation_calendar_context,
@@ -46,11 +44,14 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.observability.tradingview import (
+    failure_category,
+    failure_line,
+)
 from baibai_jobs.observability.tradingview import CollectionFailure as CollectionFailure
 from baibai_jobs.observability.tradingview import CollectionProgress as CollectionProgress
 from baibai_jobs.observability.tradingview import SourceDataError as SourceDataError
 from baibai_jobs.observability.tradingview import TimeGuardError as TimeGuardError
-from baibai_jobs.observability.tradingview import failure_category, failure_line
 
 JST = ZoneInfo("Asia/Tokyo")
 SOFT_BUDGET_SECONDS = 25 * 60
@@ -93,7 +94,9 @@ def validate_time(day: date, now: datetime, *, is_business_day: bool = True) -> 
 
 def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
     # Identifiers are fixed by the physical snapshot contract.
-    null_counts = ",".join(f"SUM(fetch_status='ok' AND {name} IS NULL)" for name in FIELDS)
+    null_counts = ",".join(
+        f"SUM(fetch_status='ok' AND {name} IS NULL)" for name in observations_owner.FIELDS
+    )
     row = conn.execute(
         f"SELECT SUM(fetch_status='unresolved'),MIN(fetched_at_utc),MAX(fetched_at_utc),"  # nosec B608
         f"{null_counts} FROM {TABLE} WHERE snapshot_date=?",
@@ -104,7 +107,8 @@ def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
         "first_fetched_at_utc": row[1],
         "last_fetched_at_utc": row[2],
         "normal_nulls": {
-            name: int(count or 0) for name, count in zip(FIELDS, row[3:], strict=True)
+            name: int(count or 0)
+            for name, count in zip(observations_owner.FIELDS, row[3:], strict=True)
         },
     }
 
@@ -279,7 +283,7 @@ async def collect(
         )
         emit()
         names = [column[0] for column in COLUMNS]
-        request_columns = list(REQUEST_COLUMNS)
+        request_columns = list(observations_owner.COLUMNS)
         basis = date.fromisoformat(str(prior["master_asof"]))
         sql = f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
         for offset in range(0, len(symbols), batch_size):
@@ -315,7 +319,7 @@ async def collect(
                 if category in {"internal", "storage"}:
                     raise
                 last_error = exc
-                if isinstance(exc, ProviderPayloadError):
+                if isinstance(exc, observations_owner.ProviderPayloadError):
                     consecutive_bad += 1
                     stop_reason = category
                     if consecutive_bad >= 3:
@@ -355,15 +359,15 @@ async def collect(
                 break
             try:
                 payload = decode_tool_result(result_json)
-                rows = normalize_batch(payload, chunk, fetched)
-            except ProviderPayloadError as exc:
+                rows = observations_owner.normalize_batch(payload, chunk, fetched)
+            except observations_owner.ProviderPayloadError as exc:
                 consecutive_bad += 1
                 last_error = exc
                 stop_reason = failure_category(exc)
                 if consecutive_bad >= 3:
                     break
                 continue
-            except FetchError as exc:
+            except observations_owner.FetchError as exc:
                 last_error = exc
                 stop_reason = failure_category(exc)
                 break
@@ -410,7 +414,9 @@ async def collect(
         total_rows = int(totals[0])
         remaining = expected_universe - total_rows
         if rows_added == 0:
-            raise last_error or FetchError("TradingView collection added no rows")
+            raise last_error or observations_owner.FetchError(
+                "TradingView collection added no rows"
+            )
         current = replace(current, phase="complete")
         emit()
         return {

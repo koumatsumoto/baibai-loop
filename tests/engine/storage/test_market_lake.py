@@ -560,7 +560,9 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
     # `model_copy` does not revalidate, so this is how a manifest carrying a profile
     # no policy is registered for reaches the gate: it must refuse rather than fall
     # back to the one policy that does exist.
-    with pytest.raises(ValueError, match="release policy is not configured for profile"):
+    with pytest.raises(
+        ValueError, match="release profile differs from the supplied acceptance policy"
+    ):
         validate_release_policy(
             release.model_copy(update={"profile": "retired"}),
             manifests,

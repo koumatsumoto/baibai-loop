@@ -449,7 +449,7 @@ def test_research_facts_stop_after_rate_limit_without_planning_later_documents(
     requested = []
     planned = []
 
-    from baibai_engine.machine_analysis.observations.financials.edinet_facts import service
+    from baibai_jobs.maintenance import edinet_extraction as service
 
     original_plan = service.plan_fact_item
 

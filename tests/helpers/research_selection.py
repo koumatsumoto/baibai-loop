@@ -4,8 +4,6 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
-
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationPayload,
     OperationSession,
@@ -23,6 +21,7 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_s
     ScreeningRunReader,
 )
 from baibai_engine.primitives.time import JST
+from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
 
 def selected_target(ticker="1234", purpose="new"):

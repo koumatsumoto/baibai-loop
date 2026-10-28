@@ -14,6 +14,9 @@ from zoneinfo import ZoneInfo
 import duckdb
 
 from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
+from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
+    JQUANTS_MARKET_CALENDAR,
+)
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     MIN_COMMON_STOCK_MASTER_ROWS,
     masters_from_payloads,
@@ -22,6 +25,9 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
+)
+from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
+    JQUANTS_MASTER_SNAPSHOTS,
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.snapshots.duck import LakeSession
@@ -34,12 +40,6 @@ from baibai_engine.storage.snapshots.reader import (
     selected_partitions,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
-from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
-    JQUANTS_MASTER_SNAPSHOTS,
-)
-from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
-    JQUANTS_MARKET_CALENDAR,
-)
 
 
 def frozen_universe(database: Path, master_asof: date) -> tuple[tuple[str, ...], str]:

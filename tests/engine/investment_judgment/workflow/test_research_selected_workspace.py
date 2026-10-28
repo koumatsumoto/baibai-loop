@@ -236,7 +236,7 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     with monkeypatch.context() as projection_only:
         projection_only.setattr(sqlite3, "connect", forbidden)
         assert project_research_inputs(saved) == inputs
-    monkeypatch.setattr(selected_prepare, "read_model_inputs", forbidden)
+    monkeypatch.setattr(selected_prepare, "read_research_model_inputs", forbidden)
     seed_saved_run(
         runs,
         screening_run_payload(
@@ -288,7 +288,7 @@ def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_
     monkeypatch.setattr(selected_prepare, "_write_workspace_file", writer)
     monkeypatch.setattr(
         selected_prepare,
-        "read_model_inputs",
+        "read_research_model_inputs",
         lambda *_a, **_kw: pytest.fail("resume reread source"),
     )
     repaired = prepare(tmp_path, value=value)
@@ -318,7 +318,7 @@ def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_
 def test_required_read_failure_and_over_capacity_do_not_write(tmp_path, monkeypatch):
     monkeypatch.setattr(
         selected_prepare,
-        "read_model_inputs",
+        "read_research_model_inputs",
         lambda *_a, **_kw: (_ for _ in ()).throw(OSError("required read failed")),
     )
     with pytest.raises(OSError, match="required read"):
@@ -737,7 +737,7 @@ def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
     value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("2331",))
     monkeypatch.setattr(
         selected_prepare,
-        "read_model_inputs",
+        "read_research_model_inputs",
         lambda *_a, **_kw: pytest.fail("purpose conflict read inputs"),
     )
     file = tmp_path / "selection.json"

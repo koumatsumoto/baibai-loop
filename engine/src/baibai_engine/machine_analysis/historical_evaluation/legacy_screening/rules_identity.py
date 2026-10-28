@@ -16,14 +16,15 @@ def production_rules_contract_hash(
     from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
         BARS_INPUT_WINDOW_DAYS,
     )
-    from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
-        VALUATION_CALCULATION_REVISION,
-    )
     from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
         VALUATION_HISTORY_SESSIONS,
     )
     from baibai_engine.machine_analysis.models.market_context.margin import (
         MARKET_CONTEXT_CALCULATION_REVISION,
+    )
+
+    from ...models.company_financials.metrics.financial_snapshot import (
+        VALUATION_CALCULATION_REVISION,
     )
 
     return rules_contract_hash(

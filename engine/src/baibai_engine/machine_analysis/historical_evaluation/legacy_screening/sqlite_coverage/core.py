@@ -12,36 +12,37 @@ from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.edinet import (
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    validate_current_schema,
+)
+
+from .edinet import (
     _append_edinet_metrics_coverage_issues,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jpx import (
+from .jpx import (
     _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
     _jpx_source_names,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jquants import (
+from .jquants import (
     _append_asof_bar_density_issue,
     _append_daily_history_density_issue,
     _append_fin_summary_density_issue,
     _append_master_snapshot_issues,
     _append_recent_bar_density_issue,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.shared import (
+from .shared import (
     CacheCoverageIssue,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.sources import (
+from .sources import (
     _append_jpx_regulation_count_issue,
     _append_required_date_rows_issue,
     _append_source_coverage_quality_issues,
     _append_window_consistency_issues,
     _source_coverage_covers_date,
-)
-from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
-from baibai_engine.storage.sqlite.source_cache.schema import (
-    SQLITE_SCHEMA_VERSION,
-    SQLiteSchemaError,
-    validate_current_schema,
 )
 
 

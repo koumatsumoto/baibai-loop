@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.helpers.calibration_store import panel_row
 
-from baibai_engine.machine_analysis.historical_evaluation.context import (
+from baibai_engine.machine_analysis.historical_evaluation.context.builder import (
     CalibrationContextError,
     build_er_distribution_context,
 )

@@ -312,10 +312,12 @@ def test_market_calculation_modules_do_not_import_storage_or_generation():
         [
             sys.executable,
             "-c",
-            "import sys; "
-            "from baibai_engine.machine_analysis.models.market_context import benchmark, snapshot, security; "
-            "assert not any(name.startswith(('baibai_engine.storage', "
-            "'baibai_engine.machine_analysis.generation', 'baibai_jobs')) for name in sys.modules)",
+            (
+                "import sys; "
+                "from baibai_engine.machine_analysis.models.market_context import benchmark, snapshot, security; "
+                "assert not any(name.startswith(('baibai_engine.storage', "
+                "'baibai_engine.machine_analysis.generation', 'baibai_jobs')) for name in sys.modules)"
+            ),
         ],
         check=True,
     )

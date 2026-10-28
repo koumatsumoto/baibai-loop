@@ -146,7 +146,7 @@ def test_failed_lake_publication_does_not_prune_existing_generations(integration
         raise AssertionError("must not prune before publication succeeds")
 
     monkeypatch.setattr(job, "publish_prepared_market_lake", fail)
-    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="publication failed"):
         job.integrate_models(**arguments)
     assert "publish" not in events
@@ -194,7 +194,7 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
 
     monkeypatch.setattr(job, "read_and_generate_models", late_failure)
     monkeypatch.setattr(job, "select_saved_generation", forbidden)
-    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)
     assert "publish" not in events

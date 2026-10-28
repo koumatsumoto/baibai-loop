@@ -8,20 +8,23 @@ from contextlib import closing
 
 import pytest
 from tests.engine.test_external_assessment_sources import monex_html
+from tests.engine.test_minkabu import (
+    no_coverage_html,
+)
 from tests.engine.test_minkabu import html as minkabu_html
-from tests.engine.test_minkabu import no_coverage_html
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
+    integrate_ready_plans,
+    pair_responses,
+    ready_reference,
+    upload_bundle,
 )
 from tests.jobs.external_assessment_publication_fixtures import _plan as _plan
 from tests.jobs.external_assessment_publication_fixtures import _stage as _stage
-from tests.jobs.external_assessment_publication_fixtures import (
-    integrate_ready_plans,
-    pair_responses,
-)
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
-from tests.jobs.external_assessment_publication_fixtures import ready_reference, upload_bundle
-from tests.jobs.test_external_assessment_raw import Session
+from tests.jobs.test_external_assessment_raw import (
+    Session,
+)
 from tests.jobs.test_external_assessment_raw import connect as connect
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
@@ -371,3 +374,47 @@ def test_mismatched_original_or_stage_blocks_l2_and_pointer(publication, fault):
     assert state["plans"] == []
     assert external_assessment_history_digests(database) == typed_before
     assert publisher._serving_pointer(store) == pointer
+
+
+@pytest.mark.parametrize("owner", ["original", "observation"])
+@pytest.mark.parametrize("mutation", ["layer", "layout"])
+def test_readback_checks_owner_contract_before_materializing(owner, mutation):
+    """Fixed resolution is not production admission, but readback still checks its owner."""
+    from types import SimpleNamespace
+
+    from baibai_engine.data_collection.receipts.public_pages.snapshot_contracts import (
+        EQUITY_WEB_SOURCE_RESPONSES,
+    )
+    from baibai_engine.machine_analysis.observations.external_assessments.snapshot_contracts import (
+        EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
+    )
+    from baibai_engine.storage.snapshots.reader import LakeReadError
+    from baibai_jobs.publication import external_assessment_verification, public_page_verification
+
+    descriptor = (
+        EQUITY_WEB_SOURCE_RESPONSES
+        if owner == "original"
+        else EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS
+    )
+    manifest = SimpleNamespace(
+        dataset=descriptor.name,
+        layer=("l2_processed" if descriptor.layer == "l1_source" else "l1_source")
+        if mutation == "layer"
+        else descriptor.layer,
+        contract_version=descriptor.contract_version,
+        partition_by=("year",) if mutation == "layout" else descriptor.partition_by,
+        partitions=(),
+    )
+    release = SimpleNamespace(
+        dataset_manifests={descriptor.name: manifest},
+        dataset_manifest=lambda _name: manifest,
+    )
+    with pytest.raises(LakeReadError, match="layer|partition layout"):
+        if owner == "original":
+            public_page_verification.verify_release_history(
+                None, release=release, cache=None, expected_history={}, selected_digests={}
+            )
+        else:
+            external_assessment_verification.verify_release_history(
+                None, release=release, cache=None, expected_history={}, observations=()
+            )

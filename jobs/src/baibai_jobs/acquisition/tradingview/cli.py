@@ -30,11 +30,11 @@ from baibai_engine.data_collection.providers.tradingview.client import (
     connect,
     fetch_batch,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
     decode_tool_result,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    FetchError,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_jobs.acquisition.tradingview.collector import (
@@ -90,7 +90,9 @@ async def smoke(storage: CredentialStorage) -> dict[str, object]:
         json.dumps({"returned_rows": result.get("count"), "missing": result.get("missing_count")})
     )
     if result.get("count") != 2 or result.get("missing_count") != 0:
-        raise FetchError("TradingView smoke did not return both requested symbols")
+        raise observations_owner.FetchError(
+            "TradingView smoke did not return both requested symbols"
+        )
     return {"status": "ok", "rows": 2, "rotation_persisted": True}
 
 

@@ -11,7 +11,7 @@ from baibai_engine.storage.paths import StoreLayoutError, reject_noncanonical_st
 
 Command = Callable[[list[str] | None], int]
 
-# Commands are resolved only after selection. Listing/help never opens unrelated stores or providers.
+# Resolve after selection; listing/help never opens unrelated stores or providers.
 _COMMANDS = {
     "snapshots": "baibai_jobs.publication.snapshot_cli",
     "model-integration": "baibai_jobs.integration.models",
@@ -34,7 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not {"-h", "--help"}.intersection(args.arguments):
+    catalog_read = args.command == "acquire-economic" and args.arguments[:1] in (
+        ["list"],
+        ["groups"],
+    )
+    if not catalog_read and not {"-h", "--help"}.intersection(args.arguments):
         try:
             reject_noncanonical_store_paths()
         except StoreLayoutError as error:

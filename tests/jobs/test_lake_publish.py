@@ -69,8 +69,6 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda **kwargs: create_release(
             created_at=fixed_now,
             **kwargs,
-            catalog=LAKE_DATASETS,
-            policy=release_policy_for_profile("production"),
         ),
     )
     export_lake = market_publish_module.export_market_snapshot
@@ -326,9 +324,7 @@ def test_export_manifest_replacement_after_release_creation_never_moves_current(
     create_release = market_publish_module.create_lake_release
 
     def create_then_replace(**kwargs: object) -> tuple[Path, lake_models.ReleaseManifest]:
-        path, release = create_release(
-            **kwargs, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
-        )  # type: ignore[arg-type]
+        path, release = create_release(**kwargs)  # type: ignore[arg-type]
         dataset_name, entry = next(iter(release.datasets.items()))
         manifest_path = mirror / dataset_manifest_key(
             dataset=dataset_name,

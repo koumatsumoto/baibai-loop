@@ -353,7 +353,7 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild", "baibai_engine.machine_analysis.observations.financials.edinet_metrics.write",
   "baibai_engine.storage.sqlite.application.write",
   "baibai_engine.cli.app",
-  "baibai_engine.data_collection.providers",
+  "baibai_engine.data_collection.acquisition", "baibai_engine.data_collection.transport", "baibai_engine.data_collection.providers.jquants.http", "baibai_engine.data_collection.providers.edinet.http", "baibai_engine.data_collection.providers.jpx.http", "baibai_engine.data_collection.providers.tradingview.client",
   "baibai_engine.data_collection.acquisition.refresh",
   "baibai_engine.data_collection.providers.jquants.http",
   "baibai_engine.data_collection.providers.edinet.http",
@@ -448,7 +448,7 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.models.company_growth",
   "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment",
   "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.storage.sqlite.application.write", "baibai_engine.cli.market_reading",
-  "baibai_engine.machine_analysis.observations.economic_indicators.service", "baibai_engine.data_collection.providers",
+  "baibai_engine.machine_analysis.observations.economic_indicators.service", "baibai_engine.data_collection.acquisition", "baibai_engine.data_collection.transport", "baibai_engine.data_collection.providers.jquants.http", "baibai_engine.data_collection.providers.edinet.http", "baibai_engine.data_collection.providers.jpx.http", "baibai_engine.data_collection.providers.tradingview.client",
 ]
 
 [[tool.importlinter.contracts]]

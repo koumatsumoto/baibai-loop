@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.engine.test_external_assessment_sources import monex_html
 from tests.engine.test_external_assessment_daily_verification import build_master_lake
 from tests.engine.test_external_assessment_pair_collection import Session
-from tests.engine.test_external_assessment_sources import monex_html
 from tests.jobs.test_external_assessment_daily import (
     FakeObjectStore,
     completed_pair,
@@ -267,7 +267,7 @@ def test_workflow_pins_original_clock_and_passes_inputs_through_env(tmp_path, ev
     }
     subprocess.run(["bash", "-euo", "pipefail", "-c", steps["plan"]["run"]], env=env, check=True)
     args = arguments.read_text().splitlines()
-    assert "external_assessment_sources" in " ".join(args)
+    assert "acquisition.external_assessments.sources" in " ".join(args)
     assert "monex" in args
     if event == "schedule":
         assert "--run-created-at" in args

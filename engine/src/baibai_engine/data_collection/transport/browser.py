@@ -8,11 +8,13 @@ from contextlib import suppress
 from pathlib import Path
 from types import TracebackType
 
-from playwright.sync_api import BrowserContext
+from playwright.sync_api import (
+    BrowserContext,
+    Playwright,
+    sync_playwright,
+)
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import Playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from playwright.sync_api import sync_playwright
 
 from baibai_engine.data_collection.transport.context import (
     BrowserUnavailableError,

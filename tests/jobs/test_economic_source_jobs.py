@@ -144,7 +144,7 @@ def test_each_provider_saves_receipts_without_full_db_or_integration_wait():
         "publication_lease",
     ):
         assert forbidden not in text
-    assert "economic input --group" in text
+    assert "economic_cli input --group" in text
     assert "baibai-jobs model-integration" in str(workflow("cloud-daily-batch.yml"))
 
 
@@ -179,7 +179,7 @@ def test_common_integration_is_independently_scheduled_and_includes_weekends():
     assert sum("r2_transfer.sh hydrate-market" in run for run in runs) == 1
     assert sum("baibai-jobs model-integration" in run for run in runs) == 1
     assert not any("r2_transfer.sh publish-lake" in run for run in runs)
-    assert any("source_integration plan" in run for run in runs)
+    assert any("integration.sources plan" in run for run in runs)
 
 
 def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(

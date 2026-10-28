@@ -5,7 +5,7 @@ from math import ceil
 import pytest
 from tests.helpers.calibration_store import forward_row, panel_row
 
-from baibai_engine.machine_analysis.historical_evaluation.context import (
+from baibai_engine.machine_analysis.historical_evaluation.context.builder import (
     CalibrationContextError,
     _cohort_entries,
     _horizon_context,

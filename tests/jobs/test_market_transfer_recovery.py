@@ -99,7 +99,6 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
 
     from tests.jobs.test_cloud_r2_transfer import _environment, _fake_aws, _fake_repo
 
-    from baibai_engine.storage.snapshots import models
     from baibai_jobs.publication import policy as snapshot_policy
 
     target, mirror, origin = published_market

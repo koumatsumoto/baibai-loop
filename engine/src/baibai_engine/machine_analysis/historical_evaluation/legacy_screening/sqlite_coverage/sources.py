@@ -5,10 +5,11 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.shared import (
+from baibai_engine.storage.sqlite.source_cache.coverage import covered_intervals
+
+from .shared import (
     CacheCoverageIssue,
 )
-from baibai_engine.storage.sqlite.source_cache.coverage import covered_intervals
 
 _REQUIRED_DATE_ROWS_SQL = {
     ("jquants_daily_bars", "traded_at"): (
