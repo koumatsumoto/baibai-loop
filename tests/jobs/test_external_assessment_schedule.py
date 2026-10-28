@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.engine.test_external_assessment_sources import monex_html
 from tests.engine.test_external_assessment_daily_verification import build_master_lake
 from tests.engine.test_external_assessment_pair_collection import Session
+from tests.engine.test_external_assessment_sources import monex_html
 from tests.jobs.test_external_assessment_daily import (
     FakeObjectStore,
     completed_pair,

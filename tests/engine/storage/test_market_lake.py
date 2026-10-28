@@ -11,7 +11,6 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.storage.snapshots import models as lake_models
 from baibai_engine.storage.snapshots.inventory import inventory
 from baibai_engine.storage.snapshots.keys import (
     LakeLayer,

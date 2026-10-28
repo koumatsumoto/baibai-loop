@@ -284,7 +284,9 @@ uv run baibai-jobs snapshots hydrate \
 
 ```python
 from pathlib import Path
-from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import EDINET_DOCUMENTS
+from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
+    EDINET_DOCUMENTS,
+)
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import (
@@ -315,8 +317,13 @@ with lake_session() as session:
 ```python
 from datetime import date
 from pathlib import Path
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import latest_annual_filing, usable_document
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import document_inventory
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
+    latest_annual_filing,
+    usable_document,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
+    document_inventory,
+)
 
 doc = latest_annual_filing(
     document_inventory(Path("/tmp/research-fixed.sqlite"), date.fromisoformat("<YYYY-MM-DD>")),
