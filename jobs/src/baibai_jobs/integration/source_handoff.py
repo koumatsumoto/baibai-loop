@@ -7,6 +7,7 @@ import json
 import os
 import subprocess  # nosec B404
 import sys
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.acquisition.edinet_archives import acquire_archives as acquire_edinet_archives
 from baibai_jobs.integration.edinet_handoff import export_handoff as export_edinet_handoff
@@ -51,13 +53,17 @@ SOURCES = (
 _JPX_COLLECTION = {"jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations"}
 
 
+def _retained_archive_keys(database: Path) -> set[tuple[str, int]]:
+    with closing(connect_read_only(database)) as connection:
+        return edinet_archive_keys(connection)
+
+
 def _command(source: str, asof: date, *, database: Path, offline: bool = False) -> list[str]:
     if source in {"edinet-metrics", "edinet-facts"}:
         verb = ("extract-" if offline else "refresh-") + source
         return [
-            "baibai-engine",
-            "data-collection",
-            "market",
+            "baibai-jobs",
+            "maintain-market",
             verb,
             "--asof",
             asof.isoformat(),
@@ -67,9 +73,8 @@ def _command(source: str, asof: date, *, database: Path, offline: bool = False) 
     if offline:
         raise ValueError("this source has no extraction command")
     return [
-        "baibai-engine",
-        "data-collection",
-        "market",
+        "baibai-jobs",
+        "maintain-market",
         "bootstrap-cache",
         "--source-group",
         source,
@@ -252,7 +257,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--asof and export --since are required")
             since = args.since or datetime.now(UTC)
             before = (
-                edinet_archive_keys(args.database) if args.source.startswith("edinet-") else set()
+                _retained_archive_keys(args.database)
+                if args.source.startswith("edinet-")
+                else set()
             )
             status = 0
             acquisition_report: dict[str, object] = {}
@@ -287,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
                         _command(args.source, args.asof, database=args.database), check=False
                     ).returncode  # nosec B603
             archives = (
-                edinet_archive_keys(args.database) - before
+                _retained_archive_keys(args.database) - before
                 if args.source.startswith("edinet-")
                 else set()
             )

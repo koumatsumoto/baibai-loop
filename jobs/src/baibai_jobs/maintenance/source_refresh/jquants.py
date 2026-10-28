@@ -12,8 +12,15 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP, JQuantsSource
-from baibai_engine.data_collection.providers.jquants.receipts import acquire_request
+from baibai_engine.data_collection.providers.jquants.acquisition import (
+    acquire_request,
+)
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsSource,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
+    JQuantsHTTP,
+)
 from baibai_engine.machine_analysis.observations.financials.reader import (
     count_fin_summaries,
     fin_summaries_covered,

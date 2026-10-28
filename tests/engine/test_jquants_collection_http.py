@@ -16,10 +16,12 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_engine.data_collection.providers.jquants.http import (
+from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
-    JQuantsHTTP,
     page_records,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
+    JQuantsHTTP,
 )
 from baibai_engine.data_collection.providers.jquants.receipts import (
     read_complete_request,

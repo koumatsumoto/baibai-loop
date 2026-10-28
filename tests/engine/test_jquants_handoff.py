@@ -5,11 +5,15 @@ import pytest
 import requests
 from tests.engine.test_jquants_projection import DAY, FIRST_AT, Session, body, receive
 
-from baibai_engine.data_collection.providers.jquants.http import (
+from baibai_engine.data_collection.providers.jquants.acquisition import (
+    acquire_request,
+)
+from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
-from baibai_engine.data_collection.providers.jquants.receipts import acquire_request
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection

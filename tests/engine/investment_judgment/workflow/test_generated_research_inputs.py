@@ -283,10 +283,20 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
         select_generation(original, tickers=("1234", "5678"), policy=policy).result
     )
     fixed = read_research_model_inputs(
-        generation.generation_id, targets=("1234", "5678"), path=runs
+        generation.generation_id, targets=("1234", "5678", "7777"), path=runs
     )
-    assert set(fixed.subjects) == {"1234", "5678", "sector:food", "market", "market:world"}
-    assert set(fixed.subject_plan) == set(fixed.subjects)
+    assert set(fixed.subjects) == {"1234", "5678", "7777", "sector:food", "market", "market:world"}
+    assert set(fixed.subject_plan) == set(fixed.subjects) - {"7777"}
+    from baibai_engine.investment_judgment.workflow.generated_inputs import verify_generated_inputs
+
+    # A canonical stock-only slice is insufficient for starting Research: shared
+    # requirements must be derived from the full generation, not that slice.
+    truncated = ModelGenerationStore(runs).read_subjects(
+        generation.generation_id, subjects=("1234", "5678", "sector:food")
+    )
+    with pytest.raises(ValueError, match="differs from its canonical generation"):
+        verify_generated_inputs(truncated, targets=("1234", "5678"), runs_path=runs)
+    verify_generated_inputs(fixed, targets=("1234", "5678", "7777"), runs_path=runs)
     projected = project_generated_inputs(fixed)
     assert projected["securities"]["1234"]["models"]["stress_probe"] == {
         "value": None,
@@ -297,6 +307,10 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
     assert projected["shared_subjects"]["sector:food"]["models"]["sector_probe"]["value"] == 0.7
     assert projected["shared_subjects"]["market"]["models"]["macro_probe"]["value"] == 0
     assert projected["shared_subjects"]["market:world"]["models"]["macro_probe"]["value"] is None
+    assert projected["securities"]["7777"]["generation_scope_status"] == "outside_generation_scope"
+    assert projected["securities"]["7777"]["models"] == {}
+    assert projected["securities"]["7777"]["not_generated"] == []
+    assert "7777" not in generation.subject_plan
     assert "9999" not in projected["securities"]
     assert "sector:unrelated" not in projected["shared_subjects"]
 
@@ -305,13 +319,13 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
         request=ResearchRequest(
             text="固定した複数モデルを比較",
             scope="specified_stocks",
-            requested_tickers=("1234", "5678"),
+            requested_tickers=("1234", "5678", "7777"),
         ),
         research_as_of=AS_OF,
         input_known_at=NOW,
         generation_id=generation.generation_id,
         selection_summary="候補政策を変えず追加モデルを調査する",
-        targets=(selected_target("1234"), selected_target("5678")),
+        targets=(selected_target("1234"), selected_target("5678"), selected_target("7777")),
     )
     workspace, database = tmp_path / "research", tmp_path / "application.sqlite"
     prepared = prepare_selected_workspace(

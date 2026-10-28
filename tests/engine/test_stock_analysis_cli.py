@@ -71,7 +71,7 @@ def test_public_cli_subprocess_reads_zero_candidates_and_unknown_revision(tmp_pa
         sys.executable,
         "-m",
         "baibai_engine.cli.app",
-        "screening",
+        "historical-evaluation",
         "candidates",
         "show",
         "--runs-db",

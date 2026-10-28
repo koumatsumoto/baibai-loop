@@ -211,9 +211,8 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                         [
                             sys.executable,
                             "-m",
-                            "baibai_engine.cli.app",
-                            "data-collection",
-                            "market",
+                            "baibai_jobs.cli",
+                            "maintain-market",
                             "backfill-master",
                             "--asof",
                             day.isoformat(),
@@ -227,8 +226,8 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                         [
                             sys.executable,
                             "-m",
-                            "baibai_engine.cli.app",
-                            "tradingview",
+                            "baibai_jobs.cli",
+                            "tradingview-source",
                             "refresh",
                             "--asof",
                             day.isoformat(),

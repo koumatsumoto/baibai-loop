@@ -59,7 +59,9 @@ def test_edinet_archive_first_retained_bytes_are_preserved_and_conflict_reported
     with closing(open_connection(target)) as conn:
         retain_source_archive(conn, "S100SAME", 5, b"canonical", stored_on=DAY)
         retain_source_archive(conn, "S100OTHER", 5, b"unrelated", stored_on=DAY)
-    export_handoff(source, stage, since=STAMP, archives=archive_keys(source))
+    with closing(open_connection(source)) as connection:
+        keys = archive_keys(connection)
+    export_handoff(source, stage, since=STAMP, archives=keys)
     result = import_handoff(stage, target)
     assert result["archive_conflicts"] == [["S100SAME", 5]]
     with closing(open_connection(target)) as conn:

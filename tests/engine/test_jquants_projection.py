@@ -13,12 +13,16 @@ import requests
 from tests.helpers.lake_policy import narrow_release_policy
 
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_snapshot
-from baibai_engine.data_collection.providers.jquants.http import (
+from baibai_engine.data_collection.providers.jquants.acquisition import (
+    acquire_request,
+)
+from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
 from baibai_engine.data_collection.providers.jquants.receipts import (
-    acquire_request,
     read_complete_request,
     read_request_pages,
 )

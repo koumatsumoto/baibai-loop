@@ -7,7 +7,7 @@ import sys
 def test_collection_http_and_mcp_adapters_do_not_load_analysis_domains():
     code = """
 import sys
-from baibai_engine.data_collection.receipts.public_pages import http as equity_http
+from baibai_engine.data_collection.transport import public_pages as equity_http
 from baibai_engine.data_collection.providers.tradingview import auth, authorize, client
 for prefix in (
     'baibai_engine.machine_analysis.models.external_assessment',

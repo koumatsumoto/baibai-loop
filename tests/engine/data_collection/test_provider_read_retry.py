@@ -118,7 +118,7 @@ def wire(monkeypatch):
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
-    for name in ["jquants_flows", "jquants_indices"]:
+    for name in ["jquants.flows", "jquants.indices"]:
         module = __import__(f"baibai_engine.data_collection.providers.{name}", fromlist=["*"])
         monkeypatch.setattr(module, "_read_api_key", lambda: "synthetic-key")
     monkeypatch.setattr(

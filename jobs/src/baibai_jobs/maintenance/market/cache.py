@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import TextIO
 
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
-from baibai_engine.data_collection.providers.jquants.http import JQuantsAcquisitionError
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsAcquisitionError,
+)
 from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,

@@ -389,3 +389,8 @@ def test_markdown_link_gate_checks_colocated_links_and_bare_path_anchors(tmp_pat
     assert check_markdown_links.check(tmp_path) == [
         "docs/reference/example/report.md: missing Markdown anchor plan.md#gone"
     ]
+
+
+def test_documented_jobs_command_resolves_lazy_module_name(tmp_path: Path) -> None:
+    _skill(tmp_path, "```bash\nuv run baibai-jobs acquire-economic groups\n```\n")
+    assert check_documented_commands.check(tmp_path) == []

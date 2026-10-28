@@ -86,7 +86,8 @@ def extract_saved_edinet(
         covered = available is not None and range_covered(
             conn, "edinet_documents", available - timedelta(days=lookback_days), available
         )
-    retained = archive_keys(database)
+    with closing(connect_read_only(database)) as archive_connection:
+        retained = archive_keys(archive_connection)
     reader = EDINETReader(database)
     metrics: dict[str, Any] = {
         "exit_code": 0,

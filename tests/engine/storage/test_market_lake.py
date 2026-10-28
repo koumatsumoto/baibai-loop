@@ -728,7 +728,7 @@ def test_validate_cli_is_read_only_and_redacts_rejected_values(
 
 
 def test_lake_domain_is_exposed_by_the_root_cli() -> None:
-    assert DOMAINS["lake"].module == "baibai_engine.cli.snapshots"
+    assert DOMAINS["snapshots"].module == "baibai_engine.cli.snapshots"
 
 
 def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) -> None:

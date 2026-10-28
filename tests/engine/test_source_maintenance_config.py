@@ -25,8 +25,10 @@ class SourceMaintenanceConfigTests(unittest.TestCase):
         self.assertIsNone(config.edinet_api_key)
 
     def test_jquants_network_boundary_requires_its_own_key(self) -> None:
-        from baibai_engine.data_collection.providers.jquants.http import (
+        from baibai_engine.data_collection.providers.jquants.contracts import (
             JQuantsAcquisitionError,
+        )
+        from baibai_engine.data_collection.providers.jquants.http import (
             JQuantsHTTP,
         )
 

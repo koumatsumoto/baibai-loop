@@ -10,8 +10,10 @@ import pytest
 import requests
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.data_collection.providers.jquants.http import (
+from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
 from baibai_engine.data_collection.providers.jquants.receipts import read_request_pages

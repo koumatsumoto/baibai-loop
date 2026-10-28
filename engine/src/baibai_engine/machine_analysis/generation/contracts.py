@@ -99,12 +99,14 @@ def research_subjects(metadata: GenerationMetadata, targets: Sequence[str]) -> t
     if plan is None:
         return tuple(sorted({"market", *targets}))
     selected = set(targets)
-    if any(subject not in plan or plan[subject].scope != "stock" for subject in selected):
-        raise ValueError("research target is outside the generation stock scope")
+    if any(subject in plan and plan[subject].scope != "stock" for subject in selected):
+        raise ValueError("research target names a shared context instead of a stock")
     selected.update(subject for subject, definition in plan.items() if definition.scope == "market")
     pending = list(selected)
     while pending:
         subject = pending.pop()
+        if subject not in plan:
+            continue  # Preserve explicit/held stocks without inventing a model plan.
         for related in plan[subject].related_subjects:
             if related not in plan or plan[related].scope == "stock":
                 raise ValueError("fixed model input is missing its shared subject context")
@@ -164,8 +166,8 @@ class ModelInputSlice(_ModelCollection):
     def bounded_subjects(self) -> Self:
         if len(set(self.subjects)) != len(self.subjects):
             raise ValueError("input slice subjects must be unique")
-        if self.subject_plan is not None and set(self.subject_plan) != set(self.subjects):
-            raise ValueError("subject plan must exactly cover the input slice scope")
+        if self.subject_plan is not None and not set(self.subject_plan).issubset(self.subjects):
+            raise ValueError("subject plan is outside the input slice scope")
         if any(model.subject not in self.subjects for model in self.models):
             raise ValueError("model is outside the input slice subjects")
         return self

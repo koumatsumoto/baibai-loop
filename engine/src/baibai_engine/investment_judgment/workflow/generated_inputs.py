@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import cast
@@ -12,7 +13,7 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
     project_company_growth,
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
-from baibai_engine.machine_analysis.generation.query import read_model_inputs
+from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 
 _LEGACY_COMPANY_MODELS = (
     "company_valuation",
@@ -23,8 +24,12 @@ _LEGACY_COMPANY_MODELS = (
 )
 
 
-def verify_generated_inputs(saved: ModelInputSlice, *, runs_path: Path) -> None:
-    canonical = read_model_inputs(saved.generation_id, subjects=saved.subjects, path=runs_path)
+def verify_generated_inputs(
+    saved: ModelInputSlice, *, targets: Sequence[str], runs_path: Path
+) -> None:
+    # Resolve required shared scope from the complete canonical header, never from
+    # an input slice that could already have dropped a common market model.
+    canonical = read_research_model_inputs(saved.generation_id, targets=targets, path=runs_path)
     if canonical != saved:
         raise ValueError("model input slice differs from its canonical generation")
 
@@ -66,6 +71,9 @@ def project_generated_inputs(
         if plan is None:
             securities[ticker] = {**models, **row}
         else:
+            row["generation_scope_status"] = (
+                "outside_generation_scope" if definition is None else "planned"
+            )
             row["models"] = models
             row["related_subjects"] = (
                 [] if definition is None else list(definition.related_subjects)

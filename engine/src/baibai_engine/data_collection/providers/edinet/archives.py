@@ -3,11 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from datetime import date
-from pathlib import Path
-
-from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 
 
 def read_source_archive(
@@ -50,7 +46,9 @@ def retain_source_archive(
         raise
 
 
-def archive_keys(database: Path) -> set[tuple[str, int]]:
-    with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
-        validate_current_schema(conn)
-        return set(conn.execute("SELECT doc_id, source_type FROM edinet_source_archives"))
+def archive_keys(connection: sqlite3.Connection) -> set[tuple[str, int]]:
+    """List retained identities in a store already validated by its caller."""
+    return {
+        (str(row[0]), int(row[1]))
+        for row in connection.execute("SELECT doc_id, source_type FROM edinet_source_archives")
+    }

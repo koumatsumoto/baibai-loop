@@ -159,7 +159,7 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
         if len(rest) < 2 or rest[1] not in DOMAINS:
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")
         module = DOMAINS[rest[1]].module
-        if rest[1] == "lake":
+        if rest[1] == "snapshots":
             from baibai_engine.cli.snapshot_write import WRITE_COMMANDS
 
             if len(rest) > 2 and rest[2] in WRITE_COMMANDS:
@@ -172,7 +172,7 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
 
         if len(rest) < 2 or rest[1] not in _COMMANDS:
             raise _Unresolvable(f"baibai-jobs: unknown command {' '.join(rest[1:2])}")
-        return _tool_parser(_COMMANDS[rest[1]].__module__, f"baibai-jobs {rest[1]}", rest[2:])
+        return _tool_parser(_COMMANDS[rest[1]], f"baibai-jobs {rest[1]}", rest[2:])
     if rest[:1] != ["python"] or len(rest) < 2:
         raise _Unresolvable(f"unrecognised entry point: {' '.join(rest[:3])}")
     module_prefixes = ("baibai_jobs.", "baibai_engine.", "baibai_web.", "tools.")

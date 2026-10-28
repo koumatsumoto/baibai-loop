@@ -109,7 +109,11 @@ class OperationService:
         )
         if session_kind != expected_kind or ticker != expected_ticker:
             raise OperationConflictError("Operation kind/ticker differs from Research scope")
-        verify_generated_inputs(selection.inputs.generation, runs_path=self._runs_path)
+        verify_generated_inputs(
+            selection.inputs.generation,
+            targets=tuple(target.ticker for target in selection.targets),
+            runs_path=self._runs_path,
+        )
         selection_id = selection.inputs.screening_selection_id
         if selection_id is not None:
             publication = read_publication(
