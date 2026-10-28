@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     CacheCoverageIssue,
     verify_screening_sqlite_coverage,
 )

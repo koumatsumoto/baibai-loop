@@ -5,7 +5,7 @@ import pytest
 from baibai_engine.cli.app import main
 from baibai_jobs.cli import main as collection_main
 from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
-from baibai_engine.machine_analysis.screening.cli.app import build_parser as build_screening_parser
+from baibai_engine.cli.historical_evaluation.app import build_parser as build_screening_parser
 from baibai_jobs.maintenance.market.cli import build_parser as build_source_parser
 
 
@@ -74,7 +74,7 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
 @pytest.mark.parametrize(
     "domain",
     [
-        "screening",
+        "historical-evaluation",
         "investment-judgment",
         "portfolio",
         "operation",
@@ -153,7 +153,7 @@ def test_screening_provider_protocols_do_not_import_command_implementations():
 import sys
 from baibai_jobs.maintenance.market.providers import ProviderBundle
 for module in ("app", "cache", "run", "query"):
-    assert f"baibai_engine.machine_analysis.screening.cli.{module}" not in sys.modules
+    assert f"baibai_engine.cli.historical_evaluation.{module}" not in sys.modules
 """,
         ],
         check=True,

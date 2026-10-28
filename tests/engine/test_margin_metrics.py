@@ -19,8 +19,8 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
     CalibrationCacheError,
     read_panel,
 )
-from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import DerivedMetrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
 )
 
@@ -212,7 +212,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # the reader refuses. If the published list still named it, the newest entry
         # would read back empty and every axis would be None for the whole cohort
         # even though every earlier week is intact.
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
         from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_week_ends
@@ -244,7 +244,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
             self.assertEqual(sorted(latest), ["7203"])
 
     def test_a_balance_date_too_old_to_describe_the_asof_is_refused(self) -> None:
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
 
@@ -344,7 +344,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_daily_series_keeps_the_axes_current_after_the_weekly_freeze(self) -> None:
         """The published daily balance keeps the axes current after the weekly freeze."""
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
 
@@ -381,7 +381,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_delta_uses_weekly_steps_across_the_cadence_change(self) -> None:
         """In this continuous fixture, 26 observed weekly steps span about half a year."""
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
 

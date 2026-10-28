@@ -19,21 +19,21 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema,
 )
 
-from .edinet import _append_edinet_metrics_coverage_issues
-from .jpx import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.edinet import _append_edinet_metrics_coverage_issues
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jpx import (
     _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
     _jpx_source_names,
 )
-from .jquants import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jquants import (
     _append_asof_bar_density_issue,
     _append_daily_history_density_issue,
     _append_fin_summary_density_issue,
     _append_master_snapshot_issues,
     _append_recent_bar_density_issue,
 )
-from .shared import CacheCoverageIssue
-from .sources import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.shared import CacheCoverageIssue
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.sources import (
     _append_jpx_regulation_count_issue,
     _append_required_date_rows_issue,
     _append_source_coverage_quality_issues,

@@ -6,12 +6,12 @@ from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summ
 from tests.engine.test_candidate_discovery import _analysis, _discover
 
 from baibai_engine.machine_analysis.historical_evaluation.panel import rules_content_hash
-from baibai_engine.machine_analysis.screening.discovery import candidates as discovery
-from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
-from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery import candidates as discovery
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import production_rules_contract_hash
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import DerivedMetrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
     build_stock_analysis_metrics,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (

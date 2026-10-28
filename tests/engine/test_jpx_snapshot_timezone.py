@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.screening.sqlite_coverage.jpx import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jpx import (
     _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
 )

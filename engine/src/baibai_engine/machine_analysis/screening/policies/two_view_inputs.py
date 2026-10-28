@@ -3,21 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
 
 from pydantic import JsonValue
 
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, ModelGeneration
 
-from .views import ScreeningCoordinates, TwoViewPolicy, ViewSelection, select_views
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.policies.two_views import ScreeningCoordinates, TwoViewPolicy, ViewSelection, select_views
 
 
-@dataclass(frozen=True, slots=True)
-class ScreeningSelection:
-    generation_id: str
-    universe_tickers: tuple[str, ...]
-    result: ViewSelection
 
 
 def select_generation(

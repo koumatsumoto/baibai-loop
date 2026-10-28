@@ -15,7 +15,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.profit imp
     build_normalized_profit_signals,
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import build_panel
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 

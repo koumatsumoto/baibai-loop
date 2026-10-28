@@ -13,8 +13,8 @@ from baibai_engine.machine_analysis.historical_evaluation.evidence import (
 )
 from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow
-from baibai_engine.machine_analysis.screening.discovery.contracts import APPROACH_IDS
-from baibai_engine.machine_analysis.screening.rule_config import CandidateDiscoveryRules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import APPROACH_IDS
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import CandidateDiscoveryRules
 
 
 def _evaluate_candidate_discovery(

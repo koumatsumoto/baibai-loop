@@ -528,14 +528,14 @@ uv run baibai-jobs tradingview-source rebuild --sqlite /tmp/market-rebuild.sqlit
 旧ER/FV・四Approachのcalibrationは、評価する仮説・対象期間・利用先を明示した研究/保守で必要な時だけbuild→evaluateする。新しい五モデル・Y/M二viewの通常運用に月次再構築や旧contextの期限更新を要求しない。月次比較を計画する場合は前月までの対象を同じrulesで扱い、forceは全再構築の時だけ使う。
 
 ```bash
-uv run baibai-engine screening calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
-uv run baibai-engine screening calibration-evaluate --out /tmp/calibration-evaluation.yaml
+uv run baibai-engine historical-evaluation calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
+uv run baibai-engine historical-evaluation calibration-evaluate --out /tmp/calibration-evaluation.yaml
 ```
 
 保存済み旧Selectionに対応する較正文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
 
 ```bash
-uv run baibai-engine screening calibration-evaluate \
+uv run baibai-engine historical-evaluation calibration-evaluate \
   --run-purpose empirical_change_evidence --decision-subject estimator_policy \
   --required-asof <YYYY-MM-DD> --required-metric er_level_calibration \
   --out /tmp/calibration-evaluation.yaml \

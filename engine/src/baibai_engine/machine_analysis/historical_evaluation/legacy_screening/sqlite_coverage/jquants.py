@@ -7,11 +7,11 @@ from datetime import date, timedelta
 
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_contract
 
-from .common_stock import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.common_stock import (
     COMMON_STOCK_SNAPSHOT_SQL,
     scope_parameters,
 )
-from .shared import CacheCoverageIssue
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.shared import CacheCoverageIssue
 
 _DENSITY_BUCKET_DAYS = 120
 

@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.screening.discovery.contracts import validate_candidate_run
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import validate_candidate_run
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 

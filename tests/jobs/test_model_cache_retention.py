@@ -5,9 +5,9 @@ import sqlite3
 import pytest
 
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-from baibai_engine.machine_analysis.screening.model_projection import select_generation
+from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 from tests.model_generation_fixtures import generation
 

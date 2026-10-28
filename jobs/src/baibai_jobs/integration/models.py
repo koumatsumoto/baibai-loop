@@ -18,9 +18,9 @@ from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease as ModelInputRelease
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot as ModelInputSnapshot
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
-from baibai_engine.machine_analysis.screening.saved_selection import select_saved_generation
+from baibai_engine.machine_analysis.screening.policies.two_view_selection import select_saved_generation
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_engine.storage.json import write_json_atomic

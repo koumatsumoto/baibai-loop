@@ -11,7 +11,7 @@ ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path(
     "engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml"
 )
 SCREENING_RULES_PATH = Path(
-    "engine/src/baibai_engine/machine_analysis/screening/rules/2026-10-16T133000+0900.yaml"
+    "engine/src/baibai_engine/machine_analysis/historical_evaluation/legacy_screening/rules/2026-10-16T133000+0900.yaml"
 )
 READING_RULES_PATH = Path(
     "engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/2026-08-01T100000+0900.yaml"

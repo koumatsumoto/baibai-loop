@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from baibai_engine.machine_analysis.historical_evaluation.identity import rules_contract_hash
-from .universe import UNIVERSE_SCOPE_REVISION
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import UNIVERSE_SCOPE_REVISION
 
 
 def production_rules_contract_hash(

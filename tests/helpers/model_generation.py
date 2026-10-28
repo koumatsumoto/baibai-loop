@@ -11,9 +11,9 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.screening.model_projection import select_generation
+from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 
 
 def seed_generation(path, *, now, as_of, with_price_path=False):

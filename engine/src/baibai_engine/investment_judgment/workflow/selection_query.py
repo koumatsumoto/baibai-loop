@@ -38,7 +38,7 @@ def load_generated_selection_context(
     from baibai_engine.machine_analysis.screening.selection_query import (
         read_publication,
     )
-    from baibai_engine.machine_analysis.screening.views import ViewSelection
+    from baibai_engine.machine_analysis.screening.policies.two_views import ViewSelection
 
     if known_at.utcoffset() is None:
         raise ValueError("input cutoff must have a timezone")

@@ -19,14 +19,14 @@ from tests.helpers.screening_sqlite import (
     insert_financial_record,
 )
 
-from baibai_engine.machine_analysis.screening.cli.cache import verify_cache_coverage_command
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
+from baibai_engine.cli.historical_evaluation.cache import verify_cache_coverage_command
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     core as coverage_core,
 )
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     jquants as jquants_coverage,
 )
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import (

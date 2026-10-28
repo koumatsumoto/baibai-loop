@@ -25,10 +25,10 @@ ROOT = Path(__file__).resolve().parents[2]
 from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     ErCalibrationContextArtifact,
 )
-from baibai_engine.machine_analysis.historical_evaluation.cli import (
+from baibai_engine.cli.historical_calibration import (
     _required_metric_statuses,
 )
-from baibai_engine.machine_analysis.historical_evaluation.cli import (
+from baibai_engine.cli.historical_calibration import (
     calibration_evaluate_command as _calibration_evaluate_command,
 )
 from baibai_engine.machine_analysis.historical_evaluation.context import (
@@ -68,11 +68,11 @@ from baibai_engine.machine_analysis.historical_evaluation.panel import (
     rules_content_hash,
 )
 from baibai_engine.machine_analysis.historical_evaluation.store import write_forward, write_panel
-from baibai_engine.machine_analysis.screening.rule_config import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     ScreeningRules,
     load_screening_rules,
 )
-from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import production_rules_contract_hash
 
 _ASOF = "2025-06-30"
 _RULES = load_screening_rules()
@@ -2200,7 +2200,7 @@ def test_the_half_split_needs_thirty_pairs_before_it_reports_a_difference() -> N
 def test_evaluation_report_cannot_replace_its_input_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, output_option: str, alias: str
 ) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation import cli
+    import baibai_engine.cli.historical_calibration as cli
     from baibai_engine.machine_analysis.historical_evaluation.store import CURRENT_SNAPSHOT_NAME
 
     write_panel(tmp_path, date.fromisoformat(_ASOF), [_panel_row("1111")], _panel_diagnostics())

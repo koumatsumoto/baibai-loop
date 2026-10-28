@@ -9,7 +9,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.eligi
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import EDINETMetricBaselineError
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
-from .shared import CacheCoverageIssue
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.shared import CacheCoverageIssue
 
 
 def _append_edinet_metrics_coverage_issues(

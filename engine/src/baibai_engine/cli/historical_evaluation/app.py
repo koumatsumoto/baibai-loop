@@ -9,7 +9,7 @@ from typing import cast
 
 from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
 from baibai_engine.cli.environment import load_project_env
-from baibai_engine.machine_analysis.historical_evaluation.cli import (
+from baibai_engine.cli.historical_calibration import (
     calibration_build_command,
     calibration_evaluate_command,
 )
@@ -19,19 +19,19 @@ from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PanelVariant,
 )
 from baibai_engine.machine_analysis.historical_evaluation.store import DEFAULT_CALIBRATION_DIR
-from baibai_engine.machine_analysis.screening.rule_config import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     DEFAULT_RULES_PATH,
     load_screening_rules,
 )
 from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR
 
-from .cache import verify_cache_coverage_command
-from .prune import prune_command
-from .query import candidates_show_command, run_show_command
+from baibai_engine.cli.historical_evaluation.cache import verify_cache_coverage_command
+from baibai_engine.cli.historical_evaluation.prune import prune_command
+from baibai_engine.cli.historical_evaluation.query import candidates_show_command, run_show_command
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine screening")
+    parser = argparse.ArgumentParser(prog="baibai-engine historical-evaluation")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     prune_parser = subparsers.add_parser(

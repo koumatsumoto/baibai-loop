@@ -20,7 +20,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_normalized_profit_signals,
 )
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     latest_forecast_source,
     normalize_financial_summary,

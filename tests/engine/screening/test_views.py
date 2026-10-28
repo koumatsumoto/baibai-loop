@@ -5,7 +5,7 @@ from itertools import permutations
 import pytest
 from pydantic import ValidationError
 
-from baibai_engine.machine_analysis.screening.views import (
+from baibai_engine.machine_analysis.screening.policies.two_views import (
     ScreeningCoordinates,
     TwoViewPolicy,
     select_views,

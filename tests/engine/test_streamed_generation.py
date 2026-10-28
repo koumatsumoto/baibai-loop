@@ -17,9 +17,9 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationMetadata,
     ModelGenerationStream,
 )
-from baibai_engine.machine_analysis.screening.model_projection import select_generation
-from baibai_engine.machine_analysis.screening.saved_selection import select_saved_generation
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
+from baibai_engine.machine_analysis.screening.policies.two_view_selection import select_saved_generation
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 
 
 def stream(original, models=None):

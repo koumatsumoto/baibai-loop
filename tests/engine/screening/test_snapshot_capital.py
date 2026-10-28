@@ -22,8 +22,8 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_normalized_profit_signals,
 )
-from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 

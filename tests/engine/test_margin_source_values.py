@@ -173,7 +173,7 @@ def test_missing_publication_retains_the_existing_lag_rule(tmp_path):
 
 
 def test_screening_applies_publication_cutoff_to_latest_and_prior_rows(tmp_path, monkeypatch):
-    from baibai_engine.machine_analysis.screening import margin_inputs
+    import baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs as margin_inputs
 
     database = tmp_path / "market.sqlite"
     prior, latest, asof = date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 6)

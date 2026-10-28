@@ -13,7 +13,7 @@ from baibai_engine.machine_analysis.historical_evaluation.evidence import (
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     required_sensitivity_blockers,
 )
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 
 
 def _coverage(**stability: bool) -> dict[str, object]:

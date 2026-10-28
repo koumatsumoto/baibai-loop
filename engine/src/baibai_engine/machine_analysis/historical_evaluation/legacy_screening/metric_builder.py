@@ -29,11 +29,11 @@ from baibai_engine.machine_analysis.models.market_context.history import (
 )
 from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance, margin_supply_demand
 from baibai_engine.machine_analysis.models.market_context.sector import sector_relative_strength
-from baibai_engine.machine_analysis.screening.rule_config import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     ScreeningRules,
     load_screening_rules,
 )
-from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import DerivedMetrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,

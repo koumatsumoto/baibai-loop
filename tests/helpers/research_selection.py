@@ -15,7 +15,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     SelectedTarget,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader
 from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
 

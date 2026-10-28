@@ -2,8 +2,8 @@
 
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
-from .read import RunPublication, ScreeningRunReader
-from .store import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store.read import RunPublication, ScreeningRunReader
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store.store import (
     DEFAULT_RUN_STORE_PATH,
     PruneResult,
     ScreeningRunStore,

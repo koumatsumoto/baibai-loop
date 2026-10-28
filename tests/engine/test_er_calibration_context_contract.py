@@ -206,8 +206,8 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
 
 
 def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path: Path) -> None:
-    from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-    from baibai_engine.machine_analysis.screening.rules_identity import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )
 
@@ -235,8 +235,8 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope_revision: str, partial: bool
 ) -> None:
     from baibai_engine.machine_analysis.models.company_financials.metrics import financial_snapshot
-    from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-    from baibai_engine.machine_analysis.screening.rules_identity import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )
 
@@ -286,8 +286,8 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
 
 
 def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp_path) -> None:
-    from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-    from baibai_engine.machine_analysis.screening.rules_identity import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )
 

@@ -15,9 +15,9 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.screening.model_projection import select_generation
+from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_engine.storage.sqlite.machine_analysis import (
     GENERATION_SCHEMA_SQL,
     SCHEMA_SQL,
@@ -109,9 +109,9 @@ def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp
         raise AssertionError("storage must not execute candidate policy")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.model_projection.select_generation", forbidden
+        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation", forbidden
     )
-    monkeypatch.setattr("baibai_engine.machine_analysis.screening.views.select_views", forbidden)
+    monkeypatch.setattr("baibai_engine.machine_analysis.screening.policies.two_views.select_views", forbidden)
     store = ScreeningSelectionStore(path)
     assert store.publish("selection-a", selected)
     assert not store.publish("selection-a", selected)

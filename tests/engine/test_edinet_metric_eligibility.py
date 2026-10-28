@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.machine_analysis.screening.sqlite_coverage.edinet import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.edinet import (
     _append_edinet_metrics_coverage_issues,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_observed_documents

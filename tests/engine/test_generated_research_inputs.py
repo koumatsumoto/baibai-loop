@@ -41,7 +41,7 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
         raise AssertionError("must not calculate candidates or live model inputs")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.model_projection.select_generation", forbidden
+        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation", forbidden
     )
     result = load_generated_selection_context(
         request=request,
@@ -211,8 +211,8 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
         ModelGeneration,
     )
     from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-    from baibai_engine.machine_analysis.screening.model_projection import select_generation
-    from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+    from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
+    from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 
     runs = tmp_path / "runs.sqlite"
     original = seed_generation(runs, now=NOW, as_of=AS_OF)

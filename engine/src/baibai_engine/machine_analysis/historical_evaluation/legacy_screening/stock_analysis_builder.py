@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     UNRESOLVED_DIVIDEND_BASIS,
     FinancialSnapshot,
 )
-from baibai_engine.machine_analysis.screening.schema import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
     DerivedMetrics,
     StockAnalysis,
     UniverseSnapshot,

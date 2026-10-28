@@ -1,1 +1,1 @@
-"""Screening automation package."""
+"""保存されたモデルから明示的な政策で候補を抽出する。"""

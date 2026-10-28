@@ -3,7 +3,7 @@
 from contextlib import closing
 from datetime import date
 
-from baibai_engine.machine_analysis.screening.sqlite_coverage.sources import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.sources import (
     _append_source_coverage_quality_issues,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage

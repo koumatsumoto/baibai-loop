@@ -5,7 +5,7 @@ from datetime import date
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_normalized_profit_signals,
 )
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 

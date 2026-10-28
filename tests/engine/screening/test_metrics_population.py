@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 
-from baibai_engine.machine_analysis.screening.metric_builder import MetricBuildResult, build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import MetricBuildResult, build_metrics
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )

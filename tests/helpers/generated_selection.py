@@ -16,10 +16,10 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
-from baibai_engine.machine_analysis.screening.model_projection import select_generation
+from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from tests.helpers.research_selection import selected_target
 
 

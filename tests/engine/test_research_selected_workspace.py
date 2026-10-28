@@ -34,7 +34,7 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     selected_prepare,
 )
 from baibai_engine.cli.investment_judgment import main
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 
@@ -99,10 +99,10 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
         machine_valuation_from_analysis,
     )
-    from baibai_engine.machine_analysis.screening.discovery.candidates import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
         build_candidate_contexts,
     )
-    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
     # Saved JSON is the input; expectations below are independent of the projection helper.
@@ -652,7 +652,7 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
 
     from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
     from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot
-    from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader
 
     runs = tmp_path / "runs"
     row = stock_analysis("1234", name="合成会社", metrics={"er_annual": 0.13})

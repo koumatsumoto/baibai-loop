@@ -23,7 +23,9 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity, validate_capacity
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice, research_subjects
-from baibai_engine.machine_analysis.screening.model_projection import ScreeningSelection
+from baibai_engine.machine_analysis.screening.contracts import (
+    ScreeningSelection,
+)
 
 
 def _ticker(value: object) -> str:

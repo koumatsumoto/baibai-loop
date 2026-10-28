@@ -7,12 +7,12 @@ from datetime import date, timedelta
 
 from tests.helpers.master import TSE_33_SECTORS
 
-from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
-from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.screening_run_serializer import stock_analysis_payload
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import build_stock_analysis
-from baibai_engine.machine_analysis.screening.universe import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import build_candidate_contexts
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import stock_analysis_payload
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import build_stock_analysis
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
     build_universe,
     candidate_comparison_population,
 )

@@ -5,7 +5,7 @@
 <a id="rule-purpose"></a>
 ## 候補抽出の意味
 
-初期政策は、報告利益と価格の座標Yを使うviewと、Yに中期価格変化Mを組み合わせるviewのunionを調査入口にする。抽出枠は有限の調査容量であり、投資枠や採用件数ではない。順位算式・tie-breakと政策型は[views.py](../../engine/src/baibai_engine/machine_analysis/screening/views.py)、観測窓はモデル側の実装を正本とする。重複候補を二票として扱わない。
+初期政策は、報告利益と価格の座標Yを使うviewと、Yに中期価格変化Mを組み合わせるviewのunionを調査入口にする。抽出枠は有限の調査容量であり、投資枠や採用件数ではない。順位算式・tie-breakと政策型は[views.py](../../engine/src/baibai_engine/machine_analysis/screening/policies/two_views.py)、観測窓はモデル側の実装を正本とする。重複候補を二票として扱わない。
 
 候補理由はview別rankとして保持し、union全体の投資順位を作らない。Yは期待収益率ではなく、Mは配当込みreturnではない。同じ価格を含む二つの座標を独立した証拠票にしない。未知を0へ置換せず、Yのみ既知ならY viewだけへ参加できる。負利益を一律排除せず、極端な利益利回りを持続する現金創出の証拠にしない。
 

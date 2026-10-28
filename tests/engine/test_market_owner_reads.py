@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from baibai_engine.machine_analysis.historical_evaluation.forward import latest_market_data_date
-from baibai_engine.machine_analysis.screening.sqlite_coverage.core import _connect_readonly
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.core import _connect_readonly
 from baibai_engine.machine_analysis.observations.prices import calendar_reader
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (

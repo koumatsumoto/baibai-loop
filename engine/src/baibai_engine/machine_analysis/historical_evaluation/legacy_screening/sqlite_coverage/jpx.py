@@ -8,7 +8,7 @@ from datetime import date, datetime
 from baibai_engine.primitives.dates import weekday_distance
 from baibai_engine.primitives.time import JST
 
-from .shared import CacheCoverageIssue
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.shared import CacheCoverageIssue
 
 _JPX_MAX_FETCH_AGE_WEEKDAYS = 7
 

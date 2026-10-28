@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
 from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _FYDividendObservation,
 )
-from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 

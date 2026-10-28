@@ -43,8 +43,8 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.relative i
     VALUATION_METRICS,
 )
 from baibai_engine.machine_analysis.models.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
-from baibai_engine.machine_analysis.screening.margin_inputs import read_margin_supply_demand_inputs
-from baibai_engine.machine_analysis.screening.metric_builder import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import read_margin_supply_demand_inputs
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
     build_metrics,
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
@@ -68,12 +68,12 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_adjustment_factor_bars, read_daily_bars
 
-from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts, candidate_discovery_method_hash
-from baibai_engine.machine_analysis.screening.rule_config import ScreeningRules
-from baibai_engine.machine_analysis.screening.schema import StockAnalysis
-from baibai_engine.machine_analysis.screening.screening_run_serializer import stock_analysis_payload
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import build_stock_analysis, expected_return_inputs
-from baibai_engine.machine_analysis.screening.universe import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import build_candidate_contexts, candidate_discovery_method_hash
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import ScreeningRules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import StockAnalysis
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import stock_analysis_payload
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import build_stock_analysis, expected_return_inputs
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
     POLICY_EXCLUSION_REASONS,
     UNIVERSE_SCOPE_REVISION,
     build_universe,

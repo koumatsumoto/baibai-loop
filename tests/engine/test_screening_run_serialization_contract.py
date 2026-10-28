@@ -1,5 +1,5 @@
-from baibai_engine.machine_analysis.screening.schema import StockAnalysis
-from baibai_engine.machine_analysis.screening.screening_run_serializer import stock_analysis_payload
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import StockAnalysis
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import stock_analysis_payload
 
 
 def test_metric_serialization_preserves_all_typed_values_and_rounds_only_floats():
