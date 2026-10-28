@@ -20,11 +20,13 @@ import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
+from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
+    JQUANTS_DAILY_BARS,
+)
 from baibai_engine.storage.snapshots import duck as duck_module
 from baibai_engine.storage.snapshots import hydrate as hydrate_module
 from baibai_engine.storage.snapshots import objects as objects_module
 from baibai_engine.storage.snapshots import prefetch as prefetch_module
-from baibai_engine.storage.snapshots.datasets import JQUANTS_DAILY_BARS, LAKE_DATASETS
 from baibai_engine.storage.snapshots.duck import (
     LakeCredentialError,
     LakeSession,
@@ -85,6 +87,10 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
     open_connection,
 )
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 _COMMIT = "b" * 40
 _OTHER_COMMIT = "c" * 40
@@ -147,7 +153,7 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
     ) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
                 source_snapshot=snapshot,
@@ -161,6 +167,8 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
         mirror_root=mirror,
         release_id=release_id,
         created_at=_BUILT_AT,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     _publish_pointer(mirror, release_id, manifest_path)
     connection = open_connection(sqlite_path)
@@ -253,7 +261,11 @@ class TestFixedRelease:
 
         monkeypatch.setattr(LocalMirrorSource, "read_bytes", fail_read)
         with pytest.raises(LakeReadError, match="current pointer could not be read") as failure:
-            resolve_current_release(LocalMirrorSource(lake.mirror))
+            resolve_current_release(
+                LocalMirrorSource(lake.mirror),
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
 
         assert failure.value.__cause__ is error
         assert "pointer is absent" not in str(failure.value)
@@ -263,7 +275,9 @@ class TestFixedRelease:
     ) -> None:
         recording = RecordingSource(LocalMirrorSource(lake.mirror))
         cache = _cache(lake, recording=recording)
-        release = resolve_current_release(cache.source)
+        release = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         # A publisher switches the pointer while the run is still going.
         newer = _build_lake(tmp_path / "second", release_id="release-two")
         (lake.mirror / current_release_pointer_key()).write_bytes(
@@ -276,6 +290,7 @@ class TestFixedRelease:
             cache=cache,
             store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
             dataset_names=("jquants.daily_bars",),
+            catalog=LAKE_DATASETS,
         )
 
         assert report.release_id == "release-one"
@@ -288,10 +303,13 @@ class TestFixedRelease:
         cache = _cache(lake, recording=recording)
         hydrate_market_store(
             session,
-            release=resolve_current_release(cache.source),
+            release=resolve_current_release(
+                cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+            ),
             cache=cache,
             store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
             dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
+            catalog=LAKE_DATASETS,
         )
 
         assert recording.reads
@@ -375,7 +393,9 @@ class TestFixedRelease:
         source = LocalMirrorSource(lake.mirror)
         # The fixture was built on 2026-08-12 and the resolver takes no clock at all:
         # there is no evaluation instant left for an age to be measured against.
-        current = resolve_current_release(source)
+        current = resolve_current_release(
+            source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         assert current.release_id == lake.release_id
 
         pinned = resolve_release(
@@ -392,7 +412,11 @@ class TestFixedRelease:
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
 
         with pytest.raises(LakeReadError, match="digest does not match"):
-            resolve_current_release(LocalMirrorSource(lake.mirror))
+            resolve_current_release(
+                LocalMirrorSource(lake.mirror),
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
 
     def test_pointer_duplicate_field_is_rejected_by_the_reader(self, lake: Lake) -> None:
         pointer_path = lake.mirror / current_release_pointer_key()
@@ -403,7 +427,11 @@ class TestFixedRelease:
         pointer_path.write_bytes(payload)
 
         with pytest.raises(LakeReadError, match="current pointer is invalid"):
-            resolve_current_release(LocalMirrorSource(lake.mirror))
+            resolve_current_release(
+                LocalMirrorSource(lake.mirror),
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
 
     def test_pointer_validation_error_does_not_render_input_values(self, lake: Lake) -> None:
         pointer_path = lake.mirror / current_release_pointer_key()
@@ -412,7 +440,11 @@ class TestFixedRelease:
         )
 
         with pytest.raises(LakeReadError, match="current pointer is invalid") as failure:
-            resolve_current_release(LocalMirrorSource(lake.mirror))
+            resolve_current_release(
+                LocalMirrorSource(lake.mirror),
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
 
         assert "SENTINEL-DO-NOT-LOG" not in str(failure.value)
 
@@ -431,14 +463,22 @@ class TestFixedRelease:
         pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
 
         with pytest.raises(LakeReadError, match="release manifest is invalid"):
-            resolve_current_release(LocalMirrorSource(lake.mirror))
+            resolve_current_release(
+                LocalMirrorSource(lake.mirror),
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
 
     def test_dataset_nested_duplicate_field_is_rejected_after_digest_verification(
         self, lake: Lake
     ) -> None:
         release_path = lake.mirror / release_manifest_key(release_id=lake.release_id)
         release_payload = json.loads(release_path.read_text(encoding="utf-8"))
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         manifest = release.dataset_manifest("jquants.daily_bars")
         manifest_path = (
             lake.mirror / f"lake/manifests/datasets/jquants.daily_bars/{manifest.build_id}.json"
@@ -456,10 +496,18 @@ class TestFixedRelease:
         pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
 
         with pytest.raises(LakeReadError, match="dataset manifest is invalid"):
-            resolve_current_release(LocalMirrorSource(lake.mirror))
+            resolve_current_release(
+                LocalMirrorSource(lake.mirror),
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
 
     def test_fixed_release_mappings_are_immutable_and_defensively_copied(self, lake: Lake) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         original = dict(release.dataset_manifests)
         copied = replace(release, dataset_manifests=original)
         original.clear()
@@ -479,7 +527,11 @@ class TestFixedRelease:
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
 
         with pytest.raises(LakeReadError, match="current pointer is invalid"):
-            resolve_current_release(LocalMirrorSource(lake.mirror))
+            resolve_current_release(
+                LocalMirrorSource(lake.mirror),
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
 
     def test_release_entry_that_disagrees_with_its_dataset_manifest_fails_closed(
         self, lake: Lake
@@ -508,7 +560,11 @@ class TestFixedRelease:
         # matches the contract version the manifest declares.
         import hashlib
 
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
         payload = json.loads((lake.mirror / key).read_text(encoding="utf-8"))
@@ -539,10 +595,14 @@ class TestFixedRelease:
             )
 
     def test_a_dataset_outside_the_contract_allowlist_is_not_readable(self, lake: Lake) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         with pytest.raises(ValueError, match="unsupported lake dataset"):
-            accepted_dataset(release, "jquants.daily_bars_v2")
+            accepted_dataset(release, LAKE_DATASETS["jquants.daily_bars_v2"])
 
     def test_a_dataset_manifest_replaced_under_the_same_key_fails_closed(
         self, lake: Lake, tmp_path: Path
@@ -556,7 +616,9 @@ class TestFixedRelease:
         """
 
         source = LocalMirrorSource(lake.mirror)
-        release = resolve_current_release(source)
+        release = resolve_current_release(
+            source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
         with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
@@ -565,7 +627,7 @@ class TestFixedRelease:
             sqlite_path=lake.sqlite_path, mirror_root=tmp_path / "second-mirror"
         ) as snapshot:
             replacement = export_dataset_snapshot(
-                dataset_name="jquants.daily_bars",
+                dataset=LAKE_DATASETS["jquants.daily_bars"],
                 mirror_root=tmp_path / "second-mirror",
                 producer_git_commit=_COMMIT,
                 source_snapshot=snapshot,
@@ -575,12 +637,18 @@ class TestFixedRelease:
         (lake.mirror / key).write_bytes(replacement.manifest_path.read_bytes())
 
         with pytest.raises(LakeReadError, match="dataset manifest digest"):
-            resolve_current_release(source)
+            resolve_current_release(
+                source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+            )
 
     def test_a_dataset_publishing_another_contract_version_is_not_accepted(
         self, lake: Lake
     ) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         manifest = release.dataset_manifest("jquants.daily_bars")
         next_contract = replace_manifest_contract(
             manifest, contract_version=manifest.contract_version + 1
@@ -593,10 +661,14 @@ class TestFixedRelease:
         with pytest.raises(
             LakeReadError, match=f"this reader accepts only v{manifest.contract_version}"
         ):
-            accepted_dataset(future, "jquants.daily_bars")
+            accepted_dataset(future, LAKE_DATASETS["jquants.daily_bars"])
 
     def test_a_dataset_the_release_does_not_publish_is_not_readable(self, lake: Lake) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         without_short_sale = replace(
             release,
             dataset_manifests={
@@ -605,10 +677,14 @@ class TestFixedRelease:
         )
 
         with pytest.raises(LakeReadError, match="does not contain dataset"):
-            accepted_dataset(without_short_sale, "jquants.short_sale_reports")
+            accepted_dataset(without_short_sale, LAKE_DATASETS["jquants.short_sale_reports"])
 
     def test_requesting_a_month_the_release_does_not_publish_fails_closed(self, lake: Lake) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         with pytest.raises(LakeReadError, match="2026-09"):
             selected_partitions(release, "jquants.daily_bars", periods=[(2026, 9)])
@@ -622,7 +698,11 @@ class TestFixedRelease:
         making every fixture carry a second dataset.
         """
 
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         monthly = release.dataset_manifest("jquants.daily_bars")
         yearly = monthly.model_copy(
             update={
@@ -646,7 +726,11 @@ class TestObjectIntegrity:
     def test_object_whose_bytes_differ_from_the_manifest_fails_closed(
         self, lake: Lake, tmp_path: Path
     ) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         manifest = release.dataset_manifest("jquants.daily_bars")
         target = lake.mirror / manifest.partitions[0].objects[0].key
         target.write_bytes(target.read_bytes() + b"tamper")
@@ -658,7 +742,11 @@ class TestObjectIntegrity:
         assert target.is_file()
 
     def test_missing_object_fails_closed(self, lake: Lake) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         manifest = release.dataset_manifest("jquants.daily_bars")
         lake_object = manifest.partitions[0].objects[0]
         (lake.mirror / lake_object.key).unlink()
@@ -691,7 +779,11 @@ class TestObjectIntegrity:
     def test_parquet_whose_row_count_is_not_the_manifest_count_fails_closed(
         self, lake: Lake
     ) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         manifest = release.dataset_manifest("jquants.daily_bars")
         lake_object = manifest.partitions[0].objects[0]
         path = lake.mirror / lake_object.key
@@ -747,6 +839,7 @@ class TestObjectIntegrity:
             cache=cache,
             store=_dehydrated(lake, tmp_path / "first.sqlite"),
             dataset_names=("jquants.daily_bars",),
+            catalog=LAKE_DATASETS,
         )
         second_cache = LakeObjectCache(root=empty_cache_root, source=LocalMirrorSource(remote))
         hydrate_market_store(
@@ -755,6 +848,7 @@ class TestObjectIntegrity:
             cache=second_cache,
             store=_dehydrated(lake, tmp_path / "second.sqlite"),
             dataset_names=("jquants.daily_bars",),
+            catalog=LAKE_DATASETS,
         )
 
         assert first.transfers.fetched_objects == 2
@@ -768,8 +862,12 @@ class TestExplicitObjectReads:
     def test_reads_name_the_manifest_objects_and_reject_an_unknown_column(
         self, session: LakeSession, lake: Lake
     ) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
-        dataset = accepted_dataset(release, "jquants.daily_bars")
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
+        dataset = accepted_dataset(release, LAKE_DATASETS["jquants.daily_bars"])
         cache = _cache(lake)
         paths = [
             cache.materialize(item)
@@ -803,8 +901,12 @@ class TestExplicitObjectReads:
         Python objects at once is what would make a real fill unbuildable.
         """
 
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
-        dataset = accepted_dataset(release, "jquants.daily_bars")
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
+        dataset = accepted_dataset(release, LAKE_DATASETS["jquants.daily_bars"])
         cache = _cache(lake)
         paths = [
             cache.materialize(item)
@@ -817,8 +919,12 @@ class TestExplicitObjectReads:
         assert [len(batch) for batch in batches] == [1, 1, 1, 1]
 
     def test_a_non_positive_batch_size_is_refused(self, session: LakeSession, lake: Lake) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
-        dataset = accepted_dataset(release, "jquants.daily_bars")
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
+        dataset = accepted_dataset(release, LAKE_DATASETS["jquants.daily_bars"])
         cache = _cache(lake)
         paths = [
             cache.materialize(item)
@@ -955,7 +1061,7 @@ def _build_lake_second_release(lake: Lake) -> str:
     ) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=lake.mirror,
                 producer_git_commit=_COMMIT,
                 source_snapshot=snapshot,
@@ -969,6 +1075,8 @@ def _build_lake_second_release(lake: Lake) -> str:
         mirror_root=lake.mirror,
         release_id=release_id,
         created_at=_BUILT_AT,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     _publish_pointer(lake.mirror, release_id, manifest_path)
     return release_id
@@ -1008,7 +1116,9 @@ class TestReleaseCurrency:
 
         store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         cache = _cache(lake)
-        stale = resolve_current_release(cache.source)
+        stale = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         newer = _build_lake_second_release(lake)
         assert newer != stale.release_id
 
@@ -1020,9 +1130,18 @@ class TestReleaseCurrency:
                 store=store,
                 dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
                 still_current=lambda: (
-                    resolve_current_release(cache.source).release_id,
-                    resolve_current_release(cache.source).manifest_sha256,
+                    resolve_current_release(
+                        cache.source,
+                        catalog=LAKE_DATASETS,
+                        policy=release_policy_for_profile("production"),
+                    ).release_id,
+                    resolve_current_release(
+                        cache.source,
+                        catalog=LAKE_DATASETS,
+                        policy=release_policy_for_profile("production"),
+                    ).manifest_sha256,
                 ),
+                catalog=LAKE_DATASETS,
             )
 
         connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
@@ -1043,7 +1162,9 @@ class TestReleaseCurrency:
 
         store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         cache = _cache(lake)
-        release = resolve_current_release(cache.source)
+        release = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
 
         with pytest.raises(LakeHydrateError, match="no longer current"):
             hydrate_market_store(
@@ -1053,6 +1174,7 @@ class TestReleaseCurrency:
                 store=store,
                 dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
                 still_current=lambda: (release.release_id, "0" * 64),
+                catalog=LAKE_DATASETS,
             )
 
     def test_an_explicitly_named_release_is_filled_without_a_currency_check(
@@ -1062,7 +1184,9 @@ class TestReleaseCurrency:
 
         store = _dehydrated(lake, tmp_path / "historical.sqlite")
         cache = _cache(lake)
-        named = resolve_current_release(cache.source)
+        named = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         _build_lake_second_release(lake)
 
         report = hydrate_market_store(
@@ -1071,6 +1195,7 @@ class TestReleaseCurrency:
             cache=cache,
             store=store,
             dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
+            catalog=LAKE_DATASETS,
         )
 
         assert report.release_id == named.release_id
@@ -1086,7 +1211,11 @@ class TestCacheResilience:
                 target = remote / path.relative_to(lake.mirror)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(path.read_bytes())
-        release = resolve_current_release(LocalMirrorSource(remote))
+        release = resolve_current_release(
+            LocalMirrorSource(remote),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         lake_object = release.dataset_manifest("jquants.daily_bars").partitions[0].objects[0]
         cache_root = tmp_path / "cache"
         cache = LakeObjectCache(root=cache_root, source=LocalMirrorSource(remote))
@@ -1102,7 +1231,11 @@ class TestCacheResilience:
     def test_a_cache_that_is_its_own_source_fails_closed_instead_of_looping(
         self, lake: Lake
     ) -> None:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         lake_object = release.dataset_manifest("jquants.daily_bars").partitions[0].objects[0]
         (lake.mirror / lake_object.key).write_bytes(b"rot")
         cache = LakeObjectCache(root=lake.mirror, source=LocalMirrorSource(lake.mirror))
@@ -1129,11 +1262,14 @@ def _hydrate(session: LakeSession, lake: Lake, store: Path, **kwargs: Any):
     cache = _cache(lake)
     return hydrate_market_store(
         session,
-        release=resolve_current_release(cache.source),
+        release=resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        ),
         cache=cache,
         store=store,
         dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
         **kwargs,
+        catalog=LAKE_DATASETS,
     )
 
 
@@ -1150,7 +1286,11 @@ class TestHydrate:
             )
             connection.execute("DELETE FROM jquants_short_sale_reports WHERE ticker = '6758'")
         _build_lake_second_release(lake)
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         before = store.read_bytes()
 
         with pytest.raises(LakeHydrateError, match="partial hydration can only repair"):
@@ -1160,6 +1300,7 @@ class TestHydrate:
                 cache=_cache(lake),
                 store=store,
                 dataset_names=("jquants.daily_bars",),
+                catalog=LAKE_DATASETS,
             )
 
         assert store.read_bytes() == before
@@ -1178,7 +1319,11 @@ class TestHydrate:
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
             )
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         report = hydrate_market_store(
             session,
@@ -1186,6 +1331,7 @@ class TestHydrate:
             cache=_cache(lake),
             store=store,
             dataset_names=("jquants.daily_bars",),
+            catalog=LAKE_DATASETS,
         )
 
         assert report.rows == {"jquants.daily_bars": 4}
@@ -1215,7 +1361,11 @@ class TestHydrate:
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
             )
         _build_lake_second_release(lake)
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         report = hydrate_market_store(
             session,
@@ -1223,6 +1373,7 @@ class TestHydrate:
             cache=_cache(lake),
             store=store,
             dataset_names=release.dataset_names(),
+            catalog=LAKE_DATASETS,
         )
 
         assert set(report.rows) == set(release.dataset_names())
@@ -1243,7 +1394,11 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "omitted.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        original = resolve_current_release(_cache(lake).source)
+        original = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         target = replace(
             original,
             release_id="release-without-short-sales",
@@ -1264,6 +1419,7 @@ class TestHydrate:
                 cache=_cache(lake),
                 store=store,
                 dataset_names=target.dataset_names(),
+                catalog=LAKE_DATASETS,
             )
 
         assert store.read_bytes() == before
@@ -1582,13 +1738,18 @@ class TestDehydrate:
         store = tmp_path / "moved-current.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
         before = store.read_bytes()
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         with pytest.raises(LakeHydrateError, match="no longer current"):
             dehydrate_market_store(
                 store,
                 release=release,
                 still_current=lambda: ("new-release", "d" * 64),
+                catalog=LAKE_DATASETS,
             )
 
         assert store.read_bytes() == before
@@ -1609,10 +1770,14 @@ class TestDehydrate:
         connection.commit()
         connection.close()
         before = store.read_bytes()
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         with pytest.raises(LakeHydrateError, match="origin does not match"):
-            dehydrate_market_store(store, release=release)
+            dehydrate_market_store(store, release=release, catalog=LAKE_DATASETS)
 
         assert store.read_bytes() == before
 
@@ -1621,9 +1786,13 @@ class TestDehydrate:
     ) -> None:
         store = tmp_path / "leaving.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
-        report = dehydrate_market_store(store, release=release)
+        report = dehydrate_market_store(store, release=release, catalog=LAKE_DATASETS)
 
         assert report.removed_rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
         emptied = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
@@ -1648,10 +1817,14 @@ class TestDehydrate:
         )
         connection.commit()
         connection.close()
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         with pytest.raises(LakeHydrateError, match="publish before emptying"):
-            dehydrate_market_store(store, release=release)
+            dehydrate_market_store(store, release=release, catalog=LAKE_DATASETS)
 
     def test_emptying_refuses_a_dataset_the_release_does_not_carry_at_all(
         self, lake: Lake, tmp_path: Path
@@ -1670,10 +1843,14 @@ class TestDehydrate:
         )
         connection.commit()
         connection.close()
-        release = resolve_current_release(_cache(lake).source)
+        release = resolve_current_release(
+            _cache(lake).source,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
         with pytest.raises(LakeHydrateError, match="the release does not publish"):
-            dehydrate_market_store(store, release=release)
+            dehydrate_market_store(store, release=release, catalog=LAKE_DATASETS)
 
 
 def test_obsolete_market_store_is_rejected_before_lake_work(tmp_path: Path) -> None:
@@ -1723,7 +1900,7 @@ class TestOperatorDerivedRetraction:
             sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
         ) as snapshot:
             manifest_path = export_dataset_snapshot(
-                dataset_name="edinet.tender_offer_exit_values",
+                dataset=LAKE_DATASETS["edinet.tender_offer_exit_values"],
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
                 source_snapshot=snapshot,
@@ -1735,6 +1912,8 @@ class TestOperatorDerivedRetraction:
             mirror_root=mirror,
             release_id=release_id,
             created_at=_BUILT_AT,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
         _publish_pointer(mirror, release_id, release_manifest)
         connection = open_connection(sqlite_path)
@@ -1775,6 +1954,7 @@ class TestOperatorDerivedRetraction:
             cache=LakeObjectCache(root=tmp_path / "cache", source=LocalMirrorSource(mirror)),
             store=store,
             dataset_names=("edinet.tender_offer_exit_values",),
+            catalog=LAKE_DATASETS,
         )
 
         connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
@@ -1804,7 +1984,7 @@ class TestOperatorDerivedRetraction:
             manifest_sha256=_release_digest(mirror, "release-push"),
         )
 
-        report = dehydrate_market_store(source, release=release)
+        report = dehydrate_market_store(source, release=release, catalog=LAKE_DATASETS)
 
         assert report.removed_rows["edinet.tender_offer_exit_values"] == 2
         connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
@@ -1837,6 +2017,7 @@ class TestOperatorDerivedRetraction:
             cache=LakeObjectCache(root=tmp_path / "cache", source=LocalMirrorSource(mirror)),
             store=store,
             dataset_names=("edinet.tender_offer_exit_values",),
+            catalog=LAKE_DATASETS,
         )
 
         connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
@@ -1901,7 +2082,11 @@ class _StreamingSource:
 
 class TestLargeObjectStreaming:
     def _object(self, lake: Lake, payload: bytes) -> LakeObject:
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
         item = hydration_order(release, ("jquants.daily_bars",))[0]
         return LakeObject(
             key=item.key,
@@ -2009,7 +2194,11 @@ class TestPrefetchingHydration:
     _NAMES = ("jquants.daily_bars", "jquants.short_sale_reports")
 
     def _release(self, lake: Lake) -> Any:
-        return resolve_current_release(LocalMirrorSource(lake.mirror))
+        return resolve_current_release(
+            LocalMirrorSource(lake.mirror),
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
     def test_large_fetched_objects_are_evicted_after_their_rows_load(
         self,
@@ -2038,6 +2227,7 @@ class TestPrefetchingHydration:
                 ),
                 store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
                 dataset_names=self._NAMES,
+                catalog=LAKE_DATASETS,
             )
         finally:
             source.close()
@@ -2060,6 +2250,7 @@ class TestPrefetchingHydration:
             cache=cache,
             store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
             dataset_names=self._NAMES,
+            catalog=LAKE_DATASETS,
         )
 
         planned_keys = {item.key for item in planned}
@@ -2087,6 +2278,7 @@ class TestPrefetchingHydration:
                 cache=LakeObjectCache(root=tmp_path / "cache", source=source),
                 store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
                 dataset_names=self._NAMES,
+                catalog=LAKE_DATASETS,
             )
         finally:
             source.close()
@@ -2122,6 +2314,7 @@ class TestPrefetchingHydration:
                     cache=LakeObjectCache(root=tmp_path / "cache", source=source),
                     store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
                     dataset_names=self._NAMES,
+                    catalog=LAKE_DATASETS,
                 )
         finally:
             source.close()
@@ -2145,6 +2338,7 @@ class TestPrefetchingHydration:
                 cache=LakeObjectCache(root=tmp_path / "cache", source=source),
                 store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
                 dataset_names=self._NAMES,
+                catalog=LAKE_DATASETS,
             )
         finally:
             source.close()
@@ -2177,6 +2371,7 @@ class TestPrefetchingHydration:
                 cache=LakeObjectCache(root=cache_root, source=source),
                 store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
                 dataset_names=self._NAMES,
+                catalog=LAKE_DATASETS,
             )
         finally:
             source.close()
@@ -2275,6 +2470,7 @@ class TestPrefetchingHydration:
                 cache=hydration_cache,
                 store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
                 dataset_names=self._NAMES,
+                catalog=LAKE_DATASETS,
             )
 
         assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
@@ -2312,7 +2508,11 @@ class TestPrefetchingHydration:
 
 
 def test_hydration_retains_fixed_metadata_for_offline_research(session, lake, tmp_path):
-    release = resolve_current_release(LocalMirrorSource(lake.mirror))
+    release = resolve_current_release(
+        LocalMirrorSource(lake.mirror),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
+    )
     cache_root = tmp_path / "fresh-runner-cache"
     hydrate_market_store(
         session,
@@ -2320,6 +2520,7 @@ def test_hydration_retains_fixed_metadata_for_offline_research(session, lake, tm
         cache=LakeObjectCache(root=cache_root, source=LocalMirrorSource(lake.mirror)),
         store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
         dataset_names=release.dataset_names(),
+        catalog=LAKE_DATASETS,
     )
     offline = resolve_release(
         LocalMirrorSource(cache_root), release.release_id, manifest_sha256=release.manifest_sha256

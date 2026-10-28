@@ -21,11 +21,6 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import (
     retain_response,
 )
 from baibai_engine.storage.snapshots.duck import lake_session
-from baibai_engine.storage.snapshots.equity_web_verification import (
-    history_digests,
-    response_digest,
-    verify_release_history,
-)
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import resolve_release
@@ -33,6 +28,13 @@ from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.equity_web_import import import_responses
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
+from baibai_jobs.publication.public_page_verification import (
+    history_digests,
+    response_digest,
+    verify_release_history,
+)
 
 DAY = datetime(2026, 9, 30, 23, 59, tzinfo=UTC)
 DATASET = "equity_web.source_responses"
@@ -310,7 +312,7 @@ def test_complete_and_incomplete_attempts_roundtrip_through_fixed_lake_release(
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=mirror) as snapshot:
         manifest = export_dataset_snapshot(
-            dataset_name=DATASET,
+            dataset=LAKE_DATASETS[DATASET],
             mirror_root=mirror,
             producer_git_commit="a" * 40,
             source_snapshot=snapshot,
@@ -321,7 +323,11 @@ def test_complete_and_incomplete_attempts_roundtrip_through_fixed_lake_release(
         {"year": 2026, "month": 10},
     ]
     manifest_path, _ = create_release(
-        dataset_manifest_paths=[manifest], mirror_root=mirror, release_id="equity-web-fixed-test"
+        dataset_manifest_paths=[manifest],
+        mirror_root=mirror,
+        release_id="equity-web-fixed-test",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     source = LocalMirrorSource(mirror)
@@ -332,7 +338,12 @@ def test_complete_and_incomplete_attempts_roundtrip_through_fixed_lake_release(
     open_connection(restored).close()
     with lake_session() as session:
         hydrate_market_store(
-            session, release=release, cache=cache, store=restored, dataset_names=(DATASET,)
+            session,
+            release=release,
+            cache=cache,
+            store=restored,
+            dataset_names=(DATASET,),
+            catalog=LAKE_DATASETS,
         )
     with closing(sqlite3.connect(restored)) as conn:
         assert read_responses(conn, [iframe, incomplete, page]) == original

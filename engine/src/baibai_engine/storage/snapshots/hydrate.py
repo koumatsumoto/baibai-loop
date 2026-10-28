@@ -34,7 +34,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS, LakeDataset
+from baibai_engine.storage.snapshots.contracts import (
+    LakeDataset,
+    freeze_catalog,
+)
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.models import PartitionManifest
 from baibai_engine.storage.snapshots.objects import (
@@ -98,15 +101,17 @@ class ReleaseLoadPlan:
 def plan_release_load(
     release: FixedRelease,
     *,
+    catalog: Mapping[str, LakeDataset],
     dataset_names: Sequence[str],
 ) -> tuple[ReleaseLoadPlan, dict[str, tuple[PartitionManifest, ...]]]:
     """Resolve the exact objects a fill would read, before reading any of them."""
+    catalog = freeze_catalog(catalog)
 
     if not dataset_names:
         raise LakeHydrateError("a load plan must contain at least one dataset")
     if len(set(dataset_names)) != len(dataset_names):
         raise LakeHydrateError("a load plan cannot list the same dataset twice")
-    datasets = [accepted_dataset(release, name) for name in sorted(dataset_names)]
+    datasets = [accepted_dataset(release, catalog[name]) for name in sorted(dataset_names)]
     partitions: dict[str, tuple[PartitionManifest, ...]] = {}
     entries: list[PlannedDataset] = []
     objects: list[PlannedObject] = []
@@ -176,6 +181,7 @@ class HydrateReport:
 def hydrate_market_store(
     session: LakeSession,
     *,
+    catalog: Mapping[str, LakeDataset],
     release: FixedRelease,
     cache: LakeObjectCache,
     store: Path,
@@ -188,15 +194,16 @@ def hydrate_market_store(
     lock, so the fill re-asks under it through ``still_current`` and refuses rather than
     installing a generation the pointer has already moved past.
     """
+    catalog = freeze_catalog(catalog)
 
     if not store.is_file():
         raise LakeHydrateError(f"market store does not exist: {store}")
-    plan, partitions = plan_release_load(release, dataset_names=dataset_names)
+    plan, partitions = plan_release_load(release, dataset_names=dataset_names, catalog=catalog)
     require_still_current(still_current, release)
     with exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"):
         schema_version = validate_snapshot(store)
-        require_row_counts_within_release(store, plan)
-        require_safe_hydrate_transition(store, release=release, plan=plan)
+        require_row_counts_within_release(store, plan, catalog=catalog)
+        require_safe_hydrate_transition(store, release=release, plan=plan, catalog=catalog)
         require_free_capacity(store.parent, store=store)
         before = cache.transfers.as_dict()
         temporary = store.with_name(f".{store.name}.{os.getpid()}.{uuid.uuid4().hex}.hydrating")
@@ -207,7 +214,7 @@ def hydrate_market_store(
             try:
                 connection.execute("PRAGMA journal_mode=OFF")
                 for name in sorted(partitions):
-                    dataset = accepted_dataset(release, name)
+                    dataset = accepted_dataset(release, catalog[name])
                     _require_contract_shape(connection, dataset)
                     # The store's own DDL is what gets restored, so the fill cannot
                     # invent an index the schema does not declare or lose one it does.
@@ -262,6 +269,7 @@ def hydrate_market_store(
 def require_safe_hydrate_transition(
     store: Path,
     *,
+    catalog: Mapping[str, LakeDataset],
     release: FixedRelease,
     plan: ReleaseLoadPlan,
 ) -> None:
@@ -292,10 +300,10 @@ def require_safe_hydrate_transition(
     if origin == target:
         return
 
-    omitted = tuple(sorted(set(LAKE_DATASETS) - published))
+    omitted = tuple(sorted(set(catalog) - published))
     with closing(sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)) as connection:
         for name in omitted:
-            dataset = LAKE_DATASETS[name]
+            dataset = catalog[name]
             try:
                 held = int(
                     connection.execute(
@@ -335,6 +343,7 @@ class DehydrateReport:
 def dehydrate_market_store(
     store: Path,
     *,
+    catalog: Mapping[str, LakeDataset],
     release: FixedRelease,
     still_current: Callable[[], tuple[str, str]] | None = None,
 ) -> DehydrateReport:
@@ -344,6 +353,7 @@ def dehydrate_market_store(
     Matching origin and row counts are required, but do not prove equality of row values.
     The caller must not change lake-owned rows between publication and this snapshot.
     """
+    catalog = freeze_catalog(catalog)
 
     if not store.is_file():
         raise LakeHydrateError(f"market store does not exist: {store}")
@@ -361,13 +371,15 @@ def dehydrate_market_store(
         )
     require_still_current(still_current, release)
     published = expected_row_totals(
-        plan_release_load(release, dataset_names=tuple(sorted(release.dataset_manifests)))[0]
+        plan_release_load(
+            release, dataset_names=tuple(sorted(release.dataset_manifests)), catalog=catalog
+        )[0]
     )
     bytes_before = store.stat().st_size
     removed: dict[str, int] = {}
     connection = sqlite3.connect(store)
     try:
-        for name, dataset in sorted(LAKE_DATASETS.items()):
+        for name, dataset in sorted(catalog.items()):
             held = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
@@ -400,7 +412,9 @@ def dehydrate_market_store(
     )
 
 
-def require_row_counts_within_release(store: Path, plan: ReleaseLoadPlan) -> None:
+def require_row_counts_within_release(
+    store: Path, plan: ReleaseLoadPlan, *, catalog: Mapping[str, LakeDataset]
+) -> None:
     """Reject a store containing more rows than the release, per dataset.
 
     Hydration replaces lake-owned rows. This count check catches excess local rows,
@@ -412,7 +426,7 @@ def require_row_counts_within_release(store: Path, plan: ReleaseLoadPlan) -> Non
     expected = expected_row_totals(plan)
     with closing(sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)) as connection:
         for name in sorted(expected):
-            dataset = LAKE_DATASETS[name]
+            dataset = catalog[name]
             try:
                 held = int(
                     connection.execute(

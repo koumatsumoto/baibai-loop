@@ -45,7 +45,9 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _save_handle, acquire, release
+from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import (
     PointerPrecondition,
     publish_release,
@@ -64,7 +66,12 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         market_publish_module,
         "create_lake_release",
-        lambda **kwargs: create_release(created_at=fixed_now, **kwargs),
+        lambda **kwargs: create_release(
+            created_at=fixed_now,
+            **kwargs,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        ),
     )
     export_lake = market_publish_module.export_market_snapshot
     monkeypatch.setattr(
@@ -93,7 +100,7 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
     ) as snapshot:
         datasets = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot,
@@ -109,6 +116,8 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
         mirror_root=mirror,
         release_id="release-1",
         created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     return mirror, release_path
 
@@ -119,6 +128,8 @@ def _successor_release(mirror: Path, release_id: str) -> Path:
         mirror_root=mirror,
         release_id=release_id,
         created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     return release_path
 
@@ -214,6 +225,8 @@ def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
         mirror_root=mirror,
         release_id="release-2",
         created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     store.conflict_pointer = True
 
@@ -313,7 +326,9 @@ def test_export_manifest_replacement_after_release_creation_never_moves_current(
     create_release = market_publish_module.create_lake_release
 
     def create_then_replace(**kwargs: object) -> tuple[Path, lake_models.ReleaseManifest]:
-        path, release = create_release(**kwargs)  # type: ignore[arg-type]
+        path, release = create_release(
+            **kwargs, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )  # type: ignore[arg-type]
         dataset_name, entry = next(iter(release.datasets.items()))
         manifest_path = mirror / dataset_manifest_key(
             dataset=dataset_name,
@@ -1198,12 +1213,15 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
         producer_git_commit="a" * 40,
         expected_store_origin=None,
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
     release_path, _ = create_release(
         dataset_manifest_paths=sorted(item.manifest_path for item in build.datasets.values()),
         mirror_root=mirror,
         release_id="two-month-1",
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     return sqlite_path, mirror, release_path
 
@@ -1230,12 +1248,15 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
         producer_git_commit="a" * 40,
         expected_store_origin=None,
         created_at=datetime(2026, 3, 2, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
     successor_path, _ = create_release(
         dataset_manifest_paths=sorted(item.manifest_path for item in corrected.datasets.values()),
         mirror_root=mirror,
         release_id="two-month-2",
         created_at=datetime(2026, 3, 2, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
 
     before = len(store.get_keys)

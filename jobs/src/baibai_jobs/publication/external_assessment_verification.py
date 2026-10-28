@@ -29,7 +29,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
     QuantsScoreObservation,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.rows import observation_row
-from baibai_engine.storage.snapshots.datasets import (
+from baibai_engine.machine_analysis.observations.external_assessments.snapshot_contracts import (
     EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS,

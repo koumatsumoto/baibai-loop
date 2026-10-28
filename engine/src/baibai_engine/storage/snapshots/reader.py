@@ -26,7 +26,11 @@ from types import MappingProxyType
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from baibai_engine.storage.snapshots.datasets import LakeDataset, period_label, require_lake_dataset
+from baibai_engine.storage.snapshots.contracts import (
+    LakeDataset,
+    freeze_catalog,
+    period_label,
+)
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.keys import (
     current_release_pointer_key,
@@ -40,8 +44,10 @@ from baibai_engine.storage.snapshots.models import (
     LakeReleaseSourceRef,
     PartitionManifest,
     ReleaseManifest,
+    ReleasePolicy,
     canonical_lake_model_bytes,
     load_lake_model_json,
+    validate_dataset_contract,
     validate_release_policy,
 )
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LakeObjectSource, sha256_bytes
@@ -97,8 +103,11 @@ class FixedRelease:
             ) from None
 
 
-def resolve_current_release(source: LakeObjectSource) -> FixedRelease:
+def resolve_current_release(
+    source: LakeObjectSource, *, policy: ReleasePolicy, catalog: Mapping[str, LakeDataset]
+) -> FixedRelease:
     """Freeze current and require it to satisfy policy structurally."""
+    catalog = freeze_catalog(catalog)
 
     pointer = _read_current_pointer(source)
     release = _load_release(
@@ -110,6 +119,8 @@ def resolve_current_release(source: LakeObjectSource) -> FixedRelease:
         validate_release_policy(
             release.manifest,
             release.dataset_manifests,
+            policy=policy,
+            catalog=catalog,
         )
     except ValueError as exc:
         raise LakeReadError(f"market current release fails operational policy: {exc}") from None
@@ -248,18 +259,13 @@ def materialize_release_metadata(cache: LakeObjectCache, release: FixedRelease) 
         cache.retain_metadata(key, payload, sha256=digest)
 
 
-def accepted_dataset(release: FixedRelease, dataset_name: str) -> LakeDataset:
-    """The dataset contract this reader accepts, or an error naming the mismatch."""
-
-    dataset = require_lake_dataset(dataset_name)
-    manifest = release.dataset_manifest(dataset_name)
-    if manifest.contract_version != dataset.contract_version:
-        raise LakeReadError(
-            f"dataset {dataset_name} publishes contract v{manifest.contract_version}; "
-            f"this reader accepts only v{dataset.contract_version}"
-        )
-    if tuple(manifest.partition_by) != dataset.partition_by:
-        raise LakeReadError(f"dataset {dataset_name} publishes an unexpected partition layout")
+def accepted_dataset(release: FixedRelease, dataset: LakeDataset) -> LakeDataset:
+    """Require the exact owner-declared name, layer, version and partition layout."""
+    manifest = release.dataset_manifest(dataset.name)
+    try:
+        validate_dataset_contract(manifest, dataset)
+    except ValueError as error:
+        raise LakeReadError(str(error)) from error
     return dataset
 
 

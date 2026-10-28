@@ -18,6 +18,7 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_reader 
 )
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
 @pytest.mark.parametrize("missing", [False, True])
@@ -67,7 +68,7 @@ def test_daily_margin_publication_and_values_survive_sqlite_and_lake(tmp_path, m
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:
         report = export_dataset_snapshot(
-            dataset_name="jquants.all_issues_daily_margin",
+            dataset=LAKE_DATASETS["jquants.all_issues_daily_margin"],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,

@@ -16,7 +16,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.models 
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_short_sale_reports,
 )
-from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -31,6 +30,9 @@ from baibai_jobs.integration.source_cache_merge import (
     MergeError,
     main,
     merge_stores,
+)
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
 )
 
 _FIN_RANGE = "get_fin_summary_range:2020-01-01..2020-12-31"

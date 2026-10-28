@@ -37,6 +37,8 @@ from baibai_engine.storage.snapshots.models import (
     validate_release_policy as validate_lake_release_policy,
 )
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 _MAX_POINTER_BYTES = 64 * 1024
 # A per-attempt read timeout that is shorter than the transfer it guards turns a
@@ -417,7 +419,9 @@ def publish_release(
         )
     )
 
-    validate_lake_release_policy(release, manifests)
+    validate_lake_release_policy(
+        release, manifests, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+    )
     # Every reachable node is proved once. The publication memo makes this both the
     # per-upload postcondition and the pointer precondition: nothing between the two
     # can replace a key the store refuses to overwrite, so re-reading the closure

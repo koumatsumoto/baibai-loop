@@ -159,11 +159,6 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
         if len(rest) < 2 or rest[1] not in DOMAINS:
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")
         module = DOMAINS[rest[1]].module
-        if rest[1] == "snapshots":
-            from baibai_engine.cli.snapshot_write import WRITE_COMMANDS
-
-            if len(rest) > 2 and rest[2] in WRITE_COMMANDS:
-                module = "baibai_engine.cli.snapshot_write"
         return build_parser(module), f"baibai-engine {rest[1]}", rest[2:]
     if rest[:1] == ["baibai-web"]:
         return _tool_parser("baibai_web.cli", "baibai-web", rest[1:])

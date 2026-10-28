@@ -25,6 +25,8 @@ from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 
 def test_raw_only_fixed_release_rebuilds_edinet_lists_metrics_and_facts(tmp_path, monkeypatch):
@@ -66,7 +68,7 @@ def test_raw_only_fixed_release_rebuilds_edinet_lists_metrics_and_facts(tmp_path
     with sealed_sqlite_snapshot(sqlite_path=original, mirror_root=mirror) as snapshot:
         exports = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -81,6 +83,8 @@ def test_raw_only_fixed_release_rebuilds_edinet_lists_metrics_and_facts(tmp_path
         dataset_manifest_paths=[item.manifest_path for item in exports],
         mirror_root=mirror,
         release_id="edinet-raw-only-rebuild",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     assert set(release_manifest.datasets) == set(names)
     source = LocalMirrorSource(mirror)
@@ -115,6 +119,7 @@ def test_raw_only_fixed_release_rebuilds_edinet_lists_metrics_and_facts(tmp_path
             cache=LakeObjectCache(root=mirror, source=source),
             store=target,
             dataset_names=names,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows == {"edinet.list_responses": 1, "edinet.source_archives": 2}
     with closing(sqlite3.connect(target)) as conn:

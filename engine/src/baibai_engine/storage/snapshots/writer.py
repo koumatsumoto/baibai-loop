@@ -16,13 +16,12 @@ from types import MappingProxyType
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from baibai_engine.storage.snapshots.datasets import (
-    LAKE_DATASETS,
+from baibai_engine.storage.snapshots.contracts import (
     LakeDataset,
     Period,
+    freeze_catalog,
     period_label,
     period_values,
-    require_lake_dataset,
 )
 from baibai_engine.storage.snapshots.immutable import (
     ImmutableInstallError,
@@ -44,6 +43,7 @@ from baibai_engine.storage.snapshots.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
     load_lake_model_json,
+    validate_dataset_contract,
 )
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
@@ -156,7 +156,7 @@ def sealed_sqlite_snapshot(
 
 def export_dataset_snapshot(
     *,
-    dataset_name: str,
+    dataset: LakeDataset,
     mirror_root: Path,
     producer_git_commit: str,
     source_snapshot: SealedSQLiteSnapshot,
@@ -175,7 +175,7 @@ def export_dataset_snapshot(
     generation could disagree with this one.
     """
 
-    dataset = require_lake_dataset(dataset_name)
+    dataset_name = dataset.name
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
@@ -230,9 +230,7 @@ def export_dataset_snapshot(
         )
         new_objects = _promote_partitions(mirror_root, built)
         validate_snapshot_parity(
-            sqlite_path=snapshot.path,
-            mirror_root=mirror_root,
-            manifest=manifest,
+            sqlite_path=snapshot.path, mirror_root=mirror_root, manifest=manifest, dataset=dataset
         )
         manifest_path = _mirror_path(
             mirror_root,
@@ -260,6 +258,7 @@ def export_dataset_snapshot(
 
 def export_market_store(
     *,
+    catalog: Mapping[str, LakeDataset],
     sqlite_path: Path,
     mirror_root: Path,
     producer_git_commit: str,
@@ -267,18 +266,21 @@ def export_market_store(
     created_at: datetime | None = None,
 ) -> LakeExportReport:
     """Export every lake dataset from one sealed SQLite generation."""
+    catalog = freeze_catalog(catalog)
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         return export_market_snapshot(
             source_snapshot=snapshot,
             mirror_root=mirror_root,
             producer_git_commit=producer_git_commit,
             expected_store_origin=expected_store_origin,
+            catalog=catalog,
             created_at=created_at,
         )
 
 
 def export_market_snapshot(
     *,
+    catalog: Mapping[str, LakeDataset],
     source_snapshot: SealedSQLiteSnapshot,
     mirror_root: Path,
     producer_git_commit: str,
@@ -286,6 +288,7 @@ def export_market_snapshot(
     created_at: datetime | None = None,
 ) -> LakeExportReport:
     """同じsealをモデル生成にも渡せるよう、snapshotの寿命はcallerが所有する。"""
+    catalog = freeze_catalog(catalog)
     snapshot = source_snapshot
     with _open_immutable(snapshot.path) as probe:
         try:
@@ -300,14 +303,12 @@ def export_market_snapshot(
         # Empty source tables produce no partition. Omit them here without claiming
         # why they are empty; release policy decides whether an omitted dataset is
         # allowed, including required inputs and previously published history.
-        populated = tuple(
-            name for name in sorted(LAKE_DATASETS) if _has_rows(probe, LAKE_DATASETS[name])
-        )
+        populated = tuple(name for name in sorted(catalog) if _has_rows(probe, catalog[name]))
     if not populated:
         raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
     reports = {
         dataset_name: export_dataset_snapshot(
-            dataset_name=dataset_name,
+            dataset=catalog[dataset_name],
             mirror_root=mirror_root,
             producer_git_commit=producer_git_commit,
             source_snapshot=snapshot,
@@ -319,7 +320,7 @@ def export_market_snapshot(
         snapshot=snapshot.ref,
         store_origin=store_origin,
         datasets=MappingProxyType(reports),
-        empty_datasets=tuple(name for name in sorted(LAKE_DATASETS) if name not in reports),
+        empty_datasets=tuple(name for name in sorted(catalog) if name not in reports),
     )
 
 
@@ -332,6 +333,7 @@ def _has_rows(connection: sqlite3.Connection, dataset: LakeDataset) -> bool:
 
 def validate_snapshot_parity(
     *,
+    dataset: LakeDataset,
     sqlite_path: Path,
     mirror_root: Path,
     manifest: DatasetManifest,
@@ -342,7 +344,7 @@ def validate_snapshot_parity(
     from the other is a hole no per-partition check would look at, and answering it
     costs one query. Every partition's rows are then compared in full.
     """
-    dataset = require_lake_dataset(manifest.dataset)
+    validate_dataset_contract(manifest, dataset)
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
         source_periods = set(_selected_periods(connection, dataset))

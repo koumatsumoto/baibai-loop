@@ -17,7 +17,6 @@ from tests.helpers.lake_release import market_store
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.snapshots import identity as identity_module
 from baibai_engine.storage.snapshots import writer as writer_module
-from baibai_engine.storage.snapshots.datasets import require_lake_dataset
 from baibai_engine.storage.snapshots.immutable import install_immutable_bytes
 from baibai_engine.storage.snapshots.keys import canonical_object_key, current_release_pointer_key
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
@@ -38,6 +37,11 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+    require_lake_dataset,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 from tools.diagnostics.benchmark_lake_export import benchmark
 
 _COMMIT = "a" * 40
@@ -85,6 +89,7 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         manifest=second.manifest,
+        dataset=LAKE_DATASETS[second.manifest.dataset],
     )
 
 
@@ -131,6 +136,7 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         manifest=second.manifest,
+        dataset=LAKE_DATASETS[second.manifest.dataset],
     )
 
 
@@ -219,6 +225,7 @@ def test_short_sale_export_preserves_pk_values_and_cancellation(tmp_path) -> Non
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         manifest=result.manifest,
+        dataset=LAKE_DATASETS[result.manifest.dataset],
     )
 
 
@@ -233,7 +240,7 @@ def test_release_manifest_composes_exact_dataset_builds(
     ) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
                 source_snapshot=snapshot,
@@ -249,6 +256,8 @@ def test_release_manifest_composes_exact_dataset_builds(
         mirror_root=mirror,
         release_id="release-1",
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     assert path.is_file()
     assert set(release.datasets) == {
@@ -292,6 +301,8 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(
             mirror_root=mirror,
             release_id="mixed-release",
             created_at=created_at,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
 
 
@@ -384,7 +395,7 @@ def test_wal_snapshot_is_one_generation_for_both_pilot_datasets(tmp_path: Path) 
     ) as snapshot:
         reports = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
                 source_snapshot=snapshot,
@@ -419,6 +430,7 @@ def test_pilot_orchestration_exports_one_release_generation(
         producer_git_commit=_COMMIT,
         expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
     manifests = [item.manifest_path for item in report.datasets.values()]
     _, release = create_release(
@@ -426,6 +438,8 @@ def test_pilot_orchestration_exports_one_release_generation(
         mirror_root=mirror,
         release_id="pilot-orchestration",
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
 
     assert set(release.datasets) == set(report.datasets)
@@ -451,7 +465,7 @@ def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path)
             )
 
         report = export_dataset_snapshot(
-            dataset_name="jquants.daily_bars",
+            dataset=LAKE_DATASETS["jquants.daily_bars"],
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
             source_snapshot=snapshot,
@@ -463,6 +477,7 @@ def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path)
             sqlite_path=snapshot.path,
             mirror_root=mirror,
             manifest=report.manifest,
+            dataset=LAKE_DATASETS[report.manifest.dataset],
         )
 
 
@@ -471,7 +486,7 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
         report = export_dataset_snapshot(
-            dataset_name="jquants.daily_bars",
+            dataset=LAKE_DATASETS["jquants.daily_bars"],
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
             source_snapshot=snapshot,
@@ -486,6 +501,7 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
                 sqlite_path=snapshot.path,
                 mirror_root=mirror,
                 manifest=incomplete,
+                dataset=LAKE_DATASETS[incomplete.dataset],
             )
 
 
@@ -591,12 +607,15 @@ def test_lake_manifest_digest_is_part_of_the_gc_root(
         producer_git_commit=_COMMIT,
         expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
     release_path, release = create_release(
         dataset_manifest_paths=[item.manifest_path for item in report.datasets.values()],
         mirror_root=mirror,
         release_id="gc-digest-release",
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     pointer = LakeReleasePointer(
         release_id=release.release_id,
@@ -677,6 +696,7 @@ def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path)
         producer_git_commit=_COMMIT,
         expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
 
     assert not list((mirror / "lake" / "staging").rglob("*.sqlite"))
@@ -726,12 +746,15 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
         producer_git_commit=_COMMIT,
         expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
     release_path, release = create_release(
         dataset_manifest_paths=[item.manifest_path for item in report.datasets.values()],
         mirror_root=mirror,
         release_id="build-input-release",
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
@@ -800,7 +823,7 @@ def test_gc_keeps_source_and_processed_objects_in_current_market_release(
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
         exports = {
             name: export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit=_COMMIT,
@@ -814,6 +837,8 @@ def test_gc_keeps_source_and_processed_objects_in_current_market_release(
         mirror_root=mirror,
         release_id="gc-mixed-release",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
@@ -980,6 +1005,8 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
         mirror_root=mirror,
         release_id="previous",
         created_at=datetime.now(UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     previous = release_path.read_bytes()
     objects = {

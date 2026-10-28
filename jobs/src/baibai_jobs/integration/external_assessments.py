@@ -47,15 +47,6 @@ from baibai_engine.storage.objects.r2 import (
     ObjectStore,
 )
 from baibai_engine.storage.snapshots.duck import lake_session
-from baibai_engine.storage.snapshots.equity_web_verification import (
-    history_digests as equity_web_history_digests,
-)
-from baibai_engine.storage.snapshots.equity_web_verification import (
-    response_digest as equity_web_response_digest,
-)
-from baibai_engine.storage.snapshots.equity_web_verification import (
-    verify_release_history as equity_web_verify_release_history,
-)
 from baibai_engine.storage.snapshots.keys import release_manifest_key as lake_release_manifest_key
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import FixedRelease as LakeFixedRelease
@@ -84,6 +75,15 @@ from baibai_jobs.publication.external_assessment_verification import (
     verify_release_history as external_assessment_verify_release_history,
 )
 from baibai_jobs.publication.lease import PublicationLeaseHandle, verify_held
+from baibai_jobs.publication.public_page_verification import (
+    history_digests as equity_web_history_digests,
+)
+from baibai_jobs.publication.public_page_verification import (
+    response_digest as equity_web_response_digest,
+)
+from baibai_jobs.publication.public_page_verification import (
+    verify_release_history as equity_web_verify_release_history,
+)
 from baibai_jobs.publication.snapshot_publication import (
     _fetch,
     _resolve_serving_release,

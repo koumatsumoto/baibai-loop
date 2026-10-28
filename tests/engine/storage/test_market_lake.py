@@ -11,10 +11,7 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.cli.app import DOMAINS
-from baibai_engine.cli.snapshots import main as lake_main
 from baibai_engine.storage.snapshots import models as lake_models
-from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.snapshots.inventory import inventory
 from baibai_engine.storage.snapshots.keys import (
     LakeLayer,
@@ -35,6 +32,13 @@ from baibai_engine.storage.snapshots.models import (
 )
 from baibai_engine.storage.snapshots.objects import LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import LakeReadError, accepted_dataset, resolve_release
+from baibai_jobs.cli import _COMMANDS
+from baibai_jobs.publication import policy as snapshot_policy
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
+from baibai_jobs.publication.snapshot_cli import main as lake_main
 
 
 def _snapshot_source_payload(digest: str = "9" * 64, schema_version: int = 22) -> dict[str, object]:
@@ -131,7 +135,7 @@ def test_edinet_list_responses_manifest_round_trips_as_optional_l1() -> None:
     assert _load_dataset(manifest.model_dump(mode="json")) == manifest
     policy = next(
         item
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        for item in snapshot_policy.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == contract.name
     )
     assert not policy.required
@@ -153,7 +157,7 @@ def test_edinet_document_lists_manifest_round_trips_as_required_l2() -> None:
     ]
     policy = next(
         item
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        for item in snapshot_policy.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == contract.name
     )
     assert policy.required
@@ -193,8 +197,12 @@ def test_dataset_manifest_rejects_wrong_contract_layer_with_valid_object_key(
         content_sha256=lake_object["sha256"],
     )
 
+    from baibai_engine.storage.snapshots.models import validate_dataset_contract
+
     with pytest.raises(ValueError, match="dataset layer does not match its current contract"):
-        DatasetManifest.model_validate_json(json.dumps(payload))
+        validate_dataset_contract(
+            DatasetManifest.model_validate_json(json.dumps(payload)), LAKE_DATASETS[dataset]
+        )
 
 
 def _release_payload() -> dict[str, object]:
@@ -240,12 +248,22 @@ def test_release_policy_rejects_inventory_layer_mismatching_valid_manifest(
     assert isinstance(entry, dict)
     entry["manifest_sha256"] = hashlib.sha256(canonical_lake_model_bytes(manifest)).hexdigest()
     valid = load_lake_model_json(json.dumps(payload), ReleaseManifest)
-    validate_release_policy(valid, {manifest.dataset: manifest})
+    validate_release_policy(
+        valid,
+        {manifest.dataset: manifest},
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
+    )
 
     entry["layer"] = "l1_source"
     wrong_layer = load_lake_model_json(json.dumps(payload), ReleaseManifest)
     with pytest.raises(ValueError, match="release dataset inventory does not match its manifest"):
-        validate_release_policy(wrong_layer, {manifest.dataset: manifest})
+        validate_release_policy(
+            wrong_layer,
+            {manifest.dataset: manifest},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
 
 @pytest.mark.parametrize(
@@ -472,7 +490,9 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
     }
     release = load_lake_model_json(json.dumps(release_payload), ReleaseManifest)
 
-    validate_release_policy(release, manifests)
+    validate_release_policy(
+        release, manifests, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+    )
 
     # A ticker-based contract must report its actual population count. This is
     # distinct from requiring a historical number of tickers: None means that a
@@ -496,6 +516,8 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
         validate_release_policy(
             unpopulated_release,
             {manifest.dataset: unpopulated, short_sale.dataset: short_sale},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
 
     incomplete = manifest.model_copy(update={"coverage_status": "partial"})
@@ -503,6 +525,8 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
         validate_release_policy(
             release,
             {manifest.dataset: incomplete, short_sale.dataset: short_sale},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
     incomplete_release_dataset = release.datasets[manifest.dataset].model_copy(
         update={
@@ -521,6 +545,8 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
                 }
             ),
             {manifest.dataset: incomplete, short_sale.dataset: short_sale},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
     with pytest.raises(ValueError, match="missing a required dataset"):
         validate_release_policy(
@@ -528,6 +554,8 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
                 update={"datasets": {manifest.dataset: release.datasets[manifest.dataset]}}
             ),
             {manifest.dataset: manifest},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
     # `model_copy` does not revalidate, so this is how a manifest carrying a profile
     # no policy is registered for reaches the gate: it must refuse rather than fall
@@ -536,6 +564,8 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
         validate_release_policy(
             release.model_copy(update={"profile": "retired"}),
             manifests,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
 
 
@@ -590,15 +620,24 @@ def test_new_generation_uses_declared_observations_not_historical_size(
     # prove a source promise, but empty or contradictory observations are invalid.
     if not accepted:
         with pytest.raises(ValueError, match="contain observations"):
-            validate_release_policy(release, manifests)
+            validate_release_policy(
+                release,
+                manifests,
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
+            )
         return
-    validate_release_policy(release, manifests)
+    validate_release_policy(
+        release, manifests, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+    )
 
     with pytest.raises(ValueError, match="the serving release already covers"):
         validate_release_policy(
             release,
             manifests,
             published_coverage_start={"jquants.daily_bars": date(2016, 8, 1)},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
 
 
@@ -728,7 +767,7 @@ def test_validate_cli_is_read_only_and_redacts_rejected_values(
 
 
 def test_lake_domain_is_exposed_by_the_root_cli() -> None:
-    assert DOMAINS["snapshots"].module == "baibai_engine.cli.snapshots"
+    assert _COMMANDS["snapshots"] == "baibai_jobs.publication.snapshot_cli"
 
 
 def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) -> None:
@@ -778,12 +817,19 @@ def test_every_lake_dataset_states_a_release_policy() -> None:
     Freshness is evaluated by consumers, not by the release policy.
     """
 
-    from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
-    from baibai_engine.storage.snapshots.models import PRODUCTION_RELEASE_POLICY
+    from baibai_jobs.publication.datasets import (
+        LAKE_DATASETS,
+    )
+    from baibai_jobs.publication.policy import (
+        PRODUCTION_RELEASE_POLICY,
+    )
 
     stated = {item.dataset for item in PRODUCTION_RELEASE_POLICY.datasets}
 
     assert stated == set(LAKE_DATASETS)
+    assert all(name == descriptor.name for name, descriptor in LAKE_DATASETS.items())
+    tables = [descriptor.sqlite_table for descriptor in LAKE_DATASETS.values()]
+    assert len(set(tables)) == len(tables)
 
 
 def test_a_replaced_snapshot_carries_no_history_floor() -> None:
@@ -795,7 +841,9 @@ def test_a_replaced_snapshot_carries_no_history_floor() -> None:
     進んだだけで停止した。
     """
 
-    from baibai_engine.storage.snapshots.models import PRODUCTION_RELEASE_POLICY
+    from baibai_jobs.publication.policy import (
+        PRODUCTION_RELEASE_POLICY,
+    )
 
     policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
 
@@ -821,8 +869,12 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
 
     import re
 
-    from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
-    from baibai_engine.storage.snapshots.models import PRODUCTION_RELEASE_POLICY
+    from baibai_jobs.publication.datasets import (
+        LAKE_DATASETS,
+    )
+    from baibai_jobs.publication.policy import (
+        PRODUCTION_RELEASE_POLICY,
+    )
 
     # Inspect the observation and SQLite owners of snapshot replacement.
     engine = Path(__file__).resolve().parents[3] / "engine/src/baibai_engine"
@@ -863,7 +915,7 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
 
     calendar = next(
         item
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        for item in snapshot_policy.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == "jpx.earnings_calendar"
     )
     # Keep the production history behavior while narrowing only the fixture's datasets.
@@ -916,14 +968,16 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
         ),
         ReleaseManifest,
     )
-    validate_release_policy(release, manifests)
+    validate_release_policy(
+        release, manifests, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+    )
 
     # Not the shared narrowing: this half turns the dataset under test into one that
     # accumulates, which is the state the floor applies to.
     monkeypatch.setattr(
-        lake_models,
+        snapshot_policy,
         "PRODUCTION_RELEASE_POLICY",
-        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(
+        snapshot_policy.PRODUCTION_RELEASE_POLICY.model_copy(
             update={"datasets": (calendar.model_copy(update={"carries_history": True}),)}
         ),
     )
@@ -932,6 +986,8 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
             release,
             manifests,
             published_coverage_start={"jpx.earnings_calendar": date(2026, 6, 19)},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
 
 
@@ -943,7 +999,7 @@ def test_optional_published_history_cannot_disappear(monkeypatch, carries_histor
     narrow_release_policy(
         monkeypatch, datasets=("jquants.daily_bars", dataset), carries_history=carries_history
     )
-    policy = lake_models.PRODUCTION_RELEASE_POLICY
+    policy = snapshot_policy.PRODUCTION_RELEASE_POLICY
     assert not next(item for item in policy.datasets if item.dataset == dataset).required
     bars = _load_dataset(_dataset_payload())
     tv = _load_dataset(_dataset_payload(dataset=dataset))
@@ -952,17 +1008,32 @@ def test_optional_published_history_cannot_disappear(monkeypatch, carries_histor
         canonical_lake_model_bytes(bars)
     ).hexdigest()
     without_tv = load_lake_model_json(json.dumps(payload), ReleaseManifest)
-    validate_release_policy(without_tv, {bars.dataset: bars})
+    validate_release_policy(
+        without_tv,
+        {bars.dataset: bars},
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
+    )
     previous = {dataset: date(2026, 8, 1)}
     if carries_history:
         with pytest.raises(
             ValueError, match="historical dataset served previously cannot disappear"
         ):
             validate_release_policy(
-                without_tv, {bars.dataset: bars}, published_coverage_start=previous
+                without_tv,
+                {bars.dataset: bars},
+                published_coverage_start=previous,
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
             )
     else:
-        validate_release_policy(without_tv, {bars.dataset: bars}, published_coverage_start=previous)
+        validate_release_policy(
+            without_tv,
+            {bars.dataset: bars},
+            published_coverage_start=previous,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
     payload["datasets"][dataset] = {
         "build_id": tv.build_id,
         "layer": tv.layer,
@@ -974,7 +1045,11 @@ def test_optional_published_history_cannot_disappear(monkeypatch, carries_histor
     }
     with_tv = load_lake_model_json(json.dumps(payload), ReleaseManifest)
     validate_release_policy(
-        with_tv, {bars.dataset: bars, dataset: tv}, published_coverage_start=previous
+        with_tv,
+        {bars.dataset: bars, dataset: tv},
+        published_coverage_start=previous,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
 
 
@@ -988,11 +1063,21 @@ def test_release_requires_the_current_dataset_contract(monkeypatch) -> None:
         canonical_lake_model_bytes(manifest)
     ).hexdigest()
     release = load_lake_model_json(json.dumps(payload), ReleaseManifest)
-    validate_release_policy(release, {manifest.dataset: manifest})
+    validate_release_policy(
+        release,
+        {manifest.dataset: manifest},
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
+    )
 
     other_version = manifest.model_copy(update={"contract_version": manifest.contract_version + 1})
     with pytest.raises(ValueError, match="does not match current contract"):
-        validate_release_policy(release, {manifest.dataset: other_version})
+        validate_release_policy(
+            release,
+            {manifest.dataset: other_version},
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
 
 
 @pytest.mark.parametrize(
@@ -1025,7 +1110,12 @@ def test_mixed_jquants_release_rejects_previous_contract(
         }
         return load_lake_model_json(json.dumps(payload), ReleaseManifest)
 
-    validate_release_policy(release_for(manifests), manifests)
+    validate_release_policy(
+        release_for(manifests),
+        manifests,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
+    )
     old_payload = _dataset_payload(dataset=legacy_dataset)
     old_payload["contract_version"] = old_version
     partitions = old_payload["partitions"]
@@ -1048,7 +1138,12 @@ def test_mixed_jquants_release_rejects_previous_contract(
     )
     mixed = {**manifests, legacy_dataset: _load_dataset(old_payload)}
     with pytest.raises(ValueError, match="does not match current contract"):
-        validate_release_policy(release_for(mixed), mixed)
+        validate_release_policy(
+            release_for(mixed),
+            mixed,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
     release = release_for(mixed)
     for name, manifest in mixed.items():
         path = tmp_path / dataset_manifest_key(dataset=name, build_id=manifest.build_id)
@@ -1067,13 +1162,13 @@ def test_mixed_jquants_release_rejects_previous_contract(
         LakeReadError,
         match=f"this reader accepts only v{LAKE_DATASETS[legacy_dataset].contract_version}",
     ):
-        accepted_dataset(fixed, legacy_dataset)
+        accepted_dataset(fixed, LAKE_DATASETS[legacy_dataset])
 
 
 def test_recomputed_exit_proxies_do_not_require_historical_conclusions() -> None:
     policy = next(
         item
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        for item in snapshot_policy.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == "edinet.tender_offer_exit_values"
     )
     assert not policy.required

@@ -11,12 +11,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from baibai_engine.storage.snapshots.contracts import LakeDataset
 from baibai_engine.storage.snapshots.immutable import ImmutableInstallError, install_immutable_bytes
 from baibai_engine.storage.snapshots.keys import release_manifest_key, validate_identifier
 from baibai_engine.storage.snapshots.models import (
     DatasetManifest,
     ReleaseDataset,
     ReleaseManifest,
+    ReleasePolicy,
     ReleaseProfile,
     canonical_lake_model_bytes,
     load_lake_model_json,
@@ -46,6 +48,8 @@ class LakeReleasePointer(BaseModel):
 
 def create_release(
     *,
+    catalog: Mapping[str, LakeDataset],
+    policy: ReleasePolicy,
     dataset_manifest_paths: list[Path],
     mirror_root: Path,
     release_id: str | None = None,
@@ -93,6 +97,8 @@ def create_release(
         release,
         {item.dataset: item for item in manifests},
         published_coverage_start=published_coverage_start,
+        policy=policy,
+        catalog=catalog,
     )
     path = (root / release_manifest_key(release_id=actual_release_id)).resolve()
     if not path.is_relative_to(root):

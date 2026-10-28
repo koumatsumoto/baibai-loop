@@ -23,7 +23,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
-from baibai_engine.storage.snapshots.models import PRODUCTION_RELEASE_POLICY
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
@@ -33,6 +32,11 @@ from baibai_engine.storage.snapshots.writer import (
     validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import (
+    PRODUCTION_RELEASE_POLICY,
+    release_policy_for_profile,
+)
 
 VALUATION = "external_assessment.model_valuation_observations"
 RATING = "external_assessment.analyst_rating_observations"
@@ -45,7 +49,7 @@ def _publish(path: Path, mirror: Path, datasets: tuple[str, ...], release_id: st
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
         exported = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot,
@@ -54,11 +58,18 @@ def _publish(path: Path, mirror: Path, datasets: tuple[str, ...], release_id: st
             for index, name in enumerate(datasets)
         ]
     for item in exported:
-        validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=item.manifest)
+        validate_snapshot_parity(
+            sqlite_path=path,
+            mirror_root=mirror,
+            manifest=item.manifest,
+            dataset=LAKE_DATASETS[item.manifest.dataset],
+        )
     manifest_path, _ = create_release(
         dataset_manifest_paths=[item.manifest_path for item in exported],
         mirror_root=mirror,
         release_id=release_id,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -90,7 +101,12 @@ def test_optional_release_roundtrip_preserves_received_history_and_other_dataset
     open_connection(restored).close()
     with lake_session() as session:
         hydrate_market_store(
-            session, release=old, cache=old_cache, store=restored, dataset_names=(CALENDAR,)
+            session,
+            release=old,
+            cache=old_cache,
+            store=restored,
+            dataset_names=(CALENDAR,),
+            catalog=LAKE_DATASETS,
         )
     assert read_observations(restored, "7203", RECEIVED).model_valuations == ()
     assert read_observations(restored, "7203", RECEIVED).analyst_ratings == ()
@@ -122,7 +138,12 @@ def test_optional_release_roundtrip_preserves_received_history_and_other_dataset
             ]
     with lake_session() as session:
         report = hydrate_market_store(
-            session, release=current, cache=cache, store=restored, dataset_names=DATASETS
+            session,
+            release=current,
+            cache=cache,
+            store=restored,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows == {CALENDAR: 2, VALUATION: 6, RATING: 6}
     for ticker in ("7203", "6758", "9432"):

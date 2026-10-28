@@ -269,7 +269,7 @@ def test_operations_inventory_rejects_unknown_leaf_options(
 ) -> None:
     path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir(parents=True)
-    path.write_text(f"```bash\nuv run baibai-engine snapshots inventory {options}\n```\n")
+    path.write_text(f"```bash\nuv run baibai-jobs snapshots inventory {options}\n```\n")
     errors = check_documented_commands.check(tmp_path)
     assert (not errors) is valid
     if not valid:
@@ -312,8 +312,8 @@ def test_documented_batch_commands_use_the_delegated_parser(
 @pytest.mark.parametrize(
     ("command", "valid"),
     [
-        ("baibai-engine snapshots hydrate --mirror <MIRROR> --store <STORE>", True),
-        ("baibai-engine snapshots hydrate --store <STORE>", False),
+        ("baibai-jobs snapshots hydrate --mirror <MIRROR> --store <STORE>", True),
+        ("baibai-jobs snapshots hydrate --store <STORE>", False),
     ],
 )
 def test_active_runbook_checks_lake_write_parser(tmp_path: Path, command: str, valid: bool) -> None:
@@ -327,7 +327,7 @@ def test_active_runbook_checks_lake_write_parser(tmp_path: Path, command: str, v
 def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: str) -> None:
     path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir()
-    path.write_text(f"```bash\nuv run baibai-engine snapshots inventory{shell}\n```\n")
+    path.write_text(f"```bash\nuv run baibai-jobs snapshots inventory{shell}\n```\n")
     assert check_documented_commands.check(tmp_path) == []
 
 

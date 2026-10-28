@@ -45,6 +45,8 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 ASOF = date(2026, 10, 13)
 
@@ -333,7 +335,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
     )
     with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=mirror) as sealed:
         exported = export_dataset_snapshot(
-            dataset_name="jquants.fin_summaries",
+            dataset=LAKE_DATASETS["jquants.fin_summaries"],
             mirror_root=mirror,
             source_snapshot=sealed,
             producer_git_commit="a" * 40,
@@ -346,12 +348,19 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
         for partition in exported.manifest.partitions
         for item in partition.objects
     )
-    validate_snapshot_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
+    validate_snapshot_parity(
+        sqlite_path=db,
+        mirror_root=mirror,
+        manifest=exported.manifest,
+        dataset=LAKE_DATASETS[exported.manifest.dataset],
+    )
     release_path, manifest = create_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="financial-documents",
         created_at=datetime(2026, 10, 14, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     assert manifest.datasets["jquants.fin_summaries"].layer == "l2_processed"
     source = LocalMirrorSource(mirror)
@@ -376,6 +385,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             cache=LakeObjectCache(root=mirror, source=source),
             store=destination,
             dataset_names=("jquants.fin_summaries",),
+            catalog=LAKE_DATASETS,
         )
     original = read_fin_summaries(db, date(2026, 8, 10), ASOF)
     arrived = read_fin_summaries(destination, date(2026, 8, 10), ASOF)

@@ -31,7 +31,6 @@ from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts
     parse_tse_capital_policy_workbook,
     store_tse_capital_policy_rows,
 )
-from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -49,6 +48,10 @@ from baibai_jobs.maintenance.market.valuation_catalyst_cli import (
     refresh_tse_capital_policy_command,
 )
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 ASOF = date(2026, 10, 15)
 DATASETS = (
@@ -351,7 +354,7 @@ def test_fixed_release_roundtrip_carries_l1_and_capital_l2(
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -365,6 +368,8 @@ def test_fixed_release_roundtrip_carries_l1_and_capital_l2(
         mirror_root=mirror,
         release_id="capital-policy-fixed",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -380,7 +385,12 @@ def test_fixed_release_roundtrip_carries_l1_and_capital_l2(
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
     with lake_session() as lake:
         report = hydrate_market_store(
-            lake, release=release, cache=cache, store=destination, dataset_names=DATASETS
+            lake,
+            release=release,
+            cache=cache,
+            store=destination,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["tse.capital_policy_snapshots"] == len(expected_rows)
     assert _rows(destination) == expected_rows

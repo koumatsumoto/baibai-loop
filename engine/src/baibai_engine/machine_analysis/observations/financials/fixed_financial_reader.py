@@ -12,8 +12,13 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.financials.reader import (
     read_financial_documents,
 )
+from baibai_engine.machine_analysis.observations.financials.snapshot_contracts import (
+    JQUANTS_FIN_SUMMARIES,
+)
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads
-from baibai_engine.storage.snapshots.datasets import JQUANTS_FIN_SUMMARIES, JQUANTS_MASTER_SNAPSHOTS
+from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
+    JQUANTS_MASTER_SNAPSHOTS,
+)
 from baibai_engine.storage.snapshots.objects import open_lake
 from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
@@ -55,7 +60,7 @@ def _read_fixed_financial_population(
             origin.release_id,
             manifest_sha256=origin.release_manifest_sha256,
         )
-        dataset = accepted_dataset(release, JQUANTS_FIN_SUMMARIES.name)
+        dataset = accepted_dataset(release, JQUANTS_FIN_SUMMARIES)
         paths = materialize_partitions(
             cache, dataset=dataset, partitions=selected_partitions(release, dataset.name)
         )
@@ -69,7 +74,7 @@ def _read_fixed_financial_population(
             )
         sectors: dict[str, str] = {}
         if JQUANTS_MASTER_SNAPSHOTS.name in release.dataset_names():
-            master_dataset = accepted_dataset(release, JQUANTS_MASTER_SNAPSHOTS.name)
+            master_dataset = accepted_dataset(release, JQUANTS_MASTER_SNAPSHOTS)
             master_paths = materialize_partitions(
                 cache,
                 dataset=master_dataset,

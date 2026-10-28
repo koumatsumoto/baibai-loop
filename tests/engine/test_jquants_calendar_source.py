@@ -14,8 +14,11 @@ from baibai_engine.machine_analysis.observations.prices.calendar_context import 
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     read_market_calendar,
 )
-from baibai_engine.storage.snapshots.datasets import JQUANTS_MARKET_CALENDAR
+from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
+    JQUANTS_MARKET_CALENDAR,
+)
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
 def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(tmp_path):
@@ -49,7 +52,7 @@ def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(t
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:
         report = export_dataset_snapshot(
-            dataset_name="jquants.market_calendar",
+            dataset=LAKE_DATASETS["jquants.market_calendar"],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,

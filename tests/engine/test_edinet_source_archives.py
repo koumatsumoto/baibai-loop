@@ -20,9 +20,11 @@ from baibai_engine.data_collection.providers.edinet.archives import (
     read_source_archive,
     retain_source_archive,
 )
+from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
+    EDINET_SOURCE_ARCHIVES,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_engine.storage.snapshots.datasets import EDINET_SOURCE_ARCHIVES
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -32,6 +34,8 @@ from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, seal
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 
 def _zip(content: bytes) -> bytes:
@@ -208,7 +212,7 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
         sqlite_path=db, mirror_root=mirror, snapshot_id="sources"
     ) as snapshot:
         built = export_dataset_snapshot(
-            dataset_name=name,
+            dataset=LAKE_DATASETS[name],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,
@@ -226,6 +230,8 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
         mirror_root=mirror,
         release_id="source-archives",
         created_at=stamp,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     fixed = resolve_release(
@@ -253,6 +259,7 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
             cache=LakeObjectCache(root=mirror, source=source),
             store=target,
             dataset_names=(name,),
+            catalog=LAKE_DATASETS,
         )
     assert report.rows == {name: 2}
     for source_type, content in originals.items():
@@ -308,7 +315,7 @@ def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
         sqlite_path=db, mirror_root=mirror, snapshot_id="listings-source"
     ) as snapshot:
         built = export_dataset_snapshot(
-            dataset_name=name,
+            dataset=LAKE_DATASETS[name],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,
@@ -320,6 +327,8 @@ def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
         mirror_root=mirror,
         release_id="listings",
         created_at=stamp,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     fixed = resolve_release(
@@ -336,6 +345,7 @@ def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
             cache=LakeObjectCache(root=mirror, source=source),
             store=target,
             dataset_names=(name,),
+            catalog=LAKE_DATASETS,
         )
     with closing(sqlite3.connect(target)) as connection:
         assert connection.execute(

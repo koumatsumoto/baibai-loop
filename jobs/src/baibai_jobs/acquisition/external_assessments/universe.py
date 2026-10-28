@@ -34,6 +34,12 @@ from baibai_engine.storage.snapshots.reader import (
     selected_partitions,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
+    JQUANTS_MASTER_SNAPSHOTS,
+)
+from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
+    JQUANTS_MARKET_CALENDAR,
+)
 
 
 def frozen_universe(database: Path, master_asof: date) -> tuple[tuple[str, ...], str]:
@@ -65,7 +71,7 @@ def frozen_lake_universe(
 ) -> tuple[tuple[str, ...], str]:
     """Read only the digest-pinned master year, with no SQLite hydrate or fallback."""
     _require_master_date(master_asof)
-    dataset = accepted_dataset(release, "jquants.master_snapshots")
+    dataset = accepted_dataset(release, JQUANTS_MASTER_SNAPSHOTS)
     manifest = release.dataset_manifest(dataset.name)
     if manifest.data_as_of is not None:
         _require_master_date(manifest.data_as_of)
@@ -100,7 +106,7 @@ def calendar_master_asof(
     overrides: Mapping[date, bool] | None = None,
 ) -> date:
     """Resolve a saved master basis from a continuous, fixed-release JPX calendar."""
-    dataset = accepted_dataset(release, "jquants.market_calendar")
+    dataset = accepted_dataset(release, JQUANTS_MARKET_CALENDAR)
     expected = observation_date
     for year in (observation_date.year, observation_date.year - 1):
         partitions = selected_partitions(release, dataset.name, periods=((year,),))

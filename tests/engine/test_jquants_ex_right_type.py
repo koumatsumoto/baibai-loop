@@ -21,8 +21,11 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
     read_adjustment_factor_bars,
     read_daily_bars,
 )
-from baibai_engine.storage.snapshots.datasets import JQUANTS_DAILY_BARS
+from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
+    JQUANTS_DAILY_BARS,
+)
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
 @pytest.mark.parametrize(("kind", "factor"), [("1", 0.5), ("2", 2.0), ("3", 0.8), ("3", 1.0)])
@@ -80,7 +83,7 @@ def test_provider_market_cap_survives_sqlite_and_lake_without_price(tmp_path, ra
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:
         report = export_dataset_snapshot(
-            dataset_name="jquants.daily_bars",
+            dataset=LAKE_DATASETS["jquants.daily_bars"],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,

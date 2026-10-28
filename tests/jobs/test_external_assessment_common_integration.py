@@ -31,6 +31,7 @@ from baibai_jobs.integration.external_assessments import (
     merge_ready,
     verify_and_seal,
 )
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.external_assessment_verification import (
     history_digests as external_assessment_history_digests,
 )
@@ -237,22 +238,22 @@ def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
 ):
     import baibai_jobs.integration.external_assessments as integration
     from baibai_engine.storage.snapshots.duck import lake_session
-    from baibai_engine.storage.snapshots.equity_web_verification import (
-        history_digests as equity_web_history_digests,
-    )
     from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
     from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
     from baibai_engine.storage.sqlite.source_cache.snapshot import (
         create_snapshot as create_market_snapshot,
     )
     from baibai_jobs.integration.external_assessment_ready import available_ready
+    from baibai_jobs.publication.public_page_verification import (
+        history_digests as equity_web_history_digests,
+    )
 
     store, selected, handle, database, mirror, directory = independent_plans
     before = publisher._serving_pointer(store).pointer
     metadata = directory / "retained-metadata.sqlite"
     create_market_snapshot(database, metadata)
     base = publisher._resolve_serving_release(store, mirror, before)
-    dehydrate_market_store(metadata, release=base)
+    dehydrate_market_store(metadata, release=base, catalog=LAKE_DATASETS)
     references = ready_references(independent_plans)
     state = merge_ready(store, references, database=database)
     publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
@@ -290,6 +291,7 @@ def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
             cache=LakeObjectCache(root=fresh_mirror, source=LocalMirrorSource(fresh_mirror)),
             store=fresh,
             dataset_names=fixed.dataset_names(),
+            catalog=LAKE_DATASETS,
         )
     assert external_assessment_history_digests(fresh) == history
     assert equity_web_history_digests(fresh, months={(2026, 9)}) == originals

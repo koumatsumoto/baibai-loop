@@ -17,6 +17,7 @@ from baibai_engine.storage.snapshots.models import (
     LakeReleaseSourceRef,
     load_lake_model_json,
     load_manifest_json,
+    validate_dataset_contract,
 )
 from baibai_engine.storage.snapshots.objects import LakeObjectError, open_lake
 from baibai_engine.storage.snapshots.reader import (
@@ -25,10 +26,12 @@ from baibai_engine.storage.snapshots.reader import (
     resolve_release,
     resolve_release_ref,
 )
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine snapshots")
+    parser = argparse.ArgumentParser(prog="baibai-jobs snapshots")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     inventory_parser = subparsers.add_parser(
@@ -69,6 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--manifest-sha256", help="required digest when --release names a release"
     )
     resolve_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
+    from baibai_jobs.publication.snapshot_write_cli import add_write_commands
+
+    add_write_commands(subparsers)
     return parser
 
 
@@ -100,7 +106,9 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
             )
             release = resolve_release_ref(cache.source, reference)
         else:
-            release = resolve_current_release(cache.source)
+            release = resolve_current_release(
+                cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+            )
     return {
         "schema_version": 1,
         "kind": "lake_release",
@@ -146,6 +154,8 @@ def _read_only_main(argv: list[str] | None = None) -> int:
         path: Path = args.manifest
         manifest = load_manifest_json(path.read_text(encoding="utf-8"))
         if isinstance(manifest, DatasetManifest):
+            if descriptor := LAKE_DATASETS.get(manifest.dataset):
+                validate_dataset_contract(manifest, descriptor, require_current_version=False)
             identity: dict[str, JsonValue] = {
                 "dataset": manifest.dataset,
                 "layer": manifest.layer,
@@ -183,13 +193,12 @@ def _read_only_main(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from baibai_engine.cli.snapshot_write import WRITE_COMMANDS
-    from baibai_engine.cli.snapshot_write import main as write_main
-    from baibai_engine.cli.snapshot_write import print_combined_help
+    from baibai_jobs.publication.snapshot_write_cli import WRITE_COMMANDS
+    from baibai_jobs.publication.snapshot_write_cli import main as write_main
 
     arguments = list(sys.argv[1:] if argv is None else argv)
     if not arguments or arguments[0] in {"-h", "--help"}:
-        print_combined_help()
+        build_parser().print_help()
         return 0
     if arguments[0] in WRITE_COMMANDS:
         return write_main(arguments)

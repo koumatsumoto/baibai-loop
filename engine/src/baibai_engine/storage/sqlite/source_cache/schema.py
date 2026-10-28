@@ -2,9 +2,9 @@
 
 This is the single physical store (`market.sqlite`): the market price/calendar
 tables and the screening fundamentals/regulation tables share one file, one
-schema version, and one connection path. Storage observations owns the physical
-schema; market and screening readers share it without importing each other's
-composition or acquisition services.
+schema version, and one connection path. Each owner declares its table semantics;
+this module composes the physical schema and validates its shape without choosing
+models, candidates, or publication policy.
 
 The cache is rebuilt or replaced explicitly when this contract changes. Runtime
 readers never interpret or migrate an older shape.
@@ -17,6 +17,9 @@ from functools import lru_cache
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.edinet.contract import EDINET_LIST_RESPONSES_DDL
+from baibai_engine.data_collection.providers.edinet.storage_contracts import (
+    EDINET_SOURCE_ARCHIVES_DDL,
+)
 from baibai_engine.data_collection.providers.jpx.contract import JPX_SOURCE_BUNDLES_DDL
 from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.data_collection.providers.tradingview.contract import (
@@ -24,6 +27,16 @@ from baibai_engine.data_collection.providers.tradingview.contract import (
 )
 from baibai_engine.data_collection.receipts.public_pages.contract import (
     EQUITY_WEB_SOURCE_RESPONSES_DDL,
+)
+from baibai_engine.machine_analysis.observations.disclosures.storage_contracts import (
+    EDINET_DOCUMENT_LISTS_DDL,
+    EDINET_DOCUMENTS_DDL,
+    JPX_DELISTINGS_DDL,
+    JPX_EARNINGS_CALENDAR_DDL,
+    JPX_REGULATION_FLAGS_DDL,
+    JPX_REGULATION_SOURCES_DDL,
+    TENDER_OFFER_EXIT_VALUES_DDL,
+    TSE_CAPITAL_POLICY_SNAPSHOTS_DDL,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_FORECAST_DDL,
@@ -33,6 +46,29 @@ from baibai_engine.machine_analysis.observations.external_assessments.contract i
 )
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     DDL as TV_DDL,
+)
+from baibai_engine.machine_analysis.observations.financials.storage_contracts import (
+    EDINET_DEBT_SCHEDULE_DDL,
+    EDINET_METRICS_DDL,
+    EDINET_SEGMENT_FACTS_DDL,
+    JQUANTS_FIN_SUMMARIES_DDL,
+)
+from baibai_engine.machine_analysis.observations.prices.storage_contracts import (
+    JQUANTS_DAILY_BARS_DDL,
+    JQUANTS_MARKET_CALENDAR_DDL,
+)
+from baibai_engine.machine_analysis.observations.stocks.storage_contracts import (
+    JQUANTS_MASTER_SNAPSHOTS_DDL,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.storage_contracts import (
+    JQUANTS_ALL_ISSUES_DAILY_MARGIN_DDL,
+    JQUANTS_MARGIN_ALERTS_DDL,
+    JQUANTS_SHORT_SALE_REPORTS_DDL,
+    JQUANTS_WEEKLY_MARGIN_DDL,
+)
+from baibai_engine.storage.sqlite.source_cache.storage_contracts import (
+    LAKE_STORE_ORIGIN_DDL,
+    SOURCE_COVERAGE_DDL,
 )
 
 SQLITE_SCHEMA_VERSION = 48
@@ -49,359 +85,30 @@ _REQUIRED_INDEX_NAMES = (
     "idx_edinet_list_responses_date_received",
 )
 
-_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS jquants_daily_bars(
-  ticker TEXT NOT NULL,
-  traded_at TEXT NOT NULL,
-  open REAL,
-  high REAL,
-  low REAL,
-  close REAL,
-  volume REAL,
-  turnover_value REAL,
-  adjustment_factor REAL,
-  upper_limit TEXT,
-  lower_limit TEXT,
-  ex_right_type TEXT,
-  market_cap_million_yen REAL,
-  PRIMARY KEY (ticker, traded_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_jquants_daily_bars_traded_at
-  ON jquants_daily_bars(traded_at);
-
-CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
-  ticker TEXT NOT NULL,
-  disclosed_at TEXT NOT NULL,
-  disclosure_number TEXT NOT NULL,
-  document_payload TEXT NOT NULL,
-  PRIMARY KEY (ticker, disclosed_at, disclosure_number)
-);
-
-CREATE TABLE IF NOT EXISTS jquants_master_snapshots(
-  snapshot_date TEXT NOT NULL,
-  security_code TEXT NOT NULL,
-  record_json TEXT NOT NULL,
-  PRIMARY KEY (snapshot_date, security_code)
-);
-
-CREATE TABLE IF NOT EXISTS jpx_earnings_calendar(
-  announcement_date TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  PRIMARY KEY (announcement_date, ticker)
-);
-
-CREATE TABLE IF NOT EXISTS jquants_market_calendar(
-  day TEXT PRIMARY KEY,
-  holiday_division TEXT NOT NULL
-);
-
--- Margin balances the exchange publishes once a week, as of that week's balance
--- date. `issue_type` is kept because it decides whether a short balance is even
--- possible: a 信用銘柄 (1) has no stock lending, so its zero short balance is a
--- property of the instrument rather than an observation about positioning, and
--- an axis built on the long/short ratio has to say which it is looking at.
--- Standard and negotiable margin are stored separately because only the standard
--- side carries a six-month settlement deadline.
-CREATE TABLE IF NOT EXISTS jquants_weekly_margin(
-  week_end TEXT NOT NULL CHECK (week_end <= '2026-09-18'),
-  ticker TEXT NOT NULL,
-  long_vol REAL,
-  short_vol REAL,
-  long_std_vol REAL,
-  long_neg_vol REAL,
-  short_std_vol REAL,
-  short_neg_vol REAL,
-  issue_type TEXT,
-  PRIMARY KEY (week_end, ticker)
-);
-
-CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker
-  ON jquants_weekly_margin(ticker, week_end);
-
--- Daily balances for the limited set of 日々公表銘柄. This source includes the
--- exchange's margin-regulation classification and remains distinct from both
--- the legacy weekly all-issues series and its daily all-issues replacement.
-CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
-  publication_date TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  -- AppDate is the reported balance's application date (申込日), not a regulation effective date.
-  applied_date TEXT NOT NULL,
-  publication_reason TEXT,
-  short_outstanding REAL,
-  short_change REAL,
-  short_ratio REAL,
-  long_outstanding REAL,
-  long_change REAL,
-  long_ratio REAL,
-  short_long_ratio REAL,
-  short_negotiable_outstanding REAL,
-  short_negotiable_change REAL,
-  short_standard_outstanding REAL,
-  short_standard_change REAL,
-  long_negotiable_outstanding REAL,
-  long_negotiable_change REAL,
-  long_standard_outstanding REAL,
-  long_standard_change REAL,
-  tse_margin_regulation_classification TEXT,
-  PRIMARY KEY (publication_date, ticker, applied_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_jquants_margin_alerts_ticker
-  ON jquants_margin_alerts(ticker, publication_date);
-
--- All-issues daily balances beginning with the 2026-09-25 balance. A separate
--- table is a semantic boundary: these rows must never be read as weekly history.
-CREATE TABLE IF NOT EXISTS jquants_all_issues_daily_margin(
-  balance_date TEXT NOT NULL CHECK (balance_date >= '2026-09-25'),
-  ticker TEXT NOT NULL,
-  long_vol REAL,
-  short_vol REAL,
-  long_std_vol REAL,
-  long_neg_vol REAL,
-  short_std_vol REAL,
-  short_neg_vol REAL,
-  issue_type TEXT,
-  publication_date TEXT,
-  long_value REAL,
-  short_value REAL,
-  long_std_value REAL,
-  long_neg_value REAL,
-  short_std_value REAL,
-  short_neg_value REAL,
-  PRIMARY KEY (balance_date, ticker)
-);
-
-CREATE INDEX IF NOT EXISTS idx_jquants_all_issues_daily_margin_ticker
-  ON jquants_all_issues_daily_margin(ticker, balance_date);
-
--- Investor-level positions disclosed under the 0.5% short-position reporting
--- rule. Names remain the provider's exact reporter identity fields: guessing
--- corporate identity across spelling changes would turn source facts into an
--- entity-resolution estimate. Disclosure and calculation dates are separate so
--- a historical panel can enforce both sides of the point-in-time boundary.
-CREATE TABLE IF NOT EXISTS jquants_short_sale_reports(
-  disclosed_at TEXT NOT NULL,
-  source_ordinal INTEGER NOT NULL,
-  calculated_at TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  short_seller_name TEXT NOT NULL,
-  discretionary_investment_contractor_name TEXT NOT NULL,
-  investment_fund_name TEXT NOT NULL,
-  short_ratio REAL,
-  short_shares INTEGER,
-  short_trading_units INTEGER,
-  previous_reported_at TEXT,
-  previous_short_ratio REAL,
-  notes TEXT,
-  short_seller_address TEXT,
-  discretionary_investment_contractor_address TEXT,
-  PRIMARY KEY (disclosed_at, source_ordinal)
-);
-
-CREATE INDEX IF NOT EXISTS idx_jquants_short_sale_reports_ticker
-  ON jquants_short_sale_reports(ticker, disclosed_at, calculated_at);
-
-CREATE TABLE IF NOT EXISTS edinet_documents(
-  doc_date TEXT NOT NULL,
-  sequence_number INTEGER NOT NULL,
-  doc_id TEXT NOT NULL,
-  sec_code TEXT,
-  doc_type_code TEXT,
-  csv_flag TEXT,
-  xbrl_flag TEXT,
-  legal_status TEXT,
-  disclosure_status TEXT,
-  withdrawal_status TEXT,
-  doc_info_edit_status TEXT,
-  parent_doc_id TEXT,
-  operation_datetime TEXT,
-  submit_datetime TEXT,
-  doc_description TEXT,
-  period_start TEXT,
-  period_end TEXT,
-  edinet_code TEXT,
-  issuer_edinet_code TEXT,
-  subject_edinet_code TEXT,
-  PRIMARY KEY (doc_date, sequence_number)
-);
-
-CREATE TABLE IF NOT EXISTS edinet_document_lists(
-  doc_date TEXT PRIMARY KEY,
-  process_datetime TEXT,
-  result_count INTEGER NOT NULL,
-  selected_received_at_utc TEXT,
-  response_json TEXT,
-  selected_receipt_id TEXT,
-  latest_received_at_utc TEXT NOT NULL,
-  rechecked_asof TEXT
-);
-
-CREATE TABLE IF NOT EXISTS edinet_segment_facts(
-  ticker TEXT NOT NULL,
-  source_doc_id TEXT NOT NULL,
-  source_submit_datetime TEXT NOT NULL,
-  disclosed_on TEXT NOT NULL,
-  source_element TEXT NOT NULL,
-  source_context TEXT NOT NULL,
-  issuer_id TEXT NOT NULL,
-  period_start TEXT,
-  period_end TEXT NOT NULL,
-  consolidation_basis TEXT NOT NULL,
-  segment_axis TEXT NOT NULL,
-  segment_key TEXT NOT NULL,
-  segment_name TEXT,
-  segment_kind TEXT NOT NULL,
-  metric TEXT NOT NULL,
-  profit_basis TEXT,
-  value REAL,
-  currency TEXT NOT NULL,
-  source_locator TEXT NOT NULL,
-  PRIMARY KEY (source_doc_id, source_context, source_element)
-);
-
-CREATE TABLE IF NOT EXISTS edinet_debt_schedule(
-  ticker TEXT NOT NULL,
-  source_doc_id TEXT NOT NULL,
-  source_submit_datetime TEXT NOT NULL,
-  disclosed_on TEXT NOT NULL,
-  source_element TEXT NOT NULL,
-  source_context TEXT NOT NULL,
-  issuer_id TEXT NOT NULL,
-  balance_sheet_date TEXT NOT NULL,
-  consolidation_basis TEXT NOT NULL,
-  debt_category TEXT NOT NULL,
-  due_from_months INTEGER NOT NULL,
-  due_to_months INTEGER NOT NULL,
-  principal REAL,
-  currency TEXT NOT NULL,
-  source_locator TEXT NOT NULL,
-  PRIMARY KEY (source_doc_id, balance_sheet_date, consolidation_basis,
-               debt_category, due_from_months, due_to_months)
-);
-
-CREATE TABLE IF NOT EXISTS edinet_source_archives(
-  doc_id TEXT NOT NULL,
-  source_type INTEGER NOT NULL,
-  stored_on TEXT NOT NULL,
-  zip_content BLOB NOT NULL,
-  PRIMARY KEY (doc_id, source_type)
-);
-
-CREATE TABLE IF NOT EXISTS edinet_metrics(
-  asof_date TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  sales_ttm REAL,
-  ocf_ttm REAL,
-  debt REAL,
-  cash REAL,
-  ebitda_ttm REAL,
-  consolidation_basis TEXT,
-  ttm_quality_ev_ebitda TEXT,
-  ttm_quality_p_s TEXT,
-  ttm_quality_pcfr TEXT,
-  operating_profit_ttm REAL,
-  depreciation_and_amortization_ttm REAL,
-  capex_ttm REAL,
-  fcf_ttm REAL,
-  net_cash REAL,
-  equity REAL,
-  total_assets REAL,
-  ttm_quality_fcf TEXT,
-  ttm_quality_net_cash TEXT,
-  source_doc_id TEXT,
-  document_type TEXT,
-  source_submit_datetime TEXT,
-  source_period_start TEXT,
-  source_period_end TEXT,
-  capex_source TEXT,
-  failure_reasons TEXT,
-  extractor_revision TEXT,
-  source_document_revision TEXT,
-  investment_securities REAL,
-  ocf_receivables_cash_effect REAL,
-  ocf_inventories_cash_effect REAL,
-  ocf_payables_cash_effect REAL,
-  ocf_contract_liabilities_cash_effect REAL,
-  ocf_advances_received_cash_effect REAL,
-  ocf_other_payables_cash_effect REAL,
-  capex_ppe_reported REAL,
-  capex_intangible_reported REAL,
-  PRIMARY KEY (asof_date, ticker)
-);
-
-CREATE TABLE IF NOT EXISTS jpx_regulation_flags(
-  asof_date TEXT NOT NULL,
-  source_name TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  flag TEXT NOT NULL,
-  fetched_at_utc TEXT,
-  PRIMARY KEY (asof_date, source_name, ticker, flag)
-);
-
-CREATE TABLE IF NOT EXISTS jpx_regulation_sources(
-  asof_date TEXT NOT NULL,
-  source_name TEXT NOT NULL,
-  fetched_at_utc TEXT,
-  PRIMARY KEY (asof_date, source_name)
-);
-
-CREATE TABLE IF NOT EXISTS source_coverage(
-  source TEXT NOT NULL,
-  coverage_key TEXT NOT NULL,
-  coverage_start TEXT,
-  coverage_end TEXT,
-  fetched_at_utc TEXT NOT NULL,
-  record_count INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'ok',
-  error TEXT,
-  PRIMARY KEY (source, coverage_key)
-);
-
-CREATE INDEX IF NOT EXISTS idx_source_coverage_source_window
-  ON source_coverage(source, coverage_start, coverage_end);
-
-CREATE TABLE IF NOT EXISTS lake_store_origin(
-  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-  release_id TEXT NOT NULL,
-  release_manifest_sha256 TEXT NOT NULL
-    CHECK (length(release_manifest_sha256) = 64)
-);
-
-CREATE TABLE IF NOT EXISTS tse_capital_policy_snapshots(
-  snapshot_month_end TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('disclosed', 'considering')),
-  status_change TEXT,
-  updated_on TEXT,
-  contact_requested INTEGER NOT NULL,
-  first_disclosed_month_end TEXT,
-  first_disclosure_left_censored INTEGER NOT NULL,
-  PRIMARY KEY (snapshot_month_end, ticker)
-);
-
-CREATE INDEX IF NOT EXISTS idx_tse_capital_policy_snapshots_ticker
-  ON tse_capital_policy_snapshots(ticker, snapshot_month_end);
-
-CREATE TABLE IF NOT EXISTS jpx_delistings(
-  delisted_on TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  name TEXT NOT NULL,
-  market TEXT,
-  reason TEXT NOT NULL,
-  PRIMARY KEY (delisted_on, ticker)
-);
-
-CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
-  ticker TEXT NOT NULL,
-  delisted_on TEXT NOT NULL,
-  offer_price_yen REAL NOT NULL CHECK (offer_price_yen > 0),
-  offer_doc_id TEXT NOT NULL,
-  result_doc_id TEXT NOT NULL,
-  filed_on TEXT NOT NULL,
-  PRIMARY KEY (ticker, delisted_on)
-);
-"""
+_SCHEMA_SQL = (
+    JQUANTS_DAILY_BARS_DDL
+    + JQUANTS_FIN_SUMMARIES_DDL
+    + JQUANTS_MASTER_SNAPSHOTS_DDL
+    + JPX_EARNINGS_CALENDAR_DDL
+    + JQUANTS_MARKET_CALENDAR_DDL
+    + JQUANTS_WEEKLY_MARGIN_DDL
+    + JQUANTS_MARGIN_ALERTS_DDL
+    + JQUANTS_ALL_ISSUES_DAILY_MARGIN_DDL
+    + JQUANTS_SHORT_SALE_REPORTS_DDL
+    + EDINET_DOCUMENTS_DDL
+    + EDINET_DOCUMENT_LISTS_DDL
+    + EDINET_SEGMENT_FACTS_DDL
+    + EDINET_DEBT_SCHEDULE_DDL
+    + EDINET_SOURCE_ARCHIVES_DDL
+    + EDINET_METRICS_DDL
+    + JPX_REGULATION_FLAGS_DDL
+    + JPX_REGULATION_SOURCES_DDL
+    + SOURCE_COVERAGE_DDL
+    + LAKE_STORE_ORIGIN_DDL
+    + TSE_CAPITAL_POLICY_SNAPSHOTS_DDL
+    + JPX_DELISTINGS_DDL
+    + TENDER_OFFER_EXIT_VALUES_DDL
+)
 
 
 _SCHEMA_SQL += (

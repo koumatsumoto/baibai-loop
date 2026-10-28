@@ -24,6 +24,7 @@ from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import LakeExportReport, export_market_store
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
 def _report_build(build: LakeExportReport) -> dict[str, object]:
@@ -85,6 +86,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
             mirror_root=mirror,
             producer_git_commit=producer_commit,
             expected_store_origin=store_origin,
+            catalog=LAKE_DATASETS,
         )
         full_seconds = time.perf_counter() - started
         baseline_objects = _object_inventory(full)
@@ -97,6 +99,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
             mirror_root=mirror,
             producer_git_commit=producer_commit,
             expected_store_origin=store_origin,
+            catalog=LAKE_DATASETS,
         )
         corrected_seconds = time.perf_counter() - started
         corrected_objects = _object_inventory(corrected)

@@ -19,13 +19,7 @@ from pydantic import (
     model_validator,
 )
 
-from baibai_engine.machine_analysis.observations.external_assessments.identity import (
-    ANALYST_FORECAST_DATASET,
-    ANALYST_RATING_DATASET,
-    MODEL_VALUATION_DATASET,
-    QUANTS_SCORE_DATASET,
-)
-from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
+from baibai_engine.storage.snapshots.contracts import LakeDataset, freeze_catalog
 from baibai_engine.storage.snapshots.keys import (
     LakeLayer,
     PartitionValue,
@@ -264,20 +258,6 @@ class DatasetManifest(BaseModel):
             for source in partition.sources
         ):
             raise ValueError("lake partitions accept SQLite snapshot sources only")
-        # A contract version pins the layout it was written under. Readers resolve
-        # partitions by the layout the manifest declares, so a build that changed grain
-        # under an unchanged version would be read with the old expectation and silently
-        # mean something else. Changing the grain is a contract bump.
-        contract = LAKE_DATASETS.get(self.dataset)
-        if contract is not None and self.layer != contract.layer:
-            raise ValueError("dataset layer does not match its current contract")
-        if (
-            contract is not None
-            and self.contract_version == contract.contract_version
-            and tuple(self.partition_by) != contract.partition_by
-        ):
-            raise ValueError("dataset contract version pins its partition layout")
-
         partition_identities: set[tuple[tuple[str, PartitionValue], ...]] = set()
         object_keys: set[str] = set()
         object_count = 0
@@ -440,229 +420,6 @@ class ReleasePolicy(BaseModel):
         return self
 
 
-PRODUCTION_RELEASE_POLICY = ReleasePolicy(
-    policy_version=1,
-    profile="production",
-    datasets=(
-        ReleaseDatasetPolicy(
-            dataset="jquants.source_pages",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset=QUANTS_SCORE_DATASET,
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset=MODEL_VALUATION_DATASET,
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset=ANALYST_FORECAST_DATASET,
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset=ANALYST_RATING_DATASET,
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="tradingview.source_receipts",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="equity_web.source_responses",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="tradingview.forecast_snapshots",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.daily_bars",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=True,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.short_sale_reports",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=True,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.weekly_margin",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.master_snapshots",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.fin_summaries",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=True,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.market_calendar",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=True,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jpx.earnings_calendar",
-            required=True,
-            # Replaced by every snapshot fetch, so its earliest row is whatever the
-            # exchange still publishes rather than a history this release keeps.
-            carries_history=False,
-            require_complete_coverage=True,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.margin_alerts",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=True,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jquants.all_issues_daily_margin",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.documents",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=True,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.segment_facts",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.debt_schedule",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.metrics",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.source_archives",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.document_lists",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.list_responses",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jpx.source_bundles",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jpx.source_responses",
-            required=False,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jpx.regulation_flags",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jpx.delistings",
-            required=True,
-            # Each selected index and its linked pages replace the observation view.
-            # The index may stop linking an older archive without retracting its events.
-            carries_history=False,
-            # A complete bundle proves its declared pages arrived, not full history.
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="edinet.tender_offer_exit_values",
-            required=False,
-            # Replaced wholesale by each derivation, so a reclassified offer moves the
-            # earliest row. Pinning a start date would refuse exactly the correction the
-            # derivation exists to make.
-            carries_history=False,
-            # Recomputed exit proxies can legitimately disappear when evidence is
-            # withdrawn. No historical count is a minimum economic truth. An empty
-            # result is omitted by the exporter.
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="jpx.regulation_sources",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
-            dataset="tse.capital_policy_snapshots",
-            required=False,
-            carries_history=False,
-            require_complete_coverage=False,
-        ),
-    ),
-    max_manifest_bytes=16 * 1024 * 1024,
-    max_objects=10_000,
-)
-
-
-def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
-    """Return the registered release policy; an unconfigured profile fails closed.
-
-    There is one profile because there is one set of requirements. The gates that
-    matter are the declared datasets, coverage and source/manifest consistency.
-    They do not become different requirements because a release is read by a
-    different caller. A second profile
-    carrying the same dataset entries would be two tables free to rot apart, so the
-    manifest records which gate it passed and there is exactly one gate to pass.
-    """
-
-    if profile == "production":
-        return PRODUCTION_RELEASE_POLICY
-    raise ValueError(f"release policy is not configured for profile: {profile}")
-
-
 type Manifest = DatasetManifest | ReleaseManifest
 
 
@@ -736,10 +493,32 @@ def canonical_lake_model_bytes(model: BaseModel) -> bytes:
     )
 
 
+def validate_dataset_contract(
+    manifest: DatasetManifest, contract: LakeDataset, *, require_current_version: bool = True
+) -> None:
+    """Accept a concrete owner schema without consulting a global domain registry."""
+    if manifest.dataset != contract.name:
+        raise ValueError("dataset name does not match its owner contract")
+    if manifest.layer != contract.layer:
+        raise ValueError("dataset layer does not match its current contract")
+    if require_current_version and manifest.contract_version != contract.contract_version:
+        raise ValueError(
+            f"dataset {manifest.dataset} publishes contract v{manifest.contract_version}; "
+            f"this reader accepts only v{contract.contract_version}"
+        )
+    if (
+        manifest.contract_version == contract.contract_version
+        and tuple(manifest.partition_by) != contract.partition_by
+    ):
+        raise ValueError("dataset contract version pins its partition layout")
+
+
 def validate_release_policy(
     release: ReleaseManifest,
     manifests: Mapping[str, DatasetManifest],
     *,
+    policy: ReleasePolicy,
+    catalog: Mapping[str, LakeDataset],
     published_coverage_start: Mapping[str, date] | None = None,
 ) -> None:
     """Require a release to be structurally complete for its declared profile.
@@ -755,8 +534,12 @@ def validate_release_policy(
     Absent — a first publication, or a dataset this release introduces — leaves nothing to compare
     and the remaining checks unchanged.
     """
-    policy = release_policy_for_profile(release.profile)
+    catalog = freeze_catalog(catalog)
+    if release.profile != policy.profile:
+        raise ValueError("release profile differs from the supplied acceptance policy")
     policy_by_dataset = {item.dataset: item for item in policy.datasets}
+    if not policy_by_dataset.keys() <= catalog.keys():
+        raise ValueError("release policy references a dataset missing from its catalog")
     unknown = set(release.datasets) - set(policy_by_dataset)
     if unknown:
         raise ValueError("release contains a dataset outside its profile")
@@ -786,12 +569,13 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: release accepts matching lake dataset manifests only")
         if manifest.created_at > release.created_at:
             raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")
-        current_version = LAKE_DATASETS[dataset].contract_version
+        current_version = catalog[dataset].contract_version
         if manifest.contract_version != current_version:
             raise ValueError(
                 f"{dataset}: contract v{manifest.contract_version} does not match "
                 f"current contract v{current_version}"
             )
+        validate_dataset_contract(manifest, catalog[dataset])
         manifest_bytes = canonical_lake_model_bytes(manifest)
         if release_dataset.manifest_sha256 != sha256(manifest_bytes).hexdigest():
             raise ValueError(f"{dataset}: release dataset manifest digest does not match")
@@ -823,10 +607,7 @@ def validate_release_policy(
             )
         if manifest.totals.rows == 0:
             raise ValueError(f"{dataset}: a published dataset must contain observations")
-        if (
-            LAKE_DATASETS[dataset].population_column is not None
-            and manifest.population_count is None
-        ):
+        if catalog[dataset].population_column is not None and manifest.population_count is None:
             raise ValueError(f"{dataset}: does not report the population declared by its contract")
         total_manifest_bytes += len(manifest_bytes)
         total_objects += manifest.totals.objects

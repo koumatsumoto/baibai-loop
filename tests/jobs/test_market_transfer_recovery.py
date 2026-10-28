@@ -24,6 +24,8 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 FIN = "jquants.fin_summaries"
 TABLE = "jquants_fin_summaries"
@@ -59,7 +61,7 @@ def published_market(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         sqlite_path=store, mirror_root=mirror, snapshot_id="transfer-test"
     ) as snapshot:
         report = export_dataset_snapshot(
-            dataset_name=FIN,
+            dataset=LAKE_DATASETS[FIN],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,
@@ -68,6 +70,8 @@ def published_market(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         dataset_manifest_paths=[report.manifest_path],
         mirror_root=mirror,
         release_id="transfer-release",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     origin = LakeStoreOrigin(release.release_id, sha256_file(manifest_path))
     with closing(sqlite3.connect(store)) as conn:
@@ -96,6 +100,7 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
     from tests.jobs.test_cloud_r2_transfer import _environment, _fake_aws, _fake_repo
 
     from baibai_engine.storage.snapshots import models
+    from baibai_jobs.publication import policy as snapshot_policy
 
     target, mirror, origin = published_market
     root = _fake_repo(tmp_path)
@@ -135,7 +140,7 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
     )
     aws.write_text(script)
     policy = tmp_path / "release-policy.json"
-    policy.write_text(models.PRODUCTION_RELEASE_POLICY.model_dump_json())
+    policy.write_text(snapshot_policy.PRODUCTION_RELEASE_POLICY.model_dump_json())
     env["TRANSFER_TEST_POLICY"] = str(policy)
     env["TRANSFER_TEST_LOG"] = str(tmp_path / "real-helpers.log")
     # Keep the shell exactly as shipped. The uv adapter selects the local mirror
@@ -150,12 +155,13 @@ with Path(os.environ['TRANSFER_TEST_LOG']).open('a') as log:
  log.write(json.dumps(args)+'\\n')
 if args[:3]==['python','-m','baibai_jobs.observability.repository_layout']:
  sys.exit(0) # isolated shell root intentionally contains no application store
-if args[:3]==['baibai-engine','lake','dehydrate'] or args[:3]==['baibai-engine','lake','hydrate']:
+if args[:3]==['baibai-jobs','snapshots','dehydrate'] or args[:3]==['baibai-jobs','snapshots','hydrate']:
  from baibai_engine.storage.snapshots import models
- models.PRODUCTION_RELEASE_POLICY=models.ReleasePolicy.model_validate_json(Path(os.environ['TRANSFER_TEST_POLICY']).read_text())
+ from baibai_jobs.publication import policy as snapshot_policy
+ snapshot_policy.PRODUCTION_RELEASE_POLICY=models.ReleasePolicy.model_validate_json(Path(os.environ['TRANSFER_TEST_POLICY']).read_text())
  args=args[2:]
  i=args.index('--bucket');del args[i:i+2]
- from baibai_engine.cli.snapshot_write import main
+ from baibai_jobs.publication.snapshot_write_cli import main
  sys.exit(main(args))
 assert args[0]=='python'
 if args[1]=='-c':

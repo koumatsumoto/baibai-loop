@@ -38,6 +38,8 @@ from baibai_engine.storage.snapshots.writer import (
     validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 FIRST_AT = datetime(2026, 10, 17, 12, 34, 56, 123456, tzinfo=UTC)
 SECOND_AT = FIRST_AT + timedelta(seconds=9)
@@ -261,7 +263,7 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot,
@@ -276,12 +278,19 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
     assert raw_manifest.coverage_start.isoformat() == "2026-10-17"
     assert raw_manifest.data_as_of.isoformat() == "2026-10-17"
     assert raw_manifest.totals.rows == 3
-    validate_snapshot_parity(sqlite_path=source_path, mirror_root=mirror, manifest=raw_manifest)
+    validate_snapshot_parity(
+        sqlite_path=source_path,
+        mirror_root=mirror,
+        manifest=raw_manifest,
+        dataset=LAKE_DATASETS[raw_manifest.dataset],
+    )
 
     manifest_path, _ = create_release(
         dataset_manifest_paths=[item.manifest_path for item in manifests],
         mirror_root=mirror,
         release_id="source-pages-test-release",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -298,6 +307,7 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
             cache=LakeObjectCache(root=mirror, source=source),
             store=hydrated_path,
             dataset_names=names,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["jquants.source_pages"] == 3
     hydrated = open_connection(hydrated_path)

@@ -19,7 +19,6 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -32,6 +31,10 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 INDEX = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
 WORKBOOK = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
@@ -90,7 +93,7 @@ def test_jpx_complete_and_incomplete_bundles_roundtrip_fixed_lake_release(
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -111,6 +114,8 @@ def test_jpx_complete_and_incomplete_bundles_roundtrip_fixed_lake_release(
         mirror_root=mirror,
         release_id="jpx-raw-fixed",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -126,7 +131,12 @@ def test_jpx_complete_and_incomplete_bundles_roundtrip_fixed_lake_release(
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
     with lake_session() as session:
         report = hydrate_market_store(
-            session, release=release, cache=cache, store=destination, dataset_names=DATASETS
+            session,
+            release=release,
+            cache=cache,
+            store=destination,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["jpx.source_bundles"] == 2
     assert report.rows["jpx.source_responses"] == 3

@@ -47,10 +47,6 @@ DOMAINS: Mapping[str, Domain] = {
         module="baibai_engine.cli.external_assessment",
         summary="saved external assessments and explicit offline observation rebuild",
     ),
-    "snapshots": Domain(
-        module="baibai_engine.cli.snapshots",
-        summary="immutable market-data manifests, object keys, and read-only inventory",
-    ),
     "historical-evaluation": Domain(
         module="baibai_engine.cli.historical_evaluation.app",
         summary="saved legacy runs and calibration diagnostics",

@@ -134,7 +134,7 @@ hydrate_market() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run baibai-engine snapshots hydrate \
+      uv run baibai-jobs snapshots hydrate \
         --mirror "${lake_mirror}" \
         --store "$(store_path market.sqlite)" \
         --bucket "${stores_bucket}"
@@ -165,7 +165,7 @@ dehydrate_market_snapshot() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run baibai-engine snapshots dehydrate \
+      uv run baibai-jobs snapshots dehydrate \
         --mirror "${lake_mirror}" \
         --store "${path}" \
         --bucket "${stores_bucket}"

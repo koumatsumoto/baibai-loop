@@ -241,11 +241,11 @@ if [[ "$1 $2 $3" == "run python -c" ]]; then
   shift
   exec "$@"
 fi
-if [[ "$*" == *"baibai-engine snapshots dehydrate"* ]]; then
+if [[ "$*" == *"baibai-jobs snapshots dehydrate"* ]]; then
   printf 'dehydrate %s\\n' "$*" >> "$AWS_LOG"
   exit 0
 fi
-if [[ "$*" == *"baibai-engine snapshots hydrate"* ]]; then
+if [[ "$*" == *"baibai-jobs snapshots hydrate"* ]]; then
   printf 'hydrate %s\\n' "$*" >> "$AWS_LOG"
   exit 0
 fi

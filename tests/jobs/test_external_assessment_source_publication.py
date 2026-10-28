@@ -43,9 +43,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.rebuild im
     rebuild_attempts,
 )
 from baibai_engine.storage.snapshots.duck import lake_session
-from baibai_engine.storage.snapshots.equity_web_verification import (
-    history_digests as equity_web_history_digests,
-)
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.sqlite.source_cache.equity_web_import import (
@@ -62,8 +59,12 @@ from baibai_jobs.acquisition.external_assessments.collection import (
 )
 from baibai_jobs.acquisition.external_assessments.staging import CohortStage, stage_bytes, stage_key
 from baibai_jobs.integration.external_assessment_ready import available_ready
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.external_assessment_verification import (
     history_digests as external_assessment_history_digests,
+)
+from baibai_jobs.publication.public_page_verification import (
+    history_digests as equity_web_history_digests,
 )
 
 
@@ -128,6 +129,7 @@ def test_three_independent_sources_and_rakuten_retry_rebuild_from_l1_only(public
             cache=LakeObjectCache(root=source_mirror, source=LocalMirrorSource(source_mirror)),
             store=clean,
             dataset_names=(integration.SOURCE_RESPONSES_DATASET,),
+            catalog=LAKE_DATASETS,
         )
     tables = (MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE)
     with closing(sqlite3.connect(clean)) as conn:
@@ -202,6 +204,7 @@ def test_old_original_history_and_existing_derived_rows_roundtrip_in_clean_hydra
             cache=LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror)),
             store=restored,
             dataset_names=release.dataset_names(),
+            catalog=LAKE_DATASETS,
         )
     assert equity_web_history_digests(restored, months={(2026, 9)}) == equity_web_history_digests(
         database, months={(2026, 9)}

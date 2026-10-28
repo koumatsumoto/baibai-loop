@@ -13,7 +13,9 @@ from typing import cast
 
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.data_collection.receipts.public_pages.receipts import validate_response
-from baibai_engine.storage.snapshots.datasets import EQUITY_WEB_SOURCE_RESPONSES
+from baibai_engine.data_collection.receipts.public_pages.snapshot_contracts import (
+    EQUITY_WEB_SOURCE_RESPONSES,
+)
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import (

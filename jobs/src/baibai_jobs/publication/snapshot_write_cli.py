@@ -29,6 +29,8 @@ from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.retention import LakeRetentionError, apply_gc, plan_gc
 from baibai_engine.storage.snapshots.writer import export_market_store
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 WRITE_COMMANDS = frozenset(
     {
@@ -42,9 +44,15 @@ WRITE_COMMANDS = frozenset(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine snapshots")
+    parser = argparse.ArgumentParser(prog="baibai-jobs snapshots")
     commands = parser.add_subparsers(dest="command", required=True)
 
+    add_write_commands(commands)
+
+    return parser
+
+
+def add_write_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     export_all = commands.add_parser(
         "export-all", help="export every lake dataset from one sealed SQLite snapshot"
     )
@@ -53,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     release = commands.add_parser("release", help="create an immutable lake release")
     release_commands = release.add_subparsers(dest="release_command", required=True)
-    create = release_commands.add_parser("create")
+    create = release_commands.add_parser("create", help="create an immutable release")
     create.add_argument("--dataset-manifest", type=Path, action="append", required=True)
     create.add_argument("--mirror", type=Path, required=True)
     create.add_argument("--release-id")
@@ -81,8 +89,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gc.add_argument("--plan-hash", help="plan hash from the dry run; required with --apply")
 
-    return parser
-
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
@@ -96,6 +102,7 @@ def main(argv: list[str]) -> int:
             mirror_root=args.mirror,
             producer_git_commit=verified_git_commit(),
             expected_store_origin=read_lake_store_origin(args.sqlite),
+            catalog=LAKE_DATASETS,
         )
         print(
             json.dumps(
@@ -117,6 +124,8 @@ def main(argv: list[str]) -> int:
         dataset_manifest_paths=args.dataset_manifest,
         mirror_root=args.mirror,
         release_id=args.release_id,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     print(
         json.dumps(
@@ -171,10 +180,14 @@ def _resolve_release_target(
         return resolve_release_ref(source, reference), None
 
     def still_current() -> tuple[str, str]:
-        resolved = resolve_current_release(source)
+        resolved = resolve_current_release(
+            source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         return (resolved.release_id, resolved.manifest_sha256)
 
-    return resolve_current_release(source), still_current
+    return resolve_current_release(
+        source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+    ), still_current
 
 
 def _hydrate(args: argparse.Namespace) -> int:
@@ -197,6 +210,7 @@ def _hydrate(args: argparse.Namespace) -> int:
                     store=args.store,
                     dataset_names=dataset_names,
                     still_current=still_current,
+                    catalog=LAKE_DATASETS,
                 )
     except (
         LakeCredentialError,
@@ -219,9 +233,7 @@ def _dehydrate(args: argparse.Namespace) -> int:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (_, cache):
             release, still_current = _resolve_release_target(args, cache.source)
             report = dehydrate_market_store(
-                args.store,
-                release=release,
-                still_current=still_current,
+                args.store, release=release, still_current=still_current, catalog=LAKE_DATASETS
             )
     except (
         LakeCredentialError,
@@ -256,20 +268,3 @@ def _gc(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps(plan.as_dict(), sort_keys=True))
     return 0
-
-
-def print_combined_help() -> None:
-    print(
-        """usage: baibai-engine snapshots [-h] COMMAND ...
-
-commands:
-  inventory          inspect a local lake mirror without reading object contents
-  validate           validate one manifest contract without changing objects
-  resolve            resolve one fixed release and print its immutable identity
-  export-all         export every lake dataset from one sealed SQLite snapshot
-  release create     create an immutable lake release manifest
-  hydrate            fill a market SQLite store's lake tables from one fixed release
-  dehydrate          empty a market SQLite copy of every row one release holds
-  gc                 plan (default) or apply deletion of unreachable objects
-"""
-    )

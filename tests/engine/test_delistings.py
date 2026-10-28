@@ -26,7 +26,6 @@ from baibai_engine.machine_analysis.observations.disclosures.delistings import (
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -42,6 +41,10 @@ from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.market import cli as app
 from baibai_jobs.maintenance.market.delisting_cli import refresh_jpx_delistings_command
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 ASOF = date(2026, 10, 15)
 ARCHIVE = JPX_DELISTING_INDEX_URL + "archives-01.html"
@@ -374,7 +377,7 @@ def test_fixed_release_roundtrip_and_rebuild_from_retained_bundle(
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -388,6 +391,8 @@ def test_fixed_release_roundtrip_and_rebuild_from_retained_bundle(
         mirror_root=mirror,
         release_id="delistings-fixed",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     assert manifest.datasets["jpx.delistings"].contract_version == 2
     source = LocalMirrorSource(mirror)
@@ -408,7 +413,12 @@ def test_fixed_release_roundtrip_and_rebuild_from_retained_bundle(
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
     with lake_session() as lake:
         report = hydrate_market_store(
-            lake, release=release, cache=cache, store=destination, dataset_names=DATASETS
+            lake,
+            release=release,
+            cache=cache,
+            store=destination,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["jpx.delistings"] == 1
     assert read_jpx_delistings(destination) == expected

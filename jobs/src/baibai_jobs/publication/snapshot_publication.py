@@ -49,7 +49,9 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOriginError,
     advance_lake_store_origin,
 )
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import LeaseError, _load_handle, verify_held
+from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import (
     PointerSnapshot,
     TransferReport,
@@ -127,6 +129,7 @@ def prepare_market_lake(
             mirror_root=mirror_root,
             producer_git_commit=lake_verified_git_commit(),
             expected_store_origin=_pointer_origin(previous),
+            catalog=LAKE_DATASETS,
         )
         export_finished = time.perf_counter()
         with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
@@ -135,6 +138,8 @@ def prepare_market_lake(
                 dataset_manifest_paths=manifest_paths,
                 mirror_root=mirror_root,
                 release_id=release_id,
+                catalog=LAKE_DATASETS,
+                policy=release_policy_for_profile("production"),
             )
             yield PreparedMarketLake(
                 sqlite_path=sqlite_path,

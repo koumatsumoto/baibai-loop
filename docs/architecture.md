@@ -43,6 +43,8 @@ engineの業務責務は`engine/src/baibai_engine/`に置く。フォルダは�
 | `storage/` | `sqlite/`は実行用DB、`snapshots/`は固定manifest・release、`objects/`はobject転送と条件付き書込。領域の意味や採否を決めない。 |
 | `primitives/`・`cli/` | 前者は小さな共通値・純粋変換、後者は引数・表示・終了コードと実行環境の入口。汎用箱に業務規則を逃がさない。 |
 
+snapshotの列・layer・coverage等の定義とSQLite tableの意味は原本／観測のownerが持つ。Storageは明示された定義を使う保存・検証機構であり、公開対象やsource別の受入条件はJobsが合成する。全体hydrate/dehydrateは完全なcatalogとpolicyを必須入力にし、個別の固定読取は必要なownerの契約だけを受け取る。
+
 `jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。各domainの算術や保存条件を複製せず、所有者の入口を呼ぶ。`tools/`は開発・診断用で、通常運用の隠れた入口にしない。Webは資産・損益・保有、運用成績、タスクの読取を合成し、候補抽出や判断の成功条件には含めない。最新売買提案レポートは[別企画 #1615](https://github.com/koumatsumoto/baibai-loop/issues/1615)で扱う。
 
 ```mermaid

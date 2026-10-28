@@ -701,3 +701,12 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment",
   "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.cli", "baibai_jobs", "baibai_web",
 ]
+
+[[tool.importlinter.contracts]]
+name = "snapshot mechanisms consume explicit contracts instead of domain or publication registries"
+type = "forbidden"
+source_modules = ["baibai_engine.storage.snapshots"]
+forbidden_modules = ["baibai_engine.data_collection", "baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.portfolio", "baibai_jobs"]
+# Shared SQLite infrastructure assembles pure owner-declared DDL for one physical cache.
+# Snapshot modules themselves must receive descriptors/policy rather than importing owners.
+allow_indirect_imports = true

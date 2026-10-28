@@ -49,10 +49,12 @@ from baibai_jobs.acquisition.external_assessments.universe import (
     frozen_lake_universe,
     frozen_universe,
 )
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.external_assessment_verification import (
     history_digests,
     verify_observations,
 )
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 ASOF = date(2026, 10, 11)
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)
@@ -148,7 +150,7 @@ def build_master_lake(
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot_source:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot_source,
@@ -162,6 +164,8 @@ def build_master_lake(
         mirror_root=mirror,
         release_id="synthetic-master-only",
         created_at=RECEIVED,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     pointer = LakeReleasePointer(
         release_id=release.release_id,
@@ -171,7 +175,11 @@ def build_master_lake(
     pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_bytes(canonical_lake_model_bytes(pointer))
-    fixed = resolve_current_release(LocalMirrorSource(mirror))
+    fixed = resolve_current_release(
+        LocalMirrorSource(mirror),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
+    )
     store = MemoryR2Store()
     for item in mirror.rglob("*"):
         if item.is_file():
