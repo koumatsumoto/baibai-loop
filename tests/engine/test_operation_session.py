@@ -13,13 +13,13 @@ from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.research_selection import selection
 
 from baibai_engine.primitives.time import JST
-from baibai_engine.investment_judgment.operation.cli import main as operation_main
-from baibai_engine.investment_judgment.operation.models import (
+from baibai_engine.investment_judgment.workflow.operation.cli import main as operation_main
+from baibai_engine.investment_judgment.workflow.operation.models import (
     SESSION_KINDS,
     OperationPayload,
     SessionKind,
 )
-from baibai_engine.investment_judgment.operation.service import (
+from baibai_engine.investment_judgment.workflow.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,

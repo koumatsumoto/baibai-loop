@@ -4,9 +4,9 @@ from decimal import Decimal
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
-from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
-from baibai_engine.investment_judgment.trade_proposal import (
+from baibai_engine.investment_judgment.trade_proposal.holding_policy import evaluate_holding_proposal
+from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
     HoldItem,
     PositionInput,
     QuoteInput,
@@ -158,7 +158,7 @@ def test_unknown_quantity_basis_does_not_invent_returns_or_partial_sale():
 
 
 def test_hold_contract_rejects_known_insufficient_and_never_accepts_order_terms():
-    from baibai_engine.investment_judgment.stock_assessment import AssessmentRef
+    from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 
     values = dict(
         ticker="1234",

@@ -9,17 +9,17 @@ from functools import partial
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
-from baibai_engine.investment_judgment.trade_proposal import (
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     ProposalError,
     order_readiness,
 )
-from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
-from baibai_engine.investment_judgment.trade_proposal_query import (
+from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
+from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
     preview_current_terms,
 )
-from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
+from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
 from baibai_engine.portfolio.ledger.drafts import (
     apply_draft,

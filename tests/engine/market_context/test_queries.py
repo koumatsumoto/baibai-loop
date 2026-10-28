@@ -14,11 +14,11 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_engine.investment_judgment.market_context.models import StoredAssessment
-from baibai_engine.investment_judgment.market_context.query import (
+from baibai_engine.investment_judgment.market_assessment.models import StoredAssessment
+from baibai_engine.investment_judgment.market_assessment.query import (
     assessment_payload as read_context,
 )
-from baibai_engine.investment_judgment.market_context.query import (
+from baibai_engine.investment_judgment.market_assessment.query import (
     latest_assessment_payload,
 )
 from baibai_engine.machine_analysis.models.market_context.benchmark import compute_benchmark_trend
@@ -292,7 +292,7 @@ from baibai_engine.machine_analysis.generation.runners.market_reading import rea
 from baibai_engine.machine_analysis.models.market_context.security import build_security_market_context
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.economic.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
-assert "baibai_engine.investment_judgment.market_context.service" not in sys.modules
+assert "baibai_engine.investment_judgment.market_assessment.service" not in sys.modules
 """,
         ],
         check=True,

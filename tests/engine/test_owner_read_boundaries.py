@@ -16,12 +16,12 @@ from baibai_engine.data_collection.economic.store import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.storage.sqlite.read import read_rows
-from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
-from baibai_engine.investment_judgment.trade_proposal_query import (
+from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
+from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
     preview_current_terms,
 )
-from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
+from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.screening.run_store import (

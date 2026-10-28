@@ -221,7 +221,7 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
   cp "$target" "$restore_stage"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
   mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine position ledger --db stores/application/baibai.sqlite
+  uv run baibai-engine portfolio ledger --db stores/application/baibai.sqlite
 )
 ```
 
@@ -240,7 +240,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
   mv stores/application/baibai.sqlite "$failed_restore"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
   mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine position ledger --db stores/application/baibai.sqlite
+  uv run baibai-engine portfolio ledger --db stores/application/baibai.sqlite
 )
 ```
 

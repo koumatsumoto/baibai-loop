@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.investment_judgment.stock_assessment import StockAssessmentDocument
-from baibai_engine.investment_judgment.trade_proposal import (
+from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
     BuyItem,
     GateReason,
     HoldItem,
@@ -17,7 +17,7 @@ from baibai_engine.investment_judgment.trade_proposal import (
     SellItem,
     TradeProposal,
 )
-from baibai_engine.investment_judgment.trade_proposal_warnings import build_proposal_warnings
+from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
 
 
 @pytest.fixture

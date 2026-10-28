@@ -12,8 +12,8 @@ import pytest
 from tests.helpers.research_selection import selection
 from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, InputGap
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot, InputGap
 from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
 from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (

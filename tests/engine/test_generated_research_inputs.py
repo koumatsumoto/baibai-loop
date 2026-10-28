@@ -8,21 +8,21 @@ import yaml
 from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import selected_target, selection
 
-from baibai_engine.investment_judgment.calibration_context import research_calibration_context
-from baibai_engine.investment_judgment.generated_inputs import project_generated_inputs
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.operation.progress import selection_binding
-from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.selection import (
+from baibai_engine.investment_judgment.workflow.calibration_context import research_calibration_context
+from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.selection_query import load_generated_selection_context
-from baibai_engine.investment_judgment.trade_proposal import GeneratedLiquidityContext
-from baibai_engine.investment_judgment.trade_proposal_inputs import proposal_liquidity_context
-from baibai_engine.investment_judgment.workspace.selected_prepare import (
+from baibai_engine.investment_judgment.workflow.selection_query import load_generated_selection_context
+from baibai_engine.investment_judgment.trade_proposal.contracts import GeneratedLiquidityContext
+from baibai_engine.investment_judgment.trade_proposal.inputs import proposal_liquidity_context
+from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     prepare_selected_workspace,
     resume_selected_workspace,
 )
@@ -147,7 +147,7 @@ def test_generation_after_cutoff_is_rejected(tmp_path):
 def test_context_cli_uses_fixed_generation_and_keeps_comparison_subjects(tmp_path, capsys):
     import json
 
-    from baibai_engine.investment_judgment.workspace_cli import main
+    from baibai_engine.cli.investment_judgment import main
 
     runs = tmp_path / "runs.sqlite"
     seed_generation(runs, now=NOW, as_of=AS_OF)

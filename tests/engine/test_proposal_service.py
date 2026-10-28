@@ -9,18 +9,18 @@ import pytest
 import yaml
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
-from baibai_engine.investment_judgment.selection import selection_sha256
-from baibai_engine.investment_judgment.trade_proposal import (
+from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     ProposalError,
     TradeProposal,
 )
-from baibai_engine.investment_judgment.trade_proposal_query import (
+from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
     preview_current_terms,
 )
-from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
-from baibai_engine.investment_judgment.workspace_cli import main
+from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.cli.investment_judgment import main
 
 
 @pytest.fixture
@@ -103,7 +103,7 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
         raise yaml.YAMLError("synthetic publication output failure")
 
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workspace_cli.yaml.safe_dump", fail_output
+        "baibai_engine.cli.investment_judgment.yaml.safe_dump", fail_output
     )
     with pytest.raises(yaml.YAMLError, match="synthetic publication output failure"):
         main(
@@ -185,7 +185,7 @@ def test_same_id_retry_requires_the_exact_signed_typed_payload(case):
     service.publish(proposal)
     raw = proposal.payload()
     raw["inputs"]["quotes"][0]["price_yen"] = "1100.000"
-    from baibai_engine.investment_judgment.trade_proposal import TradeProposal
+    from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 
     with pytest.raises(ProposalConflictError, match="immutable"):
         service.publish(TradeProposal.model_validate(raw))
@@ -289,7 +289,7 @@ def test_review_binds_conditions_cash_scope_and_projection(case):
     proposal = reviewed_proposal(case)
     raw = proposal.payload()
     raw["items"][0]["terms"]["conditions"].append("別の実前提")
-    from baibai_engine.investment_judgment.trade_proposal import TradeProposal
+    from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 
     changed = TradeProposal.model_validate(raw)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
@@ -309,7 +309,7 @@ def test_warning_or_exposure_tampering_not_accepted_by_new_review(case, change):
     else:
         assert raw["items"][0]["terms"]["warnings"]
         raw["items"][0]["terms"]["warnings"] = []
-    from baibai_engine.investment_judgment.trade_proposal import (
+    from baibai_engine.investment_judgment.trade_proposal.contracts import (
         TradeProposal,
         proposal_draft_sha256,
     )
@@ -329,7 +329,7 @@ def test_warning_or_exposure_tampering_not_accepted_by_new_review(case, change):
 
 def test_injected_failure_after_binding_rolls_back_proposal_items_and_binding(case, monkeypatch):
     proposal = reviewed_proposal(case)
-    import baibai_engine.investment_judgment.trade_proposal_service as owner
+    import baibai_engine.investment_judgment.trade_proposal.service as owner
 
     def fail(*_):
         raise RuntimeError("injected readback failure")
@@ -369,7 +369,7 @@ def test_live_latest_gate_applies_to_buy_but_not_no_action(case):
     no_action = reviewed_proposal(case, action="no_action")
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
-    from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+    from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 
     document, review = pair_payload(review_number=22)
     AssessmentStoreService(
@@ -391,8 +391,8 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
     case = backend_case(tmp_path, tickers=("1234", "5678"))
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
-    from baibai_engine.investment_judgment.operation.progress import UnfinishedTarget
-    from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+    from baibai_engine.investment_judgment.workflow.operation.progress import UnfinishedTarget
+    from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 
     case.operation = case.operations.record_outcome(
         case.operation.operation_id,

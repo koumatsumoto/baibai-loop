@@ -15,15 +15,15 @@ from tests.helpers.proposal import (
     reviewed_proposal,
 )
 
-from baibai_engine.investment_judgment.trade_proposal import ProposalError
-from baibai_engine.investment_judgment.trade_proposal_fingerprint import proposal_inputs_fingerprint
-from baibai_engine.investment_judgment.trade_proposal_inputs import (
+from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalError
+from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
+from baibai_engine.investment_judgment.trade_proposal.inputs import (
     build_proposal_context,
     collect_proposal_inputs,
 )
-from baibai_engine.investment_judgment.trade_proposal_query import get_investment_proposal
-from baibai_engine.investment_judgment.trade_proposal_scaffold import scaffold_proposal
-from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
+from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
+from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
+from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.application.read import connect_read_only
 
 

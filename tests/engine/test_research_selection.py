@@ -6,16 +6,16 @@ import pytest
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import selected_target, selection
 
-from baibai_engine.investment_judgment.operation.models import OperationPayload
-from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.selection import (
+from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
     GeneratedResearchSelectionDraft,
     ResearchSelection,
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.selection_policy import ResearchCapacity, validate_capacity
+from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity, validate_capacity
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 

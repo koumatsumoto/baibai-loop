@@ -34,13 +34,13 @@ DELEGATED_GROUPS: Mapping[str, str] = {
         "baibai_engine.cli.market_reading"
     ),
     "baibai-engine investment-judgment market-context": (
-        "baibai_engine.investment_judgment.market_context.cli"
+        "baibai_engine.investment_judgment.market_assessment.cli"
     ),
     "baibai-engine investment-judgment stock-assessment-evaluate": (
-        "baibai_engine.investment_judgment.stock_assessment_evaluation_cli"
+        "baibai_engine.cli.stock_assessment"
     ),
     "baibai-engine investment-judgment calculate": (
-        "baibai_engine.investment_judgment.calculation_cli"
+        "baibai_engine.cli.assessment_calculation"
     ),
 }
 

@@ -7,13 +7,13 @@ from hashlib import sha256
 
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
-from baibai_engine.investment_judgment.selection import (
+from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchInputs,
     GeneratedResearchSelection,
     GeneratedResearchSelectionDraft,
     ResearchRequest,
 )
-from baibai_engine.investment_judgment.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.screening.model_projection import select_generation

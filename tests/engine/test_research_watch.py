@@ -16,8 +16,8 @@ from tests.helpers.assessment_v1 import (
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.investment_judgment.price_watch import ResearchPriceWatchError, build_watch
-from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal.price_watch import ResearchPriceWatchError, build_watch
+from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -217,7 +217,7 @@ def test_current_close_is_still_required_for_price_gap(case, current_close, reas
 def test_date_only_order_history_does_not_present_replay_time_as_reported_time():
     from zoneinfo import ZoneInfo
 
-    from baibai_engine.investment_judgment.price_watch import _reservation_history
+    from baibai_engine.investment_judgment.trade_proposal.price_watch import _reservation_history
     from baibai_engine.portfolio.ledger.events import ReservationEvent
 
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))

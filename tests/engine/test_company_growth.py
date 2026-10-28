@@ -15,16 +15,16 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import historical_operation, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
-from baibai_engine.investment_judgment.company_growth_projection import project_company_growth
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.operation.progress import selection_binding
-from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.selection import (
+from baibai_engine.investment_judgment.workflow.company_growth_projection import project_company_growth
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelection,
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.workspace import resume_selected_workspace
+from baibai_engine.investment_judgment.workflow.workspace import resume_selected_workspace
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_changes,
     build_period_states,
@@ -487,8 +487,8 @@ def test_legacy_selection_hash_keeps_its_original_serialized_inputs():
 def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged(
     tmp_path, monkeypatch, capsys, start
 ):
-    from baibai_engine.investment_judgment.workspace import compute_status
-    from baibai_engine.investment_judgment.workspace_cli import main
+    from baibai_engine.investment_judgment.workflow.workspace import compute_status
+    from baibai_engine.cli.investment_judgment import main
 
     records = [
         document(year, quarter, quarter * 100, quarter * 20, quarter * 10)

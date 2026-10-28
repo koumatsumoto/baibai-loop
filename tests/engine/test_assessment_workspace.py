@@ -17,14 +17,19 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.investment_judgment.operation.progress import progress_binding
-from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.stock_assessment import AssessmentError, load_assessment
-from baibai_engine.investment_judgment.stock_assessment_store import (
+from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.contracts import (
+    AssessmentError,
+)
+from baibai_engine.investment_judgment.stock_assessment.document import (
+    load_assessment,
+)
+from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
     load_reviewed_assessment,
 )
-from baibai_engine.investment_judgment.workspace import (
+from baibai_engine.investment_judgment.workflow.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
     compute_status,
@@ -33,8 +38,8 @@ from baibai_engine.investment_judgment.workspace import (
     scaffold_assessment,
     scaffold_review,
 )
-from baibai_engine.investment_judgment.workspace import scaffold as scaffold_module
-from baibai_engine.investment_judgment.workspace_cli import main
+from baibai_engine.investment_judgment.workflow.workspace import scaffold as scaffold_module
+from baibai_engine.cli.investment_judgment import main
 
 NOW = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
 

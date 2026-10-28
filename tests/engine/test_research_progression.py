@@ -18,26 +18,26 @@ from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.operation.models import OperationPayload
-from baibai_engine.investment_judgment.operation.progress import (
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
+from baibai_engine.investment_judgment.workflow.operation.progress import (
     ResearchProgress,
     progress_binding,
     proposal_scope,
     selection_binding,
     with_progress,
 )
-from baibai_engine.investment_judgment.operation.research_binding import (
+from baibai_engine.investment_judgment.workflow.operation.research_binding import (
     require_proposal_research_scope,
 )
-from baibai_engine.investment_judgment.operation.service import (
+from baibai_engine.investment_judgment.workflow.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,
 )
-from baibai_engine.investment_judgment.stock_assessment_store import publish_reviewed_assessment
-from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
-from baibai_engine.investment_judgment.trade_proposal_query import load_investment_proposal
+from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
+from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
+from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 

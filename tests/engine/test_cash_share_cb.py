@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from baibai_engine.investment_judgment import workspace_cli
-from baibai_engine.investment_judgment.cash_share_cb import (
+import baibai_engine.cli.investment_judgment as workspace_cli
+from baibai_engine.investment_judgment.stock_assessment.cash_share_cb import (
     CashShareCBInput,
     calculate_cash_share_cb,
 )

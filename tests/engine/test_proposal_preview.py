@@ -8,11 +8,11 @@ from decimal import Decimal
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
-from baibai_engine.investment_judgment.trade_proposal_query import (
+from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
     preview_current_terms,
 )
-from baibai_engine.investment_judgment.trade_proposal_service import TradeProposalService
+from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 
 
 def _snapshot(path):
@@ -104,7 +104,7 @@ def test_changed_target_session_blocks_preview_without_mutating_saved_terms(tmp_
 
 
 def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp_path, monkeypatch):
-    from baibai_engine.investment_judgment import trade_proposal_inputs as proposal_inputs
+    import baibai_engine.investment_judgment.trade_proposal.inputs as proposal_inputs
 
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
@@ -194,10 +194,10 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
 def test_rate_and_horizon_flow_through_context_publication_and_preview(
     tmp_path, horizon_months, expected_maximum
 ):
-    from baibai_engine.investment_judgment.scenario import maximum_entry_price
-    from baibai_engine.investment_judgment.stock_assessment import assessment_core_hash
-    from baibai_engine.investment_judgment.stock_assessment_store import load_reviewed_assessment
-    from baibai_engine.investment_judgment.trade_proposal_inputs import build_proposal_context
+    from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
+    from baibai_engine.investment_judgment.stock_assessment.document import assessment_core_hash
+    from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
+    from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
     from baibai_engine.storage.application.read import connect_read_only
 
     case = backend_case(tmp_path, required_rate="3", horizon_months=horizon_months)

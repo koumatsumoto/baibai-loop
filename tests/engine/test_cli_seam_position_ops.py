@@ -22,7 +22,7 @@ from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.cli.app import main as engine_main
 from baibai_engine.storage.yaml import safe_load
-from baibai_engine.investment_judgment.operation.cli import main as operation_main
+from baibai_engine.investment_judgment.workflow.operation.cli import main as operation_main
 from baibai_engine.cli.portfolio import main as position_main
 from baibai_engine.task_cli import main as task_main
 

@@ -94,7 +94,7 @@ def _decimal_argument(value: str) -> Decimal:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine position")
+    parser = argparse.ArgumentParser(prog="baibai-engine portfolio")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ledger_parser = subparsers.add_parser(
         "ledger",

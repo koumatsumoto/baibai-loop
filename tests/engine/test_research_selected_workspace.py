@@ -15,15 +15,15 @@ from tests.helpers.generated_selection import generated_draft_for, seed_generate
 from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import historical_operation, selected_target, selection
 
-from baibai_engine.investment_judgment.operation.progress import selection_binding
-from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.selection import (
+from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal import TradeProposal, proposal_draft_sha256
-from baibai_engine.investment_judgment.workspace import (
+from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
+from baibai_engine.investment_judgment.workflow.workspace import (
     ResearchWorkspaceConflictError,
     compute_status,
     prepare_selected_workspace,
@@ -33,7 +33,7 @@ from baibai_engine.investment_judgment.workspace import (
     scaffold_review,
     selected_prepare,
 )
-from baibai_engine.investment_judgment.workspace_cli import main
+from baibai_engine.cli.investment_judgment import main
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
@@ -62,7 +62,7 @@ def resume_historical(tmp_path, value):
 
 
 def test_discover_new_preserves_selected_noncandidate_from_fixed_generation(tmp_path):
-    from baibai_engine.investment_judgment.selection_query import load_generated_selection_context
+    from baibai_engine.investment_judgment.workflow.selection_query import load_generated_selection_context
 
     runs = tmp_path / "runs"
     value = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
@@ -95,7 +95,7 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_generation(tmp_
 def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monkeypatch, unrecorded):
     from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
-    from baibai_engine.investment_judgment.inputs import project_research_inputs
+    from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
     from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
         machine_valuation_from_analysis,
     )
@@ -320,7 +320,7 @@ def test_required_read_failure_and_over_capacity_do_not_write(tmp_path, monkeypa
         seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("1000", "1001", "1002"))
     ).model_dump(mode="json")
     raw["targets"].append(selected_target("1003").model_dump(mode="json"))
-    from baibai_engine.investment_judgment.selection import GeneratedResearchSelectionDraft
+    from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelectionDraft
 
     with pytest.raises(ResearchWorkspaceConflictError, match="capacity"):
         prepare_selected_workspace(
@@ -354,7 +354,7 @@ def test_active_binding_cannot_be_changed_with_force(tmp_path, change):
         raw["selection_summary"] = "new summary"
     if change == "reason":
         raw["targets"][0]["rationale"] = "new rationale"
-    from baibai_engine.investment_judgment.selection import GeneratedResearchSelectionDraft
+    from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelectionDraft
 
     with pytest.raises(ResearchWorkspaceConflictError, match="fixed selection"):
         prepare_selected_workspace(
@@ -400,7 +400,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
 ):
     from tests.helpers.db_seed import seed_ledger
 
-    from baibai_engine.investment_judgment.operation.cli import main as operation_main
+    from baibai_engine.investment_judgment.workflow.operation.cli import main as operation_main
     from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research called network"))
@@ -650,8 +650,8 @@ def test_malformed_yaml_is_a_cli_data_error_without_writes(tmp_path, capsys, com
 def test_previous_analysis_day_current_research_and_formal_assessment_are_separate(tmp_path):
     from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
-    from baibai_engine.investment_judgment.inputs import project_research_inputs
-    from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot
+    from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+    from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot
     from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
 
     runs = tmp_path / "runs"
@@ -754,7 +754,7 @@ def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
 
 
 def test_saved_capacity_controls_resume_after_current_policy_changes(tmp_path, monkeypatch):
-    from baibai_engine.investment_judgment.selection_policy import ResearchCapacity
+    from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity
 
     value = seed_generated_selection(
         runs=tmp_path / "runs", now=NOW, tickers=("1000", "1001", "1002")
@@ -849,7 +849,7 @@ def test_legacy_draft_cli_cannot_start_new_operation(tmp_path, capsys):
 
 
 def test_historical_capacity_and_hash_survive_current_policy_change(tmp_path, monkeypatch):
-    from baibai_engine.investment_judgment.selection_policy import ResearchCapacity
+    from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity
 
     saved = selection(now=NOW, tickers=("1000", "1001", "1002"))
     operation = historical_operation(saved)

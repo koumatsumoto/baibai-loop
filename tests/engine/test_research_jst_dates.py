@@ -6,15 +6,17 @@ from datetime import datetime
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.investment_judgment.holding_policy import evaluate_holding_proposal
-from baibai_engine.investment_judgment.stock_assessment import (
+from baibai_engine.investment_judgment.trade_proposal.holding_policy import evaluate_holding_proposal
+from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
+)
+from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     UnpublishedAssessment,
     assessment_core_hash,
     evaluate_assessment,
 )
-from baibai_engine.investment_judgment.trade_proposal import (
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
     PositionInput,
     QuoteInput,
     RemainingReward,

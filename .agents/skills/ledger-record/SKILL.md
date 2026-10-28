@@ -23,7 +23,7 @@ description: 人間が確認した注文・約定・資金の事実をdraftで�
 提案に対応する注文は公開したTrade Proposal IDと、人間が確認した実注文条件を使う。
 
 ```bash
-uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
+uv run baibai-engine portfolio broker-fact-draft --db stores/application/baibai.sqlite \
   --decision-reference <INVESTMENT_PROPOSAL_ID> --status open \
   --ticker <TICKER> --quantity <QTY> --price-guard-yen <GUARD> \
   --occurred-on <YYYY-MM-DD> --sector <SECTOR> --out <DRAFT>
@@ -34,7 +34,7 @@ uv run baibai-engine position broker-fact-draft --db stores/application/baibai.s
 約定の日付・銘柄・数量・単価と報告されたbroker execution IDを使い、保存注文があれば同じreservationと参照へ束縛する。[事実と再送](../../../docs/reference/portfolio-ledger.md#事実と再送)に従い、同日別約定を区別できない場合だけ確認する。正確な報告時刻は`--occurred-at`へ渡せる。
 
 ```bash
-uv run baibai-engine position sell-execution-draft --db stores/application/baibai.sqlite \
+uv run baibai-engine portfolio sell-execution-draft --db stores/application/baibai.sqlite \
   --ticker <TICKER> --quantity <QTY> --price-yen <PRICE> \
   --occurred-on <YYYY-MM-DD> --execution-id <BROKER_EXECUTION_ID> --out <DRAFT>
 ```
@@ -52,7 +52,7 @@ payloadとcash・予約・holdingの差分を人間に確認し、`position appl
 Outcomeが依頼された場合は[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)の比較basisに従い、同期間のJPX TOPIX gross total returnを確認した[BenchmarkObservation](../../../engine/src/baibai_engine/market/benchmark_observation.py)形式のYAMLを用意する。[fixture](../../../tests/fixtures/benchmark-observation/topix-1y.yaml)は形式例であり、実績観測として流用しない。期間・horizon・公表日・受領時刻・公式sourceを揃え、1yの年率はnull、3y/5yは累積returnと整合する年率を記す。
 
 ```bash
-uv run baibai-engine position outcome --db stores/application/baibai.sqlite \
+uv run baibai-engine portfolio outcome --db stores/application/baibai.sqlite \
   --sqlite stores/market/market.sqlite --benchmark-observation <BENCHMARK_YAML> \
   --out <NEW_OUTCOME_YAML>
 ```

@@ -72,15 +72,15 @@ DOMAINS: Mapping[str, Domain] = {
         summary="Data Collection: external sources and original receipts",
     ),
     "operation": Domain(
-        module="baibai_engine.investment_judgment.operation.cli",
+        module="baibai_engine.investment_judgment.workflow.operation.cli",
         summary="operation sessions: one active workflow at a time, with completion checks",
     ),
-    "position": Domain(
+    "portfolio": Domain(
         module="baibai_engine.cli.portfolio",
         summary="portfolio ledger, human-reported broker fact drafts, and portfolio outcomes",
     ),
     "investment-judgment": Domain(
-        module="baibai_engine.investment_judgment.workspace_cli",
+        module="baibai_engine.cli.investment_judgment",
         summary=(
             "Investment Judgment: Company Research, Stock Assessment, "
             "Independent Review, Trade Proposal"

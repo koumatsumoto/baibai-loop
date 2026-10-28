@@ -4,7 +4,7 @@ import pytest
 
 from baibai_engine.cli.app import main
 from baibai_engine.data_collection_cli import main as collection_main
-from baibai_engine.investment_judgment.workspace_cli import build_parser as build_research_parser
+from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
 from baibai_engine.machine_analysis.screening.cli.app import build_parser as build_screening_parser
 from baibai_engine.source_maintenance.cli import build_parser as build_source_parser
 
@@ -76,7 +76,7 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
     [
         "screening",
         "investment-judgment",
-        "position",
+        "portfolio",
         "operation",
         "market-context",
         "technical-analysis",

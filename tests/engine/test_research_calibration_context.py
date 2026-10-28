@@ -10,10 +10,10 @@ from tests.helpers.er_calibration_context import context_artifact
 from tests.helpers.research_selection import historical_operation, selection
 from tests.helpers.screening_run import stock_analysis
 
-from baibai_engine.investment_judgment.calibration_context import research_calibration_context
-from baibai_engine.investment_judgment.selection import selection_sha256
-from baibai_engine.investment_judgment.workspace import resume_selected_workspace
-from baibai_engine.investment_judgment.workspace_cli import main
+from baibai_engine.investment_judgment.workflow.calibration_context import research_calibration_context
+from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+from baibai_engine.investment_judgment.workflow.workspace import resume_selected_workspace
+from baibai_engine.cli.investment_judgment import main
 
 NOW = datetime.fromisoformat("2026-10-19T22:00:00+09:00")
 

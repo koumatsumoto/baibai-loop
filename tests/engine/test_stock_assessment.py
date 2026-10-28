@@ -17,10 +17,9 @@ from tests.helpers.assessment_v1 import (
 )
 
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.investment_judgment.entry_policy import evaluate_buy_terms
-from baibai_engine.investment_judgment.stock_assessment import (
+from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
+from baibai_engine.investment_judgment.stock_assessment.document import (
     AssessmentRef,
-    AssessmentReview,
     StockAssessmentDocument,
     UnpublishedAssessment,
     assessment_core_hash,
@@ -28,7 +27,10 @@ from baibai_engine.investment_judgment.stock_assessment import (
     current_price_projection,
     evaluate_assessment,
 )
-from baibai_engine.investment_judgment.stock_assessment_store import (
+from baibai_engine.investment_judgment.independent_review.contracts import (
+    AssessmentReview,
+)
+from baibai_engine.investment_judgment.stock_assessment.store import (
     ResearchConflictError,
     ResearchValidationError,
     latest_assessment_id,
@@ -37,7 +39,7 @@ from baibai_engine.investment_judgment.stock_assessment_store import (
     publish_reviewed_assessment,
     require_assessment_ref,
 )
-from baibai_engine.investment_judgment.trade_proposal import QuoteInput
+from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
 from baibai_engine.storage.application.schema import SCHEMA_SQL
 
 
@@ -603,7 +605,7 @@ def test_publication_requires_formal_assessment_and_review_namespaces(connection
 
 
 def test_service_owns_and_commits_short_transaction_with_current_schema(tmp_path):
-    from baibai_engine.investment_judgment.stock_assessment_store import AssessmentStoreService
+    from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
     from baibai_engine.storage.application.read import connect_read_only
     from baibai_engine.storage.application.write import initialize_database
 
