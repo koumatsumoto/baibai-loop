@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import gzip
+import sqlite3
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,3 +61,9 @@ class ScreeningSelectionStore:
 
     def read(self, selection_id: str) -> ScreeningSelection | None:
         return read_selection(selection_id, path=self._path)
+
+
+def delete_generation_selections(connection: sqlite3.Connection, identities: Sequence[str]) -> None:
+    """呼出元のtransaction内で削除対象世代の政策結果を除く。"""
+    for identity in identities:
+        connection.execute("DELETE FROM screening_selection WHERE generation_id=?", (identity,))

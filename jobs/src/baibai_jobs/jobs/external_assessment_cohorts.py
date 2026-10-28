@@ -12,16 +12,14 @@ from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Literal, cast
 
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystForecastObservation,
-    ExternalAssessmentAnalystRatingObservation,
-    ExternalAssessmentCollectionOutcome,
-    ExternalAssessmentModelValuationObservation,
-    ExternalAssessmentObservation,
-    ExternalAssessmentQuantsScoreObservation,
-    ExternalAssessmentSource,
-    external_assessment_parse_failure_reasons,
-)
+from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation
+from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation
+from baibai_engine.data_collection.external_assessment.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
+from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
+from baibai_engine.machine_analysis.observations.external_assessments.models import Observation as ExternalAssessmentObservation
+from baibai_engine.machine_analysis.observations.external_assessments.models import QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation
+from baibai_engine.data_collection.equity_web.models import Source as ExternalAssessmentSource
+from baibai_engine.data_collection.external_assessment.collection import PARSE_FAILURE_REASONS as external_assessment_parse_failure_reasons
 from baibai_jobs.storage.external_assessment_identity import PLAN_FORMAT
 from baibai_jobs.storage.json_io import canonical_json
 

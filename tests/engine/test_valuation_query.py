@@ -549,7 +549,7 @@ def test_valuation_import_does_not_start_research_or_aggregate_read_api():
 import sys
 from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
 from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import machine_valuation_from_analysis
-assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
 """,
         ],
         check=True,

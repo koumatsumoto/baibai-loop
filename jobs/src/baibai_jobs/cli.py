@@ -6,11 +6,9 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from baibai_engine.job_api import (
-    StoreLayoutError,
-    external_assessment_acquisition_main,
-    reject_noncanonical_store_paths,
-)
+from baibai_engine.storage.paths import StoreLayoutError
+from baibai_engine.data_collection.external_assessment.cli import main as external_assessment_acquisition_main
+from baibai_engine.storage.paths import reject_noncanonical_store_paths
 from baibai_jobs.jobs.model_integration import main as model_integration_main
 from baibai_jobs.jobs.tradingview import main as tradingview_main
 from baibai_jobs.validation.market_context_stores import (

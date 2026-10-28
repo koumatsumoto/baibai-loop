@@ -14,11 +14,9 @@ from tests.jobs.external_assessment_publication_fixtures import (
 )
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
-from baibai_engine.job_api import (
-    external_assessment_decode_attempt,
-    external_assessment_history_digests,
-    external_assessment_save_observations,
-)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
+from baibai_engine.data_collection.external_assessment.verification import history_digests as external_assessment_history_digests
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations as external_assessment_save_observations
 from baibai_jobs.jobs.external_assessment_integration import (
     VALUATION_DATASET,
     merge_ready,
@@ -229,13 +227,11 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
 def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
     independent_plans, monkeypatch
 ):
-    from baibai_engine.job_api import (
-        LakeObjectCache,
-        LocalMirrorSource,
-        create_market_snapshot,
-        equity_web_history_digests,
-        lake_session,
-    )
+    from baibai_engine.storage.lake.objects import LakeObjectCache
+    from baibai_engine.storage.lake.objects import LocalMirrorSource
+    from baibai_engine.storage.observations.snapshot import create_snapshot as create_market_snapshot
+    from baibai_engine.storage.lake.equity_web_verification import history_digests as equity_web_history_digests
+    from baibai_engine.storage.lake.duck import lake_session
     from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
     from baibai_jobs.jobs import external_assessment_integration as integration
     from baibai_jobs.storage.external_assessment_ready import available_ready

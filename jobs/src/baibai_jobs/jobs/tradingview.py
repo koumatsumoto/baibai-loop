@@ -18,12 +18,10 @@ from types import FrameType
 
 from dotenv import load_dotenv
 
-from baibai_engine.job_api import (
-    MARKET_DB_PATH,
-    tradingview_failure_line,
-    tradingview_preflight,
-    tradingview_safe_progress,
-)
+from baibai_engine.storage.paths import MARKET_DB_PATH
+from baibai_engine.data_collection.tradingview.diagnostics import failure_line as tradingview_failure_line
+from baibai_engine.data_collection.tradingview.collector import preflight_snapshot as tradingview_preflight
+from baibai_engine.data_collection.tradingview.diagnostics import safe_progress as tradingview_safe_progress
 from baibai_jobs.jobs.schedule import resolve_tradingview_target
 from baibai_jobs.jobs.tradingview_receipts import (
     KNOWN_FAILURES,

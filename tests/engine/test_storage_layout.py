@@ -18,7 +18,6 @@ for prefix in (
     'baibai_engine.machine_analysis.screening',
     'baibai_engine.portfolio',
     'baibai_engine.investment_judgment',
-    'baibai_engine.read_api',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 assert equity_http.MIN_REQUEST_INTERVAL_SECONDS == 2.0

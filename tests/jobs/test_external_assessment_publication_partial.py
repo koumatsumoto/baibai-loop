@@ -12,7 +12,7 @@ from tests.jobs.external_assessment_publication_fixtures import (
 )
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
-from baibai_engine.job_api import external_assessment_decode_attempt
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
 from baibai_jobs.storage import external_assessment_staging as staging
 from baibai_jobs.storage.external_assessment_ready import prepare_plan
 

@@ -10,20 +10,19 @@ import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.job_api import (
-    DEFAULT_ECONOMIC_DB_PATH,
-    DEFAULT_TTM_RULES,
-    MARKET_DB_PATH,
-    RUNS_DB_PATH,
-    ModelGenerationStore,
-    ModelInputRelease,
-    ModelInputSnapshot,
-    ScreeningSelectionStore,
-    TwoViewPolicy,
-    read_and_generate_models,
-    select_saved_generation,
-    sha256_file,
-)
+from baibai_engine.data_collection.economic.store import DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
+from baibai_engine.storage.paths import MARKET_DB_PATH
+from baibai_engine.storage.paths import RUNS_DB_PATH
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease as ModelInputRelease
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot as ModelInputSnapshot
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+from baibai_engine.machine_analysis.screening.saved_selection import select_saved_generation
+from baibai_engine.storage.lake.sources import sha256_file
+from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.storage.json_io import write_json_atomic
 from baibai_jobs.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_jobs.storage.publication_lease import _load_handle, verify_held
@@ -84,7 +83,7 @@ def integrate_models(
         publication = publish_prepared_market_lake(
             prepared, store=store, before_pointer_switch=lambda: verify_held(store, handle)
         )
-    pruned = generations.prune(keep=3, preserve=(generation.metadata.generation_id,))
+    pruned = prune_model_cache(runs, keep=3, preserve=(generation.metadata.generation_id,))
     return {
         "pruned_generation_count": len(pruned),
         "asof": as_of.isoformat(),

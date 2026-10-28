@@ -9,40 +9,30 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.job_api import (
-    EXTERNAL_ASSESSMENT_ANALYST_FORECAST_DATASET as ANALYST_FORECAST_DATASET,
-)
-from baibai_engine.job_api import (
-    EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET as RATING_DATASET,
-)
-from baibai_engine.job_api import (
-    EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET as VALUATION_DATASET,
-)
-from baibai_engine.job_api import (
-    EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET as QUANTS_DATASET,
-)
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystForecastObservation,
-    ExternalAssessmentModelValuationObservation,
-    ExternalAssessmentObservation,
-    ExternalAssessmentQuantsScoreObservation,
-    LakeFixedRelease,
-    LakeObjectCache,
-    LakeReleasePointer,
-    LocalMirrorSource,
-    equity_web_history_digests,
-    equity_web_import_responses,
-    equity_web_read_responses,
-    equity_web_response_digest,
-    equity_web_verify_release_history,
-    external_assessment_decode_attempt,
-    external_assessment_history_digests,
-    external_assessment_save_observations,
-    external_assessment_verify_release_history,
-    lake_release_manifest_key,
-    lake_session,
-    read_lake_store_origin,
-)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import ANALYST_FORECAST_DATASET
+from baibai_engine.machine_analysis.observations.external_assessments.identity import ANALYST_RATING_DATASET as RATING_DATASET
+from baibai_engine.machine_analysis.observations.external_assessments.identity import MODEL_VALUATION_DATASET as VALUATION_DATASET
+from baibai_engine.machine_analysis.observations.external_assessments.identity import QUANTS_SCORE_DATASET as QUANTS_DATASET
+from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation
+from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
+from baibai_engine.machine_analysis.observations.external_assessments.models import Observation as ExternalAssessmentObservation
+from baibai_engine.machine_analysis.observations.external_assessments.models import QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation
+from baibai_engine.storage.lake.reader import FixedRelease as LakeFixedRelease
+from baibai_engine.storage.lake.objects import LakeObjectCache
+from baibai_engine.storage.lake.release import LakeReleasePointer
+from baibai_engine.storage.lake.objects import LocalMirrorSource
+from baibai_engine.storage.lake.equity_web_verification import history_digests as equity_web_history_digests
+from baibai_engine.storage.observations.equity_web_import import import_responses as equity_web_import_responses
+from baibai_engine.data_collection.equity_web.receipts import read_responses as equity_web_read_responses
+from baibai_engine.storage.lake.equity_web_verification import response_digest as equity_web_response_digest
+from baibai_engine.storage.lake.equity_web_verification import verify_release_history as equity_web_verify_release_history
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
+from baibai_engine.data_collection.external_assessment.verification import history_digests as external_assessment_history_digests
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations as external_assessment_save_observations
+from baibai_engine.data_collection.external_assessment.verification import verify_release_history as external_assessment_verify_release_history
+from baibai_engine.storage.lake.keys import release_manifest_key as lake_release_manifest_key
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
 from baibai_jobs.jobs.external_assessment_cohorts import RunPlan
 from baibai_jobs.storage.external_assessment_identity import (
     PARTIAL_TERMINAL_FORMAT,

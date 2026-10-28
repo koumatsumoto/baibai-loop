@@ -18,14 +18,12 @@ from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_response_fixtures import response
 
 from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Source
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystRatingObservation,
-    ExternalAssessmentCollectionOutcome,
-    ExternalAssessmentModelValuationObservation,
-    external_assessment_collector_binding,
-    external_assessment_decode_attempt,
-    external_assessment_save_observations,
-)
+from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation
+from baibai_engine.data_collection.external_assessment.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
+from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
+from baibai_engine.data_collection.external_assessment.collection import collector_binding as external_assessment_collector_binding
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations as external_assessment_save_observations
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     kabumap,
     minkabu,

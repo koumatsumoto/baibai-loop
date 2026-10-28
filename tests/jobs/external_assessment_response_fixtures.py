@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 
 from baibai_engine.data_collection.equity_web.models import Role, Source
-from baibai_engine.job_api import EquityWebSourceResponse
+from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
 
 
 def response(

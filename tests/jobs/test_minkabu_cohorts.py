@@ -6,10 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystForecastObservation,
-    ExternalAssessmentCollectionOutcome,
-)
+from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation
+from baibai_engine.data_collection.external_assessment.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
 from baibai_jobs.jobs.external_assessment_cohorts import (
     load_plan,
     load_result,

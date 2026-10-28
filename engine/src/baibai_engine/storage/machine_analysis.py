@@ -139,7 +139,7 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
         ).fetchone()
         if version == 0 and has_tables is None:
             # An untouched file is the same no-store state as an absent path. The
-            # first domain query raises OperationalError, which read_api degrades to
+            # first domain query raises OperationalError, which the caller reports as
             # no publication; it is not an obsolete store accepted as current.
             return connection
         if version != RUN_STORE_SCHEMA_VERSION:

@@ -8,7 +8,7 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.job_api import create_market_snapshot
+from baibai_engine.storage.observations.snapshot import create_snapshot as create_market_snapshot
 
 
 def validate_database(path: Path) -> None:

@@ -54,7 +54,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Portfolioも使う汎用数値変換を共通基盤へ分け、PortfolioからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Portfolioは人間の確認済み事実を保存する。
 
-`jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。`read_api`は内部Python境界でありHTTP公開APIではない。Webは資産・損益・保有銘柄、運用成績、タスクだけを保持する。旧調査提案・候補一覧・マクロ一覧・前回差分と外部データ取得APIは撤去し、コアの成功条件に含めない。Webは所有domainの読取を合成し、旧screening互換に依存しない。最新売買提案レポートの再設計はIssue #1615で扱う。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
+`jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは各責務の公開入口を直接合成し、domainの算術・保存条件を複製しない。集約した再export facadeを依存境界の代わりにしない。Webは資産・損益・保有銘柄、運用成績、タスクだけを保持する。旧調査提案・候補一覧・マクロ一覧・前回差分と外部データ取得APIは撤去し、コアの成功条件に含めない。Webは所有domainの読取を合成し、旧screening互換に依存しない。最新売買提案レポートの再設計はIssue #1615で扱う。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
 
 source取得・保存原本の投影・保守を合成する入口は`source_maintenance/`に残る。純粋なsource通信・受領packageへL2や判断の依存を入れず、通常取得と旧runの較正保守を別経路にする。旧ticker-profileや旧Screeningからの取得起動は撤去済みである。
 

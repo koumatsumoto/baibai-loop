@@ -233,7 +233,7 @@ def test_domain_import_does_not_start_composition_or_acquisition():
             "-c",
             """\nimport sys
 from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
-assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context")) for name in sys.modules)
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context")) for name in sys.modules)
 assert "baibai_engine.data_collection.external_assessment.collection" not in sys.modules
 assert "baibai_engine.data_collection.tradingview.collector" not in sys.modules
 """,

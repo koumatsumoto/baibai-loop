@@ -290,7 +290,7 @@ def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tm
 import sys
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.security import build_security_market_context
-assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.economic.providers")) for name in sys.modules)
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.economic.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
 assert "baibai_engine.investment_judgment.market_context.service" not in sys.modules
 """,

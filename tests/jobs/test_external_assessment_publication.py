@@ -15,14 +15,12 @@ import yaml
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tools.quality.drift.check_workflow_trust import check_workflow
 
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystRatingObservation,
-    LakeObjectCache,
-    LocalMirrorSource,
-    external_assessment_history_digests,
-    external_assessment_verify_release_history,
-    lake_session,
-)
+from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation
+from baibai_engine.storage.lake.objects import LakeObjectCache
+from baibai_engine.storage.lake.objects import LocalMirrorSource
+from baibai_engine.data_collection.external_assessment.verification import history_digests as external_assessment_history_digests
+from baibai_engine.data_collection.external_assessment.verification import verify_release_history as external_assessment_verify_release_history
+from baibai_engine.storage.lake.duck import lake_session
 from baibai_jobs.jobs import external_assessment_integration as external_assessment
 from baibai_jobs.storage import publish_market_lake as publisher
 

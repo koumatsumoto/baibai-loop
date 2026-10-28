@@ -1,4 +1,4 @@
-"""保存済み外部評価の読取入口。領域はUI合成read_apiへ依存しない。"""
+"""保存済み外部評価の読取入口。UIの合成には依存しない。"""
 
 from datetime import datetime
 from pathlib import Path

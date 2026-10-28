@@ -48,7 +48,6 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
     forbidden = (
         "baibai_engine.machine_analysis.screening",
         "baibai_engine.investment_judgment",
-        "baibai_engine.read_api",
         "baibai_engine.storage",
         "baibai_engine.market",
         "baibai_engine.portfolio",

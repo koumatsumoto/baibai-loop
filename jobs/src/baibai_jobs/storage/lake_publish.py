@@ -25,18 +25,16 @@ if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
     from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 
-from baibai_engine.job_api import (
-    LakeDatasetManifest,
-    LakeReleaseManifest,
-    LakeReleasePointer,
-    LakeSQLiteSnapshotSourceRef,
-    canonical_lake_model_bytes,
-    lake_current_release_pointer_key,
-    lake_dataset_manifest_key,
-    lake_release_manifest_key,
-    load_lake_model_json,
-    validate_lake_release_policy,
-)
+from baibai_engine.storage.lake.models import DatasetManifest as LakeDatasetManifest
+from baibai_engine.storage.lake.models import ReleaseManifest as LakeReleaseManifest
+from baibai_engine.storage.lake.release import LakeReleasePointer
+from baibai_engine.storage.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
+from baibai_engine.storage.lake.models import canonical_lake_model_bytes
+from baibai_engine.storage.lake.keys import current_release_pointer_key as lake_current_release_pointer_key
+from baibai_engine.storage.lake.keys import dataset_manifest_key as lake_dataset_manifest_key
+from baibai_engine.storage.lake.keys import release_manifest_key as lake_release_manifest_key
+from baibai_engine.storage.lake.models import load_lake_model_json
+from baibai_engine.storage.lake.models import validate_release_policy as validate_lake_release_policy
 
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_POINTER_BYTES = 64 * 1024

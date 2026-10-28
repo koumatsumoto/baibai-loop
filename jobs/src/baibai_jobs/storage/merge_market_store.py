@@ -23,15 +23,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.job_api import (
-    MARKET_SCHEMA_VERSION as SQLITE_SCHEMA_VERSION,
-)
-from baibai_engine.job_api import (
-    MarketSchemaError as SQLiteSchemaError,
-)
-from baibai_engine.job_api import (
-    validate_market_schema as validate_current_schema,
-)
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.storage.observations.schema import validate_current_schema
 from baibai_jobs.storage.store_merge import (
     MergeError,
     MergeReport,

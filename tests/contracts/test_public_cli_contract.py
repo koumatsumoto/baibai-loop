@@ -199,8 +199,8 @@ def test_minimal_job_read_boundary_does_not_load_judgment_or_legacy_views():
             sys.executable,
             "-c",
             (
-                "import sys; import baibai_engine.read_api as api; "
-                "assert api.__all__ == ['market_calendar_business_day']; "
+                "import sys; import baibai_engine.market.calendar_context as api; "
+                "assert callable(api.market_calendar_business_day); "
                 "assert not any(name.startswith('baibai_engine.investment_judgment') "
                 "or name.startswith('baibai_engine.machine_analysis.screening') "
                 "for name in sys.modules)"
