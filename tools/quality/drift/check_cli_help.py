@@ -27,9 +27,7 @@ DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine market-context snapshot": ("baibai_engine.cli.market_snapshot"),
     "baibai-engine market-context indicators": ("baibai_engine.cli.economic_indicators"),
     "baibai-engine market-context reading": ("baibai_engine.cli.market_reading"),
-    "baibai-engine investment-judgment market-context": (
-        "baibai_engine.investment_judgment.market_assessment.cli"
-    ),
+    "baibai-engine investment-judgment market-context": ("baibai_engine.cli.market_assessment"),
     "baibai-engine investment-judgment stock-assessment-evaluate": (
         "baibai_engine.cli.stock_assessment"
     ),

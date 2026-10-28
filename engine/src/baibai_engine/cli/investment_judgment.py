@@ -194,9 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
     if arguments and arguments[0] == "market-context":
-        from baibai_engine.investment_judgment.market_assessment.cli import (
-            main as market_context_main,
-        )
+        from baibai_engine.cli.market_assessment import main as market_context_main
 
         return market_context_main(arguments[1:], now=now)
     if arguments and arguments[0] == "calculate":
