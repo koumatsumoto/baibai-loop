@@ -17,14 +17,20 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.investment_judgment.operation.progress import progress_binding
-from baibai_engine.investment_judgment.operation.service import OperationService
-from baibai_engine.investment_judgment.stock_assessment import AssessmentError, load_assessment
-from baibai_engine.investment_judgment.stock_assessment_store import (
+from baibai_engine.cli.investment_judgment import main
+from baibai_engine.investment_judgment.contracts import (
+    AssessmentError,
+)
+from baibai_engine.investment_judgment.stock_assessment.document import (
+    load_assessment,
+)
+from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
     load_reviewed_assessment,
 )
-from baibai_engine.investment_judgment.workspace import (
+from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
     compute_status,
@@ -33,8 +39,7 @@ from baibai_engine.investment_judgment.workspace import (
     scaffold_assessment,
     scaffold_review,
 )
-from baibai_engine.investment_judgment.workspace import scaffold as scaffold_module
-from baibai_engine.investment_judgment.workspace_cli import main
+from baibai_engine.investment_judgment.workflow.workspace import scaffold as scaffold_module
 
 NOW = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
 
@@ -370,7 +375,7 @@ def test_refresh_from_old_material_supersedes_latest_and_publishes_new_reviewed_
         workspace=workspace, ticker="1234", db_path=db, now=NOW + timedelta(minutes=2)
     )
     assert promoted.assessment_id == result["assessment_id"]
-    from baibai_engine.storage.application.read import connect_read_only
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
 
     with closing(connect_read_only(db)) as connection, connection:
         pair = load_reviewed_assessment(connection, promoted.assessment_id)
@@ -451,11 +456,11 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     assert (
         compute_status(prepared.workspace, db_path=db, now=NOW)["workspace_status"] == "published"
     )
-    from baibai_engine.position.store import LedgerStoreService
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
     assert LedgerStoreService(db).load().model_dump(mode="json") == before
     if completed:
-        from tests.engine.test_research_progression import (
+        from tests.engine.investment_judgment.workflow.test_research_progression import (
             final_payload,
             proposal_for,
             seed_proposal,
@@ -474,7 +479,7 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
             completed_at=NOW + timedelta(seconds=2),
         )
 
-    from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
+    from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
 
     sold_at = NOW + timedelta(days=1)
     ledger_service = LedgerStoreService(db)

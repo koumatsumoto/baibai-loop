@@ -64,8 +64,8 @@ jobs:
           import zipfile
           from pathlib import Path
 
-          source = Path("engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml")
-          packaged = "baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml"
+          source = Path("engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml")
+          packaged = "baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml"
           dist = Path(os.environ["RUNNER_TEMP"]) / "baibai-dist"
           with zipfile.ZipFile(next(dist.glob("*.whl"))) as wheel:
               assert wheel.read(packaged) == source.read_bytes()
@@ -183,4 +183,4 @@ jobs:
         env:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
-        run: uv run baibai-engine tradingview smoke
+        run: uv run baibai-jobs tradingview-source smoke

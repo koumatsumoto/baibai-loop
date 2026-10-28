@@ -124,7 +124,7 @@ def historical_context_payload(
             "machine_snapshots": [
                 {
                     "input_id": _SNAPSHOT_INPUT_ID,
-                    "command": "baibai-engine screening market-snapshot",
+                    "command": "baibai-engine historical-evaluation market-snapshot",
                     "snapshot_asof": as_of,
                     "observation_as_of": as_of,
                     "accessed_at": published_at,
@@ -337,8 +337,8 @@ def _core_section(
 
 def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None) -> None:
     """Seed an immutable historical fixture without reviving an old publication writer."""
-    from baibai_engine.foundation.json import canonical_json
-    from baibai_engine.storage.application.write import connect_rw, initialize_database
+    from baibai_engine.primitives.json import canonical_json
+    from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
     initialize_database(path)
     connection = connect_rw(path)

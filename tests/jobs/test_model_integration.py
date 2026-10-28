@@ -4,16 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.machine_analysis.model_generation import (
+import baibai_jobs.integration.models as job
+from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
     InputSnapshot,
     ModelGenerationStream,
 )
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
-from baibai_jobs.jobs import model_integration as job
 from baibai_jobs.observability.discord import render_generation
 
 
@@ -146,7 +146,7 @@ def test_failed_lake_publication_does_not_prune_existing_generations(integration
         raise AssertionError("must not prune before publication succeeds")
 
     monkeypatch.setattr(job, "publish_prepared_market_lake", fail)
-    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="publication failed"):
         job.integrate_models(**arguments)
     assert "publish" not in events
@@ -194,7 +194,7 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
 
     monkeypatch.setattr(job, "read_and_generate_models", late_failure)
     monkeypatch.setattr(job, "select_saved_generation", forbidden)
-    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)
     assert "publish" not in events

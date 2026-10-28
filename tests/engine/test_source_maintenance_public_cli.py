@@ -1,6 +1,6 @@
 import pytest
 
-from baibai_engine.source_maintenance import cli as app
+from baibai_jobs.maintenance.market import cli as app
 
 
 @pytest.mark.parametrize(

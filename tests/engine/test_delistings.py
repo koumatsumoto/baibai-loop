@@ -13,8 +13,8 @@ from tests.helpers.http_doubles import FakeSession, html_response, response
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.jpx.receipts import read_bundle, read_complete_bundle
-from baibai_engine.market.delistings import (
+from baibai_engine.data_collection.providers.jpx.receipts import read_bundle, read_complete_bundle
+from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     JPX_DELISTING_INDEX_URL,
     DelistingRecord,
     DelistingSourceError,
@@ -24,21 +24,27 @@ from baibai_engine.market.delistings import (
     resolve_delisting_archive_urls,
     store_jpx_delistings,
 )
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.jpx_refresh import JPXRefresh
-from baibai_engine.source_maintenance import cli as app
-from baibai_engine.source_maintenance.delisting_cli import refresh_jpx_delistings_command
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.market.delisting_cli import refresh_jpx_delistings_command
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 ASOF = date(2026, 10, 15)
 ARCHIVE = JPX_DELISTING_INDEX_URL + "archives-01.html"
@@ -270,8 +276,8 @@ def test_malformed_date_in_target_table_keeps_previous_view(tmp_path: Path) -> N
 
 
 def test_retained_manifest_must_match_index_links(tmp_path: Path) -> None:
-    from baibai_engine.data_collection.jpx.models import JPXResponse
-    from baibai_engine.data_collection.jpx.receipts import (
+    from baibai_engine.data_collection.providers.jpx.models import JPXResponse
+    from baibai_engine.data_collection.providers.jpx.receipts import (
         complete_bundle,
         create_bundle,
         retain_bundle_response,
@@ -340,7 +346,7 @@ def test_rebuild_cli_and_reader_are_offline(
 
 
 def test_refresh_cli_routes_to_jpx_refresh_and_closes(tmp_path: Path) -> None:
-    with patch("baibai_engine.source_maintenance.delisting_cli.JPXRefresh") as factory:
+    with patch("baibai_jobs.maintenance.market.delisting_cli.JPXRefresh") as factory:
         instance = factory.return_value
         instance.refresh_delistings_snapshot.return_value = (_record("1000"),)
         assert refresh_jpx_delistings_command(sqlite_path=tmp_path / "market.sqlite") == 0
@@ -371,7 +377,7 @@ def test_fixed_release_roundtrip_and_rebuild_from_retained_bundle(
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -385,6 +391,8 @@ def test_fixed_release_roundtrip_and_rebuild_from_retained_bundle(
         mirror_root=mirror,
         release_id="delistings-fixed",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     assert manifest.datasets["jpx.delistings"].contract_version == 2
     source = LocalMirrorSource(mirror)
@@ -405,7 +413,12 @@ def test_fixed_release_roundtrip_and_rebuild_from_retained_bundle(
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
     with lake_session() as lake:
         report = hydrate_market_store(
-            lake, release=release, cache=cache, store=destination, dataset_names=DATASETS
+            lake,
+            release=release,
+            cache=cache,
+            store=destination,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["jpx.delistings"] == 1
     assert read_jpx_delistings(destination) == expected

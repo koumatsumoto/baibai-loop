@@ -14,28 +14,38 @@ from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, sto
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.data_collection.tradingview.collector import collect, preflight_snapshot
-from baibai_engine.data_collection.tradingview.receipts import retain_tool_result
-from baibai_engine.market.jquants_reader import read_eq_master_exact
-from baibai_engine.market.jquants_writer import store_jquants_market_calendar, store_jquants_master
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
+from baibai_engine.machine_analysis.observations.jquants_writer import (
+    store_jquants_market_calendar,
+    store_jquants_master,
+)
+from baibai_engine.machine_analysis.observations.stocks.reader import (
+    read_eq_master_exact,
+)
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
     materialize_partitions,
     resolve_release,
     selected_partitions,
 )
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import (
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import (
     export_dataset_snapshot,
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 NAME = "tradingview.forecast_snapshots"
 
@@ -70,14 +80,18 @@ def test_raw_only_failed_acquisition_receipt_survives_fixed_release(tmp_path, mo
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifest = export_dataset_snapshot(
-            dataset_name=dataset,
+            dataset=LAKE_DATASETS[dataset],
             mirror_root=mirror,
             producer_git_commit="a" * 40,
             source_snapshot=snapshot,
             build_id="raw-only-receipts",
         ).manifest_path
     release_path, _ = create_release(
-        dataset_manifest_paths=[manifest], mirror_root=mirror, release_id="raw-only-release"
+        dataset_manifest_paths=[manifest],
+        mirror_root=mirror,
+        release_id="raw-only-release",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     digest = hashlib.sha256(release_path.read_bytes()).hexdigest()
     source = LocalMirrorSource(mirror)
@@ -87,7 +101,12 @@ def test_raw_only_failed_acquisition_receipt_survives_fixed_release(tmp_path, mo
     open_connection(restored).close()
     with lake_session() as session:
         hydrate_market_store(
-            session, release=release, cache=cache, store=restored, dataset_names=(dataset,)
+            session,
+            release=release,
+            cache=cache,
+            store=restored,
+            dataset_names=(dataset,),
+            catalog=LAKE_DATASETS,
         )
     with closing(sqlite3.connect(restored)) as conn:
         assert conn.execute(
@@ -175,7 +194,7 @@ def test_lake_only_publish_restores_snapshot_without_market_push(
         with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
             manifests = [
                 export_dataset_snapshot(
-                    dataset_name=name,
+                    dataset=LAKE_DATASETS[name],
                     mirror_root=mirror,
                     producer_git_commit="a" * 40,
                     source_snapshot=snapshot,
@@ -187,6 +206,8 @@ def test_lake_only_publish_restores_snapshot_without_market_push(
             dataset_manifest_paths=manifests,
             mirror_root=mirror,
             release_id=release_id,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
         digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
         source = LocalMirrorSource(mirror)
@@ -199,16 +220,21 @@ def test_lake_only_publish_restores_snapshot_without_market_push(
     write_lake_store_origin(conn, LakeStoreOrigin(prior.release_id, prior.manifest_sha256))
     conn.commit()
     conn.close()
-    dehydrate_market_store(path, release=prior)
+    dehydrate_market_store(path, release=prior, catalog=LAKE_DATASETS)
     remote = tmp_path / "remote-market.sqlite"
     shutil.copy2(path, remote)
     with lake_session() as session:
         hydrate_market_store(
-            session, release=prior, cache=prior_cache, store=path, dataset_names=datasets
+            session,
+            release=prior,
+            cache=prior_cache,
+            store=path,
+            dataset_names=datasets,
+            catalog=LAKE_DATASETS,
         )
     if not manual_observation:
         store_jquants_master(path, make_master_records(today), requested_asof=today)
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
 
@@ -245,7 +271,12 @@ def test_lake_only_publish_restores_snapshot_without_market_push(
     shutil.copy2(remote, next_slot)
     with lake_session() as session:
         hydrate_market_store(
-            session, release=current, cache=current_cache, store=next_slot, dataset_names=datasets
+            session,
+            release=current,
+            cache=current_cache,
+            store=next_slot,
+            dataset_names=datasets,
+            catalog=LAKE_DATASETS,
         )
     state = preflight_snapshot(next_slot, today, master_asof=DAY if manual_observation else None)
     assert (state["status"], state["needs_master"], state["rows"], state["remaining"]) == (
@@ -285,6 +316,7 @@ def test_lake_only_publish_restores_snapshot_without_market_push(
             cache=completed_cache,
             store=fixed_readback,
             dataset_names=datasets,
+            catalog=LAKE_DATASETS,
         )
     assert stored(fixed_readback) == stored(next_slot)
     for release, cache, expected in (
@@ -293,7 +325,7 @@ def test_lake_only_publish_restores_snapshot_without_market_push(
     ):
         paths = materialize_partitions(
             cache,
-            dataset=accepted_dataset(release, NAME),
+            dataset=accepted_dataset(release, LAKE_DATASETS[NAME]),
             partitions=selected_partitions(release, NAME, periods=[(today.year, today.month)]),
         )
         with lake_session() as session:
@@ -326,7 +358,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
         exported = export_dataset_snapshot(
-            dataset_name=NAME,
+            dataset=LAKE_DATASETS[NAME],
             mirror_root=mirror,
             producer_git_commit="a" * 40,
             source_snapshot=snapshot,
@@ -337,11 +369,18 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
         {"year": 2026, "month": 10},
     ]
     assert exported.manifest.totals.rows == 4
-    validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=exported.manifest)
+    validate_snapshot_parity(
+        sqlite_path=path,
+        mirror_root=mirror,
+        manifest=exported.manifest,
+        dataset=LAKE_DATASETS[exported.manifest.dataset],
+    )
     manifest_path, _ = create_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="tv-release",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     source = LocalMirrorSource(mirror)
@@ -349,7 +388,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     cache = LakeObjectCache(root=mirror, source=source)
     paths = materialize_partitions(
         cache,
-        dataset=accepted_dataset(release, NAME),
+        dataset=accepted_dataset(release, LAKE_DATASETS[NAME]),
         partitions=selected_partitions(release, NAME, periods=[(2026, 9), (2026, 10)]),
     )
     with lake_session() as session:
@@ -369,14 +408,24 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     open_connection(hydrated).close()
     with lake_session() as session:
         report = hydrate_market_store(
-            session, release=release, cache=cache, store=hydrated, dataset_names=[NAME]
+            session,
+            release=release,
+            cache=cache,
+            store=hydrated,
+            dataset_names=[NAME],
+            catalog=LAKE_DATASETS,
         )
     assert report.rows[NAME] == 4
     assert stored(hydrated) == stored(path)
-    dehydrate_market_store(hydrated, release=release)
+    dehydrate_market_store(hydrated, release=release, catalog=LAKE_DATASETS)
     assert stored(hydrated) == []
     with lake_session() as session:
         hydrate_market_store(
-            session, release=release, cache=cache, store=hydrated, dataset_names=[NAME]
+            session,
+            release=release,
+            cache=cache,
+            store=hydrated,
+            dataset_names=[NAME],
+            catalog=LAKE_DATASETS,
         )
     assert stored(hydrated) == stored(path)

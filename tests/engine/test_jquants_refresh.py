@@ -10,20 +10,25 @@ import pytest
 import requests
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.data_collection.jquants.receipts import read_request_pages
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
-from baibai_engine.market.jquants_writer import (
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsAcquisitionError,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
+    JQuantsHTTP,
+)
+from baibai_engine.data_collection.providers.jquants.receipts import read_request_pages
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_master,
     store_jquants_short_sale_reports,
 )
-from baibai_engine.market.price_reader import read_daily_bars
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 
 def day(value: str) -> date:
@@ -114,9 +119,12 @@ def test_covered_bar_and_financial_ensure_count_without_building_models(database
 
     monkeypatch.setattr(JQuantsReader, "get_eq_bars_daily_range", forbidden)
     monkeypatch.setattr(JQuantsReader, "get_fin_summary_range", forbidden)
-    monkeypatch.setattr("baibai_engine.market.price_reader.JQuantsDailyBar", forbidden)
     monkeypatch.setattr(
-        "baibai_engine.market.jquants_reader.normalize_financial_summary", forbidden
+        "baibai_engine.machine_analysis.observations.prices.price_reader.JQuantsDailyBar", forbidden
+    )
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.observations.financials.reader.normalize_financial_summary",
+        forbidden,
     )
     maintenance = JQuantsRefresh(database, None)
     assert maintenance.ensure_daily_bars(target, target) == 1
@@ -399,7 +407,7 @@ def test_daily_backfill_paces_after_31_days_and_reuses_covered_data(database, mo
         {("daily", value.isoformat()): [bar(value.isoformat(), 100.0)] for value in dates},
     )
     waits = []
-    monkeypatch.setattr("baibai_engine.market.jquants_refresh.time.sleep", waits.append)
+    monkeypatch.setattr("baibai_jobs.maintenance.source_refresh.jquants.time.sleep", waits.append)
     assert maintenance.ensure_daily_bars(start, end) == 32
     assert len(session.calls) == 32
     assert waits == [3.0]

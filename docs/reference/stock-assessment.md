@@ -1,6 +1,6 @@
 # Stock Assessment
 
-企業の事業理解・価値・反証を独立検証と一組で保存する。銘柄評価は現在cashや注文から独立し、行動と具体条件は[Trade Proposal](trade-proposal.md)、取引事実は[Portfolio Ledger](portfolio-ledger.md)が所有する。作業順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)。型と保存条件は`investment_judgment/stock_assessment.py`・`stock_assessment_store.py`が正本である。
+企業の事業理解・価値・反証を独立検証と一組で保存する。銘柄評価は現在cashや注文から独立し、行動と具体条件は[Trade Proposal](trade-proposal.md)、取引事実は[Portfolio Ledger](portfolio-ledger.md)が所有する。作業順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)。
 
 ## 観測と根拠
 
@@ -57,7 +57,7 @@ resolved valuationは原価格、比較期間、案件ごとの[要求年率](..
 
 terminalは分配後に残る価値、cashは比較期間の累積分配。同じ起点の未調整1株へ揃える。配当・資産売却・買戻しを二重算入せず、終期の権利落ち後価格と未入金配当権利を分ける。権利確定前の未公表配当は仮定とし、公表済みだけの条件と混ぜない。
 
-純粋算術は[investment_judgment/scenario.py](../../engine/src/baibai_engine/investment_judgment/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
+純粋算術は[investment_judgment/scenario.py](../../engine/src/baibai_engine/investment_judgment/stock_assessment/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
 
 <a id="valuation-model-choice"></a>
 ### modelと期間

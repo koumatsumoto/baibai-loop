@@ -8,8 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from baibai_jobs.storage import publication_lease as lease
-from baibai_jobs.storage.lake_publish import LakeCASConflict, LakePublishError, RemoteObject
+import baibai_jobs.publication.lease as lease
+from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+)
 
 NOW = datetime(2026, 9, 26, 3, tzinfo=UTC)
 
@@ -288,7 +292,7 @@ def test_cli_uses_module_path_and_existing_bucket_env(
 def test_local_env_loads_from_module_location_without_overriding_process_env(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    module = tmp_path / "jobs/src/baibai_jobs/storage/publication_lease.py"
+    module = tmp_path / "jobs/src/baibai_jobs/publication/lease.py"
     module.parent.mkdir(parents=True)
     (tmp_path / ".env").write_text("R2_STORES_BUCKET=from-file\nR2_ACCOUNT_ID=from-file\n")
     monkeypatch.setenv("R2_ACCOUNT_ID", "from-process")

@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.engine.test_position_outcome_store import _publication
+from tests.engine.portfolio.test_position_outcome_store import _publication
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, MARKET_DB_PATH
-from baibai_engine.position.outcome_store import PortfolioOutcomeStore
+from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
+from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_engine.tasks.service import TaskService
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models

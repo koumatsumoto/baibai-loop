@@ -1,19 +1,22 @@
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
-from baibai_engine.data_collection.economic.acquisition import (
-    SourceRefreshFailure,
-    SourceRefreshSuccess,
-    refresh_sources,
-)
-from baibai_engine.data_collection.economic.refresh_policy import (
+from baibai_engine.data_collection.acquisition.policy import (
     explicit_recovery_ranges,
     recent_start,
     recovery_ranges,
     source_policy,
 )
-from baibai_engine.data_collection.economic.sources import load_sources
-from baibai_engine.data_collection.economic.store import initialize_database, record_source_run
+from baibai_engine.data_collection.acquisition.refresh import (
+    SourceRefreshFailure,
+    SourceRefreshSuccess,
+    refresh_sources,
+)
+from baibai_engine.data_collection.catalog import load_sources
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    initialize_database,
+    record_source_run,
+)
 
 END = date(2026, 10, 23)
 
@@ -67,7 +70,7 @@ def test_recovery_uses_contiguous_success_ranges_and_finds_internal_gaps(tmp_pat
 
 
 def test_first_recent_refresh_is_distinct_from_explicit_history_rebuild(tmp_path, monkeypatch):
-    from baibai_engine.data_collection.economic import acquisition
+    import baibai_engine.data_collection.acquisition.refresh as acquisition
 
     starts = []
 
@@ -85,7 +88,7 @@ def test_first_recent_refresh_is_distinct_from_explicit_history_rebuild(tmp_path
 
 
 def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch):
-    from baibai_engine.data_collection.economic import acquisition
+    import baibai_engine.data_collection.acquisition.refresh as acquisition
 
     monkeypatch.setattr(
         acquisition,
@@ -104,7 +107,7 @@ def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch):
 
 
 def test_failed_all_history_attempt_does_not_reopen_itself_during_recent_refresh(tmp_path):
-    from baibai_engine.data_collection.economic.records import store_snapshot
+    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 
     source = load_sources()["fred-payems"]
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
@@ -123,7 +126,7 @@ def test_failed_all_history_attempt_does_not_reopen_itself_during_recent_refresh
 
 
 def test_partially_received_native_days_are_not_reacquired_as_missing_history(tmp_path):
-    from baibai_engine.data_collection.economic.records import store_snapshot
+    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 
     source = load_sources()["fred-payems"]
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
@@ -140,7 +143,10 @@ def test_partially_received_native_days_are_not_reacquired_as_missing_history(tm
 
 
 def test_pmi_partial_pdf_months_cover_history_even_when_the_range_failed(tmp_path):
-    from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
+    from baibai_engine.data_collection.receipts.native_sources.documents import (
+        SourceDocument,
+        store_document,
+    )
 
     source = load_sources()["spglobal-jp-pmi-mfg"]
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:

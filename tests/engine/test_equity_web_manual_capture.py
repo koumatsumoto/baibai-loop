@@ -14,23 +14,24 @@ from tests.engine.test_external_assessment_sources import monex_html, official_h
 from tests.engine.test_kabumap import html as kabumap_html
 from tests.jobs.external_assessment_publication_fixtures import pair_responses
 
-from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.equity_web.capture import (
+import baibai_engine.data_collection.transport.public_pages as source_http
+import baibai_jobs.acquisition.external_assessments.cli as cli
+import baibai_jobs.acquisition.external_assessments.collection as collection
+from baibai_engine.data_collection.receipts.public_pages.capture import (
     EquityWebCapture,
     LegacyCaptureError,
     load_capture,
     save_capture,
 )
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-from baibai_engine.data_collection.equity_web.receipts import read_responses
-from baibai_engine.data_collection.external_assessment import cli, collection
-from baibai_engine.machine_analysis.external_assessment.normalization import rakuten
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
+from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import rakuten
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _counts(db):

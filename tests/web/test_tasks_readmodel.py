@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from baibai_engine.position.ledger import PortfolioLedgerError
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerError
 from baibai_engine.tasks.models import Task
 from baibai_web.readmodel.builders.tasks import _upcoming_events, build_tasks
 

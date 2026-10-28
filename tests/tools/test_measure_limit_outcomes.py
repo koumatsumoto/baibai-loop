@@ -14,8 +14,8 @@ from tools.experiments.measure_limit_outcomes import (
     main,
 )
 
-from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 7, 31)
 
@@ -380,8 +380,8 @@ def test_cli_writes_yaml_and_reports_an_unreadable_ledger(tmp_path: Path) -> Non
 def test_broker_states_and_denominators_match_ledger_replay(tmp_path: Path) -> None:
     from datetime import datetime
 
-    from baibai_engine.position.ledger import replay_events_through
-    from baibai_engine.position.store import LedgerStoreService
+    from baibai_engine.portfolio.ledger.events import replay_events_through
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
     app_db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     cases = [

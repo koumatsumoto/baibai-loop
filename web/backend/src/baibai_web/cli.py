@@ -10,7 +10,7 @@ from pathlib import Path
 
 import uvicorn
 
-from baibai_engine.foundation.repository_layout import (
+from baibai_engine.storage.paths import (
     APPLICATION_DB_PATH,
     StoreLayoutError,
     reject_noncanonical_store_paths,

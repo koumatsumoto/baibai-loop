@@ -10,12 +10,12 @@ from types import SimpleNamespace
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
-import baibai_jobs.storage.publish_market_lake as publish_module
-from baibai_engine.job_api import (
-    LakeBuildError,
+import baibai_jobs.publication.snapshot_publication as publish_module
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
 )
-from baibai_jobs.storage.lake_publish import LakePublishError
-from baibai_jobs.storage.publication_lease import _save_handle, acquire
+from baibai_engine.storage.snapshots.writer import LakeBuildError
+from baibai_jobs.publication.lease import _save_handle, acquire
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -166,7 +166,7 @@ def test_the_publication_is_floored_on_what_the_serving_release_covers() -> None
     the loss silently, and every publication derives the whole history.
     """
 
-    source = (ROOT / "jobs/src/baibai_jobs/storage/publish_market_lake.py").read_text(
+    source = (ROOT / "jobs/src/baibai_jobs/publication/snapshot_publication.py").read_text(
         encoding="utf-8"
     )
     tree = ast.parse(source)

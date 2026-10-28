@@ -8,15 +8,21 @@ from tests.helpers.screening_sqlite import (
     build_calibration_fixture_sqlite,
 )
 
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis,
+)
+from baibai_engine.machine_analysis.historical_evaluation.panel import build_panel
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
-from baibai_engine.machine_analysis.screening.calibration.panel import build_panel
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import build_stock_analysis
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 
 
 def test_external_observations_leave_existing_screening_and_fv_identical(tmp_path):
@@ -32,7 +38,7 @@ def test_external_observations_leave_existing_screening_and_fv_identical(tmp_pat
         return analysis
 
     with patch(
-        "baibai_engine.machine_analysis.screening.calibration.panel.build_stock_analysis",
+        "baibai_engine.machine_analysis.historical_evaluation.panel.build_stock_analysis",
         side_effect=capture_analysis,
     ):
         before = build_panel(CALIBRATION_FIXTURE_ASOF, sqlite_path=database, rules=rules)

@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+import math
+import re
+from collections import Counter
+from collections.abc import Mapping
+from pathlib import Path
+from typing import cast
+
+from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
+    IndicatorDefinitions,
+    SeriesDefinition,
+)
+from baibai_engine.primitives.yaml import strict_safe_load
+
+# Series definitions are split across one yaml per region so no single file grows
+# unmanageable as the registry scales; the loader globs and merges them.
+DEFAULT_REGISTRY_DIR = Path(__file__).with_name("registry")
+_TRADINGVIEW_SYMBOL_RE = re.compile(r"[A-Za-z0-9._-]+:[A-Za-z0-9._!/-]+\Z")
+
+
+def load_definitions(path: Path = DEFAULT_REGISTRY_DIR) -> IndicatorDefinitions:
+    """Load series definitions from a registry directory (glob + merge) or a file.
+
+    A directory merges every ``*.yaml`` in sorted order so region files combine
+    into one registry; a file loads that single file (tests and ad-hoc checks).
+    Duplicate ``series_id`` across files is a fatal registry error.
+    """
+
+    files = sorted(path.glob("*.yaml")) if path.is_dir() else [path]
+    if not files:
+        raise ValueError(f"indicator registry directory has no yaml files: {path}")
+    sources = load_sources()
+    series: list[SeriesDefinition] = []
+    for file in files:
+        raw = strict_safe_load(file.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError(f"indicator definitions root must be a mapping: {file}")
+        series.extend(_parse_series(item, sources) for item in _list(raw.get("series")))
+    _lint_unique_series_ids(series)
+    _lint_alias_identity_collisions(series)
+    return IndicatorDefinitions(series=tuple(series))
+
+
+def _lint_unique_series_ids(series: list[SeriesDefinition]) -> None:
+    duplicates = sorted(
+        series_id
+        for series_id, count in Counter(item.series_id for item in series).items()
+        if count > 1
+    )
+    if duplicates:
+        raise ValueError(f"duplicate indicator series_id across registry: {', '.join(duplicates)}")
+
+
+def _lint_alias_identity_collisions(series: list[SeriesDefinition]) -> None:
+    canonical_owners: dict[str, set[str]] = {}
+    for item in series:
+        canonical_owners.setdefault(item.series_id.casefold(), set()).add(item.series_id)
+        canonical_owners.setdefault(item.name.casefold(), set()).add(item.series_id)
+
+    collisions: list[str] = []
+    for item in series:
+        for alias in item.aliases:
+            other_owners = canonical_owners.get(alias.casefold(), set()) - {item.series_id}
+            if other_owners:
+                collisions.append(
+                    f"{item.series_id}:{alias!r} -> {', '.join(sorted(other_owners))}"
+                )
+    if collisions:
+        raise ValueError(
+            "indicator alias collides with another series_id or name: "
+            + "; ".join(sorted(collisions))
+        )
+
+
+def _parse_series(raw: object, sources: Mapping[str, SourceDefinition]) -> SeriesDefinition:
+    entry = _mapping(raw, "series")
+    if "provider_series_id" in entry:
+        raise ValueError("L2 indicator definition uses reading_key, not provider_series_id")
+    source_id = _required_str(entry, "source_id")
+    if entry.get("provider") == "derived":
+        provider = "derived"
+        source_url = _required_str(entry, "source_url")
+    else:
+        if "provider" in entry or "source_url" in entry:
+            raise ValueError("external provider and URL belong in the Collection source catalog")
+        try:
+            source = sources[source_id]
+        except KeyError as error:
+            raise ValueError(f"unknown economic collection source: {source_id}") from error
+        provider = source.provider
+        source_url = source.source_url
+    priority = _optional_int(entry, "priority")
+    plausible_min = _optional_float(entry, "plausible_min")
+    plausible_max = _optional_float(entry, "plausible_max")
+    return SeriesDefinition(
+        series_id=_required_str(entry, "series_id"),
+        name=_required_str(entry, "name"),
+        category=_required_str(entry, "category"),
+        geography=_required_str(entry, "geography"),
+        frequency=_required_str(entry, "frequency"),
+        unit=_required_str(entry, "unit"),
+        provider=provider,
+        reading_key=_required_str(entry, "reading_key"),
+        source_id=source_id,
+        source_url=source_url,
+        priority=100 if priority is None else priority,
+        notes=_optional_str(entry, "notes"),
+        plausible_min=plausible_min,
+        plausible_max=plausible_max,
+        aliases=tuple(str(alias) for alias in _list(entry.get("aliases"))),
+        tradingview_symbol=_optional_tradingview_symbol(entry),
+    )
+
+
+def _mapping(raw: object, label: str) -> Mapping[str, object]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"{label} entry must be a mapping")
+    return cast(Mapping[str, object], raw)
+
+
+def _list(raw: object) -> list[object]:
+    return cast(list[object], raw) if isinstance(raw, list) else []
+
+
+def _required_str(entry: Mapping[str, object], key: str) -> str:
+    value = entry.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"indicator definition field {key!r} must be a non-empty string")
+    return value
+
+
+def _optional_str(entry: Mapping[str, object], key: str) -> str | None:
+    value = entry.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _optional_int(entry: Mapping[str, object], key: str) -> int | None:
+    value = entry.get(key)
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    raise ValueError(f"indicator definition field {key!r} must be an integer")
+
+
+def _optional_float(entry: Mapping[str, object], key: str) -> float | None:
+    value = entry.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"indicator definition field {key!r} must be a finite number")
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"indicator definition field {key!r} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"indicator definition field {key!r} must be a finite number")
+    return number
+
+
+def _optional_tradingview_symbol(entry: Mapping[str, object]) -> str | None:
+    value = entry.get("tradingview_symbol")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or _TRADINGVIEW_SYMBOL_RE.fullmatch(value) is None:
+        raise ValueError(
+            "indicator definition field 'tradingview_symbol' must be a non-empty "
+            "EXCHANGE:SYMBOL string"
+        )
+    return value

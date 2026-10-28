@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_jobs.validation.workflow_inputs import (
+from baibai_jobs.integration.workflow_inputs import (
     WorkflowInputError,
     main,
     validate_daily_input,

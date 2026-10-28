@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_jobs.storage.sqlite_snapshot import (
+from baibai_engine.storage.sqlite.snapshot import (
     create_snapshot,
     database_schema_version,
     validate_database,
@@ -78,7 +78,7 @@ def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias):
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("failure", ["missing", "invalid", "backup", "validation"])
 def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, failure):
-    from baibai_engine.storage.observations import snapshot
+    from baibai_engine.storage.sqlite.source_cache import snapshot
 
     source = tmp_path / "source.sqlite"
     output = tmp_path / "output.sqlite"
@@ -98,7 +98,7 @@ def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, fail
             raise sqlite3.DatabaseError("backup failed")
 
         monkeypatch.setattr(
-            "baibai_jobs.storage.sqlite_snapshot.create_market_snapshot", fail_backup
+            "baibai_engine.storage.sqlite.snapshot.create_market_snapshot", fail_backup
         )
     elif failure == "validation":
 
@@ -115,7 +115,7 @@ def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, fail
 
 @pytest.mark.parametrize("failure", [False, True])
 def test_snapshot_closes_owned_connections(tmp_path, monkeypatch, failure):
-    from baibai_engine.storage.observations import snapshot
+    from baibai_engine.storage.sqlite.source_cache import snapshot
 
     source = tmp_path / "source.sqlite"
     with closing(sqlite3.connect(source)) as db, db:

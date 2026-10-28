@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 
-from baibai_engine.foundation.time import JST
+from baibai_engine.primitives.time import JST
 from baibai_engine.tasks.models import Task
 from baibai_web.readmodel.builders.presentation import reservation_last_valid_day
 from baibai_web.readmodel.models import (

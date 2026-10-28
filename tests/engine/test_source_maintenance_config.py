@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-from baibai_engine.source_maintenance.config import SourceMaintenanceConfig
+from baibai_engine.storage.paths import MARKET_DB_PATH
+from baibai_jobs.maintenance.market.config import SourceMaintenanceConfig
 
 
 class SourceMaintenanceConfigTests(unittest.TestCase):
@@ -25,7 +25,12 @@ class SourceMaintenanceConfigTests(unittest.TestCase):
         self.assertIsNone(config.edinet_api_key)
 
     def test_jquants_network_boundary_requires_its_own_key(self) -> None:
-        from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
+        from baibai_engine.data_collection.providers.jquants.contracts import (
+            JQuantsAcquisitionError,
+        )
+        from baibai_engine.data_collection.providers.jquants.http import (
+            JQuantsHTTP,
+        )
 
         with self.assertRaisesRegex(JQuantsAcquisitionError, "JQUANTS_API_KEY"):
             JQuantsHTTP("")

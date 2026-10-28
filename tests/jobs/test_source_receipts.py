@@ -4,10 +4,12 @@ from contextlib import closing
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_jobs.storage.economic_staging import save_handoff
-from baibai_jobs.storage.lake_publish import LakePublishError
-from baibai_jobs.storage.source_receipts import (
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+)
+from baibai_jobs.acquisition.economic_staging import save_handoff
+from baibai_jobs.acquisition.receipts import (
     available_handoffs,
     download_fixed,
     seal_integrated,
@@ -29,7 +31,7 @@ def stage(
     directory.mkdir()
     from datetime import date, datetime
 
-    from baibai_engine.data_collection.economic.records import store_snapshot
+    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 
     with closing(initialize_database(directory / "receipts.sqlite")) as conn, conn:
         if value is not None:
@@ -105,11 +107,14 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
 ):
     from datetime import UTC, date, datetime
 
-    from baibai_engine.data_collection.economic.records import read_snapshots, store_snapshot
-    from baibai_engine.job_api import accept_economic_rechecks as accept_rechecks
-    from baibai_engine.storage.observations.schema import open_connection
-    from baibai_jobs.jobs.source_integration import apply
-    from baibai_jobs.storage.merge_economic_store import merge_stores
+    from baibai_engine.data_collection.receipts.native_sources.handoff import accept_rechecks
+    from baibai_engine.data_collection.receipts.native_sources.records import (
+        read_snapshots,
+        store_snapshot,
+    )
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+    from baibai_jobs.integration.native_source_merge import merge_stores
+    from baibai_jobs.integration.sources import apply
 
     store = Store()
     canonical = tmp_path / "canonical.sqlite"
@@ -153,7 +158,7 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     with closing(open_connection(market)):
         pass
     monkeypatch.setattr(
-        "baibai_jobs.jobs.source_integration.extract_saved_edinet",
+        "baibai_jobs.integration.sources.extract_saved_edinet",
         lambda *args, **kwargs: {},
     )
     result = apply(store, work, market=market, economic=canonical, asof=date(2026, 10, 24))

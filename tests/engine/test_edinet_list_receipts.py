@@ -12,21 +12,23 @@ import pytest
 from tests.helpers.http_doubles import FakeResponse, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.data_collection.edinet import http
-from baibai_engine.data_collection.edinet.receipts import (
+from baibai_engine.data_collection.providers.edinet import http
+from baibai_engine.data_collection.providers.edinet.receipts import (
     read_list_response,
     read_list_responses,
     retain_list_response,
 )
-from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_refresh import EDINETRefresh
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 _DAY = date(2026, 10, 15)
 
@@ -230,7 +232,7 @@ def test_receipts_export_through_fixed_release_and_fresh_hydrate(tmp_path, monke
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         exported = export_dataset_snapshot(
-            dataset_name=dataset,
+            dataset=LAKE_DATASETS[dataset],
             mirror_root=mirror,
             producer_git_commit="a" * 40,
             source_snapshot=snapshot,
@@ -242,6 +244,8 @@ def test_receipts_export_through_fixed_release_and_fresh_hydrate(tmp_path, monke
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="edinet-list-receipts-test-release",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -258,6 +262,7 @@ def test_receipts_export_through_fixed_release_and_fresh_hydrate(tmp_path, monke
             cache=LakeObjectCache(root=mirror, source=source),
             store=hydrated_path,
             dataset_names=(dataset,),
+            catalog=LAKE_DATASETS,
         )
     assert report.rows[dataset] == 2
     with closing(open_connection(hydrated_path)) as conn:

@@ -23,32 +23,48 @@ from tests.jobs.external_assessment_publication_fixtures import publication as p
 from tests.jobs.test_external_assessment_raw import Session
 from tests.jobs.test_external_assessment_raw import connect as connect
 
-from baibai_engine.data_collection.equity_web.receipts import read_responses
-from baibai_engine.job_api import (
-    ExternalAssessmentCollectionOutcome,
-    equity_web_history_digests,
-    equity_web_import_responses,
-    external_assessment_decode_attempt,
-    external_assessment_history_digests,
-)
-from baibai_engine.machine_analysis.external_assessment.normalization import ParseError
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.integration.external_assessments as integration
+import baibai_jobs.publication.snapshot_publication as publisher
+from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
+from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.machine_analysis.external_assessment.rebuild import rebuild_attempts
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import open_connection
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs import external_assessment_integration as integration
-from baibai_jobs.jobs.external_assessment_cohorts import new_result, record_outcome
-from baibai_jobs.storage import publish_market_lake as publisher
-from baibai_jobs.storage.external_assessment_ready import available_ready
-from baibai_jobs.storage.external_assessment_staging import CohortStage, stage_bytes, stage_key
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    ParseError,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt as external_assessment_decode_attempt,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.rebuild import (
+    rebuild_attempts,
+)
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.sqlite.source_cache.equity_web_import import (
+    import_responses as equity_web_import_responses,
+)
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.external_assessments.cohorts import new_result, record_outcome
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionOutcome as ExternalAssessmentCollectionOutcome,
+)
+from baibai_jobs.acquisition.external_assessments.staging import CohortStage, stage_bytes, stage_key
+from baibai_jobs.integration.external_assessment_ready import available_ready
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.external_assessment_verification import (
+    history_digests as external_assessment_history_digests,
+)
+from baibai_jobs.publication.public_page_verification import (
+    history_digests as equity_web_history_digests,
+)
 
 
 def _publish(publication, plan, suffix):
@@ -112,6 +128,7 @@ def test_three_independent_sources_and_rakuten_retry_rebuild_from_l1_only(public
             cache=LakeObjectCache(root=source_mirror, source=LocalMirrorSource(source_mirror)),
             store=clean,
             dataset_names=(integration.SOURCE_RESPONSES_DATASET,),
+            catalog=LAKE_DATASETS,
         )
     tables = (MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE)
     with closing(sqlite3.connect(clean)) as conn:
@@ -186,6 +203,7 @@ def test_old_original_history_and_existing_derived_rows_roundtrip_in_clean_hydra
             cache=LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror)),
             store=restored,
             dataset_names=release.dataset_names(),
+            catalog=LAKE_DATASETS,
         )
     assert equity_web_history_digests(restored, months={(2026, 9)}) == equity_web_history_digests(
         database, months={(2026, 9)}
@@ -352,3 +370,46 @@ def test_mismatched_original_or_stage_blocks_l2_and_pointer(publication, fault):
     assert state["plans"] == []
     assert external_assessment_history_digests(database) == typed_before
     assert publisher._serving_pointer(store) == pointer
+
+
+@pytest.mark.parametrize("owner", ["original", "observation"])
+@pytest.mark.parametrize("mutation", ["layer", "layout"])
+def test_readback_checks_owner_contract_before_materializing(owner, mutation):
+    """Fixed resolution is not production admission, but readback still checks its owner."""
+    from types import SimpleNamespace
+
+    from baibai_engine.data_collection.receipts.public_pages.snapshot_contracts import (
+        EQUITY_WEB_SOURCE_RESPONSES,
+    )
+    from baibai_engine.machine_analysis.observations.external_assessments.snapshot_contracts import (
+        EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
+    )
+    from baibai_engine.storage.snapshots.reader import LakeReadError
+    from baibai_jobs.publication import external_assessment_verification, public_page_verification
+
+    descriptor = (
+        EQUITY_WEB_SOURCE_RESPONSES
+        if owner == "original"
+        else EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS
+    )
+    manifest = SimpleNamespace(
+        dataset=descriptor.name,
+        layer=("l2_processed" if descriptor.layer == "l1_source" else "l1_source")
+        if mutation == "layer"
+        else descriptor.layer,
+        contract_version=descriptor.contract_version,
+        partition_by=("year",) if mutation == "layout" else descriptor.partition_by,
+        partitions=(),
+    )
+    release = SimpleNamespace(
+        dataset_manifests={descriptor.name: manifest},
+        dataset_manifest=lambda _name: manifest,
+    )
+    verifier = (
+        public_page_verification.verify_release_history
+        if owner == "original"
+        else external_assessment_verification.verify_release_history
+    )
+    owner_inputs = {"selected_digests": {}} if owner == "original" else {"observations": ()}
+    with pytest.raises(LakeReadError, match=r"layer|partition layout"):
+        verifier(None, release=release, cache=None, expected_history={}, **owner_inputs)

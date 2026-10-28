@@ -10,13 +10,15 @@ import httpx2
 import pytest
 from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
 
-from baibai_engine.data_collection.tradingview import cli
-from baibai_engine.data_collection.tradingview.collector import collect, preflight_snapshot
-from baibai_engine.data_collection.tradingview.diagnostics import (
+import baibai_jobs.acquisition.tradingview.cli as cli
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+    FetchError,
+)
+from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
+from baibai_jobs.observability.tradingview import (
     SourceDataError,
     TimeGuardError,
 )
-from baibai_engine.machine_analysis.external_assessment.tradingview.observations import FetchError
 
 DAY = date(2026, 10, 11)
 MASTER = date(2026, 10, 9)

@@ -11,14 +11,16 @@ from unittest.mock import patch
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.machine_analysis.market_context.snapshot import build_market_snapshot
-from baibai_engine.machine_analysis.market_context.snapshot_cli import (
+from baibai_engine.cli.market_snapshot import (
     build_parser,
     market_snapshot_command,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
+    build_market_snapshot,
+)
+from baibai_engine.primitives.time import JST
+from baibai_engine.primitives.yaml import safe_load
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 
@@ -196,9 +198,7 @@ class MarketSnapshotCliTests(unittest.TestCase):
             _insert_bars(sqlite_path, "1321", [100.0] * 120, end=_ASOF)
             _insert_bars(sqlite_path, "FUTURE", [200.0], end=date(2027, 1, 4))
             buffer = io.StringIO()
-            with patch(
-                "baibai_engine.machine_analysis.market_context.snapshot_cli.datetime"
-            ) as clock:
+            with patch("baibai_engine.cli.market_snapshot.datetime") as clock:
                 clock.now.return_value = datetime(2026, 10, 27, tzinfo=JST)
                 exit_code = market_snapshot_command(
                     asof=None, weeks=1, sqlite_path=sqlite_path, stdout=buffer

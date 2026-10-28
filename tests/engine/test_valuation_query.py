@@ -12,24 +12,34 @@ import pytest
 from tests.helpers.research_selection import selection
 from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, InputGap
-from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.company_valuation.query import (
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot, InputGap
+from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
+    build_candidate_contexts,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+    ScreeningRunReader,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    DerivedMetrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
+    expected_return_inputs,
+)
+from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
     forecast_sources_from_analysis,
     machine_valuation_from_analysis,
     valuation_metrics_from_analysis,
 )
-from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
-from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
-    build_stock_analysis_metrics,
-    expected_return_inputs,
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
 )
 
 CUTOFF = date(2026, 9, 19)
@@ -547,9 +557,9 @@ def test_valuation_import_does_not_start_research_or_aggregate_read_api():
             "-c",
             """
 import sys
-from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
-from baibai_engine.machine_analysis.company_valuation.query import machine_valuation_from_analysis
-assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
+from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import machine_valuation_from_analysis
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
 """,
         ],
         check=True,

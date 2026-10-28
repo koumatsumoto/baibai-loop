@@ -11,14 +11,19 @@ import pytest
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
-from baibai_engine.machine_analysis.company_valuation.metrics.history import (
+from baibai_engine.machine_analysis.generation.runners.security_context import (
+    build_security_market_context,
+)
+from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
+from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     VALUATION_HISTORY_SESSIONS,
 )
-from baibai_engine.machine_analysis.market_context.security import build_security_market_context
-from baibai_engine.machine_analysis.technical_analysis.query import technical_analysis
-from baibai_engine.market.adjusted_prices import read_price_bars
-from baibai_engine.market.jpx_reader import read_jpx_regulations, read_next_earnings_dates
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_jpx_regulations,
+    read_next_earnings_dates,
+)
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 

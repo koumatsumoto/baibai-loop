@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_jobs.jobs.schedule import BATCH_SCHEDULED_FIRE_TIME, batch_target_date
-from baibai_jobs.jobs.watchdog import (
+from baibai_jobs.integration.workflow_inputs import WorkflowInputError, validate_watchdog_input
+from baibai_jobs.observability.watchdog import (
     DEFAULT_WINDOW_HOURS,
     RESULT_STEP_PREFIX,
     RUN_NAME_PREFIX,
@@ -23,7 +23,7 @@ from baibai_jobs.jobs.watchdog import (
     resolve_run_results,
     resolve_window_end,
 )
-from baibai_jobs.validation.workflow_inputs import WorkflowInputError, validate_watchdog_input
+from baibai_jobs.schedule import BATCH_SCHEDULED_FIRE_TIME, batch_target_date
 
 ROOT = Path(__file__).resolve().parents[2]
 WATCHDOG_WORKFLOW = ROOT / ".github/workflows/cloud-batch-watchdog.yml"
@@ -323,7 +323,7 @@ def test_result_read_failure_is_a_watchdog_failure_without_a_missing_alert(
 def test_api_reader_selects_the_listed_attempt(monkeypatch) -> None:
     import subprocess
 
-    from baibai_jobs.jobs.watchdog import _read_attempt_jobs
+    from baibai_jobs.observability.watchdog import _read_attempt_jobs
 
     calls = []
 
@@ -821,7 +821,7 @@ def test_all_economic_source_results_must_report_one_common_day():
 
 
 def test_economic_acquisition_clock_is_independent_of_the_late_integration(tmp_path, monkeypatch):
-    from baibai_jobs.jobs.schedule import acquisition_target_date
+    from baibai_jobs.schedule import acquisition_target_date
 
     instant = datetime(2026, 8, 3, 12, tzinfo=UTC)
     assert acquisition_target_date(instant) == date(2026, 8, 3)

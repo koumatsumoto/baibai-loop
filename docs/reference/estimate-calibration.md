@@ -1,6 +1,22 @@
 # 見積り較正
 
-現行の較正実装は旧ER/FV・四Approachを対象に、保存入力から過去as-ofを再構成しforward outcomeと照合する。新しいY/M二viewを較正済みと扱わず、新Selectionへ旧ER分布を付けずnot_applicableを返す。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。実装の入口は[較正処理](../../engine/src/baibai_engine/machine_analysis/screening/calibration/)と[保存文脈](../../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/)。本書は測定値の解釈と採否の制約を残し、CLI・field・検証分岐は転記しない。
+現行の較正実装は旧ER/FV・四Approachを対象に、保存入力から過去as-ofを再構成しforward outcomeと照合する。新しいY/M二viewを較正済みと扱わず、新Selectionへ旧ER分布を付けずnot_applicableを返す。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。実装の入口は[較正処理](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/)と[保存文脈](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/)。本書は測定値の解釈と採否の制約を残し、CLI・field・検証分岐は転記しない。
+
+<a id="machine-valuation"></a>
+## 保存済み機械ER/FVの意味
+
+旧runの機械E[r]は倍率収束とcarryによるsecondary prior。以下は保存済み結果と旧較正を読むための意味であり、新しい候補抽出・L3入力には含めない。AI調査の優先度や企業固有の価値を所有しない。年率ratio、成分、入力basis、anchor・係数・clipの前提と一緒に読む。機械の5年priorは銘柄評価の期間を固定しない。
+
+carryの配当・グロス株数変化が欠測なら計算上の寄与は0になるが、無配・株数不変を観測した意味ではない。元のnullable入力と欠測仮定を示す。予想DPS spike guardは一回性の分配を反復carryへ入れる影響を限定するため採用したが、当時の長期比較は盲検の閾値検証ではなく、5y top5 trap悪化の受容を含む。[採用時の制約](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-30-dividend-carry-spike-guard/report.md)は将来成績の保証ではない。株数減少は消却・発行等を含む過去の変化で、自己株取得の実行cash・未消化枠・将来還元ではない。
+
+業種中央値anchorと自己レンジanchorは機械比較値で、企業の期間内分配・将来終価・現在価値とは別である。Stock Assessmentへ重複転記せず、保存run・時点とともに引用する。保存fieldの不在、明示null、0を混ぜず、旧snapshotへ後付けして再発行しない。
+
+保存済み照会は選択runの値を読む。論理as-of cutoffで選ぶrunは後日生成した過去replayもあり、当時既知の保証ではない。対象runなし・run内tickerなし・計算不能を区別し、古い値や候補一覧で埋めない。企業の条件付き算術は[Stock Assessment](stock-assessment.md#scenario-arithmetic)、歴史分布は本書の較正。
+
+<a id="carry-policy"></a>
+### 機械priorの採否
+
+carryはグロス株数変化を維持する。自己株控除後の変化は別のfactとして残すが、当時の比較はrank ICが劣り、分位差も時間分割で反転し、置換を支持しなかった。較正の実現率引上げとupside/buyback cap拡張も両horizonの改善を確認できず採らない。これは将来の有効性を否定する判定ではない。詳細は固定した[株数比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-17-tradable-share-change/report.md)、[実現率](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-01-er-level-calibration/report.md)、[cap比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-10-er-distribution-context-v2/report.md)に残す。
 
 ## 何を測るか
 
@@ -39,7 +55,7 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 <a id="er-level-distribution-context"></a>
 ## 判断へ渡す歴史分布
 
-配布文脈は企業価値モデルに近接する[published YAML](../../engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
+配布文脈は企業価値モデルに近接する[published YAML](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
 
 結果が観測できた集合から予測帯を作らず、宣言した有限ER全対象から固定境界を求め、同じ境界で両horizon・basisと現在候補を分類する。未評価を0損益へ入れず、観測なしの分布はnull。ticker-asof等重みとcohort等重み、宣言/観測月数、各母数を区別する。固定8.5%帯は比較座標で、[L3の要求率](../doctrine.md#required-return-policy)に連動させない。
 

@@ -47,7 +47,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           SOURCE: ${{ inputs.source }}
-        run: uv run python -m baibai_jobs.jobs.source_handoff input --source "$SOURCE" --directory "$RUNNER_TEMP/source-input"
+        run: uv run python -m baibai_jobs.integration.source_handoff input --source "$SOURCE" --directory "$RUNNER_TEMP/source-input"
       - name: Read own confirmed originals and required EDINET list receipts
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -55,7 +55,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           SOURCE: ${{ inputs.source }}
           ASOF: ${{ inputs.asof }}
-        run: uv run python -m baibai_jobs.jobs.source_handoff resume --source "$SOURCE" --asof "$ASOF" --directory "$RUNNER_TEMP/source-input"
+        run: uv run python -m baibai_jobs.integration.source_handoff resume --source "$SOURCE" --asof "$ASOF" --directory "$RUNNER_TEMP/source-input"
       - name: Acquire only this source and export received originals
         id: acquire
         env:
@@ -63,7 +63,7 @@ jobs:
           ASOF: ${{ inputs.asof }}
           JQUANTS_API_KEY: ${{ startsWith(inputs.source, 'jquants-') && secrets.JQUANTS_API_KEY || '' }}
           EDINET_API_KEY: ${{ startsWith(inputs.source, 'edinet-') && secrets.EDINET_API_KEY || '' }}
-        run: uv run python -m baibai_jobs.jobs.source_handoff acquire --source "$SOURCE" --asof "$ASOF" --input-directory "$RUNNER_TEMP/source-input" --directory "$RUNNER_TEMP/source-handoff"
+        run: uv run python -m baibai_jobs.integration.source_handoff acquire --source "$SOURCE" --asof "$ASOF" --input-directory "$RUNNER_TEMP/source-input" --directory "$RUNNER_TEMP/source-handoff"
       - name: Save successful and partial originals in private staging
         id: stage
         if: ${{ always() && !cancelled() && steps.acquire.outputs.stage_ready == 'true' }}
@@ -73,7 +73,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           SOURCE: ${{ inputs.source }}
           STAGE_ID: ${{ inputs.source }}-${{ inputs.asof }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: uv run python -m baibai_jobs.jobs.source_handoff stage --source "$SOURCE" --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/source-handoff"
+        run: uv run python -m baibai_jobs.integration.source_handoff stage --source "$SOURCE" --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/source-handoff"
       - name: Market source result for ${{ inputs.asof }}
         if: ${{ always() && steps.stage.outcome == 'success' }}
         run: echo 'Market source private receipts saved; common integration is separate'

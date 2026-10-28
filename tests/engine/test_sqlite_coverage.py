@@ -12,32 +12,31 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers.master import insert_master_rows
-from tests.helpers.screening_sqlite import (
-    add_source_coverage as _add_source_coverage,
-)
-from tests.helpers.screening_sqlite import (
-    insert_financial_record,
-)
+from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
+from tests.helpers.screening_sqlite import insert_financial_record
 
-from baibai_engine.machine_analysis.screening.cli.cache import verify_cache_coverage_command
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
+from baibai_engine.cli.historical_evaluation.cache import verify_cache_coverage_command
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     core as coverage_core,
 )
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     jquants as jquants_coverage,
 )
-from baibai_engine.machine_analysis.screening.sqlite_coverage import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
-from baibai_engine.market.jquants_writer import (
+from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _verify_screening_sqlite_coverage(*args, **kwargs):
-    with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+    with patch(
+        "baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS",
+        100,
+    ):
         return verify_screening_sqlite_coverage(*args, **kwargs)
 
 
@@ -239,7 +238,10 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = self._store_with_a_stale_balance(tmp)
             stream = io.StringIO()
-            with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+            with patch(
+                "baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS",
+                100,
+            ):
                 code = verify_cache_coverage_command(
                     sqlite_path=sqlite_path,
                     asof_date=_COMMON_COVERAGE_ASOF,
@@ -1132,7 +1134,8 @@ class SQLiteCoverageTests(unittest.TestCase):
                 conn.commit()
                 issues: list[jquants_coverage.CacheCoverageIssue] = []
                 with patch(
-                    "baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
+                    "baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS",
+                    100,
                 ):
                     jquants_coverage._append_asof_bar_density_issue(conn, issues, asof_date=asof)
                     jquants_coverage._append_recent_bar_density_issue(conn, issues, asof_date=asof)
@@ -1174,7 +1177,8 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
                 issues: list[jquants_coverage.CacheCoverageIssue] = []
                 with patch(
-                    "baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100
+                    "baibai_engine.machine_analysis.observations.stocks.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS",
+                    100,
                 ):
                     jquants_coverage._append_daily_history_density_issue(
                         conn, issues, start=start, end=asof
@@ -1566,7 +1570,7 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 def test_fetched_empty_financial_history_is_not_sufficient_for_screening() -> None:
-    from baibai_engine.storage.observations.coverage import range_covered
+    from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 
     asof = _COMMON_COVERAGE_ASOF
     with _complete_coverage_database() as database:

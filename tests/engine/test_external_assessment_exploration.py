@@ -9,7 +9,7 @@ from tests.engine.test_external_assessment_sources import (
     rakuten_no_estimates_html,
 )
 
-from baibai_engine.machine_analysis.external_assessment.normalization import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     monex,
     rakuten,

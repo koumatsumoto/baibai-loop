@@ -12,25 +12,38 @@ import pytest
 import requests
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.data_collection.jquants.receipts import (
+import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_snapshot
+from baibai_engine.data_collection.providers.jquants.acquisition import (
     acquire_request,
+)
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsAcquisitionError,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
+    JQuantsHTTP,
+)
+from baibai_engine.data_collection.providers.jquants.receipts import (
     read_complete_request,
     read_request_pages,
 )
-from baibai_engine.market import master_snapshot
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_projection import project_request
-from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.market.margin_reader import read_margin_alerts
-from baibai_engine.storage.lake.datasets import JQUANTS_MARGIN_ALERTS
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+    read_margin_alerts,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
+    JQUANTS_MARGIN_ALERTS,
+)
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 DAY = "2026-10-16"
 FIRST_AT = datetime(2026, 10, 16, 16, 30, tzinfo=UTC)
@@ -207,7 +220,7 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=original, mirror_root=mirror) as snapshot:
         exported = export_dataset_snapshot(
-            dataset_name="jquants.source_pages",
+            dataset=LAKE_DATASETS["jquants.source_pages"],
             mirror_root=mirror,
             producer_git_commit="a" * 40,
             source_snapshot=snapshot,
@@ -218,6 +231,8 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id=f"source-only-{source}-{target}",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     assert set(release_manifest.datasets) == {"jquants.source_pages"}
     source_mirror = LocalMirrorSource(mirror)
@@ -241,6 +256,7 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
             cache=LakeObjectCache(root=mirror, source=source_mirror),
             store=rebuilt,
             dataset_names=("jquants.source_pages",),
+            catalog=LAKE_DATASETS,
         )
     assert report.rows == {"jquants.source_pages": 1}
     with sqlite3.connect(rebuilt) as conn:
@@ -750,7 +766,7 @@ def test_margin_alert_lake_round_trip_preserves_three_column_identity(
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=db_path, mirror_root=mirror) as snapshot:
         exported = export_dataset_snapshot(
-            dataset_name="jquants.margin_alerts",
+            dataset=LAKE_DATASETS["jquants.margin_alerts"],
             mirror_root=mirror,
             producer_git_commit="a" * 40,
             source_snapshot=snapshot,
@@ -769,6 +785,8 @@ def test_margin_alert_lake_round_trip_preserves_three_column_identity(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="margin-alert-three-column-identity",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -785,6 +803,7 @@ def test_margin_alert_lake_round_trip_preserves_three_column_identity(
             cache=LakeObjectCache(root=mirror, source=source),
             store=rebuilt,
             dataset_names=("jquants.margin_alerts",),
+            catalog=LAKE_DATASETS,
         )
     assert report.rows == {"jquants.margin_alerts": 2}
     with sqlite3.connect(db_path) as original, sqlite3.connect(rebuilt) as hydrated:
